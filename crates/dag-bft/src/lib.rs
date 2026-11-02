@@ -38,5 +38,5 @@ pub use dag::Dag;
 pub use ledger::{ACCOUNTS, Ledger, OPENING_BALANCE};
 pub use mode::{ConsensusMode, ModeError};
 pub use nakamoto::{ForkChoice, GENESIS, WorkBlock};
-pub use validator::{Dest, GC_DEPTH, Message, Output, Params, Validator};
+pub use validator::{Dest, GC_DEPTH, LONE_PAYLOAD_BYTES, Message, Output, Params, Validator};
 pub use vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex};

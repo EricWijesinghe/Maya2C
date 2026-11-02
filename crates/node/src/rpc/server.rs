@@ -307,8 +307,15 @@ pub const PAGE_BUSY: &str = "one certificate page at a time per client";
 /// HTTP only, no batches (pre-audit S-012): the per-IP limiter charges one
 /// token per HTTP request, so a batch or one WebSocket connection would carry
 /// unlimited calls for one token. No client of the node RPC uses either.
+/// Connections the RPC holds open at once, across all peers. The per-IP limiter
+/// cannot bound sockets: behind the tunnel every public client is one peer, and
+/// a flood of idle sockets never reaches the limiter. Enforced by the accept loop
+/// in [`serve_metered`]; jsonrpsee's own accept loop is not used there.
+pub const MAX_RPC_CONNECTIONS: u32 = 1024;
+
 fn server_config() -> jsonrpsee::server::ServerConfig {
     jsonrpsee::server::ServerConfig::builder()
+        .max_connections(MAX_RPC_CONNECTIONS)
         .max_response_body_size(RPC_RESPONSE_LIMIT)
         .set_batch_request_config(jsonrpsee::server::BatchRequestConfig::Disabled)
         .http_only()
@@ -1010,6 +1017,7 @@ pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Re
         context,
         Arc::new(crate::metrics::Metrics::new()),
         Arc::new(crate::rpc::limit::RateLimiter::new(0, 0)),
+        Vec::new(),
     )
     .await
 }
@@ -1032,8 +1040,11 @@ pub async fn serve_metered(
     context: RpcContext,
     metrics: std::sync::Arc<crate::metrics::Metrics>,
     limiter: Arc<crate::rpc::limit::RateLimiter>,
+    trusted_proxies: Vec<std::net::IpAddr>,
 ) -> crate::error::Result<RpcServer> {
     check_peer_exposure(address, context.peers.is_some())?;
+    let trusted: Arc<[std::net::IpAddr]> = trusted_proxies.into();
+    let connections = Arc::new(tokio::sync::Semaphore::new(MAX_RPC_CONNECTIONS as usize));
     let module =
         build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
     let known: std::sync::Arc<std::collections::BTreeSet<String>> =
@@ -1071,18 +1082,39 @@ pub async fn serve_metered(
                 },
                 () = stop.clone().shutdown() => break,
             };
-            let (builder, methods, stop2, limiter) = (
+            // Over the cap, the socket is dropped unanswered: a 429 would still
+            // cost a task and a parse for every excess connection.
+            let Ok(permit) = Arc::clone(&connections).try_acquire_owned() else {
+                drop(socket);
+                continue;
+            };
+            // Shared, because the per-connection service is cloned; the last
+            // clone drops with the connection and releases the slot.
+            let permit = Arc::new(permit);
+            let (builder, methods, stop2, limiter, trusted) = (
                 builder.clone(),
                 methods.clone(),
                 stop.clone(),
                 Arc::clone(&limiter),
+                Arc::clone(&trusted),
             );
             let service =
                 tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
-                    let allowed = limiter.check(remote.ip());
+                    // The service owns the permit and is dropped with the
+                    // connection, so the cap counts live sockets.
+                    let _held = &permit;
+                    let headers = request.headers();
+                    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+                    let client = crate::rpc::client_ip::client_ip(
+                        remote.ip(),
+                        &trusted,
+                        header("cf-connecting-ip"),
+                        header("x-forwarded-for"),
+                    );
+                    let allowed = limiter.check(client);
                     // Methods that weigh their cost by client (`get_certificates`)
                     // read the address from the request's extensions.
-                    request.extensions_mut().insert(ClientAddr(remote.ip()));
+                    request.extensions_mut().insert(ClientAddr(client));
                     let mut inner = builder.clone().build(methods.clone(), stop2.clone());
                     async move {
                         if !allowed {

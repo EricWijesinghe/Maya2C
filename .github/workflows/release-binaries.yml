@@ -10,7 +10,10 @@
 #                       artifacts. Nothing public changes. This is how the
 #                       aarch64 build (the Oracle Always Free shape, ADR-032)
 #                       gets tested without a release.
-#   tag node-v*         the same, then a `sign` job signs every file
+#   tag node-v*         the same, then an `updater-sign` job (no build, the
+#                       only job holding the Tauri updater key) signs the
+#                       wallet, chat and hub update bundles, then a `sign`
+#                       job signs every file
 #                       keylessly with cosign (Sigstore, GitHub OIDC: no key
 #                       in the repository) and attests build provenance, then
 #                       a `release` job creates a GitHub Release with the
@@ -155,33 +158,33 @@ jobs:
           key: wallet-${{ matrix.os }}
 
       # tauri.conf.json runs `trunk build` for the UI first.
-      # In-app updates (apps/app-update): only for a tagged release, and
-      # only once the signing key exists. Without both, this build is the
-      # unsigned one it always was and the app never offers an update.
-      # The app version is 0.1.<run number>: MSI accepts numbers only, and
-      # each release must be newer than the last for the updater to offer it.
+      # In-app updates (apps/app-update): only for a tagged release with the
+      # pubkey file. This build never sees the updater key: --no-sign leaves
+      # the update bundles unsigned, and the updater-sign job signs them. The
+      # app version is 0.1.<run number>: MSI accepts numbers only, and each
+      # release must be newer than the last for the updater to offer it.
       - name: Updater config
         id: updater
         shell: bash
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          if [ -n "$KEY" ] && [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+          if [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+            # --no-sign also skips OS code signing: refuse if one is configured.
+            if grep -Eq '"(certificateThumbprint|signCommand|signingIdentity|providerShortName)"' apps/wallet-gui/src-tauri/tauri.conf.json; then
+              echo "::error::OS code signing is configured; --no-sign would skip it"
+              exit 1
+            fi
             pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
             cfg="$RUNNER_TEMP/updater.json"
             printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/wallet.json"]}}}\n' \
               "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
-            echo "args=--config $cfg" >> "$GITHUB_OUTPUT"
-            echo "signed update bundles: version 0.1.$GITHUB_RUN_NUMBER"
+            echo "args=--config $cfg --no-sign" >> "$GITHUB_OUTPUT"
+            echo "update bundles built unsigned, signed by updater-sign: version 0.1.$GITHUB_RUN_NUMBER"
           else
-            echo "no signing key or not a release tag: unsigned build, updater off"
+            echo "not a release tag or no pubkey: no update bundles"
           fi
 
       - name: Build installers
         working-directory: apps/wallet-gui/src-tauri
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build ${{ steps.updater.outputs.args }}
 
       # Windows Authenticode: no certificate yet. Logs UNSIGNED: no key and
@@ -201,10 +204,7 @@ jobs:
             apps/wallet-gui/src-tauri/target/release/bundle/dmg/*.dmg
             apps/wallet-gui/src-tauri/target/release/bundle/deb/*.deb
             apps/wallet-gui/src-tauri/target/release/bundle/appimage/*.AppImage
-            apps/wallet-gui/src-tauri/target/release/bundle/nsis/*.exe.sig
             apps/wallet-gui/src-tauri/target/release/bundle/macos/*.app.tar.gz
-            apps/wallet-gui/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
-            apps/wallet-gui/src-tauri/target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
 
   # Maya Chat desktop installers (apps/chat-gui). The wallet job's shape,
@@ -244,33 +244,33 @@ jobs:
           workspaces: apps/chat-gui/src-tauri
           key: chat-${{ matrix.os }}
 
-      # In-app updates (apps/app-update): only for a tagged release, and
-      # only once the signing key exists. Without both, this build is the
-      # unsigned one it always was and the app never offers an update.
-      # The app version is 0.1.<run number>: MSI accepts numbers only, and
-      # each release must be newer than the last for the updater to offer it.
+      # In-app updates (apps/app-update): only for a tagged release with the
+      # pubkey file. This build never sees the updater key: --no-sign leaves
+      # the update bundles unsigned, and the updater-sign job signs them. The
+      # app version is 0.1.<run number>: MSI accepts numbers only, and each
+      # release must be newer than the last for the updater to offer it.
       - name: Updater config
         id: updater
         shell: bash
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          if [ -n "$KEY" ] && [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+          if [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+            # --no-sign also skips OS code signing: refuse if one is configured.
+            if grep -Eq '"(certificateThumbprint|signCommand|signingIdentity|providerShortName)"' apps/chat-gui/src-tauri/tauri.conf.json; then
+              echo "::error::OS code signing is configured; --no-sign would skip it"
+              exit 1
+            fi
             pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
             cfg="$RUNNER_TEMP/updater.json"
             printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/chat.json"]}}}\n' \
               "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
-            echo "args=--config $cfg" >> "$GITHUB_OUTPUT"
-            echo "signed update bundles: version 0.1.$GITHUB_RUN_NUMBER"
+            echo "args=--config $cfg --no-sign" >> "$GITHUB_OUTPUT"
+            echo "update bundles built unsigned, signed by updater-sign: version 0.1.$GITHUB_RUN_NUMBER"
           else
-            echo "no signing key or not a release tag: unsigned build, updater off"
+            echo "not a release tag or no pubkey: no update bundles"
           fi
 
       - name: Build installers
         working-directory: apps/chat-gui/src-tauri
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build ${{ steps.updater.outputs.args }}
 
       # Windows Authenticode: no certificate yet. Logs UNSIGNED: no key and
@@ -290,10 +290,7 @@ jobs:
             apps/chat-gui/src-tauri/target/release/bundle/dmg/*.dmg
             apps/chat-gui/src-tauri/target/release/bundle/deb/*.deb
             apps/chat-gui/src-tauri/target/release/bundle/appimage/*.AppImage
-            apps/chat-gui/src-tauri/target/release/bundle/nsis/*.exe.sig
             apps/chat-gui/src-tauri/target/release/bundle/macos/*.app.tar.gz
-            apps/chat-gui/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
-            apps/chat-gui/src-tauri/target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
 
   # Maya2C Hub (apps/hub, ADR-045): the miner's desktop app, with
@@ -343,28 +340,29 @@ jobs:
             apps/hub/src-tauri -> target
           key: hub-${{ matrix.os }}
 
-      # Signed in-app updates, as for the wallet and chat: only for a tagged
-      # release with the signing key; otherwise the Hub never offers one.
+      # In-app updates, as for the wallet and chat: only for a tagged release
+      # with the pubkey file. The build never sees the updater key: hub-bundle
+      # passes --no-sign, and updater-sign signs the update bundles.
       - name: Updater config
         shell: bash
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          if [ -n "$KEY" ] && [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+          if [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+            # --no-sign also skips OS code signing: refuse if one is configured.
+            if grep -Eq '"(certificateThumbprint|signCommand|signingIdentity|providerShortName)"' apps/hub/src-tauri/tauri.conf.json apps/hub/src-tauri/tauri.release.conf.json; then
+              echo "::error::OS code signing is configured; --no-sign would skip it"
+              exit 1
+            fi
             pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
             cfg="$RUNNER_TEMP/hub-updater.json"
             printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/hub.json"]}}}\n' \
               "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
             echo "HUB_UPDATER_CONFIG=$cfg" >> "$GITHUB_ENV"
-            echo "signed update bundles: version 0.1.$GITHUB_RUN_NUMBER"
+            echo "update bundles built unsigned, signed by updater-sign: version 0.1.$GITHUB_RUN_NUMBER"
           else
-            echo "no signing key or not a release tag: unsigned build, updater off"
+            echo "not a release tag or no pubkey: no update bundles"
           fi
 
       - name: Build installer with the miner inside
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo xtask hub-bundle
 
       # The check the Hub itself makes at run time, on the file just shipped:
@@ -396,32 +394,90 @@ jobs:
         env:
           PFX: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
         run: bash scripts/authenticode-placeholder.sh
-      # The updater files (.sig, .app.tar.gz) match the wallet and chat jobs:
-      # gen-updates.mjs builds hub.json only from a release's .sig assets, so
-      # without them no Hub update is ever offered.
+      # The update payloads (exe, .app.tar.gz, AppImage) go up unsigned; the
+      # updater-sign job writes their .sig files. gen-updates.mjs builds hub.json
+      # only from a release's .sig assets (B41), so those must reach dist/.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: maya2c-hub-${{ matrix.os }}
           path: |
             apps/hub/src-tauri/target/release/bundle/msi/*.msi
             apps/hub/src-tauri/target/release/bundle/nsis/*.exe
-            apps/hub/src-tauri/target/release/bundle/nsis/*.exe.sig
             apps/hub/src-tauri/target/release/bundle/dmg/*.dmg
             apps/hub/src-tauri/target/release/bundle/macos/*.app.tar.gz
-            apps/hub/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
             apps/hub/src-tauri/target/release/bundle/deb/*.deb
             apps/hub/src-tauri/target/release/bundle/rpm/*.rpm
             apps/hub/src-tauri/target/release/bundle/appimage/*.AppImage
-            apps/hub/src-tauri/target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
 
-  # Signing runs in its own job, so only this job holds id-token: write. The
-  # build jobs above hold no write permission at all, and the release job
-  # below holds contents: write but no OIDC token. `environment: release` lets
-  # the repository owner require an approval before a signature is made.
+  # The only job that holds TAURI_SIGNING_PRIVATE_KEY, and it runs no
+  # repository code: no checkout, no cargo, no build. It downloads the update
+  # bundles the wallet, chat and hub jobs built unsigned, installs the tauri
+  # CLI from npm at an exact version (npm audit signatures checks registry
+  # signature and provenance), and signs them.
+  updater-sign:
+    if: startsWith(github.ref, 'refs/tags/node-v')
+    needs: [wallet, chat, hub]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: maya-*
+          path: updater-in
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: maya2c-hub-*
+          path: updater-in
+          merge-multiple: true
+      - name: Install tauri CLI (pinned, provenance checked)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tauri-cli" && cd "$RUNNER_TEMP/tauri-cli"
+          npm install --ignore-scripts --no-audit --no-fund --save-exact @tauri-apps/cli@2.12.2
+          npm audit signatures
+          ./node_modules/.bin/tauri --version
+      # Only the three updater payload kinds, matching what the apps offer:
+      # the NSIS exe, the macOS .app.tar.gz and the AppImage. The .sig sits
+      # beside each file; the tauri CLI binds it to the release version.
+      - name: Sign update bundles
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${TAURI_SIGNING_PRIVATE_KEY:?not set: refusing to publish unsigned update bundles}"
+          tauri="$RUNNER_TEMP/tauri-cli/node_modules/.bin/tauri"
+          version="0.1.$GITHUB_RUN_NUMBER"
+          count=0
+          while IFS= read -r -d '' f; do
+            "$tauri" signer sign --app-version "$version" "$f"
+            count=$((count + 1))
+          done < <(find updater-in -type f \( -path '*/nsis/*.exe' -o -path '*/macos/*.app.tar.gz' -o -path '*/appimage/*.AppImage' \) -print0)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no update bundles found: the build did not produce them"
+            exit 1
+          fi
+          echo "signed $count update bundles for version $version"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: updater-sigs
+          path: updater-in/**/*.sig
+          if-no-files-found: error
+
+  # `environment: release` lets the repository owner require an approval
+  # before a signature is made. Signing runs in its own job, so only this job
+  # holds id-token: write. The build jobs above hold no write permission at
+  # all, and the release job below holds contents: write but no OIDC token.
   sign:
     if: startsWith(github.ref, 'refs/tags/node-v')
-    needs: [build, wallet, chat, hub]
+    needs: [build, wallet, chat, hub, updater-sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: release

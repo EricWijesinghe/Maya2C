@@ -81,9 +81,14 @@ impl ValidatorManager {
                 .arg(format!("/ip4/127.0.0.1/tcp/{}", bootnode));
         }
 
-        // Add catch-up if specified
+        // Add catch-up if specified. B49: the restart passes a trusted block
+        // from the peer it catches up from (that peer's own tip, recent by
+        // definition), so the start-up guard accepts a node behind the window.
         if let Some(from) = catch_up_from {
-            cmd.arg("--catch-up-from").arg(format!("http://{}", from));
+            let url = catch_up_url(&from);
+            let trusted = fetch_trusted_block_patiently(&url).await?;
+            cmd.arg("--catch-up-from").arg(&url);
+            cmd.arg("--trusted-block").arg(trusted);
         }
 
         // Set up logging
@@ -326,4 +331,135 @@ pub fn build_validator_cmd(
     }
 
     cmd
+}
+
+/// The `--catch-up-from` URL for a peer given as `host:port` or as a full URL.
+/// Callers pass both forms, and a doubled scheme is not a URL.
+#[must_use]
+pub fn catch_up_url(from: &str) -> String {
+    if from.starts_with("http://") || from.starts_with("https://") {
+        from.to_string()
+    } else {
+        format!("http://{from}")
+    }
+}
+
+/// The `--trusted-block` value from a chain-info reply and the block its tip
+/// names (B49). `None` unless that block is at the reported height and its id
+/// is 64 hex characters: a wrong or partial answer is never passed on.
+#[must_use]
+pub fn trusted_flag(info: &serde_json::Value, block: &serde_json::Value) -> Option<String> {
+    let height = info["height"].as_u64()?;
+    if block["height"].as_u64()? != height {
+        return None;
+    }
+    let id = block["header"]["id"].as_str()?;
+    let well_formed = id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());
+    well_formed.then(|| format!("{height}:{id}"))
+}
+
+/// One attempt: the live node at `url` reports its tip, and the block there.
+///
+/// Single-source is fine here: the controller runs against our own lab nodes on
+/// 127.0.0.1, so the block cannot come from an outside party. Public launchers
+/// require two sources to agree, or an operator override.
+async fn fetch_trusted_block(url: &str) -> Result<String> {
+    let client = reqwest::Client::new();
+    let info = json_rpc(&client, url, "get_chain_info", serde_json::json!([])).await?;
+    let height = info["height"]
+        .as_u64()
+        .with_context(|| format!("{url}: no tip height"))?;
+    let block = json_rpc(
+        &client,
+        url,
+        "get_block_by_height",
+        serde_json::json!([height]),
+    )
+    .await?;
+    trusted_flag(&info, &block)
+        .with_context(|| format!("{url}: tip {height} gave no usable block id"))
+}
+
+/// Retries for up to 30 s: a peer restarted just before this call is not
+/// listening yet. Fails loudly after that, rather than starting a node that
+/// its guard would then refuse.
+pub async fn fetch_trusted_block_patiently(url: &str) -> Result<String> {
+    let started = Instant::now();
+    loop {
+        match fetch_trusted_block(url).await {
+            Ok(flag) => return Ok(flag),
+            Err(_) if started.elapsed() < Duration::from_secs(30) => {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(error) => return Err(error.context("no trusted block for the restart")),
+        }
+    }
+}
+
+async fn json_rpc(
+    client: &reqwest::Client,
+    url: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let request =
+        serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
+    let reply: serde_json::Value = client
+        .post(url)
+        .json(&request)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .with_context(|| format!("{url}: {method}"))?
+        .json()
+        .await
+        .with_context(|| format!("{url}: {method} reply"))?;
+    if let Some(error) = reply.get("error") {
+        anyhow::bail!("{url} {method}: {error}");
+    }
+    Ok(reply
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use serde_json::json;
+
+    fn id(digit: char) -> String {
+        digit.to_string().repeat(64)
+    }
+
+    #[test]
+    fn a_peer_given_with_or_without_a_scheme_gets_one_scheme() {
+        // Why: scenarios passes a full URL and start() used to prefix it again.
+        assert_eq!(catch_up_url("127.0.0.1:34300"), "http://127.0.0.1:34300");
+        assert_eq!(
+            catch_up_url("http://127.0.0.1:34300"),
+            "http://127.0.0.1:34300"
+        );
+    }
+
+    #[test]
+    fn the_tip_block_becomes_the_trusted_flag() {
+        let info = json!({ "height": 42 });
+        let block = json!({ "height": 42, "header": { "id": id('a') } });
+        assert_eq!(trusted_flag(&info, &block), Some(format!("42:{}", id('a'))));
+    }
+
+    #[test]
+    fn a_block_at_another_height_or_a_malformed_id_is_not_passed_on() {
+        let info = json!({ "height": 42 });
+        assert_eq!(
+            trusted_flag(&info, &json!({ "height": 41, "header": { "id": id('a') } })),
+            None
+        );
+        assert_eq!(
+            trusted_flag(&info, &json!({ "height": 42, "header": { "id": "ab" } })),
+            None
+        );
+    }
 }

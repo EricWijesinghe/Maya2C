@@ -79,6 +79,41 @@ pub struct Output {
     pub inserted: Vec<Certificate>,
 }
 
+/// Largest single payload a vertex may carry on its own, past `max_batch_bytes`.
+/// It equals the transaction cap, so a lone payload the byte bound cannot fit
+/// is still proposed rather than starved.
+pub const LONE_PAYLOAD_BYTES: usize = 4 * 1024 * 1024;
+
+/// Takes the next batch off `queue`: whole payloads in order while both the
+/// count and the byte bound allow. A payload over the byte bound is sent alone
+/// rather than dropped or left to stall the queue; it is the only payload of
+/// its vertex, which `within_batch_bound` checks on receipt.
+fn take_batch(queue: &mut VecDeque<Payload>, batch_size: usize, max_bytes: usize) -> Vec<Payload> {
+    let mut batch = Vec::new();
+    let mut bytes = 0usize;
+    while batch.len() < batch_size {
+        let Some(next) = queue.front() else {
+            break;
+        };
+        if bytes + next.len() > max_bytes {
+            if batch.is_empty() {
+                batch.extend(queue.pop_front());
+            }
+            break;
+        }
+        bytes += next.len();
+        batch.extend(queue.pop_front());
+    }
+    batch
+}
+
+/// Whether a vertex's payloads fit the receive bound: within `max_bytes`, or a
+/// single payload no larger than `LONE_PAYLOAD_BYTES` (see `take_batch`).
+fn within_batch_bound(v: &Vertex, max_bytes: usize) -> bool {
+    let bytes = v.payload_bytes();
+    bytes <= max_bytes || (v.batch.len() == 1 && bytes <= LONE_PAYLOAD_BYTES)
+}
+
 /// Engine parameters.
 #[derive(Clone, Copy, Debug)]
 pub struct Params {
@@ -394,7 +429,7 @@ impl<A: Authenticator> Validator<A> {
             || v.round == 0
             || v.author >= self.committee.size()
             || v.batch.len() > self.params.batch_size
-            || v.payload_bytes() > self.params.max_batch_bytes
+            || !within_batch_bound(&v, self.params.max_batch_bytes)
         {
             return;
         }
@@ -713,25 +748,11 @@ impl<A: Authenticator> Validator<A> {
     /// Takes the next batch off the queue, within both the count and the byte
     /// bound.
     fn next_batch(&mut self) -> Vec<Payload> {
-        let mut batch = Vec::new();
-        let mut bytes = 0usize;
-        while batch.len() < self.params.batch_size {
-            let Some(next) = self.mempool.front() else {
-                break;
-            };
-            if bytes + next.len() > self.params.max_batch_bytes {
-                if batch.is_empty() {
-                    // One transaction over the bound on its own can never be
-                    // proposed; dropping it is the only way past it.
-                    self.mempool.pop_front();
-                    continue;
-                }
-                break;
-            }
-            bytes += next.len();
-            batch.extend(self.mempool.pop_front());
-        }
-        batch
+        take_batch(
+            &mut self.mempool,
+            self.params.batch_size,
+            self.params.max_batch_bytes,
+        )
     }
 
     fn propose(&mut self, round: u64, now_ms: u64, out: &mut Output) {
@@ -795,5 +816,99 @@ impl<A: Authenticator> Validator<A> {
         let digest = self.pending_digest.unwrap_or_else(|| cert.digest());
         out.sends.push((Dest::All, Message::Cert(cert.clone())));
         self.accept(cert, digest, self.id, out);
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    fn queue(sizes: &[usize]) -> VecDeque<Payload> {
+        sizes.iter().map(|&n| vec![1u8; n]).collect()
+    }
+
+    #[test]
+    fn a_payload_over_the_bound_is_sent_alone_and_the_queue_moves_on() {
+        let mut q = queue(&[10, 50, 20]);
+        let first = take_batch(&mut q, 500, 40);
+        assert_eq!(first.iter().map(Vec::len).collect::<Vec<_>>(), vec![10]);
+        let second = take_batch(&mut q, 500, 40);
+        assert_eq!(second.iter().map(Vec::len).collect::<Vec<_>>(), vec![50]);
+        let third = take_batch(&mut q, 500, 40);
+        assert_eq!(third.iter().map(Vec::len).collect::<Vec<_>>(), vec![20]);
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn small_payloads_pack_up_to_the_bound_and_wait_for_the_next_vertex() {
+        let mut q = queue(&[15, 15, 15]);
+        assert_eq!(take_batch(&mut q, 500, 40).len(), 2);
+        assert_eq!(q.len(), 1, "the third payload waits, it is not dropped");
+    }
+
+    #[test]
+    fn a_lone_oversize_payload_is_received_but_a_packed_one_is_not() {
+        let with = |batch: Vec<Payload>| Vertex {
+            batch,
+            ..Vertex::genesis_in(0, 0)
+        };
+        let big = with(vec![vec![0u8; 50]]);
+        assert!(within_batch_bound(&big, 40));
+        let packed = with(vec![vec![0u8; 30], vec![0u8; 30]]);
+        assert!(!within_batch_bound(&packed, 40));
+        let huge = with(vec![vec![0u8; LONE_PAYLOAD_BYTES + 1]]);
+        assert!(!within_batch_bound(&huge, 40));
+    }
+
+    /// Through `handle`: a missing parent makes an accepted proposal ask for it,
+    /// and a rejected one returns nothing. So the sends show the bound's verdict.
+    #[test]
+    fn on_receipt_a_lone_oversize_proposal_is_accepted_and_a_packed_one_is_not() {
+        let params = Params {
+            max_batch_bytes: 40,
+            ..Params::default()
+        };
+        let proposal = |batch: Vec<Payload>| Vertex {
+            epoch: 0,
+            round: 1,
+            author: 1,
+            timestamp_ms: 0,
+            parents: vec![[9u8; 32]],
+            batch,
+        };
+        let mut validator = Validator::new(0, Committee::new(4), params);
+
+        let packed = validator.handle(
+            0,
+            1,
+            Message::Propose {
+                vertex: proposal(vec![vec![0u8; 30], vec![0u8; 30]]),
+                signature: Vec::new(),
+            },
+        );
+        // `handle` also runs `progress`, which may broadcast this validator's
+        // own vertex; only a Fetch for the missing parent shows a receipt.
+        assert!(
+            !packed
+                .sends
+                .iter()
+                .any(|(_, m)| matches!(m, Message::Fetch(_))),
+            "two payloads over the bound are not received"
+        );
+
+        let lone = validator.handle(
+            0,
+            1,
+            Message::Propose {
+                vertex: proposal(vec![vec![0u8; 50]]),
+                signature: Vec::new(),
+            },
+        );
+        assert!(
+            lone.sends
+                .iter()
+                .any(|(_, m)| matches!(m, Message::Fetch(_))),
+            "a lone oversize payload is received, and asks for its missing parent"
+        );
     }
 }

@@ -52,8 +52,10 @@ use libp2p::Multiaddr;
 mod bft;
 mod import;
 mod pruning;
+mod rejoin;
 mod update_notice;
 mod validator_key;
+use custom_l1_node::consensus::bft::catchup::Anchor;
 use import::{backfill_loop, block_import_loop};
 use pruning::{open_or_bootstrap, pruning_loop, pruning_services};
 
@@ -202,6 +204,9 @@ struct Args {
     /// learned from somewhere other than the bootstrap peer. Refuses a peer
     /// whose chain does not contain it.
     trusted_block: Option<custom_l1_node::state_pruner::snapshot::TrustedBlock>,
+    /// Start a stale-looking node with no confirming head (B49). The operator's
+    /// statement that the network halted or the genesis is old, not an eclipse.
+    allow_unconfirmed_start: bool,
     /// DAG-BFT: catch up through this peer's attested checkpoint and follow
     /// attested blocks (ADR-038), for a node that was down too long to rejoin.
     catch_up_from: Vec<String>,
@@ -274,6 +279,7 @@ impl Default for Args {
             snapshot_interval: None,
             bootstrap_from: None,
             trusted_block: None,
+            allow_unconfirmed_start: false,
             catch_up_from: Vec::new(),
             allow_private_peers: false,
             min_register_bond: 0,
@@ -325,6 +331,16 @@ fn print_usage() {
          --catch-up-from <URL>    DAG-BFT: rejoin after a long outage through a peer's\n                           \
          attested checkpoint, then follow attested blocks (ADR-038);\n                           \
          repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
+         --trusted-block HEIGHT:HEX  a block above this node's tip that the chain must pass through.\n                           \
+         REQUIRED for a node stale past the unbonding window (B49). Pick one at least one\n                           \
+         epoch inside the window of the head, so the follower is not stale again mid-catch-up.\n                           \
+         Also used when the tip is old and no source confirms a head: the hash-linked path.\n                           \
+         Heads sources report are UNVERIFIED: the maximum decides whether the requirement\n                           \
+         applies and how recent the block must be. Run with two or more https sources. A node\n                           \
+         offline longer than about 13 days on 3,600-block epochs restores with --bootstrap-from (ADR-060)\n  \
+         --allow-unconfirmed-start  start with an old tip and no source head beyond the window. Only for a\n                           \
+         halted network (longer than the window) or a genesis signed long before launch. It is\n                           \
+         refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \
@@ -410,6 +426,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
+            "--allow-unconfirmed-start" => args.allow_unconfirmed_start = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
@@ -447,9 +464,15 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
         std::process::exit(0);
     }
     // An anchor nothing uses is worse than none: the operator believes the
-    // bootstrap is checked when it is not (ADR-060 review).
-    if args.trusted_block.is_some() && args.bootstrap_from.is_none() {
-        return Err("--trusted-block only means something with --bootstrap-from".into());
+    // bootstrap is checked when it is not (ADR-060 review). A catch-up checks
+    // it too (B49): a stale node needs it, and a fresh one checks what it is given.
+    if args.trusted_block.is_some()
+        && args.bootstrap_from.is_none()
+        && args.catch_up_from.is_empty()
+    {
+        return Err(
+            "--trusted-block only means something with --bootstrap-from or --catch-up-from".into(),
+        );
     }
     Ok(args)
 }
@@ -927,7 +950,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // `get_peers`: who this node is connected to, with no addresses, so it is
     // safe on every node (`rpc::peers`).
     let rpc_context = rpc_context.with_network_view(network.clone());
-    let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics), limiter).await?;
+    let rpc = serve_metered(
+        args.rpc_addr,
+        rpc_context,
+        Arc::clone(&metrics),
+        limiter,
+        node_config.rpc.trusted_proxies.clone(),
+    )
+    .await?;
     println!("rpc:         http://{}", rpc.address);
 
     // --- Metrics ---
@@ -1003,9 +1033,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                  will stay at the snapshot height; add --catch-up-from <the same URL>"
             );
         }
-        // Certificate replay first (ADR-052): a node that comes back from a
-        // replay is a full engine, so it takes no follower path below.
-        let replayed = if args.catch_up_from.is_empty() {
+        // The trust a catch-up may use (B49). A stale node is refused without a
+        // trusted block, so the decision comes before any source is trusted.
+        let anchor = rejoin::anchor(
+            &args.catch_up_from,
+            &chain,
+            args.trusted_block,
+            args.allow_unconfirmed_start,
+        )
+        .await?;
+        // Certificate replay (ADR-052) verifies against the committee alone and
+        // would ignore the trusted block, so a node held to one skips it.
+        // Otherwise a node that comes back from a replay is a full engine, so it
+        // takes no follower path below.
+        let replayed = if args.catch_up_from.is_empty() || anchor != Anchor::Unanchored {
             None
         } else {
             match bft::sync_certificates(&args.catch_up_from, &chain, &setup, &args.data_dir).await
@@ -1033,7 +1074,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if let Some(first) = args.catch_up_from.first() {
             let url = match synced {
                 Some(url) => url,
-                None => bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
+                None => bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver, anchor)
                     .await?
                     .unwrap_or_else(|| {
                         println!(
@@ -1054,8 +1095,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Arc::clone(&setup.committee),
                 Arc::clone(&status_slot),
                 tx,
+                args.trusted_block,
             ));
         }
+        // A stale node must reach its trusted block in this start-up: with no
+        // reachable source, or none serving the chain through it, nothing was
+        // caught up, and the node does not start (B49).
+        rejoin::require_reached(&lock_chain(&chain), anchor)?;
         let size = setup.committee.len();
         match driver.validator_id() {
             Some(id) => println!("dag-bft:     validator {id} of {size}"),
@@ -1210,6 +1256,8 @@ mod tests {
         };
         assert!(args(&[]).is_err());
         assert!(args(&["--bootstrap-from", "http://127.0.0.1:1"]).is_ok());
+        // B49: a catch-up checks the anchor too, so it is no longer dead there.
+        assert!(args(&["--catch-up-from", "http://127.0.0.1:1"]).is_ok());
     }
 
     #[test]
