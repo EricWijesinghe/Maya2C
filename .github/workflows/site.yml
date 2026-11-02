@@ -63,6 +63,10 @@ jobs:
         env:
           # Read-only API calls for scripts/gen-progress.mjs (CI status, PRs, releases).
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # .cargo/config.toml links through clang + mold on Linux; without mold
+      # the xtask build below fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - name: Add subresource integrity to built pages
         run: cargo run --locked --quiet -p xtask -- site-integrity sri docs/site/dist
       - name: Write the integrity manifest (SHA-256 of every served HTML, JS and CSS file)
