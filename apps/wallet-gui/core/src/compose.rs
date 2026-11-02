@@ -41,7 +41,6 @@
 
 #[cfg(test)]
 use custom_l1_node::core::ChainTag;
-#[cfg(test)]
 use custom_l1_node::core::dex_payload::SwapRequest;
 #[cfg(test)]
 use custom_l1_node::core::payload::TxKind;
@@ -49,8 +48,104 @@ use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::Transaction;
 #[cfg(test)]
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
+use primitive_types::U256;
 
 use crate::error::{Result, WalletError};
+
+/// Slippage tolerance a swap uses when the user names none: 0.5%.
+pub const DEFAULT_SLIPPAGE_BPS: u32 = 50;
+
+/// Basis points in the whole.
+const BPS_WHOLE: u32 = 10_000;
+
+/// How a swap's least-acceptable output is chosen.
+///
+/// # Why a default at all
+///
+/// A `min_out` of 1 accepts whatever price the pool pays, so a crushed price
+/// still executes. The wallet derives the bound from the quote instead, and
+/// refuses 0 and 1 unless the caller explicitly allows an unbounded trade.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MinOut {
+    /// The quoted output less `bps` basis points, rounded down.
+    Slippage {
+        /// Output the pool quoted for this input.
+        quoted: U256,
+        /// Tolerance in basis points; [`DEFAULT_SLIPPAGE_BPS`] unless the user sets one.
+        bps: u32,
+    },
+    /// A figure the user typed. A bound of 0 or 1 needs `allow_unbounded`.
+    Explicit {
+        /// The least output the user will accept.
+        min_out: U256,
+        /// Set only when the user explicitly asks for a bound of 0 or 1.
+        allow_unbounded: bool,
+    },
+}
+
+impl MinOut {
+    /// The bound a swap will carry on the wire.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::SwapBound`] if the slippage is 100% or more, the quote is
+    /// too large to scale, or the bound is 0 or 1 without `allow_unbounded`.
+    pub fn resolve(self) -> Result<U256> {
+        let (bound, allow_unbounded) = match self {
+            Self::Slippage { quoted, bps } => {
+                if bps >= BPS_WHOLE {
+                    return Err(WalletError::SwapBound(format!(
+                        "slippage of {bps} bps is 100% or more"
+                    )));
+                }
+                let keep = quoted
+                    .checked_mul(U256::from(BPS_WHOLE - bps))
+                    .ok_or_else(|| {
+                        WalletError::SwapBound("quote too large to apply slippage to".into())
+                    })?;
+                (keep / U256::from(BPS_WHOLE), false)
+            }
+            Self::Explicit {
+                min_out,
+                allow_unbounded,
+            } => (min_out, allow_unbounded),
+        };
+        if bound <= U256::one() && !allow_unbounded {
+            return Err(WalletError::SwapBound(
+                "a minimum output of 0 or 1 accepts any price; set allow_unbounded to swap without a bound".into(),
+            ));
+        }
+        Ok(bound)
+    }
+}
+
+/// Builds an AMM swap request with a resolved least-acceptable output.
+///
+/// The request is unsigned. This only fixes the bound; signing is the caller's
+/// next step.
+///
+/// # Errors
+///
+/// [`WalletError::AmountOverflow`] for a zero input, and
+/// [`WalletError::SwapBound`] from [`MinOut::resolve`].
+pub fn swap_request(
+    pair: [u8; 32],
+    direction: u8,
+    amount_in: U256,
+    min_out: MinOut,
+    deadline: u64,
+) -> Result<SwapRequest> {
+    if amount_in.is_zero() {
+        return Err(WalletError::AmountOverflow);
+    }
+    Ok(SwapRequest {
+        pair,
+        direction,
+        amount_in,
+        min_out: min_out.resolve()?,
+        deadline,
+    })
+}
 
 /// Chain ids on which value is real and the shielded pool must be refused.
 ///
@@ -241,6 +336,98 @@ mod tests {
     use super::*;
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon                           abandon abandon abandon about";
+
+    fn bound_error(min_out: MinOut) -> bool {
+        matches!(min_out.resolve(), Err(WalletError::SwapBound(_)))
+    }
+
+    #[test]
+    fn the_default_bound_is_the_quote_less_half_a_percent() {
+        let min_out = MinOut::Slippage {
+            quoted: U256::from(1_000_000u64),
+            bps: DEFAULT_SLIPPAGE_BPS,
+        };
+        assert_eq!(min_out.resolve().unwrap(), U256::from(995_000u64));
+    }
+
+    #[test]
+    fn the_bound_rounds_down_so_the_trader_is_not_cut_short() {
+        // 3 * 9950 / 10000 = 2.985. Rounding up to 3 would demand the full quote.
+        let min_out = MinOut::Slippage {
+            quoted: U256::from(3u64),
+            bps: DEFAULT_SLIPPAGE_BPS,
+        };
+        assert_eq!(min_out.resolve().unwrap(), U256::from(2u64));
+    }
+
+    #[test]
+    fn a_slippage_bound_of_one_or_zero_is_refused_without_the_flag() {
+        // 2 * 9950 / 10000 floors to 1: a quote too small to carry a bound.
+        assert!(bound_error(MinOut::Slippage {
+            quoted: U256::from(2u64),
+            bps: DEFAULT_SLIPPAGE_BPS,
+        }));
+        assert!(bound_error(MinOut::Explicit {
+            min_out: U256::one(),
+            allow_unbounded: false,
+        }));
+        assert!(bound_error(MinOut::Explicit {
+            min_out: U256::zero(),
+            allow_unbounded: false,
+        }));
+    }
+
+    #[test]
+    fn an_explicit_unbounded_swap_is_allowed_only_when_asked_for() {
+        let unbounded = MinOut::Explicit {
+            min_out: U256::one(),
+            allow_unbounded: true,
+        };
+        assert_eq!(unbounded.resolve().unwrap(), U256::one());
+    }
+
+    #[test]
+    fn an_explicit_bound_is_kept_as_typed() {
+        let typed = MinOut::Explicit {
+            min_out: U256::from(42u64),
+            allow_unbounded: false,
+        };
+        assert_eq!(typed.resolve().unwrap(), U256::from(42u64));
+    }
+
+    #[test]
+    fn slippage_of_one_hundred_percent_or_more_is_refused() {
+        assert!(bound_error(MinOut::Slippage {
+            quoted: U256::from(1_000u64),
+            bps: 10_000,
+        }));
+    }
+
+    #[test]
+    fn a_quote_too_large_to_scale_is_refused_not_wrapped() {
+        assert!(bound_error(MinOut::Slippage {
+            quoted: U256::MAX,
+            bps: DEFAULT_SLIPPAGE_BPS,
+        }));
+    }
+
+    #[test]
+    fn swap_request_carries_the_resolved_bound_and_refuses_zero_input() {
+        let pair = [7; 32];
+        let min_out = MinOut::Slippage {
+            quoted: U256::from(1_000_000u64),
+            bps: DEFAULT_SLIPPAGE_BPS,
+        };
+        let request = swap_request(pair, 0, U256::from(500u64), min_out, 9).unwrap();
+        assert_eq!(request.min_out, U256::from(995_000u64));
+        assert_eq!(request.amount_in, U256::from(500u64));
+        assert_eq!(request.pair, pair);
+        assert_eq!(request.deadline, 9);
+        assert!(matches!(
+            swap_request(pair, 0, U256::zero(), min_out, 9),
+            Err(WalletError::AmountOverflow)
+        ));
+    }
 
     #[test]
     fn a_zero_input_swap_is_refused_before_anything_is_signed() {
