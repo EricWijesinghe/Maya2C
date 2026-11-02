@@ -7,13 +7,17 @@ mod gpu;
 mod miner;
 mod miner_guard;
 mod node;
+mod pools;
+mod watchdog;
 
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::Manager;
 
-use crate::miner::{Miner, MinerConfig, MinerState};
+use crate::miner::{Miner, MinerConfig, MinerReport};
 use crate::miner_guard::miner_file_name;
 
 /// Starting values for the settings panel.
@@ -29,6 +33,9 @@ struct Defaults {
     /// False on phones: the Hub there watches the network and your miners'
     /// payouts, and runs no miner (battery and heat for next to no hashes).
     can_mine: bool,
+    /// The nodes a rig may mine through (ADR-073 decision 5).
+    pools: &'static [pools::Pool],
+    thermal_ceiling_c: f64,
 }
 
 /// The public testnet RPC, so a fresh install shows a live network without
@@ -60,6 +67,8 @@ fn defaults(app: tauri::AppHandle) -> Defaults {
         cpu_threads: std::thread::available_parallelism().map_or(4, std::num::NonZero::get),
         use_gpu: true,
         can_mine: cfg!(desktop),
+        pools: pools::POOLS,
+        thermal_ceiling_c: watchdog::THERMAL_CEILING_C,
     }
 }
 
@@ -92,14 +101,34 @@ fn miner_start(
     state.start(&config, &install, &data)
 }
 
+/// Stops one device's miner (`cpu`, `gpu0`, ...), or all of them when no
+/// device is named. A stop is never followed by an automatic restart.
 #[tauri::command]
-fn miner_stop(state: tauri::State<'_, Miner>) {
-    state.stop();
+fn miner_stop(device: Option<String>, state: tauri::State<'_, Miner>) {
+    state.stop(device.as_deref());
 }
 
 #[tauri::command]
-fn miner_state(state: tauri::State<'_, Miner>) -> MinerState {
-    state.state()
+fn miner_state(state: tauri::State<'_, Miner>) -> MinerReport {
+    state.report()
+}
+
+/// Runs the watchdog once a second. GPU temperatures are read every third
+/// second and only while a GPU miner runs, so an idle Hub never calls
+/// `nvidia-smi`. A tick without a reading never stops or restarts a GPU.
+fn supervise(app: tauri::AppHandle) {
+    let mut tick: u64 = 0;
+    loop {
+        thread::sleep(Duration::from_secs(1));
+        tick += 1;
+        let miner = app.state::<Miner>();
+        let temps = if tick % 3 == 0 && miner.gpu_running() {
+            gpu::temperatures(&gpu::read())
+        } else {
+            Vec::new()
+        };
+        miner.tick(miner::now_ms(), &temps);
+    }
 }
 
 /// # Panics
@@ -109,7 +138,11 @@ fn miner_state(state: tauri::State<'_, Miner>) -> MinerState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(maya_app_update::dialog())
-        .setup(|app| Ok(maya_app_update::start(app)?))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            thread::spawn(move || supervise(handle));
+            Ok(maya_app_update::start(app)?)
+        })
         .manage(Miner::default())
         .invoke_handler(tauri::generate_handler![
             defaults,
@@ -121,9 +154,9 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner
-            // nobody can see. Closing the hub stops it.
+            // nobody can see. Closing the hub stops every one of them.
             if let tauri::WindowEvent::Destroyed = event {
-                window.state::<Miner>().stop();
+                window.state::<Miner>().stop(None);
             }
         })
         .run(tauri::generate_context!())
