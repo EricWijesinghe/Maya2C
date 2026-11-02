@@ -22,6 +22,7 @@ own ADR, tests, spec rules and vectors are in (the house pattern, ADR-002):
 | 9 | AI-work mining | consensus (WorkClaim kind) | ADR-044 |
 | 10 | Quantum Harbor safe-deposit | consensus record + interop | `quantum-harbor` |
 | 11 | Offline payments | clients + relays | chat DTN design |
+| 12 | Sentinel Recovery Network (added 2026-11-02; [ADR-077](ADR-077-sentinel-recovery-network.md), [MIP-0001](../mip/MIP-0001-sentinel-recovery-network.md)) | consensus (levels, cells, restitution) + sentinel service | invariant guard, ADR-050 council, `threat-intel`, items 1–2 |
 
 Scam Shield (1, 2) goes first: highest user impact, smallest new surface.
 
