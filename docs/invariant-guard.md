@@ -11,6 +11,8 @@ not.
 - `crates/node/src/state/settlement.rs`, `crates/node/src/network/mempool.rs` — the two gates that read a breaker.
 - `crates/node/tests/exploit_replays.rs` — the attack replays.
 
+**Planned extension:** the Sentinel Recovery Network ([MIP-0001](mip/MIP-0001-sentinel-recovery-network.md)) would use this guard as its automatic T2/T3 containment for native modules and generalise the breaker gate into a per-cell settlement gateway. Nothing about the guard changes until that is decided and built.
+
 ---
 
 ## The one idea to read first

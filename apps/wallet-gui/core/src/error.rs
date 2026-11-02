@@ -102,6 +102,11 @@ pub enum WalletError {
     #[error("amount arithmetic overflowed")]
     AmountOverflow,
 
+    /// A swap's least-acceptable output is unusable: a slippage of 100% or
+    /// more, or a bound of 0 or 1 that accepts any price.
+    #[error("swap bound: {0}")]
+    SwapBound(String),
+
     /// An amount string was refused at the boundary.
     #[error("invalid amount: {0}")]
     Amount(#[from] crate::amount::AmountError),

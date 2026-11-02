@@ -66,6 +66,7 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 |---|---|
 | `docs/` | design docs, indexed by `docs/README.md` |
 | `docs/adr/` | architecture decision records, `ADR-001`…, never renumbered |
+| `docs/mip/` | Maya2C Improvement Proposals: full designs too large for one ADR (each linked from its ADR) |
 | `docs/runbooks/`, `docs/migration/`, `docs/releases/` | operations, upgrades, release notes |
 | `docs/master-prompts/` | the original thirty briefs (three files) and the DONE WHEN verdicts |
 | `docs/runbooks/` | includes `attacknet-lab-guide.md` |

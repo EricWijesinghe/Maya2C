@@ -28,16 +28,17 @@ tip is the smaller of what the sender offered and what `max_fee` leaves over. A
 losing trade (invariant 7), this is knowable from the parent when the block is
 built, so including it is the producer's error, not a surprise.
 
-**Split.** 80% of the base fee is burned and 20% goes to the treasury; the whole
-tip goes to the claimant. The treasury share rounds **down** and the remainder
-burns, so no unit is ever created or lost and the only direction a rounding
-error moves value is out of circulation. A block with no claim burns its tips.
+**Split.** On the live chain the whole base fee burns. The node sets `treasury_bps: 0`
+(`crates/node/src/genesis.rs`) and calls no treasury split, so the 20% treasury share
+in `crates/fee-market/src/execute.rs` is not wired. Owner decision 2026-11-02: that 20%
+stays burned until a treasury exists. The tip goes whole to the claimant. A block with
+no claim burns its tips. Where the split is wired, the treasury share rounds **down** and
+the remainder burns, so no unit is ever created or lost.
 
-**Supply.** `MAX_SUPPLY` is 21,000,000 × 10⁸ base units. Nothing in this
-repository fixes a decimal convention or a genesis total — the committed
-`genesis.json` allocates nothing — so the number is a policy choice recorded in
-`crates/fee-market/src/supply.rs`, not a derivation. Once a value-bearing chain checks
-it, changing it is a hard fork.
+**Supply.** `MAX_SUPPLY` is `Amount::MAX`, 2²⁵⁶ − 1 base units, the width of a balance
+(`crates/fee-market/src/supply.rs`). One coin is 10²⁴ base units (`maya_amount::ONE_COIN`).
+The 21,000,000-coin figure is the halving-phase emission budget (ADR-044, ADR-068), not the
+cap. Once a value-bearing chain checks the cap, changing it is a hard fork.
 
 **Neural gain.** A second, independently switched rule scales the base fee's
 step by a gain from a compiled-in integer network. The gain is one-sided — it

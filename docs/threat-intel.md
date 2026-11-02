@@ -21,6 +21,9 @@ as long as the indicator's score says.
 | End-to-end and refusal tests | `crates/node/tests/threat_intel_tests.rs` |
 | Decoder fuzzing | `fuzz/fuzz_targets/threat_evidence_decode.rs` |
 
+
+**Related proposal:** the Sentinel Recovery Network ([MIP-0001](mip/MIP-0001-sentinel-recovery-network.md)) takes this registry's evidence model (a verifiable fact re-checked by every node at apply) as the template for its `SrnEvidence` records.
+
 ## What the brief asked for, and what this is instead
 
 The brief asked for six things this chain cannot provide as stated. Each

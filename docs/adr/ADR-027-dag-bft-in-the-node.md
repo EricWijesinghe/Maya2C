@@ -57,6 +57,8 @@ acceptable.
 
 ### 3. Signatures: ML-DSA-65, carried, not aggregated
 
+> Superseded for validator keys by ADR-051 option 3: votes are ML-DSA-87 (`crates/node/src/consensus/bft/auth.rs`, CRY-4). The text below is the original design.
+
 The engine gained an `Authenticator` trait. The node implements it with
 ML-DSA-65 over `"maya2c/dag-bft/vote/v1" ‖ vertex_digest`. A proposal's
 signature and its author's vote are the same object. A certificate carries its

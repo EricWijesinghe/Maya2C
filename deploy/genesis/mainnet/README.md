@@ -73,3 +73,10 @@ Inputs: 7 throwaway validator keys, 3 throwaway council keys, and the values abo
 - Rejoin guard (B49): a node restarted later with no confirming head, and a tip older than the unbonding window, is refused unless it has `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is for a network halted longer than the window or a genesis signed long before launch only. Do not use it to get past a refusal without knowing which case applies. Runbook: `docs/runbooks/hybrid-testnet-hardening.md` section 4.
 
 Signing the real genesis is **APPROVED: sign genesis**, a separate approval from the re-genesis.
+
+## Bootnode peer id (B27)
+
+The mainnet bootnode's peer id is `MAINNET_BOOTNODE_PEER_ID` in [`bootnode.env`](bootnode.env).
+It is `SET-AT-GENESIS` until the ceremony creates the bootnode key. Every mainnet join path
+must take the id from that file. The testnet guides name the testnet bootnode id, which is
+a different chain's id. The mainnet join script does not exist yet.
