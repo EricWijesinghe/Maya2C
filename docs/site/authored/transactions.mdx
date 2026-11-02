@@ -222,8 +222,7 @@ full, lifts the fee by more than 1/8 ([ADR-071](https://github.com/EricWijesingh
 Proposed). A block at $2T$ raises the fee by exactly 1/8, and an empty block
 lowers it by 1/8. The fee also stops at a compiled-in ceiling $B_{\max}$
 (`MAX_BASE_FEE_PER_BYTE` in `crates/fee-market/src/limits.rs`). That value is
-ADR-071's option B, 0.1 MAYA for a 13,215-byte transfer, and it awaits the
-economics decision.
+ADR-076 option B (ADR-071 before renumbering), 0.1 MAYA for a 13,215-byte transfer, accepted 2026-11-01.
 
 The charge is $c = b_t\,|\tau| + \mathrm{tip}$, where
 $\mathrm{tip} = \min(\texttt{max\_tip}, \texttt{max\_fee} - b_t)$. The whole
@@ -233,7 +232,7 @@ base-fee part is burned to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`,
 
 The bound the code enforces is `MAX_SUPPLY` $= 2^{256}-1$ in
 `crates/fee-market/src/supply.rs`. Older documentation mentions a cap of
-21,000,000 coins at 8 decimals; that predates ADR-046 and is out of date.
+21,000,000 coins at 8 decimals; that is out of date. The coin has 24 decimals, and 21,000,000 is the emission budget, not the cap.
 
 ## Replay and ordering
 

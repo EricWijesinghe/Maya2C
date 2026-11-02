@@ -143,6 +143,8 @@ fn setup(work: &Path, root: &Path) -> Result<PathBuf> {
     devnet::output(
         Command::new(devnet::bin("genesis-ceremony"))
             .args(["--chain-id", CHAIN_ID, "--supply", &SUPPLY.to_string()])
+            // Mainnet runs with the pool off; the rehearsal must too.
+            .arg("--shielded-never")
             .arg("--validators")
             .arg(work.join("validators.txt"))
             .arg("--mining")

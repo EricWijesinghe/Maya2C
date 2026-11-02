@@ -22,8 +22,7 @@ talk over libp2p with an ML-KEM-768 layer over Noise.
 
 Mainnet is planned with four project-run validators, to start the record a
 public chain needs. It will be labelled "external audit pending" until an
-independent report exists. The project has one maintainer and no budget,
-so it cannot buy that report. Post-quantum signing in consensus is recent
+independent report exists. The project has not yet commissioned one. Post-quantum signing in consensus is recent
 territory, and a flaw in this code would be paid for by users, not by
 the project.
 

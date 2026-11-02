@@ -46,6 +46,7 @@ use crate::core::rwa_payload::{
     AttestLegal, DistributeRevenue, IssueRwa, RecordEligibility, SettleDvp,
 };
 use crate::core::sealed_payload::{RevealShare, SealedEnvelope};
+use crate::core::transaction::ChainTag;
 use crate::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature,
 };
@@ -57,7 +58,10 @@ pub type ChannelId = [u8; 32];
 /// Domain separator for the bytes both parties sign to authorize a channel
 /// state. Distinct from the transaction domain so a channel state can never be
 /// replayed as a transaction signature, or vice versa.
-const CHANNEL_STATE_DOMAIN: &[u8] = b"maya-flash.channel-state.v1";
+///
+/// v2 (audit finding 1) adds the chain tag. Pre-genesis, so no v1 signature
+/// exists in the wild to be invalidated.
+const CHANNEL_STATE_DOMAIN: &[u8] = b"maya-flash.channel-state.v2";
 
 /// Domain separator for deriving a channel identifier.
 const CHANNEL_ID_DOMAIN: &str = "maya-flash channel id v1";
@@ -360,10 +364,11 @@ pub struct ChannelClosure {
 }
 
 impl ChannelClosure {
-    /// The bytes both parties sign for this state.
+    /// The bytes both parties sign for this state on `chain`.
     #[must_use]
-    pub fn signing_bytes(&self) -> Vec<u8> {
+    pub fn signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
         channel_state_signing_bytes(
+            chain,
             &self.channel_id,
             self.seq,
             self.balance_a,
@@ -999,15 +1004,19 @@ impl TxKind {
 /// sides from silently disagreeing about what was signed.
 #[must_use]
 pub fn channel_state_signing_bytes(
+    chain: &ChainTag,
     channel_id: &ChannelId,
     seq: u64,
     balance_a: primitive_types::U256,
     balance_b: primitive_types::U256,
     revocation_commitment: &[u8; 32],
 ) -> Vec<u8> {
-    // id 32 + seq 8 + two 256-bit balances (ADR-046) + commitment 32.
-    let mut buf = Vec::with_capacity(CHANNEL_STATE_DOMAIN.len() + 32 + 8 + 64 + 32);
+    // id 32 + seq 8 + two 256-bit balances (ADR-046) + commitment 32 + chain 32.
+    let mut buf = Vec::with_capacity(CHANNEL_STATE_DOMAIN.len() + 32 + 32 + 8 + 64 + 32);
     buf.extend_from_slice(CHANNEL_STATE_DOMAIN);
+    // Same binding as transactions (ADR-036): a state signed for one chain must
+    // not settle on another, even where the channel id happens to match.
+    buf.extend_from_slice(chain.as_bytes());
     buf.extend_from_slice(channel_id);
     buf.extend_from_slice(&seq.to_le_bytes());
     crate::core::codec::put_amount(&mut buf, &balance_a);

@@ -128,6 +128,31 @@ impl Fixture {
         self.apply(vec![signed(kind, nonce, &self.holders[index])], height)
     }
 
+    /// [`Self::apply`] with work claims credited from genesis. Claims are
+    /// refused at launch; these tests exercise the credit mechanism that is
+    /// re-enabled once a claim is bound to a verified share.
+    fn apply_with_claims(
+        &self,
+        transactions: Vec<Transaction>,
+        height: u64,
+    ) -> Result<[u8; 32], NodeError> {
+        self.db.apply_block(
+            &block_of(transactions),
+            BlockContext::at_height(height).with_work_claim_activation(0),
+        )
+    }
+
+    /// [`Self::act`] through [`Self::apply_with_claims`].
+    fn act_with_claims(
+        &self,
+        index: usize,
+        kind: TxKind,
+        height: u64,
+    ) -> Result<[u8; 32], NodeError> {
+        let nonce = self.nonce_of(index);
+        self.apply_with_claims(vec![signed(kind, nonce, &self.holders[index])], height)
+    }
+
     /// Locks `amount` for `index`, released at `unlock_height`.
     fn lock(&self, index: usize, amount: u64, unlock_height: u64, height: u64) {
         self.act(
@@ -305,7 +330,7 @@ fn a_work_claim_credits_the_address_the_miner_named() {
     let beneficiary = fixture.address(1);
 
     fixture
-        .act(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
+        .act_with_claims(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
         .expect("claim");
 
     assert!(fixture.db.work_credit(&beneficiary, 1).expect("credit") > 0);
@@ -316,6 +341,52 @@ fn a_work_claim_credits_the_address_the_miner_named() {
             .work_credit(&fixture.address(0), 1)
             .expect("credit"),
         0
+    );
+}
+
+#[test]
+fn a_work_claim_is_refused_at_every_height_at_launch_and_credits_nothing() {
+    // Stake-only at launch (ADR-044): a claim names a beneficiary and no share,
+    // so crediting it would sell voting weight for one fee per block.
+    let fixture = fixture();
+    let beneficiary = fixture.address(1);
+    let claim = signed(
+        TxKind::ClaimWork(WorkClaim { beneficiary }),
+        fixture.nonce_of(0),
+        &fixture.holders[0],
+    );
+
+    for height in [0, 1, 1_000_000] {
+        let refused = fixture.db.apply_block(
+            &block_of(vec![claim.clone()]),
+            BlockContext::at_height(height),
+        );
+        assert!(
+            matches!(refused, Err(NodeError::WorkClaimInactive { .. })),
+            "a claim at height {height} must be refused"
+        );
+    }
+    assert_eq!(
+        fixture
+            .db
+            .work_credit(&beneficiary, 1_000_000)
+            .expect("credit"),
+        0
+    );
+}
+
+#[test]
+fn with_a_refused_claim_present_the_voting_weight_is_locked_stake_alone() {
+    let fixture = fixture();
+    let voter = fixture.address(0);
+    fixture.lock(0, 1_000, 1_000_000, 1);
+
+    let refused = fixture.act(1, TxKind::ClaimWork(WorkClaim { beneficiary: voter }), 2);
+    assert!(matches!(refused, Err(NodeError::WorkClaimInactive { .. })));
+
+    assert_eq!(
+        fixture.db.voting_power(&voter, 2).expect("power"),
+        primitive_types::U256::from(1_000)
     );
 }
 
@@ -340,7 +411,9 @@ fn a_block_may_credit_its_work_only_once() {
     );
 
     assert!(matches!(
-        fixture.apply(vec![first, second], 1).unwrap_err(),
+        fixture
+            .apply_with_claims(vec![first, second], 1)
+            .unwrap_err(),
         NodeError::DuplicateWorkClaim
     ));
 }
@@ -352,7 +425,7 @@ fn work_credit_decays_so_a_departed_miner_stops_governing() {
     let fixture = fixture();
     let beneficiary = fixture.address(1);
     fixture
-        .act(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
+        .act_with_claims(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
         .expect("claim");
 
     let fresh = fixture.db.work_credit(&beneficiary, 1).expect("credit");
@@ -528,7 +601,7 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
     // is held by miners who did not vote (audit H-2).
     let fixture = fixture();
     fixture
-        .act(
+        .act_with_claims(
             0,
             TxKind::ClaimWork(WorkClaim {
                 beneficiary: fixture.address(0),
@@ -550,7 +623,7 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
     // A second miner earns twenty times as much and never votes.
     for height in 3..23 {
         fixture
-            .act(
+            .act_with_claims(
                 2,
                 TxKind::ClaimWork(WorkClaim {
                     beneficiary: fixture.address(2),

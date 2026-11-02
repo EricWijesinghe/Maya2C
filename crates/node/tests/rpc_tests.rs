@@ -670,6 +670,7 @@ async fn a_caller_over_the_rate_limit_is_refused_with_429() {
             context,
             Arc::new(custom_l1_node::metrics::Metrics::new()),
             Arc::new(RateLimiter::new(rate, burst)),
+            Vec::new(),
         )
         .await
         .expect("serve");

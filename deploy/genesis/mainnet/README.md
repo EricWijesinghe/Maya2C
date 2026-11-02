@@ -70,5 +70,13 @@ Inputs: 7 throwaway validator keys, 3 throwaway council keys, and the values abo
 - The ceremony wrote the genesis, with total supply 122753829695429068419575633036805965021648 units.
 - `cargo xtask genesis-check`: **PASS**. Fees were 1000000/1000000, stake-weighted, council 2-of-3.
 - `maya2c-node` booted from it as `validator 0 of 7` on `maya-mainnet`, with genesis id `28210c54…`. That id is not mainnet's: the real keys and timestamp change it.
+- Rejoin guard (B49): a node restarted later with no confirming head, and a tip older than the unbonding window, is refused unless it has `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is for a network halted longer than the window or a genesis signed long before launch only. Do not use it to get past a refusal without knowing which case applies. Runbook: `docs/runbooks/hybrid-testnet-hardening.md` section 4.
 
 Signing the real genesis is **APPROVED: sign genesis**, a separate approval from the re-genesis.
+
+## Bootnode peer id (B27)
+
+The mainnet bootnode's peer id is `MAINNET_BOOTNODE_PEER_ID` in [`bootnode.env`](bootnode.env).
+It is `SET-AT-GENESIS` until the ceremony creates the bootnode key. Every mainnet join path
+must take the id from that file. The testnet guides name the testnet bootnode id, which is
+a different chain's id. The mainnet join script does not exist yet.

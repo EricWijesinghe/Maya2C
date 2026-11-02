@@ -9,6 +9,9 @@ const POLL_NODE_MS = 4000;
 const POLL_GPU_MS = 3000;
 const HEIGHT_HISTORY = 300;
 const PACE_MIN_MS = 5 * 60_000; // a rate from under five minutes of payouts is noise
+const DEFAULT_CEILING_C = 80; // the Hub's default, mirrored from watchdog.rs
+const FEED_ROWS = 30;
+const ALERT_ROWS = 50;
 
 const tauri = window.__TAURI__ && window.__TAURI__.core;
 const isPreview = !tauri;
@@ -17,13 +20,15 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   settings: null,
-  miner: null,
+  miner: null, // { workers: [MinerState], alerts: [Alert] }
   snapshot: null,
   gpus: { devices: [], note: null },
   peak: 0,
   lastAccepted: 0,
   heights: [],
   lastHeight: null,
+  rig: null, // device key of the rig the learn-more panel shows
+  watchOnly: false,
 };
 
 // ---------------------------------------------------------------- data ----
@@ -35,7 +40,8 @@ const preview = (() => {
   let height = 241_000;
   const events = [];
   return {
-    defaults: () => ({ rpc: "https://rpc.maya2c.dev/rpc", miner_binary: "maya2c-gpu-miner.exe", key_file: "miner.key", cpu_threads: 16, use_gpu: true, can_mine: true }),
+    defaults: () => ({ rpc: "https://rpc.maya2c.dev/rpc", miner_binary: "maya2c-gpu-miner.exe", key_file: "miner.key", cpu_threads: 16, use_gpu: true, can_mine: true,
+      pools: [{ id: "public", name: "Maya2C public node", url: "https://rpc.maya2c.dev/rpc" }], thermal_ceiling_c: DEFAULT_CEILING_C }),
     miner_state: () => {
       const t = Date.now();
       rates.push({ t_ms: t, hps: 6200 + 900 * Math.sin(t / 9000) + Math.random() * 400 });
@@ -44,8 +50,11 @@ const preview = (() => {
         accepted += 1;
         events.push({ event: "share", accepted: true, reward: 7e22, t_ms: t });
       }
-      return { running: true, status: "mining", mode: "preview", epoch: 118, share_reward: 7e22, accepted, rejected: 0,
-        earned: accepted * 7e22, started_ms: t0, address: "preview", rates, events };
+      return {
+        workers: [{ device: "gpu0", running: true, status: "mining", mode: "preview", epoch: 118, share_reward: 7e22, accepted, rejected: 0,
+          restarts: 0, held: false, temp_c: 60, ceiling_c: DEFAULT_CEILING_C, earned: accepted * 7e22, started_ms: t0, address: "preview", rates, events }],
+        alerts: [],
+      };
     },
     node_snapshot: () => {
       height += Math.random() < 0.6 ? 1 : 0;
@@ -54,7 +63,7 @@ const preview = (() => {
         account: { balance: accepted * 7_000_000_000 } };
     },
     gpu_telemetry: () => ({ devices: [{ index: 0, name: "Preview GPU", temp_c: 58 + Math.random() * 4, power_w: 170 + Math.random() * 15,
-      power_limit_w: 250, util_pct: 97, fan_pct: 54, mem_used_mib: 4300, mem_total_mib: 12227, clock_mhz: 2610 }] }),
+      power_limit_w: 250, util_pct: 97, fan_pct: 54, mem_used_mib: 4300, mem_total_mib: 12227, clock_mhz: 2610 }], note: null }),
   };
 })();
 
@@ -97,59 +106,116 @@ const uptime = (ms) => {
 const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 function setText(id, value) {
-  const el = $(id);
+  const el = typeof id === "string" ? $(id) : id;
   if (el && el.textContent !== String(value)) el.textContent = value;
+}
+
+const deviceLabel = (key, gpu) => (key === "cpu" ? "CPU threads" : `GPU ${key.slice(3)}${gpu ? ` · ${gpu.name}` : ""}`);
+const gpuKey = (index) => `gpu${index}`;
+
+// ------------------------------------------------------------- summary ----
+
+const lastRate = (w) => (w.rates && w.rates.length ? w.rates[w.rates.length - 1].hps : 0);
+const sumOf = (list, key) => list.reduce((total, w) => total + (w[key] || 0), 0);
+
+// The hero adds the rigs up. Every rig pays the same account, so the earned
+// figure is the largest on-chain growth any rig has seen, not a sum.
+function summarise(workers) {
+  const running = workers.filter((w) => w.running);
+  const shown = running[0] || workers.find((w) => w.status && w.status !== "stopped");
+  const epochs = workers.map((w) => w.epoch).filter((e) => e != null);
+  const rewards = workers.filter((w) => w.share_reward != null);
+  const starts = running.map((w) => w.started_ms).filter(Boolean);
+  const payee = workers.find((w) => w.address && w.address !== "preview");
+  return {
+    running: running.length > 0,
+    status: running.length > 1 ? `${running.length} running · ${running[0].status}` : shown ? shown.status : "Stopped",
+    hps: running.reduce((total, w) => total + lastRate(w), 0),
+    accepted: sumOf(workers, "accepted"),
+    rejected: sumOf(workers, "rejected"),
+    earned: workers.reduce((most, w) => Math.max(most, Number(w.earned) || 0), 0),
+    epoch: epochs.length ? Math.max(...epochs) : null,
+    reward: rewards.length ? rewards[0].share_reward : null,
+    started_ms: starts.length ? Math.min(...starts) : null,
+    address: payee ? payee.address : null,
+  };
+}
+
+// The hero chart: every rig's samples added up, aligned on the newest sample.
+function combinedRates(workers) {
+  const series = workers.map((w) => w.rates || []).filter((r) => r.length);
+  const longest = Math.max(0, ...series.map((r) => r.length));
+  const out = [];
+  for (let back = longest - 1; back >= 0; back--) {
+    let hps = 0;
+    let t_ms = 0;
+    for (const r of series) {
+      const sample = r[r.length - 1 - back];
+      if (sample) {
+        hps += sample.hps;
+        t_ms = Math.max(t_ms, sample.t_ms);
+      }
+    }
+    out.push({ t_ms, hps });
+  }
+  return out;
+}
+
+// Paid rate from what the chain actually credited, never from accepted shares
+// (accepted is not paid: 145 accepted against 10 paid on the mining devnet).
+function paceLine(sum) {
+  const ran = sum.running && sum.started_ms ? Date.now() - sum.started_ms : 0;
+  if (ran < PACE_MIN_MS) return sum.running ? "paid rate after 5 min" : "";
+  const perHour = (Number(sum.earned) * 3_600_000) / ran;
+  return `≈ ${maya(perHour)} MAYA/h paid`;
 }
 
 // ------------------------------------------------------------- render ----
 
 function renderMiner() {
-  const m = state.miner;
-  if (!m) return;
-  const last = m.rates.length ? m.rates[m.rates.length - 1].hps : null;
-  if (last) state.peak = Math.max(state.peak * 0.999, last * 1.1);
-  const r = Charts.rate(m.running ? last : null);
+  const report = state.miner;
+  if (!report) return;
+  const sum = summarise(report.workers);
+  if (sum.hps) state.peak = Math.max(state.peak * 0.999, sum.hps * 1.1);
+  const r = Charts.rate(sum.running ? sum.hps : null);
   setText("rate-value", r.value);
   setText("rate-unit", r.unit);
-  setText("miner-status", state.watchOnly ? WATCH_ONLY : m.status || (m.running ? "running" : "stopped"));
-  setText("t-accepted", m.accepted.toLocaleString());
-  setText("t-rejected", m.rejected.toLocaleString());
-  setText("t-earned", maya(m.earned));
-  setText("t-epoch", m.epoch ?? "—");
-  setText("t-reward", m.share_reward == null ? "—" : maya(m.share_reward));
-  setText("t-uptime", m.running ? uptime(m.started_ms) : "—");
-  setText("t-pace", paceLine(m));
-  const power = $("power");
-  power.setAttribute("aria-pressed", String(m.running));
-  setText("power-text", m.running ? "Stop mining" : "Start mining");
-  setText("payout-line", m.address && m.address !== "preview" ? `Paying to ${m.address}` : "");
+  setText("miner-status", state.watchOnly ? WATCH_ONLY : sum.status);
+  setText("t-accepted", sum.accepted.toLocaleString());
+  setText("t-rejected", sum.rejected.toLocaleString());
+  setText("t-earned", maya(sum.earned));
+  setText("t-epoch", sum.epoch ?? "—");
+  setText("t-reward", sum.reward == null ? "—" : maya(sum.reward));
+  setText("t-uptime", sum.running ? uptime(sum.started_ms) : "—");
+  setText("t-pace", paceLine(sum));
+  $("power").setAttribute("aria-pressed", String(sum.running));
+  setText("power-text", sum.running ? "Stop mining" : "Start mining");
+  setText("payout-line", sum.address ? `Paying to ${sum.address}` : "");
 
-  if (m.accepted > state.lastAccepted) {
+  if (sum.accepted > state.lastAccepted) {
     const fx = $("fx").getBoundingClientRect();
     if (!reducedMotion) Charts.burst(fx.width / 2, fx.height * 0.5, true);
     $("t-earned").parentElement.classList.remove("flash");
     void $("t-earned").parentElement.offsetWidth;
     $("t-earned").parentElement.classList.add("flash");
   }
-  state.lastAccepted = m.accepted;
-  Charts.area($("rate-chart"), m.rates);
-  renderFeed(m.events);
+  state.lastAccepted = sum.accepted;
+  Charts.area($("rate-chart"), combinedRates(report.workers));
+  renderFeed(report.workers);
+  renderAlerts(report.alerts);
+  renderRigs();
 }
 
-// Paid rate from what the chain actually credited, never from accepted shares
-// (accepted is not paid: 145 accepted against 10 paid on the mining devnet).
-function paceLine(m) {
-  const ran = m.running && m.started_ms ? Date.now() - m.started_ms : 0;
-  if (ran < PACE_MIN_MS) return m.running ? "paid rate after 5 min" : "";
-  const perHour = (Number(m.earned) * 3_600_000) / ran;
-  return `≈ ${maya(perHour)} MAYA/h paid`;
-}
-
-function renderFeed(events) {
-  const shares = events.filter((e) => e.event === "share" || e.event === "error").slice(-30).reverse();
+function renderFeed(workers) {
+  const shares = workers
+    .flatMap((w) => w.events.map((e) => ({ ...e, device: w.device })))
+    .filter((e) => e.event === "share" || e.event === "error")
+    .sort((a, b) => a.t_ms - b.t_ms)
+    .slice(-FEED_ROWS)
+    .reverse();
   const feed = $("feed");
   if (!shares.length) return;
-  const key = shares.map((e) => e.t_ms).join(",");
+  const key = shares.map((e) => `${e.device}${e.t_ms}`).join(",");
   if (feed.dataset.key === key) return;
   feed.dataset.key = key;
   feed.replaceChildren(
@@ -161,12 +227,172 @@ function renderFeed(events) {
       const ok = e.event === "share" && e.accepted;
       mark.className = ok ? "ok" : "bad";
       mark.textContent = ok ? "✓" : "✕";
-      what.textContent = ok ? `Share sent · pays up to +${maya(e.reward)} MAYA when it lands` : e.reason || e.message || "refused";
+      const text = ok ? `Share sent · pays up to +${maya(e.reward)} MAYA when it lands` : e.reason || e.message || "refused";
+      what.textContent = `${e.device} · ${text}`;
       time.textContent = clock(e.t_ms);
       li.append(mark, what, time);
       return li;
     }),
   );
+}
+
+const LEVEL_WORD = { info: "Info", warn: "Warning", critical: "Stopped" };
+const LEVEL_ADVICE = {
+  info: "Normal recovery. Nothing to do.",
+  warn: "The Hub handles this on its own. The alert stays so you can see that it happened.",
+  critical: "The Hub will not restart this device by itself. Check the pool and the miner program, then press Start on the rig.",
+};
+
+function renderAlerts(alerts) {
+  setText("alert-count", alerts.length ? String(alerts.length) : "");
+  const host = $("alerts");
+  const key = alerts.map((a) => `${a.t_ms}${a.message}`).join("|");
+  if (host.dataset.key === key) return;
+  host.dataset.key = key;
+  if (!alerts.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No alerts. Crashes, restarts and heat stops appear here.";
+    host.replaceChildren(li);
+    return;
+  }
+  host.replaceChildren(
+    ...alerts.slice(0, ALERT_ROWS).map((a) => {
+      const li = document.createElement("li");
+      const chip = document.createElement("span");
+      const what = document.createElement("span");
+      const time = document.createElement("time");
+      chip.className = `lvl ${a.level}`;
+      chip.textContent = LEVEL_WORD[a.level] || a.level;
+      what.textContent = a.message;
+      time.textContent = clock(a.t_ms);
+      li.append(chip, what, time);
+      li.tabIndex = 0;
+      li.addEventListener("click", () => showAlert(a));
+      return li;
+    }),
+  );
+}
+
+function showAlert(a) {
+  $("rig-detail").hidden = false;
+  setText("rd-title", `${deviceLabel(a.device, gpuOf(a.device))} · ${LEVEL_WORD[a.level] || a.level}`);
+  setText("rd-text", `${a.message}. ${LEVEL_ADVICE[a.level] || ""}`);
+}
+
+// A rig's phase, as one chip: the watchdog's view in words.
+function phaseOf(w) {
+  if (!w) return ["idle", "Not started"];
+  if (w.held) return ["warn", "Held: too hot"];
+  if (w.running) return ["live", w.status || "Mining"];
+  if (w.status && w.status.startsWith("stopped:")) return ["crit", "Stopped: crash loop"];
+  if (w.status && w.status.includes("restarting")) return ["warn", w.status];
+  return ["idle", w.status || "Stopped"];
+}
+
+const gpuOf = (key) => state.gpus.devices.find((g) => gpuKey(g.index) === key) || null;
+
+function rigKeys(workers) {
+  const keys = new Set(["cpu", ...workers.map((w) => w.device), ...state.gpus.devices.map((g) => gpuKey(g.index))]);
+  return [...keys].sort((a, b) => (a === "cpu" ? -1 : b === "cpu" ? 1 : Number(a.slice(3)) - Number(b.slice(3))));
+}
+
+// One card per device: the CPU and every GPU the driver reports, mining or not.
+function renderRigs() {
+  const workers = state.miner ? state.miner.workers : [];
+  const byKey = new Map(workers.map((w) => [w.device, w]));
+  setText("gpu-note", state.gpus.note || "");
+  const host = $("devices");
+  for (const key of rigKeys(workers)) {
+    let card = host.querySelector(`[data-device="${key}"]`);
+    if (!card) {
+      card = rigCard(key);
+      host.append(card);
+    }
+    updateRig(card, key, byKey.get(key) || null, gpuOf(key));
+  }
+  if (state.rig) showRig(state.rig);
+}
+
+function rigCard(key) {
+  const card = document.createElement("div");
+  card.className = "device";
+  card.dataset.device = key;
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  const h3 = document.createElement("h3");
+  const name = document.createElement("span");
+  name.className = "rig-name";
+  const phase = document.createElement("span");
+  phase.className = "chip idle";
+  h3.append(name, phase);
+  const spark = document.createElement("canvas");
+  spark.className = "spark";
+  const rings = document.createElement("div");
+  rings.className = "rings";
+  ["Temp", "Power", "Load", "Fan"].forEach((label) => {
+    const cell = document.createElement("div");
+    const text = document.createElement("label");
+    text.textContent = label;
+    cell.append(document.createElement("canvas"), text);
+    rings.append(cell);
+  });
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const counts = document.createElement("span");
+  counts.className = "rig-counts";
+  const heat = document.createElement("span");
+  heat.className = "rig-heat";
+  const btn = document.createElement("button");
+  btn.className = "rig-btn";
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleRig(key);
+  });
+  meta.append(counts, heat);
+  card.append(h3, spark, rings, meta, btn);
+  card.addEventListener("click", () => showRig(key));
+  card.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") showRig(key);
+  });
+  return card;
+}
+
+function updateRig(card, key, w, g) {
+  setText(card.querySelector(".rig-name"), deviceLabel(key, g));
+  const [tone, phrase] = phaseOf(w);
+  const chip = card.querySelector(".chip");
+  chip.className = `chip ${tone}`;
+  setText(chip, phrase);
+  const rings = card.querySelector(".rings");
+  rings.hidden = !g;
+  if (g) {
+    const cans = rings.querySelectorAll("canvas");
+    Charts.ring(cans[0], { value: g.temp_c, max: 100, warn: 83, text: `${Math.round(g.temp_c)}°` });
+    Charts.ring(cans[1], { value: g.power_w, max: g.power_limit_w || 300, text: `${Math.round(g.power_w)}W` });
+    Charts.ring(cans[2], { value: g.util_pct, max: 100, text: `${Math.round(g.util_pct)}%` });
+    Charts.ring(cans[3], { value: g.fan_pct, max: 100, text: `${Math.round(g.fan_pct)}%` });
+  }
+  Charts.area(card.querySelector("canvas.spark"), w ? w.rates : []);
+  setText(card.querySelector(".rig-counts"), w ? `${w.accepted} accepted · ${w.rejected} rejected · ${w.restarts} restarts` : "No shares yet");
+  const hot = g && g.temp_c != null ? `${Math.round(g.temp_c)} °C · stop above ${w && w.ceiling_c ? w.ceiling_c : DEFAULT_CEILING_C} °C` : "";
+  setText(card.querySelector(".rig-heat"), hot);
+  const btn = card.querySelector(".rig-btn");
+  btn.hidden = state.watchOnly;
+  setText(btn, w && w.running ? "Stop" : "Start");
+}
+
+function showRig(key) {
+  state.rig = key;
+  const w = (state.miner ? state.miner.workers : []).find((x) => x.device === key) || null;
+  const g = gpuOf(key);
+  const parts = [`${phaseOf(w)[1]}.`];
+  if (g && g.temp_c != null) parts.push(`Running at ${Math.round(g.temp_c)} °C. The Hub stops this GPU above ${w && w.ceiling_c ? w.ceiling_c : DEFAULT_CEILING_C} °C and restarts it 5 °C lower.`);
+  if (w) parts.push(`Since start: ${w.accepted} shares accepted, ${w.rejected} rejected, ${w.restarts} automatic restart${w.restarts === 1 ? "" : "s"}.`);
+  parts.push(key === "cpu" ? "Hashing on CPU threads." : "Hashing on this graphics card.");
+  $("rig-detail").hidden = false;
+  setText("rd-title", deviceLabel(key, g));
+  setText("rd-text", parts.join(" "));
 }
 
 function renderNode() {
@@ -213,66 +439,6 @@ function renderNode() {
   }
 }
 
-function renderGpus() {
-  const { devices, note } = state.gpus;
-  setText("gpu-note", note || "");
-  const host = $("devices");
-  if (!devices.length) {
-    if (!host.querySelector(".empty-devices")) {
-      const p = document.createElement("p");
-      p.className = "empty-devices";
-      p.textContent = "No GPU telemetry. The miner still runs on CPU threads.";
-      host.replaceChildren(p);
-    }
-    return;
-  }
-  devices.forEach((g) => {
-    let card = host.querySelector(`[data-gpu="${g.index}"]`);
-    if (!card) {
-      if (host.querySelector(".empty-devices")) host.replaceChildren();
-      card = deviceCard(g);
-      host.append(card);
-    }
-    const rings = card.querySelectorAll("canvas");
-    Charts.ring(rings[0], { value: g.temp_c, max: 100, warn: 83, text: `${Math.round(g.temp_c)}°` });
-    Charts.ring(rings[1], { value: g.power_w, max: g.power_limit_w || 300, text: `${Math.round(g.power_w)}W` });
-    Charts.ring(rings[2], { value: g.util_pct, max: 100, text: `${Math.round(g.util_pct)}%` });
-    Charts.ring(rings[3], { value: g.fan_pct, max: 100, text: `${Math.round(g.fan_pct)}%` });
-    const mem = g.mem_used_mib != null ? `${(g.mem_used_mib / 1024).toFixed(1)} / ${(g.mem_total_mib / 1024).toFixed(1)} GiB` : "—";
-    setText(`gpu-mem-${g.index}`, `VRAM ${mem}`);
-    setText(`gpu-clk-${g.index}`, g.clock_mhz != null ? `${Math.round(g.clock_mhz)} MHz` : "—");
-  });
-}
-
-function deviceCard(g) {
-  const card = document.createElement("div");
-  card.className = "device";
-  card.dataset.gpu = g.index;
-  const h3 = document.createElement("h3");
-  h3.textContent = g.name;
-  const idx = document.createElement("span");
-  idx.textContent = `GPU ${g.index}`;
-  h3.append(idx);
-  const rings = document.createElement("div");
-  rings.className = "rings";
-  ["Temp", "Power", "Load", "Fan"].forEach((name) => {
-    const cell = document.createElement("div");
-    const label = document.createElement("label");
-    label.textContent = name;
-    cell.append(document.createElement("canvas"), label);
-    rings.append(cell);
-  });
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  const mem = document.createElement("span");
-  mem.id = `gpu-mem-${g.index}`;
-  const clk = document.createElement("span");
-  clk.id = `gpu-clk-${g.index}`;
-  meta.append(mem, clk);
-  card.append(h3, rings, meta);
-  return card;
-}
-
 function renderUniverse() {
   const host = $("universe");
   host.replaceChildren(
@@ -303,12 +469,13 @@ function renderUniverse() {
 // ----------------------------------------------------------- animate ----
 
 function frame(t) {
-  const m = state.miner;
-  const last = m && m.running && m.rates.length ? m.rates[m.rates.length - 1].hps : 0;
+  const report = state.miner;
+  const sum = report ? summarise(report.workers) : null;
+  const last = sum && sum.running ? sum.hps : 0;
   const onMining = $("page-mining").classList.contains("active");
   const onNetwork = $("page-network").classList.contains("active");
   if (onMining) {
-    Charts.gauge($("gauge"), { hps: last, peak: state.peak, active: !!(m && m.running) && !reducedMotion, t });
+    Charts.gauge($("gauge"), { hps: last, peak: state.peak, active: !!(sum && sum.running) && !reducedMotion, t });
     Charts.drawBursts($("fx"));
   }
   // Reduced motion draws the network view only when its state changes (renderNode).
@@ -335,18 +502,64 @@ async function poll(cmd, args, apply, every) {
 
 const WATCH_ONLY = "Watching — mining runs on the desktop Hub";
 
-async function togglePower() {
-  const running = state.miner && state.miner.running;
+// One device's start, from the saved settings. Errors show in the status line.
+async function startDevice(device) {
+  const s = state.settings;
+  const config = {
+    binary: s.miner_binary,
+    pool: s.pool || "public",
+    key_file: s.key_file,
+    threads: Number(s.cpu_threads),
+    device: device === "cpu" ? null : Number(device.slice(3)),
+    thermal_ceiling_c: Number(s.thermal_ceiling_c ?? DEFAULT_CEILING_C),
+  };
   try {
-    if (running) await call("miner_stop");
-    else {
-      const s = state.settings;
-      await call("miner_start", { config: { binary: s.miner_binary, rpc: s.rpc, key_file: s.key_file, threads: Number(s.cpu_threads), gpu: s.use_gpu !== false } });
-      state.peak = 0;
-    }
+    await call("miner_start", { config });
+    state.peak = 0;
   } catch (err) {
     setText("miner-status", String(err));
   }
+}
+
+// The first device writes the payout key; the rest read it. Wait for its
+// start line (the address) before starting the others, or they race it.
+async function waitForPayoutKey(device) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const report = await call("miner_state");
+    state.miner = report;
+    renderMiner();
+    const w = report.workers.find((x) => x.device === device);
+    if (!w || !w.running || w.address) return;
+  }
+}
+
+async function togglePower() {
+  if (state.miner && state.miner.workers.some((w) => w.running)) {
+    await call("miner_stop");
+    return;
+  }
+  const [first, ...rest] = (state.settings.devices || []).filter(Boolean);
+  if (!first) {
+    setText("miner-status", "Pick at least one device under Settings");
+    return;
+  }
+  await startDevice(first);
+  await waitForPayoutKey(first);
+  for (const device of rest) await startDevice(device);
+}
+
+async function toggleRig(device) {
+  const w = state.miner && state.miner.workers.find((x) => x.device === device);
+  if (w && w.running) {
+    try {
+      await call("miner_stop", { device });
+    } catch (err) {
+      setText("miner-status", String(err));
+    }
+    return;
+  }
+  await startDevice(device);
 }
 
 function wireNav() {
@@ -357,38 +570,86 @@ function wireNav() {
       // Canvases on a hidden page measured zero; redraw once now visible.
       if (state.miner) renderMiner();
       renderNode();
-      renderGpus();
+      renderRigs();
     }),
   );
 }
 
-function wireSettings(maxThreads) {
+function renderDevicePicks(gpus) {
+  const keys = ["cpu", ...gpus.map((g) => gpuKey(g.index))];
+  const chosen = state.settings.devices || keys.filter((k) => k !== "cpu" || !gpus.length);
+  $("s-devices").replaceChildren(
+    ...keys.map((key) => {
+      const label = document.createElement("label");
+      label.className = "check";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.value = key;
+      box.checked = chosen.includes(key);
+      label.append(box, ` ${deviceLabel(key, gpuOf(key))}`);
+      return label;
+    }),
+  );
+}
+
+function saveSettingsForm() {
+  const rpc = $("s-rpc").value.trim();
+  if (!/^https?:\/\//i.test(rpc)) {
+    setText("s-msg", "The node URL must start with http:// or https://");
+    return;
+  }
+  const ceiling = Number($("s-ceiling").value);
+  if (!(ceiling >= 50 && ceiling <= 95)) {
+    setText("s-msg", "The temperature stop must be between 50 and 95 °C");
+    return;
+  }
+  const devices = [...$("s-devices").querySelectorAll("input:checked")].map((box) => box.value);
+  state.settings = {
+    ...state.settings,
+    rpc,
+    pool: $("s-pool").value,
+    miner_binary: $("s-binary").value.trim(),
+    key_file: $("s-key").value.trim(),
+    cpu_threads: Number($("s-threads").value),
+    devices,
+    thermal_ceiling_c: ceiling,
+  };
+  setText("s-msg", saveSettings(state.settings) ? "Saved." : "Saved for this session only.");
+}
+
+function wireSettings(defaults, gpus) {
   const s = state.settings;
   $("s-rpc").value = s.rpc;
+  const pool = $("s-pool");
+  pool.replaceChildren(
+    ...defaults.pools.map((p) => {
+      const option = document.createElement("option");
+      option.value = p.id;
+      option.textContent = p.name;
+      return option;
+    }),
+  );
+  pool.value = defaults.pools.some((p) => p.id === s.pool) ? s.pool : defaults.pools[0].id;
+  // ADR-073 decision 5: other nodes are not offered until the miner checks the work itself.
+  setText("s-pool-note", "Other nodes are not offered yet. A rig must check each share's work itself before it accepts another node's work (ADR-073, Phase 2).");
   $("s-binary").value = s.miner_binary;
   $("s-key").value = s.key_file;
-  $("s-threads").max = String(Math.max(1, maxThreads));
+  $("s-threads").max = String(Math.max(1, defaults.cpu_threads));
   $("s-threads").value = String(s.cpu_threads);
-  $("s-gpu").checked = s.use_gpu !== false;
   setText("s-threads-v", s.cpu_threads);
   $("s-threads").addEventListener("input", (e) => setText("s-threads-v", e.target.value));
-  $("s-save").addEventListener("click", () => {
-    const rpc = $("s-rpc").value.trim();
-    if (!/^https?:\/\//i.test(rpc)) {
-      setText("s-msg", "The node URL must start with http:// or https://");
-      return;
-    }
-    state.settings = { rpc, miner_binary: $("s-binary").value.trim(), key_file: $("s-key").value.trim(), cpu_threads: Number($("s-threads").value), use_gpu: $("s-gpu").checked };
-    setText("s-msg", saveSettings(state.settings) ? "Saved." : "Saved for this session only.");
-  });
+  $("s-ceiling").value = String(s.thermal_ceiling_c ?? DEFAULT_CEILING_C);
+  renderDevicePicks(gpus.devices);
+  $("s-save").addEventListener("click", saveSettingsForm);
 }
 
 async function main() {
   $("preview-flag").hidden = !isPreview;
   const defaults = await call("defaults");
+  state.gpus = await call("gpu_telemetry").catch(() => ({ devices: [], note: "GPU telemetry unavailable" }));
   state.settings = loadSettings(defaults);
   wireNav();
-  wireSettings(defaults.cpu_threads);
+  wireSettings(defaults, state.gpus);
   renderUniverse();
   NetView.init({ canvas: $("orb"), layer: $("net-layer"), tip: $("net-tip"), reduced: reducedMotion, onSelect: showNetDetail });
   if (defaults.can_mine === false) {
@@ -400,13 +661,16 @@ async function main() {
     $("power").addEventListener("click", togglePower);
   }
 
-  const address = () => (state.miner && state.miner.address && state.miner.address !== "preview" ? state.miner.address : null);
+  const address = () => {
+    const w = state.miner && state.miner.workers.find((x) => x.address && x.address !== "preview");
+    return w ? w.address : null;
+  };
   poll("miner_state", () => undefined, (m) => { if (m) { state.miner = m; renderMiner(); } }, POLL_MINER_MS);
   poll("node_snapshot", () => ({ url: state.settings.rpc, address: address() }), (s, err) => {
     state.snapshot = s || { reachable: false, error: String(err) };
     renderNode();
   }, POLL_NODE_MS);
-  poll("gpu_telemetry", () => undefined, (g) => { if (g) { state.gpus = g; renderGpus(); } }, POLL_GPU_MS);
+  poll("gpu_telemetry", () => undefined, (g) => { if (g) { state.gpus = g; renderRigs(); } }, POLL_GPU_MS);
   requestAnimationFrame(frame);
 }
 

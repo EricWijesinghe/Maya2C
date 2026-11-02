@@ -28,6 +28,7 @@
 //! JSON-RPC. Those endpoints live in [`market_http`] on their own port.
 
 pub mod bootstrap;
+pub mod client_ip;
 pub mod limit;
 pub mod market;
 pub mod market_http;

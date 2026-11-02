@@ -13,8 +13,32 @@
 /// Genesis ids, lower-case hex, of every network this wallet calls mainnet.
 pub const MAINNET_GENESIS: &[&str] = &[];
 
+/// Genesis ids of the public testnets. Empty: the repo records no id for the
+/// current testnet, so every chain shows as an unknown network.
+pub const TESTNET_GENESIS: &[&str] = &[];
+
 /// Names a node may use only with a pinned genesis.
 const MAINNET_NAMES: &[&str] = &["maya-mainnet", "mainnet"];
+
+/// The network name the confirm screen shows, decided by the genesis id alone.
+/// A name the node claims is never shown.
+#[must_use]
+pub fn display_name(genesis_hex: &str) -> &'static str {
+    let genesis = genesis_hex.trim();
+    if MAINNET_GENESIS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(genesis))
+    {
+        "Maya2C mainnet"
+    } else if TESTNET_GENESIS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(genesis))
+    {
+        "Maya2C testnet"
+    } else {
+        "UNKNOWN NETWORK"
+    }
+}
 
 /// What a node is, as far as the wallet is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

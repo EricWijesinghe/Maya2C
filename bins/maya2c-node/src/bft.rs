@@ -12,10 +12,12 @@ use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::attest::CheckpointBook;
-use custom_l1_node::consensus::bft::catchup::{self, Position};
+use custom_l1_node::consensus::bft::builder::DECODE_BUDGET;
+use custom_l1_node::consensus::bft::catchup::{self, Anchor, Position};
 use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
+use custom_l1_node::core::block::decode_quantum;
 use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
@@ -25,7 +27,10 @@ use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
 use zeroize::Zeroizing;
 
+use custom_l1_node::state_pruner::snapshot::TrustedBlock;
+
 use super::lock_chain;
+use super::rejoin;
 
 /// Engine tick: re-broadcasts and anchor timeouts. Well under the anchor
 /// timeout, so a timeout fires within a tenth of its length of being due.
@@ -235,12 +240,20 @@ pub(super) fn setup(
     genesis: &BftGenesis,
     signer: Option<ValidatorKey>,
 ) -> Result<BftSetup, Box<dyn Error>> {
+    let committee: Arc<[VerifyingKey]> = genesis.verifying_keys()?.into();
+    // CON-13: a vertex carries at most one author's quantum, so a batch of
+    // small payloads is always admitted by the decode walk. Payloads that do
+    // not fit stay in the mempool for the next vertex. A payload the walk does
+    // not admit is released by the driver (`Step::dropped`) and re-submitted,
+    // so it is not lost. The quantum is fixed at the genesis committee size.
+    let max_batch_bytes = usize::try_from(decode_quantum(DECODE_BUDGET, committee.len()))?;
     Ok(BftSetup {
         epoch: 0,
-        committee: genesis.verifying_keys()?.into(),
+        committee,
         signer,
         params: Params {
             batch_size: genesis.batch_size,
+            max_batch_bytes,
             anchor_timeout_ms: genesis.anchor_timeout_ms,
             min_round_interval_ms: genesis.round_interval_ms,
             // Local, not consensus: how often a lost proposal or certificate
@@ -273,6 +286,7 @@ async fn catch_up_once(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     fallback: (&Arc<[VerifyingKey]>, Option<&Arc<[u64]>>),
+    anchor: Anchor,
 ) -> Result<catchup::Imported, Box<dyn Error>> {
     // Position and committee under one lock: read apart, a boundary block
     // imported between them pairs an epoch with the wrong committee, the
@@ -286,7 +300,7 @@ async fn catch_up_once(
     };
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
     let blocks = tokio::task::spawn_blocking(move || {
-        catchup::fetch(from, &source, &committee, weights.as_deref())
+        catchup::fetch_anchored(from, &source, &committee, weights.as_deref(), anchor)
     })
     .await??;
     if blocks.is_empty() {
@@ -384,6 +398,7 @@ pub(super) async fn catch_up_from_any(
     urls: &[String],
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
+    anchor: Anchor,
 ) -> Result<Option<String>, Box<dyn Error>> {
     let mut ranked = Vec::new();
     for round in 1..=PROBE_ROUNDS {
@@ -398,7 +413,7 @@ pub(super) async fn catch_up_from_any(
     // its tip: try the rest before calling it caught up (pre-audit S-029).
     let mut first_answered = None;
     for url in ranked {
-        match catch_up(&url, chain, driver).await {
+        match catch_up(&url, chain, driver, anchor).await {
             Ok(imported) if imported > 0 => return Ok(Some(url)),
             Ok(_) => {
                 first_answered.get_or_insert(url);
@@ -480,6 +495,7 @@ pub(super) async fn catch_up(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
+    anchor: Anchor,
 ) -> Result<u64, Box<dyn Error>> {
     // Where this node's own engine and DAG log stand, before any import:
     // what `within_engine_window` must measure the network against.
@@ -493,7 +509,7 @@ pub(super) async fn catch_up(
     let mut imported = 0;
     loop {
         let (committee, weights) = (driver.committee(), driver.weights());
-        let round = catch_up_once(url, chain, (&committee, weights.as_ref())).await?;
+        let round = catch_up_once(url, chain, (&committee, weights.as_ref()), anchor).await?;
         if round.applied == 0 && round.already_held > 0 {
             // Nothing new in this batch: the blocks are already held, so the
             // loop ends and the next poll will ask again.
@@ -534,9 +550,17 @@ pub(super) async fn follow_loop(
     genesis_committee: Arc<[VerifyingKey]>,
     status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
     rescue: tokio::sync::mpsc::Sender<String>,
+    trusted: Option<TrustedBlock>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Until the trusted block is held, certificate replay (which ignores it) is
+    // not requested, and the round is anchored to it (B49).
+    let mut reached = trusted.is_none();
+    // The head a probe last reported, and the rounds until the next probe, so an
+    // old tip costs one request per FOLLOW_PROBE_EVERY rounds, not one a second.
+    let mut claimed: Option<rejoin::Claimed> = None;
+    let mut probe_in: u32 = 0;
     let mut last_error: Option<String> = None;
     // The already-held count last reported, so a batch that keeps finding the
     // same held blocks is said once, not on every poll.
@@ -567,7 +591,52 @@ pub(super) async fn follow_loop(
         // against its own epoch's committee.
         // Text, not the boxed error: the error is not `Send`, and the stuck
         // branch awaits a probe.
-        let round = catch_up_once(&url, &chain, (&genesis_committee, None))
+        // Staleness is re-checked every round (B49), and only a source's head
+        // beyond the window confirms it. The probe runs while the tip is old, at
+        // most every FOLLOW_PROBE_EVERY rounds: a halted network looks like this.
+        // A halt with no newer head keeps following, with a loud line per probe.
+        let old = {
+            let c = lock_chain(&chain);
+            match rejoin::local_state(&c) {
+                Ok(local) => local.is_some_and(|l| rejoin::time_old(l, rejoin::clock_now())),
+                Err(e) => {
+                    eprintln!("rejoin: state read failed: {e}");
+                    true
+                }
+            }
+        };
+        if old {
+            if probe_in == 0 {
+                claimed = rejoin::probe(&url).await;
+                probe_in = rejoin::FOLLOW_PROBE_EVERY;
+                eprintln!(
+                    "rejoin: this follower's tip is older than the unbonding window; source head {claimed:?}. Still following unless a head beyond the window is confirmed"
+                );
+            }
+            probe_in -= 1;
+        } else {
+            claimed = None;
+            probe_in = 0;
+        }
+        // The guard is decided under the lock and converted to text before any
+        // await: the boxed error is not `Send`. A stale follower with no trusted
+        // block left to reach stops, and the node exits so it is restarted with one.
+        let decided: Result<Anchor, String> = {
+            let c = lock_chain(&chain);
+            rejoin::track_trusted(&c, trusted, reached).and_then(|now_reached| {
+                reached = now_reached;
+                rejoin::round_anchor(&c, if reached { None } else { trusted }, claimed)
+                    .map_err(|e| e.to_string())
+            })
+        };
+        let anchor = match decided {
+            Ok(anchor) => anchor,
+            Err(e) => {
+                eprintln!("rejoin: this follower stops: {e}");
+                return;
+            }
+        };
+        let round = catch_up_once(&url, &chain, (&genesis_committee, None), anchor)
             .await
             .map_err(|e| e.to_string());
         match &round {
@@ -603,7 +672,11 @@ pub(super) async fn follow_loop(
                             );
                             patience = (patience * 2).min(STUCK_ROUNDS_MAX);
                             // Full means a replay is already queued.
-                            let _ = rescue.try_send(url.clone());
+                            // Not while the trusted block is still pending: a
+                            // replay would verify against the committee alone.
+                            if reached {
+                                let _ = rescue.try_send(url.clone());
+                            }
                         }
                     }
                     _ => stuck = 0,
@@ -722,6 +795,8 @@ impl Feed {
                     self.min_register_bond
                 );
             }
+            // Removed once logged: left in the pool they would be logged again
+            // on every tick (the removal was lost in the oversize change).
             pool.remove_all(&refused);
         }
     }
