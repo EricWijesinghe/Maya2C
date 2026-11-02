@@ -12,8 +12,8 @@ The shielded pool's join-split AIR has had no independent audit
 mint shielded value that no supply audit reveals. Four guards therefore
 refused any value-bearing chain id outright: the node at startup, the genesis
 ceremony, both Terraform module sets, and a test pinning
-`CIRCUIT_IS_AUDITED = false`. That made mainnet wait on an audit nobody has
-the money for yet, while investors wait on mainnet.
+`CIRCUIT_IS_AUDITED = false`. That made mainnet wait on an external audit that
+does not exist yet.
 
 A pool that never runs cannot mint. The question is how to switch it off so
 that no operator can quietly switch it back on.

@@ -78,7 +78,7 @@ Eric in the session report.
 
 ## 2026-09-30 — Mainnet v1 launches without private transfers
 
-An investor will fund once mainnet is live. Eric chose "mainnet v1 without
+Eric chose "mainnet v1 without
 private transfers" over waiting for the full audit or launching as-is. The
 shielded pool stays off at genesis and turns on at a scheduled height after
 an audit. Launch gates, and three lanes for three sessions, are in
@@ -168,9 +168,8 @@ Eric chose all three recommended options:
 - **Gate 7:** a pre-audit package, free audit programmes applied for, and
   mainnet labelled "external audit pending".
 
-Why: investor money arrives only after three months of mainnet, so every
-gate waiting on people or money would have blocked the thing that pays for
-them. Each gap is written on the site, never relabelled away.
+Why: every gate waiting on outside parties would have blocked launch
+indefinitely. Each gap is written on the site, never relabelled away.
 
 ## 2026-10-10: Nemotron-week work kept only where evidence backs it
 
@@ -208,7 +207,7 @@ emission. Validators earn tips, and the base fee is burned (ADR-029). A reward
 schedule can be added only through a reviewed upgrade.
 
 Why: with nothing minted, nothing is created that an unaudited bug could
-inflate. It is also the simplest model to explain to a first investor.
+inflate.
 
 This was decided in conversation and never written down here, so the gate
 table showed it as open until today.

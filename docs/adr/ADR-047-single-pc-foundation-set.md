@@ -13,8 +13,7 @@ machines**: the PC plus free cloud VMs. It rejected putting all four on the
 PC, because one Windows restart would halt the chain and anyone looking
 would see one machine.
 
-The cloud half did not happen. Setting up Oracle Cloud was chaos for Eric,
-and there is no money for paid VMs. On 2026-10-11 Eric chose to launch from
+The cloud half did not happen. On 2026-10-11 Eric chose to launch from
 his PC alone: GitHub keeps the code, releases, CI and site, and more
 machines join after launch through the public join path (`join-testnet.sh`
 / `join-validator.ps1`, the Help-run guide).
