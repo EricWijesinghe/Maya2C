@@ -37,6 +37,10 @@ pub enum GuardError {
     KeyFolderMissing(PathBuf),
     /// The key file resolves outside the Hub's data folder (a link included).
     KeyOutsideDataDir(PathBuf),
+    /// The key file is readable or writable by someone other than its owner.
+    KeyOpenToOthers(PathBuf),
+    /// The key file belongs to another user.
+    KeyNotOwned(PathBuf),
     Io(String),
 }
 
@@ -71,6 +75,23 @@ impl fmt::Display for GuardError {
             Self::KeyOutsideDataDir(path) => write!(
                 f,
                 "key file {} must be inside the Hub's data folder",
+                path.display()
+            ),
+            #[cfg(unix)]
+            Self::KeyOpenToOthers(path) => write!(
+                f,
+                "key file {0} is readable or writable by other users; fix it with: chmod 600 {0}",
+                path.display()
+            ),
+            #[cfg(not(unix))]
+            Self::KeyOpenToOthers(path) => write!(
+                f,
+                "key file {} is readable or writable by accounts other than yours, SYSTEM and Administrators; remove those permissions",
+                path.display()
+            ),
+            Self::KeyNotOwned(path) => write!(
+                f,
+                "key file {} belongs to another user; copy it into your own account, then run chmod 600 on the copy",
                 path.display()
             ),
             Self::Io(message) => write!(f, "could not check the miner: {message}"),
@@ -181,18 +202,95 @@ pub fn pinned_hash(sums: &str, file: &str) -> Result<String, GuardError> {
     }
 }
 
-/// # Errors
-
-/// The miner the Hub may run, held open read-only until its child exits.
+/// The miner the Hub may run, held until its child exits.
 ///
-/// On Windows the handle takes `FILE_SHARE_READ` only, so a writer or deleter
-/// cannot open the file while this exists: the bytes hashed are the bytes run.
-/// On Unix the handle is kept, but a path replaced after open is not blocked
-/// (residual, see the session report).
+/// On Windows `path` is the bundled file and `file` takes `FILE_SHARE_READ`
+/// only, so a writer or deleter cannot open it while this exists.
+/// On Unix `path` is a private copy of the hashed bytes ([`stage_copy`]), so
+/// nothing done to the install folder after the check reaches the run.
 #[derive(Debug)]
 pub struct PinnedMiner {
     pub path: PathBuf,
     pub file: File,
+    #[cfg(unix)]
+    _scratch: Scratch,
+}
+
+/// The private folder holding the Unix copy; removed when the miner is dropped.
+#[cfg(unix)]
+#[derive(Debug)]
+struct Scratch(PathBuf);
+
+#[cfg(unix)]
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // Drop cannot report. The folder is ours and 0700, so a leftover is harmless.
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Writes the bytes that were hashed into a fresh 0700 folder in the temp dir,
+/// then re-hashes the copy. `create` refuses a name that already exists, so a
+/// folder someone planted there is an error, never reused.
+///
+/// shortcut: a fork on another thread during the copy can hold the write
+/// handle and make the exec fail with ETXTBSY; the start fails closed, retry it.
+#[cfg(unix)]
+fn stage_copy(bytes: &[u8], expected: &str) -> Result<(PathBuf, File, Scratch), GuardError> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let dir = std::env::temp_dir().join(format!("maya-hub-miner-{}-{nonce}", std::process::id()));
+    fs::DirBuilder::new().mode(0o700).create(&dir).map_err(io)?;
+    let scratch = Scratch(dir.clone());
+    let copy = dir.join(miner_file_name());
+    let mut out = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(&copy)
+        .map_err(io)?;
+    out.write_all(bytes).map_err(io)?;
+    drop(out);
+    let file = File::open(&copy).map_err(io)?;
+    let mut again = Vec::new();
+    (&file).read_to_end(&mut again).map_err(io)?;
+    let actual = sha256_hex(&again);
+    if actual != expected {
+        return Err(GuardError::HashMismatch {
+            expected: expected.to_string(),
+            actual,
+        });
+    }
+    Ok((copy, file, scratch))
+}
+
+/// Builds the handle the Hub runs. Windows keeps the locked install file.
+#[cfg(unix)]
+fn pin(
+    _path: PathBuf,
+    _file: File,
+    bytes: &[u8],
+    expected: &str,
+) -> Result<PinnedMiner, GuardError> {
+    let (path, file, scratch) = stage_copy(bytes, expected)?;
+    Ok(PinnedMiner {
+        path,
+        file,
+        _scratch: scratch,
+    })
+}
+
+#[cfg(not(unix))]
+fn pin(
+    path: PathBuf,
+    file: File,
+    _bytes: &[u8],
+    _expected: &str,
+) -> Result<PinnedMiner, GuardError> {
+    Ok(PinnedMiner { path, file })
 }
 
 /// Opens the miner for reading only, sharing reads and nothing else on Windows.
@@ -208,8 +306,8 @@ fn open_read_only(path: &Path) -> std::io::Result<File> {
     options.open(path)
 }
 
-/// The miner the Hub may run: the bundled copy whose SHA-256 matches `sums`,
-/// hashed through the same handle that is returned.
+/// The miner the Hub may run: the bundled copy whose SHA-256 matches `sums`.
+/// On Unix the returned path is a private copy of exactly the hashed bytes.
 ///
 /// # Errors
 ///
@@ -229,7 +327,7 @@ pub fn check_miner(requested: &str, install: &Path, sums: &str) -> Result<Pinned
     if actual != expected {
         return Err(GuardError::HashMismatch { expected, actual });
     }
-    Ok(PinnedMiner { path, file })
+    pin(path, file, &bytes, &expected)
 }
 
 /// The payout key file, which must sit inside `data`. A link there is
@@ -262,8 +360,51 @@ pub fn resolve_key_file(requested: &str, data: &Path) -> Result<PathBuf, GuardEr
         if !real.starts_with(&data) {
             return Err(GuardError::KeyOutsideDataDir(real));
         }
+        check_key_permissions(&real)?;
     }
     Ok(target)
+}
+
+/// Other users' access bits (group and other). Any set means someone else can
+/// read or write the key.
+#[cfg(unix)]
+const OTHERS_ACCESS_BITS: u32 = 0o077;
+
+/// Refuses a key file another user can read or write, or one this user does not own.
+#[cfg(unix)]
+fn check_key_permissions(path: &Path) -> Result<(), GuardError> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = fs::metadata(path).map_err(io)?;
+    let me = rustix::process::getuid().as_raw();
+    check_key_mode(path, meta.mode(), meta.uid(), me)
+}
+
+#[cfg(unix)]
+fn check_key_mode(path: &Path, mode: u32, owner: u32, me: u32) -> Result<(), GuardError> {
+    if owner != me {
+        return Err(GuardError::KeyNotOwned(path.to_path_buf()));
+    }
+    if mode & OTHERS_ACCESS_BITS != 0 {
+        return Err(GuardError::KeyOpenToOthers(path.to_path_buf()));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn check_key_permissions(path: &Path) -> Result<(), GuardError> {
+    match crate::key_acl::others_can_access(path) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(GuardError::KeyOpenToOthers(path.to_path_buf())),
+        Err(message) => Err(GuardError::Io(message)),
+    }
+}
+
+/// Fails closed where neither mode bits nor a DACL can be read.
+#[cfg(not(any(unix, windows)))]
+fn check_key_permissions(_path: &Path) -> Result<(), GuardError> {
+    Err(GuardError::Io(
+        "this platform cannot check key file permissions".into(),
+    ))
 }
 
 #[cfg(test)]
@@ -433,6 +574,87 @@ mod tests {
         make_file_link(&outside, &data.join("miner.key"));
         let err = resolve_key_file("miner.key", &data).unwrap_err();
         assert!(matches!(err, GuardError::KeyOutsideDataDir(_)), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_swapped_miner_after_the_check_does_not_change_what_runs() {
+        let (_base, install, sums) = bundle("swap");
+        let pinned = check_miner(&miner_file_name(), &install, &sums).expect("accepted");
+        // Rewrite the install copy after the check, by rename and in place.
+        let shipped = install.join(miner_file_name());
+        fs::remove_file(&shipped).unwrap();
+        fs::write(&shipped, b"evil miner").unwrap();
+        assert_ne!(
+            pinned.path, shipped,
+            "the run must not use the install file"
+        );
+        assert_eq!(fs::read(&pinned.path).unwrap(), b"fake miner");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_private_miner_copy_is_0700_and_removed_on_drop() {
+        use std::os::unix::fs::MetadataExt;
+        let (_base, install, sums) = bundle("cleanup");
+        let pinned = check_miner(&miner_file_name(), &install, &sums).expect("accepted");
+        let dir = pinned.path.parent().unwrap().to_path_buf();
+        assert_eq!(fs::metadata(&dir).unwrap().mode() & 0o777, 0o700);
+        assert_eq!(fs::metadata(&pinned.path).unwrap().mode() & 0o777, 0o700);
+        drop(pinned);
+        assert!(!dir.exists(), "the copy folder must go with the miner");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn key_file_readable_by_others_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = scratch("key-open");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        let key = data.join("miner.key");
+        fs::write(&key, b"secret").unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
+        let err = resolve_key_file("miner.key", &data).unwrap_err();
+        assert!(matches!(err, GuardError::KeyOpenToOthers(_)), "{err}");
+        assert!(err.to_string().contains("chmod 600"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn key_file_group_readable_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = scratch("key-group");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        let key = data.join("miner.key");
+        fs::write(&key, b"secret").unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o640)).unwrap();
+        let err = resolve_key_file("miner.key", &data).unwrap_err();
+        assert!(matches!(err, GuardError::KeyOpenToOthers(_)), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_only_key_file_is_accepted() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = scratch("key-private");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        let key = data.join("miner.key");
+        fs::write(&key, b"secret").unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
+        let path = resolve_key_file("miner.key", &data).expect("accepted");
+        assert_eq!(path, data.canonicalize().unwrap().join("miner.key"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn key_file_of_another_user_is_refused() {
+        let path = Path::new("/data/miner.key");
+        let err = check_key_mode(path, 0o100_600, 0, 1000).unwrap_err();
+        assert_eq!(err, GuardError::KeyNotOwned(path.to_path_buf()));
+        assert!(check_key_mode(path, 0o100_600, 1000, 1000).is_ok());
     }
 
     /// The miner hub-bundle shipped must pass the pin this build compiled in,
