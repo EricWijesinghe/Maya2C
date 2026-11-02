@@ -1,6 +1,6 @@
 ---
 title: FAQ
-description: Direct answers about Maya2C: what it is, which post-quantum algorithms it uses, how it reaches finality, mining, whether mainnet is live, the audit status, and how to run a node or a wallet.
+description: "Direct answers about Maya2C: what it is, which post-quantum algorithms it uses, how it reaches finality, mining, whether mainnet is live, the audit status, and how to run a node or a wallet."
 ---
 
 Each answer states today's status and links to the page with the detail.
