@@ -1,12 +1,18 @@
 # The one-line node installers (docs/site/authored/help-run.mdx), run for
-# real on each OS a helper might have: install from the newest testnet
-# release, wait until the node answers on its RPC (the snapshot loaded),
-# check `status`, then uninstall and check nothing is left running.
+# real on each OS a helper might have: install, wait until the node answers on
+# its RPC, check the sealed key's passphrase file (B51), then uninstall and
+# check nothing is left running.
 #
-# This joins the live maya-testnet-1 for a few minutes as an observer, the
-# same as any helper. It needs no secret and publishes nothing. It runs when
-# the installers change, weekly (a release can break them without touching
-# them), and on demand.
+# The jobs test the scripts, not the live network. They build the node and
+# wallet from this commit, mint a throwaway one-validator genesis
+# (scripts/join-devnet-genesis.sh), and install with MAYA2C_OFFLINE /
+# -Offline: no bootnode and no snapshot endpoint, so the public RPC being
+# stopped (HTTP 530) cannot fail them. Test-only overrides are documented at
+# the top of scripts/join-testnet.sh and infra/testnet-vm/join-validator.ps1.
+# The newest-release download and the public genesis are not exercised here.
+#
+# It needs no secret and publishes nothing. It runs when the installers
+# change, weekly, and on demand.
 name: join-scripts
 
 on:
@@ -14,6 +20,7 @@ on:
     paths:
       - scripts/join-testnet.sh
       - scripts/join-testnet.ps1
+      - scripts/join-devnet-genesis.sh
       - infra/testnet-vm/join-validator.ps1
       - .github/workflows/join-scripts.yml
   schedule:
@@ -31,18 +38,44 @@ jobs:
   unix:
     name: install on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14]
+    env:
+      MAYA2C_OFFLINE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: join-scripts
+      - name: Build the node and wallet from this commit
+        run: cargo build -p maya2c-node -p l1-wallet -j 4
+      - name: Throwaway devnet genesis
+        run: |
+          read -r path sum <<< "$(bash scripts/join-devnet-genesis.sh target/debug "$RUNNER_TEMP/devnet")"
+          echo "MAYA2C_GENESIS_URL=file://$path" >> "$GITHUB_ENV"
+          echo "MAYA2C_GENESIS_SHA256=$sum" >> "$GITHUB_ENV"
+          echo "MAYA2C_BINARY_DIR=$PWD/target/debug" >> "$GITHUB_ENV"
       - name: Install
         run: bash scripts/join-testnet.sh install
+      - name: Passphrase file is owner-only
+        run: |
+          p=/var/lib/maya2c/validator.pass
+          if [ "$(uname -s)" = Darwin ]; then p="/Library/Application Support/Maya2C/validator.pass"; fi
+          mode=$(sudo stat -c %a "$p" 2>/dev/null || sudo stat -f %Lp "$p")
+          echo "validator.pass mode $mode"
+          [ "$mode" = 600 ] || { echo "passphrase file is not mode 600"; exit 1; }
       - name: Node answers on its RPC
         run: |
-          for _ in $(seq 1 300); do   # 50 min: a first sync took ~40 (2026-10-12)
+          for _ in $(seq 1 36); do   # 6 min: a local genesis starts in seconds
             if maya2c-validator status | tee /tmp/status | grep -q 'block'; then
               cat /tmp/status; exit 0
             fi
@@ -63,9 +96,7 @@ jobs:
   windows:
     name: install on windows-latest
     runs-on: windows-latest
-    # Longer than the Unix jobs: on this runner testnet.3 spent ~33 min just
-    # downloading the chain (2026-10-13). The prefetch build shortens it.
-    timeout-minutes: 95
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # A non-elevated call relaunches itself as Administrator; every switch
@@ -83,20 +114,46 @@ jobs:
               if ($argv -notlike "*$want*") { throw "$ps did not forward $want" }
             }
           }
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: join-scripts
+      - name: Build the node and wallet from this commit
+        shell: pwsh
+        run: cargo build -p maya2c-node -p l1-wallet -j 4
+      - name: Throwaway devnet genesis
+        shell: bash
+        run: |
+          read -r path sum <<< "$(bash scripts/join-devnet-genesis.sh target/debug "$RUNNER_TEMP/devnet")"
+          echo "MAYA2C_GENESIS_URL=$(cygpath -w "$path")" >> "$GITHUB_ENV"
+          echo "MAYA2C_GENESIS_SHA256=$sum" >> "$GITHUB_ENV"
+          echo "MAYA2C_BINARY_DIR=$(cygpath -w "$PWD/target/debug")" >> "$GITHUB_ENV"
       - name: Install
         shell: pwsh
-        run: ./infra/testnet-vm/join-validator.ps1 -Silent -IAmTheMachineOwner
+        run: |
+          ./infra/testnet-vm/join-validator.ps1 -Silent -IAmTheMachineOwner -Offline `
+            -BinaryDir $env:MAYA2C_BINARY_DIR -GenesisUrl $env:MAYA2C_GENESIS_URL `
+            -GenesisSha256 $env:MAYA2C_GENESIS_SHA256
+      - name: Passphrase file is locked to SYSTEM and Administrators
+        shell: pwsh
+        run: |
+          $p = 'C:\ProgramData\Maya2C\validator.pass'
+          $acl = Get-Acl $p
+          if (-not $acl.AreAccessRulesProtected) { throw 'inherited access is still on' }
+          $ids = @($acl.Access | ForEach-Object { $_.IdentityReference.Value } | Sort-Object)
+          "identities: $($ids -join ', ')"
+          if (($ids -join ';') -ne 'BUILTIN\Administrators;NT AUTHORITY\SYSTEM') { throw "unexpected access: $($ids -join ', ')" }
       - name: Node answers on its RPC
         shell: pwsh
         run: |
           $helper = 'C:\Program Files\Maya2C\maya2c-validator.ps1'
-          foreach ($i in 1..480) {   # 80 min
+          foreach ($i in 1..36) {   # 6 min: a local genesis starts in seconds
             # Status prints with Write-Host (the information stream): *>&1
             # brings it into the pipeline, or Out-String sees nothing.
             $out = & $helper -Status *>&1 | Out-String
             if ($out -match 'block') { $out; exit 0 }
-            # Progress every 5 min, so a cancelled job still shows where it was.
-            if ($i % 30 -eq 0) { "--- $([int]($i / 6)) min"; $out; Get-Content 'C:\ProgramData\Maya2C\logs\node.log' -Tail 3 }
             Start-Sleep 10
           }
           $out
@@ -110,3 +167,4 @@ jobs:
           if (Get-Process maya2c-node -ErrorAction SilentlyContinue) { throw 'maya2c-node still running' }
           if (Test-Path 'C:\Program Files\Maya2C') { throw 'program folder left behind' }
           if (Get-ScheduledTask -TaskName 'Maya2C Validator' -ErrorAction SilentlyContinue) { throw 'task left behind' }
+          if (Test-Path 'C:\ProgramData\Maya2C\validator.pass') { throw 'passphrase file left behind' }

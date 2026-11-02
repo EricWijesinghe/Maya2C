@@ -171,7 +171,7 @@ Detail: [docs/architecture-vision.md](docs/architecture-vision.md); ordering:
 
 Four PLANNED items collide with recorded invariants and must be reconciled
 *before* code: the bytecode hot-patcher (13), relativistic clock sync and
-satellite/light-cone consensus (9), TEE attestation (11).
+satellite/light-cone consensus (9), TEE attestation (no numbered invariant yet; invariant 11 is the oracle rule).
 
 ## Critical Invariants
 

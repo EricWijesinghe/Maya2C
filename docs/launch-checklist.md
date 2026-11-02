@@ -3,6 +3,11 @@
 What was built, what was verified, and what still blocks a value-bearing
 launch.
 
+**Rejoin guard (B49).** Validators restarted after the unbonding window with no confirming
+head need `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is only for a
+network halted longer than the window, or a genesis signed long before launch. Details:
+`docs/GENESIS.md` and `docs/runbooks/hybrid-testnet-hardening.md` section 4.
+
 ---
 
 ## The block is still in place, and nothing here lifted it
@@ -255,39 +260,48 @@ fatal, per `deny.toml`'s `unmaintained = "workspace"`.
 
 ## Outstanding before a value-bearing launch
 
-1. **Independent audit of the joinsplit AIR.** The block above. Everything
-   else is downstream of it.
-2. **Compile `docs/reference.tex`.** Generated, never built.
-3. **Replace every placeholder in `infra/k8s/deploy.yaml`.**
-4. **Move the ceremony's `*.secret` files to their custodians** and remove them
-   from the generating host.
-5. **Kotlin and Swift SDK bindings are generated but never compiled** — see
-   `docs/sdk.md`.
-6. **The dual-KEM transport stays `off`** until the three conditions in
-   `docs/pq-transport.md` hold.
-7. **The faucet must never be pointed at a value-bearing chain.** It refuses,
-   but the deployment should not be the thing testing that.
-8. **`cuda-miner` has no telemetry export.** Its `argon_blake_hash` is a
-   single-hash function with no loop of its own to meter; the loop lives in
-   whatever calls it. `wgpu-miner --benchmark` is the only path that currently
-   produces a real GPU hash rate, and it is a benchmark rather than mining —
-   there is no header from a node, no target to meet, and nothing is submitted.
-9. **The header and state-root changes are an unreleased hard fork.** Blocks
-   now commit to their transactions (`tx_root`, header 112 -> 144 bytes), the
-   chain checks every declared `state_root`, and the root folds contract state,
-   the nullifier set and the whole shielded pool. Every node on a network runs
-   the same build or splits, and the genesis block id recorded above predates
-   it. See invariants 24 and 25.
-10. **Pruning is off by default; Arweave upload is the one edge left open.**
-    The IPFS path is verified against a real kubo daemon
-    (`crates/archive/tests/kubo_live.rs`: import, pin, export, verify), and the CAR
-    decoder's property is covered on every platform by a seeded randomized test
-    as well as by the fuzz target, which still needs Linux or macOS. Arweave
-    upload stays unimplemented on purpose: it spends AR per byte and cannot be
-    tested without spending. See [pruning.md](pruning.md).
-11. **The Ledger app is a feasibility spike, not a product.** Its Speculos suite
-    ships unrun and no device or emulator exists here. See
-    [ledger-feasibility.md](ledger-feasibility.md).
-12. **`wgpu-miner` still has no work-distribution loop.** The meter is wired
-   into `GpuMiner::mixes`, where the GPU work happens, so it is already correct
-   when that loop lands — but no `wgpu-miner` process mines a block today.
+Status as of 2026-11-03, checked against `origin/master` 9cdb74e8. Labels:
+**OPEN** (no evidence of closure), **PARTLY** (some closed, remainder named),
+**HOLDS** (still true, not an action item). Nothing here is ticked without
+evidence. Owner-only steps are marked as such.
+
+1. **OPEN. Independent audit of the joinsplit AIR.** `CIRCUIT_IS_AUDITED = false`
+   (`crates/zk-stark/src/pool/mod.rs`). The shielded pool is off at proving
+   genesis, and genesis-check refuses it on (#326, `5bfcd0f4`). That is a guard,
+   not an audit. See the block above.
+2. **OPEN. Compile `docs/reference.tex`.** No workflow in `.github/workflows/`
+   builds it.
+3. **OPEN. Replace every placeholder in `infra/k8s/deploy.yaml`.** Five
+   `REPLACE_WITH_*` / `REPLACE_WITH_DIGEST` markers remain (lines 63, 64, 82,
+   119, 257).
+4. **OPEN, owner action. Move the ceremony's `*.secret` files to their
+   custodians.** No `*.secret` file is tracked in git (`git ls-files`). No record
+   of the custodian hand-off exists in the repo.
+5. **OPEN. Kotlin and Swift SDK bindings are generated but never compiled.**
+   No `kotlinc` or Swift job in `.github/workflows/`; `docs/sdk.md` still states
+   the gap.
+6. **HOLDS. The dual-KEM transport stays `off`.** `DualKemPolicy::default()` is
+   `Disabled` (`docs/pq-transport.md`, "shipped disabled"). The three rollout
+   conditions in that file are not evidenced as met.
+7. **PARTLY. The faucet must never be pointed at a value-bearing chain.** Code
+   refusal is done: `apps/faucet/src/lib.rs:314`
+   (`a_faucet_refuses_to_exist_on_a_value_bearing_chain`). The deployment-side
+   rule is not evidenced.
+8. **OPEN. `cuda-miner` has no telemetry export.** `hal/cuda-miner` contains no
+   `telemetry` symbol or metering. Unchanged.
+9. **OPEN, unreleased hard fork. Header and state-root changes.** Number
+   corrected: `HEADER_LEN` is **145** bytes (`crates/node/src/core/block.rs:174`;
+   the extra byte is the ADR-063 header version), not 144. Not released; the
+   genesis block id above predates it. See invariants 24 and 25.
+10. **HOLDS, by design. Pruning off by default; Arweave upload left open.**
+    An archive node prunes nothing by default (`docs/pruning.md`). Arweave upload
+    is refused on purpose (`crates/archive/src/arweave.rs`, test
+    `upload_is_refused_rather_than_spending_on_the_operators_behalf`). The IPFS
+    path is unchanged.
+11. **PARTLY. The Ledger app is a feasibility spike.** The Speculos suite has
+    run: 8 of 8 on Nano S Plus and 8 of 8 on Nano X, API level 27
+    (`docs/ledger-feasibility.md`, "Speculos: what ran"). Stax and Flex are built
+    but not driven. Speculos is not in CI. Still a spike, not a product.
+12. **OPEN. `wgpu-miner` has no work-distribution loop.** The meter is wired into
+    `GpuMiner::mixes` (`hal/wgpu-miner/src/gpu.rs`). No code submits work to a
+    node; the `submit` calls found are wgpu queue submissions.

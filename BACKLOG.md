@@ -136,8 +136,22 @@ band; move an item to PROGRESS.md when it starts.
 - MP24: guest traps mapped to source lines (needs a backtrace out of the
   consensus execution path without changing results).
 - MP22/MP29/MP24 usability and developer studies — need participants (Eric).
+- [ ] **Ship gate for any swap UI or SDK helper (B38, 2026-11-01):** `min_out`
+  comes from an exact-in quote at current reserves with a default 1% slippage
+  cap, and a near-zero `min_out` is refused unless the caller asks for it
+  explicitly. Why: a split flood clears every intent at one crushed uniform
+  price, and `min_out = 1` accepts it
+  (`a_split_flood_fills_an_honest_seller_at_the_same_batch_price`); a real
+  bound gets the seller refunded whole
+  (`an_honest_seller_with_a_real_bound_is_refunded_not_crushed`), both in
+  `crates/node/tests/dex_tests.rs` (#308). No user path sends a swap at
+  launch: `compose_swap` has no GUI or Tauri caller.
 
 ## P5 — differentiators
+
+- [ ] **Omega design (Eric 2026-11-02)**: [MIP-0002](docs/mip/MIP-0002-omega-durable-advantage.md), decisions O1–O4 approved in [ADR-078](docs/adr/ADR-078-omega-durable-advantage.md). Ω1 test ratchet can start now (CI only); Ω2–Ω5 after mainnet (moat indicators, controller framework, vote-activated upgrades, seeded evolution in `econ`).
+
+- [ ] **Sentinel Recovery Network (Eric 2026-11-02)**: threat levels, per-cell quarantine, forward-only governed recovery. Design: [MIP-0001](docs/mip/MIP-0001-sentinel-recovery-network.md), ADR-077 Accepted (Eric approved D1–D7, 2026-11-02). Roadmap R1–R7 after mainnet, starting with the cell model and settlement gateway (R1).
 
 Eric 2026-10-29: build all of these after mainnet (each needs a dated `docs/prior-art/` search before any "first" claim, and an ADR):
 - [ ] **Decentralization-aware rewards**: per-epoch Nakamoto coefficient / Gini from `staking/concentration.rs`; rewards tilt toward small validators and miners when control concentrates.

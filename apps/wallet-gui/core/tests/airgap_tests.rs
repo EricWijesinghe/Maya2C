@@ -85,6 +85,7 @@ fn sign_transfer(
             fee_to: None,
             nonce,
             chain,
+            allow_high_fee: false,
         },
     )
 }
