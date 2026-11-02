@@ -23,6 +23,12 @@
 # Options (environment): MAYA_HOME (where keys and chain data live),
 # MAYA_NO_SERVICE=1 to install without a service, MAYA_RPC_PORT (default 8545).
 #
+# Test-only overrides (CI and local devnets, never a real join): MAYA2C_OFFLINE=1
+# drops the bootnode and snapshot endpoint, so the node starts from the genesis
+# alone; MAYA2C_GENESIS_URL and MAYA2C_GENESIS_SHA256 point at another genesis
+# (a file:// URL works); MAYA2C_BINARY_DIR installs binaries from a local build
+# instead of the newest release.
+#
 # It never prints or sends a secret. Re-running it upgrades the binary and
 # leaves the keys and the chain data alone.
 #
@@ -31,10 +37,13 @@ set -euo pipefail
 
 REPO="EricWijesinghe/Maya2C"
 SCRIPT_URL="https://raw.githubusercontent.com/$REPO/master/scripts/join-testnet.sh"
-GENESIS_URL="https://maya2c.dev/testnet/genesis.json"
-GENESIS_SHA256="dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d"
+GENESIS_URL="${MAYA2C_GENESIS_URL:-https://maya2c.dev/testnet/genesis.json}"
+GENESIS_SHA256="${MAYA2C_GENESIS_SHA256:-dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d}"
 BOOTNODE="/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB"
 BOOTSTRAP="https://bootstrap.maya2c.dev/rpc"
+BINARY_DIR="${MAYA2C_BINARY_DIR:-}"
+# Empty means "no bootnode, no snapshot endpoint"; node_args then omits the flags.
+if [ -n "${MAYA2C_OFFLINE:-}" ]; then BOOTNODE=""; BOOTSTRAP=""; fi
 PUBLIC_RPC="https://rpc.maya2c.dev/rpc"
 APPLY_URL="https://github.com/$REPO/issues/new?template=validator-application.yml"
 RPC_PORT="${MAYA_RPC_PORT:-8545}"  # loopback only: the node's RPC is unauthenticated
@@ -115,6 +124,13 @@ find_release() {
 
 install_binaries() {
   local target tag base want have
+  if [ -n "$BINARY_DIR" ]; then
+    say "Step 1 of 4 — using the binaries in $BINARY_DIR (MAYA2C_BINARY_DIR, test only)"
+    $SUDO mkdir -p "$BIN_DIR"
+    $SUDO install -m 755 "$BINARY_DIR/maya2c-node" "$BINARY_DIR/l1-wallet" "$BIN_DIR/"
+    ok "installed maya2c-node and l1-wallet in $BIN_DIR"
+    return
+  fi
   target=$(release_target)
   tag=$(find_release "$target")
   say "Step 1 of 4 — downloading Maya2C $tag"
@@ -182,10 +198,14 @@ node_args() {
   # Paths are quoted: the run script word-splits this line, and macOS keeps
   # its data under "/Library/Application Support".
   printf '%s\n' --genesis "\"$HOME_DIR/genesis.json\"" --data-dir "\"$DATA\"" \
-    --validator-key "\"$KEY\"" --rpc-addr "127.0.0.1:$RPC_PORT" --bootnode "$BOOTNODE" \
-    --prune-depth "$PRUNE_DEPTH" --bootstrap-from "$BOOTSTRAP" --catch-up-from "$BOOTSTRAP"
-  # --bootstrap-from loads a snapshot into an empty data dir only; the node
-  # ignores it once a chain is there, so the service can always pass it.
+    --validator-key "\"$KEY\"" --rpc-addr "127.0.0.1:$RPC_PORT" \
+    --prune-depth "$PRUNE_DEPTH"
+  if [ -n "$BOOTNODE" ]; then printf '%s\n' --bootnode "$BOOTNODE"; fi
+  if [ -n "$BOOTSTRAP" ]; then
+    # --bootstrap-from loads a snapshot into an empty data dir only; the node
+    # ignores it once a chain is there, so the service can always pass it.
+    printf '%s\n' --bootstrap-from "$BOOTSTRAP" --catch-up-from "$BOOTSTRAP"
+  fi
 }
 
 # B49: every service start (boot, crash restart, update) runs this wrapper, which
@@ -332,6 +352,9 @@ install_helper() {
 cmd_install() {
   need curl; need tar
   printf '\n\033[1mMaya2C testnet node — installer\033[0m\n'
+  if [ -n "${MAYA2C_OFFLINE:-}${MAYA2C_GENESIS_URL:-}${MAYA2C_BINARY_DIR:-}" ]; then
+    note "TEST MODE: MAYA2C_OFFLINE / MAYA2C_GENESIS_URL / MAYA2C_BINARY_DIR is set. Not a real join."
+  fi
   note "This installs a background program that helps run the Maya2C test network."
   note "Testnet coins have no value. You can remove everything with: maya2c-validator uninstall"
   [ -n "$SUDO" ] && note "Your computer password may be asked for. Nothing shows while you type it — that is normal."
