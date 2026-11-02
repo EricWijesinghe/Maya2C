@@ -5,7 +5,7 @@
 use maya_chat::ChatError;
 use maya_chat::client::{Client, ENVELOPE_TTL, Frame};
 use maya_chat::identity::Identity;
-use maya_chat::outbox::{MAX_ENTRIES, RECEIPT_DELAY_MAX};
+use maya_chat::outbox::{MAX_ENTRIES, MAX_EXPIRED, RECEIPT_DELAY_MAX};
 use maya_chat::receipt;
 use maya_chat::relay::{Envelope, MAX_ENVELOPE_BYTES, Payload, Relay, fetch_bytes};
 use maya_chat::session;
@@ -272,12 +272,49 @@ fn a_queued_message_survives_a_restart_and_is_sent_with_the_same_id() {
 }
 
 #[test]
-fn an_entry_past_its_ttl_is_expired_not_retried_and_dismissable() {
+fn an_entry_past_its_ttl_moves_to_the_expired_record_and_is_dismissable() {
     let mut a = Client::new(alice());
     let id = queue(&mut a, b"late", NOW);
     let week = NOW + ENVELOPE_TTL;
-    assert!(a.expired(&id, week));
-    assert!(a.due(week).is_empty());
-    assert!(a.dismiss(&id));
+    assert!(a.due(week).is_empty(), "never retried once expired");
+    a.sweep(week);
     assert!(a.pending(&id).is_none());
+    assert_eq!(
+        a.expired_entries().map(|(i, _)| *i).collect::<Vec<_>>(),
+        vec![id]
+    );
+    assert!(a.dismiss(&id));
+    assert_eq!(a.expired_entries().count(), 0);
+}
+
+#[test]
+fn a_thousand_expired_entries_do_not_lock_out_sending() {
+    let mut a = Client::new(alice());
+    // Queued one second apart, so the expiry order is known.
+    let first = queue(&mut a, b"0", NOW);
+    let mut ids = vec![first];
+    for i in 1..MAX_ENTRIES {
+        let at = NOW + i as u64;
+        ids.push(
+            a.queue(bob().address(), None, format!("{i}").as_bytes(), at, 1)
+                .unwrap(),
+        );
+    }
+    assert_eq!(a.outbox().count(), MAX_ENTRIES);
+
+    // Every one has expired by then; a new send must still go through.
+    let later = NOW + ENVELOPE_TTL + MAX_ENTRIES as u64;
+    let fresh = a.queue(bob().address(), None, b"after", later, 1).unwrap();
+    assert_eq!(a.outbox().count(), 1, "only the new send is pending");
+    assert!(a.pending(&fresh).is_some());
+    assert_eq!(
+        a.expired_entries().count(),
+        MAX_EXPIRED,
+        "the newest are kept"
+    );
+    assert!(
+        a.expired_entries().all(|(id, _)| *id != first),
+        "oldest dropped"
+    );
+    assert!(a.expired_entries().any(|(id, _)| id == ids.last().unwrap()));
 }

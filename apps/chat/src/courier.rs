@@ -79,6 +79,7 @@ pub async fn flush(
     relay: &Multiaddr,
     now: u64,
 ) -> Result<Vec<([u8; 32], Result<(), ChatError>)>, ChatError> {
+    client.sweep(now);
     let due = client.due(now);
     if due.is_empty() {
         return Ok(Vec::new());

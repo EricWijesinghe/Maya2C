@@ -3,7 +3,7 @@
 //! Transport-agnostic, so the same client runs over an in-process relay in
 //! tests and over libp2p in [`crate::net`].
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::identity::{Identity, PrekeyBundle};
-use crate::outbox::{self, Pending};
+use crate::outbox::{self, Expired, Pending};
 use crate::receipt;
 use crate::relay::{Envelope, MAX_ENVELOPE_VERSION, Payload};
 use crate::session::{self, MAX_HANDSHAKE_AGE, Session};
@@ -77,6 +77,8 @@ struct State {
     receipts_off: BTreeSet<Address>,
     #[serde(default = "v1")]
     send_version: u8,
+    #[serde(default)]
+    expired: VecDeque<([u8; 32], Expired)>,
 }
 
 /// One identity's sessions, outbox and receipt state.
@@ -100,6 +102,9 @@ pub struct Client {
     receipts_off: BTreeSet<Address>,
     /// Envelope version for new messages, 1 unless raised.
     send_version: u8,
+    /// Messages that expired unreceipted, newest last, at most
+    /// [`outbox::MAX_EXPIRED`]. Kept for the user; not counted in the outbox.
+    expired: VecDeque<([u8; 32], Expired)>,
 }
 
 impl Client {
@@ -115,6 +120,7 @@ impl Client {
             receipts: true,
             receipts_off: BTreeSet::new(),
             send_version: v1(),
+            expired: VecDeque::new(),
         }
     }
 
@@ -138,6 +144,7 @@ impl Client {
             receipts: self.receipts,
             receipts_off: self.receipts_off.clone(),
             send_version: self.send_version,
+            expired: self.expired.clone(),
         };
         let mut plain = Zeroizing::new(Vec::new());
         ciborium::into_writer(&state, &mut *plain).map_err(|_| ChatError::Encoding)?;
@@ -183,6 +190,7 @@ impl Client {
             receipts: state.receipts,
             receipts_off: state.receipts_off,
             send_version: state.send_version,
+            expired: state.expired,
         })
     }
 
@@ -356,6 +364,7 @@ impl Client {
     ///
     /// The first receipt that could not be sealed or queued.
     pub fn end_pass(&mut self, now: u64) -> Result<(), ChatError> {
+        self.sweep(now);
         let peers: Vec<Address> = self.owed.keys().copied().collect();
         let mut first_error = None;
         for peer in peers {
@@ -423,6 +432,7 @@ impl Client {
         now: u64,
         version: u8,
     ) -> Result<[u8; 32], ChatError> {
+        self.sweep(now);
         let had_session = self.sessions.contains_key(&to);
         let envelope = self.seal_as(to, bundle, text, now, version)?;
         let size = envelope.encode()?.len();
@@ -528,18 +538,51 @@ impl Client {
         self.outbox.get(id)
     }
 
-    /// Whether `id` has expired unreceipted. Expired entries are kept and
-    /// shown; [`Client::dismiss`] removes one the user has seen.
-    #[must_use]
-    pub fn expired(&self, id: &[u8; 32], now: u64) -> bool {
-        self.outbox
-            .get(id)
-            .is_some_and(|p| now >= p.first_at + ENVELOPE_TTL)
+    /// Moves every entry past its TTL out of the outbox into the expired
+    /// record, which keeps the newest [`outbox::MAX_EXPIRED`]. Runs before
+    /// every queue and at each send pass, so the outbox bound counts only
+    /// pending messages. Expired receipts are dropped: no user sees them.
+    pub fn sweep(&mut self, now: u64) {
+        let mut stale: Vec<[u8; 32]> = self
+            .outbox
+            .iter()
+            .filter(|(_, p)| now >= p.first_at + ENVELOPE_TTL)
+            .map(|(id, _)| *id)
+            .collect();
+        // Oldest first, so the record keeps the newest when it overflows.
+        stale.sort_by_key(|id| (self.outbox[id].first_at, *id));
+        for id in stale {
+            let Some(entry) = self.outbox.remove(&id) else {
+                continue;
+            };
+            if entry.receipt {
+                continue;
+            }
+            self.expired.push_back((
+                id,
+                Expired {
+                    to: entry.to,
+                    first_at: entry.first_at,
+                },
+            ));
+            while self.expired.len() > outbox::MAX_EXPIRED {
+                self.expired.pop_front();
+            }
+        }
     }
 
-    /// Removes an outbox entry, for an expired one the user has seen.
+    /// Messages that expired unreceipted, oldest first, for the user to see.
+    pub fn expired_entries(&self) -> impl Iterator<Item = (&[u8; 32], &Expired)> {
+        self.expired.iter().map(|(id, e)| (id, e))
+    }
+
+    /// Removes `id` from the outbox or the expired record, once the user has
+    /// seen it. Returns whether anything was removed.
     pub fn dismiss(&mut self, id: &[u8; 32]) -> bool {
-        self.outbox.remove(id).is_some()
+        let before = self.expired.len();
+        self.expired.retain(|(known, _)| known != id);
+        let dropped = self.expired.len() != before;
+        self.outbox.remove(id).is_some() || dropped
     }
 
     /// Turns receipts on or off for everyone (ADR-074, decision 3). Off still

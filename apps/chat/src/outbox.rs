@@ -23,6 +23,19 @@ pub const JITTER_PCT: i64 = 20;
 /// app was opened (ADR-074, decision 3).
 pub const RECEIPT_DELAY_MAX: u64 = 30;
 
+/// Most expired messages kept for the user to see and dismiss. Older ones
+/// are dropped: expired entries never count against [`MAX_ENTRIES`].
+pub const MAX_EXPIRED: usize = 100;
+
+/// An expired, unreceipted message: what the user is shown after its TTL.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Expired {
+    /// Recipient.
+    pub to: Address,
+    /// When it was first queued, Unix seconds.
+    pub first_at: u64,
+}
+
 /// One sealed envelope awaiting its receipt, or a receipt awaiting relay.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pending {
