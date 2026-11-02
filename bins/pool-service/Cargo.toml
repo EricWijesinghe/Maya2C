@@ -48,6 +48,9 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # Tokio `TcpStream` implements Tokio's. This is the adapter between them, and
 # the only reason the dependency is here.
 tokio-util = { version = "0.7", features = ["compat"] }
+# TCP keepalive on miner sockets, which tokio does not expose. Tokio itself depends on
+# it, so the lock file already has it.
+socket2.workspace = true
 futures.workspace = true
 
 axum = { workspace = true, features = ["ws", "macros"] }

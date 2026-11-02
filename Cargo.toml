@@ -464,6 +464,9 @@ sha2 = "0.10"
 # Verified on 0.11: `iot-anchor`'s 13 tests pass and it still builds for
 # thumbv8m.main-none-eabihf and riscv32imc-unknown-none-elf.
 sha3 = { version = "0.11", default-features = false }
+# Socket options tokio does not expose: TCP keepalive on miner sockets. Already in
+# the lock file through tokio, so this adds no new crate to the tree.
+socket2 = "0.6"
 tempfile = "3"
 thiserror = "2.0"
 tokio = "1"

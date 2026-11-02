@@ -36,6 +36,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use futures::{AsyncReadExt, AsyncWriteExt};
+use socket2::{SockRef, TcpKeepalive};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
@@ -97,6 +98,35 @@ const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 /// silence is a rig that has stopped. Its channel and nonce range go back to
 /// the pool rather than sitting reserved.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Quiet time before the kernel starts probing an authenticated miner's socket.
+///
+/// Keepalive reaps a peer that vanished without a FIN (a rig unplugged, a NAT
+/// entry gone). Without it that socket waits the full `IDLE_TIMEOUT`. These are
+/// conventional values, not measured on this pool.
+// shortcut: keepalive timings are unmeasured defaults, revisit with real NAT-drop data
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(60);
+
+/// Gap between keepalive probes once the first one is unanswered.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Invalid-share budget closures from one address before it is refused at accept.
+///
+/// A peer that spends its budget reconnects at once and costs a full DAG
+/// verification per invalid share. After this many closures the address is
+/// refused before its handshake, which costs the pool nothing.
+const STRIKE_LIMIT: u32 = 3;
+
+/// Quiet time after the last strike before an address is admitted again.
+///
+/// Strikes decay: an address that stops misbehaving is forgotten. A refused
+/// address gets no new strikes, so its refusal ends this long after its last one.
+const STRIKE_WINDOW: Duration = Duration::from_secs(600);
+
+/// Addresses tracked for strikes. Beyond this the stalest entry is forgotten.
+///
+/// Bounds memory when a flood of addresses each takes a single strike.
+const STRIKE_BOOK_MAX: usize = 10_000;
 
 /// Longest a frame's payload may take to arrive once its header has.
 ///
@@ -219,54 +249,6 @@ fn take_connect_token(buckets: &mut HashMap<IpAddr, Bucket>, key: IpAddr, now: I
 /// batches instead.
 const REFUSAL_LOG_INTERVAL: Duration = Duration::from_secs(10);
 
-/// Open connections per peer address, for one of the two per-address budgets.
-///
-/// Keyed by full IP address, so an IPv6 peer can rotate within a /64 to get
-/// fresh budgets.
-// shortcut: full-address keys; upgrade to a prefix key if /64 rotation is seen.
-type PerIpCounts = Arc<Mutex<HashMap<IpAddr, usize>>>;
-
-/// One connection's claim on a per-address budget, released when it is dropped.
-///
-/// Held by the connection task, so every way that task can end (a clean close,
-/// an error, a panic unwinding, an abort) gives the slot back.
-struct IpSlot {
-    counts: PerIpCounts,
-    ip: IpAddr,
-}
-
-impl IpSlot {
-    /// Claims a slot for `ip`, or `None` if that address already has `cap` open.
-    fn claim(counts: &PerIpCounts, ip: IpAddr, cap: usize) -> Option<Self> {
-        let mut map = counts.lock().unwrap_or_else(PoisonError::into_inner);
-        let open = map.entry(ip).or_insert(0);
-        if *open >= cap {
-            return None;
-        }
-        *open += 1;
-        Some(Self {
-            counts: Arc::clone(counts),
-            ip,
-        })
-    }
-}
-
-impl Drop for IpSlot {
-    fn drop(&mut self) {
-        let mut map = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
-        let remaining = match map.get_mut(&self.ip) {
-            Some(open) => {
-                *open = open.saturating_sub(1);
-                *open
-            }
-            None => return,
-        };
-        if remaining == 0 {
-            map.remove(&self.ip);
-        }
-    }
-}
-
 /// Counts refused or closed connections and decides when the count is worth a line.
 #[derive(Debug, Default)]
 struct ThrottledLog {
@@ -297,7 +279,21 @@ impl ThrottledLog {
 /// Tokio's default backlog refused connects in bursts (`os error 10061` in
 /// `pool-load` with 10,000 miners). A burst is ordinary when miners reconnect
 /// after a restart, so the queue is sized for it.
-const LISTEN_BACKLOG: u32 = 4_096;
+const LISTEN_BACKLOG: i32 = 4_096;
+
+/// The `listen` argument for [`LISTEN_BACKLOG`].
+///
+/// Windows clamps a positive backlog to 200, which is why connects were refused
+/// in bursts. A negative value is Winsock's SOMAXCONN_HINT: it requests that
+/// many, clamped to [200, 65535]. Measured with `kernel_backlog_limits_*` in
+/// `tests/socket_e2e.rs`.
+fn listen_backlog() -> i32 {
+    if cfg!(windows) {
+        -LISTEN_BACKLOG
+    } else {
+        LISTEN_BACKLOG
+    }
+}
 
 /// Accepted shares acknowledged in one `SubmitSharesSuccess`.
 ///
@@ -339,16 +335,20 @@ pub struct PoolServer {
     pub address: SocketAddr,
 }
 
-/// Pre-auth connections per address, oldest first, each with the signal that evicts it.
+/// Live connections per address, oldest first, each with the signal that evicts it.
+///
+/// Used twice: for pre-auth connections (the per-address handshake budget) and
+/// for authenticated ones (the operator's per-address cap). Both evict the
+/// oldest entry when an address is at its cap, so a newcomer is never refused.
 #[derive(Default)]
-struct PreAuthRegistry {
+struct ConnectionRegistry {
     by_ip: HashMap<IpAddr, VecDeque<(u64, oneshot::Sender<()>)>>,
     next_id: u64,
 }
 
-impl PreAuthRegistry {
-    /// Admits one pre-auth connection. At `cap`, the address's oldest pre-auth
-    /// connection is evicted first, so a newcomer is never the one refused.
+impl ConnectionRegistry {
+    /// Admits one connection. At `cap`, the address's oldest connection is
+    /// evicted first, so a newcomer is never the one refused.
     ///
     /// Returns the new entry's id, its eviction signal, and whether an older
     /// connection was evicted to make room.
@@ -386,20 +386,79 @@ impl PreAuthRegistry {
     }
 }
 
-type PreAuth = Arc<Mutex<PreAuthRegistry>>;
+type Registry = Arc<Mutex<ConnectionRegistry>>;
 
-/// One pre-auth connection's entry, removed when it is dropped.
-struct PreAuthSlot {
-    registry: PreAuth,
+/// One connection's entry in a [`ConnectionRegistry`], removed when it is dropped.
+struct RegistrySlot {
+    registry: Registry,
     ip: IpAddr,
     id: u64,
 }
 
-impl Drop for PreAuthSlot {
+impl Drop for RegistrySlot {
     fn drop(&mut self) {
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         registry.release(self.ip, self.id);
     }
+}
+
+/// Invalid-share budget closures per address, decaying with time.
+#[derive(Default)]
+struct StrikeBook {
+    by_ip: HashMap<IpAddr, Strikes>,
+}
+
+/// One address's strikes and when the last one landed.
+#[derive(Clone, Copy)]
+struct Strikes {
+    count: u32,
+    last: Instant,
+}
+
+impl StrikeBook {
+    /// Records one budget closure from `ip`. A gap longer than `STRIKE_WINDOW`
+    /// starts the count again.
+    fn record(&mut self, ip: IpAddr, now: Instant) {
+        if !self.by_ip.contains_key(&ip) && self.by_ip.len() >= STRIKE_BOOK_MAX {
+            self.by_ip.retain(|_, strikes| !expired(strikes, now));
+            if self.by_ip.len() >= STRIKE_BOOK_MAX {
+                let stalest = self
+                    .by_ip
+                    .iter()
+                    .min_by_key(|(_, strikes)| strikes.last)
+                    .map(|(ip, _)| *ip);
+                if let Some(stalest) = stalest {
+                    self.by_ip.remove(&stalest);
+                }
+            }
+        }
+        let entry = self.by_ip.entry(ip).or_insert(Strikes { count: 0, last: now });
+        if expired(entry, now) {
+            entry.count = 0;
+        }
+        entry.count = entry.count.saturating_add(1);
+        entry.last = now;
+    }
+
+    /// `true` while `ip` has `STRIKE_LIMIT` strikes inside the window.
+    fn refuses(&self, ip: IpAddr, now: Instant) -> bool {
+        self.by_ip
+            .get(&ip)
+            .is_some_and(|strikes| strikes.count >= STRIKE_LIMIT && !expired(strikes, now))
+    }
+}
+
+/// `true` once `STRIKE_WINDOW` has passed since the last strike.
+fn expired(strikes: &Strikes, now: Instant) -> bool {
+    now.saturating_duration_since(strikes.last) >= STRIKE_WINDOW
+}
+
+/// Asks the kernel to probe an idle miner so a vanished peer is noticed early.
+fn set_keepalive(stream: &TcpStream) -> std::io::Result<()> {
+    let keepalive = TcpKeepalive::new()
+        .with_time(KEEPALIVE_IDLE)
+        .with_interval(KEEPALIVE_INTERVAL);
+    SockRef::from(stream).set_tcp_keepalive(&keepalive)
 }
 
 /// Admission state shared by the accept loop and every connection task.
@@ -410,23 +469,29 @@ struct Gates {
     /// Connect allowances per address, keyed by [`address_key`].
     connect_rate: Arc<Mutex<HashMap<IpAddr, Bucket>>>,
     /// Pre-auth connections per address, for eviction.
-    preauth: PreAuth,
-    /// Authenticated connections per peer address.
-    authenticated: PerIpCounts,
+    preauth: Registry,
+    /// Authenticated connections per address, for eviction at the cap.
+    authenticated: Registry,
     /// Cap on `authenticated`, per address.
     per_ip_cap: usize,
+    /// Invalid-share budget closures per address, for refusing repeat abusers.
+    strikes: Arc<Mutex<StrikeBook>>,
+    /// Silence allowed on an authenticated connection before it is closed.
+    idle: Duration,
     /// Throttle for the refused-or-closed log line.
     log: Arc<Mutex<ThrottledLog>>,
 }
 
 impl Gates {
-    fn new(per_ip_cap: usize) -> Self {
+    fn new(per_ip_cap: usize, idle: Duration) -> Self {
         Self {
             handshakes: Arc::new(Semaphore::new(MAX_CONCURRENT_HANDSHAKES)),
             connect_rate: Arc::new(Mutex::new(HashMap::new())),
-            preauth: Arc::new(Mutex::new(PreAuthRegistry::default())),
-            authenticated: Arc::new(Mutex::new(HashMap::new())),
+            preauth: Arc::new(Mutex::new(ConnectionRegistry::default())),
+            authenticated: Arc::new(Mutex::new(ConnectionRegistry::default())),
             per_ip_cap,
+            strikes: Arc::new(Mutex::new(StrikeBook::default())),
+            idle,
             log: Arc::new(Mutex::new(ThrottledLog::default())),
         }
     }
@@ -480,16 +545,37 @@ pub async fn serve_stratum_capped(
     jobs: broadcast::Sender<Arc<Job>>,
     per_ip_cap: usize,
 ) -> Result<PoolServer> {
+    serve_stratum_tuned(address, state, validator, jobs, per_ip_cap, IDLE_TIMEOUT).await
+}
+
+/// [`serve_stratum_capped`] with the idle timeout set by the caller.
+///
+/// Exists so the socket tests can watch an idle close in seconds, not in the
+/// five minutes `IDLE_TIMEOUT` takes. Production never calls it.
+///
+/// # Errors
+///
+/// Returns [`PoolError::Server`] if the address cannot be bound.
+#[doc(hidden)]
+pub async fn serve_stratum_tuned(
+    address: SocketAddr,
+    state: Arc<PoolState>,
+    validator: Validator,
+    jobs: broadcast::Sender<Arc<Job>>,
+    per_ip_cap: usize,
+    idle: Duration,
+) -> Result<PoolServer> {
     let socket = if address.is_ipv4() {
         TcpSocket::new_v4()?
     } else {
         TcpSocket::new_v6()?
     };
     socket.bind(address)?;
-    let listener = socket.listen(LISTEN_BACKLOG)?;
+    // tokio takes the backlog as u32; the bit pattern is what listen(2) receives.
+    let listener = socket.listen(listen_backlog().cast_unsigned())?;
     let bound = listener.local_addr()?;
     let admission = Arc::new(Semaphore::new(MAX_CONNECTIONS));
-    let gates = Gates::new(per_ip_cap);
+    let gates = Gates::new(per_ip_cap, idle);
 
     tokio::spawn(async move {
         loop {
@@ -529,6 +615,17 @@ pub async fn serve_stratum_capped(
                 continue;
             }
 
+            // Repeat budget closures refuse here, before a handshake is spent on the peer.
+            let struck = gates
+                .strikes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .refuses(key, Instant::now());
+            if struck {
+                report_closed(&gates.log, peer, "repeated invalid-share closures from this address");
+                continue;
+            }
+
             // At the address's pre-auth cap the oldest pre-auth connection gives
             // way, so a newcomer from a shared address is not the one refused.
             let (id, evicted, evicted_any) = {
@@ -538,7 +635,7 @@ pub async fn serve_stratum_capped(
             if evicted_any {
                 report_closed(&gates.log, peer, "evicted an older pre-auth connection");
             }
-            let pre_slot = PreAuthSlot {
+            let pre_slot = RegistrySlot {
                 registry: Arc::clone(&gates.preauth),
                 ip: key,
                 id,
@@ -675,9 +772,10 @@ async fn serve_connection(
     validator: Validator,
     mut jobs: broadcast::Receiver<Arc<Job>>,
     gates: Gates,
-    admitted: (PreAuthSlot, oneshot::Receiver<()>),
+    admitted: (RegistrySlot, oneshot::Receiver<()>),
 ) -> Result<()> {
     stream.set_nodelay(true)?;
+    set_keepalive(&stream)?;
     let (preauth, mut evicted) = admitted;
 
     // The compat layer exists for exactly this line: the handshake is written
@@ -695,17 +793,21 @@ async fn serve_connection(
 
     // Pre-auth entry released here; from now on the address's farm budget applies.
     drop(preauth);
-    // A ghost connection, authenticated and then silent, holds this slot until
-    // `IDLE_TIMEOUT` closes it. Keepalive via socket2 would reap it sooner, and
-    // evicting the oldest authenticated entry would free the slot at once; both
-    // are follow-ups.
+    // At the address's authenticated cap the oldest authenticated connection is
+    // evicted, the same as pre-auth: a newcomer is never the one refused.
     let key = address_key(peer.ip());
-    let _authenticated = match IpSlot::claim(&gates.authenticated, key, gates.per_ip_cap) {
-        Some(slot) => slot,
-        None => {
-            report_closed(&gates.log, peer, "authenticated cap reached");
-            return Ok(());
-        }
+    let (auth_id, mut auth_evicted, auth_evicted_any) = gates
+        .authenticated
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .admit(key, gates.per_ip_cap);
+    if auth_evicted_any {
+        report_closed(&gates.log, peer, "evicted an older authenticated connection");
+    }
+    let _authenticated = RegistrySlot {
+        registry: Arc::clone(&gates.authenticated),
+        ip: key,
+        id: auth_id,
     };
 
     // `is_initiator: false` — the pool responds, so it opens with the key the
@@ -756,7 +858,14 @@ async fn serve_connection(
     let result = loop {
         // The timeout drops a half-read frame, which is safe only because the
         // connection ends on that path and nothing reads the stream again.
-        let frame = match tokio::time::timeout(IDLE_TIMEOUT, read_frame(&mut reader)).await {
+        // Eviction is checked only between frames, so a frame in progress is never
+        // cut short by it: the drop of a half-read frame is what the comment above allows.
+        let read = tokio::select! {
+            biased;
+            _ = &mut auth_evicted => break Ok(()),
+            read = tokio::time::timeout(gates.idle, read_frame(&mut reader)) => read,
+        };
+        let frame = match read {
             Ok(Ok(Some(frame))) => frame,
             Ok(Ok(None)) => break Ok(()),
             Ok(Err(error)) => break Err(error),
@@ -816,6 +925,11 @@ async fn serve_connection(
                     if let Some(accepted) = counted
                         && invalid.record(accepted)
                     {
+                        gates
+                            .strikes
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .record(key, Instant::now());
                         report_closed(&gates.log, peer, "too many invalid shares");
                         budget_closed = true;
                         closing = Some("too many invalid shares".to_string());
@@ -1513,60 +1627,114 @@ mod tests {
     }
 
     #[test]
-    fn one_address_cannot_hold_more_than_its_cap_and_dropping_frees_a_slot() {
-        // NAT farms share an address, so the cap has to be real but generous.
-        let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
+    fn at_the_authenticated_cap_the_oldest_connection_gives_way() {
+        // NAT farms share an address, so the cap has to be real but generous. At
+        // the cap the oldest authenticated connection is evicted, not the newcomer.
+        let registry: Registry = Arc::new(Mutex::new(ConnectionRegistry::default()));
         let ip: IpAddr = "203.0.113.7".parse().unwrap();
-
         let cap = crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP;
-        let held: Vec<IpSlot> = (0..cap)
-            .map(|_| IpSlot::claim(&counts, ip, cap).unwrap())
-            .collect();
-        assert!(IpSlot::claim(&counts, ip, cap).is_none());
+
+        let mut signals = Vec::new();
+        for _ in 0..cap {
+            let (_, signal, evicted_any) = registry.lock().unwrap().admit(ip, cap);
+            assert!(!evicted_any);
+            signals.push(signal);
+        }
+        let (id, _signal, evicted_any) = registry.lock().unwrap().admit(ip, cap);
+        assert!(evicted_any, "the newcomer displaces the oldest");
+        assert!(signals[0].try_recv().is_ok(), "the oldest was evicted");
+        assert!(signals[1].try_recv().is_err(), "the next oldest is kept");
 
         // A different address is unaffected by this one's cap.
         let other: IpAddr = "203.0.113.8".parse().unwrap();
-        assert!(IpSlot::claim(&counts, other, cap).is_some());
+        let (_, _, other_evicted) = registry.lock().unwrap().admit(other, cap);
+        assert!(!other_evicted);
 
-        drop(held);
-        assert!(IpSlot::claim(&counts, ip, cap).is_some());
+        drop(RegistrySlot {
+            registry: Arc::clone(&registry),
+            ip,
+            id,
+        });
+        assert_eq!(registry.lock().unwrap().by_ip[&ip].len(), cap - 1);
     }
 
     #[test]
-    fn an_address_with_no_open_connections_leaves_no_entry_behind() {
-        // The map would otherwise grow by one entry per stranger that ever connected.
-        let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
-        let ip: IpAddr = "198.51.100.1".parse().unwrap();
+    fn repeat_budget_closures_refuse_an_address_until_its_strikes_decay() {
+        let mut strikes = StrikeBook::default();
+        let ip: IpAddr = "198.51.100.20".parse().unwrap();
+        let start = Instant::now();
 
-        let cap = crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP;
-        drop(IpSlot::claim(&counts, ip, cap).unwrap());
-        assert!(counts.lock().unwrap().is_empty());
+        for _ in 0..STRIKE_LIMIT - 1 {
+            strikes.record(ip, start);
+        }
+        assert!(!strikes.refuses(ip, start), "below the limit is admitted");
+        strikes.record(ip, start);
+        assert!(strikes.refuses(ip, start), "the limit refuses the address");
+
+        let other: IpAddr = "198.51.100.21".parse().unwrap();
+        assert!(!strikes.refuses(other, start), "other addresses are unaffected");
+        assert!(
+            !strikes.refuses(ip, start + STRIKE_WINDOW),
+            "the refusal decays once the window passes"
+        );
+    }
+
+    #[test]
+    fn strikes_spread_further_apart_than_the_window_do_not_add_up() {
+        let mut strikes = StrikeBook::default();
+        let ip: IpAddr = "198.51.100.22".parse().unwrap();
+        let start = Instant::now();
+
+        for n in 0..=STRIKE_LIMIT {
+            strikes.record(ip, start + STRIKE_WINDOW * n);
+        }
+        assert!(!strikes.refuses(ip, start + STRIKE_WINDOW * STRIKE_LIMIT));
+    }
+
+    #[test]
+    fn the_strike_book_stays_bounded() {
+        let mut strikes = StrikeBook::default();
+        let start = Instant::now();
+        for n in 0..STRIKE_BOOK_MAX + 500 {
+            let ip = IpAddr::V4(std::net::Ipv4Addr::from(u32::try_from(n + 1).unwrap()));
+            strikes.record(ip, start + Duration::from_millis(u64::try_from(n).unwrap()));
+        }
+        assert_eq!(strikes.by_ip.len(), STRIKE_BOOK_MAX);
+    }
+
+    #[tokio::test]
+    async fn a_miner_socket_has_tcp_keepalive_switched_on() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let stream = TcpStream::connect(address).await.unwrap();
+        set_keepalive(&stream).unwrap();
+        assert!(SockRef::from(&stream).keepalive().unwrap());
     }
 
     #[test]
     fn unauthenticated_connections_do_not_use_the_authenticated_budget() {
         // A neighbour holding every pre-auth entry on a shared address must not
         // stop the farm's authenticated connections.
-        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP, IDLE_TIMEOUT);
         let ip: IpAddr = "192.0.2.10".parse().unwrap();
 
         let mut held = Vec::new();
         for _ in 0..PREAUTH_PER_IP {
             let (id, _signal, _evicted) = gates.preauth.lock().unwrap().admit(ip, PREAUTH_PER_IP);
-            held.push(PreAuthSlot {
+            held.push(RegistrySlot {
                 registry: Arc::clone(&gates.preauth),
                 ip,
                 id,
             });
         }
 
-        assert!(IpSlot::claim(&gates.authenticated, ip, gates.per_ip_cap).is_some());
+        assert!(!gates.authenticated.lock().unwrap().admit(ip, gates.per_ip_cap).2);
         drop(held);
     }
 
     #[test]
     fn a_newcomer_at_the_pre_auth_cap_evicts_the_oldest_entry() {
-        let mut registry = PreAuthRegistry::default();
+        let mut registry = ConnectionRegistry::default();
         let ip: IpAddr = "192.0.2.11".parse().unwrap();
 
         let mut signals = Vec::new();
@@ -1586,12 +1754,12 @@ mod tests {
     }
 
     #[test]
-    fn a_pre_auth_entry_is_forgotten_when_its_connection_ends() {
-        let registry: PreAuth = Arc::new(Mutex::new(PreAuthRegistry::default()));
+    fn a_registry_entry_is_forgotten_when_its_connection_ends() {
+        let registry: Registry = Arc::new(Mutex::new(ConnectionRegistry::default()));
         let ip: IpAddr = "192.0.2.12".parse().unwrap();
 
         let (id, _signal, _evicted) = registry.lock().unwrap().admit(ip, PREAUTH_PER_IP);
-        drop(PreAuthSlot {
+        drop(RegistrySlot {
             registry: Arc::clone(&registry),
             ip,
             id,
@@ -1639,7 +1807,7 @@ mod tests {
 
         let (server, mut client) = socket_pair().await;
         client.write_all(&[1]).await.unwrap();
-        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP, IDLE_TIMEOUT);
 
         let mut compat = server.compat();
         let outcome = handshake_within_deadline(
@@ -1674,7 +1842,7 @@ mod tests {
 
         let (server, mut client) = socket_pair().await;
         client.write_all(&[1]).await.unwrap();
-        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP, IDLE_TIMEOUT);
 
         let mut compat = server.compat();
         let waiting = {
@@ -1701,7 +1869,7 @@ mod tests {
 
         let (server, mut client) = socket_pair().await;
         client.write_all(&[1; 10]).await.unwrap();
-        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP, IDLE_TIMEOUT);
 
         let mut compat = server.compat();
         let outcome = tokio::time::timeout(
