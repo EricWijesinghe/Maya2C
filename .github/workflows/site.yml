@@ -31,7 +31,9 @@ permissions:
 # One deploy at a time; a newer push supersedes a queued one.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # false: master merges every few minutes, and cancelling the running deploy
+  # meant no deploy ever finished. A queued newer run still replaces a pending one.
+  cancel-in-progress: false
 
 jobs:
   build:
