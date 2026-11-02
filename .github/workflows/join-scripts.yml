@@ -40,6 +40,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install
         run: bash scripts/join-testnet.sh install
+      - name: Passphrase file is owner-only
+        run: |
+          p=/var/lib/maya2c/validator.pass
+          if [ "$(uname -s)" = Darwin ]; then p="/Library/Application Support/Maya2C/validator.pass"; fi
+          mode=$(sudo stat -c %a "$p" 2>/dev/null || sudo stat -f %Lp "$p")
+          echo "validator.pass mode $mode"
+          [ "$mode" = 600 ] || { echo "passphrase file is not mode 600"; exit 1; }
       - name: Node answers on its RPC
         run: |
           for _ in $(seq 1 300); do   # 50 min: a first sync took ~40 (2026-10-12)
@@ -86,6 +93,15 @@ jobs:
       - name: Install
         shell: pwsh
         run: ./infra/testnet-vm/join-validator.ps1 -Silent -IAmTheMachineOwner
+      - name: Passphrase file is locked to SYSTEM and Administrators
+        shell: pwsh
+        run: |
+          $p = 'C:\ProgramData\Maya2C\validator.pass'
+          $acl = Get-Acl $p
+          if (-not $acl.AreAccessRulesProtected) { throw 'inherited access is still on' }
+          $ids = @($acl.Access | ForEach-Object { $_.IdentityReference.Value } | Sort-Object)
+          "identities: $($ids -join ', ')"
+          if (($ids -join ';') -ne 'BUILTIN\Administrators;NT AUTHORITY\SYSTEM') { throw "unexpected access: $($ids -join ', ')" }
       - name: Node answers on its RPC
         shell: pwsh
         run: |
@@ -110,3 +126,4 @@ jobs:
           if (Get-Process maya2c-node -ErrorAction SilentlyContinue) { throw 'maya2c-node still running' }
           if (Test-Path 'C:\Program Files\Maya2C') { throw 'program folder left behind' }
           if (Get-ScheduledTask -TaskName 'Maya2C Validator' -ErrorAction SilentlyContinue) { throw 'task left behind' }
+          if (Test-Path 'C:\ProgramData\Maya2C\validator.pass') { throw 'passphrase file left behind' }

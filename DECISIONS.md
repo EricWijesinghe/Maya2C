@@ -762,3 +762,9 @@ peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.r
   hash-linked path.
 - The earlier sentence claiming that a fully hostile source set leaves only the time trigger
   is removed from `DECISIONS.md`. The trust model above replaces it.
+
+## 2026-11-02 — B51: join scripts seal the validator key with a generated passphrase file (ADR-049, operator tooling)
+
+- Production builds refuse plaintext keys, so the installers (`join-validator.ps1`, `join-testnet.sh`) now make a 32-byte CSPRNG passphrase in `validator.pass` next to the key (`C:\ProgramData\Maya2C\`, `/var/lib/maya2c/`, `/Library/Application Support/Maya2C/`), pass it to keygen by file, and export `MAYA2C_VALIDATOR_PASSPHRASE_FILE` on every start. The passphrase never goes on a command line or into a log. Reinstall keeps it; Windows `-Everything` removes it with the key. Losing it loses the key, so the operator is told to back it up. Windows ACL: grant SYSTEM and Administrators first, then `/inheritance:r`. Unix: `umask 077`, mode 600.
+- The Mac installer's run script now quotes its paths. macOS keeps data under `/Library/Application Support`, which word-split in the old `exec` line.
+- `infra/testnet-vm/install.sh` (the single-VM testnet) follows the same rule: one `validator.pass` per `v<i>` directory, passed to keygen by file and set by `Environment=` in `maya2c-validator@.service`. A reinstall that finds a key without its passphrase file stops; it never makes a new passphrase for an existing key.
