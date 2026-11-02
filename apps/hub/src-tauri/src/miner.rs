@@ -5,7 +5,6 @@
 //! and the hub only reads the address it announces.
 
 use std::collections::VecDeque;
-use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -16,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::miner_guard::{self, PINNED_SUMS};
+use crate::miner_guard::{self, PINNED_SUMS, PinnedMiner};
 
 /// Hash-rate samples kept: 15 minutes at one per two seconds.
 const RATE_HISTORY: usize = 450;
@@ -71,7 +70,7 @@ pub struct MinerState {
 /// The running miner: its process, and the read-only handle on its file.
 struct Running {
     child: Child,
-    _miner: File,
+    _miner: PinnedMiner,
 }
 
 /// The child and its state, shared with the reader thread.
@@ -187,11 +186,11 @@ impl Miner {
         if let Some(err) = child.stderr.take() {
             self.read_lines(err);
         }
-        // The read-only handle lives as long as the child, so the miner file
-        // cannot be replaced while the process it hashed is running.
+        // The pinned miner (Windows: locked install file; Unix: private copy)
+        // lives as long as the child, so what runs is what was hashed.
         *slot = Some(Running {
             child,
-            _miner: pinned.file,
+            _miner: pinned,
         });
         Ok(())
     }
