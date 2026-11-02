@@ -247,10 +247,15 @@ async fn ten_thousand_unpaced_connects_all_complete() {
         match TcpStream::connect(address).await {
             Ok(stream) => held.push(stream),
             Err(error) => {
-                *failures.entry(format!("{:?} {:?}", error.kind(), error.raw_os_error())).or_default() += 1;
+                *failures
+                    .entry(format!("{:?} {:?}", error.kind(), error.raw_os_error()))
+                    .or_default() += 1;
             }
         }
     }
-    println!("10,000 unpaced connects: {} completed; failures {failures:?}", held.len());
+    println!(
+        "10,000 unpaced connects: {} completed; failures {failures:?}",
+        held.len()
+    );
     assert!(failures.is_empty(), "connects refused: {failures:?}");
 }

@@ -36,8 +36,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use futures::{AsyncReadExt, AsyncWriteExt};
-use socket2::{SockRef, TcpKeepalive};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
+use socket2::{SockRef, TcpKeepalive};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -432,7 +432,10 @@ impl StrikeBook {
                 }
             }
         }
-        let entry = self.by_ip.entry(ip).or_insert(Strikes { count: 0, last: now });
+        let entry = self.by_ip.entry(ip).or_insert(Strikes {
+            count: 0,
+            last: now,
+        });
         if expired(entry, now) {
             entry.count = 0;
         }
@@ -622,7 +625,11 @@ pub async fn serve_stratum_tuned(
                 .unwrap_or_else(PoisonError::into_inner)
                 .refuses(key, Instant::now());
             if struck {
-                report_closed(&gates.log, peer, "repeated invalid-share closures from this address");
+                report_closed(
+                    &gates.log,
+                    peer,
+                    "repeated invalid-share closures from this address",
+                );
                 continue;
             }
 
@@ -802,7 +809,11 @@ async fn serve_connection(
         .unwrap_or_else(PoisonError::into_inner)
         .admit(key, gates.per_ip_cap);
     if auth_evicted_any {
-        report_closed(&gates.log, peer, "evicted an older authenticated connection");
+        report_closed(
+            &gates.log,
+            peer,
+            "evicted an older authenticated connection",
+        );
     }
     let _authenticated = RegistrySlot {
         registry: Arc::clone(&gates.authenticated),
@@ -1672,7 +1683,10 @@ mod tests {
         assert!(strikes.refuses(ip, start), "the limit refuses the address");
 
         let other: IpAddr = "198.51.100.21".parse().unwrap();
-        assert!(!strikes.refuses(other, start), "other addresses are unaffected");
+        assert!(
+            !strikes.refuses(other, start),
+            "other addresses are unaffected"
+        );
         assert!(
             !strikes.refuses(ip, start + STRIKE_WINDOW),
             "the refusal decays once the window passes"
@@ -1728,7 +1742,14 @@ mod tests {
             });
         }
 
-        assert!(!gates.authenticated.lock().unwrap().admit(ip, gates.per_ip_cap).2);
+        assert!(
+            !gates
+                .authenticated
+                .lock()
+                .unwrap()
+                .admit(ip, gates.per_ip_cap)
+                .2
+        );
         drop(held);
     }
 
