@@ -629,6 +629,47 @@ Two more from the same security review, fixed in the freeze:
 Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
 round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
 
+## 2026-11-02 — Sentinel Recovery Network proposed (MIP-0001, ADR-077)
+
+Eric asked for a protocol-level disaster-recovery upgrade. The design is written as
+MIP-0001, with ADR-077 Proposed and seven open decisions (D1–D7). Departures from
+the brief, each argued in MIP-0001 §0.1:
+- no rewind of finalized blocks; recovery is a forward restitution of tainted
+  balances;
+- AI is advisory only (invariant 20);
+- quarantine is per cell, never chain-wide, except a bounded T5;
+- penalties fall only on posted bonds;
+- recovery stays off until the committee passes an independence floor, so it is
+  off at launch (ADR-047).
+
+The prior-art search (2026-11-02) found Sui, Berachain, Flow and BNB Chain
+interventions, Cosmos `x/circuit` and Forta, so no "first" claim is made.
+Nothing enters the launch binary.
+
+Eric approved D1–D7 as recommended the same day ("I approve all you recomended"). ADR-077 is Accepted, and ADR-050 is amended for tainted balances once SRN activates. D5's exact fee share comes back to him as a number with R6.
+
+## 2026-11-02 — Omega design proposed (MIP-0002, ADR-078)
+
+Eric asked what Maya2C must become so that no future protocol can surpass it.
+The answer, written honestly: no design can guarantee that, so MIP-0002 designs
+three things instead:
+- advantages a fork cannot take: track record, immunity corpus, identity graph,
+  proofs and decentralization, each with a published indicator;
+- an absorption pipeline for outside breakthroughs;
+- provable self-steering: bounded integer controllers, evolution searched off
+  chain and selected on chain.
+
+Decisions O1–O4 are proposed:
+- O1: three-speed evolution with pre-shipped, vote-activated code;
+- O2: bounded controllers;
+- O3: a test ratchet, which can start now;
+- O4: moat indicators.
+
+Prior art: Tezos and Polkadot already upgrade without hard forks. Maya2C's
+difference is that a vote selects only the activation height, never code from
+state (invariant 13).
+
+Eric approved O1–O4 the same day. ADR-078 is Accepted. O3 (test ratchet) starts now in CI.
 ## 2026-11-01 — Reviewed guards are marked in code, not P0 rows
 
 The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comment, and
@@ -768,3 +809,34 @@ peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.r
 - Production builds refuse plaintext keys, so the installers (`join-validator.ps1`, `join-testnet.sh`) now make a 32-byte CSPRNG passphrase in `validator.pass` next to the key (`C:\ProgramData\Maya2C\`, `/var/lib/maya2c/`, `/Library/Application Support/Maya2C/`), pass it to keygen by file, and export `MAYA2C_VALIDATOR_PASSPHRASE_FILE` on every start. The passphrase never goes on a command line or into a log. Reinstall keeps it; Windows `-Everything` removes it with the key. Losing it loses the key, so the operator is told to back it up. Windows ACL: grant SYSTEM and Administrators first, then `/inheritance:r`. Unix: `umask 077`, mode 600.
 - The Mac installer's run script now quotes its paths. macOS keeps data under `/Library/Application Support`, which word-split in the old `exec` line.
 - `infra/testnet-vm/install.sh` (the single-VM testnet) follows the same rule: one `validator.pass` per `v<i>` directory, passed to keygen by file and set by `Environment=` in `maya2c-validator@.service`. A reinstall that finds a key without its passphrase file stops; it never makes a new passphrase for an existing key.
+
+## 2026-11-02 — Owner approvals "approve all, recommended options": fee ceiling, supply wording, treasury, council, docs
+
+Owner approved the recommended option for each item below. Docs only; no consensus code changed.
+
+- **A4, fee ceiling (ADR-076, was ADR-071):** option B kept, 0.1 MAYA per standard transfer at the cap. ADR-076 status is Accepted (2026-11-01); no change.
+- **A5 and B43, supply wording (ADR-044):** the text now matches the code.
+  - One coin is 10^24 base units (`maya_amount::COIN_DECIMALS = 24`, `ONE_COIN = 10^24`, `crates/amount/src/lib.rs`).
+  - `fee_market::supply::MAX_SUPPLY` = `Amount::MAX` = 2^256 − 1 base units (`crates/fee-market/src/supply.rs`).
+  - 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap. The old "21M × 10^8" wording is removed from ADR-044 and `docs/fee-market.md`.
+  - The reserve is an explicit allocation to the keyless `MINING_RESERVE`, not `MAX_SUPPLY − Σ allocations`. With a tail, genesis refuses a reserve below `lifetime_emission()` (`crates/node/src/genesis.rs`).
+- **B-16, fee treasury (code check):** the 20% share is burned today, as decided.
+  - The node sets `treasury_bps: 0` (`crates/node/src/genesis.rs`). The base fee moves wholly to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`, `settle_fees`).
+  - The 80/20 split in `crates/fee-market/src/execute.rs` has no caller outside the crate.
+  - `docs/fee-market.md` and `docs/site/authored/transactions.mdx` now say so.
+  - Still differs: `spec/04-fees.md` FEE-1 defines the treasury split as live, and the crate default `FeeConfig::TESTING` uses 2000 bps. Not changed here (consensus spec). Open item.
+- **B30, council (ADR-050):** `max_pause_blocks` = 6 hours of blocks, the value ADR-050 already records (2026-10-19 settings). The block count is computed at the ceremony. The offline council key is held in owner-held offline hardware; the location is not published. ADR-050 now carries this decision.
+- **B45:** the `release/*` ruleset is applied by the lead session, not by this PR.
+- **C15, doc drift:**
+  - `docs/architecture-vision.md` line 96 already reads SHIPPED / ADR-027 on master. No edit.
+  - Validator votes are ML-DSA-87 in code (`crates/node/src/consensus/bft/auth.rs`, ADR-051 option 3). `docs/site/authored/quickstart.mdx` said ML-DSA-65; fixed. ADR-027 carries a supersede note. `consensus.mdx` and `validators.mdx` already said 87.
+  - The macOS Hub installer claim in `docs/site/authored/mining.md` is corrected: no Hub installer is published for any platform.
+  - Organization JSON-LD `sameAs` (`docs/site/astro.config.mjs`) keeps only the GitHub project repository. LinkedIn, Facebook, Instagram and the personal subdomain are removed.
+- **B27, bootnode:** the mainnet bootnode peer id is `MAINNET_BOOTNODE_PEER_ID=SET-AT-GENESIS` in `deploy/genesis/mainnet/bootnode.env`. The mainnet join script does not exist yet. The testnet guides and `scripts/join-testnet.sh` keep the testnet id. No validators-guide generator exists, so the guide is hand-maintained and was not regenerated.
+
+## 2026-11-01 — B50: work claims refused at launch until bound to a verified share (ADR-044, ADR-079)
+
+- **Decision:** governance voting is stake-only at launch. `TxKind::ClaimWork` is refused at every height below `WORK_CLAIM_ACTIVATION_HEIGHT` (`u64::MAX`), before any credit or fee, with `NodeError::WorkClaimInactive`. Code: `crates/node/src/state/context.rs`, `crates/node/src/state/settlement.rs`, shipped in #317 (`f7f0958b`).
+- **Why:** `claim_work` credited genesis-target work to any named beneficiary with no proof the sender mined, so one fee per block bought voting weight.
+- **Lifting it:** only through a written activation height, bound to a claim that is backed by a verified share in the same block and credited to that share's miner (ADR-044). ADR-079 R2 is the first place that may do this; it needs its own consensus ADR.
+- **Recorded in:** ADR-044 ("Work credit at launch"), `docs/audit/KNOWN_ISSUES.md` #2 and #18, tests in `crates/node/tests/governance_tests.rs`.

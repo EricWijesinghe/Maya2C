@@ -94,13 +94,7 @@ export default defineConfig({
                 name: "Maya2C",
                 url: "https://maya2c.dev/",
                 logo: "https://maya2c.dev/apple-touch-icon.png",
-                sameAs: [
-                  "https://github.com/EricWijesinghe/Maya2C",
-                  "https://www.linkedin.com/in/ericwijesinghe",
-                  "https://www.facebook.com/EricWijesinghe2002/",
-                  "https://www.instagram.com/ericwijesinghe2022/",
-                  "https://eric.maya2c.dev",
-                ],
+                sameAs: ["https://github.com/EricWijesinghe/Maya2C"],
               },
               {
                 "@type": "WebSite",

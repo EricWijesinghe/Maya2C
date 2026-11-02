@@ -67,6 +67,17 @@ pub fn parse(csv: &str) -> Vec<GpuStat> {
         .collect()
 }
 
+/// Each adapter's reported temperature as `(index, °C)`. An adapter with no
+/// reading is left out, so the watchdog never acts on a guess.
+#[must_use]
+pub fn temperatures(report: &GpuReport) -> Vec<(u32, f64)> {
+    report
+        .devices
+        .iter()
+        .filter_map(|g| Some((g.index, g.temp_c?)))
+        .collect()
+}
+
 /// Reads every NVIDIA adapter now.
 #[must_use]
 pub fn read() -> GpuReport {
@@ -115,5 +126,22 @@ mod tests {
         assert!(parse("0, GPU, 60\n").is_empty());
         assert!(parse("x, GPU, 1, 2, 3, 4, 5, 6, 7, 8\n").is_empty());
         assert!(parse("").is_empty());
+    }
+
+    #[test]
+    fn two_adapters_keep_their_own_indices_and_a_blank_temperature_stays_blank() {
+        let csv = "0, RTX A, 61, 182.40, 250.00, 97, 54, 9120, 12227, 2700\n\
+                   1, RTX B, [N/A], 90.10, 200.00, 0, [N/A], 512, 8192, 210\n";
+        let gpus = parse(csv);
+        assert_eq!(gpus.iter().map(|g| g.index).collect::<Vec<_>>(), [0, 1]);
+        let report = GpuReport { devices: gpus, note: None };
+        assert_eq!(temperatures(&report), [(0, 61.0)]);
+    }
+
+    #[test]
+    fn a_nan_or_infinite_reading_is_no_reading() {
+        assert_eq!(number("NaN"), None);
+        assert_eq!(number("inf"), None);
+        assert_eq!(number(" 42.5 "), Some(42.5));
     }
 }

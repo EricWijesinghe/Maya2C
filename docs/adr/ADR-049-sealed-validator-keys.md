@@ -1,6 +1,8 @@
 # ADR-049: Sealed validator keys at rest
 
 **Status:** Accepted, 2026-10-18
+
+> **Superseded in part (doc audit 2026-11-03):** validator consensus keys are ML-DSA-87, not ML-DSA-65 (ADR-051 option 3; PR #222; `crates/node/src/crypto/validator_keys.rs`, 2,592-byte public key). The sealed key kind is `maya2c-ml-dsa-87-validator-seed`, a 32-byte seed (`crates/signer/src/sealed.rs`). ML-DSA-65 below describes the original 2026-10-18 design; the sealing mechanism is unchanged.
 **Context owner:** Eric Wijesinghe (Phase-1 security plan, approved 2026-10-17)
 
 ## Context
