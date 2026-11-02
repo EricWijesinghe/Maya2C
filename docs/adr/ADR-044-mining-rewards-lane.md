@@ -22,7 +22,7 @@ What exists:
 - `hal/cuda-miner` — CUDA ArgonBlake, asserted bit-identical to the node.
   `bins/maya2c-gpu-miner`, `bins/maya2c-miner`, `crates/stratum-v2`,
   `bins/pool-service`.
-- `fee_market::supply::MAX_SUPPLY` = 21,000,000 coins × 10^8.
+- `fee_market::supply::MAX_SUPPLY` = `Amount::MAX` = 2^256 − 1 base units (`crates/fee-market/src/supply.rs`). One coin is 10^24 base units (`maya_amount::ONE_COIN`, `COIN_DECIMALS = 24`). 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap.
 - DAG-BFT finality (ADR-027) with staking epochs of 3,600 blocks.
 
 What must not change: block ordering and finality stay DAG-BFT. A PoW
@@ -49,8 +49,8 @@ finalize blocks. They earn issuance by publishing work:
    coin. Spam is bounded by the per-block cap, a per-sender mempool limit, and the
    signature check that runs before the hash.
 3. **Emission per epoch, paid from a reserve, never minted.** Genesis
-   allocates `MAX_SUPPLY − Σ allocations` to a keyless `MINING_RESERVE`
-   address, so the conservation invariant (no native mint, ever) is unchanged.
+   is funded with an explicit allocation to a keyless `MINING_RESERVE`
+   address (`--mining-reserve`, `deploy/genesis/mainnet/README.md`), so the conservation invariant (no native mint, ever) is unchanged.
    Rewards are transfers out of the reserve. `R(e) = max(INITIAL_EPOCH_REWARD >> (e / HALVING_EPOCHS), TAIL_EPOCH_REWARD)`,
    integer only, a function of the epoch alone (never of the reserve balance). With a nonzero tail, genesis refuses a reserve smaller than
    `lifetime_emission()` (an upper bound on everything the schedule pays), so it never runs dry
@@ -71,7 +71,7 @@ finalize blocks. They earn issuance by publishing work:
 
 | Parameter | Default | Why |
 |---|---|---|
-| Cap | 21,000,000 | already `MAX_SUPPLY` |
+| Emission budget | 21,000,000 coins over the halving phase | the protocol cap is `MAX_SUPPLY` = 2^256 − 1 base units |
 | `INITIAL_EPOCH_REWARD` | set so that half the cap is issued before the first halving | Bitcoin's shape |
 | `HALVING_EPOCHS` | ≈ 4 years of epochs at the *measured* block rate | Bitcoin's interval. Computed from the testnet, not assumed |
 | `MINER_SHARE_BPS` | 7000 (70% miners, 30% validators) | mining is the adoption path. Validators still earn fees |

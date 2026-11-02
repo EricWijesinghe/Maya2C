@@ -1,6 +1,10 @@
 # State
 
 ## Handover
+- **2026-11-02 — freeze candidate `9913c144`; 24 h local proving run; docs decisions recorded.**
+  - **Done:** #324 B49 stale node rejoins only through a trusted block; #325 B51 sealed join-script keys + long-range guard; #328 site build fix (FAQ quote). Docs PR: owner decisions in DECISIONS 2026-11-02 (ADR-076 accepted, ADR-044 supply wording matches code, fee treasury burned, council pause 6 h), bootnode placeholder `deploy/genesis/mainnet/bootnode.env`, C15 drift fixed.
+  - **Unfinished:** 24 h proving run on `9913c144`; #330 site install step (open); agents on B1/B2 (Hub Unix TOCTOU, Windows DACL), pool, B52/B17, B38; open code item: fee treasury share is not wired (node burns 100%; `spec/04-fees.md` FEE-1 still describes the split).
+  - **Do first:** read the proving run's hourly lines; merge #330 once checks are green; keep `release/*` ruleset (B45) and `APPROVED: sign genesis` out of automation until Eric approves.
 - **2026-11-01 — hardening wave merged; re-frozen at `ec8d0be1`; 5-day local proving run started.**
   - **Merged (security, review-driven):** #268 wasmtime 48.0.8; #270 CLI wallet fail-closed fee
     query and 10^24 cap; #271 wallet confirm screen bound to the signing hash; #273 vault
