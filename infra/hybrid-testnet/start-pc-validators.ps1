@@ -3,6 +3,7 @@
 # validator), so the chain keeps finalizing on the VM alone when this PC is off;
 # these four vote and earn when it is on. Run by the watchdog every 5 min:
 # it starts only the ones that are not running (matched by data dir).
+param([string]$TrustedBlock = $env:MAYA2C_TRUSTED_BLOCK)
 $ErrorActionPreference = 'Stop'
 $root = 'D:\Maya2C-validators\pc'
 $exe = Join-Path $root 'bin\maya2c-node.exe'
@@ -32,6 +33,37 @@ function Get-Sources([int]$self) {
     }
     if (-not $urls) { $urls = @('http://127.0.0.1:18601') }
     return $urls
+}
+# B49: a restart passes a trusted block. Order: -TrustedBlock or MAYA2C_TRUSTED_BLOCK
+# (the operator's explorer block, always wins); otherwise fetched from the first
+# two live peers, which must agree on the block at the lower tip. One source is a
+# convenience for our own nodes, and it is warned about.
+function Invoke-TrustedRpc([string]$Url, [string]$Method, $Params) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
+    (Invoke-RestMethod $Url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 5).result
+}
+function Get-TrustedFlag([string[]]$Urls) {
+    $pair = @($Urls | Where-Object { $_ } | Select-Object -First 2)
+    if ($pair.Count -eq 0) { return $null }
+    if ($pair.Count -eq 1) {
+        Write-Warning "trusted block from a single source ($($pair[0])): our own nodes only. An outside operator sets MAYA2C_TRUSTED_BLOCK from the explorer, or two independent peers"
+    }
+    $tips = @()
+    foreach ($u in $pair) {
+        try { $tips += [uint64](Invoke-TrustedRpc $u 'get_chain_info' @()).height }
+        catch { Write-Warning "trusted block: $u did not answer"; return $null }
+    }
+    $m = ($tips | Measure-Object -Minimum).Minimum
+    $ids = @()
+    foreach ($u in $pair) {
+        try {
+            $b = Invoke-TrustedRpc $u 'get_block_by_height' @($m)
+            if ([uint64]$b.height -ne $m -or $b.header.id -notmatch '^[0-9a-fA-F]{64}$') { throw 'no usable block' }
+            $ids += $b.header.id.ToLower()
+        } catch { Write-Warning "trusted block: $u gave no usable block at $m"; return $null }
+    }
+    if (@($ids | Select-Object -Unique).Count -ne 1) { Write-Warning "trusted block: the sources disagree at height $m"; return $null }
+    return "--trusted-block $($m):$($ids[0])"
 }
 # ADR-043: a wiped node restarts with an empty safety log, which is safe only
 # when the network is in a later epoch than the last one the node signed in.
@@ -128,10 +160,18 @@ for ($i = 1; $i -le 4; $i++) {
         if ($j -ne $i) { $boot += "--bootnode /ip4/127.0.0.1/tcp/$(31400 + $j)/p2p/$(Get-Content (Join-Path $root "pc$j\peer.id") -Raw)" }
     }
     $src = Get-Sources $i
-    $args = "--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) " +
+    # B49: a catch-up start passes the trusted block. Without one the node still
+    # starts, and it refuses only if it is behind the unbonding window.
+    $trusted = ''
+    if ($src.Count -gt 0) {
+        $flag = if ($TrustedBlock -match '^\d+:[0-9a-fA-F]{64}$') { "--trusted-block $TrustedBlock" } else { Get-TrustedFlag $src }
+        if ($flag) { $trusted = "$flag " }
+        else { Write-Output "$(Get-Date -Format s) pc$($i): no trusted block; starting without one (a node behind the window will refuse)" }
+    }
+    $args ="--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) --allow-private-peers " +
         "--validator-key `"$dir\validator.key.sealed`" --validator-passphrase-file E:\Maya2C-secrets\pc$i.passphrase " +
         "--min-register-bond 1000000000 --snapshot-interval 3600 --snapshot-depth 3600 --prune-depth 3600 " +
-        (($src | ForEach-Object { "--catch-up-from $_ " }) -join '') + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
+        (($src | ForEach-Object { "--catch-up-from $_ " }) -join '') + $trusted + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
     $line = "`"$exe`" $args >> `"$dir\node.log`" 2>&1"
     Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$line`"" -WorkingDirectory $dir -WindowStyle Hidden
     Write-Output "$(Get-Date -Format s) pc$i started"

@@ -94,6 +94,8 @@ JSON
         echo "      - 0.0.0.0:8545"
         echo "      - --p2p-port"
         echo "      - \"30333\""
+        # Containers reach each other on a private docker subnet; discovery needs it.
+        echo "      - --allow-private-peers"
         echo "      - --snapshot-interval"
         echo "      - \"20\""
         echo "      - --snapshot-depth"

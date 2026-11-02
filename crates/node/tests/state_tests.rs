@@ -316,6 +316,38 @@ fn future_nonce_is_rejected() {
     );
 }
 
+/// Nonce is checked before the hybrid signature (audit finding 3). The tx below
+/// has a wrong nonce *and* a signature over the wrong bytes, so its rejection
+/// must name the nonce; the same account still accepts the correctly nonced tx.
+#[test]
+fn a_wrong_nonce_is_refused_before_the_signature_is_checked() {
+    let (db, _dir) = open_db();
+    let alice = generate_signing_key().expect("keygen");
+    let alice_addr = address_of(&alice);
+    let bob_addr = [2u8; 32];
+    fund(&db, &alice_addr, 1_000);
+
+    let mut stale = transfer(&alice, &bob_addr, 300, 0);
+    stale.nonce = 3;
+    assert_eq!(
+        db.apply_block(&block_of(vec![stale]), BlockContext::GENESIS),
+        Err(NodeError::InvalidNonce {
+            address: hex::encode(alice_addr),
+            expected: 0,
+            actual: 3,
+        })
+    );
+
+    let valid = transfer(&alice, &bob_addr, 300, 0);
+    db.apply_block(&block_of(vec![valid]), BlockContext::GENESIS)
+        .expect("a correctly nonced, correctly signed transfer still applies");
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(700)
+    );
+}
+
 #[test]
 fn stale_nonce_is_rejected() {
     let (db, _dir) = open_db();

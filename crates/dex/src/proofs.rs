@@ -344,3 +344,22 @@ fn exact_out_never_undercharges() {
         }
     }
 }
+
+/// A redemption that pays out one side only leaves a pool that still prices.
+///
+/// The dust-side exit (2026-11-01 review of #289): one side rounds to zero and
+/// is paid nothing, so the reserve on that side keeps its whole balance. The
+/// pool must still have a usable spot price afterwards, or every later batch on
+/// the pair would refund for good.
+#[kani::proof]
+fn a_one_sided_exit_keeps_the_price_usable() {
+    let pool = any_pool();
+    let shares = any_u64_amount();
+    kani::assume(pool.spot_price().is_ok_and(|price| !price.is_zero()));
+
+    if let Ok(delta) = pool.remove_liquidity(shares) {
+        let one_sided = delta.base.is_zero() != delta.quote.is_zero();
+        kani::cover!(one_sided, "a redemption pays out one side only");
+        assert!(delta.pool.spot_price().is_ok_and(|price| !price.is_zero()));
+    }
+}

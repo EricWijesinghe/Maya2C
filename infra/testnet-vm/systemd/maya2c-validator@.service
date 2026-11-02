@@ -12,6 +12,8 @@ Type=simple
 User=maya
 Group=maya
 EnvironmentFile=/etc/maya2c/v%i.env
+# Unseals the validator key on every start (ADR-049); the file is the instance's own.
+Environment=MAYA2C_VALIDATOR_PASSPHRASE_FILE=/var/lib/maya2c/v%i/validator.pass
 # $BOOTNODES is unbraced on purpose: systemd splits it into separate
 # `--bootnode <addr>` arguments.
 ExecStart=/usr/local/bin/maya2c-node --genesis /etc/maya2c/genesis.json --data-dir /var/lib/maya2c/v%i --validator-key /var/lib/maya2c/v%i/validator.key --rpc-addr ${RPC_ADDR} --p2p-port ${P2P_PORT} $BOOTNODES

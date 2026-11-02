@@ -130,6 +130,7 @@ def start(bins: Path, work: Path, peers: list[str]) -> list[subprocess.Popen]:
         cmd = [
             node, "--genesis", str(work / "genesis.json"), "--data-dir", str(d),
             "--rpc-addr", f"127.0.0.1:{RPC_BASE + i}", "--p2p-port", str(P2P_BASE + i),
+            "--allow-private-peers",  # every node is on 127.0.0.1
         ]
         for j in range(VALIDATORS + 1):
             if j != i:

@@ -108,6 +108,49 @@ fn block_id(i: u16, h: u64) -> Option<String> {
     b["header"]["id"].as_str().map(str::to_owned)
 }
 
+/// The `--trusted-block` value for a catch-up restart (B49), taken from the live
+/// peer `from`: its own tip, so it is recent by definition. Waits for the peer's
+/// RPC, since a peer restarted just before this call is not listening yet.
+///
+/// Single-source is fine here: every node in this lab is ours, on 127.0.0.1, so
+/// the block cannot come from an outside party. The launchers that serve real
+/// operators do not work this way; they require two sources to agree, or an
+/// operator override (`MAYA2C_TRUSTED_BLOCK`).
+fn trusted_block(from: u16) -> Result<String> {
+    let started = Instant::now();
+    loop {
+        match fetch_trusted_block(from) {
+            Ok(flag) => return Ok(flag),
+            Err(_) if started.elapsed() < WAIT => std::thread::sleep(POLL),
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn fetch_trusted_block(from: u16) -> Result<String> {
+    let info = rpc(from, "get_chain_info", &json!([]))?;
+    let tip = info["height"]
+        .as_u64()
+        .ok_or_else(|| format!("node {from}: no tip height"))?;
+    let block = rpc(from, "get_block_by_height", &json!([tip]))?;
+    trusted_flag(&info, &block)
+        .ok_or_else(|| format!("node {from}: tip {tip} gave no usable block id"))
+}
+
+/// The `HEIGHT:HEX` flag, from a chain-info reply and the block its tip names.
+/// `None` unless that block is at the reported height and its id is 64 hex
+/// characters: a wrong or partial answer is never passed on as an anchor.
+#[must_use]
+pub fn trusted_flag(info: &Value, block: &Value) -> Option<String> {
+    let height = info["height"].as_u64()?;
+    if block["height"].as_u64()? != height {
+        return None;
+    }
+    let id = block["header"]["id"].as_str()?;
+    let well_formed = id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());
+    well_formed.then(|| format!("{height}:{id}"))
+}
+
 /// The nodes agree on the block at the lowest tip among them, which is at
 /// least `min`. A node that does not answer counts as disagreeing.
 fn agree(nodes: &[u16], min: u64) -> bool {
@@ -304,7 +347,9 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Re
             &SNAPSHOT_BLOCKS.to_string(),
             "--snapshot-depth",
             &SNAPSHOT_BLOCKS.to_string(),
-        ]);
+        ])
+        // Every validator here is on 127.0.0.1; discovery needs its private addresses.
+        .arg("--allow-private-peers");
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",
@@ -313,11 +358,15 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Re
     }
     if let Some(from) = catch_up {
         let url = format!("http://{}", rpc_addr(from));
+        // B49: every catch-up restart passes a trusted block from the peer it
+        // catches up from. A node behind the unbonding window needs it; a node
+        // within the window accepts it as a checked anchor, so it is always safe.
+        let trusted = trusted_block(from)?;
         if bootstrap {
             let depth = SNAPSHOT_BLOCKS.to_string();
             cmd.args(["--bootstrap-from", &url, "--prune-depth", &depth]);
         }
-        cmd.args(["--catch-up-from", &url]);
+        cmd.args(["--catch-up-from", &url, "--trusted-block", &trusted]);
     }
     cmd.stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log)
@@ -743,4 +792,45 @@ pub fn attacknet(args: &[String]) -> Result<()> {
         Err(e) => eprintln!("attacknet: report not written: {e}"),
     }
     outcome.map_err(|e| format!("{e} (logs: {})", work.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    fn id(digit: char) -> String {
+        digit.to_string().repeat(64)
+    }
+
+    #[test]
+    fn the_tip_block_becomes_the_trusted_flag() {
+        // Why: the flag is the live peer's own tip, so height and id must both come from it.
+        let info = json!({ "height": 42 });
+        let block = json!({ "height": 42, "header": { "id": id('a') } });
+        assert_eq!(trusted_flag(&info, &block), Some(format!("42:{}", id('a'))));
+    }
+
+    #[test]
+    fn a_block_at_another_height_is_not_passed_on() {
+        // Why: a reply for the wrong height would anchor the restart to another block.
+        let info = json!({ "height": 42 });
+        let block = json!({ "height": 41, "header": { "id": id('a') } });
+        assert_eq!(trusted_flag(&info, &block), None);
+    }
+
+    #[test]
+    fn a_malformed_id_is_not_passed_on() {
+        let info = json!({ "height": 7 });
+        let short = json!({ "height": 7, "header": { "id": "ab" } });
+        let not_hex = json!({ "height": 7, "header": { "id": "z".repeat(64) } });
+        assert_eq!(trusted_flag(&info, &short), None);
+        assert_eq!(trusted_flag(&info, &not_hex), None);
+    }
+
+    #[test]
+    fn a_reply_without_a_height_is_not_passed_on() {
+        let block = json!({ "height": 3, "header": { "id": id('b') } });
+        assert_eq!(trusted_flag(&json!({}), &block), None);
+    }
 }
