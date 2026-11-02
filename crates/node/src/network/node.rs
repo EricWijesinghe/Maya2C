@@ -424,9 +424,19 @@ pub struct Node {
     rotation_check: Duration,
     stats: SessionStats,
     relay: Option<relay::RelayState>,
+    /// Keep non-routable learned addresses (a local network only). Off unless
+    /// the operator asks for it; see [`routable`].
+    allow_private_addresses: bool,
 }
 
 impl Node {
+    /// Lets this node dial and keep private, loopback and link-local addresses
+    /// its peers advertise. For a local devnet only: on a public network these
+    /// addresses are unreachable from elsewhere.
+    pub fn allow_private_peer_addresses(&mut self) {
+        self.allow_private_addresses = true;
+    }
+
     /// The clock driving session rotation.
     ///
     /// Cloneable, and the handle carries the same one. Whatever applies blocks
@@ -499,6 +509,7 @@ impl Node {
             addresses: threat::AddressBook::default(),
             links: links::LinkBook::default(),
             convicted: HashSet::new(),
+            allow_private_addresses: self.allow_private_addresses,
         };
         tokio::spawn(driver.run(command_rx));
 
@@ -539,6 +550,8 @@ struct NodeDriver {
     links: links::LinkBook,
     /// Peers refused for an on-chain conviction (`node::threat`).
     convicted: HashSet<PeerId>,
+    /// Copied from [`Node`]: keep non-routable learned addresses (local network only).
+    allow_private_addresses: bool,
 }
 
 impl NodeDriver {
@@ -770,6 +783,7 @@ impl NodeDriver {
                 // attacker's name can resolve to an internal address at
                 // dial time; only operator-configured bootnodes may be
                 // names) and a handful of addresses at most.
+                let allow_private = self.allow_private_addresses;
                 for address in info
                     .listen_addrs
                     .into_iter()
@@ -784,6 +798,9 @@ impl NodeDriver {
                             )
                         })
                     })
+                    // A private address is dialled only by a node on that
+                    // network, so it stays out of the table unless opted in.
+                    .filter(|a| allow_private || super::routable::is_routable(a))
                     .take(MAX_LEARNED_ADDRESSES)
                 {
                     self.swarm

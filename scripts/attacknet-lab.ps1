@@ -91,6 +91,7 @@ function Start-Lab {
         "--rpc-addr", "127.0.0.1:34310",
         "--p2p-port", "33310",
         "--metrics-addr", "127.0.0.1:35310",
+        "--allow-private-peers",
         "--bootnode"
     )
     Start-Process -FilePath "$REPO_DIR\target\release\maya2c-node.exe" -ArgumentList $bootnodeArgs -WindowStyle Hidden
@@ -113,7 +114,8 @@ function Start-Lab {
             "--rpc-addr", "127.0.0.1:$($v.RPC)",
             "--p2p-port", $v.P2P,
             "--validator-key", "$($v.Data)\validator.key",
-            "--metrics-addr", "127.0.0.1:$($v.Metrics)"
+            "--metrics-addr", "127.0.0.1:$($v.Metrics)",
+            "--allow-private-peers"
         )
 
         # Add bootnodes

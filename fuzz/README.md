@@ -27,6 +27,18 @@ cargo fuzz run tx_decode
 | `account_decode` | `Account::decode` | accepts exactly the 16-byte strings |
 | `sv2_frame_decode` | `maya_stratum_v2::frame` | no panic on bytes from whatever dialled the mining port |
 | `car_decode` | `maya_archive::read_car` / `open_archive` / `decompress` | every returned section hashes to its CID, or the archive is refused; decompression stays bounded |
+| `dex_payload_decode` | the eight DEX sections in `core::dex_payload` | no panic; an accepted section re-encodes to itself |
+| `oracle_payload_decode` | the five oracle sections in `core::oracle_payload` | no panic; an accepted section re-encodes to itself |
+| `governance_payload_decode` | `core::governance_payload` and `CouncilAction` | no panic; an accepted section re-encodes to itself |
+| `identity_payload_decode` | the five identity sections in `core::identity_payload` | no panic; an accepted section re-encodes to itself |
+| `rwa_payload_decode` | the five RWA sections in `core::rwa_payload` | no panic; an accepted section re-encodes to itself |
+| `rwa_record_decode` | `maya_rwa` token, attestation, distribution, eligibility, cap-table records | no panic; an accepted record re-encodes to its bytes |
+| `sealed_payload_decode` | `SealedEnvelope`, `RevealShare`, `maya_mev::SealedPayload`, `ShareProof` | no panic; an accepted input re-encodes to its bytes |
+
+The DEX, oracle, governance, identity, RWA and sealed-mempool sections are also
+reached through `payload_decode`, but only after a one-byte tag selects them.
+The domain targets select the decoder directly, so each one spends its budget
+in the section rather than in tag space.
 
 Every target asserts two things: that a malformed frame surfaces as
 `NodeError::Decode` rather than a panic, and that an accepted frame re-encodes

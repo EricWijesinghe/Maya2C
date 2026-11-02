@@ -567,7 +567,9 @@ sinks:
             .arg("--p2p-port")
             .arg(p2p_port.to_string())
             .arg("--metrics-addr")
-            .arg(format!("127.0.0.1:{metrics_port}"));
+            .arg(format!("127.0.0.1:{metrics_port}"))
+            // Every node in this lab is on 127.0.0.1; discovery needs those addresses.
+            .arg("--allow-private-peers");
 
         let log_file = File::options()
             .create(true)

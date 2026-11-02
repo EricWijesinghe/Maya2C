@@ -33,6 +33,7 @@ fn terms(fee: U256, nonce: u64) -> SignTerms<'static> {
         fee_to: None,
         nonce,
         chain: &CHAIN,
+        allow_high_fee: false,
     }
 }
 
@@ -178,6 +179,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
         fee_to: None,
         nonce: 4,
         chain: &other_chain,
+        allow_high_fee: false,
     };
 
     let tampered = [
@@ -272,4 +274,48 @@ fn signing_needs_a_confirm_from_this_session_and_spends_it() {
     let again = wallet.sign(0, &recipient, amount, &terms(fee, 4), &hash);
     assert!(matches!(again, Err(WalletError::Signing(_))), "{again:?}");
     assert_eq!(wallet.history().len(), 1, "one review, one signature");
+}
+
+#[test]
+fn the_approval_text_carries_the_core_computed_recipient_amount_fee_and_chain() {
+    let mut wallet = test_wallet();
+    let recipient = hex::encode([0x22; 32]);
+    let shown = wallet
+        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), 4))
+        .unwrap();
+
+    let text = maya_wallet_core::confirm::approval_message(&shown);
+
+    assert!(
+        text.contains(&format!("To: {}", checksummed(&[0x22; 32]))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("Amount: {} MAYA", format_display(coins("1.5")))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("Fee: {} MAYA", format_display(coins("0.001")))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("Chain: {}", hex::encode(CHAIN.as_bytes()))),
+        "{text}"
+    );
+    assert!(text.contains("Nonce: 4"), "{text}");
+    // No testnet or mainnet genesis is pinned yet, so this chain is unknown.
+    assert!(text.contains("Network: UNKNOWN NETWORK"), "{text}");
+}
+
+#[test]
+fn the_approval_text_warns_when_the_fee_is_larger_than_the_amount() {
+    let mut wallet = test_wallet();
+    let recipient = hex::encode([0x22; 32]);
+    let shown = wallet
+        .confirm(0, &recipient, coins("0.001"), &terms(coins("0.5"), 4))
+        .unwrap();
+
+    let text = maya_wallet_core::confirm::approval_message(&shown);
+
+    assert!(text.contains("larger than the amount"), "{text}");
 }

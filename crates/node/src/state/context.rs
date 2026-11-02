@@ -53,6 +53,12 @@ pub struct BlockContext {
     /// [`SHIELDED_ACTIVATION_HEIGHT`] is the default for every genesis that
     /// does not name one.
     pub shielded_activation: u64,
+    /// First height at which work claims are credited.
+    ///
+    /// [`WORK_CLAIM_ACTIVATION_HEIGHT`] everywhere the node builds a context,
+    /// which is never at launch. Tests set it with
+    /// [`Self::with_work_claim_activation`].
+    pub work_claim_activation: u64,
     /// First height at which RWA delivery-versus-payment swaps execute.
     ///
     /// [`DVP_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests set
@@ -102,6 +108,15 @@ pub const THREAT_INTEL_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// made witness-verifiable, without which only chains that never run the
 /// oracle, governance or the sealed mempool can be followed statelessly.
 pub const STATELESS_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which work claims are credited: none at launch.
+///
+/// Governance voting is stake-only at launch (Eric, 2026-11-02). A work claim
+/// names a beneficiary and carries no share proof, so crediting it would sell
+/// voting weight for one fee per block (audit finding, `claim_work`). It is
+/// re-enabled only when the claim is bound to a verified share in that block
+/// and credited to the share's miner (ADR-044, "Work credit at launch").
+pub const WORK_CLAIM_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which suite-tagged (wire version 7) and multisig (wire
 /// version 8) transactions verify: genesis.
@@ -172,6 +187,7 @@ impl BlockContext {
             threat_intel_activation: THREAT_INTEL_ACTIVATION_HEIGHT,
             iot_activation: IOT_ACTIVATION_HEIGHT,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
+            work_claim_activation: WORK_CLAIM_ACTIVATION_HEIGHT,
             dvp_activation: DVP_ACTIVATION_HEIGHT,
         }
     }
@@ -285,6 +301,21 @@ impl BlockContext {
         } else {
             self.height >= self.hash_lock_activation
         }
+    }
+
+    /// The same context with work claims credited from `height` on.
+    #[must_use]
+    pub const fn with_work_claim_activation(self, height: u64) -> Self {
+        Self {
+            work_claim_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether work claims are credited in this block.
+    #[must_use]
+    pub const fn work_claim_active(self) -> bool {
+        self.height >= self.work_claim_activation
     }
 
     /// The same context with zkML verification active from `height` on.
