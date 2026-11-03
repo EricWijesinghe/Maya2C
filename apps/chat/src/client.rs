@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::identity::{Identity, PrekeyBundle};
-use crate::outbox::{self, Expired, Pending};
+use crate::outbox::{self, Expired, Pending, Standing};
 use crate::receipt;
 use crate::relay::{Envelope, MAX_ENVELOPE_VERSION, Payload};
 use crate::session::{self, MAX_HANDSHAKE_AGE, Session};
@@ -536,6 +536,24 @@ impl Client {
     #[must_use]
     pub fn pending(&self, id: &[u8; 32]) -> Option<&Pending> {
         self.outbox.get(id)
+    }
+
+    /// Where `id` stands at `now`. `None` once it has left both the outbox and
+    /// the expired record: a receipt removed it, or the record dropped it.
+    /// Telling those apart takes the send time (see [`ENVELOPE_TTL`]).
+    #[must_use]
+    pub fn standing(&self, id: &[u8; 32], now: u64) -> Option<Standing> {
+        match self.outbox.get(id) {
+            Some(p) if now < p.first_at + ENVELOPE_TTL => {
+                Some(Standing::Queued { relayed: p.relayed })
+            }
+            Some(_) => Some(Standing::Expired),
+            None => self
+                .expired
+                .iter()
+                .any(|(known, _)| known == id)
+                .then_some(Standing::Expired),
+        }
     }
 
     /// Moves every entry past its TTL out of the outbox into the expired

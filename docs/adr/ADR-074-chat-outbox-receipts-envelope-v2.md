@@ -1,6 +1,6 @@
 # ADR-074: Chat sender outbox, signed delivery receipts, envelope v2
 
-**Status:** Accepted and implemented in part (2026-11-03): see the PR for deviations. Ledger item C4. Extends ADR-031 (Maya Chat,
+**Status:** Accepted and implemented in part (2026-11-03): see the PR for deviations. The desktop app shows each sent message as sending, waiting for receipt, delivered or expired, with Dismiss for expired ones (rollout step 4, `apps/chat-gui/src-tauri/src/delivery.rs`). Ledger item C4. Extends ADR-031 (Maya Chat,
 Accepted, RESEARCH: unaudited). Nothing here is built.
 **Date:** 2026-11-01
 
