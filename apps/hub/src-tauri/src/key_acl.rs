@@ -48,7 +48,7 @@ const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 /// caller treats that as a refusal.
 pub fn others_can_access(path: &Path) -> Result<bool, String> {
     let me = current_user_sid()?;
-    let mut wide: Vec<u16> = path
+    let wide: Vec<u16> = path
         .as_os_str()
         .encode_wide()
         .chain(std::iter::once(0))

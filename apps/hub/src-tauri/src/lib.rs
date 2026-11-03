@@ -124,7 +124,7 @@ fn supervise(app: tauri::AppHandle) {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
         let miner = app.state::<Miner>();
-        let temps = if tick % 3 == 0 && miner.gpu_running() {
+        let temps = if tick.is_multiple_of(3) && miner.gpu_running() {
             gpu::temperatures(&gpu::read())
         } else {
             Vec::new()
