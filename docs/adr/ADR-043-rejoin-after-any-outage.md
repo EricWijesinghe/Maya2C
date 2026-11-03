@@ -78,3 +78,35 @@ for a long holiday, a dead disk, or a new operator joining late meets it.
   stopped seed.
 - The attacknet controller kills lab targets by data directory, and its
   unimplemented faults fail instead of reporting PASS.
+
+## Amendment 2026-11-04: a source behind its own checkpoint
+
+A start-up catch-up (`--catch-up-from`) from a peer that serves a verified
+checkpoint whose block it has not imported yet (a follower one block behind)
+used to fail the node: the range request for that block returned "no block at
+height N", no other source was tried, and the node exited. Now such a source
+imports nothing and the node takes the existing "source behind" path (the
+checkpoint-follow path, or resuming as a validator when within the engine's
+window). Nothing unverified is imported: the checkpoint is still checked for a
+quorum before the height test. Refusals for bad evidence stay errors. The
+regression test is `a_source_behind_the_checkpoint_it_serves_imports_nothing_and_is_no_error`
+(`crates/node/src/consensus/bft/catchup.rs`). Found by attacknet "restart ahead"
+on commit 9913c144 (3 failures in 10 weighted runs, see the PR description).
+
+Known limits, recorded rather than fixed:
+
+- **Checked anchor has no `require_reached` equivalent.** A `--trusted-block`
+  start-up that reaches no checkpoint the source holds gets an empty batch,
+  and `check_trusted` returns Ok on an empty batch. A stale node is still
+  held by `require_reached` (the Stale anchor); a Checked node is not. This is
+  acceptable because a Checked node is not stale, and its committee is trusted.
+- **A far-behind node can starve on one source.** A follower that is always at
+  least one block behind its source's newest checkpoint imports nothing each
+  round. Importing up to the tip needs an attested block at or below it, and
+  the checkpoint book keeps one checkpoint per epoch (`attest.rs` `of_epoch`),
+  so no earlier one is available. Fixing it would weaken ADR-038. Not yet
+  filed as an issue.
+- **Lying-source starvation is pre-existing.** `follow_loop` stays on the one
+  source it was started with. A source that lies about its tip can hold a
+  follower there. This predates this amendment; not yet filed as an issue.
+- Each empty round logs one `catch-up: ... behind its own checkpoint` line.

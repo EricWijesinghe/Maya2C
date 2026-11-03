@@ -624,6 +624,10 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for PeerBook<'_> 
         let id = state.canonical_id(height)?.expect("peer holds the height");
         Ok(state.load_block(&id)?.expect("peer holds the body"))
     }
+
+    fn tip_height(&self) -> custom_l1_node::error::Result<u64> {
+        Ok(self.chain.height())
+    }
 }
 
 #[test]
