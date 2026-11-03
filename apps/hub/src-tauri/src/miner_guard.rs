@@ -39,7 +39,8 @@ pub enum GuardError {
     KeyOutsideDataDir(PathBuf),
     /// The key file is readable or writable by someone other than its owner.
     KeyOpenToOthers(PathBuf),
-    /// The key file belongs to another user.
+    /// The key file belongs to another user. Only the Unix owner check builds it.
+    #[cfg(unix)]
     KeyNotOwned(PathBuf),
     Io(String),
 }
@@ -89,6 +90,7 @@ impl fmt::Display for GuardError {
                 "key file {} is readable or writable by accounts other than yours, SYSTEM and Administrators; remove those permissions",
                 path.display()
             ),
+            #[cfg(unix)]
             Self::KeyNotOwned(path) => write!(
                 f,
                 "key file {} belongs to another user; copy it into your own account, then run chmod 600 on the copy",
@@ -211,8 +213,9 @@ pub fn pinned_hash(sums: &str, file: &str) -> Result<String, GuardError> {
 #[derive(Debug)]
 pub struct PinnedMiner {
     pub path: PathBuf,
+    // Held open so the file stays locked; never read after the check.
     #[cfg(not(unix))]
-    pub file: File,
+    _file: File,
     #[cfg(unix)]
     _scratch: Scratch,
 }
@@ -290,7 +293,7 @@ fn pin(
     _bytes: &[u8],
     _expected: &str,
 ) -> Result<PinnedMiner, GuardError> {
-    Ok(PinnedMiner { path, file })
+    Ok(PinnedMiner { path, _file: file })
 }
 
 /// Opens the miner for reading only, sharing reads and nothing else on Windows.
