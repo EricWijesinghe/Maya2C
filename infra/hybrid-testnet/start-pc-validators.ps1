@@ -3,8 +3,24 @@
 # validator), so the chain keeps finalizing on the VM alone when this PC is off;
 # these four vote and earn when it is on. Run by the watchdog every 5 min:
 # it starts only the ones that are not running (matched by data dir).
-param([string]$TrustedBlock = $env:MAYA2C_TRUSTED_BLOCK)
+param([string]$TrustedBlock = $env:MAYA2C_TRUSTED_BLOCK, [switch]$AllowSleep)
 $ErrorActionPreference = 'Stop'
+# The same rule the node enforces (docs/runbooks/validator-start-guards.md):
+# a plan that can sleep this PC is refused, so the watchdog logs one reason
+# instead of four failed starts. English labels only: on another Windows
+# language this refuses, which is the safe side; check the plan by hand and pass -AllowSleep.
+function Test-PlanCannotSleep {
+    foreach ($alias in 'STANDBYIDLE', 'HIBERNATEIDLE') {
+        $out = powercfg /query SCHEME_CURRENT SUB_SLEEP $alias 2>&1 | Out-String
+        $m = [regex]::Match($out, 'Current AC Power Setting Index: 0x([0-9a-fA-F]+)')
+        if (-not $m.Success -or [Convert]::ToInt64($m.Groups[1].Value, 16) -ne 0) { return $false }
+    }
+    return $true
+}
+if (-not $AllowSleep -and -not (Test-PlanCannotSleep)) {
+    Write-Output "$(Get-Date -Format s) refusing PC validators: the AC power plan can sleep this PC. Fix: powercfg /change standby-timeout-ac 0 ; powercfg /change hibernate-timeout-ac 0"
+    exit 1
+}
 $root = 'D:\Maya2C-validators\pc'
 $exe = Join-Path $root 'bin\maya2c-node.exe'
 $vm = '193.122.176.219'

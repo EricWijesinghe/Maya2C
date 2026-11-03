@@ -64,12 +64,12 @@ Placement in the roadmap: Maya OS comes after governance (utopia Phase 6) and th
 
 ## 4. Hard dependencies and risks
 
-**Attestation model versus invariant 11.** `docs/invariants.md` #11: the oracle is optional and absent by default, because introducing a trusted party is a decision somebody writes down. A TEE or vendor quote is trusted-party-shaped (`docs/architecture-vision.md` §4 calls it "invariant-11-shaped"). CLAUDE.md lists "TEE attestation (11)" among the PLANNED items that must be reconciled before code. This plan does not resolve it.
+**Attestation model versus invariant 11.** `docs/invariants.md` #11: the oracle is optional and absent by default, because introducing a trusted party is a decision somebody writes down. A TEE or vendor quote is trusted-party-shaped (`docs/architecture-vision.md` §4 calls it "invariant-11-shaped"). CLAUDE.md lists "TEE attestation" among the PLANNED items to reconcile before code, and no numbered invariant covers it: invariant 11 is the oracle rule, applied here by analogy. This plan does not resolve it.
 
 | Option | What it trusts | Invariant 11 | Verdict |
 |---|---|---|---|
 | A. Self-enrolment: device ML-DSA key, owner binding | Key possession only | No collision | Default. Labelled "proves possession, not genuine silicon". |
-| B. Vendor-rooted TPM or TEE quote | A vendor root key | Collides; needs a written decision | ADR and genesis opt-in only. Off by default. |
+| B. Vendor-rooted TPM or TEE quote | A vendor root key | Touches the oracle rule by analogy; needs a written decision | ADR and genesis opt-in only. Off by default. |
 | C. Witnessed attestation (peers vouch) | Peers | Sybil-prone without personhood | Later. Depends on `biometric-proof-of-personhood` (RESEARCH; no liveness, no uniqueness). |
 
 Biometric personhood's liveness also needs a TEE (`docs/architecture-vision.md` §4), so option B decides both.
@@ -101,7 +101,7 @@ Biometric personhood's liveness also needs a TEE (`docs/architecture-vision.md` 
 - Lowering hash rate, dropping features or shipping a weaker miner to avoid a flag. Compliance is signing, disclosure, consent and standard APIs.
 - Unsigned updates, or an update path that skips the signature check. No update channel without a verifiable key.
 - Keys or signing material in logs, images, or the repository (Standing Order 5).
-- Vendor attestation enabled by default. Invariant 11 needs a written decision first.
+- Vendor attestation enabled by default. The oracle rule (invariant 11, by analogy) needs a written decision first.
 - Claims of "first", "only", "unprecedented", or a shipping device before it is built and run (Standing Order 10; `docs/prior-art/<feature>.md` must record a dated search).
 - Any hardware order, certification lab, or signing ceremony without `APPROVED: <step name>`.
 

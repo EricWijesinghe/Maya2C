@@ -267,9 +267,9 @@ impl Worker {
     }
 
     fn device_args(&self) -> Vec<String> {
-        self.plan
-            .device
-            .map_or_else(Vec::new, |i| vec!["--gpu".into(), "--device".into(), i.to_string()])
+        self.plan.device.map_or_else(Vec::new, |i| {
+            vec!["--gpu".into(), "--device".into(), i.to_string()]
+        })
     }
 
     /// Starts the process. Used by the first start and by every restart, so
@@ -334,11 +334,19 @@ impl Worker {
                 st.status = format!("stopped: {} exits in 10 min", watchdog::CRASH_LIMIT);
                 (
                     "critical",
-                    format!("{device} {reason}; stopped after {} exits in 10 min. Start it again by hand once the cause is fixed.", watchdog::CRASH_LIMIT),
+                    format!(
+                        "{device} {reason}; stopped after {} exits in 10 min. Start it again by hand once the cause is fixed.",
+                        watchdog::CRASH_LIMIT
+                    ),
                 )
             }
         };
-        Alert { t_ms: now, device: device.into(), level, message }
+        Alert {
+            t_ms: now,
+            device: device.into(),
+            level,
+            message,
+        }
     }
 
     /// One supervision step. Returns the alerts it raised.
@@ -352,12 +360,20 @@ impl Worker {
                     self.halt();
                     let mut st = lock_state(&self.state);
                     st.held = true;
-                    st.status = format!("thermal stop at {t:.0} °C; restarts at {:.0} °C", ceiling - watchdog::THERMAL_HYSTERESIS_C);
+                    st.status = format!(
+                        "thermal stop at {t:.0} °C; restarts at {:.0} °C",
+                        ceiling - watchdog::THERMAL_HYSTERESIS_C
+                    );
                     alerts.push(Alert { t_ms: now, device: device.into(), level: "warn", message: format!("{device} reached {t:.0} °C, above its {ceiling:.0} °C ceiling, and was stopped") });
                 }
                 Thermal::Resume => {
                     lock_state(&self.state).held = false;
-                    alerts.push(Alert { t_ms: now, device: device.into(), level: "info", message: format!("{device} cooled to {t:.0} °C; restarting") });
+                    alerts.push(Alert {
+                        t_ms: now,
+                        device: device.into(),
+                        level: "info",
+                        message: format!("{device} cooled to {t:.0} °C; restarting"),
+                    });
                 }
                 Thermal::Unchanged => {}
             }
@@ -394,7 +410,12 @@ impl Worker {
         match self.launch(now) {
             Ok(()) => {
                 lock_state(&self.state).restarts += 1;
-                Some(Alert { t_ms: now, device: device.into(), level: "info", message: format!("{device} restarted") })
+                Some(Alert {
+                    t_ms: now,
+                    device: device.into(),
+                    level: "info",
+                    message: format!("{device} restarted"),
+                })
             }
             Err(e) => Some(self.on_exited(now, device, &format!("would not start ({e})"))),
         }
@@ -415,7 +436,8 @@ impl Miner {
         if config.device.is_some_and(|i| i > MAX_DEVICE) {
             return Err(format!("GPU index above {MAX_DEVICE} is not supported"));
         }
-        miner_guard::check_miner(&config.binary, install, PINNED_SUMS).map_err(|e| e.to_string())?;
+        miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
+            .map_err(|e| e.to_string())?;
         let key_file =
             miner_guard::resolve_key_file(&config.key_file, data).map_err(|e| e.to_string())?;
         let plan = Plan {
@@ -447,7 +469,12 @@ impl Miner {
         {
             let mut st = lock_state(&worker.state);
             let device = std::mem::take(&mut st.device);
-            *st = MinerState { device, ceiling_c: ceiling, started_ms: Some(now_ms()), ..MinerState::default() };
+            *st = MinerState {
+                device,
+                ceiling_c: ceiling,
+                started_ms: Some(now_ms()),
+                ..MinerState::default()
+            };
         }
         let now = now_ms();
         let result = worker.launch(now);
@@ -483,7 +510,10 @@ impl Miner {
             .workers
             .iter_mut()
             .flat_map(|(key, worker)| {
-                let temp = worker.plan.device.and_then(|i| temps.iter().find(|(d, _)| *d == i).map(|(_, t)| *t));
+                let temp = worker
+                    .plan
+                    .device
+                    .and_then(|i| temps.iter().find(|(d, _)| *d == i).map(|(_, t)| *t));
                 worker.tick(now, key, temp)
             })
             .collect();
@@ -508,7 +538,11 @@ impl Miner {
     pub fn report(&self) -> MinerReport {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         MinerReport {
-            workers: inner.workers.values().map(|w| lock_state(&w.state).clone()).collect(),
+            workers: inner
+                .workers
+                .values()
+                .map(|w| lock_state(&w.state).clone())
+                .collect(),
             alerts: inner.alerts.iter().rev().cloned().collect(),
         }
     }
