@@ -14,7 +14,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use crate::ordered_json::Json;
 
 use crate::pyfmt;
 
@@ -127,20 +127,21 @@ fn planned(root: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     Ok(out)
 }
 
-/// The pack's manifest with this app's name filled in and icons made relative.
-/// Python's `json.dumps(indent=2) + "\n"`, key order preserved.
+/// Python's `json.dumps(indent=2)` plus a newline, key order preserved.
 fn manifest(pack: &Path, app: &App) -> Result<Vec<u8>, String> {
     let path = pack.join("favicons").join("site.webmanifest");
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut manifest: Value =
-        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    manifest["name"] = Value::String(app.name.into());
-    manifest["short_name"] = Value::String(app.short_name.into());
-    if let Some(icons) = manifest.get_mut("icons").and_then(Value::as_array_mut) {
+    let mut manifest = Json::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    manifest.set("name", Json::String(app.name.into()))?;
+    manifest.set("short_name", Json::String(app.short_name.into()))?;
+    if let Some(Json::Array(icons)) = manifest.get_mut("icons") {
         for icon in icons {
-            let src = icon.get("src").and_then(Value::as_str).map(str::to_owned);
+            let src = icon.get("src").and_then(Json::as_str).map(str::to_owned);
             if let Some(src) = src {
-                icon["src"] = Value::String(format!("./{}", src.trim_start_matches('/')));
+                icon.set(
+                    "src",
+                    Json::String(format!("./{}", src.trim_start_matches('/'))),
+                )?;
             }
         }
     }

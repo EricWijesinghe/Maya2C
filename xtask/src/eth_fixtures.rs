@@ -15,6 +15,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{CONTENT_TYPE, USER_AGENT};
 use serde_json::{Map, Value, json};
 
+use crate::ordered_json::Json;
 use crate::pyfmt;
 
 const HEADERS_OUT: &str = "crates/interop/tests/fixtures/eth_mainnet_headers.json";
@@ -213,7 +214,7 @@ fn pick(block: &Value, fields: &[&str]) -> Result<Map<String, Value>, String> {
 fn verify(rel: &str) -> Result<(), String> {
     let path = crate::workspace_root().join(rel);
     let bytes = fs::read(&path).map_err(|e| format!("{rel}: {e}"))?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{rel}: {e}"))?;
+    let value: Json = serde_json::from_slice(&bytes).map_err(|e| format!("{rel}: {e}"))?;
     let rebuilt = pyfmt::json(&value, INDENT)?;
     if rebuilt.as_bytes() != bytes.as_slice() {
         return Err(format!(

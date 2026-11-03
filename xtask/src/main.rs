@@ -36,6 +36,7 @@ mod localnet;
 mod mesh_check;
 mod mining_localnet;
 mod og_card;
+mod ordered_json;
 mod pgo;
 mod proof_ratchet;
 mod proving;

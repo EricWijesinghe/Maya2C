@@ -108,10 +108,9 @@ fn fixed_notation(digits: &str, exp: i32) -> String {
 
 /// Python's `json.dumps(value, indent=N)`: `indent` spaces per level, `": "` after
 /// keys, `ensure_ascii` escapes (`\uXXXX`, lowercase, surrogate pairs above the
-/// BMP), and no trailing newline. Object key order is the insertion order, which
-/// needs `serde_json`'s `preserve_order` (enabled in `xtask/Cargo.toml`).
-pub fn json(value: &serde_json::Value, indent: usize) -> Result<String, String> {
-    use serde::Serialize;
+/// BMP), and no trailing newline. Keys come out in the order the value holds them,
+/// so pass a `crate::ordered_json::Json` for file order.
+pub fn json<T: serde::Serialize + ?Sized>(value: &T, indent: usize) -> Result<String, String> {
     use std::fmt::Write as _;
     let pad = vec![b' '; indent];
     let mut buf = Vec::new();
