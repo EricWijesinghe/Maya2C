@@ -69,8 +69,61 @@ function drawLine(line) {
   // What happened to the words: sealed here, or opened here after the trip.
   at.textContent = `${line.mine ? "sealed" : "opened"} · ${clock}`;
   li.append(text, at);
+  if (line.outbox) li.dataset.outbox = line.outbox;
   $("lines").append(li);
   $("lines").scrollTop = $("lines").scrollHeight;
+}
+
+const DELIVERY_LABEL = {
+  sending: "Sending",
+  waiting: "Waiting for receipt",
+  delivered: "Delivered",
+  expired: "Expired, no receipt",
+};
+
+// Shows a sent message's state; an expired one gets a Dismiss button.
+function paintDelivery(li, d) {
+  let tag = li.querySelector(".delivery");
+  if (!tag) {
+    tag = document.createElement("span");
+    tag.className = "delivery";
+    li.append(tag);
+  }
+  tag.dataset.state = d.state;
+  tag.textContent = DELIVERY_LABEL[d.state];
+  let dismiss = li.querySelector(".dismiss");
+  if (d.state === "expired" && !dismiss) {
+    dismiss = document.createElement("button");
+    dismiss.className = "dismiss";
+    dismiss.textContent = "Dismiss";
+    dismiss.onclick = () => dismissDelivery(li, d.id);
+    li.append(dismiss);
+  } else if (d.state !== "expired" && dismiss) {
+    dismiss.remove();
+  }
+}
+
+async function dismissDelivery(li, id) {
+  try {
+    await invoke("dismiss_delivery", { id });
+    delete li.dataset.outbox;
+    li.querySelector(".delivery")?.remove();
+    li.querySelector(".dismiss")?.remove();
+  } catch (e) {
+    say("chat-error", e);
+  }
+}
+
+async function refreshDeliveries() {
+  if (!state.peer) return;
+  try {
+    for (const d of await invoke("deliveries", { peer: state.peer })) {
+      const li = $("lines").querySelector(`li[data-outbox="${d.id}"]`);
+      if (li) paintDelivery(li, d);
+    }
+  } catch (e) {
+    say("side-status", e);
+  }
 }
 
 async function openPeer(addr) {
@@ -83,6 +136,7 @@ async function openPeer(addr) {
   $("lines").replaceChildren();
   try {
     for (const line of await invoke("history", { peer: addr })) drawLine(line);
+    await refreshDeliveries();
   } catch (e) {
     say("chat-error", e);
   }
@@ -103,6 +157,7 @@ async function poll() {
       if (line.peer === state.peer) drawLine(line);
       else say("side-status", `New message from ${nameOf(line.peer)}`);
     }
+    await refreshDeliveries();
   } catch (e) {
     say("side-status", e);
   }
@@ -128,6 +183,7 @@ async function enter(status, open) {
     say("chat-error", "");
     try {
       drawLine(await invoke("send_sticker", { peer: state.peer, pack, id }));
+      await refreshDeliveries();
     } catch (e) {
       say("chat-error", e);
     }
@@ -267,6 +323,7 @@ $("compose").onsubmit = async (ev) => {
   say("chat-error", "");
   try {
     drawLine(await invoke("send", { peer: state.peer, text }));
+    await refreshDeliveries();
     $("text").value = "";
     Stickers.suggest("");
   } catch (e) {

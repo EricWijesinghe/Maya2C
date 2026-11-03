@@ -47,6 +47,10 @@ pub struct Line {
     /// Set when the line is a sticker; `text` then holds its emoji.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sticker: Option<StickerRef>,
+    /// The outbox id (hex) of a message this user sent, while its delivery is
+    /// tracked. Cleared once the user dismisses an expired one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbox: Option<String>,
 }
 
 /// The sticker a line shows.
@@ -228,7 +232,7 @@ mod tests {
         let profile = Profile {
             relay: "/dns4/seed1.maya2c.dev/tcp/4001/p2p/x".into(),
             contacts: vec![Contact { name: "Ann".into(), address: "ab".repeat(32) }],
-            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None }],
+            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None, outbox: None }],
             ..Profile::default()
         };
         files.save_profile(&[1; 32], &profile).unwrap();
