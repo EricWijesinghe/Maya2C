@@ -18,17 +18,18 @@ node takes it as a dev-dependency only (invariant 20).
 An SGX DCAP quote chains to Intel's root key and a SEV-SNP report to AMD's,
 both ECDSA (P-256 and P-384). On this chain that is:
 
-- **a trusted party** — the reason the architecture vision flagged TEE
-  attestation as colliding with invariant 11, which requires introducing the
-  chain's only trusted party to be a decision somebody writes down;
+- **a trusted party** — the reason the architecture vision flags TEE
+  attestation as touching invariant 11 by analogy. No numbered TEE invariant
+  exists; invariant 11 is the oracle rule, and adding the chain's only trusted
+  party is a decision somebody writes down;
 - **not post-quantum** — a quantum attacker forges the vendor signature;
 - **hardware with a record of side-channel breaks** — SGX in particular.
 
 So the privacy of an update rests on masking and noise, which need no vendor.
 An attestation could add one claim on top — that aggregation ran as a measured
 binary — once a real verifier and test vectors exist. Nothing writes chain
-state, so invariant 11 is not engaged. Committing an attested round to state
-would engage it, and that is a written decision first.
+state, so the oracle rule is not engaged. Committing an attested round to state
+would engage it by analogy, and that is a written decision first.
 
 ## Secure aggregation
 
