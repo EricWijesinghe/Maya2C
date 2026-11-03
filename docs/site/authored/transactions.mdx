@@ -218,7 +218,7 @@ b_t & s_t = T
 $$
 
 The rise is clamped to one denominator's share per block, so no block, however
-full, lifts the fee by more than 1/8 ([ADR-071](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-071-base-fee-step-clamp-and-ceiling.md),
+full, lifts the fee by more than 1/8 ([ADR-076](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-076-base-fee-step-clamp-and-ceiling.md),
 Proposed). A block at $2T$ raises the fee by exactly 1/8, and an empty block
 lowers it by 1/8. The fee also stops at a compiled-in ceiling $B_{\max}$
 (`MAX_BASE_FEE_PER_BYTE` in `crates/fee-market/src/limits.rs`). That value is
