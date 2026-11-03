@@ -687,7 +687,7 @@ Eric approved O1–O4 the same day. ADR-078 is Accepted. O3 (test ratchet) start
 ## 2026-11-01 — Reviewed guards are marked in code, not P0 rows
 
 The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comment, and
-`scripts/gap_register.py` lists such rows as `guard` rather than P0/P1. They stay in the
+`cargo xtask gap-register` lists such rows as `guard` rather than P0/P1. They stay in the
 register so the call can still be disputed. Kani proof modules (`#[cfg(kani)] mod x;`) are
 treated as test code: `fee-market/src/proofs.rs:129` was counted as a P0 though it is in no
 binary. Register now: 0 P0, 0 P1, 31 P2, 3 reviewed guards.

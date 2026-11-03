@@ -14,13 +14,17 @@
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
 mod attacknet;
+mod bench_gate;
+mod bench_report;
 mod bench_tps;
+mod check_brand_refs;
 mod claims_check;
 mod coverage;
 mod devnet;
 mod disk;
 mod eco_metrics;
 mod evidence;
+mod gap_register;
 mod genesis_check;
 mod go_no_go;
 mod guides_check;
@@ -31,7 +35,9 @@ mod mining_localnet;
 mod pgo;
 mod proof_ratchet;
 mod proving;
+mod pyfmt;
 mod readiness;
+mod reality_audit;
 mod release_check;
 mod sdk_e2e;
 mod site_integrity;
@@ -82,6 +88,11 @@ fn main() -> ExitCode {
         "sweep" => sweep::run(rest),
         "verify-release" => verify_release::run(rest),
         "site-integrity" => site_integrity::run(rest),
+        "bench-gate" => return bench_gate::run(rest),
+        "bench-report" => return bench_report::run(rest),
+        "gap-register" => return gap_register::run(rest),
+        "reality-audit" => return reality_audit::run(rest),
+        "check-brand-refs" => return check_brand_refs::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -105,6 +116,14 @@ cargo xtask <command>
 
   disk [--check]        Report build-artifact size. `--check` exits non-zero
                         above the ceiling in xtask/src/disk.rs.
+  bench-gate --runner NAME [--record] LOG...
+                        Fail on a >5% regression of a tracked benchmark
+                        against benchmarks/history.csv (same runner only).
+  bench-report          Criterion JSON to docs/benchmarks/algo_comparison.{{csv,md}}.
+  gap-register          Print reports/11-gap-register.md (redirect to the file).
+  reality-audit LOG [--markdown]
+                        Re-derive features.toml statuses from a cargo test log.
+  check-brand-refs      Every href/src in the frontends' dist/ resolves to a file.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a
                         test that exists.

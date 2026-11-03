@@ -43,4 +43,4 @@ network.
 ## Consequences
 - The first honest figure replaces "unmeasured" in CLAUDE.md and the roadmap.
 - Optimisation work has a before/after to be judged by, and a regression gate
-  (`scripts/bench_gate.py`) can later read the same report format.
+  (`cargo xtask bench-gate`) can later read the same report format.
