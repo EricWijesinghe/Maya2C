@@ -73,7 +73,8 @@ pub fn eth_headers(args: &[String]) -> Result<(), String> {
         headers.push(Value::Object(pick(&block, HEADER_FIELDS)?));
     }
     let len = headers.len();
-    let doc = json!({ "source": rpc, "fetched_utc": fetched_utc(), "headers": headers });
+    let doc =
+        json!({ "source": public_origin(rpc), "fetched_utc": fetched_utc(), "headers": headers });
     write(HEADERS_OUT, &doc)?;
     println!("{len} headers {first}..{head} -> {HEADERS_OUT}");
     Ok(())
@@ -179,7 +180,7 @@ pub fn eth_exposure(args: &[String]) -> Result<(), String> {
     }
     let count = accounts.len();
     let doc = json!({
-        "source": rpc,
+        "source": public_origin(rpc),
         "fetched_utc": fetched_utc(),
         "pinned_block": head,
         "blocks_sampled": blocks,
@@ -189,6 +190,22 @@ pub fn eth_exposure(args: &[String]) -> Result<(), String> {
     write(EXPOSURE_OUT, &doc)?;
     println!("{count} accounts at block {head} -> {EXPOSURE_OUT}");
     Ok(())
+}
+
+/// The scheme and host of an RPC URL, for the fixture's `source` field.
+///
+/// A `--rpc` URL from a provider often carries an API key in the userinfo,
+/// path or query; the fixture is committed to a public repository, so only
+/// the origin is recorded.
+fn public_origin(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    if scheme.is_empty() {
+        host.to_owned()
+    } else {
+        format!("{scheme}://{host}")
+    }
 }
 
 /// The finalized header's block root, as the beacon API reports it. The Python
@@ -362,5 +379,20 @@ impl Http {
             .and_then(reqwest::blocking::Response::bytes)
             .map_err(|e| format!("{url}: {e}"))?;
         serde_json::from_slice(&bytes).map_err(|e| format!("{url}: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_source_field_drops_keys_in_userinfo_path_and_query() {
+        assert_eq!(
+            super::public_origin("https://u:k@rpc.example/v3/KEY?apikey=x"),
+            "https://rpc.example"
+        );
+        assert_eq!(
+            super::public_origin("http://127.0.0.1:8545"),
+            "http://127.0.0.1:8545"
+        );
     }
 }
