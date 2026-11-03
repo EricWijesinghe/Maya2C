@@ -134,7 +134,10 @@ mod tests {
                    1, RTX B, [N/A], 90.10, 200.00, 0, [N/A], 512, 8192, 210\n";
         let gpus = parse(csv);
         assert_eq!(gpus.iter().map(|g| g.index).collect::<Vec<_>>(), [0, 1]);
-        let report = GpuReport { devices: gpus, note: None };
+        let report = GpuReport {
+            devices: gpus,
+            note: None,
+        };
         assert_eq!(temperatures(&report), [(0, 61.0)]);
     }
 

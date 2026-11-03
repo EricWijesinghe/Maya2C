@@ -52,7 +52,9 @@ pub struct Supervisor {
 #[must_use]
 pub fn backoff_ms(attempt: u32) -> u64 {
     let shift = attempt.saturating_sub(1).min(31);
-    BACKOFF_FIRST_MS.saturating_mul(1 << shift).min(BACKOFF_CAP_MS)
+    BACKOFF_FIRST_MS
+        .saturating_mul(1 << shift)
+        .min(BACKOFF_CAP_MS)
 }
 
 /// True when the miner has been silent for [`STALL_MS`].
@@ -73,7 +75,9 @@ impl Supervisor {
             self.restart_at = None;
             return AfterExit::GiveUp;
         }
-        let at = now_ms.saturating_add(backoff_ms(u32::try_from(self.exits.len()).unwrap_or(u32::MAX)));
+        let at = now_ms.saturating_add(backoff_ms(
+            u32::try_from(self.exits.len()).unwrap_or(u32::MAX),
+        ));
         self.restart_at = Some(at);
         AfterExit::RestartAt(at)
     }
@@ -131,10 +135,16 @@ mod tests {
         let seq: Vec<u64> = (1..=10).map(backoff_ms).collect();
         assert_eq!(
             seq,
-            [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000, 300_000]
+            [
+                2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000, 300_000
+            ]
         );
         assert_eq!(backoff_ms(u32::MAX), BACKOFF_CAP_MS);
-        assert_eq!(backoff_ms(0), BACKOFF_FIRST_MS, "attempt 0 is not a shift underflow");
+        assert_eq!(
+            backoff_ms(0),
+            BACKOFF_FIRST_MS,
+            "attempt 0 is not a shift underflow"
+        );
     }
 
     #[test]
@@ -152,7 +162,11 @@ mod tests {
             assert!(sup.take_due(t));
         }
         assert_eq!(restarts, [2_000, 4_000, 8_000, 16_000]);
-        assert_eq!(sup.on_exit(t + 1), AfterExit::GiveUp, "fifth exit in the window");
+        assert_eq!(
+            sup.on_exit(t + 1),
+            AfterExit::GiveUp,
+            "fifth exit in the window"
+        );
         assert_eq!(sup.restart_at(), None);
     }
 
@@ -163,7 +177,10 @@ mod tests {
             assert!(matches!(sup.on_exit(i * 1_000), AfterExit::RestartAt(_)));
         }
         let later = CRASH_WINDOW_MS + 10_000;
-        assert_eq!(sup.on_exit(later), AfterExit::RestartAt(later + BACKOFF_FIRST_MS));
+        assert_eq!(
+            sup.on_exit(later),
+            AfterExit::RestartAt(later + BACKOFF_FIRST_MS)
+        );
     }
 
     #[test]
@@ -212,7 +229,10 @@ mod tests {
     fn a_stall_is_silence_of_sixty_seconds_or_more() {
         assert!(!stalled(1_000, 1_000 + STALL_MS - 1));
         assert!(stalled(1_000, 1_000 + STALL_MS));
-        assert!(!stalled(5_000, 1_000), "a clock that went back is not a stall");
+        assert!(
+            !stalled(5_000, 1_000),
+            "a clock that went back is not a stall"
+        );
     }
 
     #[test]
@@ -222,7 +242,10 @@ mod tests {
             sup.on_exit(i);
         }
         sup.reset();
-        assert_eq!(sup.on_exit(100), AfterExit::RestartAt(100 + BACKOFF_FIRST_MS));
+        assert_eq!(
+            sup.on_exit(100),
+            AfterExit::RestartAt(100 + BACKOFF_FIRST_MS)
+        );
         sup.reset();
         assert_eq!(sup.restart_at(), None);
         assert!(!sup.take_due(u64::MAX), "a stopped worker never restarts");
