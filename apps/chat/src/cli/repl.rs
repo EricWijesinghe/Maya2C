@@ -67,26 +67,25 @@ struct Chat {
 impl Chat {
     async fn send(&mut self, text: &str) -> Result<(), String> {
         let to = self.peer.ok_or("no peer yet: /to HEX")?;
-        let established = self.client.has_session(&to);
-        match courier::deliver(&mut self.client, &self.relay, to, text.as_bytes(), now()).await {
-            Ok(()) => {
-                save_client(&self.home, &self.client)?;
-                println!("sent");
+        // Saved before and after the network, as the one-shot `send` does: the
+        // queued envelope is never lost, and never resealed (ADR-074).
+        let id = courier::prepare(&mut self.client, &self.relay, to, text.as_bytes(), now())
+            .await
+            .map_err(|e| why(&e))?;
+        save_client(&self.home, &self.client)?;
+        let flushed = courier::flush(&mut self.client, &self.relay, now()).await;
+        save_client(&self.home, &self.client)?;
+        match flushed
+            .map_err(|e| why(&e))?
+            .into_iter()
+            .find(|(due, _)| *due == id)
+        {
+            Some((_, Ok(()))) => {
+                println!("relayed (waiting for receipt)");
                 Ok(())
             }
-            Err(e) => {
-                // An established session keeps its advanced chain even though the send
-                // failed: the relay may hold the envelope with only the reply lost, and
-                // rewinding would seal the next message under the same key and nonce
-                // (two-time pad; ADR-074). The receiver skips a missing index. Only a
-                // session this send opened is rewound: the retry handshakes afresh.
-                if established {
-                    save_client(&self.home, &self.client)?;
-                } else {
-                    self.client = load_client(&self.home)?;
-                }
-                Err(why(&e))
-            }
+            Some((_, Err(e))) => Err(format!("queued, will retry: {}", why(&e))),
+            None => Err("queued, will retry".into()),
         }
     }
 
@@ -94,8 +93,13 @@ impl Chat {
         let results = courier::collect(&mut self.client, &self.relay, now())
             .await
             .map_err(|e| why(&e))?;
+        save_client(&self.home, &self.client)?;
+        let flushed = courier::flush(&mut self.client, &self.relay, now()).await;
+        save_client(&self.home, &self.client)?;
+        if let Err(e) = flushed {
+            println!("outbox: {}, will retry", why(&e));
+        }
         if !results.is_empty() {
-            save_client(&self.home, &self.client)?;
             show(&results);
         }
         Ok(())

@@ -28,6 +28,12 @@ maya-signer = { path = "../../crates/signer" }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }
 serde_json.workspace = true
 
+# The Windows power guard (`power_guard`): the AC sleep timers and the
+# keep-awake request. Same 0.61 already in Cargo.lock through the tokio and
+# libp2p tree, so this adds no crate; only the Win32 modules it binds.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Power", "Win32_System_SystemServices"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 

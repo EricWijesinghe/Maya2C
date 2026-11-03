@@ -255,6 +255,9 @@ function Show-Consent {
     Write-Note "listen on p2p port $P2pPort, rpc 127.0.0.1:$RpcPort (loopback)"
     Write-Note "connect to the testnet at bootnode $Bootnode"
     Write-Note "catch up from snapshot endpoint $Bootstrap"
+    # The node refuses to start while the AC plan can sleep this PC; say so here, before the consent.
+    Write-Note "a validator refuses to start while this PC can sleep. Fix (elevated):"
+    Write-Note "  powercfg /change standby-timeout-ac 0 ; powercfg /change hibernate-timeout-ac 0"
     Write-Host '  It is a TESTNET node. It carries no value. Remove any time with' -ForegroundColor White
     Write-Host '      Start menu > Maya2C > Uninstall Maya2C' -ForegroundColor White
     Write-Host ''

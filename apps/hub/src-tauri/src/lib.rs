@@ -4,21 +4,27 @@
 //! the GPU driver or a process. Each blocking call runs off the UI thread.
 
 mod gpu;
+#[cfg(windows)]
+mod key_acl;
 mod miner;
 mod miner_guard;
 mod node;
+mod notify;
 mod pools;
 mod watchdog;
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
 use serde::Serialize;
 use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::miner::{Miner, MinerConfig, MinerReport};
 use crate::miner_guard::miner_file_name;
+use crate::notify::Notifier;
 
 /// Starting values for the settings panel.
 #[derive(Serialize)]
@@ -101,6 +107,24 @@ fn miner_start(
     state.start(&config, &install, &data)
 }
 
+/// Turns OS toasts for alerts on or off. Off by default; the webview sends the
+/// saved choice on start. Turning them on asks the OS for permission first
+/// (Android needs it; desktop grants it without asking).
+#[tauri::command]
+fn notify_set(
+    on: bool,
+    app: tauri::AppHandle,
+    notifier: tauri::State<'_, Mutex<Notifier>>,
+) -> Result<(), String> {
+    if on {
+        app.notification()
+            .request_permission()
+            .map_err(|e| e.to_string())?;
+    }
+    notify::lock(&notifier).set_enabled(on);
+    Ok(())
+}
+
 /// Stops one device's miner (`cpu`, `gpu0`, ...), or all of them when no
 /// device is named. A stop is never followed by an automatic restart.
 #[tauri::command]
@@ -122,12 +146,18 @@ fn supervise(app: tauri::AppHandle) {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
         let miner = app.state::<Miner>();
-        let temps = if tick % 3 == 0 && miner.gpu_running() {
+        let temps = if tick.is_multiple_of(3) && miner.gpu_running() {
             gpu::temperatures(&gpu::read())
         } else {
             Vec::new()
         };
-        miner.tick(miner::now_ms(), &temps);
+        let raised = miner.tick(miner::now_ms(), &temps);
+        let notifier = app.state::<Mutex<Notifier>>();
+        for alert in &raised {
+            if notify::lock(&notifier).admit(alert) {
+                notify::show(&app, alert);
+            }
+        }
     }
 }
 
@@ -138,19 +168,22 @@ fn supervise(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(maya_app_update::dialog())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let handle = app.handle().clone();
             thread::spawn(move || supervise(handle));
             Ok(maya_app_update::start(app)?)
         })
         .manage(Miner::default())
+        .manage(Mutex::new(Notifier::default()))
         .invoke_handler(tauri::generate_handler![
             defaults,
             node_snapshot,
             gpu_telemetry,
             miner_start,
             miner_stop,
-            miner_state
+            miner_state,
+            notify_set
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner

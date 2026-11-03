@@ -41,7 +41,8 @@ const SUPPLY: u128 = 1_000 * COIN;
 const RESERVE: &str = "122753829695359067419575633036805965021648";
 const MIN_SELF_BOND: u128 = 1_000 * COIN;
 const MIN_DELEGATION: u128 = COIN;
-const DEFAULT_HOURS: u64 = 120;
+/// Eric, 2026-11-02: the 7-day soak is done; any later test network runs one day at most.
+const DEFAULT_HOURS: u64 = 24;
 const CHECK_EVERY: Duration = Duration::from_secs(60);
 const REPORT_EVERY: Duration = Duration::from_secs(3_600);
 /// No new block for this long is a halt.

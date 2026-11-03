@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identity::{PrekeyBundle, address_of};
 use crate::session::{Handshake, Message};
+use crate::wire;
 use crate::{Address, ChatError};
 
 /// Most envelopes one mailbox holds.
@@ -41,6 +42,21 @@ const STAMP_DOMAIN: &str = "maya-chat 2026-09-28 postage stamp v1";
 /// work is what a flood costs; a relay may ask for more.
 pub const STAMP_BITS: u32 = 20;
 
+/// The envelope encoding this build reads and writes, and the newest it
+/// accepts. Version 1 is the original CBOR (integer arrays for bytes);
+/// version 2 writes every byte string as a CBOR byte string (ADR-074, decision 4).
+pub const MAX_ENVELOPE_VERSION: u8 = 2;
+
+fn envelope_v1() -> u8 {
+    1
+}
+
+// serde passes the field by reference, so the lint's advice does not apply.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_v1(version: &u8) -> bool {
+    *version == 1
+}
+
 /// What an envelope carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Payload {
@@ -66,18 +82,41 @@ pub struct Envelope {
     pub payload: Payload,
     /// Postage: see [`Envelope::mint`].
     pub stamp: u64,
+    /// Encoding version. Absent (so not written) for version 1, which keeps
+    /// version-1 bytes and their ids unchanged.
+    #[serde(default = "envelope_v1", skip_serializing_if = "is_v1")]
+    pub version: u8,
 }
 
 impl Envelope {
-    /// The envelope's canonical bytes (CBOR).
+    /// The envelope's canonical bytes (CBOR), in its own version's encoding.
     ///
     /// # Errors
     ///
-    /// [`ChatError::Encoding`].
+    /// [`ChatError::Encoding`], or an unknown version.
     pub fn encode(&self) -> Result<Vec<u8>, ChatError> {
         let mut out = Vec::new();
-        ciborium::into_writer(self, &mut out).map_err(|_| ChatError::Encoding)?;
+        match self.version {
+            1 => ciborium::into_writer(self, &mut out),
+            2 => ciborium::into_writer(&wire::EnvelopeV2::from(self), &mut out),
+            _ => return Err(ChatError::Encoding),
+        }
+        .map_err(|_| ChatError::Encoding)?;
         Ok(out)
+    }
+
+    /// Reads an envelope in either encoding (the version is inside it).
+    ///
+    /// # Errors
+    ///
+    /// [`ChatError::Encoding`] for bytes that are not an envelope, or
+    /// [`ChatError::Refused`] for a version this build does not read.
+    pub fn decode(bytes: &[u8]) -> Result<Self, ChatError> {
+        let envelope: Self = ciborium::from_reader(bytes).map_err(|_| ChatError::Encoding)?;
+        if !(1..=MAX_ENVELOPE_VERSION).contains(&envelope.version) {
+            return Err(ChatError::Refused("unknown envelope version"));
+        }
+        Ok(envelope)
     }
 
     /// Its id: a hash of everything but the stamp, so a resend is

@@ -170,7 +170,7 @@ fn an_interactive_chat_sends_lines_and_shows_replies() {
     writeln!(stdin, "/to {bob_addr}").expect("write");
     assert!(next().starts_with("now talking to "));
     writeln!(stdin, "hello from the prompt").expect("write");
-    assert_eq!(next(), "sent");
+    assert_eq!(next(), "relayed (waiting for receipt)");
 
     let got = run(&bob, &["recv", "--relay", &relay]);
     assert!(got.contains("hello from the prompt"), "{got}");

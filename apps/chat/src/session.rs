@@ -95,6 +95,10 @@ pub struct Session {
     send_n: u64,
     recv_n: u64,
     skipped: BTreeMap<u64, Secret>,
+    /// The peer's ML-DSA-65 identity key, which verifies its receipts. Empty
+    /// for a session saved before receipts existed: its receipts are refused.
+    #[serde(default)]
+    peer_key: Vec<u8>,
 }
 
 impl std::fmt::Debug for Session {
@@ -136,7 +140,13 @@ pub fn initiate(
         signature: Vec::new(),
     };
     handshake.signature = me.sign(&handshake.signing_bytes())?;
-    let session = Session::new(&handshake, secret.as_bytes(), responder, true);
+    let session = Session::new(
+        &handshake,
+        secret.as_bytes(),
+        responder,
+        bundle.identity_key.clone(),
+        true,
+    );
     Ok((session, handshake))
 }
 
@@ -171,7 +181,13 @@ pub fn accept(
         XWing::decapsulate(&prekey, &handshake.ciphertext).map_err(|_| ChatError::BadKey)?;
     let initiator = address_of(&handshake.initiator_key);
     Ok((
-        Session::new(handshake, secret.as_bytes(), initiator, false),
+        Session::new(
+            handshake,
+            secret.as_bytes(),
+            initiator,
+            handshake.initiator_key.clone(),
+            false,
+        ),
         initiator,
     ))
 }
@@ -200,7 +216,13 @@ fn aead(
 }
 
 impl Session {
-    fn new(handshake: &Handshake, secret: &[u8; 32], peer: Address, initiator: bool) -> Self {
+    fn new(
+        handshake: &Handshake,
+        secret: &[u8; 32],
+        peer: Address,
+        peer_key: Vec<u8>,
+        initiator: bool,
+    ) -> Self {
         let id = handshake.session_id();
         let root = derive(ROOT_DOMAIN, &[secret, &id]);
         let forward = derive(CHAIN_DOMAIN, &[root.as_ref(), b"initiator to responder"]);
@@ -218,6 +240,7 @@ impl Session {
             send_n: 0,
             recv_n: 0,
             skipped: BTreeMap::new(),
+            peer_key,
         }
     }
 
@@ -231,6 +254,12 @@ impl Session {
     #[must_use]
     pub fn peer(&self) -> Address {
         self.peer
+    }
+
+    /// The peer's identity key, or empty for a session saved before receipts.
+    #[must_use]
+    pub fn peer_key(&self) -> &[u8] {
+        &self.peer_key
     }
 
     /// Encrypts `plaintext` under the next message key, which is then gone.

@@ -629,6 +629,20 @@ Two more from the same security review, fixed in the freeze:
 Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
 round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
 
+## 2026-11-02 — The proof ratchet (ADR-078 O3)
+
+`cargo xtask proof-ratchet --check` runs in CI beside claims-check. It fails
+when any of these falls below `proof-ratchet.txt`:
+- Kani harnesses;
+- spec conformance vectors;
+- exploit replays;
+- ACVP vector files;
+- fuzz targets.
+
+Baseline at creation: 83 harnesses, 164 vectors, 11 replays, 8 ACVP files,
+16 fuzz targets. Removing a counter also fails, so the ratchet cannot be
+bypassed by deleting it. A count that rises is raised with `--update`, and the
+commit message says why.
 ## 2026-11-02 — Sentinel Recovery Network proposed (MIP-0001, ADR-077)
 
 Eric asked for a protocol-level disaster-recovery upgrade. The design is written as
@@ -673,11 +687,17 @@ Eric approved O1–O4 the same day. ADR-078 is Accepted. O3 (test ratchet) start
 ## 2026-11-01 — Reviewed guards are marked in code, not P0 rows
 
 The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comment, and
-`scripts/gap_register.py` lists such rows as `guard` rather than P0/P1. They stay in the
+`cargo xtask gap-register` lists such rows as `guard` rather than P0/P1. They stay in the
 register so the call can still be disputed. Kani proof modules (`#[cfg(kani)] mod x;`) are
 treated as test code: `fee-market/src/proofs.rs:129` was counted as a P0 though it is in no
 binary. Register now: 0 P0, 0 P1, 31 P2, 3 reviewed guards.
 
+## 2026-11-02 — No second long soak; test networks run one day at most
+
+Eric: the 7-day validator soak is finished, and there will be no second 7-day
+run. A proving run or temporary testnet lasts at most 24 hours. `cargo xtask
+proving` now defaults to 24 h, the post-proving checklist says 24 h, and the
+re-freeze's proving restart uses it.
 ## 2026-11-02 — B49: a stale node rejoins only through a trusted block (node policy, not consensus)
 
 A node whose committed state is older than the unbonding window cannot tell the real chain from
