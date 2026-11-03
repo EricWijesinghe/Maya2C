@@ -50,7 +50,9 @@ use libp2p::Multiaddr;
 // built as a binary of its own; in a package of its own that constraint is
 // gone.
 mod bft;
+mod bootnode_fallback;
 mod import;
+mod power_guard;
 mod pruning;
 mod rejoin;
 mod update_notice;
@@ -212,6 +214,8 @@ struct Args {
     catch_up_from: Vec<String>,
     /// Keep private and loopback peer addresses (a local devnet only).
     allow_private_peers: bool,
+    /// Start a validator on a power plan that may sleep the PC (Windows).
+    allow_sleep: bool,
     /// DAG-BFT: never propose a validator registration bonding less than
     /// this (ADR-039 option 3). Node policy, not consensus; 0 is off.
     min_register_bond: u64,
@@ -282,6 +286,7 @@ impl Default for Args {
             allow_unconfirmed_start: false,
             catch_up_from: Vec::new(),
             allow_private_peers: false,
+            allow_sleep: false,
             min_register_bond: 0,
             validator_key: None,
             validator_passphrase_file: None,
@@ -341,6 +346,7 @@ fn print_usage() {
          --allow-unconfirmed-start  start with an old tip and no source head beyond the window. Only for a\n                           \
          halted network (longer than the window) or a genesis signed long before launch. It is\n                           \
          refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
+         --allow-sleep        Windows: start a validator even if the AC power plan can sleep the PC\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \
@@ -429,6 +435,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--allow-unconfirmed-start" => args.allow_unconfirmed_start = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
+            "--allow-sleep" => args.allow_sleep = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
             "--remote-signer" => args.remote_signer = Some(value()?.parse()?),
@@ -789,7 +796,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    let args = parse_args()?;
+    let mut args = parse_args()?;
 
     // The file first, then the flags over it. A flag beats the file so an
     // operator can override one setting for one run without editing state that
@@ -813,6 +820,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         node_config.rpc.rate_limit_burst,
         node_config.storage.block_cache_mib,
     );
+
+    // The file's bootnodes were parsed by nothing before this, so a node
+    // configured by file alone dialed no one. Flags come first, as elsewhere.
+    for entry in &node_config.network.bootnodes {
+        args.bootnodes.push(entry.parse()?);
+    }
+    // A validator on a plan that sleeps the PC refuses to start (Windows).
+    power_guard::guard(
+        args.validator_key.is_some() || args.remote_signer.is_some(),
+        args.allow_sleep,
+    )?;
 
     std::fs::create_dir_all(&args.data_dir)?;
 
@@ -940,7 +958,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Err(error) => eprintln!("could not dial {bootnode}: {error}"),
         }
     }
-    tokio::spawn(redial_bootnodes(network.clone(), args.bootnodes.clone()));
+    let fallback = bootnode_fallback::fallback_addrs()?;
+    tokio::spawn(redial_bootnodes(
+        network.clone(),
+        args.bootnodes.clone(),
+        fallback,
+    ));
 
     // --- RPC ---
     let limiter = Arc::new(custom_l1_node::rpc::limit::RateLimiter::new(
@@ -1208,23 +1231,43 @@ const REDIAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 /// once and is never retried by libp2p; discovery only reaches peers through
 /// peers already connected. The attacknet found seven validators started
 /// together left in fragments, no quorum anywhere, for good. A bootnode
-/// whose address names its peer id is skipped once connected.
-async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnodes: Vec<Multiaddr>) {
+/// whose address names its peer id is skipped once connected. With no peer
+/// at all for a while, the built-in fallback list is dialed too
+/// (`bootnode_fallback`).
+async fn redial_bootnodes(
+    network: custom_l1_node::network::NodeHandle,
+    bootnodes: Vec<Multiaddr>,
+    fallback: Vec<Multiaddr>,
+) {
     use libp2p::multiaddr::Protocol;
-    if bootnodes.is_empty() {
+    if bootnodes.is_empty() && fallback.is_empty() {
         return;
     }
     let mut ticker = tokio::time::interval(REDIAL_INTERVAL);
     ticker.tick().await; // the first tick is immediate; startup just dialed
+    let mut empty_rounds: u32 = 0;
+    let mut fallback_active = false;
     loop {
         ticker.tick().await;
         let Ok(connected) = network.connected_peers().await else {
             return; // the network task is gone: nothing to dial with
         };
-        if connected.len() >= bootnodes.len() {
+        empty_rounds = if connected.is_empty() {
+            empty_rounds.saturating_add(1)
+        } else {
+            0
+        };
+        let use_fallback =
+            !fallback.is_empty() && bootnode_fallback::fallback_due(connected.len(), empty_rounds);
+        if use_fallback && !fallback_active {
+            println!("bootnodes:   none reachable; dialing the built-in fallback list");
+        }
+        fallback_active = use_fallback;
+        if !use_fallback && connected.len() >= bootnodes.len() {
             continue;
         }
-        for bootnode in &bootnodes {
+        let extra: &[Multiaddr] = if use_fallback { &fallback } else { &[] };
+        for bootnode in bootnodes.iter().chain(extra) {
             let known = bootnode
                 .iter()
                 .any(|p| matches!(p, Protocol::P2p(id) if connected.contains(&id)));

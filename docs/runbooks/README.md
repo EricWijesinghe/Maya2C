@@ -6,6 +6,7 @@ The top 20 failure modes (Master Prompt 19 §2). Each says how it was rehearsed,
 |---|---|
 | [Disk full](disk-full.md) | not rehearsed; crash-atomicity that makes it safe is `crates/node/tests/crash_consistency_tests.rs` (1,000 SIGKILLs) |
 | [Node fell behind the tip](fell-behind.md) | rehearsed |
+| [Validator start guards: Windows power plan, bootnodes](validator-start-guards.md) | unit-tested; live plan read on Windows; not rehearsed as an incident |
 | [Hardening the Oracle + PC testnet](hybrid-testnet-hardening.md) | not rehearsed (checklist) |
 | [Peer starvation](peer-starvation.md) | not rehearsed on a network; diversity rules simulated in `crates/dos-guard/tests/attack_sim.rs` |
 | [Remote signer unreachable](signer-unreachable.md) | rehearsed in tests |

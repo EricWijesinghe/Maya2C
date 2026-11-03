@@ -3472,3 +3472,25 @@ status = "working"
 tests = [".github/workflows/join-scripts.yml", "crates/node/tests/pruned_node_tests.rs"]
 gate = "join-scripts.yml: install, sync, status and uninstall on ubuntu-24.04, macos-14 and windows-latest runners"
 note = "join-scripts.yml installs, syncs, checks status and uninstalls on real ubuntu-24.04, macos-14 and windows runners. First sync measured 35-45 min with testnet.3 and 13 min 35 s with the 4-in-flight prefetch (one run each, reports/sessions/2026-10-12-easy-join.md)."
+
+[[subsystem]]
+id = "validator-power-guard"
+name = "Validator power guard (Windows AC sleep plan)"
+domain = "Operations"
+paths = "`bins/maya2c-node/src/power_guard.rs`, `infra/hybrid-testnet/start-pc-validators.ps1`, `infra/testnet-vm/join-validator.ps1`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:maya2c-node"]
+note = "docs/runbooks/validator-start-guards.md. Refuses a validator (--validator-key or --remote-signer) when the AC standby or hibernate timer is non-zero or unreadable, unless --allow-sleep. Reads via PowerReadACValueIndex (locale-independent, no powercfg parsing). Holds ES_SYSTEM_REQUIRED on a parked thread when the plan allows. Not covered: lid, power-button and sleep-button actions; battery (DC) values. Linux and macOS: no-op."
+
+[[subsystem]]
+id = "bootnode-fallback"
+name = "Built-in fallback bootnodes, dialed after 30 s with no peer"
+domain = "Operations"
+paths = "`bins/maya2c-node/src/bootnode_fallback.rs`, `bins/maya2c-node/src/main.rs` (redial_bootnodes)"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:maya2c-node"]
+note = "docs/runbooks/validator-start-guards.md. The shipped list is empty on purpose (a stale address dials a stranger on every start); the mechanism and the decision (fallback_due) are tested, the redial loop around it is not. Configured bootnodes are also read from [network] bootnodes in the config file, which was dead before this change."
