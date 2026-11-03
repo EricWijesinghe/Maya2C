@@ -17,21 +17,25 @@ mod attacknet;
 mod bench_gate;
 mod bench_report;
 mod bench_tps;
+mod brand_assets;
 mod check_brand_refs;
 mod claims_check;
 mod coverage;
 mod devnet;
 mod disk;
 mod eco_metrics;
+mod eth_fixtures;
 mod evidence;
 mod gap_register;
 mod genesis_check;
 mod go_no_go;
 mod guides_check;
 mod hub_bundle;
+mod hybrid_genesis;
 mod localnet;
 mod mesh_check;
 mod mining_localnet;
+mod og_card;
 mod pgo;
 mod proof_ratchet;
 mod proving;
@@ -43,6 +47,7 @@ mod sdk_e2e;
 mod site_integrity;
 mod slo_check;
 mod spec_coverage;
+mod starter_stickers;
 mod status;
 mod sweep;
 mod up;
@@ -93,6 +98,13 @@ fn main() -> ExitCode {
         "gap-register" => return gap_register::run(rest),
         "reality-audit" => return reality_audit::run(rest),
         "check-brand-refs" => return check_brand_refs::run(rest),
+        "eth-headers" => eth_fixtures::eth_headers(rest),
+        "eth-beacon" => eth_fixtures::eth_beacon(rest),
+        "eth-exposure" => eth_fixtures::eth_exposure(rest),
+        "hybrid-genesis" => hybrid_genesis::run(rest),
+        "starter-stickers" => starter_stickers::run(rest),
+        "brand-assets" => brand_assets::run(rest),
+        "og-card" => og_card::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -124,6 +136,18 @@ cargo xtask <command>
   reality-audit LOG [--markdown]
                         Re-derive features.toml statuses from a cargo test log.
   check-brand-refs      Every href/src in the frontends' dist/ resolves to a file.
+  eth-headers [--fetch] [--rpc URL] [--count N]
+                        Ethereum headers fixture. Offline: must re-serialise
+                        byte-identically. `--fetch` refreshes it from the RPC.
+  eth-beacon [--fetch]  Beacon light-client finality fixture, same two modes.
+  eth-exposure [--fetch] [--rpc URL] [--blocks N] [--max-accounts N]
+                        Quantum-exposure sample fixture, same two modes.
+  hybrid-genesis SRC OUT
+                        Cut the 8-validator testnet genesis to the 5-validator one.
+  starter-stickers      Draw the 12 starter stickers into apps/chat-gui/src-tauri/stickers/starter/.
+  brand-assets [--check]
+                        Copy the logo pack favicons and wordmarks into each app.
+  og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a
                         test that exists.

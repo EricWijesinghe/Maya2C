@@ -106,6 +106,33 @@ fn fixed_notation(digits: &str, exp: i32) -> String {
     format!("{int}.{frac}")
 }
 
+/// Python's `json.dumps(value, indent=N)`: `indent` spaces per level, `": "` after
+/// keys, `ensure_ascii` escapes (`\uXXXX`, lowercase, surrogate pairs above the
+/// BMP), and no trailing newline. Object key order is the insertion order, which
+/// needs `serde_json`'s `preserve_order` (enabled in `xtask/Cargo.toml`).
+pub fn json(value: &serde_json::Value, indent: usize) -> Result<String, String> {
+    use serde::Serialize;
+    use std::fmt::Write as _;
+    let pad = vec![b' '; indent];
+    let mut buf = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(&pad);
+    let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+    value.serialize(&mut ser).map_err(|e| e.to_string())?;
+    let text = String::from_utf8(buf).map_err(|e| e.to_string())?;
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            out.push(ch);
+            continue;
+        }
+        let mut units = [0u16; 2];
+        for unit in ch.encode_utf16(&mut units) {
+            write!(out, "\\u{unit:04x}").expect("writing to a String cannot fail");
+        }
+    }
+    Ok(out)
+}
+
 /// One `csv.writer` row: minimal quoting, `\r\n` terminator (what Python writes
 /// with `newline=""`).
 pub fn csv_row<S: AsRef<str>>(fields: &[S]) -> String {
