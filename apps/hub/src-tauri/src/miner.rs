@@ -102,10 +102,36 @@ pub struct MinerState {
     hashing: bool,
 }
 
+/// What an alert is about. The notifier rate-limits on this, and toasts only
+/// the kinds that need the user to act (see [`AlertKind::notifies`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertKind {
+    /// The miner exited and a restart is scheduled.
+    Exited,
+    /// The miner exited and the watchdog gave up on it.
+    GaveUp,
+    /// A GPU reached its temperature ceiling and was stopped.
+    Thermal,
+    /// A GPU cooled below the restart point.
+    Resumed,
+    /// A miner restarted on its own.
+    Restarted,
+}
+
+impl AlertKind {
+    /// Only these need the user to act: a stopped miner or a stopped GPU.
+    #[must_use]
+    pub const fn notifies(self) -> bool {
+        matches!(self, Self::GaveUp | Self::Thermal)
+    }
+}
+
 /// One thing the watchdog or the miner wants the user to know.
 #[derive(Clone, Debug, Serialize)]
 pub struct Alert {
     pub t_ms: u64,
+    pub kind: AlertKind,
     pub device: String,
     /// `info`, `warn` or `critical`.
     pub level: &'static str,
@@ -324,15 +350,20 @@ impl Worker {
     fn on_exited(&mut self, now: u64, device: &str, reason: &str) -> Alert {
         let mut st = lock_state(&self.state);
         st.running = false;
-        let (level, message) = match self.watch.on_exit(now) {
+        let (kind, level, message) = match self.watch.on_exit(now) {
             AfterExit::RestartAt(at) => {
                 let secs = at.saturating_sub(now) / 1000;
                 st.status = format!("{reason}; restarting in {secs}s");
-                ("warn", format!("{device} {reason}; restarting in {secs} s"))
+                (
+                    AlertKind::Exited,
+                    "warn",
+                    format!("{device} {reason}; restarting in {secs} s"),
+                )
             }
             AfterExit::GiveUp => {
                 st.status = format!("stopped: {} exits in 10 min", watchdog::CRASH_LIMIT);
                 (
+                    AlertKind::GaveUp,
                     "critical",
                     format!(
                         "{device} {reason}; stopped after {} exits in 10 min. Start it again by hand once the cause is fixed.",
@@ -343,6 +374,7 @@ impl Worker {
         };
         Alert {
             t_ms: now,
+            kind,
             device: device.into(),
             level,
             message,
@@ -364,12 +396,19 @@ impl Worker {
                         "thermal stop at {t:.0} °C; restarts at {:.0} °C",
                         ceiling - watchdog::THERMAL_HYSTERESIS_C
                     );
-                    alerts.push(Alert { t_ms: now, device: device.into(), level: "warn", message: format!("{device} reached {t:.0} °C, above its {ceiling:.0} °C ceiling, and was stopped") });
+                    alerts.push(Alert {
+                        t_ms: now,
+                        kind: AlertKind::Thermal,
+                        device: device.into(),
+                        level: "warn",
+                        message: format!("{device} reached {t:.0} °C, above its {ceiling:.0} °C ceiling, and was stopped"),
+                    });
                 }
                 Thermal::Resume => {
                     lock_state(&self.state).held = false;
                     alerts.push(Alert {
                         t_ms: now,
+                        kind: AlertKind::Resumed,
                         device: device.into(),
                         level: "info",
                         message: format!("{device} cooled to {t:.0} °C; restarting"),
@@ -412,6 +451,7 @@ impl Worker {
                 lock_state(&self.state).restarts += 1;
                 Some(Alert {
                     t_ms: now,
+                    kind: AlertKind::Restarted,
                     device: device.into(),
                     level: "info",
                     message: format!("{device} restarted"),
@@ -504,7 +544,8 @@ impl Miner {
 
     /// Runs one supervision step for every worker. `temps` holds each GPU's
     /// reading as `(index, °C)`; a GPU with no reading is never stopped.
-    pub fn tick(&self, now: u64, temps: &[(u32, f64)]) {
+    /// Returns the alerts this step raised, so the caller can notify on them.
+    pub fn tick(&self, now: u64, temps: &[(u32, f64)]) -> Vec<Alert> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let raised: Vec<Alert> = inner
             .workers
@@ -517,9 +558,10 @@ impl Miner {
                 worker.tick(now, key, temp)
             })
             .collect();
-        for alert in raised {
-            push(&mut inner.alerts, alert, ALERT_HISTORY);
+        for alert in &raised {
+            push(&mut inner.alerts, alert.clone(), ALERT_HISTORY);
         }
+        raised
     }
 
     /// True when a GPU worker runs or is held hot, so the supervisor keeps
