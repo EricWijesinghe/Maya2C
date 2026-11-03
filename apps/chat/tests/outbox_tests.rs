@@ -5,7 +5,7 @@
 use maya_chat::ChatError;
 use maya_chat::client::{Client, ENVELOPE_TTL, Frame};
 use maya_chat::identity::Identity;
-use maya_chat::outbox::{MAX_ENTRIES, MAX_EXPIRED, RECEIPT_DELAY_MAX};
+use maya_chat::outbox::{MAX_ENTRIES, MAX_EXPIRED, RECEIPT_DELAY_MAX, Standing};
 use maya_chat::receipt;
 use maya_chat::relay::{Envelope, MAX_ENVELOPE_BYTES, Payload, Relay, fetch_bytes};
 use maya_chat::session;
@@ -317,4 +317,45 @@ fn a_thousand_expired_entries_do_not_lock_out_sending() {
         "oldest dropped"
     );
     assert!(a.expired_entries().any(|(id, _)| id == ids.last().unwrap()));
+}
+
+#[test]
+fn standing_runs_from_queued_to_receipted_and_the_receipt_clears_it() {
+    let mut relay = Relay::new(ONE_BIT);
+    let (mut a, mut b) = (Client::new(alice()), Client::new(bob()));
+    let id = queue(&mut a, b"hi", NOW);
+    assert_eq!(
+        a.standing(&id, NOW),
+        Some(Standing::Queued { relayed: false })
+    );
+
+    attempt(&mut relay, &mut a, &id, NOW, false);
+    assert_eq!(
+        a.standing(&id, NOW),
+        Some(Standing::Queued { relayed: true })
+    );
+
+    collect(&mut relay, &mut b, NOW);
+    let receipt_due = NOW + RECEIPT_DELAY_MAX;
+    for rid in b.due(receipt_due) {
+        attempt(&mut relay, &mut b, &rid, receipt_due, false);
+    }
+    collect(&mut relay, &mut a, receipt_due);
+    assert_eq!(a.standing(&id, receipt_due), None, "receipted: out of both");
+}
+
+#[test]
+fn standing_reads_expired_before_any_sweep_and_none_once_dismissed() {
+    let mut a = Client::new(alice());
+    let id = queue(&mut a, b"late", NOW);
+    let week = NOW + ENVELOPE_TTL;
+    assert_eq!(
+        a.standing(&id, week),
+        Some(Standing::Expired),
+        "past TTL, unswept"
+    );
+    a.sweep(week);
+    assert_eq!(a.standing(&id, week), Some(Standing::Expired));
+    assert!(a.dismiss(&id));
+    assert_eq!(a.standing(&id, week), None);
 }

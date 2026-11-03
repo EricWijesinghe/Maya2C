@@ -155,6 +155,13 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   gap: 0.2rem;
 }
 .lines time { font-size: 0.68rem; color: var(--dim); align-self: flex-end; }
+.lines .delivery { font-size: 0.68rem; color: var(--dim); align-self: flex-end; }
+.lines .delivery[data-state="delivered"] { color: #4ade80; }
+.lines .delivery[data-state="expired"] { color: var(--rose); }
+.lines .dismiss {
+  align-self: flex-end; border: 1px solid var(--line); border-radius: 999px; background: none;
+  color: var(--dim); padding: 0.15rem 0.7rem; font-size: 0.72rem; cursor: pointer;
+}
 .mine {
   align-self: flex-end;
   background: linear-gradient(120deg, rgb(34 211 238 / 0.22), rgb(167 139 250 / 0.22));

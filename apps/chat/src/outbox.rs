@@ -36,6 +36,15 @@ pub struct Expired {
     pub first_at: u64,
 }
 
+/// Where a sent message stands, as its sender sees it (ADR-074).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Standing {
+    /// Queued and unreceipted. `relayed`: the relay has accepted an attempt.
+    Queued { relayed: bool },
+    /// Past its TTL with no receipt; kept in the expired record.
+    Expired,
+}
+
 /// One sealed envelope awaiting its receipt, or a receipt awaiting relay.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pending {

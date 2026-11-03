@@ -432,3 +432,51 @@ jobs:
       # Each platform compiles only its own cfg half; this is the one lint pass per OS.
       - name: Lint the Hub
         run: cargo clippy --locked --manifest-path apps/hub/src-tauri/Cargo.toml --tests -- -D warnings
+
+  # ---------------------------------------------------------------------
+  # Maya Chat's desktop app is its own workspace (apps/chat-gui/src-tauri),
+  # outside the root `test` job, so its unit tests (sticker files, the
+  # outbox delivery states) run here, on the same two platforms as the Hub.
+  # ---------------------------------------------------------------------
+  chat-gui-windows:
+    name: chat-gui (windows)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: apps/chat-gui/src-tauri
+          key: chat-gui-windows
+      - name: Test the Maya Chat desktop app
+        run: cargo test --locked --lib --manifest-path apps/chat-gui/src-tauri/Cargo.toml
+
+  chat-gui-linux:
+    name: chat-gui (linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Same system libraries as the Hub: Tauri 2 needs WebKitGTK and GTK,
+      # keyring's D-Bus backend needs libdbus.
+      - name: Linux dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev libgtk-3-dev \
+            librsvg2-dev libdbus-1-dev
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: apps/chat-gui/src-tauri
+          key: chat-gui-linux
+      - name: Test the Maya Chat desktop app
+        run: cargo test --locked --lib --manifest-path apps/chat-gui/src-tauri/Cargo.toml
