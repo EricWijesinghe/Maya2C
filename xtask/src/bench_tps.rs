@@ -126,10 +126,15 @@ fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
 
 /// Signs `txs` transfers per sender against node 0 (nonces `0..txs`).
 fn presign(senders: &[(PathBuf, String)], txs: usize) -> Result<Vec<Vec<String>>> {
+    // Same wallet guard as devnet::send (ADR-036): no terminal, no pinned genesis.
+    let genesis = devnet::genesis_id()?;
     let flat = parallel(senders.len() * txs, SIGN_THREADS, &|k| {
         let (key, _) = &senders[k / txs];
         let out = devnet::output(wallet(key, 0).args([
             "send",
+            "--yes",
+            "--genesis",
+            &genesis,
             "--to",
             RECIPIENT,
             "--amount",
