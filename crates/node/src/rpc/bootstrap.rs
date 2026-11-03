@@ -196,6 +196,7 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> std::result::Result<(), E
 /// thread (`tokio::task::spawn_blocking`); each call blocks on the runtime
 /// handle it was built with.
 pub struct RpcBootstrapSource {
+    url: String,
     client: HttpClient,
     runtime: tokio::runtime::Handle,
     snapshot_height: Arc<Mutex<Option<u64>>>,
@@ -209,6 +210,7 @@ impl RpcBootstrapSource {
     /// Returns [`NodeError::Network`] for a URL the client cannot use.
     pub fn new(url: &str, runtime: tokio::runtime::Handle) -> Result<Self> {
         Ok(Self {
+            url: url.to_owned(),
             client: HttpClientBuilder::default()
                 .max_response_size(RPC_RESPONSE_LIMIT)
                 .build(url)
@@ -380,6 +382,10 @@ impl crate::consensus::bft::certsync::CertSource for RpcBootstrapSource {
 }
 
 impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
+    fn peer(&self) -> String {
+        self.url.clone()
+    }
+
     fn checkpoint(&self) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
         let info: Option<crate::rpc::types::CheckpointInfo> =
             self.call("get_checkpoint", &rpc_params![])?;
@@ -397,6 +403,10 @@ impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
 
     fn block(&self, height: u64) -> Result<Block> {
         BootstrapSource::block(self, height)
+    }
+
+    fn tip_height(&self) -> Result<u64> {
+        BootstrapSource::tip_height(self)
     }
 
     fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {

@@ -45,6 +45,19 @@ pub trait CheckpointSource: Sync {
     /// Any failure reaching the source.
     fn block(&self, height: u64) -> Result<Block>;
 
+    /// The source's active-chain tip height. A source can serve a checkpoint
+    /// whose block it has not imported yet (a follower one block behind).
+    ///
+    /// # Errors
+    ///
+    /// Any failure reaching the source.
+    fn tip_height(&self) -> Result<u64>;
+
+    /// The source's name for log lines.
+    fn peer(&self) -> String {
+        String::from("the source")
+    }
+
     /// The active-chain blocks `from..=to`, in order, at most
     /// [`BLOCKS_PER_REQUEST`] of them. Catch-up is bound by round trips, not
     /// bandwidth, so a source that can answer a range in one request should
@@ -190,6 +203,25 @@ pub fn fetch(
         core::cmp::Ordering::Less => return Ok(Vec::new()),
     };
     checkpoint.verify(&from.tag, committee, weights)?;
+    // A verified checkpoint whose block this source does not hold yet (it is
+    // behind the checkpoint it serves) is not a failure: there is nothing it can
+    // serve from its own chain, so nothing to import from it yet. Returning the
+    // range request's "no block" error here failed the node's start-up (attacknet
+    // "restart ahead", 2026-11-03), since no other source was tried.
+    // shortcut: a far-behind node whose only source is 1+ blocks behind its newest
+    // checkpoint imports nothing per round. Importing up to the source's tip needs
+    // an attested block at or below it, and the book keeps one checkpoint per
+    // epoch (attest.rs `of_epoch`): none exists below the newest, so this cannot
+    // be fixed without weakening ADR-038. Upgrade when the book keeps older ones.
+    let tip = source.tip_height()?;
+    if checkpoint.height > tip {
+        eprintln!(
+            "catch-up: {} is behind its own checkpoint (checkpoint at height {}, its tip {tip}); importing nothing from it yet",
+            source.peer(),
+            checkpoint.height
+        );
+        return Ok(Vec::new());
+    }
     fetch_linked(
         from,
         checkpoint.height,
@@ -499,6 +531,9 @@ mod tests {
         fn block(&self, height: u64) -> Result<Block> {
             Err(NodeError::Network(format!("block {height} requested")))
         }
+        fn tip_height(&self) -> Result<u64> {
+            Ok(u64::MAX)
+        }
     }
 
     fn at(height: u64, epoch: u64) -> Position {
@@ -544,6 +579,125 @@ mod tests {
         assert!(fetch(at(60, 2), &source, &seven, None).unwrap().is_empty());
     }
 
+    /// A source whose chain ends at `tip`, serving a checkpoint past it.
+    struct BehindItsCheckpoint {
+        newest: Checkpoint,
+        tip: u64,
+    }
+
+    impl CheckpointSource for BehindItsCheckpoint {
+        fn checkpoint(&self) -> Result<Option<Checkpoint>> {
+            Ok(Some(self.newest.clone()))
+        }
+        fn checkpoint_of(&self, _: u64) -> Result<Option<Checkpoint>> {
+            Ok(None)
+        }
+        fn block(&self, height: u64) -> Result<Block> {
+            Err(NodeError::Network(format!("no block at height {height}")))
+        }
+        fn tip_height(&self) -> Result<u64> {
+            Ok(self.tip)
+        }
+    }
+
+    #[test]
+    fn a_source_behind_the_checkpoint_it_serves_imports_nothing_and_is_no_error() {
+        // attacknet "restart ahead" (2026-11-03): a follower one block behind
+        // served a checkpoint for the block after its tip, and the node's
+        // start-up refused the whole source with "no block at height 61".
+        let (signing, committee) = keys();
+        let source = BehindItsCheckpoint {
+            newest: checkpoint(&signing, 1, 61),
+            tip: 60,
+        };
+        assert!(
+            fetch(at(60, 1), &source, &committee, None)
+                .unwrap()
+                .is_empty()
+        );
+        let trusted = TrustedBlock {
+            height: 61,
+            id: [9; 32],
+        };
+        let anchored = fetch_anchored(
+            at(60, 1),
+            &source,
+            &committee,
+            None,
+            Anchor::Checked(trusted),
+        );
+        assert!(anchored.unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_behind_source_with_a_sub_quorum_checkpoint_is_refused_before_the_tip_test() {
+        // Quorum is checked before the tip test: a forged checkpoint is an error
+        // even when the source is behind it, never a silent empty answer.
+        let (signing, committee) = keys();
+        let mut forged = checkpoint(&signing, 1, 61);
+        forged.signatures.retain(|validator, _| *validator == 0);
+        let source = BehindItsCheckpoint {
+            newest: forged,
+            tip: 60,
+        };
+        let err = fetch(at(60, 1), &source, &committee, None).unwrap_err();
+        assert!(matches!(err, NodeError::Decode(_)), "{err}");
+    }
+
+    #[test]
+    fn a_source_whose_tip_reaches_the_checkpoint_is_fetched_from() {
+        let (signing, committee) = keys();
+        let source = BehindItsCheckpoint {
+            newest: checkpoint(&signing, 1, 61),
+            tip: 61,
+        };
+        let err = fetch(at(60, 1), &source, &committee, None).unwrap_err();
+        assert!(err.to_string().contains("no block at height 61"), "{err}");
+    }
+
+    /// A source whose tip cannot be read.
+    struct TipDown(Checkpoint);
+
+    impl CheckpointSource for TipDown {
+        fn checkpoint(&self) -> Result<Option<Checkpoint>> {
+            Ok(Some(self.0.clone()))
+        }
+        fn checkpoint_of(&self, _: u64) -> Result<Option<Checkpoint>> {
+            Ok(None)
+        }
+        fn block(&self, height: u64) -> Result<Block> {
+            Err(NodeError::Network(format!("no block at height {height}")))
+        }
+        fn tip_height(&self) -> Result<u64> {
+            Err(NodeError::Network("tip down".to_string()))
+        }
+    }
+
+    #[test]
+    fn a_tip_that_cannot_be_read_is_an_error_not_an_empty_answer() {
+        let (signing, committee) = keys();
+        let source = TipDown(checkpoint(&signing, 1, 61));
+        let err = fetch(at(60, 1), &source, &committee, None).unwrap_err();
+        assert!(err.to_string().contains("tip down"), "{err}");
+    }
+
+    #[test]
+    fn a_stale_anchor_on_a_behind_source_is_an_error_not_empty() {
+        // The stale path fetches the gap to its trusted block itself, so a source
+        // that lacks those blocks must fail the node's catch-up, not pass it.
+        let (signing, committee) = keys();
+        let source = BehindItsCheckpoint {
+            newest: checkpoint(&signing, 1, 61),
+            tip: 60,
+        };
+        let trusted = TrustedBlock {
+            height: 61,
+            id: [9; 32],
+        };
+        let stale = fetch_anchored(at(40, 1), &source, &committee, None, Anchor::Stale(trusted));
+        assert!(stale.is_err());
+    }
+
     #[test]
     fn an_epochs_final_checkpoint_from_another_epoch_is_refused_by_label() {
         let (signing, committee) = keys();
@@ -575,6 +729,8 @@ mod tests {
     /// Serves a chain of `len` linked blocks and counts the requests.
     struct Chained {
         blocks: Vec<Block>,
+        /// The tip the source reports, which a test may serve short of.
+        tip: u64,
         newest: Checkpoint,
         requests: std::sync::atomic::AtomicUsize,
         batches: bool,
@@ -591,6 +747,9 @@ mod tests {
             self.requests
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(self.blocks[usize::try_from(height - 1).unwrap()].clone())
+        }
+        fn tip_height(&self) -> Result<u64> {
+            Ok(self.tip)
         }
         fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
             if !self.batches {
@@ -636,6 +795,7 @@ mod tests {
             .collect();
         let source = Chained {
             blocks,
+            tip: len,
             newest,
             requests: std::sync::atomic::AtomicUsize::new(0),
             batches,
