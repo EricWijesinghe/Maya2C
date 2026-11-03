@@ -7,7 +7,6 @@
 //! and the hub only reads the address it announces.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -18,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::miner_guard::{self, PINNED_SUMS};
+use crate::miner_guard::{self, PINNED_SUMS, PinnedMiner};
 use crate::pools;
 use crate::watchdog::{self, AfterExit, Supervisor, Thermal};
 
@@ -123,7 +122,7 @@ pub struct MinerReport {
 /// The running child and the read-only handle on its file.
 struct Running {
     child: Child,
-    _miner: File,
+    _miner: PinnedMiner,
 }
 
 /// What a worker needs to start its process again without the UI.
@@ -303,11 +302,11 @@ impl Worker {
             st.last_event_ms = now;
             st.status = "starting".into();
         }
-        // The read-only handle lives as long as the child, so the miner file
-        // cannot be replaced while the process it hashed is running.
+        // The pinned miner (Windows: locked install file; Unix: private copy)
+        // lives as long as the child, so what runs is what was hashed.
         self.child = Some(Running {
             child,
-            _miner: pinned.file,
+            _miner: pinned,
         });
         Ok(())
     }
@@ -536,7 +535,8 @@ mod tests {
 
     fn config(device: Option<u32>) -> MinerConfig {
         MinerConfig {
-            binary: "Z:/nope/maya2c-gpu-miner.exe".into(),
+            // The platform's own file name: a `.exe` name is not the miner on Linux.
+            binary: format!("Z:/nope/{}", miner_guard::miner_file_name()),
             pool: "public".into(),
             key_file: "k".into(),
             threads: 2,
