@@ -97,8 +97,12 @@ fn go(work: &std::path::Path, rpc: &str) -> Result<(), String> {
 }
 
 fn typescript(work: &std::path::Path, sender: &str) -> Result<(), String> {
+    let genesis = devnet::genesis_id()?;
     let signed = devnet::output(devnet::wallet(work).args([
         "send",
+        "--yes",
+        "--genesis",
+        &genesis,
         "--to",
         RECIPIENT,
         "--amount",
