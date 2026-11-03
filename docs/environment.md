@@ -155,7 +155,7 @@ an empty `name`/`short_name`, and `paste-in-head.html` hardcodes root-absolute
 paths that only suit the explorer.
 
 Reference checking differs per surface: `apps/dashboard/` and `apps/wallet-gui/ui/` fail
-`trunk build` on a missing `data-trunk` dir, then `scripts/check_brand_refs.py`
+`trunk build` on a missing `data-trunk` dir, then `cargo xtask check-brand-refs`
 walks each built `dist/`; `apps/explorer/` has no build step, so
 `crates/node/tests/server_tests.rs` asks the running server for every path its rendered HTML
 names. The explorer resolves `--assets` against its working directory, logs that

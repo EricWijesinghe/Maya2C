@@ -80,7 +80,7 @@ From Master Prompt 11, with how each is enforced *today*:
   Bytecode Alliance, ZcashFoundation), 1,068 registry crates still exempted
   (2026-10-19), job `vet` in `security-audit.yml` with `continue-on-error`.
   `cargo deny` is the only blocking supply-chain gate.
-- CI fails on a >5% regression of tracked benchmarks — `scripts/bench_gate.py`,
+- CI fails on a >5% regression of tracked benchmarks — `cargo xtask bench-gate`,
   gated on a `BENCH_RUNNER` that does not exist, so it never runs.
 - Secrets never enter the repo, logs or chat; anything that costs money or
   touches real servers needs `APPROVED: <step name>`.
