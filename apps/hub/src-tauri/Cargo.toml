@@ -34,6 +34,16 @@ ureq = { version = "3.4", features = ["json"] }
 # any build without an updater config, which release CI adds only when signed.
 maya-app-update = { path = "../../app-update" }
 
+[target.'cfg(unix)'.dependencies]
+# Real uid for the key-file owner check (miner_guard.rs). Already in Cargo.lock
+# (1.1.6, via tempfile and tauri), so no new crate; safe wrapper, no `unsafe`.
+rustix = { version = "1", features = ["process"] }
+
+[target.'cfg(windows)'.dependencies]
+# DACL check on the payout key file (key_acl.rs). 0.62 matches the copy tauri
+# already pulls in, so the lock gains no second `windows` crate.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 

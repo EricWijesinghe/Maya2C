@@ -4,6 +4,8 @@
 //! the GPU driver or a process. Each blocking call runs off the UI thread.
 
 mod gpu;
+#[cfg(windows)]
+mod key_acl;
 mod miner;
 mod miner_guard;
 mod node;
