@@ -132,6 +132,22 @@ how mainnet will work.
 | `--allow-unconfirmed-start` | Start a node whose tip is older than the unbonding window when no source reports a head beyond it. Only for a network halted longer than the window, or a genesis signed long before launch: an eclipsed node looks the same. Prefer `--trusted-block` or `--bootstrap-from` |
 | `--snapshot-interval <N>` | Snapshot every N blocks; validators default to 3,600, 0 turns it off |
 | `--remote-signer <ADDR>` | Sign through `maya2c-signer` instead of a key file (ADR-033) |
+| `--allow-sleep` | Windows: start a validator even when the AC power plan can sleep the PC. Without it the node refuses, and says which two `powercfg` commands to run |
+| `--bootnode <ADDR>` | Peer to dial at start, repeatable. Also `bootnodes` under `[network]` in the config file. List at least three, on two providers |
+
+### Keep the PC awake (Windows)
+
+A validator that sleeps misses its turns. On Windows the node refuses to start
+while the AC plan can sleep the PC. From an elevated shell, run:
+
+```powershell
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+```
+
+The node then keeps the system awake while it runs. Lid-close is a separate
+setting: set it to "Do nothing" on AC. Details:
+[validator start guards](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/runbooks/validator-start-guards.md).
 
 ## What being a validator means
 
