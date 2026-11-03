@@ -458,6 +458,7 @@ rocksdb = "0.25"
 reqwest = { version = "0.12", default-features = false }
 serde = "1"
 serde_json = "1"
+serde_bytes = "0.11"
 sha2 = "0.10"
 # Was 0.10 in `iot-anchor` and 0.11 in `htlc-lattice` and `stateless-core` —
 # three Kani-verified crates hashing with two releases of the same SHAKE.

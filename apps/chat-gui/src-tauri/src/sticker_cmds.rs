@@ -155,25 +155,19 @@ pub async fn request_pack(app: State<'_, Arc<App>>, peer: String, pack: String) 
     app.save(s)
 }
 
-/// Sends one plaintext. On failure it never rewinds an established session.
+/// Queues one plaintext and tries to send it. Queued and saved before the
+/// network is touched, so a failed send stays in the outbox and `poll` retries
+/// it. The session is never rewound (ADR-074, decision 0).
 pub(crate) async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8]) -> Result<(), String> {
     let relay = relay_addr(&s.profile)?;
     let to = address(peer)?;
-    let established = s.client.has_session(&to);
-    if let Err(e) = courier::deliver(&mut s.client, &relay, to, plain, now()).await {
-        // An established session keeps its advanced chain even though the send
-        // failed: the relay may hold the envelope with only the reply lost, and
-        // rewinding would seal the next message under the same key and nonce
-        // (two-time pad; ADR-074). The receiver skips a missing index. Only a
-        // session this send opened is rewound: the retry handshakes afresh.
-        if established {
-            app.save(s)?;
-        } else {
-            *s = App::session(&app.files, s.seed.clone())?;
-        }
-        return Err(why(&e));
-    }
-    Ok(())
+    courier::prepare(&mut s.client, &relay, to, plain, now())
+        .await
+        .map_err(|e| why(&e))?;
+    app.save(s)?;
+    // A failed flush leaves the entry queued; `poll` retries it, so the send counts.
+    let _attempt = courier::flush(&mut s.client, &relay, now()).await;
+    app.save(s)
 }
 
 /// Packs being received, and requests already answered this run.
