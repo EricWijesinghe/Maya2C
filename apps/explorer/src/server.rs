@@ -108,6 +108,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/stats", get(api_stats))
         .route("/api/blocks", get(api_blocks))
         .route("/api/blocks/{height}", get(api_block))
+        .route(
+            "/api/blocks/{height}/transactions",
+            get(api_block_transactions),
+        )
         .route("/api/tx/{txid}", get(api_transaction))
         .route("/api/hashrate", get(api_hashrate))
         .route("/ws/blocks", get(ws_blocks))
@@ -395,6 +399,17 @@ async fn api_block(
         .await?
         .map(Json)
         .ok_or_else(|| ExplorerError::NotFound(format!("block {height}")))
+}
+
+/// Every transaction in a block, with its kind, summary and care flag.
+async fn api_block_transactions(
+    State(state): State<AppState>,
+    Path(height): Path<i64>,
+) -> Result<Json<Vec<crate::model::IndexedTx>>> {
+    if state.store.block_by_height(height).await?.is_none() {
+        return Err(ExplorerError::NotFound(format!("block {height}")));
+    }
+    Ok(Json(state.store.transactions_in_block(height).await?))
 }
 
 async fn api_transaction(

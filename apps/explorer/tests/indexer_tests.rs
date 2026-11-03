@@ -85,6 +85,33 @@ impl StubChain {
         }
     }
 
+    /// Appends a block whose transactions carry the given `(kind, summary, careful)`.
+    fn push_kinded(&self, height: u64, kinds: &[(&str, &str, bool)]) {
+        self.push(height, 0, 0);
+        let mut blocks = self.blocks.lock().expect("lock");
+        let block = &mut blocks[height as usize];
+        block.transactions = kinds
+            .iter()
+            .enumerate()
+            .map(
+                |(index, (kind, summary, careful))| custom_l1_node::rpc::TransactionInfo {
+                    txid: format!("{height:08x}{index:08x}{}", "0".repeat(48)),
+                    sender: "aa".repeat(32),
+                    lattice_public_key: "cc".repeat(1952),
+                    hash_public_key: "dd".repeat(32),
+                    nonce: index as u64,
+                    outputs: Vec::new(),
+                    signed: true,
+                    suite: None,
+                    multisig: None,
+                    kind: (*kind).to_owned(),
+                    summary: (*summary).to_owned(),
+                    careful: *careful,
+                },
+            )
+            .collect();
+    }
+
     /// Drops every block at or above `height`, simulating a shorter chain.
     fn truncate(&self, height: usize) {
         self.blocks.lock().expect("lock").truncate(height);
@@ -594,5 +621,45 @@ async fn work_is_derived_from_the_difficulty_target() {
     assert!(
         (250.0..270.0).contains(&work),
         "work {work} is not near 2^8 for an 8-bit target"
+    );
+}
+
+#[tokio::test]
+async fn the_index_keeps_each_transactions_kind_summary_and_care_flag() {
+    let chain = StubChain::new();
+    let store = Arc::new(MemoryStore::new());
+    chain.push_kinded(0, &[]);
+    chain.push_kinded(
+        1,
+        &[
+            ("transfer", "Send native coin.", true),
+            ("place_order", "Place an order to buy 5 units.", true),
+            ("cancel_order", "Cancel an open order.", false),
+        ],
+    );
+
+    indexer(Arc::clone(&chain), Arc::clone(&store))
+        .sync_once()
+        .await
+        .expect("sync");
+
+    let stored: Vec<(String, String, bool)> = store
+        .transactions_in_block(1)
+        .await
+        .expect("query")
+        .into_iter()
+        .map(|tx| (tx.kind, tx.summary, tx.careful))
+        .collect();
+    assert_eq!(
+        stored,
+        vec![
+            ("transfer".into(), "Send native coin.".into(), true),
+            (
+                "place_order".into(),
+                "Place an order to buy 5 units.".into(),
+                true
+            ),
+            ("cancel_order".into(), "Cancel an open order.".into(), false),
+        ]
     );
 }

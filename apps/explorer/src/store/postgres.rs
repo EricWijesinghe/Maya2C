@@ -77,7 +77,22 @@ ALTER TABLE transactions ALTER COLUMN total_out TYPE TEXT USING total_out::text;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT '';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS careful BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Which schema generation filled the index. See INDEX_VERSION.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ";
+
+/// Generation of what the index stores.
+///
+/// `ADD COLUMN ... DEFAULT ''` upgrades the shape of an old index but cannot
+/// fill in what the node knew at the time: rows indexed before `kind` existed
+/// would show a blank kind forever, because the indexer resumes from the tip.
+/// Bumping this empties the derived tables once so the indexer re-reads the
+/// chain. v2: `kind`, `summary` and `careful` are populated.
+pub const INDEX_VERSION: i64 = 2;
 
 /// A PostgreSQL-backed index.
 pub struct PostgresStore {
@@ -103,6 +118,8 @@ impl PostgresStore {
             .await
             .map_err(|e| ExplorerError::Store(format!("applying schema: {e}")))?;
 
+        rebuild_if_stale(&pool).await?;
+
         Ok(Self { pool })
     }
 
@@ -117,6 +134,38 @@ impl PostgresStore {
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
+}
+
+/// Empties the derived tables when the index was built by an older generation.
+///
+/// Blocks and transactions are a cache of the node, so clearing them loses
+/// nothing; the indexer then rebuilds from genesis (or the pruned window).
+/// Runs once per upgrade and records the new generation in the same
+/// transaction, so a crash mid-rebuild retries on the next start.
+async fn rebuild_if_stale(pool: &PgPool) -> Result<()> {
+    let stored: Option<String> = sqlx::query("SELECT value FROM meta WHERE key = 'index_version'")
+        .fetch_optional(pool)
+        .await?
+        .map(|row| row.try_get("value"))
+        .transpose()?;
+
+    if stored.as_deref() == Some(INDEX_VERSION.to_string().as_str()) {
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+    sqlx::query("TRUNCATE blocks, transactions")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO meta (key, value) VALUES ('index_version', $1)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind(INDEX_VERSION.to_string())
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Reads a block row.
