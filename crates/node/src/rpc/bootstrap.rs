@@ -399,6 +399,10 @@ impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
         BootstrapSource::block(self, height)
     }
 
+    fn tip_height(&self) -> Result<u64> {
+        BootstrapSource::tip_height(self)
+    }
+
     fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
         let batch: Result<Vec<BlockInfo>> = self.call(
             "get_blocks_by_height_range",

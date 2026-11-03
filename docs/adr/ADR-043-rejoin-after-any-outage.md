@@ -78,3 +78,17 @@ for a long holiday, a dead disk, or a new operator joining late meets it.
   stopped seed.
 - The attacknet controller kills lab targets by data directory, and its
   unimplemented faults fail instead of reporting PASS.
+
+## Amendment 2026-11-04: a source behind its own checkpoint
+
+A start-up catch-up (`--catch-up-from`) from a peer that serves a verified
+checkpoint whose block it has not imported yet (a follower one block behind)
+used to fail the node: the range request for that block returned "no block at
+height N", no other source was tried, and the node exited. Now such a source
+imports nothing and the node takes the existing "source behind" path (the
+checkpoint-follow path, or resuming as a validator when within the engine's
+window). Nothing unverified is imported: the checkpoint is still checked for a
+quorum before the height test. Refusals for bad evidence stay errors. The
+regression test is `a_source_behind_the_checkpoint_it_serves_imports_nothing_and_is_no_error`
+(`crates/node/src/consensus/bft/catchup.rs`). Found by attacknet "restart ahead"
+on commit 9913c144 (3 failures in 10 weighted runs, see the PR description).
