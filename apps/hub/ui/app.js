@@ -592,7 +592,7 @@ function renderDevicePicks(gpus) {
   );
 }
 
-function saveSettingsForm() {
+async function saveSettingsForm() {
   const rpc = $("s-rpc").value.trim();
   if (!/^https?:\/\//i.test(rpc)) {
     setText("s-msg", "The node URL must start with http:// or https://");
@@ -613,8 +613,15 @@ function saveSettingsForm() {
     cpu_threads: Number($("s-threads").value),
     devices,
     thermal_ceiling_c: ceiling,
+    notify: $("s-notify").checked,
   };
-  setText("s-msg", saveSettings(state.settings) ? "Saved." : "Saved for this session only.");
+  const saved = saveSettings(state.settings) ? "Saved." : "Saved for this session only.";
+  try {
+    await call("notify_set", { on: state.settings.notify });
+    setText("s-msg", saved);
+  } catch (e) {
+    setText("s-msg", `${saved} The system refused notifications: ${e}`);
+  }
 }
 
 function wireSettings(defaults, gpus) {
@@ -639,6 +646,9 @@ function wireSettings(defaults, gpus) {
   setText("s-threads-v", s.cpu_threads);
   $("s-threads").addEventListener("input", (e) => setText("s-threads-v", e.target.value));
   $("s-ceiling").value = String(s.thermal_ceiling_c ?? DEFAULT_CEILING_C);
+  $("s-notify").checked = Boolean(s.notify);
+  // The Rust side starts with notifications off; send the saved choice once.
+  if (!isPreview) call("notify_set", { on: Boolean(s.notify) }).catch((e) => setText("s-msg", `Notifications: ${e}`));
   renderDevicePicks(gpus.devices);
   $("s-save").addEventListener("click", saveSettingsForm);
 }
