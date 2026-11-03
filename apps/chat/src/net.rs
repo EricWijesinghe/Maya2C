@@ -13,7 +13,7 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, Swarm, identity, noise, tcp, yam
 use serde::{Deserialize, Serialize};
 
 use crate::identity::PrekeyBundle;
-use crate::relay::{Envelope, Relay};
+use crate::relay::{Envelope, MAX_ENVELOPE_VERSION, Relay};
 use crate::{Address, ChatError, now};
 
 /// The protocol id.
@@ -35,6 +35,9 @@ pub enum Request {
     Deposit(Envelope),
     /// Ask how much postage a deposit needs.
     Postage,
+    /// Ask the newest envelope version the relay accepts. A relay that
+    /// predates this request refuses it, and the caller uses version 1.
+    Version,
     /// Ask for a challenge to empty a mailbox.
     Challenge(Address),
     /// Empty a mailbox, proving ownership.
@@ -59,6 +62,8 @@ pub enum Response {
     Challenge([u8; 32]),
     /// Leading zero bits a deposit's stamp needs.
     Postage(u32),
+    /// The newest envelope version the relay accepts.
+    Version(u8),
     /// The mailbox's envelopes.
     Envelopes(Vec<Envelope>),
     /// Refused, with the reason.
@@ -113,6 +118,7 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
         Request::Bundle(address) => Ok(Response::Bundle(relay.bundle(&address, t))),
         Request::Deposit(envelope) => relay.deposit(envelope, t).map(|_| Response::Ok),
         Request::Postage => Ok(Response::Postage(relay.stamp_bits())),
+        Request::Version => Ok(Response::Version(MAX_ENVELOPE_VERSION)),
         Request::Challenge(address) => relay.challenge(address, t).map(Response::Challenge),
         Request::Fetch {
             address,
