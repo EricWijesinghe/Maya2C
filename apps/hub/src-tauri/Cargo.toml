@@ -33,6 +33,9 @@ ureq = { version = "3.4", features = ["json"] }
 # In-app updates: check, ask, verify against the signing key, install. Off in
 # any build without an updater config, which release CI adds only when signed.
 maya-app-update = { path = "../../app-update" }
+# Official Tauri 2 plugin for OS toasts, opt-in from Settings (ADR-073 decision 4).
+# DepScout (2026-11-03): 2.8.0, no OSV advisories, not malicious, Apache-2.0 OR MIT.
+tauri-plugin-notification = "2.8"
 
 [target.'cfg(unix)'.dependencies]
 # Real uid for the key-file owner check (miner_guard.rs). Already in Cargo.lock
