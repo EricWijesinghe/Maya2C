@@ -130,7 +130,8 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
         pack: pack.clone(),
         title: title.clone(),
     };
-    deliver(&app, s, &peer, &stickers::encode(&content, &file)?).await?;
+    let at = now();
+    let sent = deliver(&app, s, &peer, &stickers::encode(&content, &file)?, at).await?;
     s.profile.recent.retain(|r| r != &id);
     s.profile.recent.insert(0, id.clone());
     s.profile.recent.truncate(RECENT_LIMIT);
@@ -138,8 +139,9 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
         peer: hex::encode(address(&peer)?),
         mine: true,
         text: item.emoji,
-        at: now(),
+        at,
         sticker: Some(StickerRef { id, format: item.format, pack, title }),
+        outbox: Some(hex::encode(sent)),
     };
     remember(&mut s.profile, line.clone());
     app.save(s)?;
@@ -151,29 +153,25 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
 pub async fn request_pack(app: State<'_, Arc<App>>, peer: String, pack: String) -> Result<(), String> {
     let mut guard = app.session.lock().await;
     let s = guard.as_mut().ok_or("create an identity first")?;
-    deliver(&app, s, &peer, &stickers::encode(&Content::PackRequest { pack }, &[])?).await?;
+    deliver(&app, s, &peer, &stickers::encode(&Content::PackRequest { pack }, &[])?, now()).await?;
     app.save(s)
 }
 
-/// Sends one plaintext. On failure it never rewinds an established session.
-pub(crate) async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8]) -> Result<(), String> {
+/// Queues one plaintext and tries to send it. Queued and saved before the
+/// network is touched, so a failed send stays in the outbox and `poll` retries
+/// it. The session is never rewound (ADR-074, decision 0). Returns the
+/// outbox id, which the caller keeps to show the message's delivery state.
+pub(crate) async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8], at: u64) -> Result<[u8; 32], String> {
     let relay = relay_addr(&s.profile)?;
     let to = address(peer)?;
-    let established = s.client.has_session(&to);
-    if let Err(e) = courier::deliver(&mut s.client, &relay, to, plain, now()).await {
-        // An established session keeps its advanced chain even though the send
-        // failed: the relay may hold the envelope with only the reply lost, and
-        // rewinding would seal the next message under the same key and nonce
-        // (two-time pad; ADR-074). The receiver skips a missing index. Only a
-        // session this send opened is rewound: the retry handshakes afresh.
-        if established {
-            app.save(s)?;
-        } else {
-            *s = App::session(&app.files, s.seed.clone())?;
-        }
-        return Err(why(&e));
-    }
-    Ok(())
+    let sent = courier::prepare(&mut s.client, &relay, to, plain, at)
+        .await
+        .map_err(|e| why(&e))?;
+    app.save(s)?;
+    // A failed flush leaves the entry queued; `poll` retries it, so the send counts.
+    let _attempt = courier::flush(&mut s.client, &relay, now()).await;
+    app.save(s)?;
+    Ok(sent)
 }
 
 /// Packs being received, and requests already answered this run.
@@ -207,6 +205,7 @@ pub(crate) async fn receive(
                 text: emoji,
                 at: now(),
                 sticker: Some(StickerRef { id, format, pack, title }),
+                outbox: None,
             })
         }
         Content::PackRequest { pack } => {
@@ -229,6 +228,7 @@ pub(crate) async fn receive(
                 text: format!("Sticker pack \u{201c}{title}\u{201d} added"),
                 at: now(),
                 sticker: None,
+                outbox: None,
             })
         }
     }
@@ -245,7 +245,7 @@ async fn answer_request(app: &App, s: &mut Session, peer: &str, pack: &str) {
         let Ok(index) = u16::try_from(index) else { break };
         let content = Content::PackItem { pack: pack.clone(), index };
         let Ok(plain) = stickers::encode(&content, &file) else { continue };
-        if deliver(app, s, peer, &plain).await.is_err() {
+        if deliver(app, s, peer, &plain, now()).await.is_err() {
             return;
         }
     }

@@ -20,6 +20,10 @@ pub mod net;
 pub mod relay;
 pub mod session;
 
+pub mod outbox;
+pub mod receipt;
+mod wire;
+
 /// A chat (and chain) address.
 pub type Address = [u8; 32];
 
@@ -65,6 +69,12 @@ pub enum ChatError {
     /// A relay rule refused it.
     #[error("refused: {0}")]
     Refused(&'static str),
+    /// The outbox is at its bound; nothing is evicted to make room.
+    #[error("outbox full: {0} undelivered")]
+    OutboxFull(usize),
+    /// A delivery receipt, which is not a message.
+    #[error("a delivery receipt, not a message")]
+    NotText,
     /// The network failed.
     #[error("network: {0}")]
     Network(String),

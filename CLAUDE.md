@@ -80,7 +80,7 @@ From Master Prompt 11, with how each is enforced *today*:
   Bytecode Alliance, ZcashFoundation), 1,068 registry crates still exempted
   (2026-10-19), job `vet` in `security-audit.yml` with `continue-on-error`.
   `cargo deny` is the only blocking supply-chain gate.
-- CI fails on a >5% regression of tracked benchmarks — `scripts/bench_gate.py`,
+- CI fails on a >5% regression of tracked benchmarks — `cargo xtask bench-gate`,
   gated on a `BENCH_RUNNER` that does not exist, so it never runs.
 - Secrets never enter the repo, logs or chat; anything that costs money or
   touches real servers needs `APPROVED: <step name>`.
@@ -223,6 +223,7 @@ cargo xtask disk                     # artifact size vs the 30 GiB ceiling
 cargo xtask coverage --verify-targets # the ledger, and that its tests are real targets
 cargo deny check                     # advisories, bans, licences, sources
 bash scripts/lint_debt.sh --check    # the clippy::pedantic ratchet
+cargo xtask proof-ratchet --check    # proofs, vectors, replays, fuzz targets never fall (ADR-078 O3)
 bash scripts/doc_coverage.sh --check # doc coverage, 90% floor
 ```
 

@@ -76,7 +76,7 @@ export const fields: Field[] = [
     line: "A post-quantum messenger, detached from the chain.",
     learn: { href: `${adr}/ADR-031-maya-chat.md`, label: "ADR-031: Maya Chat" },
     parts: [
-      { ledger: "maya-chat", tag: "RESEARCH", name: "Maya Chat messenger (a failed send never rewinds the ratchet, #285)" },
+      { ledger: "maya-chat", tag: "RESEARCH", name: "Maya Chat messenger (a failed send never rewinds the ratchet, #285; sent messages show delivered or expired)" },
       { ledger: "chat-stickers", tag: "RESEARCH", name: "Stickers" },
     ],
   },

@@ -7,7 +7,6 @@
 //! and the hub only reads the address it announces.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -18,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::miner_guard::{self, PINNED_SUMS};
+use crate::miner_guard::{self, PINNED_SUMS, PinnedMiner};
 use crate::pools;
 use crate::watchdog::{self, AfterExit, Supervisor, Thermal};
 
@@ -103,10 +102,36 @@ pub struct MinerState {
     hashing: bool,
 }
 
+/// What an alert is about. The notifier rate-limits on this, and toasts only
+/// the kinds that need the user to act (see [`AlertKind::notifies`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertKind {
+    /// The miner exited and a restart is scheduled.
+    Exited,
+    /// The miner exited and the watchdog gave up on it.
+    GaveUp,
+    /// A GPU reached its temperature ceiling and was stopped.
+    Thermal,
+    /// A GPU cooled below the restart point.
+    Resumed,
+    /// A miner restarted on its own.
+    Restarted,
+}
+
+impl AlertKind {
+    /// Only these need the user to act: a stopped miner or a stopped GPU.
+    #[must_use]
+    pub const fn notifies(self) -> bool {
+        matches!(self, Self::GaveUp | Self::Thermal)
+    }
+}
+
 /// One thing the watchdog or the miner wants the user to know.
 #[derive(Clone, Debug, Serialize)]
 pub struct Alert {
     pub t_ms: u64,
+    pub kind: AlertKind,
     pub device: String,
     /// `info`, `warn` or `critical`.
     pub level: &'static str,
@@ -123,7 +148,7 @@ pub struct MinerReport {
 /// The running child and the read-only handle on its file.
 struct Running {
     child: Child,
-    _miner: File,
+    _miner: PinnedMiner,
 }
 
 /// What a worker needs to start its process again without the UI.
@@ -268,9 +293,9 @@ impl Worker {
     }
 
     fn device_args(&self) -> Vec<String> {
-        self.plan
-            .device
-            .map_or_else(Vec::new, |i| vec!["--gpu".into(), "--device".into(), i.to_string()])
+        self.plan.device.map_or_else(Vec::new, |i| {
+            vec!["--gpu".into(), "--device".into(), i.to_string()]
+        })
     }
 
     /// Starts the process. Used by the first start and by every restart, so
@@ -303,11 +328,11 @@ impl Worker {
             st.last_event_ms = now;
             st.status = "starting".into();
         }
-        // The read-only handle lives as long as the child, so the miner file
-        // cannot be replaced while the process it hashed is running.
+        // The pinned miner (Windows: locked install file; Unix: private copy)
+        // lives as long as the child, so what runs is what was hashed.
         self.child = Some(Running {
             child,
-            _miner: pinned.file,
+            _miner: pinned,
         });
         Ok(())
     }
@@ -325,21 +350,35 @@ impl Worker {
     fn on_exited(&mut self, now: u64, device: &str, reason: &str) -> Alert {
         let mut st = lock_state(&self.state);
         st.running = false;
-        let (level, message) = match self.watch.on_exit(now) {
+        let (kind, level, message) = match self.watch.on_exit(now) {
             AfterExit::RestartAt(at) => {
                 let secs = at.saturating_sub(now) / 1000;
                 st.status = format!("{reason}; restarting in {secs}s");
-                ("warn", format!("{device} {reason}; restarting in {secs} s"))
+                (
+                    AlertKind::Exited,
+                    "warn",
+                    format!("{device} {reason}; restarting in {secs} s"),
+                )
             }
             AfterExit::GiveUp => {
                 st.status = format!("stopped: {} exits in 10 min", watchdog::CRASH_LIMIT);
                 (
+                    AlertKind::GaveUp,
                     "critical",
-                    format!("{device} {reason}; stopped after {} exits in 10 min. Start it again by hand once the cause is fixed.", watchdog::CRASH_LIMIT),
+                    format!(
+                        "{device} {reason}; stopped after {} exits in 10 min. Start it again by hand once the cause is fixed.",
+                        watchdog::CRASH_LIMIT
+                    ),
                 )
             }
         };
-        Alert { t_ms: now, device: device.into(), level, message }
+        Alert {
+            t_ms: now,
+            kind,
+            device: device.into(),
+            level,
+            message,
+        }
     }
 
     /// One supervision step. Returns the alerts it raised.
@@ -353,12 +392,27 @@ impl Worker {
                     self.halt();
                     let mut st = lock_state(&self.state);
                     st.held = true;
-                    st.status = format!("thermal stop at {t:.0} °C; restarts at {:.0} °C", ceiling - watchdog::THERMAL_HYSTERESIS_C);
-                    alerts.push(Alert { t_ms: now, device: device.into(), level: "warn", message: format!("{device} reached {t:.0} °C, above its {ceiling:.0} °C ceiling, and was stopped") });
+                    st.status = format!(
+                        "thermal stop at {t:.0} °C; restarts at {:.0} °C",
+                        ceiling - watchdog::THERMAL_HYSTERESIS_C
+                    );
+                    alerts.push(Alert {
+                        t_ms: now,
+                        kind: AlertKind::Thermal,
+                        device: device.into(),
+                        level: "warn",
+                        message: format!("{device} reached {t:.0} °C, above its {ceiling:.0} °C ceiling, and was stopped"),
+                    });
                 }
                 Thermal::Resume => {
                     lock_state(&self.state).held = false;
-                    alerts.push(Alert { t_ms: now, device: device.into(), level: "info", message: format!("{device} cooled to {t:.0} °C; restarting") });
+                    alerts.push(Alert {
+                        t_ms: now,
+                        kind: AlertKind::Resumed,
+                        device: device.into(),
+                        level: "info",
+                        message: format!("{device} cooled to {t:.0} °C; restarting"),
+                    });
                 }
                 Thermal::Unchanged => {}
             }
@@ -395,7 +449,13 @@ impl Worker {
         match self.launch(now) {
             Ok(()) => {
                 lock_state(&self.state).restarts += 1;
-                Some(Alert { t_ms: now, device: device.into(), level: "info", message: format!("{device} restarted") })
+                Some(Alert {
+                    t_ms: now,
+                    kind: AlertKind::Restarted,
+                    device: device.into(),
+                    level: "info",
+                    message: format!("{device} restarted"),
+                })
             }
             Err(e) => Some(self.on_exited(now, device, &format!("would not start ({e})"))),
         }
@@ -416,7 +476,8 @@ impl Miner {
         if config.device.is_some_and(|i| i > MAX_DEVICE) {
             return Err(format!("GPU index above {MAX_DEVICE} is not supported"));
         }
-        miner_guard::check_miner(&config.binary, install, PINNED_SUMS).map_err(|e| e.to_string())?;
+        miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
+            .map_err(|e| e.to_string())?;
         let key_file =
             miner_guard::resolve_key_file(&config.key_file, data).map_err(|e| e.to_string())?;
         let plan = Plan {
@@ -448,7 +509,12 @@ impl Miner {
         {
             let mut st = lock_state(&worker.state);
             let device = std::mem::take(&mut st.device);
-            *st = MinerState { device, ceiling_c: ceiling, started_ms: Some(now_ms()), ..MinerState::default() };
+            *st = MinerState {
+                device,
+                ceiling_c: ceiling,
+                started_ms: Some(now_ms()),
+                ..MinerState::default()
+            };
         }
         let now = now_ms();
         let result = worker.launch(now);
@@ -478,19 +544,24 @@ impl Miner {
 
     /// Runs one supervision step for every worker. `temps` holds each GPU's
     /// reading as `(index, °C)`; a GPU with no reading is never stopped.
-    pub fn tick(&self, now: u64, temps: &[(u32, f64)]) {
+    /// Returns the alerts this step raised, so the caller can notify on them.
+    pub fn tick(&self, now: u64, temps: &[(u32, f64)]) -> Vec<Alert> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let raised: Vec<Alert> = inner
             .workers
             .iter_mut()
             .flat_map(|(key, worker)| {
-                let temp = worker.plan.device.and_then(|i| temps.iter().find(|(d, _)| *d == i).map(|(_, t)| *t));
+                let temp = worker
+                    .plan
+                    .device
+                    .and_then(|i| temps.iter().find(|(d, _)| *d == i).map(|(_, t)| *t));
                 worker.tick(now, key, temp)
             })
             .collect();
-        for alert in raised {
-            push(&mut inner.alerts, alert, ALERT_HISTORY);
+        for alert in &raised {
+            push(&mut inner.alerts, alert.clone(), ALERT_HISTORY);
         }
+        raised
     }
 
     /// True when a GPU worker runs or is held hot, so the supervisor keeps
@@ -509,7 +580,11 @@ impl Miner {
     pub fn report(&self) -> MinerReport {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         MinerReport {
-            workers: inner.workers.values().map(|w| lock_state(&w.state).clone()).collect(),
+            workers: inner
+                .workers
+                .values()
+                .map(|w| lock_state(&w.state).clone())
+                .collect(),
             alerts: inner.alerts.iter().rev().cloned().collect(),
         }
     }
@@ -536,7 +611,8 @@ mod tests {
 
     fn config(device: Option<u32>) -> MinerConfig {
         MinerConfig {
-            binary: "Z:/nope/maya2c-gpu-miner.exe".into(),
+            // The platform's own file name: a `.exe` name is not the miner on Linux.
+            binary: format!("Z:/nope/{}", miner_guard::miner_file_name()),
             pool: "public".into(),
             key_file: "k".into(),
             threads: 2,

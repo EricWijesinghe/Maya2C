@@ -1,0 +1,7 @@
+# Proof ratchet baseline (ADR-078 O3). Counts may rise freely and never fall.
+# Raise with `cargo xtask proof-ratchet --update` and say why in the commit.
+acvp_vector_files = 8
+conformance_vectors = 164
+exploit_replays = 11
+fuzz_targets = 16
+kani_harnesses = 83

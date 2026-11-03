@@ -178,17 +178,24 @@ async fn send(a: &Args) -> Result<(), String> {
     let relay = relay_addr(a)?;
     let to = address(a.to.as_deref().ok_or("--to is required")?)?;
     let mut client = load_client(&a.home)?;
-    let established = client.has_session(&to);
-    let sent = courier::deliver(&mut client, &relay, to, a.text.join(" ").as_bytes(), now()).await;
-    // Saved on success, and on failure too once a session exists: the relay
-    // may hold the envelope, and an unsaved chain would reuse its key next
-    // time (two-time pad; ADR-074). A failed first message is not saved, so
-    // the retry handshakes afresh.
-    if sent.is_ok() || established {
-        save_client(&a.home, &client)?;
+    let text = a.text.join(" ");
+    let home = &a.home;
+    // Queued and saved before the network is touched (ADR-074, decision 1):
+    // a crash after this point resends the same bytes, never reseals.
+    let id = courier::prepare(&mut client, &relay, to, text.as_bytes(), now())
+        .await
+        .map_err(|e| why(&e))?;
+    save_client(home, &client)?;
+    let flushed = courier::flush(&mut client, &relay, now()).await;
+    save_client(home, &client)?;
+    let outcome = flushed.map_err(|e| why(&e))?;
+    match outcome.into_iter().find(|(due, _)| *due == id) {
+        Some((_, Ok(()))) => println!("relayed to {} (waiting for receipt)", hex::encode(to)),
+        Some((_, Err(e))) => {
+            return Err(format!("queued, will retry: {}", why(&e)));
+        }
+        None => return Err("queued, will retry".into()),
     }
-    sent.map_err(|e| why(&e))?;
-    println!("sent to {}", hex::encode(to));
     Ok(())
 }
 
@@ -199,6 +206,12 @@ async fn recv(a: &Args) -> Result<(), String> {
         .await
         .map_err(|e| why(&e))?;
     save_client(&a.home, &client)?;
+    // A failed flush leaves the entries queued; the next run retries them.
+    let flushed = courier::flush(&mut client, &relay, now()).await;
+    save_client(&a.home, &client)?;
+    if let Err(e) = flushed {
+        println!("outbox: {}, will retry", why(&e));
+    }
     println!("{} message(s)", show(&results));
     Ok(())
 }

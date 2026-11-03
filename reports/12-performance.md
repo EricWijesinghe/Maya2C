@@ -122,7 +122,7 @@ does not cover power loss: the WAL is not fsynced per write (ADR-019).
 
 ## 5. Regression gate
 
-`scripts/bench_gate.py` parses the two tracked benchmarks into 8 metrics and
+`cargo xtask bench-gate` parses the two tracked benchmarks into 8 metrics and
 compares each to the last value for the same runner in
 `benchmarks/history.csv`. It fails on a regression over 5 %, unless the metric
 is listed in `benchmarks/OVERRIDES.md` with a reason. Self-test:

@@ -3124,6 +3124,12 @@ criteria = "safe-to-deploy"
 version = "1.0.151"
 criteria = "safe-to-deploy"
 
+# Added with the chat outbox (ADR-074). Exempted, not audited: serde-rs/bytes
+# 0.11.19, Apache-2.0 OR MIT, no OSV advisories (DepScout, 2026-11-03).
+[[exemptions.serde_bytes]]
+version = "0.11.19"
+criteria = "safe-to-deploy"
+
 [[exemptions.serde_path_to_error]]
 version = "0.1.20"
 criteria = "safe-to-deploy"

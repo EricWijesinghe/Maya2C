@@ -88,7 +88,7 @@ would touch it writes any code, not afterwards.
 8. **Confidential federated training, taken out of order.** Built 2026-09-15
    while the trajectory stood at Prompt 49. Its brief put SGX / SEV-SNP enclaves
    at the centre, and the status table had already flagged that TEE attestation
-   collides with invariant 11: a vendor's ECDSA signature is a trusted party,
+   touches invariant 11 by analogy (no numbered TEE invariant exists): a vendor's ECDSA signature is a trusted party,
    and not a post-quantum one. It also asked differential privacy to "prevent"
    reconstruction. Reconciled as off-chain secure aggregation over ML-KEM plus
    integer discrete-Gaussian DP with a reported ε, and an attestation hook that

@@ -12,7 +12,7 @@ They moved with the crate they measure:
 | `crates/htlc-lattice/benches/` | `verify` |
 | `crates/zkml-prover/benches/` | `verify` |
 
-`cargo bench --workspace` runs them; `scripts/bench_report.py` formats the
+`cargo bench --workspace` runs them; `cargo xtask bench-report` formats the
 output.
 
 One standing rule, from the Standing Orders in `CLAUDE.md`: a number in a
