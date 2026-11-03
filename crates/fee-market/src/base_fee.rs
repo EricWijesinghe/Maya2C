@@ -25,7 +25,7 @@
 //! a base fee of 7 over a denominator of 8 rounds every increase to zero, and a
 //! chain at the floor can be kept full forever at the floor price. The
 //! `min(…, parent / denominator)` is the other half: without it a block at 64
-//! times the target multiplies the fee by about 8.9 (ADR-071). The fall needs
+//! times the target multiplies the fee by about 8.9 (ADR-076). The fall needs
 //! no such bound, since `parent_size ≥ 0` keeps the gap at most `target`.
 
 use maya_amount::Amount;
@@ -51,7 +51,7 @@ pub fn next_base_fee(
     if target == 0 || denominator == 0 {
         return parent_base_fee.max(floor);
     }
-    // The one-share bound of ADR-071 is stated for denominators the config admits.
+    // The one-share bound of ADR-076 is stated for denominators the config admits.
     debug_assert!(
         denominator >= MIN_CHANGE_DENOMINATOR,
         "change denominator {denominator} is below MIN_CHANGE_DENOMINATOR"

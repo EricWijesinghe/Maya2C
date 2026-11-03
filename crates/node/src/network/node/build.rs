@@ -391,6 +391,7 @@ impl Node {
             rotation_check,
             stats,
             relay: None,
+            allow_private_addresses: false,
         })
     }
 }

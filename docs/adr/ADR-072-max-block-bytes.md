@@ -6,7 +6,7 @@
 
 ## Context
 
-The fee clamp (ADR-071, PR #274) bounds how fast the base fee can rise, so a block's
+The fee clamp (ADR-076, PR #274) bounds how fast the base fee can rise, so a block's
 size no longer raises its price. Before that, a large block was expensive to fill. After it,
 size is only a cost for the attacker who pays the fee, and the chain has no other bound on it.
 
@@ -75,7 +75,7 @@ moving this from Proposed to Accepted.
 - **Target range follows the cap.** `MAX_TARGET_BLOCK_BYTES` was 16 MiB. A target at or above the cap
   can never be exceeded, so the base fee would never rise and spam would stay at the floor. It is now
   `MAX_BLOCK_BYTES / 2` (2.5 MiB, the published testnet's own target), so a full block is 2x target and
-  moves the fee by the full 1/D step (ADR-071).
+  moves the fee by the full 1/D step (ADR-076).
 - A block over the cap is refused on every path, so a malicious builder cannot bypass the cap.
 - Consensus-visible: a block that was valid before is now invalid above the cap, and the
   selection changes what an over-cap order produces. Re-genesis only.
@@ -134,10 +134,15 @@ moving this from Proposed to Accepted.
      the budget is raised.
    - Assumption: each honest author's transfers are at most `Q` (`B / n` = 1.875 MiB at `n` = 4 and
      0.075 MiB at `n` = 100, `B` = 7.5 MiB). A single honest payload larger than `Q` waits for
-     deficit to accumulate, so the first-turn bound does not cover it; it is still admitted in a later
-     turn while budget remains. A transaction of 4 MiB (`MAX_TX_BYTES`) would be such a payload.
-     This is a shortcut in the derivation, not in the rule: the guarantee is stated for standard-sized
-     transactions.
+     deficit to accumulate, so the first-turn bound does not cover it. Nothing is refused or dropped
+     for size. Proposers pack at most one quantum per vertex (`Params.max_batch_bytes` =
+     `decode_quantum(DECODE_BUDGET, n)`, `bins/maya2c-node/src/bft.rs` setup) and leave the rest in the
+     mempool for the next vertex. A payload larger than the quantum is sent alone
+     (`take_batch`, `dag-bft/src/validator.rs`), and receivers accept a lone payload up
+     to `LONE_PAYLOAD_BYTES`. Residual, stated plainly: under a junk flood from `f` authors, a single
+     transaction larger than the quantum can wait until the flood ends, because budget only shrinks
+     within a walk. Batches of small payloads never wait this way: each fits its author's quantum in
+     its first turn. The guarantee is therefore for payloads within the quantum.
    - Cost: decode work per block is at most `B` = 7.5 MiB, up from 5 MiB. Termination: a waiting
      author's deficit grows by `Q` per turn, so it admits a payload of length `L` within `⌈L / Q⌉`
      turns. For `L` ≤ `MAX_TX_BYTES` (4 MiB) and `n` = 100 that is at most 54 turns.
@@ -148,6 +153,17 @@ moving this from Proposed to Accepted.
    capped (see `dag-bft/src/commit.rs` `order_history`), so the work per commit is linear in the
    committed bytes outside the walk, namely the streamed dedupe over raw bytes. Bounding the sub-DAG
    needs a protocol change, which is not part of this change.
+
+   **Quantum fixed at genesis.** `n` in `decode_quantum(DECODE_BUDGET, n)` is the genesis committee
+   size, read once in `bins/maya2c-node/src/bft.rs` setup. It does not follow later committee
+   changes, so the quantum is one constant for the chain's life.
+
+**End-of-block drops (audit finding 4) are consensus.** Every validator runs `build_block` on the
+same sub-DAG. A transaction that stages but fails an end-of-block pass is found by bisection on the
+prefix length, dropped, and the block rebuilt. The probe order and bounds
+(`MAX_END_OF_BLOCK_DROPS` = 8, `END_OF_BLOCK_PROBES` = 32 total builds) are constants, so every node
+drops the same transaction. A storage or archive error is a local fault: it propagates and is never
+blamed on a transaction.
 
 ## Activation
 

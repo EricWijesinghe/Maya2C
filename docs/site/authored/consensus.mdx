@@ -30,8 +30,8 @@ that the group still agrees as long as only a small share of friends misbehave.
 
 Maya2C runs a **certified DAG** with the **Bullshark commit rule**, a design
 recorded in ADR-015 and wired into the node by ADR-027. The engine is
-`crates/dag-bft`. The node runs it behind an ML-DSA-65 `Authenticator`, over a
-gossip transport.
+`crates/dag-bft`. The node runs it behind an ML-DSA-87 validator `Authenticator`,
+over a gossip transport.
 
 One rule shapes everything else: **a block is derived, never proposed.** Each
 committed anchor's causal history becomes exactly one block, and every node
@@ -58,7 +58,8 @@ each cert    = vertex digest + signatures from ≥ n − f validators
    (transactions) and references to at least a quorum of certificates from the
    previous round (`crates/dag-bft/src/vertex.rs`).
 2. **Vote.** Each validator signs at most one vertex per (author, round). The
-   vote signature is ML-DSA-65 over `VOTE_DOMAIN` (`crates/dag-bft/src/auth.rs`).
+   vote signature is ML-DSA-87 over `VOTE_DOMAIN` (`crates/dag-bft/src/auth.rs`
+   for the trait; `crates/node/src/consensus/bft/auth.rs` for the node).
 3. **Certify.** A vertex with a quorum of votes is a certificate.
 4. **Commit.** On each even round the leader is chosen round robin. An anchor
    is committed **directly** when at least `f + 1` certificates of the next
@@ -89,6 +90,19 @@ The slider below shows any two quorums for any `n`, with the worst case drawn.
 
 <QuorumOverlap />
 
+### Block size cap (ADR-072, Proposed)
+
+A committed sub-DAG becomes one block, and a block may hold at most
+`MAX_BLOCK_BYTES` = 5 MiB (`crates/fee-market/src/limits.rs`). Selection admits
+transactions in order and stops at the one that would exceed the cap; the
+rest are proposed again in a later block, and the nonce rule stops any double
+execution. Import refuses an over-cap block before anything is stored.
+
+The value is provisional. The apply cost per MiB on the launch host is not yet
+measured, and the cap takes effect at the re-genesis. Rule CON-12 has conformance
+vectors in `spec/tests/consensus.json`; invariant 33 is pinned by
+`crates/node/tests/block_bytes_tests.rs`.
+
 ### Where things are in the node
 
 | Piece | Path |
@@ -98,6 +112,7 @@ The slider below shows any two quorums for any `n`, with the worst case drawn.
 | Block derivation | `consensus::bft::builder` (node) |
 | Checkpoints for rejoining (ADR-038) | `--catch-up-from`, attested blocks |
 | Garbage collection | `GC_DEPTH = 50` rounds of certificates in memory |
+| Block byte cap (ADR-072) | `crates/fee-market/src/limits.rs`, `crates/node/tests/block_bytes_tests.rs` |
 
 ### Running as a validator
 

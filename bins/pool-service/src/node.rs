@@ -14,6 +14,8 @@
 //! and the credits they carry are safe. The error variant this module returns
 //! is the one that says so.
 
+use std::sync::{Arc, Mutex, PoisonError};
+
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
@@ -39,6 +41,10 @@ pub struct NodeClient {
     client: HttpClient,
     /// Endpoint, for error messages.
     url: String,
+    /// The genesis payouts are signed with, fetched on first use and shared by
+    /// every clone. Cleared when a rejected payout finds the node now reports a
+    /// different genesis (a re-genesis), so the next batch uses the live one.
+    genesis: Arc<Mutex<Option<ChainTag>>>,
 }
 
 impl NodeClient {
@@ -54,6 +60,7 @@ impl NodeClient {
         Ok(Self {
             client,
             url: url.to_string(),
+            genesis: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -108,6 +115,14 @@ impl NodeClient {
     /// As [`NodeClient::submit_block`]: transport failures are
     /// [`PoolError::NodeRpc`], a refusal by the mempool is [`PoolError::Chain`].
     pub async fn send_raw_transaction(&self, raw: &[u8]) -> Result<String> {
+        let submitted = self.submit_raw(raw).await;
+        match submitted {
+            Ok(txid) => Ok(txid),
+            Err(error) => Err(self.rejection(error).await),
+        }
+    }
+
+    async fn submit_raw(&self, raw: &[u8]) -> Result<String> {
         let result: SubmitTransactionResult = self
             .client
             .request("send_raw_transaction", rpc_params![hex::encode(raw)])
@@ -122,6 +137,48 @@ impl NodeClient {
         }
 
         Ok(result.txid)
+    }
+
+    /// Called on a rejected payout. A node that re-genesised rejects every
+    /// payout signed under the old tag, so when the live genesis differs from
+    /// the cached one this returns [`PoolError::GenesisChanged`] and clears the
+    /// cache. Otherwise, or if the node cannot be asked, the original error
+    /// stands.
+    async fn rejection(&self, error: PoolError) -> PoolError {
+        let Some(cached) = self.cached_genesis() else {
+            return error;
+        };
+        match self.live_genesis().await {
+            Ok(live) if live != cached => {
+                self.store_genesis(None);
+                let changed = PoolError::GenesisChanged {
+                    cached: hex::encode(cached.0),
+                    live: hex::encode(live.0),
+                };
+                eprintln!("{changed}");
+                changed
+            }
+            _ => error,
+        }
+    }
+
+    fn cached_genesis(&self) -> Option<ChainTag> {
+        *self.genesis.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn store_genesis(&self, tag: Option<ChainTag>) {
+        *self.genesis.lock().unwrap_or_else(PoisonError::into_inner) = tag;
+    }
+
+    /// The genesis the node reports now. Never cached.
+    async fn live_genesis(&self) -> Result<ChainTag> {
+        let info: ChainInfo = self
+            .client
+            .request("get_chain_info", rpc_params![])
+            .await
+            .map_err(|e| PoolError::NodeRpc(format!("get_chain_info: {e}")))?;
+        info.chain_tag()
+            .map_err(|e| PoolError::NodeRpc(format!("chain_tag: {e}")))
     }
 
     /// Reads an account's balance and nonce.
@@ -166,13 +223,13 @@ impl NodeClient {
     ///
     /// Returns [`PoolError::NodeRpc`] on a transport or parsing failure.
     pub async fn get_chain_tag(&self) -> Result<ChainTag> {
-        let info: ChainInfo = self
-            .client
-            .request("get_chain_info", rpc_params![])
-            .await
-            .map_err(|e| PoolError::NodeRpc(format!("get_chain_info: {e}")))?;
-        info.chain_tag()
-            .map_err(|e| PoolError::NodeRpc(format!("chain_tag: {e}")))
+        if let Some(tag) = self.cached_genesis() {
+            return Ok(tag);
+        }
+        // A failed fetch is not stored, so the next call asks again.
+        let tag = self.live_genesis().await?;
+        self.store_genesis(Some(tag));
+        Ok(tag)
     }
 }
 
@@ -240,5 +297,137 @@ mod tests {
             NodeClient::connect("not a url"),
             Err(PoolError::NodeRpc(_))
         ));
+    }
+
+    /// The request body of one HTTP/1.1 request, up to `Content-Length`.
+    fn read_body(stream: &mut std::net::TcpStream) -> Vec<u8> {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            let n = stream.read(&mut chunk).unwrap();
+            assert!(n > 0, "client closed before the request was complete");
+            buf.extend_from_slice(&chunk[..n]);
+            let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&buf[..end]).to_lowercase();
+            let len = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .map_or(0, |v| v.trim().parse::<usize>().unwrap());
+            if buf.len() >= end + 4 + len {
+                return buf[end + 4..end + 4 + len].to_vec();
+            }
+        }
+    }
+
+    /// A loopback node. It answers `get_chain_info` with whatever genesis is in
+    /// `genesis` at that moment, so a test can re-genesis it mid-run, and it
+    /// rejects every `send_raw_transaction`. Returns its URL and a count of the
+    /// requests it served.
+    fn genesis_node(
+        genesis: std::sync::Arc<std::sync::Mutex<String>>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let served = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&served);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let request: serde_json::Value =
+                    serde_json::from_slice(&read_body(&mut stream)).unwrap();
+                counter.fetch_add(1, Ordering::SeqCst);
+                let reply = if request["method"] == "get_chain_info" {
+                    let genesis = genesis.lock().unwrap().clone();
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "result": {"genesis": genesis, "chain_id": null, "height": 0},
+                    })
+                } else {
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "error": {"code": -32000, "message": "transaction rejected"},
+                    })
+                }
+                .to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        (url, served)
+    }
+
+    #[tokio::test]
+    async fn the_genesis_is_fetched_once_per_node_client() {
+        use std::sync::atomic::Ordering;
+        let (url, served) =
+            genesis_node(std::sync::Arc::new(std::sync::Mutex::new("ab".repeat(32))));
+        let node = NodeClient::connect(&url).unwrap();
+
+        let first = node.get_chain_tag().await.unwrap();
+        let second = node.get_chain_tag().await.unwrap();
+        let clone = node.clone().get_chain_tag().await.unwrap();
+
+        // The binding is still the node's genesis, not a placeholder.
+        assert_eq!(first, ChainTag::from_genesis([0xab; 32]));
+        assert_eq!(first, second);
+        assert_eq!(first, clone);
+        // Three lookups, one request.
+        assert_eq!(served.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_re_genesised_node_is_reported_and_the_next_payout_uses_the_live_tag() {
+        use std::sync::{Arc, Mutex};
+        let genesis = Arc::new(Mutex::new("ab".repeat(32)));
+        let (url, _) = genesis_node(Arc::clone(&genesis));
+        let node = NodeClient::connect(&url).unwrap();
+        assert_eq!(
+            node.get_chain_tag().await.unwrap(),
+            ChainTag::from_genesis([0xab; 32])
+        );
+
+        // The node re-geneses; the payout is rejected.
+        *genesis.lock().unwrap() = "cd".repeat(32);
+        let error = node.send_raw_transaction(&[1, 2, 3]).await.unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                PoolError::GenesisChanged { cached, live }
+                    if *cached == "ab".repeat(32) && *live == "cd".repeat(32)
+            ),
+            "expected GenesisChanged, got {error:?}"
+        );
+
+        // The cache was cleared, so the next batch signs with the live tag.
+        assert_eq!(
+            node.get_chain_tag().await.unwrap(),
+            ChainTag::from_genesis([0xcd; 32])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejection_with_an_unchanged_genesis_stays_a_node_error() {
+        use std::sync::{Arc, Mutex};
+        let (url, _) = genesis_node(Arc::new(Mutex::new("ab".repeat(32))));
+        let node = NodeClient::connect(&url).unwrap();
+        node.get_chain_tag().await.unwrap();
+
+        let error = node.send_raw_transaction(&[1, 2, 3]).await.unwrap_err();
+        assert!(
+            matches!(error, PoolError::NodeRpc(_)),
+            "expected the node's rejection, got {error:?}"
+        );
     }
 }

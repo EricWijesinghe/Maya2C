@@ -61,6 +61,13 @@ pub const DEFAULT_CONFIRMATIONS: u64 = 60;
 /// the batch size is a blast radius.
 pub const DEFAULT_MAX_OUTPUTS_PER_BATCH: usize = 1_000;
 
+/// Authenticated connections one peer address may hold open.
+///
+/// NAT and mining farms put many rigs behind one address, so the default is well
+/// above what a single site needs. A farm larger than this raises it with
+/// `--max-connections-per-ip`.
+pub const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 64;
+
 /// How much of the reward the operator keeps, and the ceiling on it.
 ///
 /// Not a policy judgement — 100% is simply where "pool fee" stops describing
@@ -140,6 +147,8 @@ pub struct PoolConfig {
     pub min_target_bits: u32,
     /// See [`PoolConfig::min_target_bits`].
     pub max_target_bits: u32,
+    /// Authenticated connections one peer address may hold open at once.
+    pub max_connections_per_ip: usize,
 }
 
 impl Default for PoolConfig {
@@ -170,6 +179,7 @@ impl Default for PoolConfig {
             share_interval: DEFAULT_SHARE_INTERVAL,
             min_target_bits: 16,
             max_target_bits: 48,
+            max_connections_per_ip: DEFAULT_MAX_CONNECTIONS_PER_IP,
         }
     }
 }
@@ -206,6 +216,10 @@ impl PoolConfig {
                  difficulty",
                 self.pplns_factor
             ));
+        }
+
+        if self.max_connections_per_ip == 0 {
+            return bad("max_connections_per_ip is zero, which refuses every miner".to_string());
         }
 
         if self.confirmations == 0 {
@@ -280,6 +294,17 @@ mod tests {
             max_batch_value: primitive_types::U256::MAX,
             ..PoolConfig::default()
         }
+    }
+
+    #[test]
+    fn a_zero_per_address_cap_is_refused_at_startup() {
+        // Zero would refuse every miner while the pool reports itself up.
+        let config = PoolConfig {
+            max_connections_per_ip: 0,
+            ..valid()
+        };
+        assert!(config.validate().is_err());
+        assert!(valid().validate().is_ok());
     }
 
     #[test]

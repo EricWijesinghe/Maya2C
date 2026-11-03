@@ -46,6 +46,97 @@ When a peer restores from a snapshot, give it `--trusted-block HEIGHT:ID` from t
 paths that are not the bootstrap source, at or above the snapshot height. Without
 it the source alone decides which chain the node starts on.
 
+The same flag guards a rejoin (B49). A node is stale when a source reports a head more than
+`unbonding_epochs` epochs past its committed epoch, or when its tip is older than the window
+AND a source reports a head more than the window of blocks past its tip. A time-old tip with
+no newer head is not stale: a halted network, or a fresh node on an old genesis, starts with a
+loud warning. A stale node refuses to start without `--trusted-block`, because validators
+that unbonded can sign a forged chain. Heads reported by sources are unverified.
+
+Maximum offline span through a trusted block: the block cap (50,000 blocks, 8.7 days at 15 s)
+plus the recency allowance (one window of the head: 25,200 blocks, 4.4 days on the 3,600-block
+testnet), about 13 days. The byte cap (512 MiB, about 10.7 KiB per block across the full block
+cap) binds first if blocks average more than that, so the real span is shorter on large blocks.
+Beyond the span, restore from a snapshot with `--bootstrap-from`.
+
+Known residual: a P2P-only node (no `--catch-up-from`) that goes stale while running has no
+follower to stop. It keeps running, and a restart applies the start-up rule.
+The block must be **recent**: within the unbonding window of the network's head, and above
+the node's tip. Outside operators set `MAYA2C_TRUSTED_BLOCK=HEIGHT:HEX` from the explorer, or
+from two independent peers, before the start. The launchers below fetch a block only when
+that variable is not set.
+
+Windows, computed as `unbonding_epochs (7) x epoch_blocks x block interval`. The interval is
+measured from the node's own headers over the last `epoch_blocks` blocks and capped at 15 s,
+so a fast chain has a shorter window. The figures below use the 15 s cap, the longest case:
+
+| Network (source of `epoch_blocks`) | `epoch_blocks` | Window |
+|---|---|---|
+| testnet (`docs/site/public/testnet/genesis.json`) | 3,600 | 105 h (4.4 days) |
+| Oracle VM testnet (`infra/testnet-vm/install.sh`) | 20 | 35 min |
+| localnet / devnet (`xtask/src/localnet.rs`) | 20 | 35 min |
+| attacknet (`xtask/src/attacknet.rs`) | 60 | 1.75 h |
+| mainnet | not in this repo; read it from the genesis file | - |
+
+Short windows mean a node restarted after a 35-minute outage on the Oracle VM testnet or a
+devnet is refused until it is given a trusted block. That is intended.
+
+**Restart rule (B49), now in every launcher.** Before a node with `--catch-up-from` starts, the
+launcher picks its `--trusted-block HEIGHT:HEX` in this order:
+
+1. `MAYA2C_TRUSTED_BLOCK` in the environment (`-TrustedBlock` on the `.ps1` launchers). An
+   operator's explorer block always wins over any fetch.
+2. Otherwise a fetch: `get_chain_info` for the tip height, then `get_block_by_height` for its id,
+   from two sources. The two must agree on the block at the lower tip. One source is a warned
+   convenience.
+
+The tip is recent by definition. A node within the window accepts the block as a checked anchor,
+so passing it is always safe.
+
+| Launcher | Fetches from | Notes |
+|---|---|---|
+| `infra/hybrid-testnet/start-pc-validators.ps1` | the first two live peers from `Get-Sources` | our own PC nodes; with one live peer it warns |
+| `infra/testnet-vm/join-validator.ps1` | `-Bootstrap` and optional `-TrustedSource` | our own VM: convenience fetch. Outside operators set `-TrustedBlock` from the explorer |
+| `scripts/join-testnet.sh` | `$BOOTSTRAP` and optional `MAYA2C_TRUSTED_SOURCE` at install | outside operators: set `MAYA2C_TRUSTED_BLOCK` (systemd `Environment=`, or launchd `EnvironmentVariables`) from the explorer, or give a second independent peer in `MAYA2C_TRUSTED_SOURCE` |
+| `scripts/dr-drill.ps1` | the drill's `$peer` and `$seed` | a drill against our own nodes |
+
+**Who does what:**
+- **Our own nodes** (the PC, the Oracle VM, the drill, attacknet, the controller): the fetch is a
+  convenience. Attacknet and the controller run against our own lab nodes, so one source is fine
+  there.
+- **Outside operators:** set `MAYA2C_TRUSTED_BLOCK=HEIGHT:HEX` from the explorer, or from two
+  independent peers you verify yourself. Do not rely on a single fetched source.
+
+A launcher that finds no block still starts the node. A node behind the window then refuses,
+and the log says why. The restart fails loudly only in the lab (`cargo xtask attacknet`, the
+controller), where a missing block would make the scenario meaningless.
+
+If the node is behind by more than the 50,000-block catch-up cap, the restart still refuses:
+restore from a snapshot with `--bootstrap-from` instead.
+
+**Start-up with no confirming head.** A node whose tip is older than the window, and that no
+source confirms with a head beyond the window, is refused at start-up at any height. This is
+the eclipse guard: an eclipsed node sees exactly what a halted network or an old genesis
+looks like. Two honest cases need the operator's word:
+
+- the network halted for longer than the window (pass `--allow-unconfirmed-start`), or
+- the genesis was signed long before launch and this node has not yet seen a head
+  (pass `--allow-unconfirmed-start`).
+
+Prefer `--trusted-block HEIGHT:HEX` (at least one epoch inside the window, from two or more
+independent sources) or `--bootstrap-from` whenever a block or snapshot is available. A
+fresh genesis whose timestamp is inside the window starts with no flag.
+
+**Trust model.** A running follower assumes at least one honest source. A stale restart is
+safe with `--trusted-block`, or with the operator's explicit `--allow-unconfirmed-start`. List
+two or more `https` sources in `--catch-up-from`, so one hostile source is never the only
+voice. A running follower with no confirming head keeps following and warns; that is the
+known residual above.
+
+A halted network does not stop its running nodes. Followers keep running and log a line each
+time they probe. A follower exits only when a source confirms a head beyond the window and no
+trusted block is pending. A restart then needs `--trusted-block`.
+
 ## 5. What this does not fix
 Stake concentration (a design decision: a validator above 1/3 of stake is a
 single point of failure and of capture) and the absence of an external audit.

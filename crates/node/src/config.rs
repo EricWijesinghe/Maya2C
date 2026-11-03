@@ -98,6 +98,11 @@ pub struct RpcConfig {
     pub rate_limit_per_second: u32,
     /// Requests one peer may burst above the sustained rate.
     pub rate_limit_burst: u32,
+    /// Addresses whose forwarding headers are believed (`CF-Connecting-IP`,
+    /// `X-Forwarded-For`). Loopback is always trusted, because the public
+    /// tunnel runs on this host. Empty means only the tunnel's headers count.
+    /// See [`crate::rpc::client_ip`].
+    pub trusted_proxies: Vec<std::net::IpAddr>,
 }
 
 /// Storage engine tuning.
@@ -149,6 +154,7 @@ impl Default for RpcConfig {
             // busy answering instead of validating.
             rate_limit_per_second: 50,
             rate_limit_burst: 100,
+            trusted_proxies: Vec::new(),
         }
     }
 }
@@ -289,6 +295,8 @@ impl NodeConfig {
              listen = \"{}\"\n\
              rate_limit_per_second = {}\n\
              rate_limit_burst = {}\n\
+             # Proxies whose CF-Connecting-IP / X-Forwarded-For are believed. Loopback is always trusted.\n\
+             trusted_proxies = []\n\
              \n\
              [storage]\n\
              block_cache_mib = {}\n\

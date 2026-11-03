@@ -197,6 +197,8 @@ fn main() {
         .unwrap();
     let io0 = proc_field("io", "write_bytes:");
     let db = StateDB::open(dir.path()).unwrap();
+    // Transfers are signed for the test chain; apply refuses an unbound DB.
+    db.bind_chain(common::test_chain()).unwrap();
     for k in &keys {
         db.put_account(
             &k.address(),

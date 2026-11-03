@@ -340,7 +340,7 @@ fn fee_vectors() -> Value {
         );
         cases.push(json!({"id": id, "rules": rules, "fn": "next_base_fee", "parent_base_fee": parent.to_string(), "parent_size": size.to_string(), "target": target.to_string(), "denominator": denom.to_string(), "floor": floor.to_string(), "ceiling": MAX_BASE_FEE_PER_BYTE.to_string(), "expect": next.to_string()}));
     }
-    // FEE-3's one-eighth cap (ADR-071): a block at 64 times the target still
+    // FEE-3's one-eighth cap (ADR-076): a block at 64 times the target still
     // raises the fee by one denominator's share, not by 63/8 of it.
     let capped_rise = fees::next_base_fee(
         Balance::from(1_000),
@@ -350,7 +350,7 @@ fn fee_vectors() -> Value {
         Balance::from(1),
     );
     cases.push(json!({"id": "rise-capped-at-one-eighth", "rules": ["FEE-3"], "fn": "next_base_fee", "parent_base_fee": "1000", "parent_size": "64000000", "target": "1000000", "denominator": "8", "floor": "1", "ceiling": MAX_BASE_FEE_PER_BYTE.to_string(), "expect": capped_rise.to_string()}));
-    // FEE-6 (ADR-071): a rise stops at the ceiling, and a fee already above it holds.
+    // FEE-6 (ADR-076): a rise stops at the ceiling, and a fee already above it holds.
     for (id, parent, rules) in [
         (
             "rise-to-ceiling",

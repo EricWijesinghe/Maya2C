@@ -57,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fee_to: quote.active.then_some(quote.collector.as_str()),
         nonce,
         chain: &chain,
+        allow_high_fee: false,
     };
     let amount = primitive_types::U256::from(amount);
     let mut wallet = Wallet::from_seed(seed);

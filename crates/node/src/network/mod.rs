@@ -12,6 +12,7 @@ pub mod peer_health;
 pub mod pq;
 pub mod radio_gateway;
 pub mod relay_key;
+pub mod routable;
 pub mod sim;
 pub mod sync;
 pub mod topics;

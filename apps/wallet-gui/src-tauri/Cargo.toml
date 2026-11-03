@@ -29,6 +29,9 @@ tauri-build = { version = "2", features = [] }
 primitive-types = { version = "0.12.2", default-features = false }
 maya-wallet-core = { path = "../core" }
 tauri = { version = "2", features = [] }
+# The native confirm screen for a signature (`sign_transfer`). Already resolved
+# in Cargo.lock through maya-app-update; registered there, not here.
+tauri-plugin-dialog = "2"
 # In-app updates: check, ask, verify against the signing key, install.
 maya-app-update = { path = "../../app-update" }
 serde = { version = "1", features = ["derive"] }

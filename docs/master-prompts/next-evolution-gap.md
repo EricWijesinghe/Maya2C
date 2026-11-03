@@ -158,6 +158,6 @@ Not on this list, on purpose: homomorphic encryption, ring signatures, mobile an
 
 - `entropy-hal`: `features.toml` REAL verified; `docs/architecture-vision.md` §1 RESEARCH.
 - Invariants 20 to 23 are retired (zkML, ONNX). CLAUDE.md Standing Order 4 and Execution Directive 2 cite invariant 20 for "no floats in consensus". The number does not carry that rule.
-- Two files numbered ADR-071.
+- Two files numbered ADR-071: resolved 2026-11-01, the base-fee ADR is now ADR-076.
 - `features.toml` lists `maya2c-hub` as class REAL with status planned.
 - `docs/prior-art/` has dated notes for some rows (trustless interop, native smart accounts, local fee markets, quantum harbor, privacy viewing keys). Rows without one (C3, C5, A1 to A8, I5, K6) cannot make a "first" or "only" claim (Standing Order 10).

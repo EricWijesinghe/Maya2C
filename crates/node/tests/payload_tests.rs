@@ -927,6 +927,7 @@ fn channel_ids_are_deterministic_and_parameter_sensitive() {
 #[test]
 fn channel_state_bytes_are_domain_separated_from_transactions() {
     let bytes = channel_state_signing_bytes(
+        &DOCUMENTED_CHAIN,
         &[9u8; 32],
         4,
         primitive_types::U256::from(10),
@@ -935,7 +936,7 @@ fn channel_state_bytes_are_domain_separated_from_transactions() {
     );
 
     // A channel state must never be reinterpretable as a transaction payload.
-    assert!(bytes.starts_with(b"maya-flash.channel-state.v1"));
+    assert!(bytes.starts_with(b"maya-flash.channel-state.v2"));
     assert!(!bytes.starts_with(b"custom-l1-node.tx.v1"));
 }
 

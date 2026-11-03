@@ -138,6 +138,35 @@ build() {
     done
 }
 
+# Sealed validator key (ADR-049) in <dir>, with its passphrase file beside it.
+# The passphrase is 32 bytes from /dev/urandom, written under umask 077 and
+# owned by the service user at mode 0600. It goes to keygen by file, never on a
+# command line. Prints the public key for a new key; prints nothing when the
+# key already exists.
+sealed_key() {
+    local dir=$1 key pass
+    key="$dir/validator.key"; pass="$dir/validator.pass"
+    if [ -f "$key" ]; then
+        [ -f "$pass" ] || die "$key exists but $pass is missing. Restore that file from your backup: a new passphrase cannot open this key"
+        return 0
+    fi
+    (umask 077; od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$pass")
+    chown maya:maya "$pass"; chmod 0600 "$pass"
+    runuser -u maya -- "$BIN/maya2c-node" --generate-validator-key "$key" --validator-passphrase-file "$pass" \
+        | tr -d '[:space:]'
+}
+
+# A reinstall keeps every key. Each key must still have its passphrase file,
+# or the node could never open it. A key with no passphrase file is a plaintext
+# key from an older install: seal it first with maya2c-node --seal-validator-key.
+check_passphrases() {
+    local k
+    for k in "$STATE"/v*/validator.key; do
+        [ -f "$k" ] || continue
+        [ -f "${k%/*}/validator.pass" ] || die "$k has no passphrase file (${k%/*}/validator.pass). Restore it from your backup; if the key is still plaintext from an older install, seal it with maya2c-node --seal-validator-key first"
+    done
+}
+
 # Join mode: fetch the seed network's genesis and refuse it unless its sha256
 # is the one the seed operator published. The hash is what tells an operator
 # they joined the network they meant to; a wrong file is a different chain.
@@ -160,15 +189,16 @@ This is not the genesis the seed operator published. Do not proceed."
     if [ "$DRY_RUN" = 1 ]; then return; fi
     # A key outside the genesis committee runs as an observer until a
     # staking registration puts it in the committee (bft_staking_tests).
-    pub="$(runuser -u maya -- "$BIN/maya2c-node" --generate-validator-key "$STATE/v0/validator.key" | tr -d '[:space:]')"
-    printf '%s\n' "$pub" > "$CONF/v0.pub"
+    pub="$(sealed_key "$STATE/v0")"
+    [ -z "$pub" ] || printf '%s\n' "$pub" > "$CONF/v0.pub"
 }
 
 # Keys and genesis: only on first install. A second genesis would be a
 # second chain, so an existing one is never touched.
 genesis() {
     if [ -f "$CONF/genesis.json" ]; then
-        log "genesis exists; keeping keys, genesis and chain data"
+        check_passphrases
+        log "genesis exists; keeping keys, passphrase files, genesis and chain data"
         return
     fi
     if [ -n "$GENESIS_URL" ]; then
@@ -182,11 +212,13 @@ genesis() {
         return
     fi
     log "generating $VALIDATORS validator keys and a funded wallet on this machine"
-    local keys=() i
+    local keys=() i pub
     for i in $(seq 0 $((VALIDATORS - 1))); do
         run install -d -m 0700 -o maya -g maya "$STATE/v$i"
         if [ "$DRY_RUN" = 1 ]; then keys+=("<v$i-public-key>"); continue; fi
-        keys+=("$(runuser -u maya -- "$BIN/maya2c-node" --generate-validator-key "$STATE/v$i/validator.key" | tr -d '[:space:]')")
+        pub="$(sealed_key "$STATE/v$i")"
+        [ -n "$pub" ] || die "v$i already has a key but no genesis: a partial install that cannot be finished automatically"
+        keys+=("$pub")
     done
     local password address
     if [ "$DRY_RUN" = 1 ]; then

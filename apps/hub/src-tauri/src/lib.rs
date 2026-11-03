@@ -65,7 +65,7 @@ fn defaults(app: tauri::AppHandle) -> Defaults {
 
 #[tauri::command]
 async fn node_snapshot(url: String, address: Option<String>) -> Result<node::Snapshot, String> {
-    node::check_url(&url)?;
+    let url = node::check_url(&url)?.to_owned();
     tauri::async_runtime::spawn_blocking(move || node::snapshot(&url, address.as_deref()))
         .await
         .map_err(|e| e.to_string())
