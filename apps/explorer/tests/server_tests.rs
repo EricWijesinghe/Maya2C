@@ -575,3 +575,70 @@ Connection: close
     assert!(text.starts_with("http/1.1 200"), "{text}");
     assert!(text.contains("access-control-allow-origin: *"), "{text}");
 }
+
+/// Seeds block `height` with one transaction of the given kind, then returns it.
+async fn seed_kinded_tx(h: &Harness, height: i64, kind: &str, summary: &str) -> IndexedTx {
+    let tx = IndexedTx {
+        kind: kind.to_owned(),
+        summary: summary.to_owned(),
+        careful: true,
+        ..transaction(height, 9)
+    };
+    h.store
+        .put_block(&block(height, 1), std::slice::from_ref(&tx))
+        .await
+        .expect("seed kinded");
+    tx
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_transaction_api_reports_kind_summary_and_care() {
+    let h = harness(3).await;
+    let tx = seed_kinded_tx(&h, 1, "place_order", "Place an order to buy 5 units.").await;
+
+    let (status, body) = get(&format!("{}/api/tx/{}", h.base, tx.txid)).await;
+
+    assert_eq!(status, 200);
+    let found: IndexedTx = serde_json::from_str(&body).expect("json");
+    assert_eq!(found.kind, "place_order");
+    assert_eq!(found.summary, "Place an order to buy 5 units.");
+    assert!(found.careful);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_block_transactions_api_lists_each_kind() {
+    let h = harness(3).await;
+    seed_kinded_tx(&h, 1, "cancel_order", "Cancel an open order.").await;
+
+    let (status, body) = get(&format!("{}/api/blocks/1/transactions", h.base)).await;
+
+    assert_eq!(status, 200);
+    let txs: Vec<IndexedTx> = serde_json::from_str(&body).expect("json");
+    assert_eq!(txs.len(), 1);
+    assert_eq!(txs[0].kind, "cancel_order");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_block_transactions_api_404s_for_a_missing_block() {
+    let h = harness(2).await;
+    let (status, body) = get(&format!("{}/api/blocks/77/transactions", h.base)).await;
+
+    assert_eq!(status, 404);
+    let value: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(value["error"].as_str().unwrap_or_default().contains("77"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_block_page_shows_kind_with_its_summary_as_tooltip() {
+    let h = harness(3).await;
+    seed_kinded_tx(&h, 1, "place_order", "Place an order to buy 5 units.").await;
+
+    let (status, body) = get(&format!("{}/blocks/1", h.base)).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains("place_order (check first)"), "{body}");
+    assert!(
+        body.contains(r#"title="Place an order to buy 5 units.""#),
+        "{body}"
+    );
+}
