@@ -102,7 +102,7 @@ band; move an item to PROGRESS.md when it starts.
   property test (`crates/node/tests/supply_property_tests.rs`); a search
   found none for `fee-market`, `dag-bft` or `vm`. First confirm by reading
   their test suites, then add seeded property tests. M1 criterion 5.
-- **Gap-register allowlist.** `scripts/gap_register.py` counts reviewed
+- **Gap-register allowlist.** `cargo xtask gap-register` counts reviewed
   guards as P0 (DECISIONS.md, 2026-09-28). Add a reviewed-guard marker so
   the count means open work. Port to Rust (`cargo xtask gaps`) at the same
   time: new tooling here is Rust.

@@ -19,7 +19,7 @@ checked. Master Prompt 19 §6.
 6. **Simulations say so** (`[SIM]` in their output) and state their model:
    tick length, cost per operation, what stands in for what.
 7. **Comparisons on one machine only.** The regression gate
-   (`scripts/bench_gate.py`) compares a run only with the same runner's
+   (`cargo xtask bench-gate`) compares a run only with the same runner's
    history, and it is not live until a fixed-spec runner exists.
 
 ## Reproducing

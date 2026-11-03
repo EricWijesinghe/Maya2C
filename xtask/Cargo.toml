@@ -22,6 +22,9 @@ regex = "1"
 base64 = "0.22"
 hex.workspace = true
 sha2.workspace = true
+# bench-report and bench-gate stamp the run date in local time. chrono is already
+# in the lock through other crates; only its `clock` feature is needed here.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [lints]
 workspace = true
