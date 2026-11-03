@@ -25,6 +25,8 @@
 //! put 25 ms of Argon2id in front of every other message that connection has
 //! queued, and at 50,000 connections would put it in front of the runtime.
 
+use std::time::{Duration, Instant};
+
 use maya_stratum_v2::messages::mining::{
     CloseChannel, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetNewPrevHash,
     SetTarget, SubmitSharesError, SubmitSharesStandard, error_codes,
@@ -49,6 +51,58 @@ const FLAGS: u32 = 0;
 /// range consumption for free. Sixteen is the rig count one proxy connection
 /// legitimately fronts; a farm wanting more opens more connections.
 pub const MAX_CHANNELS_PER_CONNECTION: usize = 16;
+
+/// Rejected verdicts one connection may accumulate within a window before it is closed.
+pub const MAX_INVALID_SHARES: u32 = 64;
+
+/// Verdicts per rejection window.
+///
+/// Counted in verdicts rather than seconds: vardiff sets a working rig's share
+/// rate, so a count tracks the verification work the pool actually spent.
+pub const SHARE_WINDOW: u32 = 256;
+
+const _: () = assert!(MAX_INVALID_SHARES <= SHARE_WINDOW);
+
+/// Channel opens one connection may request per [`OPEN_WINDOW`].
+///
+/// Honest rigs open once per connection. The channel cap alone does not bound
+/// churn, because a connection can open and close channels indefinitely.
+pub const MAX_OPENS_PER_WINDOW: u32 = 32;
+
+/// Length of the channel-open rate window.
+pub const OPEN_WINDOW: Duration = Duration::from_secs(60);
+
+/// Refused opens on one connection before it is closed.
+pub const MAX_REFUSED_OPENS: u32 = 8;
+
+/// Fixed-window limit on channel opens for one connection.
+///
+/// Each open takes a nonce range and a job push, and each close releases them,
+/// so open/close churn is pool work that yields no shares.
+// shortcut: fixed window, so a burst straddling a boundary can reach twice the limit; a token bucket smooths that, upgrade if churn shows up in metrics.
+#[derive(Debug, Default)]
+pub struct OpenRateLimit {
+    /// Start of the current window, unset until the first open.
+    window_start: Option<Instant>,
+    /// Opens counted in the current window.
+    opens: u32,
+}
+
+impl OpenRateLimit {
+    /// Counts one open at `now`. `false` means this connection is over its rate.
+    pub fn allow(&mut self, now: Instant) -> bool {
+        let fresh = match self.window_start {
+            Some(start) => now.saturating_duration_since(start) >= OPEN_WINDOW,
+            None => true,
+        };
+        if fresh {
+            self.window_start = Some(now);
+            self.opens = 0;
+        }
+        self.opens = self.opens.saturating_add(1);
+        self.opens <= MAX_OPENS_PER_WINDOW
+    }
+}
 
 /// Error code for a channel a connection does not own.
 const UNKNOWN_CHANNEL: &str = error_codes::UNKNOWN_CHANNEL;
@@ -87,6 +141,36 @@ pub struct ShareRequest {
     pub target: [u8; 32],
 }
 
+/// Rejected verdicts on one connection, counted in tumbling windows.
+///
+/// Every verdict counted here has already cost a full DAG verification, so a
+/// connection streaming junk nonces is the cheapest denial of service the pool
+/// has. Sustained rejection above one verdict in four closes the connection.
+// shortcut: tumbling windows, so a burst split across a boundary is counted in two halves; a sliding window costs per-share bookkeeping, upgrade if abuse shows it.
+#[derive(Debug, Default)]
+pub struct InvalidShareBudget {
+    /// Verdicts in the current window.
+    seen: u32,
+    /// Rejections in the current window.
+    rejected: u32,
+}
+
+impl InvalidShareBudget {
+    /// Records one verdict. `true` means the connection has spent its budget.
+    pub fn record(&mut self, accepted: bool) -> bool {
+        self.seen += 1;
+        if !accepted {
+            self.rejected += 1;
+        }
+        let exhausted = self.rejected >= MAX_INVALID_SHARES;
+        if self.seen >= SHARE_WINDOW {
+            self.seen = 0;
+            self.rejected = 0;
+        }
+        exhausted
+    }
+}
+
 /// One connection.
 #[derive(Debug, Default)]
 pub struct Session {
@@ -94,6 +178,10 @@ pub struct Session {
     setup: bool,
     /// Channels opened by this connection.
     channels: Vec<u32>,
+    /// Channel opens requested by this connection, for the rate limit.
+    opens: OpenRateLimit,
+    /// Opens refused by the rate limit over the connection's life.
+    refused_opens: u32,
 }
 
 impl Session {
@@ -194,6 +282,25 @@ impl Session {
         reported_hashrate: f32,
         state: &PoolState,
     ) -> Result<Vec<SessionAction>> {
+        // Before the identity parse and the job lock, so a refused open costs
+        // almost nothing.
+        if !self.opens.allow(Instant::now()) {
+            // A rig retrying after a burst is refused and recovers. One that keeps
+            // asking past the limit is churning, and is closed.
+            self.refused_opens = self.refused_opens.saturating_add(1);
+            if self.refused_opens >= MAX_REFUSED_OPENS {
+                return Ok(vec![SessionAction::Close(
+                    "channel opens kept coming past the rate limit".to_string(),
+                )]);
+            }
+            return Ok(vec![SessionAction::Reply(Message::OpenMiningChannelError(
+                OpenMiningChannelError {
+                    request_id,
+                    error_code: "open-rate-exceeded".to_string(),
+                },
+            ))]);
+        }
+
         let key = match parse_user_identity(identity) {
             Ok(key) => key,
             Err(error) => {
@@ -1084,6 +1191,84 @@ mod tests {
             .unwrap();
 
         assert!(matches!(actions[0], SessionAction::Close(_)));
+    }
+
+    #[test]
+    fn opens_past_the_window_rate_are_refused_until_the_window_renews() {
+        let mut limit = OpenRateLimit::default();
+        let start = Instant::now();
+        for _ in 0..MAX_OPENS_PER_WINDOW {
+            assert!(limit.allow(start));
+        }
+        assert!(!limit.allow(start));
+        assert!(limit.allow(start + OPEN_WINDOW), "the window renews");
+    }
+
+    #[test]
+    fn a_connection_churning_channel_opens_is_refused_by_the_session() {
+        let state = state_with_job();
+        let mut session = Session::new();
+        session.handle(setup_message(), &state).unwrap();
+
+        let open = |request_id: u32| {
+            Message::OpenStandardMiningChannel(
+                maya_stratum_v2::messages::OpenStandardMiningChannel {
+                    request_id,
+                    user_identity: format!("{ADDRESS_HEX}.rig-{request_id}"),
+                    nominal_hash_rate: 1_000.0,
+                    max_target: [0xFF; 32],
+                },
+            )
+        };
+
+        for request_id in 0..MAX_OPENS_PER_WINDOW {
+            session.handle(open(request_id), &state).unwrap();
+        }
+        // Refusals reply until the connection has kept asking past the limit
+        // MAX_REFUSED_OPENS times, and then it is closed.
+        let refusals = MAX_REFUSED_OPENS - 1;
+        for request_id in MAX_OPENS_PER_WINDOW..MAX_OPENS_PER_WINDOW + refusals {
+            let actions = session.handle(open(request_id), &state).unwrap();
+            match &actions[0] {
+                SessionAction::Reply(Message::OpenMiningChannelError(error)) => {
+                    assert_eq!(error.error_code, "open-rate-exceeded");
+                }
+                other => panic!("expected the open rate to refuse, got {other:?}"),
+            }
+        }
+        let last = MAX_OPENS_PER_WINDOW + refusals;
+        let actions = session.handle(open(last), &state).unwrap();
+        assert!(
+            matches!(actions[0], SessionAction::Close(_)),
+            "the connection is closed past the refusal limit"
+        );
+    }
+
+    #[test]
+    fn a_connection_streaming_junk_is_closed_once_its_budget_is_spent() {
+        let mut budget = InvalidShareBudget::default();
+        for _ in 0..MAX_INVALID_SHARES - 1 {
+            assert!(!budget.record(false));
+        }
+        assert!(
+            budget.record(false),
+            "the budget is spent on the last junk share"
+        );
+    }
+
+    #[test]
+    fn junk_split_across_windows_does_not_add_up() {
+        let mut budget = InvalidShareBudget::default();
+        for _ in 0..MAX_INVALID_SHARES - 1 {
+            assert!(!budget.record(false));
+        }
+        // Valid shares fill the window and renew it.
+        for _ in 0..SHARE_WINDOW - (MAX_INVALID_SHARES - 1) {
+            assert!(!budget.record(true));
+        }
+        for _ in 0..MAX_INVALID_SHARES - 1 {
+            assert!(!budget.record(false), "the new window starts clean");
+        }
     }
 
     #[test]

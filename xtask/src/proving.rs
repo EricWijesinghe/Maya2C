@@ -142,6 +142,8 @@ fn setup(work: &Path, root: &Path) -> Result<PathBuf> {
     devnet::output(
         Command::new(devnet::bin("genesis-ceremony"))
             .args(["--chain-id", CHAIN_ID, "--supply", &SUPPLY.to_string()])
+            // Mainnet runs with the pool off; the rehearsal must too.
+            .arg("--shielded-never")
             .arg("--validators")
             .arg(work.join("validators.txt"))
             .arg("--mining")
@@ -181,7 +183,9 @@ fn start_node(work: &Path, genesis: &Path, i: u16) -> Result<std::process::Child
         .args(["--rpc-addr", &rpc_addr(i)])
         .args(["--p2p-port", &(P2P_BASE + i).to_string()])
         .arg("--validator-key")
-        .arg(dir.join("validator.key"));
+        .arg(dir.join("validator.key"))
+        // Every validator here is on 127.0.0.1; discovery needs its private addresses.
+        .arg("--allow-private-peers");
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",

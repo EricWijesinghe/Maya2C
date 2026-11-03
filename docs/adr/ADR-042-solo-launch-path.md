@@ -13,10 +13,7 @@ assumed other people at three gates:
 - **6: attacknet + incentivised testnet**, meaning outsiders paid to attack it.
 - **7: external audit.**
 
-The project has one owner and no budget, and outside funding is promised
-only after three months of stable mainnet ([investor condition,
-2026-10-03]). Every gate that waits for other people also delays the event
-that would pay for them. Eric's instruction (2026-10-05): bring mainnet
+Every gate that waits for other people delays launch indefinitely. Eric's instruction (2026-10-05): bring mainnet
 through every stage without depending on anyone else.
 
 A gate cannot be passed by relabelling it. So each of the three is
@@ -84,8 +81,8 @@ only, no sale).
 - The launch ladder and its status panel show the restated gates, with
   the gap in the detail line, so the site never claims independence or
   an audit that does not exist.
-- Investors' three-month clock can start at a foundation-operated
-  mainnet, not at a recruited one.
+- A stability record can start at a foundation-operated mainnet, not at
+  a recruited one.
 - Risks accepted:
   - **Concentration:** one person holds every key, so one compromise of
     Eric's machines or accounts is a compromise of consensus. Keys stay

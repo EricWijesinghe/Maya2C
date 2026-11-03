@@ -78,7 +78,7 @@ Eric in the session report.
 
 ## 2026-09-30 — Mainnet v1 launches without private transfers
 
-An investor will fund once mainnet is live. Eric chose "mainnet v1 without
+Eric chose "mainnet v1 without
 private transfers" over waiting for the full audit or launching as-is. The
 shielded pool stays off at genesis and turns on at a scheduled height after
 an audit. Launch gates, and three lanes for three sessions, are in
@@ -168,9 +168,8 @@ Eric chose all three recommended options:
 - **Gate 7:** a pre-audit package, free audit programmes applied for, and
   mainnet labelled "external audit pending".
 
-Why: investor money arrives only after three months of mainnet, so every
-gate waiting on people or money would have blocked the thing that pays for
-them. Each gap is written on the site, never relabelled away.
+Why: every gate waiting on outside parties would have blocked launch
+indefinitely. Each gap is written on the site, never relabelled away.
 
 ## 2026-10-10: Nemotron-week work kept only where evidence backs it
 
@@ -208,7 +207,7 @@ emission. Validators earn tips, and the base fee is burned (ADR-029). A reward
 schedule can be added only through a reviewed upgrade.
 
 Why: with nothing minted, nothing is created that an unaudited bug could
-inflate. It is also the simplest model to explain to a first investor.
+inflate.
 
 This was decided in conversation and never written down here, so the gate
 table showed it as open until today.
@@ -595,6 +594,16 @@ waste of computation power"; then, on the options: "use recommended maximum pote
 - **After launch, at activation heights (BACKLOG P5):** reward-per-share accumulator,
   256-bit TWAP accumulators, packed state words.
 
+## 2026-11-01 — Eric approves ADR-071 option B and the ADR-044 payout wording (economics)
+
+Eric, 2026-11-01: "I approve everything, finish them".
+- ADR-076 (was ADR-071; renumbered because 071 is taken): the base-fee ceiling is option B, 0.1 MAYA per standard transfer at the cap. That value is already in `crates/fee-market/src/limits.rs`, so no code change. Status: Accepted.
+- ADR-044: the text now matches the code, with no consensus change.
+  - A claim earns `budget / target_shares`, capped by what is left of the epoch's budget.
+  - Unpaid budget stays in `MINING_RESERVE`, with nothing burned and no carry-over.
+  - `R(e)` has a tail floor, and with a tail, genesis requires the reserve to hold `lifetime_emission()`.
+  - The old text said pro-rata, remainder burned, and an empty epoch burned (`state/mining.rs` `share_reward`, `epoch_reward`; `genesis.rs` `bft.mining`).
+- The GitHub `release` environment now requires Eric's approval and only deploys `node-v*` tags. The `pypi` environment requires his review.
 ## 2026-11-01 — No state transition may leave a funded pool without a usable price (consensus, freeze)
 
 A funded pool whose spot price is 0, or overflows 256 bits, refunds every batch on its pair for
@@ -619,3 +628,143 @@ Two more from the same security review, fixed in the freeze:
   `an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base`.
 Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
 round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
+
+## 2026-11-01 — Reviewed guards are marked in code, not P0 rows
+
+The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comment, and
+`scripts/gap_register.py` lists such rows as `guard` rather than P0/P1. They stay in the
+register so the call can still be disputed. Kani proof modules (`#[cfg(kani)] mod x;`) are
+treated as test code: `fee-market/src/proofs.rs:129` was counted as a P0 though it is in no
+binary. Register now: 0 P0, 0 P1, 31 P2, 3 reviewed guards.
+
+## 2026-11-02 — B49: a stale node rejoins only through a trusted block (node policy, not consensus)
+
+A node whose committed state is older than the unbonding window cannot tell the real chain from
+a long-range forgery by its own state: the validators that signed it have unbonded and their
+old keys sign at no cost. Rule (`bins/maya2c-node/src/rejoin.rs`, pure `stale()`):
+
+- **Epoch trigger:** the newest checkpoint any answering source claims is more than
+  `unbonding_epochs` epochs past the committed staking epoch. Exactly `unbonding_epochs` behind is
+  not stale; one more is.
+- **Time trigger:** the tip header is older than `unbonding_epochs × epoch_blocks ×
+  TARGET_BLOCK_TIME` seconds. This is derivable, but `TARGET_BLOCK_TIME` (15 s) is the intended
+  rate, not a measured one, so the window is an estimate. The epoch trigger does not depend on it.
+- A stale node with no `--trusted-block` is refused at start-up, with the way out in the message.
+- With a trusted block, the gap below it is linked to that block by hash alone (no committee),
+  and the committee rule resumes above it. A batch that reaches the trusted height must carry its
+  id there, or nothing is imported. Certificate replay (ADR-052) is skipped when a trusted block
+  is in use, because it verifies against the committee and would ignore the anchor.
+
+CLI: `--trusted-block` is accepted with `--bootstrap-from` or `--catch-up-from`, and refused
+otherwise (an anchor nothing uses is refused, not ignored). Staleness is decided once at start-up;
+the live follower (`follow_loop`) is unchanged and still uses the genesis committee as fallback
+for chains without staking. Not done: chains without staking state (the guard does not apply),
+and a node that goes stale while running.
+
+### B49 review round (2026-11-02, after the security and Rust reviews of #324)
+
+Superseded in part by the entry above:
+
+- Start-up runs with or without `--catch-up-from` (`rejoin::anchor`). A stale node with no
+  trusted block is refused in both cases.
+- A trusted block at or below the local tip must be this node's block at that height
+  (`check_against_tip`). A trusted block above the tip is checked as it is reached.
+- A stale node must reach its trusted block in the start-up (`require_reached`). If no source
+  answered, or none served a chain through it, the node does not start.
+- A trusted block must be RECENT: for an `Epochs` stale reason, its epoch must be within the
+  window of the claimed head (`is_recent`). Epoch of a height is `height / epoch_blocks`, since
+  the staking epoch ends at each multiple of `epoch_blocks` (`staking_exec.rs`).
+- The claimed epoch is UNVERIFIED. It only tightens the guard: a hostile source can force the
+  requirement (fail-safe). It does not lift it: see the trust model in the re-review entry below.
+- A tip later than the clock, beyond `CLOCK_SKEW_SECS` (120 s), is stale (`FutureTip`). A clock
+  that cannot be read is `u64::MAX`, which makes every tip stale (`clock_now`).
+- A running follower re-checks staleness each round (time trigger). Stale with nothing pending
+  stops the follower, and the node exits. Certificate replay (rescue) is requested only once the
+  trusted block is held.
+- Linking across more than `MAX_LINKED_GAP` = 50,000 blocks is refused before any request
+  (`catchup::check_gap`). The cap counts blocks; bytes are not bounded (shortcut recorded there).
+- Probes use `RpcBootstrapSource::probe_checkpoint`: one attempt, `PROBE_TIMEOUT` = 10 s, no retry
+  deadline. Probe failures are printed, not dropped.
+- Windows (`7 x epoch_blocks x 15 s`): testnet 105 h, Oracle VM and devnet 35 min, attacknet
+  1.75 h. Mainnet `epoch_blocks` is not in this repo. Operational consequences are in
+  `docs/runbooks/hybrid-testnet-hardening.md` section 4.
+
+### B49 re-review (2026-11-02): confirmation required, byte cap, recency on the max claim
+
+Supersedes the earlier round where they conflict.
+
+- **Staleness needs a confirming head.** A node's own clock or tip never refuses alone. The
+  time trigger fires only when the tip is older than the window AND a source reports a head
+  more than `unbonding_epochs x epoch_blocks` blocks past the tip. A time-old tip with no newer
+  head starts with a warning. This is what lets a genesis-only node start, and lets a halted
+  network keep running. A future tip is a warning (`future_ahead`), not a refusal.
+- **Recency is checked against the maximum head any source reports, for every stale reason.**
+  A lower claim from another source cannot loosen it while the maximum is kept.
+- **Followers** probe only while the tip is old, at most every `FOLLOW_PROBE_EVERY` = 30
+  rounds. A follower exits only when a source confirms a head beyond the window and no trusted
+  block is pending.
+- **Byte cap:** `MAX_LINKED_GAP_BYTES` = 512 MiB, checked as each response arrives
+  (`catchup::fetch_linked`). Why 512 MiB: the block cap alone does not bound memory, since a
+  block is up to 5 MiB (ADR-072). The cap binds first for blocks above about 10.7 KiB.
+- **Real maximum offline span through a trusted block:** the 50,000-block cap (8.7 days at 15 s)
+  plus one window of the head (4.4 days on 3,600-block epochs), about 13 days. The byte cap
+  shortens this for large blocks. Beyond it, `--bootstrap-from`.
+- **Known residual (LOW):** a P2P-only node (no `--catch-up-from`) that goes stale while running
+  has no follower to stop. It keeps running. A restart applies the start-up rule.
+- **Unverified claims:** a source can force the requirement (fail-safe), and it can make
+  recency stricter.
+
+### B49 round 4 (2026-11-02): eclipse bypass closed, trust model stated
+
+The re-review found that a node whose every source returns no head, or a low one, gets no
+confirmation. It then follows a forged chain on its old committee, ignoring its own clock
+evidence. A node alone cannot tell "halted network or old genesis" from "eclipsed", so the
+operator says which.
+
+- **A time-old tip with no confirming head is refused at start-up, at any height**, unless the
+  operator passes `--allow-unconfirmed-start`. The refusal names both honest causes and the
+  attack, and points to `--trusted-block` or `--bootstrap-from`. A fresh genesis inside the
+  window starts with no flag (`decide`, `rejoin.rs`).
+- **A time-old tip with a `--trusted-block` and no claim** takes the hash-linked path
+  (`Anchor::Stale`). The operator opted in with a block, so the hash-linked path applies even
+  though no head confirms staleness. Recency cannot be checked without a head, so the operator's
+  block choice carries that risk.
+- **Running followers are unchanged.** A follower with no confirming head keeps following and
+  warns, and it does not exit. The residual: an eclipsed follower keeps following a forged
+  chain while its sources withhold the head. Only a confirmed head beyond the window stops it.
+- **Recency is tightened by one epoch.** A trusted block must be at least one epoch inside the
+  window of the head (`is_recent`, strict `<`). A block exactly at the edge would put the
+  follower straight back into stale mid-catch-up.
+
+**Trust model.** A running follower assumes at least one honest source. A stale restart is
+safe with `--trusted-block`, or with the operator's explicit `--allow-unconfirmed-start`. An
+operator should list two or more `https` sources, so that one hostile source cannot be the only
+voice. Heads are unverified, and the maximum over sources decides the requirement and the
+recency. A hostile source can force the requirement (fail-safe). It cannot lift it while any
+honest source answers with the head.
+
+**Byte cap, true bound.** The cap is 512 MiB, but responses already in flight when the total
+passes it are still held. With `PREFETCH_WORKERS` = 4 and 32 blocks of 5 MiB per request, the
+peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.rs` at
+`MAX_LINKED_GAP_BYTES`.
+
+### B49 final review (2026-11-02): measured block interval, own-block trusted refused
+
+- **Block interval is measured, capped at the target.** `block_interval_secs` (`rejoin.rs`)
+  takes `(tip.timestamp − timestamp of the block epoch_blocks back) / epoch_blocks` from the
+  node's own headers, and uses `min(observed, TARGET_BLOCK_TIME)`, at least 1 s. With no
+  history, or a non-positive delta, it uses the target. This chain's DAG-BFT blocks have been
+  measured well under 15 s (`reports/bench/2026-10-25-tps-series.md`, about 2.6 s per block on a
+  shared machine). A shorter window is the strict direction: it can only make the time trigger
+  fire sooner. An honest late restart has `--trusted-block` or `--allow-unconfirmed-start`.
+- **A `--trusted-block` at or below this node's own tip does not lift the unconfirmed
+  refusal.** It would give a catch-up of nothing. Only a block above the tip gives the
+  hash-linked path.
+- The earlier sentence claiming that a fully hostile source set leaves only the time trigger
+  is removed from `DECISIONS.md`. The trust model above replaces it.
+
+## 2026-11-02 — B51: join scripts seal the validator key with a generated passphrase file (ADR-049, operator tooling)
+
+- Production builds refuse plaintext keys, so the installers (`join-validator.ps1`, `join-testnet.sh`) now make a 32-byte CSPRNG passphrase in `validator.pass` next to the key (`C:\ProgramData\Maya2C\`, `/var/lib/maya2c/`, `/Library/Application Support/Maya2C/`), pass it to keygen by file, and export `MAYA2C_VALIDATOR_PASSPHRASE_FILE` on every start. The passphrase never goes on a command line or into a log. Reinstall keeps it; Windows `-Everything` removes it with the key. Losing it loses the key, so the operator is told to back it up. Windows ACL: grant SYSTEM and Administrators first, then `/inheritance:r`. Unix: `umask 077`, mode 600.
+- The Mac installer's run script now quotes its paths. macOS keeps data under `/Library/Application Support`, which word-split in the old `exec` line.
+- `infra/testnet-vm/install.sh` (the single-VM testnet) follows the same rule: one `validator.pass` per `v<i>` directory, passed to keygen by file and set by `Environment=` in `maya2c-validator@.service`. A reinstall that finds a key without its passphrase file stops; it never makes a new passphrase for an existing key.

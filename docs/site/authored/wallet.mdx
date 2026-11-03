@@ -138,10 +138,10 @@ yourself, or pass `--nonce` explicitly, rather than re-reading between submissio
 ## Fees
 
 The fee is a per-byte charge. A transaction pays at least `base_fee × size_in_bytes`
-to the fee-collector address, and the node burns that amount. The wallet default,
+to the fee-collector address, and the node burns the base-fee part. The wallet default,
 "Standard", paid twice the minimum on the 2026-09-29 measurement
-([API reference](/guides/api/)). A demand-responsive fee market exists in
-`crates/fee-market` and is switched off; see [transactions](/guides/transactions/).
+([API reference](/guides/api/)). The demand-responsive fee market is live wherever
+genesis sets `bft.fees`, which the testnet does; see [transactions](/guides/transactions/).
 
 ## Before a key signs
 
@@ -169,6 +169,11 @@ Nothing is signed or broadcast on a refusal.
    Without a terminal it refuses unless you pass `--yes`, which prints the same
    description and skips the question. Use `--yes` only in scripts whose inputs
    you control.
+5. **The reviewed bytes.** The desktop wallet's confirm screen shows a BLAKE3
+   signing hash of the exact transaction. Sign refuses any other hash, and each
+   confirm signs once ([#271](https://github.com/EricWijesinghe/Maya2C/pull/271),
+   [#287](https://github.com/EricWijesinghe/Maya2C/pull/287)). A fully compromised
+   webview can still confirm and sign; an OS-level confirm is on the backlog.
 
 ## Fees are burned
 

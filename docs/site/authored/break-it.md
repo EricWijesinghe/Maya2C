@@ -12,8 +12,7 @@ to try.
 
 :::caution[Credit, not money]
 Findings are rewarded with **public credit**: your name in the advisory, in
-the release notes and on this page. There is no budget for bounties, and
-nothing here promises tokens, money or a mainnet allocation.
+the release notes and on this page. Bounties are not offered, and nothing here promises tokens, money or a mainnet allocation.
 :::
 
 ## What we already attack ourselves, every day

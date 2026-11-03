@@ -20,6 +20,17 @@ pub enum WatcherError {
     #[error("refused: {0}")]
     Refused(String),
 
+    /// The node now reports a different genesis from the one this watcher
+    /// signed with: it re-genesised. Transactions signed under `cached` are
+    /// dead on this chain; the next attempt signs with `live`.
+    #[error("genesis changed: signed for {cached}, node now reports {live}")]
+    GenesisChanged {
+        /// The genesis (hex) the watcher was signing with.
+        cached: String,
+        /// The genesis (hex) the node reports now.
+        live: String,
+    },
+
     /// The journal could not be read or written.
     #[error("journal {path}: {reason}")]
     Journal {

@@ -109,7 +109,7 @@ Biometric personhood's liveness also needs a TEE (`docs/architecture-vision.md` 
 
 In order. Each needs Eric's go.
 
-1. **Scope ADR and threat model.** Write `docs/adr/ADR-0NN-maya-os.md` (next free number after ADR-071; note the duplicate ADR-071 in section 7). Cover the attestation options in section 4 and reconcile invariant 11 in words, not code. Run `security-architect` on the threat model. Output: an accepted ADR and `docs/prior-art/maya-os.md` with a dated search. Eric decides the attestation option.
+1. **Scope ADR and threat model.** Write `docs/adr/ADR-0NN-maya-os.md` (next free number; ADR-076 is the renumbered base-fee ADR). Cover the attestation options in section 4 and reconcile invariant 11 in words, not code. Run `security-architect` on the threat model. Output: an accepted ADR and `docs/prior-art/maya-os.md` with a dated search. Eric decides the attestation option.
 2. **Image spike on existing hardware.** No purchase. On Eric's PC or a VM on E:, build a Linux base with the node and Hub as the shell, using ADR-054 reproducible builds. Test two things: a second independent build is bit-identical, and an update with a bad signature is refused. Output: test logs in `reports/`. No kernel modules.
 3. **Hardware decision memo.** Candidate boards, secure elements and radio paths, with every cost MISSING until quoted. Eric chooses the budget. Nothing is bought, certified or announced. Output: a memo in `docs/master-prompts/` or `reports/`.
 
@@ -118,7 +118,7 @@ Add a `features.toml` entry only when code lands in `Cargo.toml` (CLAUDE.md Work
 ## 7. Discrepancies found while writing this
 
 - `entropy-hal`: `features.toml` says REAL verified; `docs/architecture-vision.md` §1 says RESEARCH. The document is the authority for status (`features.toml` header), so the entry needs reconciling.
-- `docs/adr/`: two files are numbered ADR-071 (`ADR-071-base-fee-step-clamp-and-ceiling.md`, `ADR-071-site-integrity.md`).
+- `docs/adr/`: two files were numbered ADR-071 (resolved 2026-11-01: the base-fee ADR is now `ADR-076-base-fee-step-clamp-and-ceiling.md`; `ADR-071-site-integrity.md`).
 - Invariant 20 is retired (ONNX, `docs/invariants.md` #20), yet CLAUDE.md Standing Order 4 and Execution Directive 2 cite it for "no floats in consensus". The float reasoning sits inside the retired text. The rule needs its own number.
 - Eric's economics memory has changed twice: fees-only (2026-10-04) and block rewards with no premine (2026-10-11, ADR-044). Confirm which holds before any tokenomics ADR.
 

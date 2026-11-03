@@ -95,6 +95,13 @@ param(
     # Snapshot/catch-up endpoint so a joining node loads a recent snapshot over
     # https (port 443, NAT-friendly) instead of replaying the chain from block 0.
     [string]$Bootstrap     = 'https://bootstrap.maya2c.dev/rpc',
+    # B49: an operator's trusted block (HEIGHT:HEX, from the explorer). It wins over
+    # any fetch, and the environment variable MAYA2C_TRUSTED_BLOCK does the same.
+    [string]$TrustedBlock,
+    # B49: a second RPC endpoint. With two, the fetched block is used only if both
+    # agree on it at the lower tip. Outside operators should give an explorer
+    # block in -TrustedBlock instead of relying on one fetch.
+    [string]$TrustedSource,
     [string]$ReleaseTag,
     [string]$NodeSha256,
     [switch]$Silent,
@@ -143,6 +150,7 @@ $LogDir      = Join-Path $DataDir 'logs'
 $NodeExe     = Join-Path $InstallDir 'maya2c-node.exe'
 $GenesisPath = Join-Path $DataDir 'genesis.json'
 $KeyPath     = Join-Path $DataDir 'validator.key'
+$PassPath    = Join-Path $DataDir 'validator.pass'  # ADR-049: unseals the key; back it up
 $NodeDataDir = Join-Path $DataDir 'v0'
 $TaskName    = 'Maya2C Validator'
 $ServiceDesc = 'Maya2C testnet validator (single-operator node). Logs: ' + $LogDir
@@ -212,17 +220,20 @@ function Remove-Install {
         if (Test-Path $d) { Remove-Item $d -Recurse -Force; Write-Note "removed $d" }
     }
     if (-not $Everything -and (Test-Path $DataDir)) {
-        Write-Note "your keys are kept in $DataDir (delete it only if you will never validate again)"
+        Write-Note "your keys and their passphrase file are kept in $DataDir (delete it only if you will never validate again)"
     }
     Write-Host 'Uninstalled.' -ForegroundColor Green
     exit 0
 }
 
 # Keys readable by SYSTEM and Administrators only. ProgramData otherwise
-# lets every local user read what is under it.
+# lets every local user read what is under it. The grant comes first: cutting
+# inheritance before it leaves a file that nothing but a later grant can open.
 function Protect-Secret($path) {
-    & icacls $path /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    & icacls $path /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { Die "could not restrict access to $path (icacls exit $LASTEXITCODE)" }
+    & icacls $path /inheritance:r | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not remove inherited access on $path (icacls exit $LASTEXITCODE)" }
 }
 
 function Show-Consent {
@@ -323,12 +334,36 @@ function Install-Genesis {
     Write-Note 'genesis verified against the published sha256'
 }
 
+# The passphrase that seals the key (ADR-049): 32 bytes from the OS CSPRNG, as
+# hex. Created empty and locked before the secret is written, so it is never
+# readable by other users. Kept on reinstall; only -Everything removes it.
+function New-PassphraseFile {
+    if (Test-Path $PassPath) { Protect-Secret $PassPath; return }
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    [System.IO.File]::Create($PassPath).Dispose()
+    Protect-Secret $PassPath
+    [System.IO.File]::WriteAllText($PassPath, ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLower())
+    Write-Note "validator passphrase file: $PassPath"
+    Write-Note 'Losing that file means losing your validator key. Back it up now, somewhere safe.'
+}
+
 function New-ValidatorKey {
     # An older install left the key readable by every local user; fix that too.
-    if (Test-Path $KeyPath) { Protect-Secret $KeyPath; Write-Note 'validator key already present; keeping it'; return }
+    if (Test-Path $KeyPath) {
+        if (-not (Test-Path $PassPath)) { Die "found a validator key but no passphrase file ($PassPath). The key cannot be opened without the passphrase it was sealed with: restore that file from your backup" }
+        Protect-Secret $PassPath
+        Protect-Secret $KeyPath
+        Write-Note 'validator key already present; keeping it'
+        return
+    }
     Write-Step 'Generating validator key'
-    $pub = (& $NodeExe --generate-validator-key $KeyPath).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not $pub) { Die 'making the validator key failed' }
+    New-PassphraseFile
+    # "$( )" never yields $null, so a failed keygen reaches Die instead of a
+    # method call on null.
+    $pub = "$(& $NodeExe --generate-validator-key $KeyPath --validator-passphrase-file $PassPath)".Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $pub) { Die 'making the validator key failed (the node message is above)' }
     Protect-Secret $KeyPath
     Set-Content -Path $PubPath -Value $pub
     Write-Note 'made a new validator key. It never leaves this computer.'
@@ -353,11 +388,65 @@ function Register-BootTask {
     # a Windows CI runner, 2026-10-12) stayed stopped. systemd's
     # Restart=always and launchd's KeepAlive already do this on Linux and Mac.
     $launcher = Join-Path $InstallDir 'run-node.cmd'
+    # B49: every start, boot or restart, takes a trusted block before the node
+    # starts: a flag fixed at registration goes stale. Order: -TrustedBlock or
+    # MAYA2C_TRUSTED_BLOCK (the operator's, always wins); otherwise a fetch from
+    # -Bootstrap, and from -TrustedSource too when given, which must agree.
+    $helper = Join-Path $InstallDir 'trusted-block.ps1'
+    Set-Content -Path $helper -Encoding ASCII -Value @'
+# Prints "--trusted-block HEIGHT:HEX" for a node start (B49), or nothing.
+param([string]$Url, [string]$Second = '', [string]$Override = '')
+$ErrorActionPreference = 'Stop'
+function Invoke-TrustedRpc([string]$Endpoint, [string]$Method, $Params) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
+    (Invoke-RestMethod $Endpoint -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10).result
+}
+function Get-TrustedFlag([string[]]$Urls) {
+    $pair = @($Urls | Where-Object { $_ } | Select-Object -First 2)
+    if ($pair.Count -eq 0) { return $null }
+    if ($pair.Count -eq 1) {
+        [Console]::Error.WriteLine("trusted block: from a single source ($($pair[0])). This is a convenience for our own nodes. An outside operator should set MAYA2C_TRUSTED_BLOCK from the explorer, or give -TrustedSource")
+    }
+    $tips = @()
+    foreach ($u in $pair) {
+        try { $tips += [uint64](Invoke-TrustedRpc $u 'get_chain_info' @()).height }
+        catch { [Console]::Error.WriteLine("trusted block: $u did not answer; starting without one"); return $null }
+    }
+    $m = ($tips | Measure-Object -Minimum).Minimum
+    $ids = @()
+    foreach ($u in $pair) {
+        try {
+            $b = Invoke-TrustedRpc $u 'get_block_by_height' @($m)
+            if ([uint64]$b.height -ne $m -or $b.header.id -notmatch '^[0-9a-fA-F]{64}$') { throw 'no usable block' }
+            $ids += $b.header.id.ToLower()
+        } catch { [Console]::Error.WriteLine("trusted block: $u gave no usable block at $m; starting without one"); return $null }
+    }
+    if (@($ids | Select-Object -Unique).Count -ne 1) {
+        [Console]::Error.WriteLine("trusted block: the sources disagree at height $m; starting without one"); return $null
+    }
+    return "--trusted-block $($m):$($ids[0])"
+}
+$chosen = if ($Override) { $Override } else { $env:MAYA2C_TRUSTED_BLOCK }
+if ($chosen -match '^\d+:[0-9a-fA-F]{64}$') {
+    Write-Output "--trusted-block $chosen"
+    [Console]::Error.WriteLine('trusted block: operator override')
+    exit 0
+}
+if ($chosen) { [Console]::Error.WriteLine('trusted block: the override is not HEIGHT:HEX; ignored, fetching instead') }
+$flag = Get-TrustedFlag @($Url, $Second)
+if ($flag) { Write-Output $flag } else { [Console]::Error.WriteLine('trusted block: none; the node starts without one (behind the window it refuses)') }
+'@
+    $launcher = Join-Path $InstallDir 'run-node.cmd'
     @"
 @echo off
 rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
+rem The node unseals its key from the passphrase file named here (ADR-049).
+set MAYA2C_VALIDATOR_PASSPHRASE_FILE=$PassPath
 :run
-"$NodeExe" $nodeArgs >> "$LogDir\node.log" 2>&1
+set TRUSTED=
+powershell -NoProfile -ExecutionPolicy Bypass -File "$helper" -Url "$Bootstrap" -Second "$TrustedSource" -Override "$TrustedBlock" > "$InstallDir\trusted.flag" 2>> "$LogDir\node.log"
+set /p TRUSTED=<"$InstallDir\trusted.flag"
+"$NodeExe" $nodeArgs %TRUSTED% >> "$LogDir\node.log" 2>&1
 echo %date% %time% maya2c-node exited with %errorlevel%; restarting in $RestartSeconds s >> "$LogDir\node.log"
 rem ping, not timeout: timeout fails at once in a session with no console.
 ping -n $($RestartSeconds + 1) 127.0.0.1 > nul
@@ -449,6 +538,7 @@ function Show-Status {
 
 function Invoke-Wallet {
     $env:L1_WALLET_KEYSTORE = $WalletPath
+    $env:MAYA2C_VALIDATOR_PASSPHRASE_FILE = $PassPath
     & $WalletExe --rpc-url $PublicRpc @args
     if ($LASTEXITCODE -ne 0) { Die "l1-wallet $($args[0]) failed (exit $LASTEXITCODE)" }
 }

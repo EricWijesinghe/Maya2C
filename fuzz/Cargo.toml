@@ -49,6 +49,11 @@ maya-threat-intel = { path = "../crates/threat-intel" }
 # Device enrollments, batches, tamper events and clone evidence, relayed by any
 # gateway from any device.
 maya-iot-anchor = { path = "../hal/iot-anchor" }
+# Sealed-mempool ciphertexts and share proofs, parsed while the envelope is
+# still sealed and so before any committee member has revealed anything.
+maya-mev = { path = "../crates/mev" }
+# Stored RWA records, read back from state rather than from the wire.
+maya-rwa = { path = "../crates/rwa" }
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
@@ -183,3 +188,52 @@ bench = false
 # node's own crate, not from here. Corpus generation has nothing to do with
 # libFuzzer, and libfuzzer-sys does not build on Windows — keeping the generator
 # out of this package is what lets the corpus be regenerated on any platform.
+
+[[bin]]
+name = "dex_payload_decode"
+path = "fuzz_targets/dex_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oracle_payload_decode"
+path = "fuzz_targets/oracle_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "governance_payload_decode"
+path = "fuzz_targets/governance_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "identity_payload_decode"
+path = "fuzz_targets/identity_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rwa_payload_decode"
+path = "fuzz_targets/rwa_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sealed_payload_decode"
+path = "fuzz_targets/sealed_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rwa_record_decode"
+path = "fuzz_targets/rwa_record_decode.rs"
+test = false
+doc = false
+bench = false

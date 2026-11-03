@@ -220,6 +220,8 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Self-run attacknet, 7 validators, commit f6ffa5d2: crash f / f+1, stolen key, garbage, RPC flood, long outage, beyond-retention snapshot rejoin (643 ms); no fork through height 602 — `reports/attacknet/2026-10-28-1.md`. Self-run, not independent.
 - [x] Mainnet build merged 2026-10-29: forever mining ADR-068 (#221), ML-DSA-87 validator keys (#222), 24 decimals (#230), chain-tagged votes (#236); freeze candidate on master
 - [x] Consensus frozen 2026-10-30 at `8987a6be`: round-2 self-run pre-audit S-012..S-034 fixed or documented, confirming attacknet PASS 8/8 (`reports/attacknet/2026-10-30-1.md`)
+- [x] Hardening wave 2026-10-31..11-01 (signer chain, fee freeze, block volume, decode bound, vault, DEX zero price): #265-#296; apply 414 ms worst case at the 7.5 MiB decode budget (`reports/bench/2026-11-01-apply-per-mib.md`)
+- [ ] Re-frozen at `ec8d0be1` (2026-11-01); 5-day local proving run (`cargo xtask proving --hours 120`) running: `reports/proving/`
 
 ## How to resume
 

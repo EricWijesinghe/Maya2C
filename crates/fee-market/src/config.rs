@@ -56,7 +56,7 @@ pub enum ConfigError {
     TreasuryShare(u64),
     /// The initial base fee is below the floor.
     InitialBelowFloor,
-    /// The initial base fee is above the compiled-in ceiling (ADR-071).
+    /// The initial base fee is above the compiled-in ceiling (ADR-076).
     Ceiling(Amount),
 }
 

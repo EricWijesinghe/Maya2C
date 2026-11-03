@@ -79,5 +79,3 @@ The feedback to fix: *"the GUI is boring."* What "done" looks like:
   on. The installer is `infra/testnet-vm/install.sh`.
 - The economics decision (gate 6).
 - An Oracle Cloud account, so the seed leaves this PC.
-- Tell the investor what they will see: the dates come from the gates above,
-  not from a promise.

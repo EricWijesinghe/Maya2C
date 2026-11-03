@@ -14,6 +14,7 @@ use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, ChainTag};
 use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
+use crate::state_pruner::snapshot::TrustedBlock;
 
 use super::attest::Checkpoint;
 
@@ -125,7 +126,7 @@ pub fn catch_up(
     weights: Option<&[u64]>,
 ) -> Result<u64> {
     let blocks = fetch(Position::of(chain), source, committee, weights)?;
-    import(chain, blocks)
+    import(chain, blocks).map(|report| report.applied)
 }
 
 /// The final checkpoint of `from`'s own epoch, for crossing into the next
@@ -189,7 +190,33 @@ pub fn fetch(
         core::cmp::Ordering::Less => return Ok(Vec::new()),
     };
     checkpoint.verify(&from.tag, committee, weights)?;
-    if checkpoint.height <= from.height {
+    fetch_linked(
+        from,
+        checkpoint.height,
+        checkpoint.block,
+        source,
+        "attested",
+        None,
+    )
+}
+
+/// Fetches the blocks after `from` up to height `to_height`, checked to form
+/// one hash chain from `from.tip` to the block `to_id` there. Empty when
+/// `to_height` is not past `from`. `what` names the block in the error.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for blocks that do not chain to `to_id`; errors from
+/// `source` as they come.
+fn fetch_linked(
+    from: Position,
+    to_height: u64,
+    to_id: [u8; 32],
+    source: &impl CheckpointSource,
+    what: &str,
+    max_bytes: Option<u64>,
+) -> Result<Vec<Block>> {
+    if to_height <= from.height {
         return Ok(Vec::new());
     }
     let mut parent = from.tip;
@@ -198,12 +225,15 @@ pub fn fetch(
     // Fetched in chunks with several requests in flight, linked strictly in
     // order: a source that answers out of order or lies gains nothing.
     let first = from.height + 1;
-    let last = checkpoint.height;
+    let last = to_height;
     let chunks = (last - first) / BLOCKS_PER_REQUEST + 1;
     let range = |i: u64| {
         let lo = first + i * BLOCKS_PER_REQUEST;
         (lo, last.min(lo + BLOCKS_PER_REQUEST - 1))
     };
+    // Encoded bytes received so far, across every chunk. Checked as each
+    // response arrives, so the fetch stops mid-gap rather than after it.
+    let received = std::sync::atomic::AtomicU64::new(0);
     for start in (0..chunks).step_by(usize::try_from(CHUNK_WINDOW).unwrap_or(1)) {
         let end = (start + CHUNK_WINDOW - 1).min(chunks - 1);
         let window = crate::state_pruner::prefetch::fetch_ordered(
@@ -219,6 +249,18 @@ pub fn fetch(
                         got.len()
                     )));
                 }
+                if let Some(limit) = max_bytes {
+                    let bytes: u64 = got
+                        .iter()
+                        .map(|b| u64::try_from(b.to_bytes().len()).unwrap_or(u64::MAX))
+                        .sum();
+                    let total = received
+                        .fetch_add(bytes, std::sync::atomic::Ordering::SeqCst)
+                        .saturating_add(bytes);
+                    if total > limit {
+                        return Err(gap_bytes_error(total, limit));
+                    }
+                }
                 Ok(got)
             },
         )?;
@@ -233,27 +275,165 @@ pub fn fetch(
             blocks.push(block);
         }
     }
-    if parent != checkpoint.block {
-        return Err(NodeError::Decode(
-            "catch-up: the blocks do not lead to the attested block".to_string(),
-        ));
+    if parent != to_id {
+        return Err(NodeError::Decode(format!(
+            "catch-up: the blocks do not lead to the {what} block at height {to_height}"
+        )));
     }
     Ok(blocks)
 }
 
-/// Re-executes `blocks` onto `chain` through [`Chain::insert_block`], which
-/// refuses a state root its own execution does not reproduce (invariant 24).
-/// Returns how many were imported.
+/// How a catch-up batch is checked against a trusted block. Node policy, not
+/// a consensus rule: block validity and state roots are the same under every
+/// variant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Anchor {
+    /// The committee the node already trusts decides, as before.
+    Unanchored,
+    /// Ordinary catch-up: a batch that reaches the trusted height must carry
+    /// the trusted id there.
+    Checked(TrustedBlock),
+    /// A node stale past the unbonding window. Its committee may have
+    /// unbonded and be forging a chain, so the gap below the trusted block is
+    /// linked to it by hash alone; the committee rule resumes above it.
+    Stale(TrustedBlock),
+}
+
+/// The next batch for `from` under `anchor`, as [`fetch`] would return it,
+/// except where the anchor says otherwise.
 ///
 /// # Errors
 ///
-/// A block that does not extend the tip — the chain moved since
-/// [`fetch`] — or fails to execute. Blocks imported before it stay.
-pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
-    let mut imported = 0;
+/// As [`fetch`], and [`NodeError::Decode`] when the blocks do not match the
+/// trusted block (nothing is returned, so nothing is imported).
+pub fn fetch_anchored(
+    from: Position,
+    source: &impl CheckpointSource,
+    committee: &[VerifyingKey],
+    weights: Option<&[u64]>,
+    anchor: Anchor,
+) -> Result<Vec<Block>> {
+    match anchor {
+        Anchor::Unanchored => fetch(from, source, committee, weights),
+        Anchor::Checked(trusted) if from.height < trusted.height => {
+            let blocks = fetch(from, source, committee, weights)?;
+            check_trusted(from, &blocks, trusted)?;
+            Ok(blocks)
+        }
+        // At or past the trusted height: a batch that crossed it was checked
+        // then, and a block at or below the tip at start-up is checked by the
+        // node's own start-up rule (`rejoin::check_against_tip`).
+        Anchor::Checked(_) => fetch(from, source, committee, weights),
+        Anchor::Stale(trusted) if from.height < trusted.height => {
+            check_gap(from.height, trusted.height)?;
+            fetch_linked(
+                from,
+                trusted.height,
+                trusted.id,
+                source,
+                "trusted",
+                Some(MAX_LINKED_GAP_BYTES),
+            )
+        }
+        // Past the trusted block the blocks just linked have written the
+        // current committee into state, so the committee rule applies again.
+        Anchor::Stale(_) => fetch(from, source, committee, weights),
+    }
+}
+
+/// Most blocks a stale node may link across below its trusted block. Why: the
+/// whole gap is buffered before the trusted id can be compared, so the cap
+/// bounds the memory a hostile peer can make a stale node hold. 50,000 blocks
+/// is about 8.7 days at the 15 s target. A gap past it means the operator
+/// picked a trusted block far above the tip.
+/// Shortcut: the cap counts blocks, not bytes, and the bytes per block are not
+/// bounded here. Upgrade: a byte cap once the encoded block size limit is a
+/// named constant this path can read.
+pub const MAX_LINKED_GAP: u64 = 50_000;
+
+/// Most encoded bytes a stale node may receive while linking across its gap.
+/// Why: the cap in blocks alone does not bound memory, since one block can be
+/// up to `MAX_BLOCK_BYTES` (5 MiB, ADR-072). 512 MiB admits about 102 blocks
+/// of that maximum size, and about 10.7 KiB per block across the full
+/// 50,000-block cap, so the byte cap is the binding one for large blocks. The
+/// check runs as each response arrives. The true peak is NOT 512 MiB: responses
+/// already in flight when the total passes the cap are still held. That is up
+/// to `PREFETCH_WORKERS` (4) requests of `BLOCKS_PER_REQUEST` (32) blocks at
+/// 5 MiB each, 640 MiB. So the real bound is about 512 MiB + 640 MiB, roughly
+/// 1.2 GiB, not 512 MiB. Shortcut: lowering the cap to keep the total near
+/// 512 MiB would also cut the admitted gap; accepted for now. Upgrade: a
+/// per-request byte limit set from the peer's advertised size.
+pub const MAX_LINKED_GAP_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Refuses a stale node's link across more than [`MAX_LINKED_GAP`] blocks.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] naming the gap and asking for a closer trusted block.
+pub fn check_gap(from_height: u64, trusted_height: u64) -> Result<()> {
+    let gap = trusted_height.saturating_sub(from_height);
+    if gap <= MAX_LINKED_GAP {
+        return Ok(());
+    }
+    Err(NodeError::Decode(format!(
+        "catch-up: the gap below the trusted block is {gap} blocks, over the {MAX_LINKED_GAP}-block cap. Choose a trusted block closer to this node's tip (above it, within the unbonding window of the head), or, if this node was offline longer than that, restore from a snapshot with --bootstrap-from"
+    )))
+}
+
+/// The byte-cap refusal, once the running total passes `limit`.
+fn gap_bytes_error(total: u64, limit: u64) -> NodeError {
+    NodeError::Decode(format!(
+        "catch-up: the blocks below the trusted block exceed {limit} bytes ({total} received so far). Choose a trusted block closer to this node's tip, or, if this node was offline longer than the window allows, restore from a snapshot with --bootstrap-from"
+    ))
+}
+
+/// Checks the block `blocks` carry at `trusted.height`, if they reach it.
+/// A batch that stops short checks nothing; the batch that reaches the height
+/// does.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] when the block at that height is not `trusted.id`.
+pub fn check_trusted(from: Position, blocks: &[Block], trusted: TrustedBlock) -> Result<()> {
+    let Some(index) = trusted.height.checked_sub(from.height + 1) else {
+        return Ok(());
+    };
+    let Some(block) = usize::try_from(index).ok().and_then(|i| blocks.get(i)) else {
+        return Ok(());
+    };
+    if block.header.id() == trusted.id {
+        return Ok(());
+    }
+    Err(NodeError::Decode(format!(
+        "catch-up: the block at height {} is not the trusted block: the peer serves another chain; importing nothing",
+        trusted.height
+    )))
+}
+
+/// What [`import`] did with a batch.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Imported {
+    /// Blocks that extended the tip.
+    pub applied: u64,
+    /// Blocks the chain already held. A batch that overlaps what we have is
+    /// normal, so this is not a fault.
+    pub already_held: u64,
+}
+
+/// Re-executes `blocks` onto `chain` through [`Chain::insert_block`], which
+/// refuses a state root its own execution does not reproduce (invariant 24).
+///
+/// # Errors
+///
+/// A block that fails to execute, or one that is neither an extension of the
+/// tip nor already held — the chain moved since [`fetch`]. Blocks imported
+/// before it stay.
+pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<Imported> {
+    let mut report = Imported::default();
     for block in blocks {
         match chain.insert_block(block)? {
-            InsertOutcome::Extended { .. } => imported += 1,
+            InsertOutcome::Extended { .. } => report.applied += 1,
+            InsertOutcome::Duplicate { .. } => report.already_held += 1,
             other => {
                 return Err(NodeError::Decode(format!(
                     "catch-up: a block did not extend the tip: {other:?}"
@@ -261,7 +441,7 @@ pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
             }
         }
     }
-    Ok(imported)
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -461,6 +641,148 @@ mod tests {
             batches,
         };
         (source, committee)
+    }
+
+    /// Node at height 10 on the chain of `chained`, its tip the real block 10.
+    fn at_ten(source: &Chained) -> Position {
+        Position {
+            tip: source.blocks[9].header.id(),
+            ..at(10, 1)
+        }
+    }
+
+    fn trusted_at(source: &Chained, height: u64) -> TrustedBlock {
+        let block = &source.blocks[usize::try_from(height - 1).unwrap()];
+        TrustedBlock {
+            height,
+            id: block.header.id(),
+        }
+    }
+
+    #[test]
+    fn a_stale_node_links_its_gap_to_the_trusted_block_without_a_committee() {
+        // Why: the committee here signs nothing the source holds, so a
+        // committee check would refuse. Passing shows the gap is linked by
+        // hash to the trusted block alone (the stale-node rule).
+        let (source, _) = chained(40, true);
+        let got = fetch_anchored(
+            at_ten(&source),
+            &source,
+            &[],
+            None,
+            Anchor::Stale(trusted_at(&source, 25)),
+        )
+        .unwrap();
+        assert_eq!(got.len(), 15);
+        assert_eq!(got.last().unwrap().header.id(), trusted_at(&source, 25).id);
+    }
+
+    #[test]
+    fn a_chain_that_is_not_the_trusted_one_stops_the_catch_up_with_nothing_returned() {
+        // Why: a long-range forger can serve a chain of its own. Its blocks
+        // cannot hash to the trusted id, so the batch must be refused whole.
+        let (source, committee) = chained(40, true);
+        let wrong = TrustedBlock {
+            height: 25,
+            id: [0xEE; 32],
+        };
+        for anchor in [Anchor::Stale(wrong), Anchor::Checked(wrong)] {
+            let err =
+                fetch_anchored(at_ten(&source), &source, &committee, None, anchor).unwrap_err();
+            assert!(
+                matches!(&err, NodeError::Decode(m) if m.contains("trusted")),
+                "{anchor:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ordinary_batch_that_reaches_the_trusted_block_must_carry_its_id() {
+        let (source, committee) = chained(40, true);
+        let right = Anchor::Checked(trusted_at(&source, 25));
+        let got = fetch_anchored(at_ten(&source), &source, &committee, None, right).unwrap();
+        assert_eq!(got.len(), 30);
+        // A batch stopping short of the trusted height checks nothing.
+        let short = Anchor::Checked(TrustedBlock {
+            height: 45,
+            id: [0xEE; 32],
+        });
+        assert!(fetch_anchored(at_ten(&source), &source, &committee, None, short).is_ok());
+    }
+
+    #[test]
+    fn a_stale_node_past_its_trusted_block_follows_the_committee_again() {
+        // Past the anchor the normal rule applies, so the same empty committee
+        // now fails the quorum check.
+        let (source, _) = chained(40, true);
+        let past = Anchor::Stale(trusted_at(&source, 5));
+        assert!(fetch_anchored(at_ten(&source), &source, &[], None, past).is_err());
+    }
+
+    #[test]
+    fn a_stale_node_whose_tip_is_the_trusted_block_is_past_the_anchor() {
+        // Boundary: from.height == trusted.height. The gap is empty, so the
+        // anchor is met and the committee rule applies (same empty committee
+        // fails the quorum).
+        let (source, _) = chained(40, true);
+        let at = Anchor::Stale(trusted_at(&source, 10));
+        assert!(fetch_anchored(at_ten(&source), &source, &[], None, at).is_err());
+    }
+
+    #[test]
+    fn a_checked_anchor_at_or_below_the_tip_does_not_re_check_the_chain() {
+        // The start-up rule checks a block at or below the tip; a batch past it
+        // must not re-check a trusted id it cannot see, so the committee path runs.
+        let (source, committee) = chained(40, true);
+        let below = Anchor::Checked(TrustedBlock {
+            height: 5,
+            id: [0xEE; 32],
+        });
+        assert!(fetch_anchored(at_ten(&source), &source, &committee, None, below).is_ok());
+    }
+
+    #[test]
+    fn a_link_across_more_than_the_cap_is_refused_before_any_request() {
+        // Why: the cap must trip before the source is asked for a single block.
+        // The chain here has 40 blocks, so any request would fail differently.
+        let (source, _) = chained(40, true);
+        let far = Anchor::Stale(TrustedBlock {
+            height: 10 + MAX_LINKED_GAP + 1,
+            id: [1; 32],
+        });
+        let err = fetch_anchored(at_ten(&source), &source, &[], None, far).unwrap_err();
+        assert!(err.to_string().contains("cap"), "{err}");
+        assert_eq!(source.requests.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn the_cap_is_inclusive_and_names_the_gap() {
+        assert!(check_gap(0, MAX_LINKED_GAP).is_ok());
+        assert!(check_gap(0, MAX_LINKED_GAP + 1).is_err());
+        assert!(
+            check_gap(100, 50).is_ok(),
+            "a trusted block below the start saturates to 0"
+        );
+    }
+
+    #[test]
+    fn the_byte_cap_aborts_the_link_and_a_gap_within_it_links() {
+        // Why: the byte total is checked as responses arrive, so a gap over the
+        // limit is refused with the error naming bytes, not linked and then checked.
+        let (source, _) = chained(40, true);
+        let id = trusted_at(&source, 25).id;
+        let err = fetch_linked(at_ten(&source), 25, id, &source, "trusted", Some(1)).unwrap_err();
+        assert!(err.to_string().contains("bytes"), "{err}");
+        let got = fetch_linked(
+            at_ten(&source),
+            25,
+            id,
+            &source,
+            "trusted",
+            Some(MAX_LINKED_GAP_BYTES),
+        )
+        .unwrap();
+        assert_eq!(got.len(), 15);
     }
 
     #[test]

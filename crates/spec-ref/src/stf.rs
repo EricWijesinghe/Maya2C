@@ -63,12 +63,15 @@ pub fn apply_transfer(
     state: &mut BTreeMap<Address, Account>,
     tx: &Transfer,
 ) -> Result<(), Rejection> {
-    if !tx.signature_valid {
-        return Err(Rejection::BadSignature); // TX-1, before any balance rule
-    }
+    // STF-1 before TX-1: the nonce is one read, the signatures are two
+    // verifications. The accepted set is the same in either order (the node's
+    // `stage_transaction` does nonce first, audit finding 3).
     let mut sender = state.get(&tx.sender).copied().unwrap_or_default();
     if tx.nonce != sender.nonce {
         return Err(Rejection::InvalidNonce); // STF-1
+    }
+    if !tx.signature_valid {
+        return Err(Rejection::BadSignature); // TX-1, before any balance rule
     }
     let mut total = Balance::default();
     for (_, amount) in &tx.outputs {

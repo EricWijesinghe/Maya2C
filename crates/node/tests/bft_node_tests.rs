@@ -529,3 +529,38 @@ fn catch_up_member(
     custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee, None)
         .expect("catch-up from a peer's checkpoint")
 }
+
+#[test]
+fn a_catch_up_block_already_held_is_not_a_fault() {
+    use custom_l1_node::consensus::bft::catchup::{Imported, import};
+
+    let root = TempDir::new().unwrap();
+    let mut chain = open_chain(&root.path().join("state"), false);
+
+    // The genesis is already held, so a batch that starts at it overlaps what
+    // the node has. That is normal catch-up traffic, not a malformed block.
+    let report = import(&mut chain, vec![genesis()]).expect("an overlapping batch imports");
+
+    assert_eq!(
+        report,
+        Imported {
+            applied: 0,
+            already_held: 1
+        }
+    );
+}
+
+#[test]
+fn a_block_that_is_neither_held_nor_an_extension_still_fails_the_import() {
+    use custom_l1_node::consensus::bft::catchup::import;
+
+    let root = TempDir::new().unwrap();
+    let mut chain = open_chain(&root.path().join("state"), false);
+
+    // Its parent is one the chain does not hold, so it is not a duplicate and
+    // cannot extend the tip. A duplicate must not have loosened this check.
+    let mut orphan = genesis();
+    orphan.header.prev_hash = [0x55; 32];
+    orphan.header.nonce = 1;
+    assert!(import(&mut chain, vec![orphan]).is_err());
+}

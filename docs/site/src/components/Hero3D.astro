@@ -119,7 +119,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
     if (p.kind === "chain") {
       pop.innerHTML = `<b>maya-testnet-1</b>Height ${fmt(height)} · block every ${avg}<br>${n} validators · ${quorum} must sign to finalize<br>Signatures ML-DSA-65 + SLH-DSA<br><a href="https://status.maya2c.dev/">Uptime and halts →</a>`;
     } else if (p.kind === "validator") {
-      pop.innerHTML = `<b>Validator ${p.index + 1} of ${n}</b>Signs every block it votes for (ML-DSA-65)<br>Finality needs ${quorum} of ${n}; survives ${n - quorum} down<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
+      pop.innerHTML = `<b>Validator ${p.index + 1} of ${n}</b>Signs every vote it casts (ML-DSA-87)<br>Finality needs ${quorum} of ${n}; survives ${n - quorum} down<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
     } else {
       const h = p.height;
       pop.innerHTML = `<b>Block ${fmt(h)}</b>loading…`;
