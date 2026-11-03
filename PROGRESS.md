@@ -226,7 +226,7 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [ ] Freeze candidate `9913c144` (2026-11-02): 24 h local proving run in progress; mainnet bootnode peer id still `SET-AT-GENESIS` (`deploy/genesis/mainnet/bootnode.env`)
 
 - [x] Merged to master 2026-11-01..11-02, reconciled 2026-11-03: RPC client-IP fix (#316); consensus pre-audit fixes (#317); wallet sign hardening (#318); MIP-0002 Omega docs (#320); mainnet readiness assessment (#323); proving genesis shielded pool off, genesis-check refuses it (#326); personal details removed from public docs (#327); offsec-sandbox header version per ADR-063 (#329); Kani exact-out harness and redemption paths (#332); owner decisions recorded and code-vs-doc drift fixed (#333); join-scripts test a local devnet (#334); swap default min_out (#337); CI site/deploy fixes (#328, #330, #339). Dependency bumps #335, #338 not tracked here. Launch-checklist status: `docs/launch-checklist.md`
-- [ ] Not on master as of 2026-11-03 (no merge commit found): #319, #321, #322, #331, #336, #340, #341. Treat as unmerged until their state is checked on GitHub
+- [x] Merged by 2026-11-03 (checked on GitHub): #319, #321, #322, #331, #336, #340, #341, #343, #344, #346, #347. Open: #348 (z3 → Kani, draft until the harnesses verify)
 
 ## How to resume
 
