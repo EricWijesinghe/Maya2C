@@ -359,6 +359,7 @@ fn civil_date(days: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::{civil_date, tree_line};
     use crate::evidence::Sweep;
 
