@@ -1,0 +1,43 @@
+---
+// What the sender of a Maya Chat message sees, from the outbox (ADR-074).
+// Each stage is a state the app really shows; nothing is simulated.
+const stages = [
+  { name: "Sending", line: "held in your outbox", tone: "wait" },
+  { name: "Waiting", line: "a relay has it, no receipt yet", tone: "wait" },
+  { name: "Delivered", line: "the recipient's signed receipt arrived", tone: "done" },
+];
+---
+
+<figure class="delivery" aria-label="Delivery states of a sent Maya Chat message">
+  <ol class="track">
+    {stages.map((s, i) => (
+      <li class={`stage tone-${s.tone}`}>
+        <span class="node" aria-hidden="true">{i + 1}</span>
+        <b>{s.name}</b>
+        <small>{s.line}</small>
+      </li>
+    ))}
+  </ol>
+  <div class="branch">
+    <span class="fork" aria-hidden="true"></span>
+    <span class="stage tone-expired"><b>Expired</b><small>past its time limit, dismissable</small></span>
+  </div>
+  <figcaption>
+    Receipts are optional: off for everyone, or per contact. The recipient still gets the message.
+  </figcaption>
+</figure>
+
+<style>
+  .delivery { margin: 0; display: grid; gap: 14px; }
+  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; position: relative; }
+  .track::before { content: ""; position: absolute; left: 16px; right: 16px; top: 15px; height: 2px; background: linear-gradient(90deg, #3fd2e0, #e0b46a); opacity: .5; }
+  .stage { position: relative; display: grid; gap: 4px; justify-items: start; }
+  .node { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #0b1a20; border: 2px solid #3fd2e0; color: #e8f3f5; font: 600 13px/1 monospace; }
+  .tone-done .node { background: #3fd2e0; color: #04161b; }
+  .stage b { font-weight: 600; }
+  .stage small, .delivery figcaption { color: #7d95a0; font-size: 12.5px; line-height: 1.4; }
+  .branch { display: flex; align-items: center; gap: 12px; padding-left: 16px; }
+  .fork { width: 28px; height: 0; border-top: 2px dashed #e0b46a; opacity: .7; }
+  .tone-expired b { color: #e0b46a; }
+  .delivery figcaption { margin: 0; }
+</style>
