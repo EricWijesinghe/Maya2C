@@ -144,8 +144,8 @@ commands deploy it; the two scripts take `--check` so drift is a failure rather
 than a discovery:
 
 ```powershell
-python scripts/deploy_brand_assets.py    # favicons + wordmarks into each app
-python scripts/make_og_card.py           # the 1200x630 social card
+cargo xtask brand-assets        # favicons + wordmarks into each app
+cargo xtask og-card               # the 1200x630 social card
 cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png `
   -o apps/wallet-gui/src-tauri/icons          # the desktop icon set
 ```

@@ -1,7 +1,7 @@
 //! A real Ethereum mainnet finality proof, verified offline (Master Prompt 25).
 //!
 //! `tests/fixtures/eth_beacon_finality.json` was fetched by
-//! `scripts/eth_beacon_fixture.py`: a light-client bootstrap, a finality
+//! `cargo xtask eth-beacon`: a light-client bootstrap, a finality
 //! update, and the execution header the finalized beacon block commits to.
 //! Verified here, with no network:
 //!
