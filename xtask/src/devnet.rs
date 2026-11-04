@@ -285,7 +285,36 @@ pub fn wait_for_http(addr: &str) -> Result<()> {
     Err(format!("{addr} did not come up within {BOOT_TIMEOUT:?}"))
 }
 
+/// The genesis id the devnet node serves. `l1-wallet` signs only for a genesis
+/// it pins or is told to expect (ADR-036); a devnet pins none, so the harness
+/// names the one its own node reports.
+pub fn genesis_id() -> Result<String> {
+    rpc("get_chain_info", &json!([]))?
+        .get("genesis")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "get_chain_info reported no genesis".to_string())
+}
+
 /// Sends `amount` to `to`; `false` on a refusal (a nonce race, typically).
+/// `--yes` because nothing is a terminal here: without it the wallet signs nothing.
 pub fn send(work: &Path, to: &str, amount: u64) -> bool {
-    output(wallet(work).args(["send", "--to", to, "--amount", &amount.to_string()])).is_ok()
+    let genesis = match genesis_id() {
+        Ok(genesis) => genesis,
+        Err(e) => {
+            eprintln!("devnet: no genesis to sign for: {e}");
+            return false;
+        }
+    };
+    output(wallet(work).args([
+        "send",
+        "--yes",
+        "--genesis",
+        &genesis,
+        "--to",
+        to,
+        "--amount",
+        &amount.to_string(),
+    ]))
+    .is_ok()
 }
