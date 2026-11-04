@@ -6,7 +6,7 @@
 //! 2. Upstream's own `heavy_hash` known answer (fixed matrix, input, output).
 //! 3. Upstream's own matrix-generation known answer (seed `[42; 32]`).
 //!
-//! The vectors are rusty-kaspa's, copied by `scripts/gen_kheavyhash.py`; see
+//! The vectors are rusty-kaspa's, copied by `cargo xtask kheavyhash`; see
 //! `tests/fixtures/kaspa_kheavyhash.rs` for the commit.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
