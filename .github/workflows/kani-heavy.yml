@@ -1,0 +1,91 @@
+# The Kani harnesses too heavy for nightly.yml's 90-minute proofs job: each
+# runs alone on its own runner, with a budget of its own.
+#
+# A harness that exhausts the time budget or is killed for memory is reported
+# as NO VERDICT and fails the job. It is never a silent pass. Nothing here
+# blocks a merge; a failure is a finding to act on.
+name: kani-heavy
+
+on:
+  schedule:
+    # 04:20 UTC, after nightly.yml's proofs job has finished.
+    - cron: "20 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  kani:
+    name: kani ${{ matrix.harness }}
+    # Standard public-repo Linux runner: 4 vCPU, 16 GB RAM, 14 GB SSD
+    # (GitHub docs, runners reference, checked 2026-11-04).
+    runs-on: ubuntu-latest
+    # Install (~20 min) plus the proof budget below, under GitHub's 360-minute cap.
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        harness:
+          - a_swap_leaves_both_reserves_non_empty
+          - a_one_sided_exit_keeps_the_price_usable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script. `time` gives peak RSS.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang time
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: kani-heavy
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier
+          cargo kani setup
+
+      # The harness carries its own #[kani::unwind(513)]; see proofs.rs.
+      # Exit codes: 124 = time budget, 137/143 = killed (out of memory),
+      # anything else non-zero = a real verdict from Kani.
+      - name: Prove ${{ matrix.harness }}
+        env:
+          HARNESS: ${{ matrix.harness }}
+        run: |
+          # Runner shells run with -e: the exit code must be classified below, not raised.
+          set +e
+          mkdir -p kani-out
+          start=$(date +%s)
+          timeout --kill-after=60 300m /usr/bin/time -v -o kani-out/time.txt \
+            cargo kani -p maya-dex --harness "$HARNESS" 2>&1 | tee kani-out/kani.log
+          code=${PIPESTATUS[0]}
+          secs=$(( $(date +%s) - start ))
+          rss_kb=$(sed -n 's/.*Maximum resident set size (kbytes): //p' kani-out/time.txt)
+          rss_gb=$(( ${rss_kb:-0} / 1024 / 1024 ))
+          ok=$(grep -c 'VERIFICATION:- SUCCESSFUL' kani-out/kani.log || true)
+          bad=$(grep -c 'VERIFICATION:- FAILED' kani-out/kani.log || true)
+          if [ "$code" = 124 ]; then
+            verdict="NO VERDICT: TIME LIMIT (300 min budget exhausted)"
+          elif [ "$code" = 137 ] || [ "$code" = 143 ]; then
+            verdict="NO VERDICT: KILLED (exit $code), most likely out of memory"
+          elif [ "$code" = 0 ] && [ "$ok" -ge 1 ] && [ "$bad" = 0 ]; then
+            verdict="VERIFICATION:- SUCCESSFUL"
+          else
+            verdict="VERIFICATION:- FAILED (exit $code)"
+          fi
+          {
+            echo "### ${HARNESS}"
+            echo "- verdict: ${verdict}"
+            echo "- wall time: ${secs} s"
+            echo "- peak RSS (largest process in tree): ${rss_kb:-unknown} kB (~${rss_gb} GiB)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$verdict"
+          [ "$verdict" = "VERIFICATION:- SUCCESSFUL" ]
+
+      - name: Kani log on failure
+        if: failure()
+        run: tail -n 120 kani-out/kani.log
