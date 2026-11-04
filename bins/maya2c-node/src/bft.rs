@@ -464,6 +464,10 @@ pub(super) async fn sync_certificates(
             let synced = match synced {
                 Ok(synced) => synced,
                 Err(e) => {
+                    // Logged per source: a refusal (S-009, a peer behind us) or a
+                    // failure on one source is otherwise invisible once a later
+                    // source succeeds.
+                    eprintln!("catch-up:    certificate sync from {url} refused or failed: {e}");
                     last_error = format!("{url}: {e}");
                     break;
                 }
