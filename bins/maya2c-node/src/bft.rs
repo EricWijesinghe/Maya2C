@@ -540,18 +540,81 @@ pub(super) async fn catch_up(
     Ok(imported)
 }
 
+/// Following rounds that import nothing, or fail, on one source before the
+/// follower moves to the next (ADR-043 amendment). Sixty rounds is a minute:
+/// long enough that a source with sparse checkpoints is not churned, short
+/// enough that a lying or dead source starves a node for a minute, not
+/// indefinitely. Every move is logged.
+const FOLLOW_ROTATE_AFTER: u32 = 60;
+
+/// The `--catch-up-from` sources a follower reads from, round-robin. Moving
+/// between them needs no trust: every block still goes through
+/// `catch_up_once`, which checks it against the committee and attested
+/// checkpoints, so a source can cost time but never the chain.
+pub(super) struct SourceRotation {
+    urls: Vec<String>,
+    current: usize,
+    stalled: u32,
+    rotate_after: u32,
+}
+
+impl SourceRotation {
+    /// Starts on `first`, which is added to the list if absent, so the list
+    /// is never empty and [`Self::url`] always resolves.
+    pub(super) fn new(mut urls: Vec<String>, first: &str) -> Self {
+        let current = if let Some(index) = urls.iter().position(|u| u == first) {
+            index
+        } else {
+            urls.insert(0, first.to_owned());
+            0
+        };
+        Self {
+            urls,
+            current,
+            stalled: 0,
+            rotate_after: FOLLOW_ROTATE_AFTER,
+        }
+    }
+
+    fn url(&self) -> &str {
+        &self.urls[self.current]
+    }
+
+    /// Records one round. `stalled` is a round that imported nothing while
+    /// following, or failed; any other round resets the count. Returns the next
+    /// source once `rotate_after` stalled rounds have run in a row.
+    fn record(&mut self, stalled: bool) -> Option<String> {
+        if !stalled {
+            self.stalled = 0;
+            return None;
+        }
+        self.stalled += 1;
+        if self.stalled < self.rotate_after {
+            return None;
+        }
+        self.stalled = 0;
+        if self.urls.len() < 2 {
+            return None;
+        }
+        self.current = (self.current + 1) % self.urls.len();
+        Some(self.url().to_owned())
+    }
+}
+
 /// Keeps an attested follower at the network's tip: every second, imports
-/// the blocks up to the newest checkpoint `url` serves. A failed round is
-/// reported and retried; the chain is never left half-extended, because
-/// each block is inserted whole or not at all.
+/// the blocks up to the newest checkpoint of the current source. A failed
+/// round is reported and retried; the chain is never left half-extended,
+/// because each block is inserted whole or not at all. A source that stays
+/// stalled is rotated away from ([`SourceRotation`]).
 pub(super) async fn follow_loop(
-    url: String,
+    mut sources: SourceRotation,
     chain: Arc<Mutex<Chain>>,
     genesis_committee: Arc<[VerifyingKey]>,
     status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
     rescue: tokio::sync::mpsc::Sender<String>,
     trusted: Option<TrustedBlock>,
 ) {
+    let mut url = sources.url().to_owned();
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // Until the trusted block is held, certificate replay (which ignores it) is
@@ -639,6 +702,10 @@ pub(super) async fn follow_loop(
         let round = catch_up_once(&url, &chain, (&genesis_committee, None), anchor)
             .await
             .map_err(|e| e.to_string());
+        let stalled = match &round {
+            Ok(report) => following && report.applied == 0,
+            Err(_) => true,
+        };
         match &round {
             Ok(report) if report.applied == 0 && report.already_held > 0 => {
                 if last_held != Some(report.already_held) {
@@ -695,6 +762,18 @@ pub(super) async fn follow_loop(
                     last_error = Some(message);
                 }
             }
+        }
+        if let Some(next) = sources.record(stalled) {
+            eprintln!(
+                "catch-up:    no progress from {url} for {} rounds; rotating to {next}",
+                sources.rotate_after
+            );
+            url = next;
+            // The head and the stuck count were measured on the old source.
+            claimed = None;
+            probe_in = 0;
+            stuck = 0;
+            patience = STUCK_ROUNDS;
         }
     }
 }
@@ -1170,5 +1249,70 @@ mod tests {
     #[test]
     fn a_zero_floor_holds_nothing_back() {
         assert!(!Feed::new(4, 0).below_floor(&register(0)));
+    }
+
+    fn rotation(urls: &[&str], rotate_after: u32) -> super::SourceRotation {
+        let mut sources =
+            super::SourceRotation::new(urls.iter().map(|u| (*u).to_owned()).collect(), urls[0]);
+        sources.rotate_after = rotate_after;
+        sources
+    }
+
+    #[test]
+    fn a_lying_first_source_is_left_for_the_honest_second() {
+        // The first source imports nothing for `rotate_after` rounds; the
+        // second imports (progress), and the node stays on it.
+        let mut sources = rotation(&["liar", "honest"], 3);
+        assert_eq!(sources.url(), "liar");
+        assert!(sources.record(true).is_none());
+        assert!(sources.record(true).is_none());
+        assert_eq!(sources.record(true).as_deref(), Some("honest"));
+        assert_eq!(sources.url(), "honest");
+        for _ in 0..100 {
+            assert!(sources.record(false).is_none());
+        }
+        assert_eq!(sources.url(), "honest");
+    }
+
+    #[test]
+    fn progress_resets_the_stall_count() {
+        let mut sources = rotation(&["a", "b"], 3);
+        assert!(sources.record(true).is_none());
+        assert!(sources.record(true).is_none());
+        assert!(sources.record(false).is_none());
+        assert!(sources.record(true).is_none());
+        assert!(sources.record(true).is_none());
+        assert_eq!(sources.url(), "a");
+    }
+
+    #[test]
+    fn all_sources_lying_rotates_forever_without_panic() {
+        // Every source stalls: the node keeps moving round-robin and never
+        // runs out of sources or indexes past the list.
+        let mut sources = rotation(&["a", "b", "c"], 2);
+        let mut moves = 0;
+        for _ in 0..600 {
+            if let Some(next) = sources.record(true) {
+                moves += 1;
+                assert!(["a", "b", "c"].contains(&next.as_str()));
+            }
+        }
+        assert_eq!(moves, 300);
+    }
+
+    #[test]
+    fn a_single_source_is_never_rotated() {
+        let mut sources = rotation(&["only"], 1);
+        for _ in 0..10 {
+            assert!(sources.record(true).is_none());
+        }
+        assert_eq!(sources.url(), "only");
+    }
+
+    #[test]
+    fn the_starting_source_is_added_when_missing() {
+        let sources = super::SourceRotation::new(vec!["a".to_owned()], "b");
+        assert_eq!(sources.url(), "b");
+        assert_eq!(sources.urls.len(), 2);
     }
 }

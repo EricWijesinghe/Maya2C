@@ -106,7 +106,38 @@ Known limits, recorded rather than fixed:
   the checkpoint book keeps one checkpoint per epoch (`attest.rs` `of_epoch`),
   so no earlier one is available. Fixing it would weaken ADR-038. Not yet
   filed as an issue.
-- **Lying-source starvation is pre-existing.** `follow_loop` stays on the one
-  source it was started with. A source that lies about its tip can hold a
-  follower there. This predates this amendment; not yet filed as an issue.
+- **Lying-source starvation** (was pre-existing) is fixed by the source-rotation
+  amendment below (decision 5).
 - Each empty round logs one `catch-up: ... behind its own checkpoint` line.
+
+## Amendment (2026-11-04): the follower moves between sources
+
+Found in the security review of PR #359. Decision 2 picks one source at
+startup, and the follow loop kept reading from it for the rest of the run.
+A source that answered the tip probe high, then imported nothing (or served
+only old checkpoints, `catchup::fetch_anchored` returning empty), starved the
+node without an error: it never followed a wrong chain, because every block
+still needed a quorum of attested checkpoints, but it never progressed.
+
+- **Decision 5.** `follow_loop` takes the whole `--catch-up-from` list
+  (`bft::SourceRotation`), starting on the source that answered. A following
+  round that imports nothing, or fails, counts as stalled. After
+  `FOLLOW_ROTATE_AFTER` (60) stalled rounds in a row the loop moves to the
+  next source, round-robin, and logs the move. A progressing round resets the
+  count. A builder's quiet rounds do not count.
+- **Why no trust is needed.** A rotation only changes which peer is asked.
+  Each block still passes `catch_up_once`, which checks it against the
+  committee and an attested checkpoint, so a rotated-to source can add
+  blocks but cannot put a wrong one in.
+- **Why 60 rounds.** A source with sparse checkpoints is healthy while it
+  goes quiet for a while; rotating on each quiet round would churn between
+  honest sources. A minute bounds how long a lying source can hold a node.
+- **Cost.** A halted network with no progress logs one rotation a minute per
+  source. Accepted: the log is the signal an operator needs.
+- **Not changed (known, recorded).** `within_engine_window` still reads the
+  source's tip header nonce unverified. A lie there chooses between "resume as
+  a full validator" and "follow attested blocks". Following is the safe
+  direction; a lie can only cost liveness, and the decision happens at startup
+  only. Upgrade: decide from a block already imported and verified.
+  `catch_up` also sets the driver to follow mode per attempted source; that is
+  a startup-only effect and is left as it was.

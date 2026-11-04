@@ -1112,8 +1112,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // `overtaken`, ADR-038).
             let (tx, rx) = tokio::sync::mpsc::channel(1);
             rescue_requests = Some(rx);
+            // The whole list, not just the source that answered: a follower that
+            // stalls on one source rotates to the others (ADR-043 amendment).
+            let sources = bft::SourceRotation::new(args.catch_up_from.clone(), &url);
             critical.spawn(bft::follow_loop(
-                url,
+                sources,
                 Arc::clone(&chain),
                 Arc::clone(&setup.committee),
                 Arc::clone(&status_slot),
