@@ -19,7 +19,7 @@ A release also contains `<file>.sigstore.json` for each file and for
 | Thing | Signed how | Status |
 |---|---|---|
 | Every release file, `SHA256SUMS`, the SBOM | cosign keyless (Sigstore), bundle per file | On every `node-v*` release |
-| Every release file | GitHub build provenance (SLSA), `gh attestation verify` | On every `node-v*` release |
+| Every release file and `SHA256SUMS` | GitHub build provenance (SLSA, Sigstore), one attestation per file, `gh attestation verify` | On every `node-v*` release |
 | Windows `.exe` and installers | Authenticode | **Not yet.** No certificate. The log says `UNSIGNED: no key`. Windows SmartScreen warns. |
 | macOS `.dmg` | Developer ID and notarization | **Not yet.** Gatekeeper warns. |
 | Android | Keystore | **Not yet.** No Android build exists in this workflow. |
@@ -53,8 +53,14 @@ cosign verify-blob --bundle maya2c-node.tar.gz.sigstore.json \
 gh attestation verify maya2c-node.tar.gz --repo EricWijesinghe/Maya2C
 ```
 
-Do the same for `SHA256SUMS` with its own bundle. Then check the checksum
-(below). Both commands print an error and exit non-zero on any mismatch.
+Do the same for `SHA256SUMS` with its own bundle and its own attestation
+(`gh attestation verify SHA256SUMS --repo EricWijesinghe/Maya2C`). Then check
+the checksum (below). Each command prints an error and exits non-zero on any
+mismatch.
+
+The provenance check does not rely on this page or on the release notes: the
+attestation names the repository and the workflow that built the file. A file
+built elsewhere, or uploaded by someone else, fails `gh attestation verify`.
 
 ## Per operating system
 
