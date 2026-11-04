@@ -194,12 +194,44 @@ jobs:
       - name: Proofs
         run: |
           cargo kani -p maya-ledger-math
-          cargo kani -p maya-dex
           cargo kani -p maya-governance
           cargo kani -p maya-fee-market
           cargo kani -p maya-threat-intel
           cargo kani -p maya-iot-anchor
           cargo kani -p maya-htlc-lattice
+
+      # maya-dex is run per harness. Its two heavy harnesses (CBMC needs
+      # more than this runner's budget within 90 minutes) run in
+      # kani-heavy.yml. Guard: the lists must cover every #[kani::proof] in
+      # the file, so a new harness cannot be silently skipped.
+      - name: Dex proofs (light)
+        run: |
+          set -euo pipefail
+          file=crates/dex/src/proofs.rs
+          light=(
+            mul_div_floor_and_ceil_bracket_the_true_quotient
+            mul_div_rounding_differs_by_at_most_one
+            isqrt_is_the_floor_of_the_real_root
+            a_swap_never_decreases_the_invariant
+            a_swap_conserves_both_sides
+            a_redemption_does_not_lower_the_share_price
+            the_locked_minimum_is_never_redeemable
+            a_deposit_does_not_dilute
+            exact_out_never_undercharges_base_to_quote
+            exact_out_never_undercharges_quote_to_base
+          )
+          heavy=(a_swap_leaves_both_reserves_non_empty a_one_sided_exit_keeps_the_price_usable)
+          total=$(grep -c '#\[kani::proof\]' "$file")
+          if [ "$total" -ne $(( ${#light[@]} + ${#heavy[@]} )) ]; then
+            echo "dex has $total #[kani::proof] harnesses; light+heavy lists name $(( ${#light[@]} + ${#heavy[@]} )). Update the split."
+            exit 1
+          fi
+          for h in "${light[@]}" "${heavy[@]}"; do
+            grep -q "^fn $h()" "$file" || { echo "no harness $h in $file"; exit 1; }
+          done
+          for h in "${light[@]}"; do
+            cargo kani -p maya-dex --harness "$h"
+          done
 
   # ---------------------------------------------------------------------
   # Coverage against the 80% floor, and documentation coverage against 90%.

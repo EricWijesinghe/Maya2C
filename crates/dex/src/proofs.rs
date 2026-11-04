@@ -250,7 +250,10 @@ fn a_swap_conserves_both_sides() {
 /// last unit is unbounded. If a swap could reach zero, the next call to
 /// [`Pool::spot_price`] would be a division by zero and the pool would be
 /// permanently unusable.
+// Wide::long_div runs up to 512 steps; 513 unwinds it fully. Per-harness, so
+// the light harnesses keep automatic unwinding.
 #[kani::proof]
+#[kani::unwind(513)]
 fn a_swap_leaves_both_reserves_non_empty() {
     let pool = any_pool();
     let amount_in = any_u64_amount();
@@ -384,7 +387,9 @@ fn exact_out_never_undercharges(direction: Direction) {
 /// is paid nothing, so the reserve on that side keeps its whole balance. The
 /// pool must still have a usable spot price afterwards, or every later batch on
 /// the pair would refund for good.
+// Same division bound as a_swap_leaves_both_reserves_non_empty.
 #[kani::proof]
+#[kani::unwind(513)]
 fn a_one_sided_exit_keeps_the_price_usable() {
     let pool = any_pool();
     let shares = any_u64_amount();
