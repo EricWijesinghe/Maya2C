@@ -18,6 +18,9 @@
 //!    rounds, then restarted with `--catch-up-from`; it must rejoin.
 //! 8. **restart ahead** — a validator restarts with `--catch-up-from` a peer
 //!    an epoch behind it; it must refuse that source, still start, and rejoin.
+//!    Run twice: with `--trusted-block` (which skips certificate sync, so no
+//!    refusal is logged), then without it, where the refusal must be logged
+//!    (S-009) and the validator must still rejoin once the source catches up.
 //!
 //! 7. **beyond retention** (`--beyond-retention`, once after the rounds) —
 //!    one validator down until the network is past the epochs whose
@@ -269,6 +272,13 @@ impl Net {
         Ok(())
     }
 
+    /// Restarts `i` catching up from `sources` without a trusted block (S-009).
+    fn restart_untrusted(&mut self, i: u16, sources: &[u16]) -> Result<()> {
+        let child = start_untrusted(&self.work, i, sources)?;
+        self.procs.replace(usize::from(i), child);
+        Ok(())
+    }
+
     /// Restarts `i` from a peer's snapshot (ADR-043 decision 3).
     fn rebootstrap(&mut self, i: u16, from: u16) -> Result<()> {
         let child = start_node(&self.work, i, Some(from), true)?;
@@ -323,12 +333,37 @@ fn setup(work: &Path, weighted: bool) -> Result<()> {
 }
 
 fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Result<Child> {
+    let mut cmd = node_command(work, i);
+    if let Some(from) = catch_up {
+        let url = format!("http://{}", rpc_addr(from));
+        // B49: every catch-up restart passes a trusted block from the peer it
+        // catches up from. A node behind the unbonding window needs it; a node
+        // within the window accepts it as a checked anchor, so it is always safe.
+        let trusted = trusted_block(from)?;
+        if bootstrap {
+            let depth = SNAPSHOT_BLOCKS.to_string();
+            cmd.args(["--bootstrap-from", &url, "--prune-depth", &depth]);
+        }
+        cmd.args(["--catch-up-from", &url, "--trusted-block", &trusted]);
+    }
+    spawn_logged(work, i, cmd)
+}
+
+/// Starts `i` catching up from `sources` with no `--trusted-block`. That is
+/// the only startup that runs certificate sync (`main.rs` skips it when a
+/// trusted block is given), so only this path reaches the S-009 refusal in
+/// `certsync::peer_not_behind`.
+fn start_untrusted(work: &Path, i: u16, sources: &[u16]) -> Result<Child> {
+    let mut cmd = node_command(work, i);
+    for from in sources {
+        cmd.args(["--catch-up-from", &format!("http://{}", rpc_addr(*from))]);
+    }
+    spawn_logged(work, i, cmd)
+}
+
+/// The arguments every validator is started with, bootnodes included.
+fn node_command(work: &Path, i: u16) -> Command {
     let dir = work.join(format!("v{i}"));
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("node.log"))
-        .map_err(|e| format!("node {i} log: {e}"))?;
     let mut cmd = Command::new(devnet::bin("maya2c-node"));
     cmd.arg("--genesis")
         .arg(work.join("genesis.json"))
@@ -356,18 +391,16 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Re
             &format!("/ip4/127.0.0.1/tcp/{}", P2P_BASE + peer),
         ]);
     }
-    if let Some(from) = catch_up {
-        let url = format!("http://{}", rpc_addr(from));
-        // B49: every catch-up restart passes a trusted block from the peer it
-        // catches up from. A node behind the unbonding window needs it; a node
-        // within the window accepts it as a checked anchor, so it is always safe.
-        let trusted = trusted_block(from)?;
-        if bootstrap {
-            let depth = SNAPSHOT_BLOCKS.to_string();
-            cmd.args(["--bootstrap-from", &url, "--prune-depth", &depth]);
-        }
-        cmd.args(["--catch-up-from", &url, "--trusted-block", &trusted]);
-    }
+    cmd
+}
+
+/// Spawns `cmd` with its output appended to the validator's `node.log`.
+fn spawn_logged(work: &Path, i: u16, mut cmd: Command) -> Result<Child> {
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(work.join(format!("v{i}")).join("node.log"))
+        .map_err(|e| format!("node {i} log: {e}"))?;
     cmd.stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log)
         .spawn()
@@ -619,14 +652,7 @@ fn restart_while_ahead(net: &mut Net) -> Result<()> {
     }
     net.procs.kill(usize::from(laggard));
     let start = epoch(0).ok_or("node 0 silent")?;
-    // Up to two 60-block epochs: longer than `wait_until`'s bound.
-    let waited = Instant::now();
-    while epoch(0).is_none_or(|e| e <= start + 1) {
-        if waited.elapsed() > RETENTION_WAIT {
-            return Err(format!("network did not pass epoch {} in time", start + 1));
-        }
-        std::thread::sleep(Duration::from_secs(2));
-    }
+    wait_past(start + 1)?;
     net.procs.kill(usize::from(ahead));
     // The laggard comes back first and is still catching up when the node
     // ahead of it asks it for certificates.
@@ -643,6 +669,75 @@ fn restart_while_ahead(net: &mut Net) -> Result<()> {
     net.say(format!(
         "restart ahead: validator {ahead} restarted from validator {laggard} (behind it), rejoined at {target} in {t:.1?}; behind-peer refusals logged: {refused}"
     ));
+    restart_ahead_untrusted(net)
+}
+
+/// Attack 8, the path that reaches S-009: a validator ahead of its source,
+/// started without `--trusted-block`, so startup runs certificate sync and
+/// that sync must refuse the source that is behind (`peer_not_behind`).
+/// The only source given is the one behind. A refusal is then the replay's
+/// final error, which `main.rs` prints. With a second source after it,
+/// `sync_certificates` drops the refused source's error without logging it, so
+/// the count could never see it (the earlier version gave `[laggard, 0]` and
+/// logged zero refusals). Precondition: the laggard is still at or below the
+/// epoch it left, and the restarted validator is past it.
+fn restart_ahead_untrusted(net: &mut Net) -> Result<()> {
+    let (_, down) = victims(2)?;
+    let (laggard, ahead) = (down[0], down[1]);
+    if laggard == 0 || ahead == 0 {
+        return Err("node 0 must stay up for the checks".into());
+    }
+    net.procs.kill(usize::from(laggard));
+    let start = epoch(0).ok_or("node 0 silent")?;
+    wait_past(start + 1)?;
+    net.procs.kill(usize::from(ahead));
+    net.restart_untrusted(laggard, &[])?;
+    wait_until("laggard answers RPC", || height(laggard).is_some())?;
+    let behind = epoch(laggard).ok_or("laggard silent after restart")?;
+    if behind > start {
+        return Err(format!(
+            "restart ahead (untrusted): laggard {laggard} is at epoch {behind}, past the {start} it left; the source is not behind"
+        ));
+    }
+    let log = net.work.join(format!("v{ahead}")).join("node.log");
+    let offset =
+        usize::try_from(std::fs::metadata(&log).map_or(0, |m| m.len())).unwrap_or(usize::MAX);
+    net.restart_untrusted(ahead, &[laggard])?;
+    let refusals = || {
+        let since = std::fs::read(&log).unwrap_or_default();
+        String::from_utf8_lossy(since.get(offset..).unwrap_or_default())
+            .matches("the peer is behind this node")
+            .count()
+    };
+    wait_until("the behind-peer refusal is logged", || refusals() > 0).map_err(|_| {
+        format!("restart ahead (untrusted): validator {ahead} logged no behind-peer refusal; S-009 not exercised")
+    })?;
+    let refused = refusals();
+    // The refused validator follows the laggard until the laggard is caught up;
+    // bring the laggard back from node 0, as every other catch-up restart does.
+    net.procs.kill(usize::from(laggard));
+    net.restart(laggard, Some(0))?;
+    let all = Net::honest(&[]);
+    let target = height(0).ok_or("node 0 silent")?;
+    let t = wait_until("validator refused by the behind peer rejoins", || {
+        agree(&all, target)
+    })?;
+    net.say(format!(
+        "restart ahead (untrusted): validator {ahead} refused behind peer {laggard} {refused} time(s) (laggard at epoch {behind}, start {start}); all rejoined at {target} in {t:.1?}"
+    ));
+    Ok(())
+}
+
+/// Waits, up to [`RETENTION_WAIT`], until node 0's epoch is above `past`.
+/// Epochs are 60 blocks, so this is up to two of them.
+fn wait_past(past: u64) -> Result<()> {
+    let waited = Instant::now();
+    while epoch(0).is_none_or(|e| e <= past) {
+        if waited.elapsed() > RETENTION_WAIT {
+            return Err(format!("network did not pass epoch {past} in time"));
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
     Ok(())
 }
 
