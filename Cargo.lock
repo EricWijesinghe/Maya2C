@@ -6665,6 +6665,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "jsonrpsee",
+ "primitive-types",
  "reqwest",
  "serde",
  "serde_json",
