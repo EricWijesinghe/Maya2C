@@ -43,11 +43,11 @@ read as a measurement.
 | Measured block time | S2 | explorer `measured_block_time_s` | Mean seconds over the sample window. |
 | Height | S1, S2 | explorer `height` | Highest indexed height. |
 | Last block time | S1 `last_block_at`, S3 | explorer `last_block_timestamp`; pool `last_block_at_ms` | Unix seconds (explorer) and milliseconds (pool). Different units; listing sites must convert. |
-| Block reward | S1 `network.block_reward`, S2, S3 | explorer `block_reward` is always `null` | **Not provided.** The chain pays an epoch budget split across shares (ADR-044), not a per-block coinbase, so there is no single number to publish. Needs an owner decision on how to state it. |
+| Block reward | S1 `network.block_reward`, S2, S3 | explorer `block_reward` is always `null`, with `block_reward_note` giving the reason | **Not provided.** The chain pays an epoch budget split across shares (ADR-044), not a per-block coinbase, so there is no single number to publish. Needs an owner decision on how to state it. |
 | Pool hashrate, miners, workers | S1 `pool.*` | pool `GET /api/pool-stats` | Provided. Aggregates. |
 | Pool blocks in 24 h, last block | S1 | pool `blocks_24h` (null when the scan saturates), `last_block_at_ms` | Provided. |
 | Fee, payout scheme, minimum payout | S1 | pool `fee_percent`, `payout_scheme` = `PPLNS`, `min_payout` (base units, decimal string) | Provided. Minimum is in base units because the chain's decimal count is not fixed in this repo. |
-| Ticker (`coin`) | S1 required | pool `coin` = `null` | **Not provided.** The repo does not fix a ticker. Owner decision. A listing site will reject a document without one. |
+| Ticker (`coin`) | S1 required | pool `coin` = `MAYA` | Provided. SLIP-44 coin type 2992 (`apps/ledger-maya2c/src/derive.rs`). The ticker is recorded by the coordinator; the approval commit `63675bde` records only that the SLIP-44 submission was made. |
 | Stratum or pool URLs | S1 optional `stratum` | none | Not published. The pool's listen address is a bind address, not a public URL. Owner must name the public endpoint before listing. |
 | Independent data sources | S2 needs two | none | Two independent sources are required by S2. This node is one source. Listing will need an external explorer or second node operated by someone else. Not something this repo can do. |
 
@@ -60,6 +60,6 @@ read as a measurement.
   and human review. A single-node explorer will not meet it.
 - S3 publishes no requirements. The fields it displays are the ones it
   computes for each coin.
-- Open items for the owner before submitting anywhere: the ticker, the
+- Open items for the owner before submitting anywhere: the
   public pool URL, how the block reward is stated, and who runs the second
   independent data source.
