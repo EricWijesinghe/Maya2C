@@ -29,6 +29,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use maya_status::Timeline;
+use maya_status::decentral::{self, StakeSet};
 use maya_status::live::{BftStatus, Live, NetworkView, NodePoll};
 
 const POLL: Duration = Duration::from_secs(2);
@@ -294,16 +295,19 @@ async fn live_api(State(live): State<Arc<Mutex<Live>>>) -> impl IntoResponse {
 
 /// One watched node's three answers; any it did not give stays `None`.
 async fn poll_node(name: &str, client: &HttpClient) -> NodePoll {
-    let (bft, view, height) = tokio::join!(
+    // `get_validators` is null on a chain without staking: no stakes, no spread.
+    let (bft, view, height, stakes) = tokio::join!(
         client.request::<BftStatus, _>("get_bft_status", rpc_params![]),
         client.request::<NetworkView, _>("get_peers", rpc_params![]),
         self::height(client),
+        client.request::<Option<StakeSet>, _>("get_validators", rpc_params![]),
     );
     NodePoll {
         name: name.to_owned(),
         bft: bft.ok(),
         view: view.ok(),
         height,
+        stakes: stakes.ok().flatten(),
     }
 }
 
@@ -311,6 +315,23 @@ fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The watched nodes: the `--watch` list, or the `--node` alone.
+fn watch_entries(watch: &[(String, String)], node: &str) -> Vec<(String, String)> {
+    if watch.is_empty() {
+        vec![("seed".to_owned(), node.to_owned())]
+    } else {
+        watch.to_vec()
+    }
+}
+
+/// The host each watched URL names, for the one-machine check.
+fn watch_list_hosts(watch: &[(String, String)], node: &str) -> Vec<String> {
+    watch_entries(watch, node)
+        .iter()
+        .map(|(_, url)| decentral::host_of(url).to_owned())
+        .collect()
 }
 
 /// Polls every watched node each [`LIVE_POLL`] into the live view, all of
@@ -375,11 +396,7 @@ async fn main() {
         tokio::spawn(follow(client, Arc::clone(&shared), a.ntfy));
     }
 
-    let watch_list = if a.watch.is_empty() {
-        vec![("seed".to_owned(), a.node.clone())]
-    } else {
-        a.watch.clone()
-    };
+    let watch_list = watch_entries(&a.watch, &a.node);
     let mut watched = Vec::new();
     for (name, url) in watch_list {
         match HttpClientBuilder::default()
@@ -395,7 +412,12 @@ async fn main() {
         .iter()
         .map(|(name, id)| (id.clone(), name.clone()))
         .collect();
-    let live = Arc::new(Mutex::new(Live::new("maya-testnet-1").with_known(known)));
+    let hosts = watch_list_hosts(&a.watch, &a.node);
+    let live = Arc::new(Mutex::new(
+        Live::new("maya-testnet-1")
+            .with_known(known)
+            .with_hosts(hosts),
+    ));
     tokio::spawn(watch(watched, Arc::clone(&live)));
 
     let live_routes = Router::new()

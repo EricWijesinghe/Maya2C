@@ -11,6 +11,7 @@
 
 #![warn(missing_docs)]
 
+pub mod decentral;
 pub mod live;
 
 use serde::Serialize;
