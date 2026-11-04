@@ -7,7 +7,7 @@
 //! Ported from rusty-kaspa (ISC licence, copyright the Kaspa developers) at
 //! commit `01b532e8b553523216471682649693af92f0fd16`: `consensus/pow/src/{matrix,xoshiro}.rs` and
 //! `crypto/hashes/src/pow_hashers.rs`. The two sponge initial states below are
-//! copied from upstream by `gen_kheavyhash.py`, not retyped.
+//! copied from upstream by `cargo xtask kheavyhash`, not retyped.
 //! `crates/node/tests/kheavyhash_reference_tests.rs` then checks this module
 //! three independent ways: both states against a cSHAKE256 written from NIST
 //! SP 800-185 in the test itself, and upstream's own known answers for

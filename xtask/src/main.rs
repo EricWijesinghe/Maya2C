@@ -32,6 +32,7 @@ mod go_no_go;
 mod guides_check;
 mod hub_bundle;
 mod hybrid_genesis;
+mod kheavyhash;
 mod localnet;
 mod mesh_check;
 mod mining_localnet;
@@ -106,6 +107,7 @@ fn main() -> ExitCode {
         "starter-stickers" => starter_stickers::run(rest),
         "brand-assets" => brand_assets::run(rest),
         "og-card" => og_card::run(rest),
+        "kheavyhash" => kheavyhash::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -149,6 +151,7 @@ cargo xtask <command>
   brand-assets [--check]
                         Copy the logo pack favicons and wordmarks into each app.
   og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
+  kheavyhash [--fetch]  Regenerate the kHeavyHash reference module and fixture from upstream.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a
                         test that exists.

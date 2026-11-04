@@ -1,6 +1,6 @@
 //! Known answers for the kHeavyHash reference, copied from rusty-kaspa commit
 //! `01b532e8b553523216471682649693af92f0fd16`, `consensus/pow/src/matrix.rs` (`test_heavy_hash` and
-//! `test_generate_matrix`), by `gen_kheavyhash.py` — not retyped. ISC licence,
+//! `test_generate_matrix`), by `cargo xtask kheavyhash` — not retyped. ISC licence,
 //! copyright the Kaspa developers.
 
 /// `test_heavy_hash`: the input hash.
