@@ -285,6 +285,8 @@ fn sri_dir(dist: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
