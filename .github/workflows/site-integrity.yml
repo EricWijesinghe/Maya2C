@@ -45,6 +45,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # .cargo/config.toml links through clang + mold on Linux; the compare step
+      # below builds xtask, so a runner without mold never reaches the check.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
+
       - name: Find the latest successful site deploy
         run: |
           set -euo pipefail
