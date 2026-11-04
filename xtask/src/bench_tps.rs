@@ -209,7 +209,7 @@ fn await_balance(expected: u64, started: Instant) -> (Duration, u64) {
     }
 }
 
-fn command_output(program: &str, args: &[&str]) -> String {
+pub(crate) fn command_output(program: &str, args: &[&str]) -> String {
     Command::new(program)
         .args(args)
         .output()
