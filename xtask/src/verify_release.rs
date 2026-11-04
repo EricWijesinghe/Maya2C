@@ -8,7 +8,8 @@
 //! 2. `cosign verify-blob` on each file and on `SHA256SUMS`, against the
 //!    Sigstore bundle (`<name>.sigstore.json`) the release workflow uploaded.
 //!    The certificate must come from the release workflow on a `node-v*` tag.
-//! 3. `gh attestation verify` on each file: GitHub's SLSA build provenance.
+//! 3. `gh attestation verify` on each file and on `SHA256SUMS`: GitHub's SLSA
+//!    build provenance, one attestation per subject.
 //!
 //! Steps 2 and 3 shell out to `cosign` and `gh`, the reference verifiers.
 //! Re-implementing Sigstore here would be a second verifier to trust.
@@ -55,7 +56,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         cosign_verify(&dir.join(name), &dir.join(format!("{name}{BUNDLE_SUFFIX}")))?;
         println!("cosign: {name} ok");
     }
-    for (_, name) in &entries {
+    for name in &targets {
         gh_attest_verify(&dir.join(name))?;
         println!("attestation: {name} ok");
     }
