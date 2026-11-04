@@ -12,6 +12,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use crate::decentral::{self, Decentralization, StakeSet};
+
 /// Events kept for the feed.
 pub const EVENT_LOG: usize = 60;
 /// Seconds of history kept for the sparklines.
@@ -75,6 +77,8 @@ pub struct NodePoll {
     pub view: Option<NetworkView>,
     /// `get_chain_info` height.
     pub height: Option<u64>,
+    /// `get_validators` stake set; `None` on a chain without staking.
+    pub stakes: Option<StakeSet>,
 }
 
 /// One watched node in the view.
@@ -162,6 +166,10 @@ pub struct LiveView {
     pub history: Vec<Sample>,
     /// Distinct peers seen since this service started.
     pub seen_total: usize,
+    /// Committee stake spread; `None` (MISSING) when it cannot be measured.
+    pub decentralization: Option<Decentralization>,
+    /// Set when every watched URL names one host: a plain sentence.
+    pub one_host: Option<String>,
 }
 
 /// State carried between polls.
@@ -172,6 +180,8 @@ pub struct Live {
     /// watched nodes that do not serve `get_peers` yet and so cannot say
     /// who they are.
     known: BTreeMap<String, String>,
+    /// Host of each watched node's URL, for the one-machine check.
+    hosts: Vec<String>,
     first_seen: BTreeMap<String, u64>,
     present: BTreeSet<String>,
     up: BTreeMap<String, bool>,
@@ -179,6 +189,14 @@ pub struct Live {
     events: VecDeque<Event>,
     history: VecDeque<Sample>,
     view: LiveView,
+}
+
+/// The newest stake set any watched node answered with.
+fn latest_stakes(polls: &[NodePoll]) -> Option<&StakeSet> {
+    polls
+        .iter()
+        .filter_map(|p| p.stakes.as_ref())
+        .max_by_key(|s| s.epoch)
 }
 
 fn short(id: &str) -> String {
@@ -200,6 +218,12 @@ impl Live {
     #[must_use]
     pub fn with_known(self, known: BTreeMap<String, String>) -> Self {
         Self { known, ..self }
+    }
+
+    /// The same view, knowing the host each watched node's URL names.
+    #[must_use]
+    pub fn with_hosts(self, hosts: Vec<String>) -> Self {
+        Self { hosts, ..self }
     }
 
     /// The current view.
@@ -248,7 +272,18 @@ impl Live {
             events: self.events.iter().cloned().collect(),
             history: self.history.iter().copied().collect(),
             seen_total: self.first_seen.len(),
+            decentralization: latest_stakes(polls).and_then(decentral::measure),
+            one_host: self.one_host_sentence(),
         };
+    }
+
+    fn one_host_sentence(&self) -> Option<String> {
+        let hosts: Vec<&str> = self.hosts.iter().map(String::as_str).collect();
+        let host = decentral::one_host(&hosts)?;
+        Some(format!(
+            "all {} watched nodes are reached at {host}: they share one host",
+            hosts.len()
+        ))
     }
 
     fn merge_peers(
@@ -428,6 +463,7 @@ mod tests {
                 peers,
             }),
             height: Some(100),
+            stakes: None,
         }
     }
 
@@ -504,6 +540,7 @@ mod tests {
             }),
             view: None, // an old binary: no get_peers
             height: Some(5),
+            stakes: None,
         };
         live.observe(
             1_000,
@@ -550,5 +587,50 @@ mod tests {
         }
         assert_eq!(live.view().history.len(), HISTORY);
         assert!(live.view().events.iter().any(|e| e.kind == "epoch"));
+    }
+
+    fn with_stakes(mut p: NodePoll, bonds: &[u64]) -> NodePoll {
+        p.stakes = Some(StakeSet {
+            epoch: 3,
+            committee: bonds.len(),
+            validators: bonds
+                .iter()
+                .map(|b| crate::decentral::Seat {
+                    in_committee: true,
+                    self_bond: b.to_string(),
+                    delegated: "0".into(),
+                })
+                .collect(),
+        });
+        p
+    }
+
+    #[test]
+    fn the_committee_spread_is_measured_from_the_newest_stake_set() {
+        let mut live = Live::new("t");
+        let a = with_stakes(poll("seed", "S", vec![], Some(0), 1), &[5, 5, 5, 5]);
+        live.observe(1_000, &[a]);
+        let d = live.view().decentralization.clone().unwrap();
+        assert_eq!((d.epoch, d.committee, d.nakamoto_two_thirds), (3, 4, 3));
+    }
+
+    #[test]
+    fn no_stake_set_is_missing_not_zero() {
+        let mut live = Live::new("t");
+        live.observe(1_000, &[poll("seed", "S", vec![], Some(0), 1)]);
+        assert!(live.view().decentralization.is_none());
+    }
+
+    #[test]
+    fn one_host_is_said_plainly_only_for_two_or_more_nodes() {
+        let hosts = vec!["127.0.0.1".to_string(), "127.0.0.1".to_string()];
+        let mut live = Live::new("t").with_hosts(hosts);
+        live.observe(1_000, &[poll("seed", "S", vec![], Some(0), 1)]);
+        let sentence = live.view().one_host.clone().unwrap();
+        assert!(sentence.contains("share one host"), "{sentence}");
+
+        let mut solo = Live::new("t").with_hosts(vec!["127.0.0.1".into()]);
+        solo.observe(1_000, &[poll("seed", "S", vec![], Some(0), 1)]);
+        assert!(solo.view().one_host.is_none());
     }
 }
