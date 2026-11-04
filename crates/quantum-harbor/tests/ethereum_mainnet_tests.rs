@@ -1,7 +1,7 @@
 //! The exposure tool on real Ethereum mainnet data (Master Prompt 28).
 //!
 //! `tests/fixtures/eth_mainnet_sample.json` was fetched by
-//! `scripts/eth_exposure_fixture.py` from a public endpoint: every sender and
+//! `cargo xtask eth-exposure` from a public endpoint: every sender and
 //! recipient of two consecutive mainnet blocks, with nonce, code and balance
 //! pinned at one block number, plus one raw signed EIP-1559 transaction.
 //!

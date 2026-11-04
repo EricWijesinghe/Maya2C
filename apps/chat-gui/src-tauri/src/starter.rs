@@ -1,5 +1,5 @@
 //! The starter pack, built into the app: twelve animated stickers of one
-//! character, drawn by `stickers/make_starter.py` (original art, Forged Light
+//! character, drawn by `cargo xtask starter-stickers` (original art, Forged Light
 //! palette). Built in so a new user can say something with a sticker before
 //! they have added or made any pack.
 

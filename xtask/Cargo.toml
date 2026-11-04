@@ -21,6 +21,10 @@ maya-amount = { path = "../crates/amount" }
 regex = "1"
 base64 = "0.22"
 hex.workspace = true
+# Ethereum fixture fetches (`eth-*`). Blocking client, rustls with the OS roots:
+# the same feature set `crates/archive` compiles, so no new crate enters the lock.
+reqwest = { workspace = true, features = ["blocking", "rustls-tls-native-roots"] }
+image.workspace = true
 sha2.workspace = true
 # bench-report and bench-gate stamp the run date in local time. chrono is already
 # in the lock through other crates; only its `clock` feature is needed here.

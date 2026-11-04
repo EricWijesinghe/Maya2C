@@ -1,7 +1,7 @@
 //! Sixty-four consecutive real mainnet headers (Master Prompt 25).
 //!
 //! `tests/fixtures/eth_mainnet_headers.json` was fetched by
-//! `scripts/eth_headers_fixture.py`. Each header's hash is recomputed from
+//! `cargo xtask eth-headers`. Each header's hash is recomputed from
 //! its fields — which exercises every post-London optional field, since these
 //! are Prague-era headers — and the parent links are checked end to end.
 //!

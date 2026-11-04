@@ -257,8 +257,8 @@ Two scripts deploy them, and both take `--check` so drift is detectable rather
 than discovered:
 
 ```bash
-python scripts/deploy_brand_assets.py        # favicons and wordmarks into each app
-python scripts/make_og_card.py               # the 1200x630 social card
+cargo xtask brand-assets                     # favicons and wordmarks into each app
+cargo xtask og-card                          # the 1200x630 social card
 cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png \
   -o apps/wallet-gui/src-tauri/icons               # the desktop icon set
 ```

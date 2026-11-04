@@ -456,6 +456,9 @@ rocksdb = "0.25"
 # HTTP client for `archive` (Arweave/IPFS uploads) and `eo-fetch`
 # (Sentinel-2 range reads). No default features: rustls, not OpenSSL.
 reqwest = { version = "0.12", default-features = false }
+# PNG decode and encode for `xtask og-card`. The wallet GUI core declares the same
+# spec; the lock already holds image 0.25 with the png feature.
+image = { version = "0.25", default-features = false, features = ["png"] }
 serde = "1"
 serde_json = "1"
 serde_bytes = "0.11"
