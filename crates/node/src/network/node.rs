@@ -741,13 +741,15 @@ impl NodeDriver {
             // be a remote-triggered log flood.
             SwarmEvent::OutgoingConnectionError { error, .. } => {
                 if let Some(n) = sampled(&OUTGOING_FAILURES) {
-                    eprintln!("p2p: outgoing connection failure #{n}: {error}");
+                    eprintln!(
+                        "p2p: outgoing connection failure #{n}: {error} (a refused handshake usually means a peer on another genesis)"
+                    );
                 }
             }
             SwarmEvent::IncomingConnectionError { send_back_addr, .. } => {
                 if let Some(n) = sampled(&INCOMING_FAILURES) {
                     eprintln!(
-                        "p2p: incoming connection failure #{n} (latest from {send_back_addr})"
+                        "p2p: incoming connection failure #{n} (latest from {send_back_addr}; a refused handshake usually means a peer on another genesis)"
                     );
                 }
             }
