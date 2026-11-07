@@ -6824,6 +6824,7 @@ dependencies = [
  "image",
  "jsonrpsee",
  "keyring",
+ "maya-address",
  "maya-amount",
  "maya-zk-stark",
  "pbkdf2",
