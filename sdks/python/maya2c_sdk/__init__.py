@@ -7,7 +7,17 @@ is a second thing that can disagree with the chain. Signing runs through
 request, submits the result and reads the chain. Standard library only.
 """
 
+from .address import AddressError, decode_address, decode_any_address, encode_address
 from .client import Client, RpcError
 from .wallet import Wallet, WalletError
 
-__all__ = ["Client", "RpcError", "Wallet", "WalletError"]
+__all__ = [
+    "AddressError",
+    "Client",
+    "RpcError",
+    "Wallet",
+    "WalletError",
+    "decode_address",
+    "decode_any_address",
+    "encode_address",
+]

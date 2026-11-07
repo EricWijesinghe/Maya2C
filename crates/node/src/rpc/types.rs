@@ -195,16 +195,25 @@ pub struct AccountInfo {
     pub balance: U256,
     /// Nonce the next transaction from this account must carry.
     pub nonce: u64,
+    /// The same account as Bech32m text (ADR-081), when the node's chain id
+    /// is registered. Additive: `address` stays hex for existing clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_text: Option<String>,
 }
 
 impl AccountInfo {
-    /// Builds a response for `address`.
+    /// Builds a response for `address`, with its text form on `network`.
     #[must_use]
-    pub fn new(address: &[u8; 32], account: &Account) -> Self {
+    pub fn new(
+        address: &[u8; 32],
+        account: &Account,
+        network: Option<maya_address::Network>,
+    ) -> Self {
         Self {
             address: hex::encode(address),
             balance: account.balance,
             nonce: account.nonce,
+            address_text: network.map(|n| maya_address::encode(n, address)),
         }
     }
 }

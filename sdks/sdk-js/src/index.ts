@@ -217,3 +217,6 @@ export class MayaClient {
     return body.data;
   }
 }
+
+export { AddressError, decodeAddress, decodeAnyAddress, encodeAddress } from "./address.js";
+export type { AddressNetwork, AddressErrorKind } from "./address.js";
