@@ -120,6 +120,11 @@ impl Mesh {
         let params = Params {
             batch_size: 100,
             anchor_timeout_ms: 1_000,
+            // What `maya2c-node` derives (anchor timeout / 2). The default
+            // 0 is the simulator's: a lagging engine then re-fetches on every
+            // duplicate certificate and peers answer without a budget, and
+            // the fetch storm buried this mesh's FIFO for good (2026-11-08).
+            resend_interval_ms: 500,
             ..Params::default()
         };
         let mut setups = Vec::new();
@@ -570,11 +575,32 @@ fn catch_up_from_follower(
         .expect("catch-up from a follower's held checkpoint")
 }
 
+/// When validator 2's engine opens on restart, relative to its catch-up.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Engine {
+    /// Never: it only imports.
+    Closed,
+    /// After the first import, a few blocks behind the network.
+    AfterImport,
+    /// Before any import, 60 blocks behind, the order `maya2c-node` uses.
+    BeforeImport,
+}
+
+/// Opens validator 2's engine on its safety log, at its chain's tip.
+fn open_member_two(mesh: &mut Mesh) {
+    let m = &mut mesh.members[2];
+    let (driver, step) =
+        BftDriver::open(&mesh.setups[2], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
+    m.driver = Some(driver);
+    mesh.absorb(2, step);
+}
+
 /// Validator 2 down far past the engine window, then restarted with member 3,
-/// posing as a follower one block behind, as its only catch-up source.
-/// `open_engine` opens its engine after the first import. Returns the heights
-/// `(start, lead, rejoined)` over 30 more rounds of following that source.
-fn follower_source_scenario(open_engine: bool) -> (u64, u64, u64) {
+/// posing as a follower one block behind, as its only catch-up source; with
+/// an engine, it follows attested blocks after the import. Returns the
+/// heights `(start, lead, rejoined)` over 30 more intervals of following that
+/// source and, with an engine, how many rounds it trails member 0's.
+fn follower_source_scenario(engine: Engine) -> (u64, u64, u64, Option<u64>) {
     let mut mesh = Mesh::new(0);
     mesh.run_to(3);
     mesh.members[2].driver = None;
@@ -585,10 +611,7 @@ fn follower_source_scenario(open_engine: bool) -> (u64, u64, u64) {
         if mesh.members[0].chain.height() >= before + 60 {
             break;
         }
-        mesh.now += 250;
-        mesh.tick();
-        mesh.pump(2_000);
-        seen = offer_from_three(&mesh, &mut book, seen);
+        seen = step_following(&mut mesh, &mut book, seen);
     }
     assert!(
         mesh.members[0].chain.height() >= before + 60,
@@ -599,24 +622,35 @@ fn follower_source_scenario(open_engine: bool) -> (u64, u64, u64) {
     m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
     m.chain = open_chain(&m.state_dir, false);
     let (_, committee) = signers();
+    if engine == Engine::BeforeImport {
+        // The chain where the outage left it, and the network running on: a
+        // live engine this far behind must not hold the builders up.
+        open_member_two(&mut mesh);
+        let from = mesh.members[0].chain.height();
+        let behind = from - mesh.members[2].chain.height();
+        assert!(behind >= 50, "only {behind} blocks behind");
+        for _ in 0..8 {
+            seen = step_following(&mut mesh, &mut book, seen);
+        }
+        assert!(
+            mesh.members[0].chain.height() > from + 2,
+            "an engine {behind} blocks behind stalled the builders at {from}"
+        );
+    }
     let imported = catch_up_from_follower(&mut mesh, &mut book, seen, &committee);
     assert!(imported >= 50, "imported {imported}");
-
-    if open_engine {
+    if engine == Engine::AfterImport {
+        open_member_two(&mut mesh);
+    }
+    if engine != Engine::Closed {
+        // What the binary's `catch_up` does once it has imported.
         let m = &mut mesh.members[2];
-        let (mut driver, step) =
-            BftDriver::open(&mesh.setups[2], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
-        driver.follow_attested(&m.chain);
-        m.driver = Some(driver);
-        mesh.absorb(2, step);
+        m.driver.as_mut().unwrap().follow_attested(&m.chain);
     }
 
     let start = mesh.members[0].chain.height();
     for _ in 0..30 {
-        mesh.now += 250;
-        mesh.tick();
-        mesh.pump(2_000);
-        seen = offer_from_three(&mesh, &mut book, seen);
+        seen = step_following(&mut mesh, &mut book, seen);
         catch_up_from_follower(&mut mesh, &mut book, seen, &committee);
     }
     let (lead, rejoined) = (
@@ -630,7 +664,19 @@ fn follower_source_scenario(open_engine: bool) -> (u64, u64, u64) {
         "the imported chain is the network's"
     );
     assert_eq!(mesh.equivocations, 0);
-    (start, lead, rejoined)
+    let trails = mesh.members[2].driver.as_ref().map(|d| {
+        let lead_round = mesh.members[0].driver.as_ref().unwrap().round();
+        lead_round.saturating_sub(d.round())
+    });
+    (start, lead, rejoined, trails)
+}
+
+/// One mesh interval, then member 3's newest checkpoint offered to `book`.
+fn step_following(mesh: &mut Mesh, book: &mut CheckpointBook, seen: u64) -> u64 {
+    mesh.now += 250;
+    mesh.tick();
+    mesh.pump(2_000);
+    offer_from_three(mesh, book, seen)
 }
 
 #[test]
@@ -639,7 +685,7 @@ fn a_restarting_validator_catches_up_from_a_follower_source_alone() {
     // trails the newest checkpoint it has seen. It used to serve that one, which
     // it held no block for, so nothing was ever imported. Now the first import
     // takes it 50+ blocks, and it keeps pace with the network from that source.
-    let (start, lead, rejoined) = follower_source_scenario(false);
+    let (start, lead, rejoined, _) = follower_source_scenario(Engine::Closed);
     assert!(
         lead > start + 5,
         "the network kept going: {start} -> {lead}"
@@ -647,15 +693,33 @@ fn a_restarting_validator_catches_up_from_a_follower_source_alone() {
     assert!(lead - rejoined <= 4, "it keeps pace: {rejoined} vs {lead}");
 }
 
-#[test]
-#[ignore = "open finding (2026-11-08): an engine opened a few blocks behind the network, \
-            far past the window, stalls the three builders in this mesh; see PR notes"]
-fn a_validator_opened_behind_the_tip_does_not_stall_the_builders() {
-    let (start, lead, rejoined) = follower_source_scenario(true);
+/// The three builders keep finalizing while a fourth validator's engine runs
+/// behind them, and that validator rejoins: it keeps importing, and its
+/// engine proposes in the network's rounds. Found 2026-11-08 as a stall at
+/// height 105: the stall was this mesh running the engine with the
+/// simulator's `resend_interval_ms` of 0 (see `Mesh::new`); the engine left
+/// 60 blocks behind then never rejoining was an engine bug (certificates
+/// buffered before a resume were never drained). See
+/// reports/sessions/2026-11-08-behind-validator-stall.md.
+fn assert_rejoined_without_stalling(engine: Engine) {
+    let (start, lead, rejoined, trails) = follower_source_scenario(engine);
     assert!(
         lead > start + 5,
         "the network kept going: {start} -> {lead}, rejoined {rejoined}"
     );
+    assert!(rejoined > start, "it kept importing: {start} -> {rejoined}");
+    let trails = trails.expect("an engine");
+    assert!(trails <= 4, "its engine trails by {trails} rounds");
+}
+
+#[test]
+fn a_validator_opened_behind_the_tip_does_not_stall_the_builders() {
+    assert_rejoined_without_stalling(Engine::AfterImport);
+}
+
+#[test]
+fn a_validator_opened_fifty_blocks_behind_does_not_stall_the_builders() {
+    assert_rejoined_without_stalling(Engine::BeforeImport);
 }
 
 #[test]

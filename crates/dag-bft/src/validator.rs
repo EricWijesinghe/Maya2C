@@ -197,6 +197,11 @@ pub struct Validator<A = Unauthenticated> {
     /// so an unanswered budget is an amplifier for anyone who can send a
     /// 33-byte `Fetch`.
     fetch_replies: BTreeMap<ValidatorId, (u64, u32)>,
+    /// The horizon moved since the buffer was last drained. Parents at or
+    /// below it count as held, so a buffered certificate may be ready
+    /// although nothing it waited for arrived; without a drain it stayed
+    /// buffered for good, and an engine resumed past its gap never advanced.
+    drain_due: bool,
 }
 
 impl Validator<Unauthenticated> {
@@ -230,6 +235,7 @@ impl<A: Authenticator> Validator<A> {
             last_resend_ms: 0,
             last_refetch_ms: 0,
             fetch_replies: BTreeMap::new(),
+            drain_due: false,
         }
     }
 
@@ -333,6 +339,8 @@ impl<A: Authenticator> Validator<A> {
         self.voted = self.voted.split_off(&(horizon, 0));
         self.seen = self.seen.split_off(&(horizon, 0));
         self.buffer.retain(|_, c| c.vertex.round >= horizon);
+        // Inserted on the next step, which has an `Output` to report them in.
+        self.drain_due = true;
         if self.round < round {
             self.round = round;
             self.pending = None;
@@ -697,6 +705,10 @@ impl<A: Authenticator> Validator<A> {
             self.voted = self.voted.split_off(&(horizon, 0));
             self.seen = self.seen.split_off(&(horizon, 0));
             self.buffer.retain(|_, c| c.vertex.round >= horizon);
+            self.drain_due = true;
+        }
+        if std::mem::take(&mut self.drain_due) {
+            self.drain_buffer(out);
         }
         out.committed
             .extend(sub_dags.iter().flat_map(|s| s.certificates.iter().cloned()));
