@@ -76,9 +76,23 @@ pub fn suite_for_default(raw: maya_dex::Amount) -> Result<SuiteId> {
 ///
 /// [`NodeError::SignatureSuite`] for a `DefaultSignatureSuite` value that
 /// names no permitted suite.
-pub fn check_parameter(key: ParameterKey, value: maya_dex::Amount) -> Result<()> {
+pub fn check_parameter(
+    key: ParameterKey,
+    value: maya_dex::Amount,
+    sunsets: &SuiteSunsets,
+) -> Result<()> {
     match key {
-        ParameterKey::DefaultSignatureSuite => suite_for_default(value).map(|_| ()),
+        ParameterKey::DefaultSignatureSuite => {
+            let suite = suite_for_default(value)?;
+            // A default that a schedule entry retires would make every block
+            // refuse its transactions, and no later vote could recover it (H2).
+            if sunsets.entries().any(|s| s.suite == suite) {
+                return Err(NodeError::SignatureSuite(format!(
+                    "{suite:?} is scheduled for sunset and may not be the default"
+                )));
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -115,6 +129,12 @@ pub fn check_parameter(key: ParameterKey, value: maya_dex::Amount) -> Result<()>
 pub fn verification_policy(sunsets: &SuiteSunsets) -> Result<SuitePolicy> {
     let mut policy = SuitePolicy::genesis(Network::Mainnet);
     for sunset in sunsets.entries() {
+        if !policy.permitted(sunset.suite) {
+            return Err(NodeError::SignatureSuite(format!(
+                "{:?} is not permitted on mainnet, so it cannot be sunset",
+                sunset.suite
+            )));
+        }
         let window = sunset
             .sunset_height
             .checked_sub(sunset.announced_at)

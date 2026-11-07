@@ -129,3 +129,42 @@ fn a_chain_with_no_scheduled_entry_runs_every_height_with_features_off() {
     assert_eq!(chain.height(), HEAD);
     assert!(!chain.context_at(HEAD).unwrap().dvp_active());
 }
+
+#[test]
+fn a_regtest_genesis_scheduled_at_height_3_accepts_block_2_and_halts_at_3_across_a_reopen() {
+    // (a): a genesis that schedules a version this binary lacks at height 3. Block
+    // 2 is accepted, block 3 is refused, and a restart from disk refuses it again.
+    let scheduled = ProtocolUpgrade {
+        version: SUPPORTED_PROTOCOL_VERSION + 1,
+        activation_height: 3,
+        features: FeatureSet::default(),
+    };
+    let cfg = config(vec![scheduled]);
+    let dir = TempDir::new().unwrap();
+    let mut chain = open(&dir, &cfg);
+    extend_to(&mut chain, 2);
+    assert_eq!(chain.height(), 2);
+
+    let block3 = chain
+        .candidate_block(1_000_000 + 3 * 15, Vec::new())
+        .unwrap();
+    let halt = chain.insert_block(block3.clone()).unwrap_err();
+    assert!(
+        matches!(halt, NodeError::UpgradeRequired { height: 3, .. }),
+        "{halt}"
+    );
+    assert_eq!(chain.height(), 2);
+    drop(chain);
+
+    let mut reopened = open(&dir, &cfg);
+    assert_eq!(
+        reopened.height(),
+        2,
+        "the reopened chain resumes at block 2"
+    );
+    let halt = reopened.insert_block(block3).unwrap_err();
+    assert!(
+        matches!(halt, NodeError::UpgradeRequired { height: 3, .. }),
+        "{halt}"
+    );
+}

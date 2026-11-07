@@ -160,6 +160,15 @@ impl UpgradeSchedule {
                     u.version, u.features.0
                 )));
             }
+            // zkML is refused until `zkml::verdict` is a real verifier: a
+            // schedule that switched it on would make the chain accept proofs
+            // nothing checks (ADR-082, M3).
+            if u.features.contains(FeatureSet::ZKML) {
+                return Err(NodeError::Decode(format!(
+                    "protocol upgrade to version {} schedules zkML, which is refused until its verifier exists",
+                    u.version
+                )));
+            }
             last = *u;
         }
         Ok(Self { upgrades })
@@ -326,12 +335,18 @@ mod tests {
         // binary's contributes nothing (the halt covers it).
         let s = UpgradeSchedule::new(vec![
             with(2, 10, FeatureSet::DVP | FeatureSet::IOT),
-            with(SUPPORTED_PROTOCOL_VERSION + 1, 50, FeatureSet::ZKML),
+            with(SUPPORTED_PROTOCOL_VERSION + 1, 50, FeatureSet::RWA_STRICT),
         ])
         .unwrap();
         let f = s.features();
         assert_eq!((f.dvp, f.iot), (10, 10));
-        assert_eq!(f.zkml, u64::MAX);
+        assert_eq!(f.rwa_strict, u64::MAX);
+    }
+
+    #[test]
+    fn zkml_cannot_be_scheduled() {
+        let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::ZKML)]);
+        assert!(refused.is_err(), "zkML has no verifier yet (M3)");
     }
 
     #[test]

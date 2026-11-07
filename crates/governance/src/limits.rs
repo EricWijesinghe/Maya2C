@@ -89,22 +89,15 @@ pub const EXECUTION_GRACE_BLOCKS: u64 = 100_000;
 /// shortens it (ADR-082, invariant 34).
 pub const MIN_UPGRADE_LEAD_BLOCKS: u64 = 2_592_000;
 
-/// Fewest blocks between a security-council sunset's execution and its
-/// announcement: 7 days at one block per second. Shorter than governance's
-/// lead because a council sunset is limited to retiring a suite, which removes
-/// authority rather than adding it (ADR-082).
-pub const MIN_COUNCIL_SUNSET_LEAD_BLOCKS: u64 = 604_800;
+/// How far past its creation height a schedule entry may name an activation or
+/// a sunset: about one year at one block per second. A far entry would fix the
+/// floor every later entry of its kind must clear (ADR-082, H1).
+pub const MAX_SCHEDULE_HORIZON_BLOCKS: u64 = 31_536_000;
 
 /// Whether an upgrade activation leads its execution by enough, for governance.
 #[must_use]
 pub const fn is_upgrade_lead_valid(execution: u64, activation: u64) -> bool {
     activation >= execution.saturating_add(MIN_UPGRADE_LEAD_BLOCKS)
-}
-
-/// Whether a council sunset leads its execution by enough.
-#[must_use]
-pub const fn is_council_sunset_lead_valid(execution: u64, announcement: u64) -> bool {
-    announcement >= execution.saturating_add(MIN_COUNCIL_SUNSET_LEAD_BLOCKS)
 }
 
 /// Whether a voting period is permissible.

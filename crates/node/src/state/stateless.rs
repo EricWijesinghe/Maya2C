@@ -275,6 +275,9 @@ fn fold_layers(accounts_root: &[u8; HASH_LEN], layers: &[LayerDigest]) -> [u8; H
 /// [`StatelessError::Unverifiable`] for a body that fails `tx_root`, a block a
 /// witness cannot decide, or a witness that does not match the parent root or
 /// does not open a key the block reads.
+///
+/// Judges suites under no deprecation schedule. A chain whose committed schedule
+/// sunsets a suite must verify through [`verify_block_under`] (ADR-082, M2).
 pub fn verify_block(
     parent_state_root: &[u8; HASH_LEN],
     height: u64,

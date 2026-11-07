@@ -1127,6 +1127,7 @@ impl GenesisConfig {
         for u in &upgrades {
             h.update(&u.version.to_le_bytes());
             h.update(&u.activation_height.to_le_bytes());
+            h.update(&u.features.0.to_le_bytes());
         }
         *h.finalize().as_bytes()
     }

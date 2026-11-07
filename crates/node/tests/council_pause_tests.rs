@@ -272,10 +272,10 @@ fn approvals_signed_for_another_chain_are_refused() {
 
 #[test]
 fn a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version() {
+    use custom_l1_node::state::upgrades::COUNCIL_SUNSET_LEAD_BLOCKS;
     use custom_l1_node::state::upgrades::SunsetSpec;
     use maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
     use maya_crypto_pq::suite::SuiteId;
-    use maya_governance::limits::MIN_COUNCIL_SUNSET_LEAD_BLOCKS;
 
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir);
@@ -290,12 +290,7 @@ fn a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version
     };
 
     // One block under the council's compiled lead: refused, and nothing changes.
-    let short = council(
-        sunset(next + MIN_COUNCIL_SUNSET_LEAD_BLOCKS - 1),
-        0,
-        &[0, 1],
-        0,
-    );
+    let short = council(sunset(next + COUNCIL_SUNSET_LEAD_BLOCKS - 1), 0, &[0, 1], 0);
     assert!(mine(&mut c, vec![short]).is_err());
     assert!(
         c.state()
@@ -311,7 +306,7 @@ fn a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version
     mine(
         &mut c,
         vec![council(
-            sunset(next + MIN_COUNCIL_SUNSET_LEAD_BLOCKS),
+            sunset(next + COUNCIL_SUNSET_LEAD_BLOCKS),
             0,
             &[0, 1],
             0,
@@ -328,5 +323,36 @@ fn a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version
             .sunsets
             .entries()
             .any(|s| s.suite == SuiteId::MlDsa65)
+    );
+}
+
+#[test]
+fn a_council_sunset_has_no_emergency_window_so_no_path_exits_a_frozen_vault_early() {
+    // H3: the emergency window is a governance-only path. A council sunset with
+    // one is refused even at the full lead.
+    use custom_l1_node::state::upgrades::SunsetSpec;
+    use maya_crypto_pq::agility::MIN_EMERGENCY_WINDOW;
+    use maya_crypto_pq::suite::SuiteId;
+
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir);
+    let announced = c.height() + 1 + custom_l1_node::state::upgrades::COUNCIL_SUNSET_LEAD_BLOCKS;
+    let emergency = CouncilKind::SunsetSuites {
+        announced_at: announced,
+        sunsets: vec![SunsetSpec {
+            suite: SuiteId::MlDsa65.to_byte(),
+            sunset_height: announced + MIN_EMERGENCY_WINDOW,
+            emergency: true,
+        }],
+    };
+    assert!(mine(&mut c, vec![council(emergency, 0, &[0, 1], 0)]).is_err());
+    assert!(
+        c.state()
+            .effective_schedule()
+            .unwrap()
+            .sunsets
+            .entries()
+            .next()
+            .is_none()
     );
 }

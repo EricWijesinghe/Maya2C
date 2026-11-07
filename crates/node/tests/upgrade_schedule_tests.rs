@@ -251,7 +251,12 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
     // Admitted at the earliest height that clears the lead from `now`.
     let now = FIRST_LEGAL_ACTIVATION + 1 - MIN_UPGRADE_LEAD_BLOCKS;
     schedule
-        .admit(&later_version, now, MIN_UPGRADE_LEAD_BLOCKS)
+        .admit(
+            &later_version,
+            now,
+            MIN_UPGRADE_LEAD_BLOCKS,
+            SuiteId::MlDsa87,
+        )
         .expect("a later height and version is admitted");
 
     let not_later = ScheduleRequest {
@@ -260,7 +265,7 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
     };
     assert!(
         schedule
-            .admit(&not_later, now, MIN_UPGRADE_LEAD_BLOCKS)
+            .admit(&not_later, now, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87)
             .is_err()
     );
     let same_version = ScheduleRequest {
@@ -269,7 +274,12 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
     };
     assert!(
         schedule
-            .admit(&same_version, now, MIN_UPGRADE_LEAD_BLOCKS)
+            .admit(
+                &same_version,
+                now,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                SuiteId::MlDsa87
+            )
             .is_err()
     );
 }
@@ -285,7 +295,7 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
     };
     assert!(
         schedule
-            .admit(&nothing, 1, MIN_UPGRADE_LEAD_BLOCKS)
+            .admit(&nothing, 1, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87)
             .is_err()
     );
     let feature_without_version = ScheduleRequest {
@@ -299,7 +309,12 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
     };
     assert!(
         schedule
-            .admit(&feature_without_version, 1, MIN_UPGRADE_LEAD_BLOCKS)
+            .admit(
+                &feature_without_version,
+                1,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                SuiteId::MlDsa87
+            )
             .is_err()
     );
 }
@@ -341,5 +356,8 @@ fn a_committed_sunset_refuses_its_suite_at_its_height_and_accepts_it_one_block_b
 fn an_unused_schedule_has_the_genesis_suite_policy_and_no_sunsets() {
     let schedule = fixture().db.effective_schedule().expect("schedule");
     assert_eq!(schedule.sunsets, SuiteSunsets::EMPTY);
-    assert_eq!(schedule.last_height, 0);
+    assert_eq!(
+        (schedule.last_version_height, schedule.last_sunset_height),
+        (0, 0)
+    );
 }

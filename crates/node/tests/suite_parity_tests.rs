@@ -222,15 +222,28 @@ fn governance_default_suite_is_ml_dsa_87_and_is_checked_by_the_node() {
     assert!(suites::policy(&table, &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY).is_ok());
     // The same hole is refused at proposal and execution time.
     assert!(
-        suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x12))
-            .is_err()
+        suites::check_parameter(
+            ParameterKey::DefaultSignatureSuite,
+            Amount::from_u64(0x12),
+            &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY
+        )
+        .is_err()
     );
     assert!(
-        suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x21))
-            .is_ok()
+        suites::check_parameter(
+            ParameterKey::DefaultSignatureSuite,
+            Amount::from_u64(0x21),
+            &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY
+        )
+        .is_ok()
     );
     assert!(
-        suites::check_parameter(ParameterKey::DexProtocolFeeBps, Amount::from_u64(0x12)).is_ok()
+        suites::check_parameter(
+            ParameterKey::DexProtocolFeeBps,
+            Amount::from_u64(0x12),
+            &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY
+        )
+        .is_ok()
     );
     // The governance range itself excludes Ed25519.
     assert!(

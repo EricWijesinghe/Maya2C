@@ -23,7 +23,9 @@ use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::invariant_guard::Module;
 use crate::state::invariant_guard::breaker::{BreakerRecord, Invariant, guard_key};
-use crate::state::upgrades::{EffectiveSchedule, ScheduleRequest, SunsetSpec};
+use crate::state::upgrades::{
+    COUNCIL_SUNSET_LEAD_BLOCKS, EffectiveSchedule, ScheduleRequest, SunsetSpec,
+};
 use crate::upgrade::FeatureSet;
 
 /// The council record, under the governance prefix.
@@ -197,10 +199,19 @@ impl StateDB {
             features: FeatureSet::default(),
             sunsets: sunsets.to_vec(),
         };
+        // No emergency window on this path (H3): the migration window is the
+        // only exit clock, and it is the one the derived lead already covers.
+        if sunsets.iter().any(|s| s.emergency) {
+            return Err(NodeError::Network(
+                "council action refused: a council sunset has no emergency window".into(),
+            ));
+        }
+        let default = self.default_after(overlay, &[])?;
         let admitted = self.effective_schedule_through(overlay)?.admit(
             &request,
             context.height,
-            maya_governance::limits::MIN_COUNCIL_SUNSET_LEAD_BLOCKS,
+            COUNCIL_SUNSET_LEAD_BLOCKS,
+            default,
         );
         if let Err(error) = admitted {
             return Err(NodeError::Network(format!(

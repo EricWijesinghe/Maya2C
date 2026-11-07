@@ -862,7 +862,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // `submit_block`, below). Proof of work verifies against the genesis floor.
     // `mode` is derived from the same `bft` field `chain_config` reads.
     let chain_config = config.chain_config()?;
-    // The same refusal for zkML, which rests on an SRS derived from a public
     let metrics = Arc::new(Metrics::new());
     let opened = std::time::Instant::now();
     let chain = Arc::new(Mutex::new(

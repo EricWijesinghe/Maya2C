@@ -39,15 +39,28 @@ the suite policy, the mempool, and the RPC.
 
 ### Rules every entry obeys
 
-- **Versions** strictly increase, and **heights** strictly increase
-  (`UpgradeSchedule::new`). Every new entry must lie after every existing one.
+- **Versions** strictly increase in height among versions only
+  (`UpgradeSchedule::new`), and **sunsets** strictly increase in announcement
+  height among sunsets only. A sunset never fixes the height a version must
+  follow, or the reverse (H1).
+- **Horizon.** An activation or a sunset height may not pass the write height
+  plus `MAX_SCHEDULE_HORIZON_BLOCKS` (about one year at one block per second),
+  so one far entry cannot set a floor for every later one (H1).
 - **Lead.** An entry is admitted only if its activation is at least the
   compiled lead after the height it is written at:
   `MIN_UPGRADE_LEAD_BLOCKS` (30 days at one block per second) for governance,
-  `MIN_COUNCIL_SUNSET_LEAD_BLOCKS` (7 days) for the council. Governance checks at
-  proposal time against the proposal's last possible execution height
+  `COUNCIL_SUNSET_LEAD_BLOCKS` for the council, derived as
+  `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW` (H3). Governance
+  checks at proposal time against the proposal's last possible execution height
   (`expires_after`), so every height the proposal can execute at keeps the full
   lead. It checks again at execution from the executing height.
+- **Suites.** A sunset may not name the suite the network does not permit, nor
+  the governance default suite at the moment of the write (H2). A default
+  governance sets may not name a suite a schedule entry already retires, and a
+  proposal whose own changes would break these rules expires instead of
+  stalling the chain (H2).
+- **zkML** cannot be scheduled until `zkml::verdict` is a real verifier (M3).
+  The refusal is in `UpgradeSchedule::new`, so admission and genesis both apply it.
 - **Feature bits** must be defined (`FeatureSet::is_known`).
 - **Nothing is cancelled or moved.** A record is written once. There is no
   removal path.
@@ -67,7 +80,22 @@ would stop the chain over a vote that passed.
 **Security council: `SunsetSuites`.** A new `CouncilKind` (tag 2) carrying only
 `announced_at` and suite sunsets. It has no version and no features, so the
 council can retire a suite and schedule nothing else. Its own 2-of-3 approvals
-(ADR-050) and nonce apply unchanged.
+(ADR-050) and nonce apply unchanged. It has **no emergency window** (H3), and
+its lead is `COUNCIL_SUNSET_LEAD_BLOCKS`, about 13.6 days at one block per
+second (1,000,000 + 172,800 blocks).
+
+**Why the council lead is what it is (H3).** A vault delay is at most
+`vault::MAX_DELAY_BLOCKS` (1,000,000 blocks, about 11.6 days). A council sunset
+announced just before a withdrawal could freeze the funds past the sunset height
+unless the lead covers the delay. The migration window is the time users have to
+move to another suite. The lead is the sum, derived from the constants. The
+reviewer's figure of about 18.6 days assumes a 7-day migration window. The code's
+`MIN_MIGRATION_WINDOW` is 172,800 blocks (2 days). The figure is recorded in
+DECISIONS.md, and the decision on the window is open before mainnet.
+
+**No exit-only mode.** An exit a broken suite can still sign would let an attacker
+exit a victim's funds too. Users migrate by transferring to an address under
+another suite.
 
 ### Feature gates and the halt
 
@@ -91,11 +119,19 @@ effective sunset records. `check_admissible` refuses a sunset suite at its
 sunset height and accepts it one block earlier. The mempool, the stateless
 verifier and threat evidence read the same records.
 
-### Light clients
+### Light clients (M2: a documented limitation, not a fix)
 
 A light client has no state. `LightClient::verify_block` takes the suite
-schedule from its caller and verifies with `verify_block_under`. The caller
-still has to be trusted for the schedule. That gap is recorded in `BACKLOG.md`.
+schedule from its caller and verifies with `verify_block_under`. A light client
+therefore does not learn about on-chain sunsets itself: it trusts its caller for
+them, and a stale schedule would accept a frame the chain has since refused.
+The fix the review proposed, a witness that carries a state proof of the `up:`
+records checked against the trusted root, is not built. The gap is recorded in
+`BACKLOG.md`. Until then, a light client that follows a chain with a sunset must
+be given the schedule from a source it trusts as much as its tip.
+
+The public `state::verify_block` remains for the stateless tests. Its doc says
+it judges under no schedule. Production verification uses `verify_block_under`.
 
 ### Header version byte
 
@@ -112,7 +148,7 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   `pow_limit_bits` is folded in. The tree pins no PoW id. A pinned BFT id with
   empty levers is recorded in `genesis_tests.rs` (see below).
 - **Leads are long.** A governance upgrade takes at least 30 days from
-  execution to activation. A council sunset takes 7. A chain cannot be tested
+  execution to activation. A council sunset takes about 13.6 days (H3). A chain cannot be tested
   across those heights, so the on-chain halt is checked at the state level and
   the chain-level halt on genesis-seeded entries.
 - **Mempool admission** and the stateless verifier use the effective schedule
