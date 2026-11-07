@@ -17,6 +17,7 @@ mod attacknet;
 mod bench_gate;
 mod bench_report;
 mod bench_tps;
+mod bft_devnet;
 mod brand_assets;
 mod check_brand_refs;
 mod claims_check;
@@ -84,6 +85,7 @@ fn main() -> ExitCode {
         "pgo" => pgo::run(rest),
         "hub-bundle" => hub_bundle::run(rest),
         "bench-tps" => bench_tps::bench_tps(rest),
+        "bft-devnet" => bft_devnet::run(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
         "proving" => proving::proving(rest),
@@ -204,6 +206,9 @@ cargo xtask <command>
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
   bench-tps [--senders N] [--txs N]  Finalized transfers/s on the 4-validator localnet
+  bft-devnet [--workdir DIR] [--seconds N] [--transfers N] [--release]
+                        Four validators and an observer as processes over
+                        DAG-BFT on localhost: transfers, heights, agreement.
   localnet [--remote-signer]  Four maya2c-node validators as processes over
                         libp2p on 127.0.0.1: one chain, a transfer on all,
                         liveness with one killed, and its catch-up.
