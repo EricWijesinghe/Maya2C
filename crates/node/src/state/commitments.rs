@@ -60,6 +60,10 @@ pub(crate) const RECORD_LAYERS: &[(&[u8], StateLayer)] = &[
         crate::state::stateless::STATELESS_PREFIX,
         StateLayer::Stateless,
     ),
+    (
+        crate::state::upgrades::UPGRADE_PREFIX,
+        StateLayer::UpgradeSchedule,
+    ),
 ];
 
 /// Committed prefixes that are not generic records: each has its own typed

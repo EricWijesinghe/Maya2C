@@ -214,7 +214,10 @@ fn block_verifies_all_transaction_signatures() {
     assert_eq!(
         valid_block.verify_transactions(
             1,
-            &custom_l1_node::crypto::suites::verification_policy(),
+            &custom_l1_node::crypto::suites::verification_policy(
+                &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY
+            )
+            .expect("genesis policy"),
             &common::test_chain()
         ),
         Ok(())
@@ -224,7 +227,10 @@ fn block_verifies_all_transaction_signatures() {
     assert_eq!(
         invalid_block.verify_transactions(
             1,
-            &custom_l1_node::crypto::suites::verification_policy(),
+            &custom_l1_node::crypto::suites::verification_policy(
+                &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY
+            )
+            .expect("genesis policy"),
             &common::test_chain()
         ),
         Err(NodeError::SignatureVerification)

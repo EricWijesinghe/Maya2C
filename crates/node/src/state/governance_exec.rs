@@ -38,7 +38,7 @@ use primitive_types::U256;
 
 use crate::consensus::difficulty::work_from_target;
 use crate::core::governance_payload::{
-    Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
+    Ballot, ProposalSubmission, ScheduleUpgrade, StakeLock, StakeUnlock, WorkClaim,
 };
 use crate::error::{NodeError, Result};
 use crate::governance::record::{LockRecord, ParameterTable, ProposalRecord, Totals};
@@ -50,6 +50,7 @@ use crate::governance::{
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
+use crate::state::upgrades::ScheduleRequest;
 
 /// Most governance transactions one block may carry.
 ///
@@ -72,6 +73,16 @@ fn default_table() -> ParameterTable {
 fn governance_error(error: GovernanceError) -> NodeError {
     NodeError::Governance {
         reason: error.to_string(),
+    }
+}
+
+/// The schedule request a passed `ScheduleUpgrade` asks for (ADR-082).
+fn schedule_request(upgrade: &ScheduleUpgrade) -> ScheduleRequest {
+    ScheduleRequest {
+        activation: upgrade.activation_height,
+        version: Some(upgrade.version),
+        features: upgrade.features,
+        sunsets: upgrade.sunsets.clone(),
     }
 }
 
@@ -143,6 +154,22 @@ impl StateDB {
     // ------------------------------------------------------- overlay access
 
     /// Reads the parameter table through the overlay.
+    /// The governance default suite once `changes` have applied (H2): a schedule
+    /// entry is checked against the default the chain will run under, not the
+    /// one it runs under now.
+    pub(crate) fn default_after(
+        &self,
+        overlay: &Overlay,
+        changes: &[(u16, maya_dex::Amount)],
+    ) -> Result<maya_crypto_pq::suite::SuiteId> {
+        let mut table = self.parameters_through(overlay)?;
+        for (tag, value) in changes {
+            let key = ParameterKey::from_tag(*tag).map_err(governance_error)?;
+            table = table.with(key, *value);
+        }
+        crate::crypto::suites::default_suite(&table)
+    }
+
     pub(crate) fn parameters_through(&self, overlay: &Overlay) -> Result<ParameterTable> {
         match self.record(overlay, PARAMETERS_KEY)? {
             Some(bytes) => ParameterTable::decode(&bytes),
@@ -386,6 +413,7 @@ impl StateDB {
         // Every change is checked here *and* again at execution. A release
         // between the two moments could tighten a range, and a value that was
         // legal when proposed must not become law after it stopped being legal.
+        let sunsets = self.effective_schedule_through(overlay)?.sunsets;
         let mut seen: Vec<ParameterKey> = Vec::with_capacity(submission.changes.len());
         for (tag, value) in &submission.changes {
             let key = ParameterKey::from_tag(*tag).map_err(governance_error)?;
@@ -398,7 +426,7 @@ impl StateDB {
             ParameterChange { key, value: *value }
                 .validate()
                 .map_err(governance_error)?;
-            crate::crypto::suites::check_parameter(key, *value)?;
+            crate::crypto::suites::check_parameter(key, *value, &sunsets)?;
         }
 
         let proposal = Proposal::open(
@@ -407,6 +435,18 @@ impl StateDB {
             submission.timelock_blocks,
         )
         .map_err(governance_error)?;
+
+        // The lead is measured from the proposal's last possible execution
+        // height, so every height it can execute at still leaves the full lead
+        // (ADR-082). Execution re-checks it from the height it actually runs.
+        if let Some(upgrade) = &submission.upgrade {
+            self.effective_schedule_through(overlay)?.admit(
+                &schedule_request(upgrade),
+                proposal.schedule.expires_after,
+                maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
+                self.default_after(overlay, &submission.changes)?,
+            )?;
+        }
 
         let id = derive_proposal_id(sender, nonce);
         if self.record(overlay, &proposal_key(&id))?.is_some() {
@@ -434,6 +474,7 @@ impl StateDB {
                 deposit,
                 proposal,
                 changes: submission.changes.clone(),
+                upgrade: submission.upgrade.clone(),
             }
             .encode(),
         );
@@ -557,13 +598,52 @@ impl StateDB {
                 .finalize(context.height, eligible, quorum_bps, approval_bps)
                 .unwrap_or(record.proposal);
 
-            // Apply it if the timelock has run.
+            // Apply it if the timelock has run. A schedule entry whose lead has
+            // run out is not applied, and the proposal expires: refusing the
+            // block instead would stop the chain on a vote that passed.
             if record.proposal.is_executable(context.height) {
-                self.apply_changes(overlay, &record)?;
-                record.proposal = record
-                    .proposal
-                    .execute(context.height)
-                    .map_err(governance_error)?;
+                // Both the schedule entry and the parameter changes are checked
+                // again here against the state they will land in. A failure
+                // expires the proposal: a block that refused it would stop the
+                // chain over a vote that passed (ADR-082).
+                let schedule_ok = match &record.upgrade {
+                    Some(upgrade) => {
+                        let default = self.default_after(overlay, &record.changes)?;
+                        self.effective_schedule_through(overlay)?
+                            .admit(
+                                &schedule_request(upgrade),
+                                context.height,
+                                maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
+                                default,
+                            )
+                            .is_ok()
+                    }
+                    None => true,
+                };
+                let changes_ok = {
+                    let sunsets = self.effective_schedule_through(overlay)?.sunsets;
+                    record.changes.iter().all(|(tag, value)| {
+                        ParameterKey::from_tag(*tag).is_ok_and(|key| {
+                            crate::crypto::suites::check_parameter(key, *value, &sunsets).is_ok()
+                        })
+                    })
+                };
+                let admitted = schedule_ok && changes_ok;
+                if admitted {
+                    self.apply_changes(overlay, &record)?;
+                    if let Some(upgrade) = &record.upgrade {
+                        let (entry, sunsets) = crate::state::upgrades::EffectiveSchedule::entry_for(
+                            &schedule_request(upgrade),
+                        );
+                        Self::stage_schedule(overlay, entry, &sunsets);
+                    }
+                    record.proposal = record
+                        .proposal
+                        .execute(context.height)
+                        .map_err(governance_error)?;
+                } else {
+                    record.proposal.state = ProposalState::Expired;
+                }
             } else {
                 record.proposal = record.proposal.expire_if_stale(context.height);
             }
@@ -590,13 +670,14 @@ impl StateDB {
     /// and its execution could have tightened a bound, and a value that was
     /// legal when proposed must not become law after it stopped being legal.
     fn apply_changes(&self, overlay: &mut Overlay, record: &ProposalRecord) -> Result<()> {
+        let sunsets = self.effective_schedule_through(overlay)?.sunsets;
         let mut table = self.parameters_through(overlay)?;
         for (tag, value) in &record.changes {
             let key = ParameterKey::from_tag(*tag).map_err(governance_error)?;
             ParameterChange { key, value: *value }
                 .validate()
                 .map_err(governance_error)?;
-            crate::crypto::suites::check_parameter(key, *value)?;
+            crate::crypto::suites::check_parameter(key, *value, &sunsets)?;
             table = table.with(key, *value);
         }
         Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());

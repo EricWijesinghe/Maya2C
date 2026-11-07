@@ -201,6 +201,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         treasury: None,
         // No upgrades scheduled: a schedule is a governance decision.
         protocol_upgrades: Vec::new(),
+        suite_deprecations: Vec::new(),
         security_council: None,
         shielded_activation_height: None,
         bft: None,

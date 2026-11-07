@@ -824,6 +824,14 @@ peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.r
 - The earlier sentence claiming that a fully hostile source set leaves only the time trigger
   is removed from `DECISIONS.md`. The trust model above replaces it.
 
+## 2026-11-07 — Upgrade schedule on chain, under compiled leads; council fast path limited to sunsets (ADR-082)
+
+- **Decision:** the schedule is committed state (`up:`), written by governance `ScheduleUpgrade` (30-day lead, `MIN_UPGRADE_LEAD_BLOCKS`) or by the security council `SunsetSuites` (no emergency window; lead `COUNCIL_SUNSET_LEAD_BLOCKS`).
+- **Council lead, derived:** `COUNCIL_SUNSET_LEAD_BLOCKS = vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW` = 1,000,000 + 172,800 = **1,172,800 blocks, about 13.6 days at one block per second.** The earlier draft's 7 days was the migration window alone, without the vault delay. The reviewer's "about 18.6 days" assumes a 7-day migration window (604,800 blocks). The code's `MIN_MIGRATION_WINDOW` is 172,800 (2 days), so the derived figure is 13.6 days. The constant is derived, not hard-coded. Changing the migration window to 604,800 would make the lead 18.6 days. Decide that before mainnet.
+- **Why the bound:** a vault delay is at most `MAX_DELAY_BLOCKS` blocks. A council sunset announced just before a withdrawal could freeze funds past the sunset height unless the lead covers the delay. The migration window is the time users have to move funds to another suite.
+- **No exit-only mode:** an exit a broken suite can sign would let an attacker exit a victim's funds too. Users migrate by transferring to an address under another suite.
+- **Recorded in:** ADR-082, invariant 34, `crates/node/tests/council_pause_tests.rs`, `crates/node/tests/sunset_tests.rs`.
+
 ## 2026-11-02 — B51: join scripts seal the validator key with a generated passphrase file (ADR-049, operator tooling)
 
 - Production builds refuse plaintext keys, so the installers (`join-validator.ps1`, `join-testnet.sh`) now make a 32-byte CSPRNG passphrase in `validator.pass` next to the key (`C:\ProgramData\Maya2C\`, `/var/lib/maya2c/`, `/Library/Application Support/Maya2C/`), pass it to keygen by file, and export `MAYA2C_VALIDATOR_PASSPHRASE_FILE` on every start. The passphrase never goes on a command line or into a log. Reinstall keeps it; Windows `-Everything` removes it with the key. Losing it loses the key, so the operator is told to back it up. Windows ACL: grant SYSTEM and Administrators first, then `/inheritance:r`. Unix: `umask 077`, mode 600.

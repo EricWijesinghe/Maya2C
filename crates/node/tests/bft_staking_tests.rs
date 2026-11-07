@@ -69,6 +69,7 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
         sealed: None,
         treasury: None,
         protocol_upgrades: Vec::new(),
+        suite_deprecations: Vec::new(),
         security_council: None,
         shielded_activation_height: None,
         bft: Some(BftGenesis {

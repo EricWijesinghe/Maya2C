@@ -25,7 +25,7 @@ use crate::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
     revocation_commitment,
 };
-use crate::core::rwa_payload::check_issuer_order;
+use crate::core::rwa_payload::check_issuer_order_from;
 use crate::core::transaction::ChainTag;
 use crate::core::{Transaction, TxKind};
 use crate::crypto::hybrid::{HybridVerifyingKey, address_of};
@@ -235,12 +235,13 @@ impl StateDB {
             // counterparty, and an error there would let anyone void a block by
             // submitting a swap they know cannot settle — invariant 7.
             TxKind::IssueRwa(payload) => {
-                check_issuer_order(
+                check_issuer_order_from(
                     payload
                         .rule
                         .as_ref()
                         .map_or(&[][..], |rule| rule.trusted_issuers.as_slice()),
                     context.height,
+                    context.rwa_strict_activation,
                 )?;
                 let rule = payload
                     .rule

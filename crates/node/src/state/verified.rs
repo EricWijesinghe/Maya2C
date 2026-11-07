@@ -150,7 +150,9 @@ mod tests {
     #[test]
     fn a_verified_transaction_is_remembered_and_a_tampered_one_is_not_let_through() {
         let cache = VerifiedCache::default();
-        let policy = crate::crypto::suites::verification_policy();
+        let policy =
+            crate::crypto::suites::verification_policy(&crate::crypto::suites::SuiteSunsets::EMPTY)
+                .expect("genesis policy");
         let chain = ChainTag::from_genesis([42; 32]);
         let tx = signed(5);
         cache.verify(&tx, 1, &policy, &chain).unwrap();

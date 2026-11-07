@@ -146,7 +146,7 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag, committee_size: usize) -> Re
     let anchor = &sub_dag.anchor.vertex;
     let parent = chain.get(&chain.tip()).map(|r| r.header.timestamp);
     let timestamp = (median_time_ms(sub_dag) / 1_000).max(parent.unwrap_or(0));
-    let context = chain.context_at(chain.height() + 1);
+    let context = chain.context_at(chain.height() + 1)?;
     let target = chain.next_target(&chain.tip())?;
     let nonce = seal(anchor.epoch, anchor.round);
     settle_block(

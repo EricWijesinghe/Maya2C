@@ -212,6 +212,9 @@ impl Transaction {
             return crate::core::multisig_tx::verify_at(self, multisig, height, policy, chain);
         }
         let Some(auth) = &self.suite_auth else {
+            // An untagged frame is the hybrid 0x30 by definition, so the schedule
+            // judges it like any tagged frame: a sunset of 0x30 refuses it (M1).
+            suites::check_admissible(policy, SuiteId::HybridMlDsa65SlhDsa128s, height)?;
             return self.verify(chain);
         };
         suites::check_admissible(policy, auth.suite, height)?;
