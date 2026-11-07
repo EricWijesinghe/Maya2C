@@ -46,10 +46,16 @@ a reserve that cannot run dry.
 - Rewards never end, and the reserve can never run dry. The "total supply" figure includes
   the whole lifetime reserve, so it is large; circulating supply grows by the schedule, and
   inflation as a share of supply falls every year.
-- Worked figure (assumes about 2 s blocks and 3,600-block epochs, as on the testnet): a tail
-  of 0.5% of 21M a year is about 24 coins an epoch; block numbers last about 1.2 × 10^12
-  years; the genesis reserve is about 1.2 × 10^17 coins, about 2^136 base units at 24
-  decimals. The reserve has no key and releases only by the schedule, so it is not a premine.
+- Worked figures (3,600-block epochs; corrected 2026-11-07, computed from `MiningRecord`):
+  the tail of 23.96 coins an epoch is 210,000 coins a year at one block a second (1% of 21M)
+  and 105,000 at two seconds (0.5%); the per-epoch value is fixed, the annual rate is not.
+  Block time is not pinned by DAG-BFT, so the annual rate is an owner decision. The halving
+  era issues 19,687,500 coins, not 21M. Block numbers last about 5.8 × 10^11 years at one
+  block a second, about 1.2 × 10^12 at two. The genesis reserve is about 1.2 × 10^17 coins
+  (1.2275 × 10^41 base units, about 2^136.5), and it is funded at genesis by
+  `lifetime_emission`, not minted. The reserve has no key and releases only by the schedule,
+  so it is not a premine. The ceremony's `--supply` allocations to root keys are a separate
+  matter: they are not zero (see the owner decision in the PR).
 - Mining record version 4 is unreadable by older nodes and v3 records are refused: re-genesis
   only (rust-reviewer, 2026-10-28). `validate` applies the 2^192 ceiling to every record,
   from genesis or decode (security-reviewer).
