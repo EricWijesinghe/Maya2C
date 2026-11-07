@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use custom_l1_node::consensus::bft::attest::{ATTEST_FRAME, Attestation};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::block::{Block, BlockHeader};
@@ -24,8 +25,10 @@ use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
+use custom_l1_node::genesis::GenesisConfig;
 use custom_l1_node::state::account::Account;
 use custom_l1_node::state::db::StateDB;
+use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION};
 use maya_dag_bft::Params;
 use tempfile::TempDir;
 
@@ -83,6 +86,10 @@ struct Mesh {
     queue: VecDeque<(usize, Vec<u8>)>,
     now: u64,
     equivocations: usize,
+    /// Members running a binary older than the schedule (`Mesh::with_old`).
+    old: Vec<usize>,
+    /// Every step an old member produced, in order: its frames and notices.
+    old_steps: Vec<(usize, Vec<Vec<u8>>, Vec<String>)>,
 }
 
 fn signers() -> (Vec<Arc<SigningKey>>, Arc<[VerifyingKey]>) {
@@ -111,9 +118,50 @@ fn open_chain(state_dir: &PathBuf, fund: bool) -> Chain {
     common::open_chain(state, genesis(), ChainConfig::dag_bft()).unwrap()
 }
 
+/// The height a version newer than this binary activates at, for an old member.
+const HALT_AT: u64 = 4;
+
+/// Writes a genesis schedule entry for a version this binary does not
+/// implement, before the chain opens. One binary cannot run as two, so an
+/// "old binary" is a member whose schedule names a version above
+/// `SUPPORTED_PROTOCOL_VERSION`; the halt makes that same comparison. Its state
+/// root therefore differs from the upgraded members', so its blocks below the
+/// halt are its own, which the DAG does not care about.
+fn seed_newer_version(state_dir: &PathBuf) {
+    let config = GenesisConfig {
+        chain_id: "bft-upgrade-halt".to_string(),
+        timestamp: 1_000_000,
+        difficulty_bits: 0,
+        pow_limit_bits: 0,
+        allocations: Vec::new(),
+        oracle: None,
+        sealed: None,
+        treasury: None,
+        protocol_upgrades: vec![ProtocolUpgrade {
+            version: SUPPORTED_PROTOCOL_VERSION + 1,
+            activation_height: HALT_AT,
+            features: FeatureSet::default(),
+        }],
+        suite_deprecations: Vec::new(),
+        security_council: None,
+        shielded_activation_height: None,
+        bft: None,
+    };
+    let state = StateDB::open(state_dir).unwrap();
+    for (key, value) in config.seeded_records().unwrap() {
+        state.raw_put_for_test(&key, &value).unwrap();
+    }
+}
+
 impl Mesh {
     /// Four validators and `observers` keyless followers.
     fn new(observers: usize) -> Self {
+        Self::with_old(observers, &[])
+    }
+
+    /// As [`Mesh::new`], with the validators in `old` running a binary that
+    /// does not implement the version scheduled at [`HALT_AT`].
+    fn with_old(observers: usize, old: &[usize]) -> Self {
         let root = TempDir::new().unwrap();
         let (keys, committee) = signers();
         let params = Params {
@@ -133,6 +181,9 @@ impl Mesh {
             };
             let state_dir = root.path().join(format!("state-{i}"));
             let bft_dir = root.path().join(format!("bft-{i}"));
+            if old.contains(&i) {
+                seed_newer_version(&state_dir);
+            }
             let mut chain = open_chain(&state_dir, true);
             let (driver, step) = BftDriver::open(&setup, &bft_dir, &mut chain, 0).unwrap();
             members.push(Member {
@@ -152,6 +203,8 @@ impl Mesh {
             queue: VecDeque::new(),
             now: 0,
             equivocations: 0,
+            old: old.to_vec(),
+            old_steps: Vec::new(),
         };
         for (i, step) in opening {
             mesh.absorb(i, step);
@@ -161,6 +214,10 @@ impl Mesh {
 
     fn absorb(&mut self, from: usize, step: Step) {
         self.equivocations += step.equivocations.len();
+        if self.old.contains(&from) {
+            self.old_steps
+                .push((from, step.frames.clone(), step.notices.clone()));
+        }
         // What the binary's feed does: ordered-but-dropped transactions go
         // back to the validator that proposed them.
         if let Some(driver) = self.members[from].driver.as_mut() {
@@ -207,14 +264,80 @@ impl Mesh {
 
     /// Runs until every live member is at `height` or the budget is spent.
     fn run_to(&mut self, height: u64) {
+        let live: Vec<usize> = (0..self.members.len())
+            .filter(|i| self.members[*i].driver.is_some())
+            .collect();
+        self.run_to_among(&live, height);
+    }
+
+    /// Runs until every member in `who` is at `height` or the budget is spent.
+    fn run_to_among(&mut self, who: &[usize], height: u64) {
         for _ in 0..400 {
-            if self.live().all(|m| m.chain.height() >= height) {
+            if who
+                .iter()
+                .all(|i| self.members[*i].chain.height() >= height)
+            {
                 return;
             }
+            self.rounds(1);
+        }
+    }
+
+    /// `n` quarter-second ticks, each followed by delivery.
+    fn rounds(&mut self, n: usize) {
+        for _ in 0..n {
             self.now += 250;
             self.tick();
             self.pump(2_000);
         }
+    }
+
+    /// Asserts old member `who` said once that it halted, and from that step
+    /// on sent nothing but attestations of heights below the halt — no
+    /// proposal, vote or certificate, and nothing at all after that step.
+    fn assert_went_silent_at_halt(&self, who: usize) {
+        let steps: Vec<_> = self.old_steps.iter().filter(|s| s.0 == who).collect();
+        let marker = format!("upgrade required before height {HALT_AT}");
+        let halts: Vec<usize> = steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.2.iter().any(|n| n.contains(&marker)))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(halts.len(), 1, "member {who} logs the halt exactly once");
+        for frame in steps.iter().flat_map(|s| &s.1) {
+            if frame.first() == Some(&ATTEST_FRAME) {
+                let height = Attestation::decode(frame).unwrap().height;
+                assert!(height < HALT_AT, "member {who} attested height {height}");
+            }
+        }
+        for frame in &steps[halts[0]].1 {
+            assert_eq!(
+                frame.first(),
+                Some(&ATTEST_FRAME),
+                "member {who} sent a DAG frame in its halt step"
+            );
+        }
+        let after: usize = steps[halts[0] + 1..].iter().map(|s| s.1.len()).sum();
+        assert_eq!(after, 0, "member {who} sent {after} frame(s) after halting");
+    }
+
+    /// The members in `who` hold one block at every height up to the lowest
+    /// of their tips. Returns that height.
+    fn agree_among(&self, who: &[usize]) -> u64 {
+        let common = who
+            .iter()
+            .map(|i| self.members[*i].chain.height())
+            .min()
+            .unwrap();
+        let chains: Vec<Vec<[u8; 32]>> = who
+            .iter()
+            .map(|i| self.members[*i].chain.active_chain().unwrap())
+            .collect();
+        for h in 0..=usize::try_from(common).unwrap() {
+            assert!(chains.iter().all(|c| c[h] == chains[0][h]), "fork at {h}");
+        }
+        common
     }
 
     fn live(&self) -> impl Iterator<Item = &Member> {
@@ -332,6 +455,65 @@ fn a_validator_restarted_from_its_safety_log_rejoins_without_equivocating() {
     assert_eq!(
         mesh.equivocations, 0,
         "the restarted validator signed a slot twice"
+    );
+}
+
+/// ADR-082: the launch binary is the one that will be old at the first
+/// upgrade, so what it does at the halt height is fixed for good. It stops at
+/// `HALT_AT - 1`, says so once, signs nothing more, and idles; the three
+/// upgraded validators (2f+1) keep finalizing without it.
+#[test]
+fn a_validator_without_the_scheduled_version_goes_silent_at_its_height_and_the_rest_carry_on() {
+    let mut mesh = Mesh::with_old(0, &[3]);
+    mesh.run_to_among(&[0, 1, 2], HALT_AT + 3);
+
+    assert_eq!(mesh.members[3].chain.height(), HALT_AT - 1);
+    let common = mesh.agree_among(&[0, 1, 2]);
+    assert!(
+        common >= HALT_AT + 3,
+        "the upgraded 3 of 4 stalled at {common}"
+    );
+    mesh.assert_went_silent_at_halt(3);
+    assert_eq!(mesh.equivocations, 0, "the halted validator left evidence");
+
+    // Idle, not spinning: the engine is never fed again, so its round stays
+    // put and a tick or a frame returns at once with nothing to send.
+    let driver = mesh.members[3].driver.as_ref().unwrap();
+    let round = driver.round();
+    let steps = mesh.old_steps.len();
+    mesh.rounds(20);
+    assert_eq!(mesh.members[3].driver.as_ref().unwrap().round(), round);
+    assert!(
+        mesh.old_steps[steps..]
+            .iter()
+            .all(|s| s.1.is_empty() && s.2.is_empty())
+    );
+    assert_eq!(mesh.members[3].chain.height(), HALT_AT - 1);
+}
+
+/// More than f validators without the version: finality stops at the halt
+/// for everyone, and nobody forks. The two upgraded members may finish the
+/// anchors already certified, then stall together on one chain.
+#[test]
+fn more_than_f_validators_without_the_scheduled_version_stall_the_chain_without_a_fork() {
+    let mut mesh = Mesh::with_old(0, &[2, 3]);
+    mesh.rounds(60);
+    let stalled = mesh.agree_among(&[0, 1]);
+    mesh.rounds(40);
+
+    assert_eq!(
+        mesh.agree_among(&[0, 1]),
+        stalled,
+        "the chain kept finalizing"
+    );
+    assert!(mesh.members[0].chain.height() <= stalled + 1);
+    for old in [2, 3] {
+        assert_eq!(mesh.members[old].chain.height(), HALT_AT - 1);
+        mesh.assert_went_silent_at_halt(old);
+    }
+    assert_eq!(mesh.equivocations, 0);
+    println!(
+        "upgrade halt with 2 of 4 old: upgraded members stalled at height {stalled} (halt at {HALT_AT})"
     );
 }
 
