@@ -61,9 +61,21 @@ struct Allocation {
     balance: serde_json::Value,
 }
 
+/// Least anchor timeout: the node's `MIN_ANCHOR_TIMEOUT_MS`
+/// (crates/node/src/genesis.rs, which explains the number). Repeated here
+/// because xtask does not link the node.
+const MIN_ANCHOR_TIMEOUT_MS: u64 = 500;
+
+/// The node's default when a genesis leaves the field out.
+const fn default_anchor_timeout_ms() -> u64 {
+    1_000
+}
+
 #[derive(Deserialize)]
 struct Bft {
     validators: Vec<String>,
+    #[serde(default = "default_anchor_timeout_ms")]
+    anchor_timeout_ms: u64,
     staking: Staking,
     #[serde(default)]
     fees: Option<Fees>,
@@ -189,6 +201,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
         out.push(format!(
             "{} validators, need at least {MIN_VALIDATORS}",
             g.bft.validators.len()
+        ));
+    }
+    if g.bft.anchor_timeout_ms < MIN_ANCHOR_TIMEOUT_MS {
+        out.push(format!(
+            "bft.anchor_timeout_ms {} is below {MIN_ANCHOR_TIMEOUT_MS}: the resend, re-fetch and fetch-reply limits run at half of it",
+            g.bft.anchor_timeout_ms
         ));
     }
     if g.bft.validators.len() != g.bft.staking.bonds.len() {
@@ -341,6 +359,28 @@ mod tests {
 
     #[test]
     fn seven_even_operators_pass() {
+        assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_anchor_timeout_below_the_floor_is_refused_and_the_default_passes() {
+        let with = |t: u64| {
+            genesis(20, true, &EVEN).replace(
+                "\"bft\":{",
+                &format!("\"bft\":{{\"anchor_timeout_ms\":{t},"),
+            )
+        };
+        for refused in [0, 1, MIN_ANCHOR_TIMEOUT_MS - 1] {
+            let found = check(&with(refused)).unwrap();
+            assert!(
+                found.iter().any(|p| p.contains("anchor_timeout_ms")),
+                "{refused}: {found:?}"
+            );
+        }
+        for accepted in [MIN_ANCHOR_TIMEOUT_MS, 1_000] {
+            assert!(check(&with(accepted)).unwrap().is_empty(), "{accepted}");
+        }
+        // Absent means the node's default, 1000 ms.
         assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
     }
 

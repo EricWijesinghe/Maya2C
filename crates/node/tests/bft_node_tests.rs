@@ -526,6 +526,121 @@ fn a_validator_down_far_past_the_engine_window_rejoins_through_a_checkpoint() {
     assert_eq!(mesh.equivocations, 0);
 }
 
+#[test]
+fn a_validator_restarted_sixty_blocks_behind_builds_again_from_a_live_source() {
+    // Gate 10: a follower only imports up to a checkpoint, which trails the
+    // network's tip, so a restarted validator that never builds again stays
+    // a follower for good, and its attestations never count. Here its source
+    // is a builder's newest checkpoint, as on a real network.
+    const INTERVALS: usize = 40;
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(3);
+    mesh.members[2].driver = None;
+    let before = mesh.members[2].chain.height();
+    mesh.run_to(before + 60);
+    let m = &mut mesh.members[2];
+    m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
+    m.chain = open_chain(&m.state_dir, false);
+    let (_, committee) = signers();
+    assert!(catch_up_member(&mut mesh, 2, 0, &committee) >= 50);
+    open_member_two(&mut mesh);
+    let m = &mut mesh.members[2];
+    m.driver.as_mut().unwrap().follow_attested(&m.chain);
+
+    let mut built_again = None;
+    for i in 0..INTERVALS {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+        if !mesh.members[2].driver.as_ref().unwrap().is_follower() {
+            built_again = Some(i);
+            break;
+        }
+        catch_up_member(&mut mesh, 2, 0, &committee);
+    }
+    let at = built_again.unwrap_or_else(|| {
+        panic!("still a follower after {INTERVALS} intervals: it never builds again")
+    });
+    println!("built again after {at} interval(s)");
+
+    // From here on nothing is imported: every block it gains it built.
+    let (lead, own) = (
+        mesh.members[0].chain.height(),
+        mesh.members[2].chain.height(),
+    );
+    let round = mesh.members[2].driver.as_ref().unwrap().round();
+    for _ in 0..8 {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+    }
+    let now_own = mesh.members[2].chain.height();
+    assert!(now_own > own + 3, "it builds: {own} -> {now_own}");
+    assert!(
+        mesh.members[2].driver.as_ref().unwrap().round() > round + 4,
+        "it proposes"
+    );
+    assert!(mesh.members[0].chain.height() > lead, "the network goes on");
+    mesh.agree_at(now_own.min(mesh.members[0].chain.height()));
+    assert_eq!(mesh.equivocations, 0);
+}
+
+/// Holds member `i` out for 60 blocks, then restarts it as an attested
+/// follower of member 0's checkpoints. Returns how many blocks it imported.
+fn restart_as_follower(mesh: &mut Mesh, i: usize, committee: &[VerifyingKey]) -> u64 {
+    mesh.members[i].driver = None;
+    let before = mesh.members[0].chain.height();
+    mesh.run_to(before + 60);
+    let m = &mut mesh.members[i];
+    m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
+    m.chain = open_chain(&m.state_dir, false);
+    let imported = catch_up_member(mesh, i, 0, committee);
+    let m = &mut mesh.members[i];
+    let (mut driver, step) =
+        BftDriver::open(&mesh.setups[i], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
+    driver.follow_attested(&m.chain);
+    m.driver = Some(driver);
+    mesh.absorb(i, step);
+    imported
+}
+
+#[test]
+fn two_builders_keep_finalizing_while_both_other_validators_follow() {
+    // n = 4, f = 1: members 2 and 3 restart far behind, one after the other,
+    // and follow. Only 2f builders are left. Followers vote, so the DAG keeps
+    // its quorum and the builders keep building. Checkpoints (n - f
+    // attesters) stop, so checkpoint imports alone never bring the followers
+    // back; in the node that case is ADR-052's certificate replay
+    // (`bft_follower_tests`), which this mesh does not run.
+    let (_, committee) = signers();
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(3);
+    restart_as_follower(&mut mesh, 2, &committee);
+    restart_as_follower(&mut mesh, 3, &committee);
+    let start = mesh.members[0].chain.height();
+    for _ in 0..20 {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+        catch_up_member(&mut mesh, 2, 0, &committee);
+        catch_up_member(&mut mesh, 3, 0, &committee);
+    }
+    let lead = mesh.members[0].chain.height();
+    let followers: Vec<bool> = (2..4)
+        .map(|i| mesh.members[i].driver.as_ref().unwrap().is_follower())
+        .collect();
+    println!(
+        "two followers: builders {start} -> {lead}; still following {followers:?}; heights {:?}",
+        mesh.members
+            .iter()
+            .map(|m| m.chain.height())
+            .collect::<Vec<_>>()
+    );
+    assert!(lead > start + 5, "two builders stalled: {start} -> {lead}");
+    mesh.agree_at(mesh.live().map(|m| m.chain.height()).min().unwrap());
+    assert_eq!(mesh.equivocations, 0);
+}
+
 /// Imports into member `lagging` from member `from`'s checkpoint and chain.
 fn catch_up_member(
     mesh: &mut Mesh,

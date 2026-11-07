@@ -23,6 +23,12 @@ use crate::vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex
 /// Rounds kept behind the last committed anchor before garbage collection.
 pub const GC_DEPTH: u64 = 50;
 
+/// How far above the rounds it holds a node buffers certificates still
+/// waiting for parents. With one certificate per slot that bounds the buffer
+/// to about `committee × (BUFFER_ROUNDS + held rounds)`; without it, each
+/// certificate a peer sent ahead was kept, and each drain scans the buffer.
+pub const BUFFER_ROUNDS: u64 = 2 * GC_DEPTH;
+
 /// What validators say to each other.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Message {
@@ -595,6 +601,13 @@ impl<A: Authenticator> Validator<A> {
             return;
         }
         if !self.dag.missing_parents(&c).is_empty() {
+            if c.vertex.round > self.buffer_ceiling() {
+                // Too far ahead to wait for: dropped, not buffered, so the
+                // buffer stays within `BUFFER_ROUNDS` rounds of what this node
+                // holds (one certificate per slot). Once it is that close
+                // again, re-broadcasts and fetches bring the round back.
+                return;
+            }
             // Buffered first: `fetch_missing` walks from the buffer.
             self.buffer.insert(digest, c);
             self.fetch_missing(digest, from, out);
@@ -612,6 +625,16 @@ impl<A: Authenticator> Validator<A> {
             self.report_inserted(&digest, out);
         }
         self.drain_buffer(out);
+    }
+
+    /// Highest round a certificate waiting for parents may be buffered at:
+    /// [`BUFFER_ROUNDS`] above the newer of the highest round held and the
+    /// horizon (after a resume the DAG may hold nothing yet).
+    fn buffer_ceiling(&self) -> u64 {
+        self.dag
+            .highest_round()
+            .max(self.dag.gc_round())
+            .saturating_add(BUFFER_ROUNDS)
     }
 
     /// Fetches from `from` the ancestors buffered certificate `digest` waits
@@ -700,12 +723,13 @@ impl<A: Authenticator> Validator<A> {
                 .committer
                 .last_committed_round()
                 .saturating_sub(GC_DEPTH);
+            // Only a horizon that moved can make a buffered certificate ready.
+            self.drain_due |= horizon > self.dag.gc_round();
             self.dag.collect_below(horizon);
             self.committer.collect_below(horizon);
             self.voted = self.voted.split_off(&(horizon, 0));
             self.seen = self.seen.split_off(&(horizon, 0));
             self.buffer.retain(|_, c| c.vertex.round >= horizon);
-            self.drain_due = true;
         }
         if std::mem::take(&mut self.drain_due) {
             self.drain_buffer(out);

@@ -152,12 +152,77 @@ test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 -- --cap-lints warn`: finished, 0 errors. All warnings are `pedantic`, and none
 are on lines this change added.
 
+## Review follow-ups (same day)
+
+**F1, the anchor-timeout floor.** `GenesisConfig::validate` refuses
+`bft.anchor_timeout_ms < MIN_ANCHOR_TIMEOUT_MS` (500). At 500, the resend
+interval is 250 ms or more: above a WAN round trip, and a multiple of the
+node's 100 ms tick. `xtask genesis-check` applies the same rule; when the
+field is absent, it takes the node's default of 1000. The binary also clamps
+`resend_interval_ms` to at least one tick. Every genesis and config in the
+tree uses 1000, except `maya2c-cli dev`, which uses 500: all accepted. Tests:
+`genesis::tests::an_anchor_timeout_below_the_floor_is_refused` and
+`genesis_check::tests::an_anchor_timeout_below_the_floor_is_refused_and_the_default_passes`
+(0, 1 and 499 refused; 500 and 1000 accepted).
+
+**F2, the buffer bound.** A certificate still waiting for parents is buffered
+only if its round is at most `BUFFER_ROUNDS` (2 × `GC_DEPTH`) above the
+higher of the highest round held and the horizon. The horizon counts because
+after a resume the DAG may hold nothing yet. Beyond that, the certificate is
+dropped, which is deterministic and needs no eviction. One certificate per
+slot then bounds the buffer by committee × rounds in the window. A commit
+sets `drain_due` only when the horizon actually moved. Test:
+`a_certificate_too_far_ahead_is_not_buffered` (3 fetches at the ceiling, 0
+one round past it). The 60-block test still passes. Its engine now drops
+far-ahead certificates while it is behind, rather than buffering them, and
+rejoins after the import.
+
+**F3, building again.**
+`a_validator_restarted_sixty_blocks_behind_builds_again_from_a_live_source`:
+the source is member 0, a builder, serving its newest checkpoint. Result:
+`built again after 2 interval(s)`. After that, nothing is imported and the
+validator gained more than 3 blocks of its own and kept proposing.
+`may_build_again` is not changed.
+
+It is not shown to fire against a source that trails. In the earlier
+`Engine::AfterImport` and `Engine::BeforeImport` traces, the source is a
+follower one block behind the newest checkpoint it has seen. The validator
+stayed `is_follower() == true` for all 30 intervals, 47 blocks behind. The
+binary's follow loop polls once a second (`FOLLOW_INTERVAL`), and the rule
+needs the imported tip to be exactly the previous anchor's block when the next
+anchor commits. A source, or anchor cadence, that keeps the tip two or more
+anchors behind would keep it a follower. NOT VERIFIED against real binaries.
+The fix, if needed: keep the sub-DAGs committed while following and build
+them once an import reaches the anchor before them.
+
+**Two followers, two builders.**
+`two_builders_keep_finalizing_while_both_other_validators_follow`:
+`two followers: builders 403 -> 418; still following [true, true]; heights
+[418, 418, 105, 105]`. The followers vote, so the two builders keep
+finalizing. Only two attesters are left, so no checkpoint forms and
+checkpoint imports alone never bring the followers back. In the node, that
+case is ADR-052's certificate replay (`bft_follower_tests`), which this mesh
+does not run.
+
+Results, all from one run on this branch:
+
+```
+bft_node_tests:      ok. 14 passed; 0 failed; 0 ignored; finished in 197.05s
+bft_follower_tests:  ok. 13 passed; 0 failed
+maya-dag-bft:        ok. 20 / 10 / 10 / 10 / 2 / 0 passed; 0 failed
+custom-l1-node lib:  ok. 530 passed; 0 failed; 1 ignored
+maya2c-node bins:    ok. 82 passed; 0 failed
+xtask genesis_check: ok. 17 passed; 0 failed
+clippy (maya-dag-bft, custom-l1-node, maya2c-node, xtask; --all-targets
+  --cap-lints warn): Finished, 0 errors; no warning on a changed line
+```
+
 ## Not verified
 
 - The behind validator, though rejoined as a voter, keeps importing about
   one mesh interval behind and never builds again in 30 intervals. That
   comes from the follower source the test poses (one block behind the newest
   checkpoint it has seen), and `may_build_again` needs the tip at the
-  previous anchor. Not changed here.
+  previous anchor. See F3.
 - `scripts/lint_debt.sh --check` was not run.
 - No real-binary run (attacknet or localnet) of the 60-block restart.

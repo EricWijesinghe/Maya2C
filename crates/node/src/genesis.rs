@@ -200,6 +200,16 @@ impl CouncilGenesis {
     }
 }
 
+/// Least `bft.anchor_timeout_ms` a genesis may set. The node re-sends and
+/// re-fetches every `anchor_timeout_ms / 2`, and that interval is also the
+/// window of each peer's fetch-reply budget; at 0 (a timeout of 0 or 1) all
+/// three limits switch off and a lagging validator's fetches multiply until
+/// they bury the honest traffic (reports/sessions/2026-11-08-behind-validator-stall.md).
+/// 500 keeps the interval at 250 ms or more: above a WAN round trip, so a
+/// reply has time to arrive before it is asked for again, and a multiple of
+/// the node's 100 ms tick. `xtask genesis-check` holds the same number.
+pub const MIN_ANCHOR_TIMEOUT_MS: u64 = 500;
+
 /// The genesis committee of a DAG-BFT network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BftGenesis {
@@ -697,6 +707,11 @@ impl GenesisConfig {
                 return Err(NodeError::Decode(format!(
                     "bft.batch_size must be 1..={}",
                     crate::consensus::bft::store::MAX_BATCH_ITEMS
+                )));
+            }
+            if bft.anchor_timeout_ms < MIN_ANCHOR_TIMEOUT_MS {
+                return Err(NodeError::Decode(format!(
+                    "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
                 )));
             }
             if bft.staking.as_ref().is_some_and(|staking| {
@@ -1396,6 +1411,46 @@ mod tests {
             .unwrap();
         assert!(out.effects.contains(&Effect::Credit([0x0a; 32], pool)));
         assert!(!out.effects.iter().any(|e| matches!(e, Effect::Burn(_))));
+    }
+
+    #[test]
+    fn an_anchor_timeout_below_the_floor_is_refused() {
+        let with_timeout = |anchor_timeout_ms: u64| GenesisConfig {
+            chain_id: "anchor-floor".to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: Vec::new(),
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            suite_deprecations: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec!["00".repeat(32)],
+                anchor_timeout_ms,
+                batch_size: 100,
+                round_interval_ms: 500,
+                staking: None,
+                fees: None,
+                mining: None,
+            }),
+        };
+        let about_the_timeout = |t: u64| {
+            with_timeout(t)
+                .validate()
+                .is_err_and(|e| e.to_string().contains("anchor_timeout_ms"))
+        };
+        // 0 and 1 give a resend interval of 0: every limit off.
+        for refused in [0, 1, MIN_ANCHOR_TIMEOUT_MS - 1] {
+            assert!(about_the_timeout(refused), "{refused} ms was accepted");
+        }
+        // The floor itself, the default every config in the tree uses, and more.
+        for accepted in [MIN_ANCHOR_TIMEOUT_MS, 1_000, 10_000] {
+            assert!(!about_the_timeout(accepted), "{accepted} ms was refused");
+        }
     }
 
     /// A default `min_delegation` leaves the bytes and the id of every earlier
