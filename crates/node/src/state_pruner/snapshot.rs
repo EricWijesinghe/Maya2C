@@ -42,10 +42,12 @@ use crate::consensus::{Chain, ChainConfig};
 use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
+use crate::rpc::server::RPC_RESPONSE_LIMIT;
 use crate::state::commitments::{committed_prefixes, is_committed};
 use crate::state::db::StateDB;
 
-/// Entries per snapshot chunk.
+/// Most entries per snapshot chunk. A chunk also closes early at
+/// [`MAX_CHUNK_BYTES`]; see [`encode_chunks`].
 pub const CHUNK_ENTRIES: usize = 4_096;
 
 /// Longest key a chunk entry may carry.
@@ -59,10 +61,31 @@ const MAX_ENTRY_VALUE: usize = MAX_RECORD_BYTES;
 /// Headers asked for per request during bootstrap.
 pub const HEADER_BATCH: u64 = 2_000;
 
-/// Most bytes one snapshot chunk may be when received. A chunk is
-/// `CHUNK_ENTRIES` entries, so the bound is generous for real state; it exists
-/// so a peer cannot make the importer hash and decode an unbounded body.
-pub const MAX_CHUNK_BYTES: usize = 64 * 1024 * 1024;
+/// Room left in one JSON-RPC response for everything around a chunk's hex:
+/// the envelope (`{"jsonrpc":"2.0","id":…,"result":"…"}`) is under 100 bytes.
+const RPC_ENVELOPE_BYTES: usize = 64 * 1024;
+
+/// Most bytes one snapshot chunk may be, served or received.
+///
+/// `get_snapshot_chunk` sends a chunk hex-encoded (two characters a byte) in
+/// one JSON-RPC response capped at [`RPC_RESPONSE_LIMIT`]. A chunk past half
+/// that cap could be built but never delivered, and every new node's
+/// bootstrap would stop at it for good: the old bound, 64 MiB with chunks cut
+/// by entry count alone, let about 33 maximal contracts do exactly that. The
+/// importer refuses the same bound, so a peer cannot make it hash and decode
+/// an unbounded body.
+pub const MAX_CHUNK_BYTES: usize = RPC_RESPONSE_LIMIT as usize / 2 - RPC_ENVELOPE_BYTES;
+
+const _: () = assert!(
+    2 * MAX_CHUNK_BYTES + RPC_ENVELOPE_BYTES <= RPC_RESPONSE_LIMIT as usize,
+    "a maximal chunk, hex-encoded with its envelope, must fit one RPC response"
+);
+
+/// Bytes [`encode_chunk`] spends on the entry count.
+const CHUNK_HEADER_BYTES: usize = 8;
+
+/// Bytes [`encode_chunk`] spends per entry besides its key and value.
+const ENTRY_OVERHEAD_BYTES: usize = 16;
 
 /// Domain of a chunk's hash in the manifest.
 const CHUNK_CONTEXT: &str = "maya snapshot chunk v1";
@@ -134,6 +157,41 @@ pub fn encode_chunk(entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
         buf.extend_from_slice(value);
     }
     buf
+}
+
+/// Splits `entries` into encoded chunks, each closed at whichever comes first:
+/// [`CHUNK_ENTRIES`] entries or [`MAX_CHUNK_BYTES`] bytes. One entry too large
+/// for a chunk on its own is refused rather than served as a chunk no peer
+/// can download.
+///
+/// # Errors
+///
+/// Returns [`NodeError::Storage`] for an entry whose encoding alone exceeds
+/// [`MAX_CHUNK_BYTES`].
+pub fn encode_chunks(entries: &[(Vec<u8>, Vec<u8>)]) -> Result<Vec<Vec<u8>>> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut bytes = CHUNK_HEADER_BYTES;
+    for (index, (key, value)) in entries.iter().enumerate() {
+        let size = ENTRY_OVERHEAD_BYTES + key.len() + value.len();
+        if CHUNK_HEADER_BYTES + size > MAX_CHUNK_BYTES {
+            return Err(NodeError::Storage(format!(
+                "snapshot entry {} is {size} bytes encoded, over the \
+                 {MAX_CHUNK_BYTES}-byte chunk cap: it cannot be served over RPC",
+                hex::encode(&key[..key.len().min(64)])
+            )));
+        }
+        if index - start == CHUNK_ENTRIES || bytes + size > MAX_CHUNK_BYTES {
+            chunks.push(encode_chunk(&entries[start..index]));
+            start = index;
+            bytes = CHUNK_HEADER_BYTES;
+        }
+        bytes += size;
+    }
+    if start < entries.len() {
+        chunks.push(encode_chunk(&entries[start..]));
+    }
+    Ok(chunks)
 }
 
 /// Decodes one chunk.
@@ -602,7 +660,7 @@ impl Snapshots {
 
         let checkpoint = StateDB::open(&path)?;
         let entries = checkpoint.committed_entries()?;
-        let chunks: Vec<Vec<u8>> = entries.chunks(CHUNK_ENTRIES).map(encode_chunk).collect();
+        let chunks = encode_chunks(&entries)?;
         let manifest = SnapshotManifest {
             height,
             block_id,
@@ -715,8 +773,8 @@ mod tests {
     #[test]
     fn a_chunk_over_the_byte_cap_is_refused_before_it_is_decoded() {
         // Every entry is valid and the manifest hash matches, so only the cap
-        // can refuse it: five 14 MiB values come to 70 MiB, over the 64 MiB cap.
-        let big = vec![(b"acct:a".to_vec(), vec![0xab; 14 * 1024 * 1024]); 5];
+        // can refuse it: two 9 MiB values come to 18 MiB, over the ~16 MiB cap.
+        let big = vec![(b"acct:a".to_vec(), vec![0xab; 9 * 1024 * 1024]); 2];
         let chunk = encode_chunk(&big);
         assert!(chunk.len() > MAX_CHUNK_BYTES);
         let manifest = SnapshotManifest {
@@ -752,5 +810,49 @@ mod tests {
         // The staking record is one value; a busy chain's passes 65,536 bytes.
         let entries = vec![(b"stk".to_vec(), vec![0xaa; 200_000])];
         assert_eq!(decode_chunk(&encode_chunk(&entries)), Ok(entries));
+    }
+
+    #[test]
+    fn chunks_close_at_the_byte_cap_and_an_entry_that_fits_alone_is_served_alone() {
+        // 6 MiB values: two fit a chunk, a third would not.
+        let value = vec![0x5a; 6 * 1024 * 1024];
+        let entries: Vec<_> = (0u8..5)
+            .map(|i| (vec![b'c', b'o', b'd', b'e', b':', i], value.clone()))
+            .collect();
+        let chunks = encode_chunks(&entries).expect("chunks");
+        assert_eq!(chunks.len(), 3);
+        assert!(chunks.iter().all(|c| c.len() <= MAX_CHUNK_BYTES));
+        let back: Vec<_> = chunks
+            .iter()
+            .flat_map(|c| decode_chunk(c).expect("decode"))
+            .collect();
+        assert_eq!(back, entries);
+
+        // The largest single entry a chunk can hold is still served, alone.
+        let fits = MAX_CHUNK_BYTES - CHUNK_HEADER_BYTES - ENTRY_OVERHEAD_BYTES - 6;
+        let edge = vec![
+            (b"code:a".to_vec(), vec![1]),
+            (b"code:b".to_vec(), vec![2; fits]),
+        ];
+        let chunks = encode_chunks(&edge).expect("an entry that fits alone");
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[1].len(), MAX_CHUNK_BYTES);
+
+        // One byte more cannot be served by anyone: refused, not shipped.
+        let over = vec![(b"code:b".to_vec(), vec![2; fits + 1])];
+        assert!(
+            matches!(encode_chunks(&over), Err(NodeError::Storage(m)) if m.contains("chunk cap"))
+        );
+    }
+
+    #[test]
+    fn chunks_still_close_at_the_entry_count() {
+        let entries: Vec<_> = (0..=CHUNK_ENTRIES)
+            .map(|i| (i.to_be_bytes().to_vec(), Vec::new()))
+            .collect();
+        let chunks = encode_chunks(&entries).expect("chunks");
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(decode_chunk(&chunks[1]).expect("decode").len(), 1);
+        assert!(encode_chunks(&[]).expect("empty").is_empty());
     }
 }
