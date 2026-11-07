@@ -1,0 +1,212 @@
+---
+title: Start mining
+description: Find Maya2C, check your GPU, and start mining on Windows or Linux, with the one-click and command-line paths and what to expect.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Mining is optional, visible, and stops when you stop it. Nothing here starts
+on its own or runs hidden. The page covers three things in order: whether your
+machine can mine, how to start, and what to expect.
+
+## The path, at a glance
+
+<svg viewBox="0 0 720 150" role="img" aria-label="Three steps: run a node or use a public RPC, start the miner, the miner submits shares and earns a budget share" style="width:100%;height:auto">
+  <rect x="10" y="30" width="200" height="90" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="110" y="68" text-anchor="middle" font-size="16" fill="currentColor">1. Node</text>
+  <text x="110" y="95" text-anchor="middle" font-size="13" fill="currentColor">syncs the chain</text>
+  <line x1="215" y1="75" x2="250" y2="75" stroke="currentColor" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="260" y="30" width="200" height="90" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="360" y="68" text-anchor="middle" font-size="16" fill="currentColor">2. Miner</text>
+  <text x="360" y="95" text-anchor="middle" font-size="13" fill="currentColor">GPU or CPU, your key</text>
+  <line x1="465" y1="75" x2="500" y2="75" stroke="currentColor" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="510" y="30" width="200" height="90" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="610" y="68" text-anchor="middle" font-size="16" fill="currentColor">3. Shares</text>
+  <text x="610" y="95" text-anchor="middle" font-size="13" fill="currentColor">paid from the epoch budget</text>
+  <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+</svg>
+
+## 1. Check your machine
+
+| Mining mode | What you need | Honest note |
+|---|---|---|
+| GPU, full dataset | A graphics card with about **6 GB of free video memory**, and a driver with Vulkan (Linux) or DirectX 12 or Vulkan (Windows). The miner holds the **4 GiB dataset** in video memory. | This is the mode that makes sense. The GPU path has not been measured on real cards in this repository yet; run `--list` and `--benchmark` on your card before you rely on any figure. |
+| CPU, light | Any 64-bit machine with about 64 MiB free for the cache. | Works, and is useful for testing. Mining from the cache is about 260 times slower than from the dataset, so CPU mining will earn a very small share of the budget. |
+
+Find your adapter before anything else. Every later command uses its index.
+
+<Tabs>
+<TabItem label="Windows">
+
+```powershell
+.\maya2c-gpu-miner.exe --list
+```
+
+</TabItem>
+<TabItem label="Linux">
+
+```bash
+./maya2c-gpu-miner --list
+```
+
+</TabItem>
+</Tabs>
+
+`--list` prints each adapter's name, backend and storage limits. The storage
+buffer limit decides how the 4 GiB dataset is split, so the output matters more
+than the card's name.
+
+## 2. Get the miner
+
+There are two paths. The command-line path is the one that works today.
+
+**Maya2C Hub (one click): not published yet.** The Hub is the desktop app
+that will run the miner for you, with a per-GPU view and a temperature stop.
+It is built in source but no installer is published for any platform, and it
+is not code-signed, so Windows and macOS will warn "unknown publisher" when it
+ships. Do not download a Hub from anywhere else.
+
+**Command line: build from source.**
+
+<Tabs>
+<TabItem label="Windows">
+
+Install the Rust toolchain from [rustup.rs](https://rustup.rs), then in
+PowerShell, from the source tree:
+
+```powershell
+cargo build --release -p maya2c-gpu-miner --features gpu
+.\target\release\maya2c-gpu-miner.exe --list
+```
+
+Without a GPU, drop `--features gpu`. The binary then mines on CPU threads alone.
+
+</TabItem>
+<TabItem label="Linux">
+
+Install Rust with [rustup](https://rustup.rs), and the Vulkan loader and your
+GPU driver. Then, from the source tree:
+
+```bash
+cargo build --release -p maya2c-gpu-miner --features gpu
+./target/release/maya2c-gpu-miner --list
+```
+
+Without a GPU, drop `--features gpu`.
+
+</TabItem>
+</Tabs>
+
+## 3. Run a node to take work from
+
+The miner takes work from a node's JSON-RPC endpoint and submits shares to it.
+It reads `MAYA_RPC`, which defaults to `http://127.0.0.1:8545`, so a node on
+the same machine needs no flag.
+
+- **Run your own node** (recommended): start `maya2c-node` and let it sync.
+- **A public RPC**: the project has not published one yet. Use one when
+  the project names it in its release notes.
+
+## 4. Start mining
+
+The initial run creates a payout key in `maya2c-miner.key`. **Back that file up
+and never share it.** Shares pay the address derived from it. Losing the file
+loses access to what it earns.
+
+<Tabs>
+<TabItem label="Windows">
+
+```powershell
+.\maya2c-gpu-miner.exe --mine --gpu --device 0 --rpc http://127.0.0.1:8545 --key-file .\maya2c-miner.key
+```
+
+</TabItem>
+<TabItem label="Linux">
+
+```bash
+./maya2c-gpu-miner --mine --gpu --device 0 --rpc http://127.0.0.1:8545 --key-file ./maya2c-miner.key
+```
+
+</TabItem>
+</Tabs>
+
+Leave out `--gpu` to mine on CPU threads (`--threads` sets how many, default 4).
+Add `--json` for one JSON event per line, which is what the Hub reads.
+
+Check the speed before a long run. This reports the hash rate and exits:
+
+<Tabs>
+<TabItem label="Windows">
+
+```powershell
+.\maya2c-gpu-miner.exe --benchmark --device 0 --benchmark-seconds 30
+```
+
+</TabItem>
+<TabItem label="Linux">
+
+```bash
+./maya2c-gpu-miner --benchmark --device 0 --benchmark-seconds 30
+```
+
+</TabItem>
+</Tabs>
+
+Stop the miner with Ctrl+C. It mines while its process runs.
+
+## Pool connection
+
+The pool service is built. It speaks Stratum V2 for mining clients, and it
+publishes its public figures at `/api/pool-stats`. **The command-line miner
+does not connect to a pool yet.** It takes work from a node, as above. Pool
+mining will arrive with a client that speaks the pool's protocol; until then,
+do not point the miner at a pool address.
+
+## What to expect
+
+- **No profit is promised, and none is estimated here.** Earnings depend on
+  the total work every miner submits, which nobody knows in advance.
+- **The reward is a budget, not a coin per block.** Each epoch has a budget
+  for miners, split across the shares submitted in that epoch. A share earns a
+  fixed slice of that budget. When the budget is spent, later shares earn
+  nothing for that epoch. Unspent budget stays in the reserve.
+- **The reward halves on a schedule and then stops falling** at a tail floor,
+  so mining does not end ([ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md)).
+- **Power costs real money.** Check your electricity price against your card's
+  measured draw before you start.
+- **Nothing here is a recommendation to buy hardware.**
+
+## Coin facts for listing sites
+
+These are the values a listing site or a miner needs. The numbers come from the
+chain's own constants and from the live endpoints. Where a value is not yet
+decided, it says so.
+
+| Fact | Value | Source |
+|---|---|---|
+| Algorithm | Maya2C DAG (BLAKE3) | `docs/dag-pow.md` |
+| Target block time | 15 seconds | node constant `TARGET_BLOCK_TIME` |
+| DAG epoch | 30,000 blocks, about 5.21 days at target | node constant `EPOCH_LENGTH` |
+| Dataset | 4 GiB, fixed size | `docs/dag-pow.md` |
+| Cache | 64 MiB | `docs/dag-pow.md` |
+| Reward model | Epoch budget split across shares, halving then a tail floor | ADR-044, ADR-068 |
+| Pool payout scheme | PPLNS | pool service |
+| Ticker | MAYA (SLIP-44 coin type 2992) | `apps/ledger-maya2c/src/derive.rs` |
+| Live network figures | `/api/mining-stats` on the explorer | explorer, cached 10 seconds |
+| Live pool figures | `/api/pool-stats` on the pool service | pool service, cached 10 seconds |
+
+Live figures are as good as the node that serves them. The explorer's
+hashrate is an estimate computed from the blocks it has indexed, not a
+measurement reported by the network.
+
+## Safety
+
+- **Visible and opt-in.** Mining starts when you start it and stops when
+  you stop it.
+- **No hidden processes.** The miner runs as the program you started and
+  shows every flag it uses.
+- **Run binaries you built yourself, or ones from the project's release page.**
+  Hub installers are not code-signed yet, so expect a publisher warning, and
+  compare any checksum the release notes publish.
+- **Keys.** The payout key is a file on your disk. Keep it out of shared
+  folders and version control.
