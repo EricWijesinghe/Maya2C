@@ -672,6 +672,59 @@ mod tests {
         }
     }
 
+    /// `deploy/genesis/mainnet/mining.json`, copied: the test does not read
+    /// `deploy/`, which a published crate could not reach.
+    fn mainnet_schedule() -> MiningGenesis {
+        MiningGenesis {
+            initial_epoch_reward: primitive_types::U256::from_dec_str(
+                "299452429842573579739904175",
+            )
+            .unwrap(),
+            halving_epochs: 35_064,
+            tail_epoch_reward: primitive_types::U256::from_dec_str("23956194387405886379192334")
+                .unwrap(),
+            miner_share_bps: 7_000,
+            target_shares: 1_000,
+            max_shares_per_block: 16,
+            initial_target: "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                .into(),
+            dag: DagProfile::Mainnet,
+        }
+    }
+
+    #[test]
+    fn the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256() {
+        // Pins the figures the docs quote: 1.875 eras of 35,064 epochs at
+        // 299.45 coins, one-hour epochs at one block a second. Measured by
+        // summing the schedule epoch by epoch; the value is below 19,687,500
+        // coins by the truncation of each halving (`shr`), which is exact.
+        let r = mainnet_schedule().record(3_600).unwrap();
+        let mut halving_era = Amount::ZERO;
+        for epoch in 0..4 * 35_064 {
+            halving_era = halving_era.checked_add(r.epoch_reward(epoch)).unwrap();
+        }
+        assert_eq!(halving_era.to_string(), "19687499999999999999999999910864");
+        // Epoch 140255 is the last halved one (37.43 coins); 140256 is the first at the tail.
+        assert_eq!(
+            r.epoch_reward(140_255).to_string(),
+            "37431553730321697467488021"
+        );
+        assert_eq!(
+            r.epoch_reward(140_256).to_string(),
+            "23956194387405886379192334"
+        );
+    }
+
+    #[test]
+    fn the_mainnet_reserve_is_the_lifetime_emission_at_3600_block_epochs() {
+        // The 1.23e17-coin reserve in deploy/genesis/mainnet/README.md.
+        let r = mainnet_schedule().record(3_600).unwrap();
+        assert_eq!(
+            r.lifetime_emission().unwrap().to_string(),
+            "122753829695359067419575633036805965021648"
+        );
+    }
+
     #[test]
     fn a_schedule_past_the_ceiling_has_no_lifetime_emission() {
         // 2^130 per epoch over 2^64 one-block epochs is 2^194 > 2^192.
