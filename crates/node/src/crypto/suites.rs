@@ -76,9 +76,23 @@ pub fn suite_for_default(raw: maya_dex::Amount) -> Result<SuiteId> {
 ///
 /// [`NodeError::SignatureSuite`] for a `DefaultSignatureSuite` value that
 /// names no permitted suite.
-pub fn check_parameter(key: ParameterKey, value: maya_dex::Amount) -> Result<()> {
+pub fn check_parameter(
+    key: ParameterKey,
+    value: maya_dex::Amount,
+    sunsets: &SuiteSunsets,
+) -> Result<()> {
     match key {
-        ParameterKey::DefaultSignatureSuite => suite_for_default(value).map(|_| ()),
+        ParameterKey::DefaultSignatureSuite => {
+            let suite = suite_for_default(value)?;
+            // A default that a schedule entry retires would make every block
+            // refuse its transactions, and no later vote could recover it (H2).
+            if sunsets.entries().any(|s| s.suite == suite) {
+                return Err(NodeError::SignatureSuite(format!(
+                    "{suite:?} is scheduled for sunset and may not be the default"
+                )));
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -104,9 +118,92 @@ pub fn check_parameter(key: ParameterKey, value: maya_dex::Amount) -> Result<()>
 /// suite-tagged frame on any network. It stays in the registry for tooling and
 /// for the parity tests, and the audit in [`crate::crypto::suites`] flags it at
 /// zero post-quantum bits.
-#[must_use]
-pub fn verification_policy() -> SuitePolicy {
-    SuitePolicy::genesis(Network::Mainnet)
+///
+/// The deprecation schedule is the genesis's own (ADR-082): empty at launch,
+/// so the policy is the genesis policy, and a later upgrade may sunset a broken
+/// suite at a height every node agrees on because the schedule is in the id.
+///
+/// # Errors
+///
+/// [`NodeError::SignatureSuite`] if the schedule does not apply to the policy.
+pub fn verification_policy(sunsets: &SuiteSunsets) -> Result<SuitePolicy> {
+    let mut policy = SuitePolicy::genesis(Network::Mainnet);
+    for sunset in sunsets.entries() {
+        if !policy.permitted(sunset.suite) {
+            return Err(NodeError::SignatureSuite(format!(
+                "{:?} is not permitted on mainnet, so it cannot be sunset",
+                sunset.suite
+            )));
+        }
+        let window = sunset
+            .sunset_height
+            .checked_sub(sunset.announced_at)
+            .ok_or_else(|| {
+                NodeError::SignatureSuite(format!(
+                    "{:?} sunsets at {} before its deprecation at {}",
+                    sunset.suite, sunset.sunset_height, sunset.announced_at
+                ))
+            })?;
+        policy = policy
+            .with_deprecation(sunset.suite, sunset.announced_at, window, sunset.emergency)
+            .map_err(|e| NodeError::SignatureSuite(e.to_string()))?;
+    }
+    Ok(policy)
+}
+
+/// One suite the genesis deprecates (ADR-082).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SuiteSunset {
+    /// The suite being retired.
+    pub suite: SuiteId,
+    /// Height the deprecation takes effect.
+    pub announced_at: u64,
+    /// First height at which the suite no longer signs.
+    pub sunset_height: u64,
+    /// Whether the short emergency window is used.
+    pub emergency: bool,
+}
+
+/// The genesis's suite deprecations, fixed-size so that the block context
+/// stays `Copy`. At most one entry per registered suite.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SuiteSunsets {
+    entries: [Option<SuiteSunset>; SuiteId::ALL.len()],
+}
+
+impl SuiteSunsets {
+    /// No deprecations: the genesis policy.
+    pub const EMPTY: Self = Self {
+        entries: [None; SuiteId::ALL.len()],
+    };
+
+    /// Validates `sunsets` against the genesis policy and stores them.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::SignatureSuite`] for more entries than suites, a suite
+    /// named twice, a window shorter than the minimum, or the default suite.
+    pub fn new(sunsets: &[SuiteSunset]) -> Result<Self> {
+        if sunsets.len() > SuiteId::ALL.len() {
+            return Err(NodeError::SignatureSuite(format!(
+                "at most {} suite deprecations, got {}",
+                SuiteId::ALL.len(),
+                sunsets.len()
+            )));
+        }
+        let mut entries = [None; SuiteId::ALL.len()];
+        for (slot, sunset) in entries.iter_mut().zip(sunsets) {
+            *slot = Some(*sunset);
+        }
+        let stored = Self { entries };
+        verification_policy(&stored)?;
+        Ok(stored)
+    }
+
+    /// The deprecations, in the order the genesis listed them.
+    pub fn entries(&self) -> impl Iterator<Item = SuiteSunset> + '_ {
+        self.entries.iter().flatten().copied()
+    }
 }
 
 /// The policy in force: the genesis schedule with governance's default.
@@ -114,8 +211,8 @@ pub fn verification_policy() -> SuitePolicy {
 /// # Errors
 ///
 /// As [`default_suite`].
-pub fn policy(parameters: &ParameterTable) -> Result<SuitePolicy> {
-    SuitePolicy::genesis(Network::Mainnet)
+pub fn policy(parameters: &ParameterTable, sunsets: &SuiteSunsets) -> Result<SuitePolicy> {
+    verification_policy(sunsets)?
         .with_default(default_suite(parameters)?)
         .map_err(|e| NodeError::SignatureSuite(e.to_string()))
 }
@@ -144,4 +241,56 @@ pub fn check_admissible(policy: &SuitePolicy, suite: SuiteId, height: u64) -> Re
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    const ANNOUNCED: u64 = 100;
+    const WINDOW: u64 = 1_000_000;
+
+    fn sunset(suite: SuiteId) -> SuiteSunset {
+        SuiteSunset {
+            suite,
+            announced_at: ANNOUNCED,
+            sunset_height: ANNOUNCED + WINDOW,
+            emergency: false,
+        }
+    }
+
+    #[test]
+    fn the_empty_schedule_is_the_genesis_policy() {
+        let policy = verification_policy(&SuiteSunsets::EMPTY).unwrap();
+        assert_eq!(policy, SuitePolicy::genesis(Network::Mainnet));
+    }
+
+    #[test]
+    fn a_sunset_suite_is_refused_at_its_height_and_accepted_one_block_before() {
+        let sunsets = SuiteSunsets::new(&[sunset(SuiteId::MlDsa65)]).unwrap();
+        let policy = verification_policy(&sunsets).unwrap();
+        let at = ANNOUNCED + WINDOW;
+        assert!(check_admissible(&policy, SuiteId::MlDsa65, at - 1).is_ok());
+        assert!(check_admissible(&policy, SuiteId::MlDsa65, at).is_err());
+        // Other suites are untouched.
+        assert!(check_admissible(&policy, SuiteId::MlDsa87, at).is_ok());
+    }
+
+    #[test]
+    fn a_schedule_cannot_sunset_the_default_or_sunset_before_announcement() {
+        assert!(SuiteSunsets::new(&[sunset(SuiteId::MlDsa87)]).is_err());
+        let backwards = SuiteSunset {
+            sunset_height: ANNOUNCED - 1,
+            ..sunset(SuiteId::MlDsa65)
+        };
+        assert!(SuiteSunsets::new(&[backwards]).is_err());
+    }
+
+    #[test]
+    fn a_schedule_names_each_suite_at_most_once() {
+        let twice = [sunset(SuiteId::MlDsa65), sunset(SuiteId::MlDsa65)];
+        assert!(SuiteSunsets::new(&twice).is_err());
+    }
 }

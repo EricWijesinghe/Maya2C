@@ -849,14 +849,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         maya_zk_stark::pool::circuit_is_audited(),
     )?;
 
-    // The same refusal for zkML, which rests on an SRS derived from a public
-    // seed. Inert while the activation height is u64::MAX; it is here so that
-    // choosing a height cannot also quietly choose mainnet.
-    custom_l1_node::state::zkml::check_setup(
-        &config.chain_id,
-        custom_l1_node::state::context::ZKML_ACTIVATION_HEIGHT,
-    )?;
-
     // Tuned from the configuration rather than `Options::default()`, whose
     // 8 MiB block cache makes almost every account read reach the disk.
     let state = Arc::new(StateDB::open_tuned(
@@ -877,12 +869,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ));
     metrics.set_sync_duration(opened.elapsed());
 
-    // A tip already at or past an unsupported upgrade: say so at start-up
-    // rather than on the first block that arrives.
-    custom_l1_node::upgrade::refuse_unsupported(
-        chain_config.unsupported_upgrade,
-        lock_chain(&chain).height() + 1,
-    )?;
+    // Checked once the chain is open, so the schedule read is the seeded one
+    // (ADR-082). The zkML refusal uses the height the committed schedule gives
+    // it, so scheduling zkML on chain cannot bypass the public-seed check.
+    {
+        let chain = lock_chain(&chain);
+        let schedule = chain.state().effective_schedule()?;
+        custom_l1_node::state::zkml::check_setup(&config.chain_id, schedule.features().zkml)?;
+        // A tip already at or past an unsupported upgrade: say so at start-up
+        // rather than on the first block that arrives.
+        schedule.check_halt(chain.height() + 1)?;
+    }
 
     println!("chain id:    {}", config.chain_id);
     println!("consensus:   {mode}");

@@ -1,5 +1,9 @@
 //! Execution context for a block.
 
+use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
+use crate::crypto::suites::SuiteSunsets;
+use crate::upgrade::FeatureActivations;
+
 /// Chain facts a transaction may depend on while executing.
 ///
 /// A newtype rather than a bare `u64` parameter: `apply_block(&block, 7)` next
@@ -64,6 +68,14 @@ pub struct BlockContext {
     /// [`DVP_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests set
     /// it with [`Self::with_dvp_activation`].
     pub dvp_activation: u64,
+    /// First height at which RWA issuer lists must be strictly ascending.
+    ///
+    /// [`RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT`] everywhere the node builds a
+    /// context. Set from the upgrade schedule by [`Self::with_features`].
+    pub rwa_strict_activation: u64,
+    /// Suite deprecations the chain's genesis committed (ADR-082). Empty
+    /// everywhere the node builds a context unless the chain names some.
+    pub suite_sunsets: SuiteSunsets,
 }
 
 /// First height at which shielded join-splits execute, for a genesis that
@@ -189,6 +201,35 @@ impl BlockContext {
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
             work_claim_activation: WORK_CLAIM_ACTIVATION_HEIGHT,
             dvp_activation: DVP_ACTIVATION_HEIGHT,
+            rwa_strict_activation: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            suite_sunsets: SuiteSunsets::EMPTY,
+        }
+    }
+
+    /// The same context with every dark feature at the height the upgrade
+    /// schedule gives it (ADR-082). The shielded height is not a dark feature
+    /// and is left alone.
+    #[must_use]
+    pub const fn with_features(self, features: FeatureActivations) -> Self {
+        Self {
+            zkml_activation: features.zkml,
+            stateless_activation: features.stateless,
+            threat_intel_activation: features.threat_intel,
+            iot_activation: features.iot,
+            htlc_activation: features.htlc_lattice,
+            work_claim_activation: features.work_claim,
+            dvp_activation: features.dvp,
+            rwa_strict_activation: features.rwa_strict,
+            ..self
+        }
+    }
+
+    /// The same context with the genesis's suite deprecations.
+    #[must_use]
+    pub const fn with_suite_sunsets(self, suite_sunsets: SuiteSunsets) -> Self {
+        Self {
+            suite_sunsets,
+            ..self
         }
     }
 

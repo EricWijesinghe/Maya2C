@@ -347,17 +347,21 @@ impl Mempool {
         //   without changing any block's validity, so the admissibility test
         //   here is the one consensus applies.
         let height = self.admission_height()?;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?)?;
+        let sunsets = self.state.effective_schedule()?.sunsets;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
         self.state.verify_cached(tx, height, &policy)?;
 
         // Evidence is stateless to check, so garbage never reaches a block
         // template — the executor checks it again regardless. Chain tag is required
         // for signature verification (ADR-036).
         if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
+            // Admission only: the executor re-checks under the committed schedule
+            // (ADR-082), and a mempool refusal is advisory.
             crate::state::threat_exec::verify_evidence(
                 attestation,
                 height,
                 self.state.get_chain_tag()?,
+                &sunsets,
             )?;
         }
         crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
@@ -386,7 +390,8 @@ impl Mempool {
         }
         self.state.check_mining_share(&miner, share)?;
         let height = self.admission_height()?;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?)?;
+        let sunsets = self.state.effective_schedule()?.sunsets;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
         self.state.verify_cached(tx, height, &policy)?;
         self.check_breaker(&tx.kind)
     }
