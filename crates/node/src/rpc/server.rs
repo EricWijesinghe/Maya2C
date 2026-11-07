@@ -172,6 +172,35 @@ fn decode_array<const N: usize>(value: &str, what: &str) -> Result<[u8; N], Erro
         .map_err(|_| invalid_params(format!("{what} must be {N} bytes, got {}", bytes.len())))
 }
 
+/// The network this node's text addresses belong to. `None` for a chain id
+/// with no registered prefix: such a node serves and accepts hex only.
+fn text_network(ctx: &RpcContext) -> Option<maya_address::Network> {
+    ctx.network
+        .as_deref()
+        .and_then(maya_address::Network::for_chain_id)
+}
+
+/// Decodes an account address given as hex (optionally `0x`) or as Bech32m.
+/// A text address must name this node's network: one for another network is
+/// refused, never reinterpreted (ADR-081).
+fn decode_address_param(
+    ctx: &RpcContext,
+    value: &str,
+    what: &str,
+) -> Result<[u8; 32], ErrorObjectOwned> {
+    let trimmed = value.trim();
+    let raw = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return decode_array::<32>(raw, what);
+    }
+    let network = text_network(ctx).ok_or_else(|| {
+        invalid_params(format!(
+            "{what} is not hex, and this node has no registered network for text addresses"
+        ))
+    })?;
+    maya_address::decode(network, trimmed).map_err(|e| invalid_params(format!("{what}: {e}")))
+}
+
 /// Shared state the RPC handlers read and mutate.
 #[derive(Clone)]
 pub struct RpcContext {
@@ -475,7 +504,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_balance", |params, ctx, _| {
             let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            let address = decode_array::<32>(&address_hex, "address")?;
+            let address = decode_address_param(ctx, &address_hex, "address")?;
 
             let account = ctx
                 .chain()
@@ -483,7 +512,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .get_account(&address)
                 .map_err(|e| rejected(e.to_string()))?;
 
-            Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account))
+            Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account, text_network(ctx)))
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -611,10 +640,10 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .register_method("get_balance_at_height", |params, ctx, _| {
             let (address_hex, height): (String, u64) =
                 params.parse().map_err(|e| invalid_params(e.to_string()))?;
-            let address = decode_array::<32>(&address_hex, "address")?;
+            let address = decode_address_param(ctx, &address_hex, "address")?;
             let (balance, id) = balance_at_height(ctx, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
-                "address": address_hex,
+                "address": hex::encode(address),
                 "balance": balance.to_string(),
                 "height": height,
                 "block_id": hex::encode(id),
@@ -625,7 +654,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("vault_get", |params, ctx, _| {
             let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            let address = decode_array::<32>(&address_hex, "address")?;
+            let address = decode_address_param(ctx, &address_hex, "address")?;
             let chain = ctx.chain();
             let state = chain.state();
             let Some(vault) = state.committed_vault(&address).map_err(internal)? else {
@@ -658,12 +687,12 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_account_at_tip", |params, ctx, _| {
             let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            let address = decode_array::<32>(&address_hex, "address")?;
+            let address = decode_address_param(ctx, &address_hex, "address")?;
             // One guard for the tip and the read: blocks commit under it.
             let chain = ctx.chain();
             let account = chain.state().get_account(&address).map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::AccountAtTip {
-                account: AccountInfo::new(&address, &account),
+                account: AccountInfo::new(&address, &account, text_network(ctx)),
                 height: chain.height(),
                 block_id: hex::encode(chain.tip()),
             })
@@ -720,7 +749,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_mining_work", |params, ctx, _| {
             let miner_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            let miner = decode_array::<32>(&miner_hex, "miner")?;
+            let miner = decode_address_param(ctx, &miner_hex, "miner")?;
             mining_work(ctx, &miner)
         })
         .map_err(|e| rejected(e.to_string()))?;
