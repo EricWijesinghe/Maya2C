@@ -47,12 +47,9 @@ dependency graph (RocksDB, libp2p, wasmtime) Charon would have to export.
 The dependency-free leaves (`ledger-math`, `fee-market`, `dex`) are the
 realistic first targets. Not done here.
 
-**Z3 — SMT proofs over bounded-integer models.** `formal/z3/fee_market.py`
-proves ten statements about `split` and `next_base_fee` for every input in
-the u64 domain (no u128 overflow, burned + treasury = base, a share above
-100% is clamped, never below the floor, direction of movement, one step
-bounded by parent/denom + 1 at up to 2x target). A timeout prints UNKNOWN,
-never PROVED. `pip install z3-solver && python3 formal/z3/fee_market.py`.
+**Fee-market proofs moved to Kani.** The Z3 model (`formal/z3/fee_market.py`) is
+retired; its ten statements about `split` and `next_base_fee` are Kani harnesses in
+`crates/fee-market/src/proofs.rs`, run with `cargo kani -p maya-fee-market` (WSL).
 
 This directory exists so that the first person to write a Lean proof has an
 obvious place to put it, and so that the absence above is written down rather

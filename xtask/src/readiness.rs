@@ -88,7 +88,7 @@ const COMPONENTS: &[Component] = &[
         fuzz: &[],
         formal: &[
             "formal/lean/Maya2C/FeeSplit.lean",
-            "formal/z3/fee_market.py",
+            "crates/fee-market/src/proofs.rs",
         ],
         bench: &["reports/18-economics.md"],
         runbook: &[],

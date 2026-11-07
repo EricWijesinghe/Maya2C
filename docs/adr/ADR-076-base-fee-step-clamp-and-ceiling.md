@@ -57,7 +57,7 @@ Standard transfer `S = 13,215 B`, 24 decimals (`1 MAYA = 10^24` base units). Per
   - The testnet is stopped (per Eric's note, 2026-10-31), so no running node is affected today. Any restart of that chain from stored state under this binary would compute different base fees for any block whose size exceeds the target, and so diverge from the recorded history. The testnet must be re-genesised, or stay stopped, before it runs this rule.
   - No mainnet genesis exists yet; this rule ships in it.
   - The ceiling is compiled in, not in the genesis record or its hash (`genesis.rs` hashes the initial and minimum fees, target and denominator only). Two binaries with different ceilings share a genesis hash and diverge at the first block that reaches the ceiling. The ceiling must therefore be fixed in the same release as genesis.
-- The Z3 model in `formal/z3/fee_market.py` now models the clamp and proves FEE-6. Z3 is not installed on this machine, so the proofs are NOT VERIFIED here.
+- The Z3 model (`formal/z3/fee_market.py`, since retired) modelled the clamp and proved FEE-6; its statements are now Kani harnesses in `crates/fee-market/src/proofs.rs`.
 - The Kani harness `a_rise_is_one_denominator_share_and_stops_at_the_ceiling` (`crates/fee-market/src/proofs.rs`) is written but NOT VERIFIED: Kani runs in WSL only.
 - Two reviewers are required for a consensus change (`CLAUDE.md`, Production Standing Orders). This is not enforced by CI.
 
