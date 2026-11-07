@@ -2152,7 +2152,7 @@ paths = "`crates/node/src/network/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
+tests = ["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/network_magic_tests.rs"]
 
 [[subsystem]]
 id = "byzantine-peer-guard"

@@ -18,6 +18,17 @@ TCP / Memory
 Each parameter set has its own KDF context and transcript domain, so a 1024
 session and a 768 session can never derive the same keys.
 
+### Which network a connection belongs to
+
+The Noise prologue carries the network id: `"maya2c p2p network v1"`, then
+`1` and the chain tag (the genesis id) when the state is bound, or `0` when it
+is not. Noise hashes the prologue into the handshake, so two nodes on different
+geneses fail the Noise handshake and never reach ML-KEM, gossip, sync or the DHT.
+The protocol names are the same on every chain (`/l1/blocks/1.0.0` on testnet
+and mainnet), which is why the names cannot be the separator. The failure logs
+as `p2p: ... connection failure` with a hint that a refused handshake usually
+means another genesis. Regression test: `crates/node/tests/network_magic_tests.rs`.
+
 ### Which set a pair of nodes uses
 
 | Dialer | Listener | Negotiated |
