@@ -17,6 +17,7 @@
 use crate::core::codec::ByteReader;
 use crate::crypto::SIGNATURE_LENGTH;
 use crate::error::{NodeError, Result};
+use crate::state::upgrades::SunsetSpec;
 
 /// Domain of the council's signatures.
 ///
@@ -29,9 +30,13 @@ pub const MAX_APPROVALS: usize = 32;
 
 const PAUSE: u8 = 0;
 const RESUME: u8 = 1;
+const SUNSET_SUITES: u8 = 2;
+
+/// Most suites one council sunset may retire: one per registered suite.
+const MAX_SUNSETS: usize = crate::core::governance_payload::MAX_SUNSETS;
 
 /// What the council does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CouncilKind {
     /// Halt `module` (a `invariant_guard::Module` tag) for `blocks` blocks.
     Pause {
@@ -44,6 +49,15 @@ pub enum CouncilKind {
     Resume {
         /// Module tag.
         module: u8,
+    },
+    /// Retire suites, and nothing else (ADR-082). The only thing the council
+    /// may schedule: no version, no feature, no height but this one.
+    SunsetSuites {
+        /// Height the sunsets are announced at. Must lie at least the
+        /// council's compiled lead after the action executes.
+        announced_at: u64,
+        /// Suites retired, each at its own sunset height.
+        sunsets: Vec<SunsetSpec>,
     },
 }
 
@@ -60,15 +74,28 @@ pub struct CouncilAction {
 
 impl CouncilAction {
     fn encode_kind(&self, buf: &mut Vec<u8>) {
-        match self.kind {
+        match &self.kind {
             CouncilKind::Pause { module, blocks } => {
                 buf.push(PAUSE);
-                buf.push(module);
+                buf.push(*module);
                 buf.extend_from_slice(&blocks.to_le_bytes());
             }
             CouncilKind::Resume { module } => {
                 buf.push(RESUME);
-                buf.push(module);
+                buf.push(*module);
+            }
+            CouncilKind::SunsetSuites {
+                announced_at,
+                sunsets,
+            } => {
+                buf.push(SUNSET_SUITES);
+                buf.extend_from_slice(&announced_at.to_le_bytes());
+                buf.extend_from_slice(&(sunsets.len() as u64).to_le_bytes());
+                for sunset in sunsets {
+                    buf.push(sunset.suite);
+                    buf.extend_from_slice(&sunset.sunset_height.to_le_bytes());
+                    buf.push(u8::from(sunset.emergency));
+                }
             }
         }
         buf.extend_from_slice(&self.nonce.to_le_bytes());
@@ -109,6 +136,27 @@ impl CouncilAction {
             RESUME => CouncilKind::Resume {
                 module: r.read_u8()?,
             },
+            SUNSET_SUITES => {
+                let announced_at = r.read_u64()?;
+                let count = r.read_collection_len(1 + 8 + 1)?;
+                if count > MAX_SUNSETS {
+                    return Err(NodeError::Decode(format!(
+                        "a council sunset of {count} suites exceeds {MAX_SUNSETS}"
+                    )));
+                }
+                let mut sunsets = Vec::with_capacity(count);
+                for _ in 0..count {
+                    sunsets.push(SunsetSpec {
+                        suite: r.read_u8()?,
+                        sunset_height: r.read_u64()?,
+                        emergency: r.read_u8()? != 0,
+                    });
+                }
+                CouncilKind::SunsetSuites {
+                    announced_at,
+                    sunsets,
+                }
+            }
             t => return Err(NodeError::Decode(format!("council action kind {t}"))),
         };
         let nonce = r.read_u64()?;

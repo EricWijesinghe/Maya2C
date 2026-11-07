@@ -1,30 +1,24 @@
-//! Protocol versions and the halt-before-fork rule (Master Prompt 15 §4).
+//! Protocol versions, feature sets, and the halt-before-fork rule (Master
+//! Prompt 15 §4, ADR-082).
 //!
-//! A network's upgrades are a schedule of `(version, activation_height)`
-//! pairs, set in genesis — the chain's first governance decision — and never
-//! inferred from which binary happens to be running. This binary knows the
-//! rules of versions up to [`SUPPORTED_PROTOCOL_VERSION`]. Asked to insert a
-//! block at a height where the schedule says a later version is in force, it
-//! refuses with [`NodeError::UpgradeRequired`] instead of validating that
-//! block under rules it does not have — which is how a lagging node would
-//! otherwise fork itself off silently, or worse, keep following a minority
-//! chain of other lagging nodes.
+//! The chain's upgrade schedule is a list of `(version, activation_height,
+//! features)` entries. Versions are the rules epoch and only ever increase;
+//! heights only ever increase. Each entry names the dark features it switches
+//! on ([`FeatureSet`]), so any feature can join any later version. The list is
+//! the genesis entries plus the entries governance or the security council
+//! writes on chain ([`crate::state::upgrades`]). Nothing is inferred from which
+//! binary happens to be running.
 //!
-//! The schedule is part of the genesis id (`GenesisConfig::chain_id_commitment`)
-//! whenever it is non-empty, so operators who disagree about it disagree about
-//! block zero. An empty schedule leaves every existing id unchanged. Two nodes
-//! with different schedules that somehow share a genesis diverge only at the
-//! first height where one of them halts, which is the failure this module
-//! exists to make loud.
+//! This binary implements the rules of versions up to
+//! [`SUPPORTED_PROTOCOL_VERSION`]. Asked to insert a block at a height where
+//! the schedule says a later version is in force, it refuses with
+//! [`NodeError::UpgradeRequired`] instead of validating that block under rules
+//! it does not have, which is how a lagging node would otherwise fork itself
+//! off silently.
 //!
-//! Dark features (research code no network runs by default) activate only
-//! through this schedule. Each has a protocol version; [`UpgradeSchedule::features`]
-//! resolves the schedule to one activation height per feature. Versions must
-//! increase with height (see [`UpgradeSchedule::new`]), so features activate in
-//! version order. ADR-081 records that choice and the flag-day nature of the
-//! header version byte.
-//!
-//! Version 1 is the protocol as specified in `spec/` v0.1.0.
+//! Version 1 is the protocol as specified in `spec/` v0.1.0. Version 2 is the
+//! first epoch whose binaries implement the dark-feature gates and the
+//! on-chain schedule.
 
 use serde::{Deserialize, Serialize};
 
@@ -37,30 +31,52 @@ use crate::state::context::{
 };
 
 /// The newest protocol version whose rules this binary implements.
-pub const SUPPORTED_PROTOCOL_VERSION: u32 = RWA_STRICT_VERSION;
+pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
 
-/// Protocol version that activates delivery-versus-payment swaps.
-pub const DVP_VERSION: u32 = 2;
-/// Protocol version that activates `IoT` anchor transactions.
-pub const IOT_VERSION: u32 = 3;
-/// Protocol version that activates attack attestations.
-pub const THREAT_INTEL_VERSION: u32 = 4;
-/// Protocol version that makes the accounts root a sparse tree.
-pub const STATELESS_VERSION: u32 = 5;
-/// Protocol version that credits work claims.
-pub const WORK_CLAIM_VERSION: u32 = 6;
-/// Protocol version that activates lattice HTLCs.
-pub const HTLC_LATTICE_VERSION: u32 = 7;
-/// Protocol version that lets contracts verify zkML proofs.
-pub const ZKML_VERSION: u32 = 8;
-/// Protocol version that requires strictly ascending RWA issuer lists.
-pub const RWA_STRICT_VERSION: u32 = 9;
+/// The dark features an upgrade entry can switch on, as a bitmask. The bit
+/// positions are consensus: never renumber, only append.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FeatureSet(pub u64);
+
+impl FeatureSet {
+    /// Delivery-versus-payment swaps.
+    pub const DVP: u64 = 1 << 0;
+    /// `IoT` anchor transactions.
+    pub const IOT: u64 = 1 << 1;
+    /// Attack attestations.
+    pub const THREAT_INTEL: u64 = 1 << 2;
+    /// The sparse accounts tree.
+    pub const STATELESS: u64 = 1 << 3;
+    /// Work-claim credit.
+    pub const WORK_CLAIM: u64 = 1 << 4;
+    /// Lattice HTLCs.
+    pub const HTLC_LATTICE: u64 = 1 << 5;
+    /// zkML proof verification.
+    pub const ZKML: u64 = 1 << 6;
+    /// Strictly ascending RWA issuer lists.
+    pub const RWA_STRICT: u64 = 1 << 7;
+    /// Every bit this binary defines. A bit outside it names no feature.
+    pub const KNOWN: u64 = (1 << 8) - 1;
+
+    /// Whether every bit names a defined feature.
+    #[must_use]
+    pub const fn is_known(self) -> bool {
+        self.0 & !Self::KNOWN == 0
+    }
+
+    /// Whether `bit` is set.
+    #[must_use]
+    pub const fn contains(self, bit: u64) -> bool {
+        self.0 & bit != 0
+    }
+}
 
 /// The activation height of each dark feature, as a schedule resolves it.
 ///
-/// `Copy`, so it can sit in the chain configuration and every block context.
-/// Each field is the compiled-in "never" unless the schedule names that
-/// feature's version at or below [`SUPPORTED_PROTOCOL_VERSION`].
+/// `Copy`, so it can sit in every block context. Each field is the
+/// compiled-in "never" unless the schedule activates that feature at or below
+/// [`SUPPORTED_PROTOCOL_VERSION`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeatureActivations {
     /// Delivery-versus-payment swaps.
@@ -97,13 +113,18 @@ impl Default for FeatureActivations {
     }
 }
 
-/// One scheduled upgrade.
+/// One scheduled upgrade: a rules epoch, the height it takes effect, and the
+/// dark features it switches on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolUpgrade {
     /// The version that takes effect.
     pub version: u32,
     /// The first height at which it is in force.
     pub activation_height: u64,
+    /// Features this entry activates. Empty for a version that only changes
+    /// suite sunsets.
+    #[serde(default)]
+    pub features: FeatureSet,
 }
 
 /// A validated upgrade schedule, ordered by height.
@@ -114,16 +135,17 @@ pub struct UpgradeSchedule {
 
 impl UpgradeSchedule {
     /// Validates `upgrades`: every version above 1, versions strictly
-    /// increasing with strictly increasing heights, none at genesis.
+    /// increasing with strictly increasing heights, no unknown feature bits.
     ///
     /// # Errors
     ///
-    /// [`NodeError::Decode`] naming the first entry that breaks the ordering.
+    /// [`NodeError::Decode`] naming the first entry that breaks a rule.
     pub fn new(mut upgrades: Vec<ProtocolUpgrade>) -> Result<Self> {
         upgrades.sort_by_key(|u| u.activation_height);
         let mut last = ProtocolUpgrade {
             version: 1,
             activation_height: 0,
+            features: FeatureSet::default(),
         };
         for u in &upgrades {
             if u.version <= last.version || u.activation_height <= last.activation_height {
@@ -132,9 +154,27 @@ impl UpgradeSchedule {
                     u.version, u.activation_height, last.version, last.activation_height
                 )));
             }
+            if !u.features.is_known() {
+                return Err(NodeError::Decode(format!(
+                    "protocol upgrade to version {} names unknown features {:#x}",
+                    u.version, u.features.0
+                )));
+            }
             last = *u;
         }
         Ok(Self { upgrades })
+    }
+
+    /// The entries, in height order.
+    #[must_use]
+    pub fn entries(&self) -> &[ProtocolUpgrade] {
+        &self.upgrades
+    }
+
+    /// The highest version scheduled, or 1 for an empty schedule.
+    #[must_use]
+    pub fn last_version(&self) -> u32 {
+        self.upgrades.last().map_or(1, |u| u.version)
     }
 
     /// The protocol version in force at `height`.
@@ -147,34 +187,28 @@ impl UpgradeSchedule {
             .map_or(1, |u| u.version)
     }
 
-    /// The height each dark feature activates at. A version above
-    /// [`SUPPORTED_PROTOCOL_VERSION`] contributes nothing: this binary halts at
-    /// that version's height instead ([`Self::first_unsupported`]).
+    /// The height each dark feature activates at: the earliest entry at or
+    /// below [`SUPPORTED_PROTOCOL_VERSION`] that switches it on. An entry above
+    /// it contributes nothing, because this binary halts at that entry's
+    /// height instead ([`Self::first_unsupported`]).
     #[must_use]
     pub fn features(&self) -> FeatureActivations {
-        let never = FeatureActivations::default();
-        let at = |version: u32, default: u64| {
+        let at = |bit: u64, default: u64| {
             self.upgrades
                 .iter()
-                .find(|u| u.version == version)
+                .find(|u| u.version <= SUPPORTED_PROTOCOL_VERSION && u.features.contains(bit))
                 .map_or(default, |u| u.activation_height)
         };
-        let known = |version: u32, default: u64| {
-            if version <= SUPPORTED_PROTOCOL_VERSION {
-                at(version, default)
-            } else {
-                default
-            }
-        };
+        let never = FeatureActivations::default();
         FeatureActivations {
-            dvp: known(DVP_VERSION, never.dvp),
-            iot: known(IOT_VERSION, never.iot),
-            threat_intel: known(THREAT_INTEL_VERSION, never.threat_intel),
-            stateless: known(STATELESS_VERSION, never.stateless),
-            work_claim: known(WORK_CLAIM_VERSION, never.work_claim),
-            htlc_lattice: known(HTLC_LATTICE_VERSION, never.htlc_lattice),
-            zkml: known(ZKML_VERSION, never.zkml),
-            rwa_strict: known(RWA_STRICT_VERSION, never.rwa_strict),
+            dvp: at(FeatureSet::DVP, never.dvp),
+            iot: at(FeatureSet::IOT, never.iot),
+            threat_intel: at(FeatureSet::THREAT_INTEL, never.threat_intel),
+            stateless: at(FeatureSet::STATELESS, never.stateless),
+            work_claim: at(FeatureSet::WORK_CLAIM, never.work_claim),
+            htlc_lattice: at(FeatureSet::HTLC_LATTICE, never.htlc_lattice),
+            zkml: at(FeatureSet::ZKML, never.zkml),
+            rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
         }
     }
 
@@ -206,8 +240,8 @@ impl UpgradeSchedule {
     }
 }
 
-/// The halt rule on its own, for callers that keep only
-/// [`UpgradeSchedule::first_unsupported`] (the chain's `Copy` config).
+/// The halt rule on its own, for callers that hold only the first unsupported
+/// entry.
 ///
 /// # Errors
 ///
@@ -233,6 +267,15 @@ mod tests {
         ProtocolUpgrade {
             version,
             activation_height,
+            features: FeatureSet::default(),
+        }
+    }
+
+    fn with(version: u32, activation_height: u64, features: u64) -> ProtocolUpgrade {
+        ProtocolUpgrade {
+            version,
+            activation_height,
+            features: FeatureSet(features),
         }
     }
 
@@ -241,6 +284,7 @@ mod tests {
         let s = UpgradeSchedule::default();
         assert_eq!(s.version_at(u64::MAX), 1);
         assert!(s.check(u64::MAX).is_ok());
+        assert_eq!(s.features(), FeatureActivations::default());
     }
 
     #[test]
@@ -271,23 +315,40 @@ mod tests {
     }
 
     #[test]
-    fn features_resolve_from_their_versions_and_ignore_unimplemented_ones() {
-        let s = UpgradeSchedule::new(vec![up(DVP_VERSION, 10), up(ZKML_VERSION, 50)]).unwrap();
+    fn unknown_feature_bits_are_rejected() {
+        let bad = with(2, 10, FeatureSet::KNOWN + 1);
+        assert!(UpgradeSchedule::new(vec![bad]).is_err());
+    }
+
+    #[test]
+    fn features_resolve_from_the_entry_that_switches_them_on() {
+        // Two features join one implemented version; a later version above this
+        // binary's contributes nothing (the halt covers it).
+        let s = UpgradeSchedule::new(vec![
+            with(2, 10, FeatureSet::DVP | FeatureSet::IOT),
+            with(SUPPORTED_PROTOCOL_VERSION + 1, 50, FeatureSet::ZKML),
+        ])
+        .unwrap();
         let f = s.features();
-        assert_eq!((f.dvp, f.zkml), (10, 50));
-        assert_eq!(f.iot, u64::MAX);
-        let future = UpgradeSchedule::new(vec![up(SUPPORTED_PROTOCOL_VERSION + 1, 10)]).unwrap();
+        assert_eq!((f.dvp, f.iot), (10, 10));
+        assert_eq!(f.zkml, u64::MAX);
+    }
+
+    #[test]
+    fn an_entry_above_this_binary_contributes_no_features() {
+        let future = UpgradeSchedule::new(vec![with(
+            SUPPORTED_PROTOCOL_VERSION + 1,
+            10,
+            FeatureSet::DVP,
+        )])
+        .unwrap();
         assert_eq!(future.features(), FeatureActivations::default());
-        assert_eq!(
-            UpgradeSchedule::default().features(),
-            FeatureActivations::default()
-        );
     }
 
     #[test]
     fn an_older_binary_halts_on_a_version_it_does_not_implement() {
-        let s = UpgradeSchedule::new(vec![up(DVP_VERSION, 10)]).unwrap();
-        assert!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION).is_none());
-        assert_eq!(s.first_unsupported_by(1), Some(up(DVP_VERSION, 10)));
+        let s = UpgradeSchedule::new(vec![up(SUPPORTED_PROTOCOL_VERSION + 1, 10)]).unwrap();
+        assert!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION).is_some());
+        assert_eq!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION + 1), None);
     }
 }

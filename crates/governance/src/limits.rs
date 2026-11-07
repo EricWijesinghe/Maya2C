@@ -81,6 +81,32 @@ pub const BPS_DENOMINATOR: u32 = 10_000;
 /// later into a chain nobody expected it in.
 pub const EXECUTION_GRACE_BLOCKS: u64 = 100_000;
 
+/// Fewest blocks between a scheduled protocol upgrade's execution and its
+/// activation, when governance schedules it: 30 days at one block per second.
+///
+/// Every node has this long to upgrade its binary before the first height a
+/// version it does not implement is in force. Compiled in, so no proposal
+/// shortens it (ADR-082, invariant 34).
+pub const MIN_UPGRADE_LEAD_BLOCKS: u64 = 2_592_000;
+
+/// Fewest blocks between a security-council sunset's execution and its
+/// announcement: 7 days at one block per second. Shorter than governance's
+/// lead because a council sunset is limited to retiring a suite, which removes
+/// authority rather than adding it (ADR-082).
+pub const MIN_COUNCIL_SUNSET_LEAD_BLOCKS: u64 = 604_800;
+
+/// Whether an upgrade activation leads its execution by enough, for governance.
+#[must_use]
+pub const fn is_upgrade_lead_valid(execution: u64, activation: u64) -> bool {
+    activation >= execution.saturating_add(MIN_UPGRADE_LEAD_BLOCKS)
+}
+
+/// Whether a council sunset leads its execution by enough.
+#[must_use]
+pub const fn is_council_sunset_lead_valid(execution: u64, announcement: u64) -> bool {
+    announcement >= execution.saturating_add(MIN_COUNCIL_SUNSET_LEAD_BLOCKS)
+}
+
 /// Whether a voting period is permissible.
 #[must_use]
 pub const fn is_voting_period_valid(blocks: u64) -> bool {

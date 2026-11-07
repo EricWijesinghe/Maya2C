@@ -33,11 +33,9 @@ use crate::core::block::HEADER_VERSION;
 use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
-use crate::crypto::suites::SuiteSunsets;
 use crate::error::{NodeError, Result};
 use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{BlockContext, StateDB};
-use crate::upgrade::{FeatureActivations, ProtocolUpgrade, UpgradeSchedule, refuse_unsupported};
 
 /// Opening a stored chain, importing headers ahead of bodies, and pruning.
 mod store;
@@ -89,12 +87,6 @@ pub struct ChainConfig {
     ///
     /// [`DAG_ACTIVATION_HEIGHT`]: crate::crypto::dag::DAG_ACTIVATION_HEIGHT
     pub dag: DagConfig,
-    /// The first scheduled protocol upgrade this binary does not implement,
-    /// from genesis (`UpgradeSchedule::first_unsupported`). A block at or past
-    /// its height is refused with `UpgradeRequired` rather than validated
-    /// under the old rules. Only this one entry matters to validation, which
-    /// is what keeps the config `Copy`.
-    pub unsupported_upgrade: Option<ProtocolUpgrade>,
     /// Keep every block at its parent's difficulty target: no retarget and no
     /// DAG activation pin. Set for DAG-BFT ([`ChainConfig::dag_bft`]), where
     /// no work is verified and a retarget only did harm: one-second blocks
@@ -105,12 +97,6 @@ pub struct ChainConfig {
     /// `shielded_activation_height` (ADR-037). Every block context the chain
     /// builds carries it ([`Chain::context_at`]).
     pub shielded_activation: u64,
-    /// Activation heights of the dark features, from the upgrade schedule
-    /// (ADR-081). Every block context the chain builds carries them.
-    pub features: FeatureActivations,
-    /// Suite deprecations the genesis committed (ADR-081), carried into every
-    /// block context so consensus verifies under the same schedule.
-    pub suite_sunsets: SuiteSunsets,
 }
 
 impl Default for ChainConfig {
@@ -119,11 +105,8 @@ impl Default for ChainConfig {
             verify_pow: true,
             pow_limit: default_pow_limit(),
             dag: DagConfig::MAINNET,
-            unsupported_upgrade: None,
             fixed_target: false,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
-            features: FeatureActivations::default(),
-            suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
 }
@@ -142,11 +125,8 @@ impl ChainConfig {
             verify_pow: false,
             pow_limit: unlimited_pow_limit(),
             dag: DagConfig::MAINNET,
-            unsupported_upgrade: None,
             fixed_target: false,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
-            features: FeatureActivations::default(),
-            suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
 
@@ -175,11 +155,8 @@ impl ChainConfig {
             verify_pow: true,
             pow_limit,
             dag: DagConfig::MAINNET,
-            unsupported_upgrade: None,
             fixed_target: false,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
-            features: FeatureActivations::default(),
-            suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
 
@@ -188,21 +165,6 @@ impl ChainConfig {
     #[must_use]
     pub fn with_shielded_activation(mut self, height: u64) -> Self {
         self.shielded_activation = height;
-        self
-    }
-
-    /// The same configuration with a protocol upgrade schedule.
-    #[must_use]
-    pub fn with_upgrades(mut self, upgrades: &UpgradeSchedule) -> Self {
-        self.unsupported_upgrade = upgrades.first_unsupported();
-        self.features = upgrades.features();
-        self
-    }
-
-    /// The same configuration with the genesis's suite deprecations.
-    #[must_use]
-    pub fn with_suite_sunsets(mut self, suite_sunsets: SuiteSunsets) -> Self {
-        self.suite_sunsets = suite_sunsets;
         self
     }
 
@@ -375,15 +337,21 @@ impl Chain {
         self.genesis
     }
 
-    /// The execution context of a block at `height` on this chain: the
-    /// compiled-in activation heights, plus the ones its genesis chose.
-    /// Every block this chain applies, previews or builds runs under it.
-    #[must_use]
-    pub fn context_at(&self, height: u64) -> BlockContext {
-        BlockContext::at_height(height)
+    /// The execution context of a block at `height`: the compiled-in defaults,
+    /// the genesis's shielded height, and the dark-feature heights and suite
+    /// sunsets the committed upgrade schedule gives it (ADR-082). Read from the
+    /// state the block executes on, so a schedule written by an earlier block
+    /// takes effect here and no entry can apply to the block that wrote it.
+    ///
+    /// # Errors
+    ///
+    /// Storage failure, or a schedule record the rules refuse.
+    pub fn context_at(&self, height: u64) -> Result<BlockContext> {
+        let schedule = self.state.effective_schedule()?;
+        Ok(BlockContext::at_height(height)
             .with_shielded_activation(self.config.shielded_activation)
-            .with_features(self.config.features)
-            .with_suite_sunsets(self.config.suite_sunsets)
+            .with_features(schedule.features())
+            .with_suite_sunsets(schedule.sunsets))
     }
 
     /// Looks up an indexed block.
@@ -595,7 +563,7 @@ impl Chain {
 
         // Before any rule is applied: a height governed by a protocol version
         // this binary does not implement is not ours to judge (spec/ §4).
-        refuse_unsupported(self.config.unsupported_upgrade, height)?;
+        self.state.effective_schedule()?.check_halt(height)?;
 
         // ADR-063: a timestamp is later than the median of the blocks before
         // it. Deterministic, so every node reaches the same verdict; the
@@ -743,7 +711,7 @@ impl Chain {
         // The record's own height, so timelocks evaluate against the block
         // actually being executed rather than the current tip.
         self.state
-            .apply_canonical(block, id, height, self.context_at(height))?;
+            .apply_canonical(block, id, height, self.context_at(height)?)?;
         Ok(())
     }
 
@@ -955,7 +923,7 @@ impl Chain {
         let mut block = Block::new(header, transactions);
         block.header.state_root = self
             .state
-            .preview_root(&block, self.context_at(self.height() + 1))?;
+            .preview_root(&block, self.context_at(self.height() + 1)?)?;
         Ok(block)
     }
 

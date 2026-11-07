@@ -292,7 +292,7 @@ pub fn verify_block(
     )
 }
 
-/// [`verify_block`] under the genesis's suite deprecations (ADR-081). A chain
+/// [`verify_block`] under the genesis's suite deprecations (ADR-082). A chain
 /// whose genesis names a deprecation must verify through this with that
 /// schedule, or it would accept a frame the chain refuses at its sunset height.
 ///

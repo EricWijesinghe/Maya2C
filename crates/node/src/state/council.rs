@@ -23,6 +23,8 @@ use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::invariant_guard::Module;
 use crate::state::invariant_guard::breaker::{BreakerRecord, Invariant, guard_key};
+use crate::state::upgrades::{EffectiveSchedule, ScheduleRequest, SunsetSpec};
+use crate::upgrade::FeatureSet;
 
 /// The council record, under the governance prefix.
 pub const COUNCIL_KEY: &[u8] = b"g:council";
@@ -129,12 +131,26 @@ impl StateDB {
                 council.threshold
             ));
         }
-        let module_tag = match action.kind {
-            CouncilKind::Pause { module, .. } | CouncilKind::Resume { module } => module,
+        let module_tag = match &action.kind {
+            CouncilKind::Pause { module, .. } | CouncilKind::Resume { module } => *module,
+            CouncilKind::SunsetSuites {
+                announced_at,
+                sunsets,
+            } => {
+                return self.stage_council_sunset(
+                    overlay,
+                    &mut council,
+                    *announced_at,
+                    sunsets,
+                    context,
+                );
+            }
         };
         let module = Module::from_tag(module_tag)
             .ok_or_else(|| NodeError::Decode(format!("unknown module {module_tag}")))?;
         let record = match action.kind {
+            // Returned above; refused here rather than trusted to stay that way.
+            CouncilKind::SunsetSuites { .. } => return refuse("a sunset is not a pause".into()),
             CouncilKind::Pause { blocks, .. } => {
                 if blocks == 0 || blocks > council.max_pause_blocks {
                     return refuse(format!(
@@ -159,6 +175,40 @@ impl StateDB {
             },
         };
         StateDB::put_record(overlay, guard_key(module), record.encode().to_vec());
+        council.nonce = council.nonce.saturating_add(1);
+        StateDB::put_record(overlay, COUNCIL_KEY.to_vec(), council.encode());
+        Ok(())
+    }
+
+    /// Schedules a suite sunset the council proposed (ADR-082). Only a sunset:
+    /// the request carries no version and no feature, and it must be announced
+    /// at least the council's compiled lead after this action executes.
+    fn stage_council_sunset(
+        &self,
+        overlay: &mut Overlay,
+        council: &mut CouncilRecord,
+        announced_at: u64,
+        sunsets: &[SunsetSpec],
+        context: BlockContext,
+    ) -> Result<()> {
+        let request = ScheduleRequest {
+            activation: announced_at,
+            version: None,
+            features: FeatureSet::default(),
+            sunsets: sunsets.to_vec(),
+        };
+        let admitted = self.effective_schedule_through(overlay)?.admit(
+            &request,
+            context.height,
+            maya_governance::limits::MIN_COUNCIL_SUNSET_LEAD_BLOCKS,
+        );
+        if let Err(error) = admitted {
+            return Err(NodeError::Network(format!(
+                "council action refused: {error}"
+            )));
+        }
+        let (entry, records) = EffectiveSchedule::entry_for(&request);
+        StateDB::stage_schedule(overlay, entry, &records);
         council.nonce = council.nonce.saturating_add(1);
         StateDB::put_record(overlay, COUNCIL_KEY.to_vec(), council.encode());
         Ok(())

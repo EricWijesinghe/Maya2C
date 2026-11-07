@@ -103,10 +103,10 @@ pub struct GenesisConfig {
     /// non-empty schedule is folded into the genesis id, so an empty one leaves
     /// every existing id unchanged. A node reaching a scheduled version it does
     /// not implement halts with "upgrade required before height H" instead of
-    /// forking. Dark features activate through it (ADR-081).
+    /// forking. Dark features activate through it (ADR-082).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub protocol_upgrades: Vec<ProtocolUpgrade>,
-    /// Suite deprecations (ADR-081): a suite the chain stops accepting at a
+    /// Suite deprecations (ADR-082): a suite the chain stops accepting at a
     /// height it names. Empty at launch. Non-empty, it is folded into the
     /// genesis id, so no node can disagree about when a suite is sunset.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -135,7 +135,7 @@ pub struct GenesisConfig {
     pub shielded_activation_height: Option<u64>,
 }
 
-/// One suite deprecation as a genesis file names it (ADR-081).
+/// One suite deprecation as a genesis file names it (ADR-082).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SuiteDeprecationGenesis {
     /// The suite's wire byte (`SuiteId`), e.g. `0x10` for ML-DSA-65.
@@ -619,7 +619,7 @@ impl GenesisConfig {
         UpgradeSchedule::new(self.protocol_upgrades.clone())
     }
 
-    /// The validated suite deprecations (ADR-081).
+    /// The validated suite deprecations (ADR-082).
     ///
     /// # Errors
     ///
@@ -664,10 +664,10 @@ impl GenesisConfig {
         } else {
             ChainConfig::with_pow_limit(self.pow_limit())
         };
-        Ok(base
-            .with_upgrades(&self.upgrade_schedule()?)
-            .with_suite_sunsets(self.suite_sunsets()?)
-            .with_shielded_activation(self.shielded_activation()))
+        // The upgrade schedule and suite sunsets are seeded into state
+        // (`seeded_records`), not carried here: every reader takes them from
+        // the committed records (ADR-082).
+        Ok(base.with_shielded_activation(self.shielded_activation()))
     }
 
     /// Validates the configuration.
@@ -920,6 +920,23 @@ impl GenesisConfig {
     /// As [`GenesisConfig::staking_records`] and [`CouncilGenesis::record`].
     pub fn seeded_records(&self) -> Result<std::collections::BTreeMap<Vec<u8>, Vec<u8>>> {
         let mut records = self.staking_records()?;
+        // The genesis upgrade schedule and suite sunsets are the first entries of
+        // the on-chain schedule (ADR-082): seeded here, so the state root commits
+        // to them and every reader takes them from one place.
+        self.upgrade_schedule()?;
+        let sunsets = self.suite_sunsets()?;
+        for upgrade in &self.protocol_upgrades {
+            records.insert(
+                crate::state::upgrades::version_key(upgrade.version),
+                crate::state::upgrades::encode_version(upgrade),
+            );
+        }
+        for sunset in sunsets.entries() {
+            records.insert(
+                crate::state::upgrades::sunset_key(sunset.suite.to_byte()),
+                crate::state::upgrades::encode_sunset(&sunset),
+            );
+        }
         if let Some(council) = &self.security_council {
             records.insert(
                 crate::state::council::COUNCIL_KEY.to_vec(),
@@ -1082,10 +1099,10 @@ impl GenesisConfig {
     }
 
     /// Folds the proof-of-work difficulty floor into a proof-of-work id
-    /// (ADR-081). Two operators who disagree about the floor would otherwise
+    /// (ADR-082). Two operators who disagree about the floor would otherwise
     /// accept different retargets from block zero. A DAG-BFT genesis ignores
-    /// the field, so its id does not change. Pre-genesis, so every PoW id
-    /// changes once; the tree pins no PoW id.
+    /// the field, so its id does not change. Pre-genesis, so every `PoW` id
+    /// changes once; the tree pins no `PoW` id.
     fn pow_limit_commitment(&self, base: [u8; 32]) -> [u8; 32] {
         if self.bft.is_some() {
             return base;
@@ -1096,7 +1113,7 @@ impl GenesisConfig {
         *h.finalize().as_bytes()
     }
 
-    /// Folds a non-empty upgrade schedule into the id (ADR-081). Sorted by
+    /// Folds a non-empty upgrade schedule into the id (ADR-082). Sorted by
     /// height, so the order a file lists it in does not matter.
     fn upgrade_commitment(&self, base: [u8; 32]) -> [u8; 32] {
         if self.protocol_upgrades.is_empty() {
@@ -1114,7 +1131,7 @@ impl GenesisConfig {
         *h.finalize().as_bytes()
     }
 
-    /// Folds a non-empty suite deprecation schedule into the id (ADR-081),
+    /// Folds a non-empty suite deprecation schedule into the id (ADR-082),
     /// sorted by suite byte so file order does not matter. `validate` refuses
     /// an invalid schedule before any id is used.
     fn suite_sunset_commitment(&self, base: [u8; 32]) -> [u8; 32] {

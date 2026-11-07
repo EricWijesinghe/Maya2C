@@ -3140,12 +3140,12 @@ note = "Master Prompt 15 §1-3. 46 vectors from a reference sharing no node code
 id = "protocol-upgrade-halt"
 name = "Protocol upgrade schedule and halt-before-fork"
 domain = "Consensus and execution"
-paths = "`crates/node/src/upgrade.rs`"
+paths = "`crates/node/src/upgrade.rs`, `crates/node/src/state/upgrades.rs`"
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crates/node/tests/upgrade_rehearsal.rs"]
-note = "Master Prompt 15 §4. Genesis-scheduled versions; a block at an unsupported version's height is refused with 'upgrade required before height H'. 100-node rehearsal: 30 late nodes halt and catch up. Headers carry no version field; governance cannot yet set the schedule."
+tests = ["crates/node/tests/upgrade_rehearsal.rs", "crates/node/tests/upgrade_schedule_tests.rs"]
+note = "Master Prompt 15 §4, ADR-082. The schedule is committed state (`up:`): genesis seeds it, governance ScheduleUpgrade and the security council's sunset write it, with a compiled lead (invariant 34). A block at an unsupported version's height is refused with 'upgrade required before height H'. Dark features join any version. Headers carry no version field; the header byte is a flag-day tag (ADR-082). The two-binary late-node rehearsal is not run in one process: the halt is checked against the compiled SUPPORTED_PROTOCOL_VERSION."
 
 [[subsystem]]
 id = "hash-migration-rehearsal"

@@ -105,7 +105,7 @@ pub fn check_parameter(key: ParameterKey, value: maya_dex::Amount) -> Result<()>
 /// for the parity tests, and the audit in [`crate::crypto::suites`] flags it at
 /// zero post-quantum bits.
 ///
-/// The deprecation schedule is the genesis's own (ADR-081): empty at launch,
+/// The deprecation schedule is the genesis's own (ADR-082): empty at launch,
 /// so the policy is the genesis policy, and a later upgrade may sunset a broken
 /// suite at a height every node agrees on because the schedule is in the id.
 ///
@@ -131,7 +131,7 @@ pub fn verification_policy(sunsets: &SuiteSunsets) -> Result<SuitePolicy> {
     Ok(policy)
 }
 
-/// One suite the genesis deprecates (ADR-081).
+/// One suite the genesis deprecates (ADR-082).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SuiteSunset {
     /// The suite being retired.
@@ -191,8 +191,8 @@ impl SuiteSunsets {
 /// # Errors
 ///
 /// As [`default_suite`].
-pub fn policy(parameters: &ParameterTable) -> Result<SuitePolicy> {
-    SuitePolicy::genesis(Network::Mainnet)
+pub fn policy(parameters: &ParameterTable, sunsets: &SuiteSunsets) -> Result<SuitePolicy> {
+    verification_policy(sunsets)?
         .with_default(default_suite(parameters)?)
         .map_err(|e| NodeError::SignatureSuite(e.to_string()))
 }

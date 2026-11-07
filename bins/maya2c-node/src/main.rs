@@ -863,9 +863,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // `mode` is derived from the same `bft` field `chain_config` reads.
     let chain_config = config.chain_config()?;
     // The same refusal for zkML, which rests on an SRS derived from a public
-    // seed. Checked against the height the upgrade schedule gives it, not the
-    // compiled default, so scheduling it cannot quietly bypass the check.
-    custom_l1_node::state::zkml::check_setup(&config.chain_id, chain_config.features.zkml)?;
     let metrics = Arc::new(Metrics::new());
     let opened = std::time::Instant::now();
     let chain = Arc::new(Mutex::new(
@@ -873,12 +870,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ));
     metrics.set_sync_duration(opened.elapsed());
 
-    // A tip already at or past an unsupported upgrade: say so at start-up
-    // rather than on the first block that arrives.
-    custom_l1_node::upgrade::refuse_unsupported(
-        chain_config.unsupported_upgrade,
-        lock_chain(&chain).height() + 1,
-    )?;
+    // Checked once the chain is open, so the schedule read is the seeded one
+    // (ADR-082). The zkML refusal uses the height the committed schedule gives
+    // it, so scheduling zkML on chain cannot bypass the public-seed check.
+    {
+        let chain = lock_chain(&chain);
+        let schedule = chain.state().effective_schedule()?;
+        custom_l1_node::state::zkml::check_setup(&config.chain_id, schedule.features().zkml)?;
+        // A tip already at or past an unsupported upgrade: say so at start-up
+        // rather than on the first block that arrives.
+        schedule.check_halt(chain.height() + 1)?;
+    }
 
     println!("chain id:    {}", config.chain_id);
     println!("consensus:   {mode}");

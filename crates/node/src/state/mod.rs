@@ -48,6 +48,7 @@ pub mod shielded;
 pub mod staking;
 pub mod staking_exec;
 pub mod stateless;
+pub mod upgrades;
 pub mod threat;
 pub mod threat_exec;
 pub mod undo;

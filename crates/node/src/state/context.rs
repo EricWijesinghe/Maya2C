@@ -73,7 +73,7 @@ pub struct BlockContext {
     /// [`RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT`] everywhere the node builds a
     /// context. Set from the upgrade schedule by [`Self::with_features`].
     pub rwa_strict_activation: u64,
-    /// Suite deprecations the chain's genesis committed (ADR-081). Empty
+    /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
 }
@@ -207,7 +207,7 @@ impl BlockContext {
     }
 
     /// The same context with every dark feature at the height the upgrade
-    /// schedule gives it (ADR-081). The shielded height is not a dark feature
+    /// schedule gives it (ADR-082). The shielded height is not a dark feature
     /// and is left alone.
     #[must_use]
     pub const fn with_features(self, features: FeatureActivations) -> Self {

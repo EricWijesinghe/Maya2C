@@ -5,19 +5,15 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
-## P5 — ADR-081 follow-ups (genesis upgrade levers, 2026-11-07)
+## P5 — ADR-082 follow-ups (genesis upgrade levers, 2026-11-07)
 
 - **Suite account migration.** `crates/crypto-pq/src/agility/migration.rs` is
   not wired to consensus. A sunset suite's accounts keep their keys until a
   migration activation exists. Build it as a later upgrade-schedule version,
   not now.
-- **Mempool admission under the genesis sunset.** `network::mempool` admits
-  with `crypto::suites::policy(parameters)`, which does not see the genesis
-  `suite_deprecations`. Consensus refuses a sunset suite at its height, so this
-  is advisory, but the mempool should relay only what blocks accept.
-- **Feature version order.** Dark features activate in version order (ADR-081,
-  Consequences). Revisit only when a second feature must activate before a
-  higher-numbered one.
+- **Light-client schedule source.** `LightClient::verify_block` takes the suite
+  schedule from its caller. Verify it against a state proof of the `up:` records
+  so a light client does not trust its caller for it (ADR-082).
 
 ## P5 — 256-bit headroom (DECISIONS 2026-11-01, after launch, at an activation height)
 

@@ -163,7 +163,7 @@ pub(crate) struct Overlay {
 }
 
 impl Overlay {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 }

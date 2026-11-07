@@ -345,6 +345,7 @@ fn every_payload_kind_has_distinct_signing_bytes() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 480,
             timelock_blocks: 960,
+            upgrade: None,
             changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),
         TxKind::CastVote(Ballot {
@@ -835,6 +836,7 @@ fn every_governance_kind_survives_a_round_trip_unchanged() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
+            upgrade: None,
             changes: (1..=MAX_CHANGES as u16)
                 .map(|tag| (tag, maya_dex::Amount::from_u64(u64::from(tag))))
                 .collect(),
@@ -862,14 +864,16 @@ fn a_proposal_with_no_changes_is_rejected() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
+            upgrade: None,
             changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),
         0,
     )
     .to_bytes();
 
-    // The change count sits before one 34-byte change (2-byte tag, 32-byte value).
-    let count_index = encoded.len() - 34 - 8;
+    // The change count sits before one 34-byte change (2-byte tag, 32-byte
+    // value), and a one-byte upgrade flag follows the changes (ADR-082).
+    let count_index = encoded.len() - 1 - 34 - 8;
     encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
     assert!(Transaction::from_bytes(&encoded).is_err());
 }
@@ -883,6 +887,7 @@ fn a_proposal_above_the_bundling_ceiling_is_rejected() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
+            upgrade: None,
             changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),
         0,

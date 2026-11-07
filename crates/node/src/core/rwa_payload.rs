@@ -304,7 +304,7 @@ pub fn check_issuer_order(trusted_issuers: &[[u8; DIGEST_LEN]], height: u64) -> 
 
 /// [`check_issuer_order`] with the activation height as an argument: the
 /// consensus path passes the height the upgrade schedule gave the block
-/// context (ADR-081).
+/// context (ADR-082).
 ///
 /// # Errors
 ///

@@ -71,7 +71,7 @@ impl StateDB {
 ///
 /// `chain` is the genesis block id of the chain being verified, required for
 /// signature verification (ADR-036). `sunsets` is the genesis's suite
-/// deprecation schedule (ADR-081): a frame whose suite is sunset at `height` is
+/// deprecation schedule (ADR-082): a frame whose suite is sunset at `height` is
 /// judged as the chain judges it.
 ///
 /// # Errors

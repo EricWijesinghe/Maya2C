@@ -219,7 +219,7 @@ fn governance_default_suite_is_ml_dsa_87_and_is_checked_by_the_node() {
     // Inside the governance range, but no suite: refused by the node.
     let hole = table.with(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x12));
     assert!(suites::default_suite(&hole).is_err());
-    assert!(suites::policy(&table).is_ok());
+    assert!(suites::policy(&table, &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY).is_ok());
     // The same hole is refused at proposal and execution time.
     assert!(
         suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x12))

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use custom_l1_node::consensus::{Chain, ChainConfig};
 use custom_l1_node::genesis::{Allocation, GenesisConfig, SuiteDeprecationGenesis};
 use custom_l1_node::state::{Account, StateDB};
-use custom_l1_node::upgrade::{DVP_VERSION, ProtocolUpgrade};
+use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade};
 
 use tempfile::TempDir;
 
@@ -357,7 +357,7 @@ fn a_chain_runs_every_block_under_its_genesis_shielded_activation() {
     .expect("open");
     for height in [1, 1_000, u64::MAX - 1] {
         assert!(
-            !chain.context_at(height).shielded_active(),
+            !chain.context_at(height).expect("context").shielded_active(),
             "height {height}"
         );
     }
@@ -382,7 +382,7 @@ fn a_bft_genesis_keeps_the_fixed_target_and_its_shielded_activation() {
 }
 
 // ---------------------------------------------------------------------------
-// upgrade levers in the genesis id (ADR-081)
+// upgrade levers in the genesis id (ADR-082)
 // ---------------------------------------------------------------------------
 
 fn genesis_id(config: &GenesisConfig) -> [u8; 32] {
@@ -394,7 +394,8 @@ fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
     let plain = config();
     let mut scheduled = config();
     scheduled.protocol_upgrades = vec![ProtocolUpgrade {
-        version: DVP_VERSION,
+        version: 2,
+        features: FeatureSet::default(),
         activation_height: 100,
     }];
     let mut sunset = config();
@@ -425,6 +426,7 @@ fn the_upgrade_schedule_is_bound_in_whatever_order_the_file_lists_it() {
     let upgrade = |version, activation_height| ProtocolUpgrade {
         version,
         activation_height,
+        features: FeatureSet::default(),
     };
     let mut forward = config();
     forward.protocol_upgrades = vec![upgrade(2, 10), upgrade(3, 20)];
@@ -448,6 +450,24 @@ fn a_genesis_names_only_valid_suite_deprecations() {
     assert!(config.validate().is_err(), "sunset before announcement");
     config.suite_deprecations[0].sunset_height = 1_000_100;
     assert!(config.validate().is_ok());
-    let chain = config.chain_config().expect("chain config");
-    assert_eq!(chain.suite_sunsets.entries().count(), 1);
+
+    assert_eq!(
+        config.suite_sunsets().expect("sunsets").entries().count(),
+        1
+    );
+}
+
+/// Genesis id of a DAG-BFT genesis with no upgrade levers (ADR-082). A golden
+/// value: a change here means every existing BFT genesis changed identity.
+const PINNED_BFT_EMPTY_LEVERS_ID: &str =
+    "fb6a41f4e8bd082cb6f4cff551cb31676e06a73796da0515e982c34d820f498e";
+
+#[test]
+fn a_bft_genesis_with_empty_levers_has_its_pinned_id() {
+    let mut bft = config();
+    bft.difficulty_bits = 0;
+    bft.pow_limit_bits = 0;
+    bft.bft = Some(serde_json::from_str(r#"{"validators": []}"#).expect("bft section"));
+    assert!(bft.protocol_upgrades.is_empty() && bft.suite_deprecations.is_empty());
+    assert_eq!(hex::encode(genesis_id(&bft)), PINNED_BFT_EMPTY_LEVERS_ID);
 }

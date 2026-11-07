@@ -38,7 +38,7 @@ use primitive_types::U256;
 
 use crate::consensus::difficulty::work_from_target;
 use crate::core::governance_payload::{
-    Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
+    Ballot, ProposalSubmission, ScheduleUpgrade, StakeLock, StakeUnlock, WorkClaim,
 };
 use crate::error::{NodeError, Result};
 use crate::governance::record::{LockRecord, ParameterTable, ProposalRecord, Totals};
@@ -50,6 +50,7 @@ use crate::governance::{
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
+use crate::state::upgrades::ScheduleRequest;
 
 /// Most governance transactions one block may carry.
 ///
@@ -72,6 +73,16 @@ fn default_table() -> ParameterTable {
 fn governance_error(error: GovernanceError) -> NodeError {
     NodeError::Governance {
         reason: error.to_string(),
+    }
+}
+
+/// The schedule request a passed `ScheduleUpgrade` asks for (ADR-082).
+fn schedule_request(upgrade: &ScheduleUpgrade) -> ScheduleRequest {
+    ScheduleRequest {
+        activation: upgrade.activation_height,
+        version: Some(upgrade.version),
+        features: upgrade.features,
+        sunsets: upgrade.sunsets.clone(),
     }
 }
 
@@ -408,6 +419,17 @@ impl StateDB {
         )
         .map_err(governance_error)?;
 
+        // The lead is measured from the proposal's last possible execution
+        // height, so every height it can execute at still leaves the full lead
+        // (ADR-082). Execution re-checks it from the height it actually runs.
+        if let Some(upgrade) = &submission.upgrade {
+            self.effective_schedule_through(overlay)?.admit(
+                &schedule_request(upgrade),
+                proposal.schedule.expires_after,
+                maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
+            )?;
+        }
+
         let id = derive_proposal_id(sender, nonce);
         if self.record(overlay, &proposal_key(&id))?.is_some() {
             return Err(NodeError::Governance {
@@ -434,6 +456,7 @@ impl StateDB {
                 deposit,
                 proposal,
                 changes: submission.changes.clone(),
+                upgrade: submission.upgrade.clone(),
             }
             .encode(),
         );
@@ -557,13 +580,36 @@ impl StateDB {
                 .finalize(context.height, eligible, quorum_bps, approval_bps)
                 .unwrap_or(record.proposal);
 
-            // Apply it if the timelock has run.
+            // Apply it if the timelock has run. A schedule entry whose lead has
+            // run out is not applied, and the proposal expires: refusing the
+            // block instead would stop the chain on a vote that passed.
             if record.proposal.is_executable(context.height) {
-                self.apply_changes(overlay, &record)?;
-                record.proposal = record
-                    .proposal
-                    .execute(context.height)
-                    .map_err(governance_error)?;
+                let admitted = match &record.upgrade {
+                    Some(upgrade) => self
+                        .effective_schedule_through(overlay)?
+                        .admit(
+                            &schedule_request(upgrade),
+                            context.height,
+                            maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
+                        )
+                        .is_ok(),
+                    None => true,
+                };
+                if admitted {
+                    self.apply_changes(overlay, &record)?;
+                    if let Some(upgrade) = &record.upgrade {
+                        let (entry, sunsets) = crate::state::upgrades::EffectiveSchedule::entry_for(
+                            &schedule_request(upgrade),
+                        );
+                        Self::stage_schedule(overlay, entry, &sunsets);
+                    }
+                    record.proposal = record
+                        .proposal
+                        .execute(context.height)
+                        .map_err(governance_error)?;
+                } else {
+                    record.proposal.state = ProposalState::Expired;
+                }
             } else {
                 record.proposal = record.proposal.expire_if_stale(context.height);
             }

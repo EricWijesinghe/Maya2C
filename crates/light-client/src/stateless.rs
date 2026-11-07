@@ -20,7 +20,7 @@
 use custom_l1_node::core::block::Block;
 use custom_l1_node::core::{BlockHeader, ChainTag};
 use custom_l1_node::crypto::suites::SuiteSunsets;
-use custom_l1_node::state::{StateWitness, StatelessError, verify_block, verify_block_under};
+use custom_l1_node::state::{StateWitness, StatelessError, verify_block_under};
 
 use crate::chain::LightClient;
 use crate::error::{LightClientError, Result};
@@ -38,7 +38,7 @@ pub struct StatelessValidator {
 impl StatelessValidator {
     /// Starts from a header the caller already trusts, at `height`. The
     /// genesis's suite deprecations default to none; a chain that names some
-    /// must pass them with [`Self::with_suite_sunsets`] (ADR-081).
+    /// must pass them with [`Self::with_suite_sunsets`] (ADR-082).
     #[must_use]
     pub fn new(anchor: &BlockHeader, height: u64, chain: ChainTag) -> Self {
         Self {
@@ -116,12 +116,17 @@ impl LightClient {
     /// - [`LightClientError::BlockInvalid`] or
     ///   [`LightClientError::BlockUnverifiable`], as
     ///   [`StatelessValidator::validate`].
+    ///
+    /// `sunsets` is the chain's committed suite schedule at `height` (ADR-082).
+    /// A light client has no state of its own, so its caller supplies it, as it
+    /// supplies the chain tag. A sunset-suite frame is refused under it.
     pub fn verify_block(
         &self,
         height: u64,
         block: &Block,
         witness: StateWitness,
         chain: &ChainTag,
+        sunsets: &SuiteSunsets,
     ) -> Result<()> {
         let record = self
             .chain()
@@ -137,11 +142,15 @@ impl LightClient {
             .chain()
             .header_at(parent_height)
             .ok_or(LightClientError::UnknownHeight(parent_height))?;
-        // shortcut: this one-shot check takes no genesis schedule, so it judges
-        // suites under none; use StatelessValidator::with_suite_sunsets on a
-        // chain whose genesis deprecates a suite. Upgrade: pass the schedule here too.
-        verify_block(&parent.header.state_root, height, block, witness, chain)
-            .map_err(|error| verdict(height, error))
+        verify_block_under(
+            &parent.header.state_root,
+            height,
+            block,
+            witness,
+            chain,
+            sunsets,
+        )
+        .map_err(|error| verdict(height, error))
     }
 }
 
