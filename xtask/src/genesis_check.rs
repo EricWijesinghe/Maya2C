@@ -141,8 +141,10 @@ fn normalized_address(address: &str) -> String {
 /// Every policy breach in `text`, judged at the clock `now` (Unix seconds);
 /// empty means the genesis passes. The clock is a parameter so the window is
 /// testable and the policy never reads the wall clock itself.
-fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
-    let g: Genesis = serde_json::from_str(text).map_err(|e| format!("not a genesis file: {e}"))?;
+/// The launch rules that concern money, time and upgrades: no premine, no
+/// pending upgrade, a sane timestamp, and a tail. Split out of [`problems`] so
+/// each function stays readable.
+fn launch_rules(g: &Genesis, now: u64) -> Vec<String> {
     let mut out = Vec::new();
     let reserve = mining_reserve_address();
     for a in &g.allocations {
@@ -177,6 +179,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
                 .to_string(),
         ),
     }
+    out
+}
+
+fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
+    let g: Genesis = serde_json::from_str(text).map_err(|e| format!("not a genesis file: {e}"))?;
+    let mut out = launch_rules(&g, now);
     if g.bft.validators.len() < MIN_VALIDATORS {
         out.push(format!(
             "{} validators, need at least {MIN_VALIDATORS}",
@@ -201,6 +209,19 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
             None => out.push(format!(
                 "staking.{name} is unset: the devnet default is dust"
             )),
+        }
+    }
+    // The tiny bond (Eric 2026-11-07): every seat bonds exactly the minimum,
+    // so the ceremony's disclosed bonds are the whole of the stake.
+    if let Some(floor) = g.bft.staking.min_self_bond {
+        for b in &g.bft.staking.bonds {
+            if b.bond != floor {
+                out.push(format!(
+                    "operator {}… bonds {} but min_self_bond is {floor}: mainnet bonds are exactly the minimum",
+                    &b.operator[..b.operator.len().min(12)],
+                    b.bond
+                ));
+            }
         }
     }
     if g.shielded_activation_height != Some(u64::MAX) {
@@ -279,18 +300,23 @@ mod tests {
         problems(text, NOW)
     }
 
-    fn no_mining(g: String) -> String {
+    fn no_mining(g: &str) -> String {
         g.replace(
             &format!("\"mining\":{{\"tail_epoch_reward\":\"{TAIL}\"}},"),
             "",
         )
     }
 
+    /// The minimum self-bond every fixture bonds: mainnet bonds are exactly it.
+    const FLOOR: &str = "1000000000000000000000000000";
+
+    /// Each seat bonds the floor; the value in `bonds` only names the operator's
+    /// seats, since a bond above the floor is refused on its own.
     fn genesis(difficulty: u32, weighted: bool, bonds: &[(&str, u128)]) -> String {
         let validators = vec!["\"k\""; bonds.len()].join(",");
         let bonds = bonds
             .iter()
-            .map(|(o, b)| format!("{{\"operator\":\"{o}\",\"bond\":{b}}}"))
+            .map(|(o, _)| format!("{{\"operator\":\"{o}\",\"bond\":\"{FLOOR}\"}}"))
             .collect::<Vec<_>>()
             .join(",");
         format!(
@@ -298,7 +324,7 @@ mod tests {
              \"mining\":{{\"tail_epoch_reward\":\"{TAIL}\"}},\
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\
-             \"min_self_bond\":\"1000000000000000000000000000\",\
+             \"min_self_bond\":\"{FLOOR}\",\
              \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
         )
     }
@@ -335,7 +361,8 @@ mod tests {
             &[("o", 1_000), ("p", 100), ("p", 100), ("p", 100)],
         );
         let found = check(&g).unwrap();
-        assert!(found.len() >= 4, "{found:?}");
+        // Fewer than seven seats, not stake-weighted, one operator over the cap.
+        assert!(found.len() >= 3, "{found:?}");
     }
 
     #[test]
@@ -359,7 +386,7 @@ mod tests {
     #[test]
     fn a_bft_chain_with_mining_needs_no_block_difficulty() {
         assert!(check(&genesis(0, true, &EVEN)).unwrap().is_empty());
-        let found = check(&no_mining(genesis(0, true, &EVEN))).unwrap();
+        let found = check(&no_mining(&genesis(0, true, &EVEN))).unwrap();
         assert!(
             found.iter().any(|p| p.contains("proof of work is free")),
             "{found:?}"
@@ -399,9 +426,19 @@ mod tests {
     }
 
     #[test]
-    fn a_bond_written_as_a_decimal_string_is_read() {
-        let g = genesis(20, true, &EVEN).replace("\"bond\":100", "\"bond\":\"100\"");
-        assert!(check(&g).unwrap().is_empty());
+    fn a_bond_above_the_minimum_is_refused_and_named() {
+        let over = genesis(20, true, &EVEN).replacen(
+            &format!("\"bond\":\"{FLOOR}\""),
+            "\"bond\":\"2000000000000000000000000000\"",
+            1,
+        );
+        let found = check(&over).unwrap();
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("exactly the minimum") && p.contains("aaaaaaaaaaaa")),
+            "{found:?}"
+        );
     }
 
     fn with_allocation(address: &str, balance: &str) -> String {
@@ -496,7 +533,7 @@ mod tests {
             found.iter().any(|p| p.contains("tail_epoch_reward")),
             "{found:?}"
         );
-        let none = check(&no_mining(genesis(20, true, &EVEN))).unwrap();
+        let none = check(&no_mining(&genesis(20, true, &EVEN))).unwrap();
         assert!(
             none.iter().any(|p| p.contains("tail_epoch_reward")),
             "{none:?}"

@@ -49,7 +49,9 @@ a reserve that cannot run dry.
 - Worked figures (3,600-block epochs; corrected 2026-11-07, computed from `MiningRecord`):
   the tail of 23.96 coins an epoch is 210,000 coins a year at one block a second (1% of 21M)
   and 105,000 at two seconds (0.5%); the per-epoch value is fixed, the annual rate is not.
-  Block time is not pinned by DAG-BFT, so the annual rate is an owner decision. The halving
+  Block time is not pinned by DAG-BFT, so the annual rate follows block speed. The owner
+  accepted about 1.07% a year at one block a second (DECISIONS 2026-11-07). It can be retuned
+  later by a protocol upgrade at an activation height, as any consensus parameter can. The halving
   era issues 19,687,500 coins, not 21M. Block numbers last about 5.8 × 10^11 years at one
   block a second, about 1.2 × 10^12 at two. The genesis reserve is about 1.2 × 10^17 coins
   (1.2275 × 10^41 base units, about 2^136.5), and it is funded at genesis by

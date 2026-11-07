@@ -19,10 +19,13 @@ Facts, computed from `MiningRecord` (`crates/node/src/state/mining.rs`), not fro
   forever.
 - The tail starts at **epoch 140,256** (era 4, where the halved reward 18.72 coins falls under
   the tail). At one block a second that is about 16.0 years; at two seconds, about 32 years.
-- Annual inflation depends on block time, which DAG-BFT does not pin. The tail is per epoch,
-  so issuance per year is 23.96 × (seconds per year ÷ (3,600 × seconds per block)):
-  210,000 coins a year at 1 s per block, 105,000 at 2 s. Relative to the 19.69M halving-era
-  issuance at tail start: about 1.07% at 1 s, 0.53% at 2 s. It falls every year after that.
+- Tail rate accepted by the owner (DECISIONS 2026-11-07): about 1.07% a year at one block a
+  second. The rate follows block speed, because DAG-BFT does not pin block time: the tail is
+  per epoch, so issuance per year is 23.96 × (seconds per year ÷ (3,600 × seconds per block)),
+  which is 210,000 coins a year at 1 s per block and 105,000 at 2 s. Relative to the 19.69M
+  halving-era issuance at tail start: about 1.07% at 1 s, 0.53% at 2 s. It falls every year
+  after that. It can be retuned later by a protocol upgrade at an activation height; genesis
+  does not fix it.
   The measured devnet rate is 0.96-1.03 blocks a second (`reports/18-economics.md`); the 2.6 s
   per block in `reports/bench/2026-10-25-tps-series.md` was under load.
 | `miner_share_bps` | 7000 | 70% to miners, 30% to the committee |
@@ -50,7 +53,7 @@ refuses any less.
 
 ```
 genesis-ceremony --chain-id maya-mainnet \
-  --supply <ROOT UNITS> \
+  --supply 0 \
   --validators validators.txt \
   --mining deploy/genesis/mainnet/mining.json \
   --mining-reserve 122753829695359067419575633036805965021648 \
@@ -60,8 +63,15 @@ genesis-ceremony --chain-id maya-mainnet \
 cargo xtask genesis-check out/genesis.json
 ```
 
+- `--supply 0` is the only mainnet path (zero premine, ADR-044, Eric 2026-11-07). The ceremony
+  refuses any other supply on `maya-mainnet`, and writes no root key and no treasury. The
+  genesis money is exactly the mining reserve plus the bonds, and `genesis-check` refuses any
+  allocation that is not the reserve.
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
-  validators and no operator above 20% of the bonded stake.
+  validators and no operator above 20% of the bonded stake. Every bond is exactly
+  `--min-self-bond` (the tiny bond, Eric 2026-11-07); the ceremony and `genesis-check` both
+  refuse any other amount. Stake concentration is therefore the seat count, which the 20% cap
+  already bounds.
 - The check counts payout addresses. At launch every validator is run by one person
   (DECISIONS 2026-10-25), so each gets its own operator address. The launch says so publicly:
   "validators run by one operator", never "independent".

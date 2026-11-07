@@ -278,9 +278,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     if args.chain_id.is_empty() {
         return Err("--chain-id is required".into());
     }
-    if args.supply.is_zero() {
-        return Err("--supply is required and must be non-zero".into());
-    }
+    check_supply_policy(&args.chain_id, args.supply)?;
     // ADR-050: a value-bearing chain launches with its bounded emergency
     // brake, or it has none until a hard fork adds one.
     if is_value_bearing(&args.chain_id) && args.council_dir.is_none() {
@@ -295,6 +293,18 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         return Err("a value-bearing chain needs --min-self-bond and --min-delegation".into());
     }
     Ok(args)
+}
+
+/// Zero premine (ADR-044, Eric 2026-11-07): a value-bearing chain mints no root
+/// or treasury allocation, so its money is the mining reserve and the bonds.
+/// Any other chain may still be given a supply for its own tests.
+fn check_supply_policy(chain_id: &str, supply: primitive_types::U256) -> Result<(), String> {
+    if is_value_bearing(chain_id) && !supply.is_zero() {
+        return Err(format!(
+            "{chain_id} launches with --supply 0: a premine to root keys or a treasury is refused (ADR-044)"
+        ));
+    }
+    Ok(())
 }
 
 /// The `shielded_activation_height` a genesis for `chain_id` gets (ADR-037).
@@ -321,6 +331,11 @@ fn read_committee(args: &Args) -> Result<Option<Vec<committee::Member>>, Box<dyn
     };
     let members = committee::read(path)?;
     committee::check_launch_size(is_value_bearing(&args.chain_id), &members)?;
+    if is_value_bearing(&args.chain_id) {
+        // parse_args has already required --min-self-bond on this chain.
+        let floor = args.min_self_bond.ok_or("--min-self-bond is required")?;
+        committee::check_tiny_bonds(&members, floor)?;
+    }
     Ok(Some(members))
 }
 
@@ -475,6 +490,15 @@ fn split_supply(
     share_bps: u16,
 ) -> Result<(primitive_types::U256, primitive_types::U256), Box<dyn Error>> {
     use primitive_types::U256;
+    // Zero premine: nothing to split. A treasury share against no supply would
+    // divide by zero below, and would be a treasury with no money behind it.
+    if supply.is_zero() {
+        return if share_bps == 0 {
+            Ok((U256::zero(), U256::zero()))
+        } else {
+            Err("a treasury needs a supply: --treasury-share-bps must be 0 with --supply 0".into())
+        };
+    }
     if share_bps > MAX_TREASURY_SHARE_BPS {
         return Err(format!(
             "treasury share of {share_bps} bps exceeds the {MAX_TREASURY_SHARE_BPS} bps ceiling"
@@ -610,14 +634,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Each root gets an equal share of what the treasury did not take. Equal,
     // not weighted: an unequal split at genesis is a governance decision, and
     // a ceremony binary is the wrong place to encode one silently.
-    let roots = primitive_types::U256::from(args.roots);
+    // Zero premine: with no supply there is nothing to allocate, so no root key
+    // is minted either (the reserve and the bonds are the whole of the money).
+    let root_count = if args.supply.is_zero() { 0 } else { args.roots };
+    let roots = primitive_types::U256::from(root_count.max(1));
     let per_root = distributable / roots;
     let dust = distributable - per_root * roots;
 
-    let mut allocations = Vec::with_capacity(args.roots);
-    let mut public_lines = Vec::with_capacity(args.roots);
+    let mut allocations = Vec::with_capacity(root_count);
+    let mut public_lines = Vec::with_capacity(root_count);
 
-    for index in 0..args.roots {
+    for index in 0..root_count {
         let key = hybrid::generate_signing_key()?;
         let address = hex::encode(key.address());
 
@@ -714,7 +741,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         config.timestamp,
         config.difficulty_bits,
         config.pow_limit_bits,
-        args.roots,
+        root_count,
         treasury_balance,
         args.treasury_share_bps,
         shielded_line(&config),
@@ -973,14 +1000,20 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
     // Equal shares, as in the single-party path: an unequal split is a
     // governance decision and a ceremony binary is the wrong place to encode
     // one silently.
-    let count = primitive_types::U256::from(contributions.len());
+    // Zero premine: with no supply no contributor is allocated to.
+    let funded = if args.supply.is_zero() {
+        0
+    } else {
+        contributions.len()
+    };
+    let count = primitive_types::U256::from(funded.max(1));
     let per_root = distributable / count;
     let dust = distributable - per_root * count;
 
-    let mut allocations = Vec::with_capacity(contributions.len());
-    let mut public_lines = Vec::with_capacity(contributions.len());
+    let mut allocations = Vec::with_capacity(funded);
+    let mut public_lines = Vec::with_capacity(funded);
 
-    for (index, contribution) in contributions.iter().enumerate() {
+    for (index, contribution) in contributions.iter().take(funded).enumerate() {
         // The first by label absorbs the remainder. Sorted by label rather
         // than by address, so which participant it is was decided by their
         // name and not by the bits their key happened to hash to.
@@ -1081,7 +1114,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         config.timestamp,
         config.difficulty_bits,
         config.pow_limit_bits,
-        contributions.len(),
+        funded,
         treasury_balance,
         args.treasury_share_bps,
         shielded_line(&config),
@@ -1162,9 +1195,83 @@ mod shielded_tests {
 mod mining_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use super::{Args, committee, launch_config};
+    use super::{Args, check_supply_policy, committee, launch_config, split_supply};
     use custom_l1_node::crypto::validator_keys as keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
+
+    /// A mainnet launch: zero premine, every bond the minimum self-bond.
+    fn mainnet_args(supply: u64) -> Args {
+        Args {
+            chain_id: "maya-mainnet".into(),
+            supply: primitive_types::U256::from(supply),
+            epoch_blocks: 20,
+            mining: Some((mining(), primitive_types::U256::from(5_000_000))),
+            min_self_bond: Some(primitive_types::U256::from(1_000_000)),
+            min_delegation: Some(primitive_types::U256::from(1_000)),
+            ..Args::default()
+        }
+    }
+
+    #[test]
+    fn zero_supply_mints_only_the_reserve_and_the_bonds() {
+        // The genesis money must be exactly the reserve plus the four bonds.
+        let config = launch_config(&mainnet_args(0), Vec::new(), None, Some(&members()));
+        let addresses: Vec<String> = config
+            .allocations
+            .iter()
+            .map(|a| a.address.clone())
+            .collect();
+        assert_eq!(addresses, vec![hex::encode(MINING_RESERVE)]);
+        let bonds = primitive_types::U256::from(4_000_000);
+        assert_eq!(
+            config.total_supply().unwrap(),
+            primitive_types::U256::from(5_000_000) + bonds
+        );
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn a_premine_on_mainnet_is_refused_and_a_testnet_may_keep_one() {
+        let zero = primitive_types::U256::zero();
+        let some = primitive_types::U256::from(1_000);
+        assert!(check_supply_policy("maya-mainnet", zero).is_ok());
+        assert!(
+            check_supply_policy("maya-mainnet", some)
+                .unwrap_err()
+                .contains("--supply 0")
+        );
+        assert!(check_supply_policy(" Mainnet ", some).is_err());
+        assert!(check_supply_policy("maya-testnet-2", some).is_ok());
+    }
+
+    #[test]
+    fn a_mainnet_bond_must_be_exactly_the_minimum() {
+        let floor = primitive_types::U256::from(1_000_000);
+        assert!(committee::check_tiny_bonds(&members(), floor).is_ok());
+        let mut over = members();
+        over[0].bond = Some((
+            hex::encode([9u8; 32]),
+            primitive_types::U256::from(2_000_000),
+        ));
+        let err = committee::check_tiny_bonds(&over, floor)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("op1") && err.contains("exactly the minimum"),
+            "{err}"
+        );
+        let mut unbonded = members();
+        unbonded[1].bond = None;
+        assert!(committee::check_tiny_bonds(&unbonded, floor).is_err());
+    }
+
+    #[test]
+    fn a_treasury_needs_a_supply() {
+        let zero = primitive_types::U256::zero();
+        let (treasury, remainder) = split_supply(zero, 0).unwrap();
+        assert_eq!((treasury, remainder), (zero, zero));
+        assert!(split_supply(zero, 1_000).is_err());
+    }
 
     fn members() -> Vec<committee::Member> {
         (1..=4u8)
