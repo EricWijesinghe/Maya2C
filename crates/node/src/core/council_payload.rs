@@ -149,7 +149,7 @@ impl CouncilAction {
                     sunsets.push(SunsetSpec {
                         suite: r.read_u8()?,
                         sunset_height: r.read_u64()?,
-                        emergency: r.read_u8()? != 0,
+                        emergency: crate::core::governance_payload::read_flag(r)?,
                     });
                 }
                 CouncilKind::SunsetSuites {
@@ -179,6 +179,30 @@ impl CouncilAction {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn a_sunset_flag_byte_other_than_0_or_1_is_refused() {
+        // Found by the governance_payload_decode fuzz target: `!= 0` let
+        // byte 2 decode as `true`, a second wire form for one action.
+        let action = CouncilAction {
+            kind: CouncilKind::SunsetSuites {
+                announced_at: 7,
+                sunsets: vec![SunsetSpec {
+                    suite: 0x10,
+                    sunset_height: 9,
+                    emergency: false,
+                }],
+            },
+            nonce: 1,
+            approvals: vec![],
+        };
+        let mut buf = Vec::new();
+        action.encode_into(&mut buf);
+        // kind(1) + announced_at(8) + count(8) + suite(1) + height(8) = flag at 26.
+        assert_eq!(buf[26], 0);
+        buf[26] = 2;
+        assert!(CouncilAction::decode(&mut ByteReader::new(&buf)).is_err());
+    }
 
     #[test]
     fn actions_round_trip_and_the_nonce_is_signed() {

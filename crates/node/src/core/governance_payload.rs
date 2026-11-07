@@ -24,6 +24,16 @@ use crate::state::account::Address;
 use crate::state::upgrades::SunsetSpec;
 use crate::upgrade::FeatureSet;
 
+/// Reads a flag byte. Only 0 and 1 decode: any other byte would re-encode
+/// differently, giving one action two wire forms (and two ids).
+pub(crate) fn read_flag(reader: &mut ByteReader<'_>) -> Result<bool> {
+    match reader.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        b => Err(NodeError::Decode(format!("flag byte {b} is not 0 or 1"))),
+    }
+}
+
 /// Most rule changes one proposal may carry.
 ///
 /// Mirrors [`maya_governance::params::MAX_CHANGES_PER_PROPOSAL`] so the decoder
@@ -93,7 +103,7 @@ impl ScheduleUpgrade {
             sunsets.push(SunsetSpec {
                 suite: reader.read_u8()?,
                 sunset_height: reader.read_u64()?,
-                emergency: reader.read_u8()? != 0,
+                emergency: read_flag(reader)?,
             });
         }
         Ok(Self {
