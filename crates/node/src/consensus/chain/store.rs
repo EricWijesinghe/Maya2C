@@ -184,7 +184,7 @@ impl Chain {
 
             // The refusals `insert_block` applies before it spends anything on
             // a block, so a header cannot slip past what its body would not.
-            crate::upgrade::refuse_unsupported(self.config.unsupported_upgrade, height)?;
+            self.state.effective_schedule()?.check_halt(height)?;
             if super::below_prune_horizon(height, self.prune_horizon) {
                 return Err(NodeError::BelowPruneHorizon {
                     height,

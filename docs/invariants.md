@@ -245,3 +245,18 @@ phase that did it.
     `crates/node/tests/block_bytes_tests.rs` (including
     `a_block_over_the_cap_is_refused_on_import` and
     `a_transaction_left_out_is_applied_once_in_a_later_block`) — ADR-072.
+34. **A scheduled protocol version or suite sunset takes effect no sooner than its
+    compiled lead, and no entry is moved earlier, removed, or placed before one
+    already written.** Governance's `ScheduleUpgrade` needs
+    `MIN_UPGRADE_LEAD_BLOCKS` (30 days at one block per second) between the last
+    height its proposal can execute at and its activation. The security council's
+    `SunsetSuites` needs `MIN_COUNCIL_SUNSET_LEAD_BLOCKS` (7 days) and may schedule
+    nothing else. Neither can move funds or mint: a schedule entry switches on a
+    dark feature or retires a suite. Both leads are compiled in
+    `crates/governance/src/limits.rs` (invariant 12), so no proposal shortens them.
+    Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
+    (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
+    `a_new_entry_must_lie_after_every_entry_already_written`) and
+    `crates/node/tests/council_pause_tests.rs`
+    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
+    — ADR-082.

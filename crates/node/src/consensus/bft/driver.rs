@@ -222,6 +222,10 @@ pub struct BftDriver {
     /// committed, and the engine's committed round then; reset whenever the
     /// engine commits again (see `overtaken`).
     overtaken_since: Option<(u64, u64)>,
+    /// The chain's next height is governed by a protocol version this binary
+    /// does not implement (ADR-082). Sticky: the chain cannot pass the halt on
+    /// this binary, so the engine is never fed again and signs nothing more.
+    halted: bool,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -379,6 +383,7 @@ impl BftDriver {
                 .map(|(_, round)| round),
             closing: None,
             overtaken_since: None,
+            halted: false,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -475,6 +480,9 @@ impl BftDriver {
     /// epoch, or is addressed to someone else is not an error; it is ignored.
     pub fn on_frame(&mut self, chain: &mut Chain, now_ms: u64, bytes: &[u8]) -> Result<Step> {
         let mut step = Step::default();
+        if self.halted {
+            return Ok(step);
+        }
         if bytes.first() == Some(&ATTEST_FRAME) {
             self.on_attestation(chain, bytes, &mut step);
             return Ok(step);
@@ -664,6 +672,9 @@ impl BftDriver {
     /// As [`BftDriver::on_frame`].
     pub fn on_tick(&mut self, chain: &mut Chain, now_ms: u64) -> Result<Step> {
         let mut step = Step::default();
+        if self.halted {
+            return Ok(step);
+        }
         // A builder switches epochs on the boundary block it builds. A block
         // imported instead (a follower's, or one a former follower's
         // follow_loop brought in) is noticed here, or the node would stay in
@@ -718,6 +729,13 @@ impl BftDriver {
         out: Output,
         step: &mut Step,
     ) -> Result<()> {
+        // A tip that reached the halt by any route (built here, a follower's
+        // import, a catch-up) is caught before this output is persisted or
+        // sent: what the engine just signed in memory never leaves, and with
+        // no record and no frame there is nothing to equivocate against.
+        if self.halt_reached(chain, step)? {
+            return Ok(());
+        }
         // Before any send: an own certificate is on disk before a peer can
         // build on it.
         for c in &out.inserted {
@@ -795,6 +813,9 @@ impl BftDriver {
                         // longer orders the chain.
                         return self.switch_epoch(chain, now_ms, step);
                     }
+                    if self.halt_reached(chain, step)? {
+                        break;
+                    }
                 }
                 other => {
                     return Err(NodeError::Storage(format!(
@@ -809,6 +830,32 @@ impl BftDriver {
             .saturating_sub(maya_dag_bft::GC_DEPTH);
         self.logged = self.logged.split_off(&(horizon, 0));
         Ok(())
+    }
+
+    /// Whether the chain's next height is one this binary may not judge
+    /// (ADR-082). The first time it is, says so once and withdraws every DAG
+    /// frame of this step: proposals and votes already persisted stay on disk,
+    /// so an upgraded restart never re-signs those slots differently, but none
+    /// goes out. Attestations stay, and are of heights below the halt.
+    fn halt_reached(&mut self, chain: &Chain, step: &mut Step) -> Result<bool> {
+        if self.halted {
+            return Ok(true);
+        }
+        match chain
+            .state()
+            .effective_schedule()?
+            .check_halt(chain.height() + 1)
+        {
+            Ok(()) => Ok(false),
+            Err(halt @ NodeError::UpgradeRequired { .. }) => {
+                self.halted = true;
+                step.frames.retain(|f| f.first() == Some(&ATTEST_FRAME));
+                step.notices
+                    .push(format!("{halt}; stopped proposing, voting and attesting"));
+                Ok(true)
+            }
+            Err(other) => Err(other),
+        }
     }
 
     /// The staking epoch the chain has moved to, if it is not this driver's.

@@ -46,6 +46,7 @@ fn chain(dir: &TempDir) -> Chain {
         sealed: None,
         treasury: None,
         protocol_upgrades: Vec::new(),
+        suite_deprecations: Vec::new(),
         security_council: None,
         shielded_activation_height: None,
         bft: Some(BftGenesis {

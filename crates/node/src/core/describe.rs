@@ -460,6 +460,16 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             CouncilKind::Resume { module } => {
                 Description::new(format!("Council: resume module {module}."), Careful)
             }
+            CouncilKind::SunsetSuites {
+                announced_at,
+                sunsets,
+            } => Description::new(
+                format!(
+                    "Council: retire {} suite(s) from height {announced_at}.",
+                    sunsets.len()
+                ),
+                Careful,
+            ),
         },
         TxKind::Vault(action) => describe_vault(action),
         TxKind::MiningShare(m) => Description::new(
