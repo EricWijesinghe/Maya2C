@@ -173,6 +173,33 @@ pub fn check_launch_size(value_bearing: bool, members: &[Member]) -> Result<(), 
     Ok(())
 }
 
+/// Every validator on a value-bearing chain bonds exactly the minimum
+/// self-bond (Eric 2026-11-07, the tiny bond). Genesis already refuses a bond
+/// below the floor; this refuses one above it, so the bonds are the disclosed
+/// seats and nothing more.
+///
+/// # Errors
+///
+/// A member without a bond, or a bond that is not `floor`.
+pub fn check_tiny_bonds(
+    members: &[Member],
+    floor: primitive_types::U256,
+) -> Result<(), Box<dyn Error>> {
+    for member in members {
+        let Some((_, bond)) = &member.bond else {
+            return Err(format!("{}: a mainnet validator must bond", member.label).into());
+        };
+        if *bond != floor {
+            return Err(format!(
+                "{}: bond {bond} is not --min-self-bond {floor}; mainnet bonds are exactly the minimum",
+                member.label
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
 /// The commitment sheet's committee section.
 #[must_use]
 pub fn sheet_lines(members: &[Member]) -> String {

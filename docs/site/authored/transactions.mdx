@@ -232,7 +232,7 @@ base-fee part is burned to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`,
 
 The bound the code enforces is `MAX_SUPPLY` $= 2^{256}-1$ in
 `crates/fee-market/src/supply.rs`. Older documentation mentions a cap of
-21,000,000 coins at 8 decimals; that is out of date. The coin has 24 decimals, and 21,000,000 is the emission budget, not the cap.
+21,000,000 coins at 8 decimals; that is out of date. The coin has 24 decimals. The halving eras issue 19,687,500 coins, and a tail then pays forever: there is no cap.
 
 ## Replay and ordering
 
