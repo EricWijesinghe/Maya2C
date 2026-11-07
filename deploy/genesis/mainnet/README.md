@@ -63,10 +63,12 @@ genesis-ceremony --chain-id maya-mainnet \
 cargo xtask genesis-check out/genesis.json
 ```
 
-- `--supply 0` is the only mainnet path (zero premine, ADR-044, Eric 2026-11-07). The ceremony
-  refuses any other supply on `maya-mainnet`, and writes no root key and no treasury. The
-  genesis money is exactly the mining reserve plus the bonds, and `genesis-check` refuses any
-  allocation that is not the reserve.
+- `--supply 0` is the only mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds
+  only the keyless mining reserve and the disclosed minimum validator bonds (7 x
+  min-self-bond). The bonds are minted value, which is why they are disclosed. The ceremony
+  refuses any other supply on `maya-mainnet`, and writes no root key and no treasury.
+  `genesis-check` refuses any allocation that is not the reserve, and a reserve that is not
+  exactly the schedule's `lifetime_emission`.
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
   validators and no operator above 20% of the bonded stake. Every bond is exactly
   `--min-self-bond` (the tiny bond, Eric 2026-11-07); the ceremony and `genesis-check` both

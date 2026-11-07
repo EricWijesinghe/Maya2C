@@ -13,6 +13,7 @@
 //! mining needs a block difficulty. The fee floor must be at least
 //! [`MIN_BASE_FEE`] (pre-audit S-007).
 
+use maya_amount::Amount;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -76,6 +77,11 @@ struct Mining {
     /// Zero or absent means the reward stops at the halving floor (ADR-068).
     #[serde(default, deserialize_with = "units_opt")]
     tail_epoch_reward: Option<u128>,
+    /// Kept as written, like an allocation balance; read by [`amount_of`].
+    #[serde(default)]
+    initial_epoch_reward: serde_json::Value,
+    #[serde(default)]
+    halving_epochs: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -110,6 +116,9 @@ struct Staking {
     min_self_bond: Option<u128>,
     #[serde(default, deserialize_with = "units_opt")]
     min_delegation: Option<u128>,
+    /// Prices the mining reserve: the schedule counts epochs to the last height.
+    #[serde(default)]
+    epoch_blocks: Option<u64>,
 }
 
 fn units_opt<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u128>, D::Error> {
@@ -128,6 +137,100 @@ fn mining_reserve_address() -> String {
     let mut padded = [0u8; 32];
     padded[..MINING_RESERVE_TAG.len()].copy_from_slice(MINING_RESERVE_TAG);
     hex::encode(padded)
+}
+
+/// A genesis amount written as a decimal string or a JSON integer, at full
+/// 256 bits; `None` for anything else or an overflow.
+fn amount_of(value: &serde_json::Value) -> Option<Amount> {
+    let text = match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    text.bytes().try_fold(Amount::ZERO, |acc, digit| {
+        acc.checked_mul(Amount::from_u64(10))?
+            .checked_add(Amount::from_u64(u64::from(digit - b'0')))
+    })
+}
+
+/// `MiningRecord::lifetime_emission` (`crates/node/src/state/mining.rs`),
+/// re-derived so the xtask stays off the node crate; a test pins it to the
+/// mainnet figure the node computes (`deploy/genesis/mainnet/README.md`).
+/// Everything the schedule pays, epoch 0 to the last epoch a `u64` height
+/// reaches; `None` at or past the node's 2^192 ceiling.
+fn lifetime_emission(
+    initial: Amount,
+    tail: Amount,
+    halving_epochs: u64,
+    epoch_blocks: u64,
+) -> Option<Amount> {
+    if halving_epochs == 0 || epoch_blocks == 0 {
+        return None;
+    }
+    let epochs_total = u128::from(u64::MAX / epoch_blocks) + 1;
+    let era = u128::from(halving_epochs);
+    let mut total = Amount::ZERO;
+    let mut start: u128 = 0;
+    for halvings in 0u32..=256 {
+        if start >= epochs_total {
+            break;
+        }
+        let halved = initial.shr(halvings);
+        let left = epochs_total - start;
+        if halved <= tail {
+            total = total.checked_add(tail.checked_mul(Amount::from_u128(left))?)?;
+            break;
+        }
+        total = total.checked_add(halved.checked_mul(Amount::from_u128(era.min(left)))?)?;
+        start = start.saturating_add(era);
+    }
+    (total < LIFETIME_EMISSION_CEILING).then_some(total)
+}
+
+/// The node's `LIFETIME_EMISSION_CEILING`: 2^192.
+const LIFETIME_EMISSION_CEILING: Amount = Amount([0, 0, 0, 1]);
+
+/// The reserve must hold exactly the schedule's lifetime emission. The node
+/// refuses less; more would be value no rule ever pays out, a premine in
+/// all but name.
+fn reserve_rule(g: &Genesis) -> Option<String> {
+    let mining = g.bft.mining.as_ref()?;
+    let reserve = mining_reserve_address();
+    let mut funded = Some(Amount::ZERO);
+    for a in &g.allocations {
+        if normalized_address(&a.address) == reserve {
+            funded = funded.and_then(|f| f.checked_add(amount_of(&a.balance)?));
+        }
+    }
+    let Some(funded) = funded else {
+        return Some("the mining reserve's balance is not a readable amount".to_string());
+    };
+    let tail = Amount::from_u128(mining.tail_epoch_reward.unwrap_or(0));
+    let lifetime = match (
+        amount_of(&mining.initial_epoch_reward),
+        mining.halving_epochs,
+        g.bft.staking.epoch_blocks,
+    ) {
+        (Some(initial), Some(halving), Some(epoch)) => {
+            lifetime_emission(initial, tail, halving, epoch)
+        }
+        _ => {
+            return Some(
+                "bft.mining.initial_epoch_reward, bft.mining.halving_epochs and bft.staking.epoch_blocks are needed to price the mining reserve"
+                    .to_string(),
+            );
+        }
+    };
+    match lifetime {
+        Some(lifetime) if lifetime == funded => None,
+        Some(lifetime) => Some(format!(
+            "the mining reserve holds {funded} but the schedule's lifetime emission is {lifetime}: it must be exactly that (ADR-044)"
+        )),
+        None => Some("the mining schedule's lifetime emission reaches 2^192".to_string()),
+    }
 }
 
 /// `address` as the policy compares it: lowercase hex, optional `0x` dropped.
@@ -150,7 +253,7 @@ fn launch_rules(g: &Genesis, now: u64) -> Vec<String> {
     for a in &g.allocations {
         if normalized_address(&a.address) != reserve {
             out.push(format!(
-                "allocation to {} of {} base units: only the keyless mining reserve may be funded at genesis (zero premine, ADR-044)",
+                "allocation to {} of {} base units: only the keyless mining reserve may be funded at genesis (no premine, ADR-044)",
                 a.address, a.balance
             ));
         }
@@ -179,6 +282,7 @@ fn launch_rules(g: &Genesis, now: u64) -> Vec<String> {
                 .to_string(),
         ),
     }
+    out.extend(reserve_rule(g));
     out
 }
 
@@ -295,16 +399,27 @@ mod tests {
     const NOW: u64 = 1_794_000_000;
     const DAY: u64 = 86_400;
     const TAIL: &str = "23956194387405886379192334";
+    const INITIAL: &str = "299452429842573579739904175";
+    /// The node's `lifetime_emission` of the mainnet schedule at 3,600-block
+    /// epochs (`deploy/genesis/mainnet/README.md`).
+    const RESERVE: &str = "122753829695359067419575633036805965021648";
 
     fn check(text: &str) -> Result<Vec<String>, String> {
         problems(text, NOW)
     }
 
-    fn no_mining(g: &str) -> String {
-        g.replace(
-            &format!("\"mining\":{{\"tail_epoch_reward\":\"{TAIL}\"}},"),
-            "",
+    fn mining() -> String {
+        format!(
+            "\"mining\":{{\"initial_epoch_reward\":\"{INITIAL}\",\"halving_epochs\":35064,\"tail_epoch_reward\":\"{TAIL}\"}},"
         )
+    }
+
+    fn allocation(address: &str, balance: &str) -> String {
+        format!("{{\"address\":\"{address}\",\"balance\":\"{balance}\"}}")
+    }
+
+    fn no_mining(g: &str) -> String {
+        g.replace(&mining(), "")
     }
 
     /// The minimum self-bond every fixture bonds: mainnet bonds are exactly it.
@@ -319,11 +434,13 @@ mod tests {
             .map(|(o, _)| format!("{{\"operator\":\"{o}\",\"bond\":\"{FLOOR}\"}}"))
             .collect::<Vec<_>>()
             .join(",");
+        let reserve = allocation(&mining_reserve_address(), RESERVE);
+        let mining = mining();
         format!(
-            "{{\"difficulty_bits\":{difficulty},\"shielded_activation_height\":18446744073709551615,\"timestamp\":{NOW},\"bft\":{{\"validators\":[{validators}],\
-             \"mining\":{{\"tail_epoch_reward\":\"{TAIL}\"}},\
+            "{{\"difficulty_bits\":{difficulty},\"shielded_activation_height\":18446744073709551615,\"timestamp\":{NOW},\"allocations\":[{reserve}],\"bft\":{{\"validators\":[{validators}],\
+             {mining}\
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
-             \"staking\":{{\"stake_weighted\":{weighted},\
+             \"staking\":{{\"stake_weighted\":{weighted},\"epoch_blocks\":3600,\
              \"min_self_bond\":\"{FLOOR}\",\
              \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
         )
@@ -443,10 +560,8 @@ mod tests {
 
     fn with_allocation(address: &str, balance: &str) -> String {
         genesis(20, true, &EVEN).replace(
-            "\"bft\"",
-            &format!(
-                "\"allocations\":[{{\"address\":\"{address}\",\"balance\":\"{balance}\"}}],\"bft\""
-            ),
+            &allocation(&mining_reserve_address(), RESERVE),
+            &allocation(address, balance),
         )
     }
 
@@ -457,15 +572,63 @@ mod tests {
         assert!(
             found
                 .iter()
-                .any(|p| p.contains(&to) && p.contains("zero premine")),
+                .any(|p| p.contains(&to) && p.contains("no premine")),
             "{found:?}"
         );
     }
 
     #[test]
+    fn the_reserve_must_hold_exactly_the_lifetime_emission() {
+        let reserve = mining_reserve_address();
+        for wrong in [
+            "122753829695359067419575633036805965021647",
+            "122753829695359067419575633036805965021649",
+            "0",
+        ] {
+            let found = check(&with_allocation(&reserve, wrong)).unwrap();
+            assert!(
+                found.iter().any(|p| p.contains("lifetime emission")),
+                "{wrong}: {found:?}"
+            );
+        }
+        // Without the reserve at all, the schedule is unfunded.
+        let missing =
+            genesis(20, true, &EVEN).replace(&format!("[{}]", allocation(&reserve, RESERVE)), "[]");
+        let found = check(&missing).unwrap();
+        assert!(found.iter().any(|p| p.contains("holds 0")), "{found:?}");
+        // A schedule it cannot price is a problem, not a pass.
+        let unpriced = genesis(20, true, &EVEN).replace("\"epoch_blocks\":3600,", "");
+        let found = check(&unpriced).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("epoch_blocks")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn the_lifetime_emission_is_the_nodes_mainnet_figure() {
+        // The node's `MiningRecord::lifetime_emission` for mining.json at
+        // 3,600-block epochs, as the mainnet README and `proving.rs` record it.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../deploy/genesis/mainnet/mining.json"
+        );
+        let mining: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let lifetime = lifetime_emission(
+            amount_of(&mining["initial_epoch_reward"]).unwrap(),
+            amount_of(&mining["tail_epoch_reward"]).unwrap(),
+            mining["halving_epochs"].as_u64().unwrap(),
+            3_600,
+        )
+        .unwrap();
+        assert_eq!(lifetime.to_string(), RESERVE);
+    }
+
+    #[test]
     fn the_mining_reserve_alone_is_allowed_with_or_without_a_0x_prefix() {
         let reserve = mining_reserve_address();
-        let amount = "122753829695359067419575633036805965021648";
+        let amount = RESERVE;
         assert!(
             check(&with_allocation(&reserve, amount))
                 .unwrap()

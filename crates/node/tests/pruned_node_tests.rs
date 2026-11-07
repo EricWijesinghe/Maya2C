@@ -17,18 +17,22 @@ use std::sync::{Arc, Mutex};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig, InsertOutcome};
 use custom_l1_node::core::TxKind;
 use custom_l1_node::core::block::{Block, BlockHeader};
+use custom_l1_node::core::payload::MAX_CONTRACT_CODE;
 use custom_l1_node::core::payload::{ContractCall, ContractDeploy};
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::{NodeError, Result};
+use custom_l1_node::network::Mempool;
+use custom_l1_node::rpc::bootstrap::{RpcBootstrapSource, SnapshotService};
+use custom_l1_node::rpc::server::{RPC_RESPONSE_LIMIT, RpcContext, serve};
 use custom_l1_node::state::account::Account;
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state_pruner::archive::{Archiver, prune_round};
 use custom_l1_node::state_pruner::cold::ColdBlocks;
 use custom_l1_node::state_pruner::snapshot::{
-    BootstrapSource, CHUNK_ENTRIES, SnapshotManifest, Snapshots, TrustedBlock, bootstrap_pruned,
-    bootstrap_pruned_anchored, chunk_hash, decode_chunk, encode_chunk,
+    BootstrapSource, CHUNK_ENTRIES, MAX_CHUNK_BYTES, SnapshotManifest, Snapshots, TrustedBlock,
+    bootstrap_pruned, bootstrap_pruned_anchored, chunk_hash, decode_chunk, encode_chunk,
 };
 use custom_l1_node::state_pruner::{ArchivePolicy, PruneConfig};
 use maya_archive::{ArchiveError, ArchiveStore, LocalDirStore, Locator};
@@ -403,6 +407,76 @@ fn a_pruned_node_refuses_imported_headers_at_or_below_its_horizon() {
             "height {height}: {refusal:?}"
         );
     }
+}
+
+#[test]
+fn a_state_of_large_code_values_snapshots_into_serveable_chunks() {
+    // 40 maximal contracts: 20 MiB of code. Cut by entry count alone this was
+    // one chunk, 40 MiB as hex, over the 32 MiB RPC response cap — a snapshot
+    // no new node could ever download.
+    const CONTRACTS: u8 = 40;
+    let mut archive = ArchiveNode::new(generate_signing_key().expect("key"));
+    let code = vec![0xc0; MAX_CONTRACT_CODE];
+    for i in 0..CONTRACTS {
+        let mut key = b"code:".to_vec();
+        key.extend_from_slice(&[i; 32]);
+        archive
+            .chain
+            .state()
+            .raw_put_for_test(&key, &code)
+            .expect("code");
+    }
+    archive.mine(2 * SNAPSHOT_INTERVAL, 0);
+
+    #[allow(clippy::used_underscore_binding)] // the field only keeps the dirs alive elsewhere
+    let snapshot_dir = archive._dirs.1.path().to_path_buf();
+    let (_, chunks) = archive
+        .snapshots
+        .load(SNAPSHOT_INTERVAL)
+        .expect("the snapshot loads");
+    assert!(chunks.len() >= 2, "20 MiB of code must span chunks");
+    for chunk in &chunks {
+        // Hex doubles it; the JSON-RPC envelope is well under 1 KiB.
+        assert!(
+            2 * chunk.len() + 1024 <= RPC_RESPONSE_LIMIT as usize,
+            "a {}-byte chunk cannot be served",
+            chunk.len()
+        );
+        assert!(chunk.len() <= MAX_CHUNK_BYTES);
+    }
+
+    // The round trip through the real RPC: serve the archive, bootstrap from it.
+    let archive_root = archive.chain.state().state_root().expect("root");
+    let archive_tip = archive.chain.tip();
+    let state = Arc::clone(archive.chain.state());
+    let context = RpcContext::new(Arc::new(Mutex::new(archive.chain)), Mempool::new(state))
+        .with_snapshots(Arc::new(SnapshotService::new(
+            Snapshots::new(&snapshot_dir).expect("snapshots"),
+            SNAPSHOT_INTERVAL,
+        )));
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let server = runtime
+        .block_on(serve("127.0.0.1:0".parse().expect("addr"), context))
+        .expect("serve");
+    let source = RpcBootstrapSource::new(
+        &format!("http://{}", server.address),
+        runtime.handle().clone(),
+    )
+    .expect("client");
+
+    let (target, _dir) = empty_state();
+    let pruned = bootstrap_pruned(
+        Arc::clone(&target),
+        genesis(),
+        config(),
+        &source,
+        SNAPSHOT_INTERVAL,
+    )
+    .expect("bootstrap over RPC");
+    assert_eq!(pruned.prune_horizon(), SNAPSHOT_INTERVAL);
+    assert_eq!(pruned.tip(), archive_tip);
+    assert_eq!(target.state_root().expect("root"), archive_root);
+    drop(server);
 }
 
 fn refuses(tamper: Tamper) {
