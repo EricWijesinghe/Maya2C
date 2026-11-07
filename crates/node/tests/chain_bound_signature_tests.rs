@@ -12,7 +12,7 @@ use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
-use custom_l1_node::crypto::suites::verification_policy;
+use custom_l1_node::crypto::suites::{SuiteSunsets, verification_policy};
 use custom_l1_node::state::StateDB;
 use custom_l1_node::state::account::Account;
 use custom_l1_node::state::verified::VerifiedCache;
@@ -59,7 +59,7 @@ fn a_signature_for_one_chain_does_not_verify_on_another() {
     tx.verify(&CHAIN_A).expect("valid on its own chain");
     assert!(tx.verify(&CHAIN_B).is_err());
 
-    let policy = verification_policy();
+    let policy = verification_policy(&SuiteSunsets::EMPTY).expect("genesis policy");
     tx.verify_at(0, &policy, &CHAIN_A)
         .expect("valid at height 0");
     assert!(tx.verify_at(0, &policy, &CHAIN_B).is_err());
@@ -81,7 +81,15 @@ fn an_unbound_state_refuses_to_verify() {
     let dir = TempDir::new().expect("dir");
     let state = StateDB::open(dir.path()).expect("open");
     let tx = transfer(&CHAIN_A, 1);
-    assert!(state.verify_cached(&tx, 0, &verification_policy()).is_err());
+    assert!(
+        state
+            .verify_cached(
+                &tx,
+                0,
+                &verification_policy(&SuiteSunsets::EMPTY).expect("genesis policy")
+            )
+            .is_err()
+    );
 }
 
 #[test]
@@ -94,7 +102,7 @@ fn a_state_binds_once_and_never_to_a_second_chain() {
         .expect("binding the same chain again is a no-op");
     assert!(state.bind_chain(CHAIN_B).is_err());
 
-    let policy = verification_policy();
+    let policy = verification_policy(&SuiteSunsets::EMPTY).expect("genesis policy");
     state
         .verify_cached(&transfer(&CHAIN_A, 1), 0, &policy)
         .expect("A's transaction");
@@ -108,7 +116,7 @@ fn a_state_binds_once_and_never_to_a_second_chain() {
 #[test]
 fn the_verified_cache_does_not_answer_for_another_chain() {
     let cache = VerifiedCache::default();
-    let policy = verification_policy();
+    let policy = verification_policy(&SuiteSunsets::EMPTY).expect("genesis policy");
     let tx = transfer(&CHAIN_A, 100);
 
     cache

@@ -47,6 +47,7 @@ use maya_stateless_core::{Blake3, PartialTree, apply_transfer, sparse};
 use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::core::payload::TxKind;
 use crate::core::{Block, Transaction};
+use crate::crypto::suites::SuiteSunsets;
 use crate::error::{NodeError, Result};
 use crate::state::account::{Account, Address};
 use crate::state::context::BlockContext;
@@ -274,12 +275,40 @@ fn fold_layers(accounts_root: &[u8; HASH_LEN], layers: &[LayerDigest]) -> [u8; H
 /// [`StatelessError::Unverifiable`] for a body that fails `tx_root`, a block a
 /// witness cannot decide, or a witness that does not match the parent root or
 /// does not open a key the block reads.
+///
+/// Judges suites under no deprecation schedule. A chain whose committed schedule
+/// sunsets a suite must verify through [`verify_block_under`] (ADR-082, M2).
 pub fn verify_block(
     parent_state_root: &[u8; HASH_LEN],
     height: u64,
     block: &Block,
     witness: StateWitness,
     chain: &crate::core::ChainTag,
+) -> core::result::Result<(), StatelessError> {
+    verify_block_under(
+        parent_state_root,
+        height,
+        block,
+        witness,
+        chain,
+        &SuiteSunsets::EMPTY,
+    )
+}
+
+/// [`verify_block`] under the genesis's suite deprecations (ADR-082). A chain
+/// whose genesis names a deprecation must verify through this with that
+/// schedule, or it would accept a frame the chain refuses at its sunset height.
+///
+/// # Errors
+///
+/// As [`verify_block`].
+pub fn verify_block_under(
+    parent_state_root: &[u8; HASH_LEN],
+    height: u64,
+    block: &Block,
+    witness: StateWitness,
+    chain: &crate::core::ChainTag,
+    sunsets: &SuiteSunsets,
 ) -> core::result::Result<(), StatelessError> {
     block
         .check_tx_root()
@@ -297,7 +326,8 @@ pub fn verify_block(
     // constant there: a stateless verifier holds an accounts witness and no
     // governance column family, so a verification rule that read state would be
     // one this path could not evaluate at all. ADR-013.
-    let policy = crate::crypto::suites::verification_policy();
+    let policy = crate::crypto::suites::verification_policy(sunsets)
+        .map_err(|e| StatelessError::Unverifiable(e.to_string()))?;
     for tx in &block.transactions {
         tx.verify_at(height, &policy, chain)
             .map_err(|error| StatelessError::Invalid(error.to_string()))?;

@@ -30,7 +30,10 @@ const CHAIN: custom_l1_node::core::ChainTag =
     custom_l1_node::core::ChainTag::from_genesis([42; 32]);
 
 fn worker() {
-    let policy = custom_l1_node::crypto::suites::verification_policy();
+    let policy = custom_l1_node::crypto::suites::verification_policy(
+        &custom_l1_node::crypto::suites::SuiteSunsets::EMPTY,
+    )
+    .expect("genesis policy");
     let mut input = BufReader::new(std::io::stdin().lock());
     let mut output = BufWriter::new(std::io::stdout().lock());
     let mut len = [0u8; 4];

@@ -201,6 +201,7 @@ impl Fixture {
             TxKind::Propose(Box::new(ProposalSubmission {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS,
+                upgrade: None,
                 changes: vec![(key.tag(), maya_dex::Amount::from_u64(value))],
             })),
             height,
@@ -452,6 +453,7 @@ fn a_proposal_below_the_timelock_floor_is_refused() {
             TxKind::Propose(Box::new(ProposalSubmission {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS - 1,
+                upgrade: None,
                 changes: vec![(
                     ParameterKey::DexProtocolFeeBps.tag(),
                     maya_dex::Amount::from_u64(10),
@@ -478,6 +480,7 @@ fn no_proposal_can_name_the_quorum_or_the_timelock() {
                 TxKind::Propose(Box::new(ProposalSubmission {
                     voting_blocks: MIN_VOTING_BLOCKS,
                     timelock_blocks: MIN_TIMELOCK_BLOCKS,
+                    upgrade: None,
                     changes: vec![(tag, maya_dex::Amount::from_u64(1))],
                 })),
                 1,
@@ -501,6 +504,7 @@ fn a_proposal_outside_a_parameters_hard_range_is_refused() {
                 TxKind::Propose(Box::new(ProposalSubmission {
                     voting_blocks: MIN_VOTING_BLOCKS,
                     timelock_blocks: MIN_TIMELOCK_BLOCKS,
+                    upgrade: None,
                     changes: vec![(
                         ParameterKey::DexProtocolFeeBps.tag(),
                         bounds
@@ -522,6 +526,7 @@ fn a_proposal_outside_a_parameters_hard_range_is_refused() {
             TxKind::Propose(Box::new(ProposalSubmission {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS,
+                upgrade: None,
                 changes: vec![(ParameterKey::DexProtocolFeeBps.tag(), bounds.max)],
             })),
             1,

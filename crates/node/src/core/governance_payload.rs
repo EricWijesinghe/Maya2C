@@ -21,6 +21,18 @@
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
+use crate::state::upgrades::SunsetSpec;
+use crate::upgrade::FeatureSet;
+
+/// Reads a flag byte. Only 0 and 1 decode: any other byte would re-encode
+/// differently, giving one action two wire forms (and two ids).
+pub(crate) fn read_flag(reader: &mut ByteReader<'_>) -> Result<bool> {
+    match reader.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        b => Err(NodeError::Decode(format!("flag byte {b} is not 0 or 1"))),
+    }
+}
 
 /// Most rule changes one proposal may carry.
 ///
@@ -31,6 +43,77 @@ pub const MAX_CHANGES: usize = maya_governance::params::MAX_CHANGES_PER_PROPOSAL
 
 /// Encoded size of one `(tag, value)` change.
 pub const CHANGE_SIZE: usize = 2 + 32;
+
+/// Most suite sunsets one schedule entry may carry: one per registered suite.
+pub const MAX_SUNSETS: usize = 8;
+
+/// Encoded size of one suite sunset: suite byte, sunset height, emergency flag.
+const SUNSET_SIZE: usize = 1 + 8 + 1;
+
+/// A protocol upgrade proposal (ADR-082): a rules epoch at a height, the
+/// dark features it switches on, and the suites it retires.
+///
+/// A proposal carries either parameter changes, this, or both. The schedule is
+/// written only if the proposal passes, and only with the lead the compiled
+/// limits require (`maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScheduleUpgrade {
+    /// The rules epoch. Must exceed every scheduled version.
+    pub version: u32,
+    /// Height the epoch and its features take effect at.
+    pub activation_height: u64,
+    /// Dark features the epoch switches on, as a [`FeatureSet`] bitmask.
+    pub features: FeatureSet,
+    /// Suites retired at `activation_height`.
+    pub sunsets: Vec<SunsetSpec>,
+}
+
+impl ScheduleUpgrade {
+    /// Appends the fixed-width encoding.
+    pub fn encode_into(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.version.to_le_bytes());
+        buf.extend_from_slice(&self.activation_height.to_le_bytes());
+        buf.extend_from_slice(&self.features.0.to_le_bytes());
+        buf.extend_from_slice(&(self.sunsets.len() as u64).to_le_bytes());
+        for sunset in &self.sunsets {
+            buf.push(sunset.suite);
+            buf.extend_from_slice(&sunset.sunset_height.to_le_bytes());
+            buf.push(u8::from(sunset.emergency));
+        }
+    }
+
+    /// Decodes an upgrade section.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] if the section is truncated or carries more than
+    /// [`MAX_SUNSETS`] sunsets.
+    pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
+        let version = u32::from_le_bytes(reader.read_array::<4>()?);
+        let activation_height = reader.read_u64()?;
+        let features = FeatureSet(reader.read_u64()?);
+        let count = reader.read_collection_len(SUNSET_SIZE)?;
+        if count > MAX_SUNSETS {
+            return Err(NodeError::Decode(format!(
+                "a schedule entry retiring {count} suites exceeds the maximum {MAX_SUNSETS}"
+            )));
+        }
+        let mut sunsets = Vec::with_capacity(count);
+        for _ in 0..count {
+            sunsets.push(SunsetSpec {
+                suite: reader.read_u8()?,
+                sunset_height: reader.read_u64()?,
+                emergency: read_flag(reader)?,
+            });
+        }
+        Ok(Self {
+            version,
+            activation_height,
+            features,
+            sunsets,
+        })
+    }
+}
 
 /// Crediting a block's work to an address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +152,8 @@ pub struct ProposalSubmission {
     pub timelock_blocks: u64,
     /// Rule changes, as `(parameter tag, new value)`.
     pub changes: Vec<(u16, maya_dex::Amount)>,
+    /// A protocol upgrade or suite sunset to schedule (ADR-082), if any.
+    pub upgrade: Option<ScheduleUpgrade>,
 }
 
 /// Casting a vote.
@@ -146,6 +231,13 @@ impl ProposalSubmission {
             buf.extend_from_slice(&tag.to_le_bytes());
             buf.extend_from_slice(&value.to_le_bytes());
         }
+        match &self.upgrade {
+            Some(upgrade) => {
+                buf.push(1);
+                upgrade.encode_into(buf);
+            }
+            None => buf.push(0),
+        }
     }
 
     /// Decodes a proposal.
@@ -159,14 +251,6 @@ impl ProposalSubmission {
         let timelock_blocks = reader.read_u64()?;
 
         let count = reader.read_collection_len(CHANGE_SIZE)?;
-        if count == 0 {
-            // A proposal that changes nothing is a vote about nothing, and it
-            // would still consume a deposit, a voting window, and everyone's
-            // attention.
-            return Err(NodeError::Decode(
-                "a proposal must carry at least one change".to_string(),
-            ));
-        }
         if count > MAX_CHANGES {
             return Err(NodeError::Decode(format!(
                 "a proposal carrying {count} changes exceeds the maximum {MAX_CHANGES}"
@@ -183,10 +267,25 @@ impl ProposalSubmission {
             ));
         }
 
+        let upgrade = match reader.read_u8()? {
+            0 => None,
+            1 => Some(ScheduleUpgrade::decode(reader)?),
+            flag => return Err(NodeError::Decode(format!("upgrade flag {flag}"))),
+        };
+        // A proposal that changes nothing and schedules nothing is a vote about
+        // nothing, and it would still consume a deposit, a voting window, and
+        // everyone's attention.
+        if changes.is_empty() && upgrade.is_none() {
+            return Err(NodeError::Decode(
+                "a proposal must carry a change or a schedule entry".to_string(),
+            ));
+        }
+
         Ok(Self {
             voting_blocks,
             timelock_blocks,
             changes,
+            upgrade,
         })
     }
 }

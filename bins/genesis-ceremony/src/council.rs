@@ -497,7 +497,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            (action.kind, action.nonce, action.approvals.len()),
+            (action.kind.clone(), action.nonce, action.approvals.len()),
             (PAUSE, 7, 2)
         );
         let mut bytes = Vec::new();

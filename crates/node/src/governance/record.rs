@@ -10,6 +10,7 @@ use maya_governance::Amount;
 use primitive_types::U256;
 
 use crate::core::codec::{ByteReader, put_amount};
+use crate::core::governance_payload::ScheduleUpgrade;
 use crate::error::{NodeError, Result};
 use crate::governance::work::{WORK_RECORD_LEN, WorkRecord};
 use crate::state::account::Address;
@@ -238,6 +239,8 @@ pub struct ProposalRecord {
     /// *reported* — the refusal happens when it is executed, where it can name
     /// the parameter that is not understood.
     pub changes: Vec<(u16, maya_dex::Amount)>,
+    /// The schedule entry it would write, if any (ADR-082).
+    pub upgrade: Option<ScheduleUpgrade>,
 }
 
 impl ProposalRecord {
@@ -261,6 +264,13 @@ impl ProposalRecord {
             buf.extend_from_slice(&tag.to_le_bytes());
             // 256-bit (ADR-066): a money parameter is not capped by its type.
             buf.extend_from_slice(&value.to_le_bytes());
+        }
+        match &self.upgrade {
+            Some(upgrade) => {
+                buf.push(1);
+                upgrade.encode_into(&mut buf);
+            }
+            None => buf.push(0),
         }
         buf
     }
@@ -301,6 +311,11 @@ impl ProposalRecord {
                 maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
             ));
         }
+        let upgrade = match reader.read_u8()? {
+            0 => None,
+            1 => Some(ScheduleUpgrade::decode(&mut reader)?),
+            flag => return Err(NodeError::Decode(format!("upgrade flag {flag}"))),
+        };
         reader.finish()?;
 
         Ok(Self {
@@ -312,6 +327,7 @@ impl ProposalRecord {
                 tally,
             },
             changes,
+            upgrade,
         })
     }
 
@@ -415,6 +431,7 @@ mod tests {
             proposer: [3u8; 32],
             deposit: U256::from(10_000u64),
             proposal,
+            upgrade: None,
             changes: vec![
                 (1, maya_dex::Amount::from_u64(25)),
                 (6, maya_dex::Amount::from_u64(512)),
