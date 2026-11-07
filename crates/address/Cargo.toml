@@ -1,0 +1,23 @@
+[package]
+name = "maya-address"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Bech32m text form of a 32-byte account address, with a per-network prefix"
+
+# The account id is unchanged: state keys, signatures and the derivation in
+# crates/node/src/crypto/hybrid.rs stay byte-identical. This crate changes only
+# how an id is written and typed. Depends on nothing (BIP-350 is small enough
+# to implement and test directly), so the RPC, the CLI, the wallet and the
+# SDK codecs can all use it without a new supply-chain entry. See ADR-081.
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
