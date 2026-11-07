@@ -246,44 +246,80 @@ fn has_quorum(
 /// down for longer catches up from a snapshot instead.
 pub const KEPT_EPOCHS: usize = 8;
 
-/// The newest checkpoint of each recent epoch: what `get_checkpoint` serves.
+/// How many of an epoch's newest checkpoints the book keeps. A follower's tip
+/// trails the newest checkpoint it has seen by a block or so, and the older
+/// ones are what it can still serve ([`CheckpointBook::set_tip`]). At most
+/// `KEPT_EPOCHS * HELD_PER_EPOCH` (64) checkpoints are held, each a quorum of
+/// signatures: a few MB for a large committee.
+pub const HELD_PER_EPOCH: usize = 8;
+
+/// The newest checkpoints of each recent epoch: what `get_checkpoint` serves.
 ///
 /// A node that was down across an epoch boundary trusts only its own
 /// epoch's committee, so it cannot check a checkpoint the next committee
 /// signed. It imports up to its own epoch's final checkpoint first; the
 /// boundary block in that span writes the next committee into its state,
 /// and the next epoch's checkpoint then checks out. One epoch at a time.
+///
+/// Once the owner has said its tip, only a checkpoint at or below it is
+/// served. A follower is about one block behind the newest checkpoint it has
+/// seen; serving that one gave a catching-up node nothing it could import, so
+/// a restart whose sources were all followers never rejoined (pre-freeze audit
+/// M-2). Every checkpoint here is fully attested, so serving an older one
+/// weakens nothing ADR-038 checks.
 #[derive(Clone, Debug, Default)]
 pub struct CheckpointBook {
-    by_epoch: BTreeMap<u64, Checkpoint>,
+    by_epoch: BTreeMap<u64, BTreeMap<u64, Checkpoint>>,
+    /// This node's chain height. `None` (a book nobody publishes a tip into,
+    /// as in tests) serves the newest checkpoint held.
+    tip: Option<u64>,
 }
 
 impl CheckpointBook {
-    /// Keeps `checkpoint` if it is newer than what its epoch holds, and
+    /// Keeps `checkpoint` among its epoch's newest [`HELD_PER_EPOCH`], and
     /// forgets epochs beyond [`KEPT_EPOCHS`].
     pub fn offer(&mut self, checkpoint: &Checkpoint) {
-        let newer = self
-            .by_epoch
-            .get(&checkpoint.epoch)
-            .is_none_or(|held| held.height < checkpoint.height);
-        if newer {
-            self.by_epoch.insert(checkpoint.epoch, checkpoint.clone());
+        let held = self.by_epoch.entry(checkpoint.epoch).or_default();
+        held.entry(checkpoint.height)
+            .or_insert_with(|| checkpoint.clone());
+        while held.len() > HELD_PER_EPOCH {
+            held.pop_first();
         }
         while self.by_epoch.len() > KEPT_EPOCHS {
             self.by_epoch.pop_first();
         }
     }
 
-    /// The newest checkpoint of the newest epoch.
-    #[must_use]
-    pub fn newest(&self) -> Option<&Checkpoint> {
-        self.by_epoch.last_key_value().map(|(_, c)| c)
+    /// Records this node's chain height: a checkpoint above it is kept but not
+    /// served until the node holds its block.
+    pub fn set_tip(&mut self, height: u64) {
+        self.tip = Some(height);
     }
 
-    /// The newest checkpoint held for `epoch`.
+    /// The newest checkpoint of `held` this node can back with its own blocks.
+    fn servable<'a>(&self, held: &'a BTreeMap<u64, Checkpoint>) -> Option<&'a Checkpoint> {
+        match self.tip {
+            Some(tip) => held.range(..=tip).next_back(),
+            None => held.last_key_value(),
+        }
+        .map(|(_, c)| c)
+    }
+
+    /// The newest servable checkpoint, of the newest epoch that has one.
+    #[must_use]
+    pub fn newest(&self) -> Option<&Checkpoint> {
+        self.by_epoch
+            .values()
+            .rev()
+            .find_map(|held| self.servable(held))
+    }
+
+    /// The newest servable checkpoint held for `epoch`.
     #[must_use]
     pub fn of_epoch(&self, epoch: u64) -> Option<&Checkpoint> {
-        self.by_epoch.get(&epoch)
+        self.by_epoch
+            .get(&epoch)
+            .and_then(|held| self.servable(held))
     }
 }
 
@@ -624,5 +660,46 @@ mod tests {
         assert!(book.of_epoch(0).is_none(), "the oldest epoch is forgotten");
         assert!(book.of_epoch(1).is_none());
         assert!(book.of_epoch(2).is_some());
+    }
+
+    fn at_height(signing: &[SigningKey], height: u64) -> Checkpoint {
+        Checkpoint {
+            epoch: 1,
+            height,
+            block: [1; 32],
+            signatures: BTreeMap::from([(0, attest(signing, 0, height, 1).signature)]),
+        }
+    }
+
+    #[test]
+    fn a_follower_source_serves_its_newest_held_checkpoint() {
+        // M-2: a follower whose tip (60) trails the newest checkpoint it has
+        // seen (61) serves 60, which it can back with blocks, not 61.
+        let (signing, _) = keys(1);
+        let mut book = CheckpointBook::default();
+        book.offer(&at_height(&signing, 60));
+        book.offer(&at_height(&signing, 61));
+        assert_eq!(book.newest().map(|c| c.height), Some(61), "tip unknown");
+        book.set_tip(60);
+        assert_eq!(book.newest().map(|c| c.height), Some(60));
+        assert_eq!(book.of_epoch(1).map(|c| c.height), Some(60));
+        book.set_tip(61);
+        assert_eq!(book.newest().map(|c| c.height), Some(61));
+        book.set_tip(59);
+        assert!(book.newest().is_none(), "nothing it holds a block for");
+    }
+
+    #[test]
+    fn the_book_keeps_a_bounded_window_per_epoch() {
+        let (signing, _) = keys(1);
+        let mut book = CheckpointBook::default();
+        let window = HELD_PER_EPOCH as u64;
+        for height in 1..=3 * window {
+            book.offer(&at_height(&signing, height));
+        }
+        book.set_tip(2 * window + 1);
+        assert_eq!(book.newest().map(|c| c.height), Some(2 * window + 1));
+        book.set_tip(2 * window);
+        assert!(book.newest().is_none(), "older checkpoints were dropped");
     }
 }
