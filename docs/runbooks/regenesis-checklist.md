@@ -49,20 +49,22 @@ against a live server on its own.
 ## 3. Assemble (Eric runs; output is public except `*.secret`)
 
 ```
-genesis-ceremony --chain-id <ID> --supply <UNITS> \
+genesis-ceremony --chain-id <ID> --supply 0 \
   --validators validators.txt --mining mining.json --mining-reserve <UNITS> \
   --council council-public --council-threshold 2 --council-max-pause-blocks <N> \
+  --min-self-bond <UNITS> --min-delegation <UNITS> \
   --timestamp <UNIX> --difficulty-bits <N> --out-dir out
 ```
 
-Amounts are base units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
-`--supply` + `--mining-reserve` + the sum of the bonds**, not `--supply` alone
-(found 2026-10-26: a 21M `--supply` plus a 20M reserve gave 41M). For a 21M-coin
-cap, pick `--supply` as the small root allocation and set `--mining-reserve` =
-cap - supply - bonds. Check the printed `total supply` line before signing. `validators.txt` lines are `label key
-operator bond`; the bonds are the disclosed validator-bond allocation, not a
-premine. Then `cargo xtask genesis-check out/genesis.json`, commit the file,
-and have Eric sign it (`genesis/<chain>.json.sig`). **APPROVED: sign genesis.**
+`--supply 0` is the mainnet path (zero premine, ADR-044, Eric 2026-11-07): the ceremony refuses
+any other supply on `maya-mainnet`, and writes no root key and no treasury. Amounts are base
+units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
+`--mining-reserve` + the sum of the bonds**, and nothing else. `--mining-reserve` is the
+lifetime emission (`deploy/genesis/mainnet/README.md`), not cap - supply - bonds. Every bond is
+exactly `--min-self-bond` (the tiny bond). `validators.txt` lines are `label key operator bond`.
+Check the printed `total supply` line before signing: it must equal the reserve plus
+(validators × min-self-bond). Then `cargo xtask genesis-check out/genesis.json`, commit the
+file, and have Eric sign it (`genesis/<chain>.json.sig`). **APPROVED: sign genesis.**
 
 ## 4. Start (testnet) **APPROVED: re-genesis**
 
@@ -97,12 +99,17 @@ chain-id.
   `bft.fees.min_base_fee` to at least `1000000` (the 18-decimal equivalent of 1 unit); the
   constant stays 1 so test genesis files keep working.
 - **Supply:** there is no protocol-wide cap. Total supply is exactly what genesis allocates:
-  `--supply` + `--mining-reserve` + bonds, printed as `total supply` before signing. With a tail
-  (ADR-068), the reserve must hold the lifetime emission, so the total is far above 21M coins
-  by design; 21M is the halving schedule's main issuance, and the rest is released only by the
-  tail. Check both printed lines before `APPROVED: sign genesis`.
+  `--mining-reserve` + bonds (`--supply 0`, zero premine), printed as `total supply` before
+  signing. The four
+  halving eras issue 19,687,500 coins in total; the tail then pays forever (ADR-068), so the
+  reserve holds the lifetime emission (about 1.23 × 10^17 coins) and the total is far above
+  21M by design. Check both printed lines before `APPROVED: sign genesis`.
 - Tail (DECISIONS 2026-10-29): `tail_epoch_reward` = 1% of 21M coins a year divided by
-  epochs per year at the mainnet epoch length, in base units (10^24 per coin).
+  epochs per year at the mainnet epoch length, in base units (10^24 per coin). That 1% holds
+  only at one block a second: issuance is 23.96 coins × epochs per year, so it is 210,000
+  coins a year at 1 s per block and 105,000 at 2 s (see `deploy/genesis/mainnet/README.md`).
+  Owner-accepted 2026-11-07 at about 1.07% a year (1 s blocks); the rate follows block speed
+  and can be retuned later by a protocol upgrade at an activation height.
   At 3,600-block epochs and about one block a second (8,766 epochs a year):
   `tail_epoch_reward = 23956194387405886379192334` (about 23.96 coins an epoch). If the
   mainnet `round_interval_ms` changes the block rate, recompute it. Genesis `validate` refuses a

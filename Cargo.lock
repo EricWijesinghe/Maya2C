@@ -2681,6 +2681,7 @@ dependencies = [
  "jsonrpsee",
  "keccak 0.1.6",
  "libp2p",
+ "maya-address",
  "maya-archive",
  "maya-blockgraph",
  "maya-build-guard",
@@ -5146,6 +5147,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "jsonrpsee",
+ "maya-address",
  "maya-signer",
  "primitive-types",
  "rpassword",
@@ -5902,6 +5904,15 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "maya-address"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde_json",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "maya-amount"

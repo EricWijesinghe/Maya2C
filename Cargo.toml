@@ -49,6 +49,8 @@ members = [
     # The build tiers, as cargo features. No code: the manifest is the
     # artifact. `cargo build -p maya-tiers --features frontier`.
     "crates/tiers",
+    # Bech32m text form of an account address (ADR-081). Depends on nothing.
+    "crates/address",
     # The node's executables. Separate packages rather than `[[bin]]` targets
     # of `crates/node`, because the foundation brief puts executables in
     # `bins/`. Each links the node as a library and uses nothing outside its

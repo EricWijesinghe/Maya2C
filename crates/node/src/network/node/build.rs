@@ -280,6 +280,7 @@ impl Node {
         let epoch = EpochClock::new();
         let stats = SessionStats::new();
         let pq = pq.with_stats(stats.clone());
+        let prologue = network_prologue(&state);
 
         let builder = libp2p::SwarmBuilder::with_existing_identity(keypair).with_tokio();
 
@@ -296,7 +297,7 @@ impl Node {
         let mut swarm = match kind {
             TransportKind::Memory(dial) => builder
                 .with_other_transport(|keypair| {
-                    let noise_config = noise::Config::new(keypair)?;
+                    let noise_config = noise::Config::new(keypair)?.with_prologue(prologue);
                     Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
                         MemoryTransport::default()
                             // Zero latency is the ordinary case and costs
@@ -330,7 +331,7 @@ impl Node {
 
             TransportKind::Tcp => builder
                 .with_other_transport(|keypair| {
-                    let noise_config = noise::Config::new(keypair)?;
+                    let noise_config = noise::Config::new(keypair)?.with_prologue(prologue);
                     // TCP, or WebSocket over TCP, both resolving `/dns4/`
                     // names: a node behind an HTTP tunnel (Cloudflare carries
                     // WebSockets, not raw TCP) listens on `/ws`, and peers
@@ -394,4 +395,24 @@ impl Node {
             allow_private_addresses: false,
         })
     }
+}
+
+/// The Noise prologue that binds every connection to one chain.
+///
+/// Both ends must hash the same bytes or the Noise handshake fails, so a peer
+/// on another genesis is refused before any protocol above it runs. The
+/// leading byte keeps "bound to tag X" and "unbound" apart by construction.
+/// shortcut: an unbound state (tests only; production binds in `Chain::open`
+/// before networking starts) shares one network and reaches only other unbound
+/// nodes, upgrade if an unbound node ever needs a real chain.
+fn network_prologue(state: &StateDB) -> Vec<u8> {
+    const DOMAIN: &[u8] = b"maya2c p2p network v1";
+    let mut prologue = DOMAIN.to_vec();
+    if let Ok(tag) = state.get_chain_tag() {
+        prologue.push(1);
+        prologue.extend_from_slice(tag.as_bytes());
+    } else {
+        prologue.push(0);
+    }
+    prologue
 }

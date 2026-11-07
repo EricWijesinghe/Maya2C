@@ -2152,7 +2152,7 @@ paths = "`crates/node/src/network/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
+tests = ["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/network_magic_tests.rs"]
 
 [[subsystem]]
 id = "byzantine-peer-guard"
@@ -3495,3 +3495,14 @@ class = "REAL"
 status = "working"
 tests = ["crate:maya2c-node"]
 note = "docs/runbooks/validator-start-guards.md. The shipped list is empty on purpose (a stale address dials a stranger on every start); the mechanism and the decision (fallback_due) are tested, the redial loop around it is not. Configured bootnodes are also read from [network] bootnodes in the config file, which was dead before this change."
+
+[[subsystem]]
+id = "address-text-bech32m"
+name = "Address text form (Bech32m, network prefix, checksum)"
+domain = "Cryptography and key management"
+paths = "`crates/address`, `spec/address-vectors.json`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-address", "crates/node/tests/rpc_tests.rs"]
+note = "ADR-081. RPC accepts hex or Bech32m and returns address_text; wallet GUI, CLI output, explorer, faucet, pool, hub, chat, Go SDK and genesis docs still emit hex only. Mainnet chain id is not registered yet, so mainnet has no text form until genesis is fixed."

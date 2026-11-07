@@ -67,6 +67,15 @@ fn genesis(bits: u32) -> Block {
 /// `verify_pow` is off by default so most tests avoid Argon2 entirely; the
 /// mining test opts back in, since verifying the work is the point there.
 async fn start_node(funded: &[(Address, u64)], verify_pow: bool) -> TestNode {
+    start_node_on(funded, verify_pow, None).await
+}
+
+/// As [`start_node`], naming the chain so text addresses have a network.
+async fn start_node_on(
+    funded: &[(Address, u64)],
+    verify_pow: bool,
+    network: Option<&str>,
+) -> TestNode {
     let dir = TempDir::new().expect("temp dir");
     let state = Arc::new(StateDB::open(dir.path()).expect("open state"));
 
@@ -94,7 +103,10 @@ async fn start_node(funded: &[(Address, u64)], verify_pow: bool) -> TestNode {
         common::open_chain(Arc::clone(&state), genesis_block, config).expect("open chain"),
     ));
     let mempool = Mempool::new(Arc::clone(&state));
-    let context = RpcContext::new(Arc::clone(&chain), mempool);
+    let mut context = RpcContext::new(Arc::clone(&chain), mempool);
+    if let Some(name) = network {
+        context = context.with_network(name);
+    }
 
     // Port 0: the OS assigns a free port, so concurrent tests never collide.
     let server = serve("127.0.0.1:0".parse().expect("addr"), context)
@@ -150,6 +162,49 @@ async fn get_balance_returns_funded_account_state() {
     assert_eq!(account.address, hex::encode(alice_addr));
     assert_eq!(account.balance, U256::from(5_000));
     assert_eq!(account.nonce, 0);
+}
+
+/// ADR-081: a text address names a network, and the node refuses one for
+/// another. Hex keeps working, and the reply carries the text form.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_balance_reads_text_addresses_for_its_own_network_only() {
+    use maya_address::{Network, encode};
+
+    let alice = generate_signing_key().expect("keygen");
+    let alice_addr = address_of(&alice);
+    let node = start_node_on(&[(alice_addr, 7)], false, Some("maya-testnet-1")).await;
+    let text = encode(Network::Testnet, &alice_addr);
+
+    let by_text: AccountInfo = node
+        .client
+        .request("get_balance", rpc_params![text.clone()])
+        .await
+        .expect("text address on its own network");
+    assert_eq!(by_text.balance, U256::from(7));
+    assert_eq!(by_text.address_text.as_deref(), Some(text.as_str()));
+
+    let by_hex: AccountInfo = node
+        .client
+        .request("get_balance", rpc_params![hex::encode(alice_addr)])
+        .await
+        .expect("hex still accepted");
+    assert_eq!(by_hex.balance, U256::from(7));
+    assert_eq!(by_hex.address_text.as_deref(), Some(text.as_str()));
+
+    let mainnet = encode(Network::Mainnet, &alice_addr);
+    let wrong: Result<AccountInfo, _> = node
+        .client
+        .request("get_balance", rpc_params![mainnet])
+        .await;
+    let message = wrong.expect_err("mainnet address on testnet").to_string();
+    assert!(message.contains("expects 'tmaya'"), "{message}");
+
+    let mut typo = text.clone();
+    typo.pop();
+    typo.push(if text.ends_with('q') { 'p' } else { 'q' });
+    let typoed: Result<AccountInfo, _> =
+        node.client.request("get_balance", rpc_params![typo]).await;
+    assert!(typoed.is_err(), "a mistyped address was accepted");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

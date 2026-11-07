@@ -868,3 +868,14 @@ Owner approved the recommended option for each item below. Docs only; no consens
 - **Why:** `claim_work` credited genesis-target work to any named beneficiary with no proof the sender mined, so one fee per block bought voting weight.
 - **Lifting it:** only through a written activation height, bound to a claim that is backed by a verified share in the same block and credited to that share's miner (ADR-044). ADR-079 R2 is the first place that may do this; it needs its own consensus ADR.
 - **Recorded in:** ADR-044 ("Work credit at launch"), `docs/audit/KNOWN_ISSUES.md` #2 and #18, tests in `crates/node/tests/governance_tests.rs`.
+
+## 2026-11-07 — Zero premine with minimum disclosed validator bonds; tail rate accepted (Eric)
+
+Eric decided both open questions from the genesis audit (PR #374). Decision only; the code and docs follow in the same branch.
+
+- **Zero premine (ADR-044):** mainnet launches with `--supply 0`. The ceremony refuses any other supply on `maya-mainnet` and writes no root key or treasury. Genesis money is exactly the mining reserve plus the validator bonds; `genesis-check` refuses any other allocation.
+- **Tiny bonds:** every mainnet validator bonds exactly `--min-self-bond` (1,000 coins). The ceremony and `genesis-check` both refuse any other bond, so stake concentration is the seat count, which the 20% operator cap already bounds.
+- **Tail rate accepted:** about 1.07% a year at one block a second (210,000 coins a year on 19.69M). The rate follows block speed. It can be retuned later through an activation-height protocol upgrade.
+- **Upgrade authority (Eric 2026-11-07):** protocol upgrades are scheduled on chain. A governance `ScheduleUpgrade` needs at least about 30 days of lead time. The 2-of-3 security council has a fast path for suite sunsets only, with at least about 7 days of lead time. Neither path can move or mint funds. Implemented in PR #376 (ADR-082).
+- **Address format (Eric 2026-11-07):** Bech32m text form, with human-readable prefix `maya` on mainnet, `tmaya` on testnet and `dmaya` on devnet. Implemented in PR #375 (ADR-081).
+- **Recorded in:** `deploy/genesis/mainnet/README.md`, `docs/runbooks/regenesis-checklist.md`, ADR-068, `bins/genesis-ceremony`, `xtask/src/genesis_check.rs`.

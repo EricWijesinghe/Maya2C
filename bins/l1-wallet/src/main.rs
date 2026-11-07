@@ -246,10 +246,20 @@ fn load_key(path: &Path) -> Result<HybridSigningKey> {
     keystore::decrypt(&bytes, &password)
 }
 
+/// Accepts hex (optionally `0x`) or a Bech32m address (ADR-081). The wallet is
+/// not bound to a network, so a text address is taken for whichever known
+/// network its prefix names; the node still checks it against its own.
 fn decode_address(value: &str) -> Result<[u8; 32]> {
-    let bytes = hex::decode(value.trim_start_matches("0x")).context("address is not valid hex")?;
-    <[u8; 32]>::try_from(bytes.as_slice())
-        .map_err(|_| anyhow::anyhow!("address must be 32 bytes, got {}", bytes.len()))
+    let trimmed = value.trim();
+    let raw = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let bytes = hex::decode(raw).context("address is not valid hex")?;
+        return <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| anyhow::anyhow!("address must be 32 bytes, got {}", bytes.len()));
+    }
+    maya_address::decode_any(trimmed)
+        .map(|(_, id)| id)
+        .map_err(|e| anyhow::anyhow!("address: {e}"))
 }
 
 fn command_generate(path: &Path) -> Result<()> {

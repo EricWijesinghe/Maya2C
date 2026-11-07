@@ -37,8 +37,9 @@ the remainder burns, so no unit is ever created or lost.
 
 **Supply.** `MAX_SUPPLY` is `Amount::MAX`, 2²⁵⁶ − 1 base units, the width of a balance
 (`crates/fee-market/src/supply.rs`). One coin is 10²⁴ base units (`maya_amount::ONE_COIN`).
-The 21,000,000-coin figure is the halving-phase emission budget (ADR-044, ADR-068), not the
-cap. Once a value-bearing chain checks the cap, changing it is a hard fork.
+The four halving eras issue 19,687,500 coins (ADR-068); the tail then pays forever. There is no
+protocol cap. `MAX_SUPPLY` is the width of a balance, so changing it is a hard fork once a
+value-bearing chain checks it.
 
 **Neural gain.** A second, independently switched rule scales the base fee's
 step by a gain from a compiled-in integer network. The gain is one-sided — it
