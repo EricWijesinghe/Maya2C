@@ -42,6 +42,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use crate::limit::{Limiter, Refusal};
+use maya_address::{AddressError, Network};
 
 /// Chain ids on which value is real and a faucet must not run.
 ///
@@ -67,6 +68,11 @@ pub enum FaucetError {
     /// The address was not 32 hex-encoded bytes.
     #[error("address must be 64 hex characters: {0}")]
     BadAddress(String),
+
+    /// A well-formed text address for another network, e.g. `maya1…` on a
+    /// testnet faucet. Its own variant so the HTTP layer can name it.
+    #[error("{0}")]
+    WrongNetwork(String),
 
     /// The faucet is configured for a chain where value is real.
     #[error("faucet disabled: {0}")]
@@ -95,6 +101,8 @@ pub struct Grant {
 #[derive(Debug)]
 pub struct Faucet {
     chain_id: String,
+    /// `None` for a chain with no registered prefix: text addresses refused.
+    network: Option<Network>,
     dispense: primitive_types::U256,
     daily_cap: primitive_types::U256,
     /// Guarded together: a grant must decrement the budget and record both
@@ -136,6 +144,7 @@ impl Faucet {
         }
 
         Ok(Self {
+            network: Network::for_chain_id(&chain_id),
             chain_id,
             dispense,
             daily_cap,
@@ -194,6 +203,22 @@ impl Faucet {
         self.daily_cap
     }
 
+    /// The network this faucet's text addresses belong to, if its chain has one.
+    #[must_use]
+    pub const fn network(&self) -> Option<Network> {
+        self.network
+    }
+
+    /// Parses a recipient: hex (optionally `0x`) or a Bech32m text address for
+    /// this faucet's network. A text address for another network is refused.
+    ///
+    /// # Errors
+    ///
+    /// [`FaucetError::BadAddress`] or [`FaucetError::WrongNetwork`].
+    pub fn parse_address(&self, input: &str) -> Result<[u8; 32], FaucetError> {
+        parse_address(self.network, input)
+    }
+
     /// Attempts a grant.
     ///
     /// # Order of checks
@@ -213,7 +238,7 @@ impl Faucet {
         address_hex: &str,
         now: SystemTime,
     ) -> Result<Grant, FaucetError> {
-        let address = parse_address(address_hex)?;
+        let address = self.parse_address(address_hex)?;
 
         let mut state = match self.state.lock() {
             Ok(guard) => guard,
@@ -268,19 +293,45 @@ impl Faucet {
     }
 }
 
-/// Parses a 32-byte hex address, with or without a `0x` prefix.
-pub(crate) fn parse_address(input: &str) -> Result<[u8; 32], FaucetError> {
-    let trimmed = input.strip_prefix("0x").unwrap_or(input);
-    if trimmed.len() != 64 {
-        return Err(FaucetError::BadAddress(format!(
-            "got {} characters",
-            trimmed.len()
-        )));
+/// Parses a recipient as hex (64 characters, optional `0x`) or, when the chain
+/// has a network prefix, as Bech32m (ADR-081). The text form is tried only when
+/// the input is not hex: a text address always contains `m`, `t` or `y`.
+fn parse_address(network: Option<Network>, input: &str) -> Result<[u8; 32], FaucetError> {
+    let trimmed = input.trim();
+    let raw = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        if raw.len() != 64 {
+            return Err(FaucetError::BadAddress(format!(
+                "got {} characters",
+                raw.len()
+            )));
+        }
+        let mut out = [0u8; 32];
+        hex::decode_to_slice(raw, &mut out)
+            .map_err(|_| FaucetError::BadAddress("not hex".to_string()))?;
+        return Ok(out);
     }
-    let mut out = [0u8; 32];
-    hex::decode_to_slice(trimmed, &mut out)
-        .map_err(|_| FaucetError::BadAddress("not hex".to_string()))?;
-    Ok(out)
+    let network = network.ok_or_else(|| {
+        FaucetError::BadAddress(
+            "this faucet's chain has no text address form; send the 64 hex characters".to_string(),
+        )
+    })?;
+    maya_address::decode(network, trimmed).map_err(|e| match e {
+        AddressError::WrongNetwork { .. } => FaucetError::WrongNetwork(format!(
+            "{e}; this faucet serves the {} network, so send a {}1… address",
+            network_name(network),
+            network.hrp()
+        )),
+        other => FaucetError::BadAddress(other.to_string()),
+    })
+}
+
+fn network_name(network: Network) -> &'static str {
+    match network {
+        Network::Mainnet => "mainnet",
+        Network::Testnet => "testnet",
+        Network::Devnet => "devnet",
+    }
 }
 
 #[cfg(test)]
@@ -308,6 +359,61 @@ mod tests {
 
     fn ip(last: u8) -> IpAddr {
         IpAddr::from([203, 0, 113, last])
+    }
+
+    fn testnet_faucet() -> Faucet {
+        Faucet::new(
+            "maya-testnet-1",
+            primitive_types::U256::from(100),
+            primitive_types::U256::from(1_000),
+            now(),
+        )
+        .expect("a testnet chain")
+    }
+
+    #[test]
+    fn a_testnet_faucet_accepts_its_text_address_and_hex() {
+        let faucet = testnet_faucet();
+        let id = [9u8; 32];
+        let text = maya_address::encode(Network::Testnet, &id);
+        assert_eq!(faucet.parse_address(&text).expect("testnet text"), id);
+        assert_eq!(faucet.parse_address(&hex::encode(id)).expect("hex"), id);
+    }
+
+    #[test]
+    fn a_testnet_faucet_refuses_a_mainnet_address_with_a_named_error() {
+        let faucet = testnet_faucet();
+        let mainnet = maya_address::encode(Network::Mainnet, &[9u8; 32]);
+        let err = faucet.parse_address(&mainnet).expect_err("wrong network");
+        match err {
+            FaucetError::WrongNetwork(message) => {
+                assert!(
+                    message.contains("tmaya"),
+                    "names the expected prefix: {message}"
+                );
+                assert!(message.contains("testnet"), "names the network: {message}");
+            }
+            other => panic!("expected WrongNetwork, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_wrong_network_address_consumes_nothing() {
+        let faucet = testnet_faucet();
+        let mainnet = maya_address::encode(Network::Mainnet, &[9u8; 32]);
+        let err = faucet.request(ip(1), &mainnet, now()).expect_err("refused");
+        assert!(matches!(err, FaucetError::WrongNetwork(_)));
+        assert_eq!(faucet.spent_today(), primitive_types::U256::zero());
+    }
+
+    #[test]
+    fn a_chain_without_a_prefix_refuses_text_and_says_why() {
+        let faucet = faucet();
+        let text = maya_address::encode(Network::Testnet, &[9u8; 32]);
+        match faucet.parse_address(&text).expect_err("no text form") {
+            FaucetError::BadAddress(message) => assert!(message.contains("no text address form")),
+            other => panic!("expected BadAddress, got {other:?}"),
+        }
     }
 
     #[test]

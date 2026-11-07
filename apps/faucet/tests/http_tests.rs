@@ -407,3 +407,45 @@ async fn the_bare_address_sends_a_person_to_the_testnet_page() {
         maya_faucet::http::HUMAN_PAGE
     );
 }
+
+/// A faucet on the testnet chain, which has a text address prefix.
+fn testnet_service(dispenser: Arc<RecordingDispenser>) -> Arc<FaucetService> {
+    let faucet = Faucet::new(
+        "maya-testnet-1",
+        primitive_types::U256::from(DISPENSE),
+        primitive_types::U256::from(DAILY_CAP),
+        std::time::SystemTime::now(),
+    )
+    .expect("a testnet chain");
+    Arc::new(FaucetService::new(faucet, dispenser))
+}
+
+#[tokio::test]
+async fn a_testnet_faucet_refuses_a_mainnet_text_address_with_wrong_network() {
+    let dispenser = Arc::new(RecordingDispenser::new());
+    let app = router(testnet_service(Arc::clone(&dispenser)));
+    let mainnet = maya_address::encode(maya_address::Network::Mainnet, &[4u8; 32]);
+
+    let response = app
+        .oneshot(grant_request("203.0.113.9", &mainnet))
+        .await
+        .expect("served");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = body_json(response).await;
+    assert_eq!(body["error"], "wrong_network");
+    assert!(body["message"].as_str().unwrap().contains("tmaya"));
+}
+
+#[tokio::test]
+async fn a_testnet_faucet_grants_a_text_address_and_echoes_it() {
+    let dispenser = Arc::new(RecordingDispenser::new());
+    let app = router(testnet_service(Arc::clone(&dispenser)));
+    let text = maya_address::encode(maya_address::Network::Testnet, &[4u8; 32]);
+
+    let response = app
+        .oneshot(grant_request("203.0.113.10", &text))
+        .await
+        .expect("served");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_json(response).await["recipient"], text);
+}
