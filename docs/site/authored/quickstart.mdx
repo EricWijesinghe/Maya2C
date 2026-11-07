@@ -252,7 +252,7 @@ and quoting JSON for a native program differs between PowerShell versions.
 
 These outputs are from a real run on 2026-09-29 (Windows 11, dev build,
 commit `a6d066f`), not from a mock-up. The four-validator version of the same
-flow, `python scripts/bft_devnet.py`, measured ~0.95 blocks/s, a transfer
+flow, `cargo xtask bft-devnet`, measured ~0.95 blocks/s, a transfer
 visible on all five nodes in 2.1–3.2 s, and every node agreeing on the block at
 the common height. Those are one laptop's numbers on localhost, not a
 statement about a real network.
