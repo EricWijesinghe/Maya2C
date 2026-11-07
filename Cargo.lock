@@ -6264,6 +6264,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "jsonrpsee",
+ "maya-address",
  "primitive-types",
  "serde",
  "serde_json",

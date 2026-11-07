@@ -10,6 +10,7 @@ description = "Rate-limited testnet faucet"
 # Amounts are 256-bit (ADR-046), the node's U256.
 primitive-types.workspace = true
 custom-l1-node = { path = "../../crates/node" }
+maya-address = { path = "../../crates/address" }
 axum = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 tower-http = { workspace = true, features = ["trace", "limit", "cors"] }

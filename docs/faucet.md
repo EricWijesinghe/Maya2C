@@ -61,8 +61,8 @@ They can. The cap is the choice of how much that costs.
 
 | Code | Meaning |
 |---|---|
-| `200` | funded; body carries the txid and what is left today |
-| `400` | the address was not 64 hex characters |
+| `200` | funded; body carries the txid, the recipient in text form, and what is left today |
+| `400` | `bad_address`: not a valid address; `wrong_network`: a valid text address for another network (a testnet faucet refuses `maya1…`, takes `tmaya1…` or 64 hex characters) |
 | `429` | a rate limit, with `retry_after` and which limit was hit |
 | `503` | the day's budget is spent, or the faucet account is empty |
 | `500` | the node refused the transaction, or signing failed |
