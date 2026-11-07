@@ -100,7 +100,10 @@ async fn run() -> Result<(), String> {
 
     tracing::info!(
         chain_id = faucet.chain_id(),
-        address = %hex::encode(dispenser.address()),
+        address = %faucet.network().map_or_else(
+            || hex::encode(dispenser.address()),
+            |n| maya_address::encode(n, &dispenser.address()),
+        ),
         next_nonce = dispenser.next_nonce(),
         %dispense,
         %daily_cap,

@@ -135,6 +135,13 @@ impl PaymentRequest {
 /// Returns [`WalletError::Address`] unless the input is exactly 32 bytes of hex.
 pub fn normalize_address(address: &str) -> Result<String> {
     let cleaned = address.trim().trim_start_matches("0x");
+    // A Bech32m text address (ADR-081) carries its own checksum, so the mixed-case
+    // check below does not apply to it. The node still checks the network.
+    if !cleaned.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let (_, id) = maya_address::decode_any(address.trim())
+            .map_err(|e| WalletError::Address(format!("'{address}': {e}")))?;
+        return Ok(hex::encode(id));
+    }
     let bytes = hex::decode(cleaned)
         .map_err(|_| WalletError::Address(format!("'{address}' is not hexadecimal")))?;
     let array: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {

@@ -141,7 +141,8 @@ pub fn cors(origins: &[String]) -> Result<tower_http::cors::CorsLayer, String> {
 /// What a caller asks for.
 #[derive(Debug, serde::Deserialize)]
 pub struct GrantRequest {
-    /// Hex-encoded 32-byte address, with or without a `0x` prefix.
+    /// Bech32m text address for this faucet's network (preferred), or
+    /// hex-encoded 32-byte address with or without a `0x` prefix.
     pub address: String,
 }
 
@@ -205,15 +206,22 @@ async fn request(
     // The recipient parsed cleanly inside `request`, or it would not have
     // granted. Re-parsing rather than threading the bytes back out keeps the
     // policy's signature in strings, which is what the HTTP layer has.
-    let recipient = match crate::parse_address(&body.address) {
+    let recipient = match service.faucet.parse_address(&body.address) {
         Ok(bytes) => bytes,
         Err(error) => return refusal(&error).into_response(),
+    };
+
+    // Echo the recipient in the form this chain shows: text where it has one.
+    let recipient_shown = match service.faucet.network() {
+        Some(network) => maya_address::encode(network, &recipient),
+        None => hex::encode(recipient),
     };
 
     match service.dispenser.send(&recipient, grant.amount).await {
         Ok(txid) => (
             StatusCode::OK,
             Json(serde_json::json!({
+                "recipient": recipient_shown,
                 "txid": txid,
                 "amount": grant.amount.to_string(),
                 "remaining_today": grant.remaining_today.to_string(),
@@ -262,6 +270,7 @@ fn refusal(error: &FaucetError) -> (StatusCode, Json<ErrorBody>) {
         ),
         FaucetError::BudgetExhausted => (StatusCode::SERVICE_UNAVAILABLE, "budget_exhausted", None),
         FaucetError::BadAddress(_) => (StatusCode::BAD_REQUEST, "bad_address", None),
+        FaucetError::WrongNetwork(_) => (StatusCode::BAD_REQUEST, "wrong_network", None),
         // Unreachable through this handler: a value-bearing chain is refused at
         // construction, so no service exists to serve a request. Mapped anyway
         // rather than left to a catch-all, so adding a per-request check later

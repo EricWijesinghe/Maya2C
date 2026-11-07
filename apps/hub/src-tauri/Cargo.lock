@@ -2121,6 +2121,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-address"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya-app-update"
 version = "0.1.0"
 dependencies = [
@@ -2133,6 +2140,7 @@ dependencies = [
 name = "maya-hub"
 version = "0.1.0"
 dependencies = [
+ "maya-address",
  "maya-app-update",
  "rustix",
  "serde",
