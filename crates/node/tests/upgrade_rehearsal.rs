@@ -23,7 +23,9 @@ use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::state::db::StateDB;
-use custom_l1_node::upgrade::{ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION, UpgradeSchedule};
+use custom_l1_node::upgrade::{
+    DVP_VERSION, ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION, UpgradeSchedule,
+};
 use tempfile::TempDir;
 
 const NODES: usize = 100;
@@ -147,4 +149,70 @@ fn the_halt_message_names_the_height() {
         }
     }
     panic!("the late node never halted");
+}
+
+#[test]
+fn a_dark_feature_the_genesis_schedules_halts_old_binaries_and_activates_on_new_ones() {
+    // ADR-081. The schedule activates DVP at H. A binary that implements only
+    // version 1 halts at H; a binary that implements the schedule takes H as
+    // the feature's activation height and keeps producing past it.
+    let schedule = UpgradeSchedule::new(vec![ProtocolUpgrade {
+        version: DVP_VERSION,
+        activation_height: H,
+    }])
+    .unwrap();
+
+    let mut old = ChainConfig::without_pow_verification();
+    old.unsupported_upgrade = schedule.first_unsupported_by(1);
+    let new = ChainConfig::without_pow_verification().with_upgrades(&schedule);
+    assert!(new.unsupported_upgrade.is_none());
+    assert_eq!(new.features.dvp, H);
+
+    let producer_dir = TempDir::new().unwrap();
+    let mut producer = Chain::open(
+        Arc::new(StateDB::open(producer_dir.path()).unwrap()),
+        genesis(),
+        new,
+    )
+    .unwrap();
+    let mut blocks = Vec::new();
+    for h in 1..=HEAD {
+        let block = producer
+            .candidate_block(1_000_000 + h * 15, Vec::new())
+            .unwrap();
+        producer.insert_block(block.clone()).unwrap();
+        blocks.push(block);
+    }
+
+    let old_dir = TempDir::new().unwrap();
+    let mut late = Chain::open(
+        Arc::new(StateDB::open(old_dir.path()).unwrap()),
+        genesis(),
+        old,
+    )
+    .unwrap();
+    let halt = blocks
+        .iter()
+        .map(|b| late.insert_block(b.clone()))
+        .find_map(Result::err)
+        .expect("the old binary must halt");
+    assert!(
+        matches!(halt, NodeError::UpgradeRequired { height, .. } if height == H),
+        "{halt}"
+    );
+    assert_eq!(late.height(), H - 1);
+
+    let upgraded_dir = TempDir::new().unwrap();
+    let mut upgraded = Chain::open(
+        Arc::new(StateDB::open(upgraded_dir.path()).unwrap()),
+        genesis(),
+        new,
+    )
+    .unwrap();
+    for block in &blocks {
+        upgraded.insert_block(block.clone()).unwrap();
+    }
+    assert_eq!((upgraded.height(), upgraded.tip()), (HEAD, producer.tip()));
+    assert!(!upgraded.context_at(H - 1).dvp_active());
+    assert!(upgraded.context_at(H).dvp_active());
 }

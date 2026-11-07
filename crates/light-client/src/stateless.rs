@@ -19,7 +19,8 @@
 
 use custom_l1_node::core::block::Block;
 use custom_l1_node::core::{BlockHeader, ChainTag};
-use custom_l1_node::state::{StateWitness, StatelessError, verify_block};
+use custom_l1_node::crypto::suites::SuiteSunsets;
+use custom_l1_node::state::{StateWitness, StatelessError, verify_block, verify_block_under};
 
 use crate::chain::LightClient;
 use crate::error::{LightClientError, Result};
@@ -31,10 +32,13 @@ pub struct StatelessValidator {
     state_root: [u8; 32],
     height: u64,
     chain: ChainTag,
+    sunsets: SuiteSunsets,
 }
 
 impl StatelessValidator {
-    /// Starts from a header the caller already trusts, at `height`.
+    /// Starts from a header the caller already trusts, at `height`. The
+    /// genesis's suite deprecations default to none; a chain that names some
+    /// must pass them with [`Self::with_suite_sunsets`] (ADR-081).
     #[must_use]
     pub fn new(anchor: &BlockHeader, height: u64, chain: ChainTag) -> Self {
         Self {
@@ -42,7 +46,15 @@ impl StatelessValidator {
             state_root: anchor.state_root,
             height,
             chain,
+            sunsets: SuiteSunsets::EMPTY,
         }
+    }
+
+    /// The same validator judging suites under the genesis's deprecations.
+    #[must_use]
+    pub const fn with_suite_sunsets(mut self, sunsets: SuiteSunsets) -> Self {
+        self.sunsets = sunsets;
+        self
     }
 
     /// Height of the last block validated.
@@ -77,8 +89,15 @@ impl StatelessValidator {
                 parent: hex::encode(block.header.prev_hash),
             });
         }
-        verify_block(&self.state_root, height, block, witness, &self.chain)
-            .map_err(|error| verdict(height, error))?;
+        verify_block_under(
+            &self.state_root,
+            height,
+            block,
+            witness,
+            &self.chain,
+            &self.sunsets,
+        )
+        .map_err(|error| verdict(height, error))?;
         self.tip_id = block.header.id();
         self.state_root = block.header.state_root;
         self.height = height;
@@ -118,6 +137,9 @@ impl LightClient {
             .chain()
             .header_at(parent_height)
             .ok_or(LightClientError::UnknownHeight(parent_height))?;
+        // shortcut: this one-shot check takes no genesis schedule, so it judges
+        // suites under none; use StatelessValidator::with_suite_sunsets on a
+        // chain whose genesis deprecates a suite. Upgrade: pass the schedule here too.
         verify_block(&parent.header.state_root, height, block, witness, chain)
             .map_err(|error| verdict(height, error))
     }

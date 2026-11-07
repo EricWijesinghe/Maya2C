@@ -432,6 +432,7 @@ fn launch_config(
         sealed: None,
         treasury,
         protocol_upgrades: Vec::new(),
+        suite_deprecations: Vec::new(),
         security_council: None,
         shielded_activation_height: if args.shielded_never {
             Some(u64::MAX)

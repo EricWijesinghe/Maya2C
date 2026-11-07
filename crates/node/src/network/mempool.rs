@@ -354,10 +354,13 @@ impl Mempool {
         // template — the executor checks it again regardless. Chain tag is required
         // for signature verification (ADR-036).
         if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
+            // Admission only: the executor re-checks under the genesis schedule
+            // (ADR-081), and a mempool refusal is advisory.
             crate::state::threat_exec::verify_evidence(
                 attestation,
                 height,
                 self.state.get_chain_tag()?,
+                &crate::crypto::suites::SuiteSunsets::EMPTY,
             )?;
         }
         crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;

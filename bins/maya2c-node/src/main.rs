@@ -849,14 +849,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         maya_zk_stark::pool::circuit_is_audited(),
     )?;
 
-    // The same refusal for zkML, which rests on an SRS derived from a public
-    // seed. Inert while the activation height is u64::MAX; it is here so that
-    // choosing a height cannot also quietly choose mainnet.
-    custom_l1_node::state::zkml::check_setup(
-        &config.chain_id,
-        custom_l1_node::state::context::ZKML_ACTIVATION_HEIGHT,
-    )?;
-
     // Tuned from the configuration rather than `Options::default()`, whose
     // 8 MiB block cache makes almost every account read reach the disk.
     let state = Arc::new(StateDB::open_tuned(
@@ -870,6 +862,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // `submit_block`, below). Proof of work verifies against the genesis floor.
     // `mode` is derived from the same `bft` field `chain_config` reads.
     let chain_config = config.chain_config()?;
+    // The same refusal for zkML, which rests on an SRS derived from a public
+    // seed. Checked against the height the upgrade schedule gives it, not the
+    // compiled default, so scheduling it cannot quietly bypass the check.
+    custom_l1_node::state::zkml::check_setup(&config.chain_id, chain_config.features.zkml)?;
     let metrics = Arc::new(Metrics::new());
     let opened = std::time::Instant::now();
     let chain = Arc::new(Mutex::new(

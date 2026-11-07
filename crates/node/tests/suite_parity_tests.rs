@@ -126,7 +126,8 @@ fn v7_is_live_from_genesis_and_still_refused_by_verify() {
         "ADR-013: live from genesis"
     );
     let (tx, _) = v7_transfer();
-    let policy = suites::verification_policy();
+    let policy = suites::verification_policy(&custom_l1_node::crypto::suites::SuiteSunsets::EMPTY)
+        .expect("genesis policy");
     assert!(
         tx.verify(&common::test_chain()).is_err(),
         "verify() has no height, so it never accepts a suite-tagged transaction"
@@ -144,7 +145,9 @@ fn v7_is_live_from_genesis_and_still_refused_by_verify() {
 fn consensus_verifies_under_mainnet_rules_whatever_the_network() {
     // Devnet's policy admits 0x01, which has no post-quantum security; the
     // policy consensus uses must not, or a node's config would pick its rules.
-    let consensus = suites::verification_policy();
+    let consensus =
+        suites::verification_policy(&custom_l1_node::crypto::suites::SuiteSunsets::EMPTY)
+            .expect("genesis policy");
     assert!(!consensus.permitted(SuiteId::Ed25519));
     assert!(SuitePolicy::genesis(Network::Devnet).permitted(SuiteId::Ed25519));
     for suite in [

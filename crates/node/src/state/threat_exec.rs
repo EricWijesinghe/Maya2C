@@ -27,6 +27,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use maya_threat_intel::{AttackAttestation, OffenceKind, ThreatIndicator};
 
 use crate::core::{Block, Transaction};
+use crate::crypto::suites::SuiteSunsets;
 use crate::error::{NodeError, Result};
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
@@ -46,7 +47,12 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         require_active(context)?;
-        let id = verify_evidence(attestation, context.height, self.get_chain_tag()?)?;
+        let id = verify_evidence(
+            attestation,
+            context.height,
+            self.get_chain_tag()?,
+            &context.suite_sunsets,
+        )?;
         let marker = evidence_key(&id);
         if self.record(overlay, &marker)?.is_some() {
             return Ok(());
@@ -64,7 +70,9 @@ impl StateDB {
 /// admission, and block execution calls it again.
 ///
 /// `chain` is the genesis block id of the chain being verified, required for
-/// signature verification (ADR-036).
+/// signature verification (ADR-036). `sunsets` is the genesis's suite
+/// deprecation schedule (ADR-081): a frame whose suite is sunset at `height` is
+/// judged as the chain judges it.
 ///
 /// # Errors
 ///
@@ -73,6 +81,7 @@ pub fn verify_evidence(
     attestation: &AttackAttestation,
     height: u64,
     chain: &crate::core::ChainTag,
+    sunsets: &SuiteSunsets,
 ) -> Result<[u8; 32]> {
     let gossip = &attestation.gossip;
     let key = VerifyingKey::from_bytes(&gossip.author)
@@ -81,7 +90,9 @@ pub fn verify_evidence(
     key.verify_strict(&attestation.signed_bytes(), &signature)
         .map_err(|_| refused("the author's gossip signature does not verify"))?;
     match attestation.kind {
-        OffenceKind::InvalidSignature => frame_fails_signature(&gossip.data, height, chain)?,
+        OffenceKind::InvalidSignature => {
+            frame_fails_signature(&gossip.data, height, chain, sunsets)?;
+        }
         OffenceKind::TxRootMismatch => frame_fails_tx_root(&gossip.data)?,
     }
     Ok(derive_evidence_id(attestation))
@@ -89,14 +100,20 @@ pub fn verify_evidence(
 
 /// The frame is a transaction, and its authorization is what fails — exactly
 /// the errors `peer_health::classify_transaction` scores as a bad signature.
-fn frame_fails_signature(frame: &[u8], height: u64, chain: &crate::core::ChainTag) -> Result<()> {
+fn frame_fails_signature(
+    frame: &[u8],
+    height: u64,
+    chain: &crate::core::ChainTag,
+    sunsets: &SuiteSunsets,
+) -> Result<()> {
     let tx = Transaction::from_bytes(frame)
         .map_err(|_| refused("the evidence frame is not a transaction"))?;
     // Judged at `height` under the verification policy, so a suite-tagged
     // frame is evidence of a failed signature when its *suite* signature fails
     // -- not merely because the height-less `verify` refuses every v7 frame.
     // `SignatureSuite` joins the three hybrid failures for the same reason.
-    match tx.verify_at(height, &crate::crypto::suites::verification_policy(), chain) {
+    let policy = crate::crypto::suites::verification_policy(sunsets)?;
+    match tx.verify_at(height, &policy, chain) {
         Err(
             NodeError::SignatureVerification
             | NodeError::HashSignatureVerification

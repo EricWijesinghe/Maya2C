@@ -27,6 +27,7 @@ use crate::error::{NodeError, Result};
 use crate::state::merkle::{account_leaf, merkle_root};
 use maya_vrf::keys::VrfPublicKey;
 
+use crate::crypto::suites::{SuiteSunset, SuiteSunsets};
 use crate::oracle::registry::{OracleAuthority, OracleRegistry};
 use crate::sealed::CommitteeRecord;
 use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
@@ -98,12 +99,18 @@ pub struct GenesisConfig {
     /// allocation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub treasury: Option<TreasuryGenesis>,
-    /// Scheduled protocol upgrades (`crate::upgrade`). Empty by default and
-    /// hashed into nothing, so every existing genesis keeps its id and root;
-    /// a node reaching a scheduled version it does not implement halts with
-    /// "upgrade required before height H" instead of forking.
+    /// Scheduled protocol upgrades (`crate::upgrade`). Empty by default; a
+    /// non-empty schedule is folded into the genesis id, so an empty one leaves
+    /// every existing id unchanged. A node reaching a scheduled version it does
+    /// not implement halts with "upgrade required before height H" instead of
+    /// forking. Dark features activate through it (ADR-081).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub protocol_upgrades: Vec<ProtocolUpgrade>,
+    /// Suite deprecations (ADR-081): a suite the chain stops accepting at a
+    /// height it names. Empty at launch. Non-empty, it is folded into the
+    /// genesis id, so no node can disagree about when a suite is sunset.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suite_deprecations: Vec<SuiteDeprecationGenesis>,
     /// The DAG-BFT committee, on a network ordered by DAG-BFT (ADR-015,
     /// ADR-027). Absent means proof of work, which is what every genesis file
     /// written before this field meant; present, it is committed into the
@@ -126,6 +133,20 @@ pub struct GenesisConfig {
     /// runs cannot mint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shielded_activation_height: Option<u64>,
+}
+
+/// One suite deprecation as a genesis file names it (ADR-081).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SuiteDeprecationGenesis {
+    /// The suite's wire byte (`SuiteId`), e.g. `0x10` for ML-DSA-65.
+    pub suite: u8,
+    /// Height the deprecation takes effect.
+    pub announced_at: u64,
+    /// First height at which the suite no longer signs.
+    pub sunset_height: u64,
+    /// Whether the short emergency window is used.
+    #[serde(default)]
+    pub emergency: bool,
 }
 
 /// The genesis security council.
@@ -598,6 +619,31 @@ impl GenesisConfig {
         UpgradeSchedule::new(self.protocol_upgrades.clone())
     }
 
+    /// The validated suite deprecations (ADR-081).
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::SignatureSuite`] for an unknown suite byte or an invalid
+    /// deprecation; see [`SuiteSunsets::new`].
+    pub fn suite_sunsets(&self) -> Result<SuiteSunsets> {
+        let entries = self
+            .suite_deprecations
+            .iter()
+            .map(|d| -> Result<SuiteSunset> {
+                let suite = maya_crypto_pq::suite::SuiteId::try_from(d.suite).map_err(|e| {
+                    NodeError::SignatureSuite(format!("genesis deprecates suite {}: {e}", d.suite))
+                })?;
+                Ok(SuiteSunset {
+                    suite,
+                    announced_at: d.announced_at,
+                    sunset_height: d.sunset_height,
+                    emergency: d.emergency,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        SuiteSunsets::new(&entries)
+    }
+
     /// The validation rules every block of this network runs under.
     ///
     /// One place, so the node and every tool that replays its chain (the
@@ -620,6 +666,7 @@ impl GenesisConfig {
         };
         Ok(base
             .with_upgrades(&self.upgrade_schedule()?)
+            .with_suite_sunsets(self.suite_sunsets()?)
             .with_shielded_activation(self.shielded_activation()))
     }
 
@@ -662,6 +709,7 @@ impl GenesisConfig {
             }
         }
         self.upgrade_schedule()?;
+        self.suite_sunsets()?;
 
         if self.pow_limit_bits > self.difficulty_bits {
             return Err(NodeError::Decode(format!(
@@ -1015,14 +1063,75 @@ impl GenesisConfig {
     #[must_use]
     pub fn chain_id_commitment(&self) -> [u8; 32] {
         let base = self.weighting_commitment(self.committee_commitment());
-        // Only when the field is present, so every genesis written before
-        // ADR-037 keeps the id it always had.
+        let base = self.shielded_commitment(base);
+        let base = self.pow_limit_commitment(base);
+        let base = self.upgrade_commitment(base);
+        self.suite_sunset_commitment(base)
+    }
+
+    /// Folds an explicit shielded activation into the id. Only when the field
+    /// is present, so every genesis written before ADR-037 keeps its id.
+    fn shielded_commitment(&self, base: [u8; 32]) -> [u8; 32] {
         let Some(activation) = self.shielded_activation_height else {
             return base;
         };
         let mut h = blake3::Hasher::new_derive_key("maya2c genesis shielded activation v1");
         h.update(&base);
         h.update(&activation.to_le_bytes());
+        *h.finalize().as_bytes()
+    }
+
+    /// Folds the proof-of-work difficulty floor into a proof-of-work id
+    /// (ADR-081). Two operators who disagree about the floor would otherwise
+    /// accept different retargets from block zero. A DAG-BFT genesis ignores
+    /// the field, so its id does not change. Pre-genesis, so every PoW id
+    /// changes once; the tree pins no PoW id.
+    fn pow_limit_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        if self.bft.is_some() {
+            return base;
+        }
+        let mut h = blake3::Hasher::new_derive_key("maya2c genesis pow limit v1");
+        h.update(&base);
+        h.update(&self.pow_limit_bits.to_le_bytes());
+        *h.finalize().as_bytes()
+    }
+
+    /// Folds a non-empty upgrade schedule into the id (ADR-081). Sorted by
+    /// height, so the order a file lists it in does not matter.
+    fn upgrade_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        if self.protocol_upgrades.is_empty() {
+            return base;
+        }
+        let mut upgrades = self.protocol_upgrades.clone();
+        upgrades.sort_by_key(|u| u.activation_height);
+        let mut h = blake3::Hasher::new_derive_key("maya2c genesis protocol upgrades v1");
+        h.update(&base);
+        h.update(&(upgrades.len() as u64).to_le_bytes());
+        for u in &upgrades {
+            h.update(&u.version.to_le_bytes());
+            h.update(&u.activation_height.to_le_bytes());
+        }
+        *h.finalize().as_bytes()
+    }
+
+    /// Folds a non-empty suite deprecation schedule into the id (ADR-081),
+    /// sorted by suite byte so file order does not matter. `validate` refuses
+    /// an invalid schedule before any id is used.
+    fn suite_sunset_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        if self.suite_deprecations.is_empty() {
+            return base;
+        }
+        let mut sunsets = self.suite_deprecations.clone();
+        sunsets.sort_by_key(|d| d.suite);
+        let mut h = blake3::Hasher::new_derive_key("maya2c genesis suite deprecations v1");
+        h.update(&base);
+        h.update(&(sunsets.len() as u64).to_le_bytes());
+        for d in &sunsets {
+            h.update(&[d.suite]);
+            h.update(&d.announced_at.to_le_bytes());
+            h.update(&d.sunset_height.to_le_bytes());
+            h.update(&[u8::from(d.emergency)]);
+        }
         *h.finalize().as_bytes()
     }
 
@@ -1238,6 +1347,7 @@ mod tests {
             sealed: None,
             treasury: None,
             protocol_upgrades: Vec::new(),
+            suite_deprecations: Vec::new(),
             security_council: None,
             shielded_activation_height: None,
             bft: Some(BftGenesis {
@@ -1293,6 +1403,7 @@ mod tests {
             sealed: None,
             treasury: None,
             protocol_upgrades: Vec::new(),
+            suite_deprecations: Vec::new(),
             security_council: None,
             shielded_activation_height: None,
             bft: Some(BftGenesis {

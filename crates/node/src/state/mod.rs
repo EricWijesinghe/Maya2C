@@ -74,5 +74,7 @@ pub use invariant_guard::{BreakerRecord, Invariant, MODULES, Module};
 pub use merkle::{PathStep, account_leaf, merkle_path, merkle_root, verify_path};
 pub use proof::{AccountProof, LayerDigest, StateLayer};
 pub use shielded::{MAX_SHIELDED_PER_BLOCK, ShieldedPool};
-pub use stateless::{STATELESS_ACTIVATION_HEIGHT, StateWitness, StatelessError, verify_block};
+pub use stateless::{
+    STATELESS_ACTIVATION_HEIGHT, StateWitness, StatelessError, verify_block, verify_block_under,
+};
 pub use undo::{UndoEntry, UndoRecord};

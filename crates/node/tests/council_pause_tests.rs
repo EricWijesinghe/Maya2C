@@ -47,6 +47,7 @@ fn chain(dir: &TempDir) -> Chain {
         sealed: None,
         treasury: None,
         protocol_upgrades: Vec::new(),
+        suite_deprecations: Vec::new(),
         security_council: Some(CouncilGenesis {
             members: (0..3)
                 .map(|i| hex::encode(member(i).verifying_key().to_bytes()))

@@ -33,10 +33,11 @@ use crate::core::block::HEADER_VERSION;
 use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
+use crate::crypto::suites::SuiteSunsets;
 use crate::error::{NodeError, Result};
 use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{BlockContext, StateDB};
-use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule, refuse_unsupported};
+use crate::upgrade::{FeatureActivations, ProtocolUpgrade, UpgradeSchedule, refuse_unsupported};
 
 /// Opening a stored chain, importing headers ahead of bodies, and pruning.
 mod store;
@@ -104,6 +105,12 @@ pub struct ChainConfig {
     /// `shielded_activation_height` (ADR-037). Every block context the chain
     /// builds carries it ([`Chain::context_at`]).
     pub shielded_activation: u64,
+    /// Activation heights of the dark features, from the upgrade schedule
+    /// (ADR-081). Every block context the chain builds carries them.
+    pub features: FeatureActivations,
+    /// Suite deprecations the genesis committed (ADR-081), carried into every
+    /// block context so consensus verifies under the same schedule.
+    pub suite_sunsets: SuiteSunsets,
 }
 
 impl Default for ChainConfig {
@@ -115,6 +122,8 @@ impl Default for ChainConfig {
             unsupported_upgrade: None,
             fixed_target: false,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
+            features: FeatureActivations::default(),
+            suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
 }
@@ -136,6 +145,8 @@ impl ChainConfig {
             unsupported_upgrade: None,
             fixed_target: false,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
+            features: FeatureActivations::default(),
+            suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
 
@@ -167,6 +178,8 @@ impl ChainConfig {
             unsupported_upgrade: None,
             fixed_target: false,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
+            features: FeatureActivations::default(),
+            suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
 
@@ -182,6 +195,14 @@ impl ChainConfig {
     #[must_use]
     pub fn with_upgrades(mut self, upgrades: &UpgradeSchedule) -> Self {
         self.unsupported_upgrade = upgrades.first_unsupported();
+        self.features = upgrades.features();
+        self
+    }
+
+    /// The same configuration with the genesis's suite deprecations.
+    #[must_use]
+    pub fn with_suite_sunsets(mut self, suite_sunsets: SuiteSunsets) -> Self {
+        self.suite_sunsets = suite_sunsets;
         self
     }
 
@@ -359,7 +380,10 @@ impl Chain {
     /// Every block this chain applies, previews or builds runs under it.
     #[must_use]
     pub fn context_at(&self, height: u64) -> BlockContext {
-        BlockContext::at_height(height).with_shielded_activation(self.config.shielded_activation)
+        BlockContext::at_height(height)
+            .with_shielded_activation(self.config.shielded_activation)
+            .with_features(self.config.features)
+            .with_suite_sunsets(self.config.suite_sunsets)
     }
 
     /// Looks up an indexed block.

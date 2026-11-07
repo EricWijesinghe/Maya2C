@@ -905,7 +905,7 @@ impl StateDB {
         // Once per block, not once per transaction: it is a constant, and
         // building it inside the loop would suggest it could differ between two
         // transactions of one block.
-        let policy = crate::crypto::suites::verification_policy();
+        let policy = crate::crypto::suites::verification_policy(&context.suite_sunsets)?;
         for tx in &block.transactions {
             self.stage_transaction(&mut overlay, tx, context, &policy)?;
         }
@@ -1116,7 +1116,7 @@ impl StateDB {
         let mut overlay = Overlay::new();
         self.mark_sparse_accounts(&mut overlay, context)?;
         overlay.difficulty_target = difficulty_target;
-        let policy = crate::crypto::suites::verification_policy();
+        let policy = crate::crypto::suites::verification_policy(&context.suite_sunsets)?;
         // Verification is cache-only: a failure is not cached and the pass below
         // verifies again through the same cache. Warming only the cap's worth of
         // bytes bounds the work before the cut; later ones verify when reached.

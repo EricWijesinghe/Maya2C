@@ -10,8 +10,9 @@ use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::{Chain, ChainConfig};
-use custom_l1_node::genesis::{Allocation, GenesisConfig};
+use custom_l1_node::genesis::{Allocation, GenesisConfig, SuiteDeprecationGenesis};
 use custom_l1_node::state::{Account, StateDB};
+use custom_l1_node::upgrade::{DVP_VERSION, ProtocolUpgrade};
 
 use tempfile::TempDir;
 
@@ -41,6 +42,7 @@ fn config() -> GenesisConfig {
         // must be able to be absent without disturbing it.
         treasury: None,
         protocol_upgrades: Vec::new(),
+        suite_deprecations: Vec::new(),
         security_council: None,
         shielded_activation_height: None,
         bft: None,
@@ -377,4 +379,75 @@ fn a_bft_genesis_keeps_the_fixed_target_and_its_shielded_activation() {
 
     let pow = config().chain_config().expect("rules");
     assert!(!pow.fixed_target && pow.verify_pow);
+}
+
+// ---------------------------------------------------------------------------
+// upgrade levers in the genesis id (ADR-081)
+// ---------------------------------------------------------------------------
+
+fn genesis_id(config: &GenesisConfig) -> [u8; 32] {
+    config.genesis_block().expect("block").header.id()
+}
+
+#[test]
+fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
+    let plain = config();
+    let mut scheduled = config();
+    scheduled.protocol_upgrades = vec![ProtocolUpgrade {
+        version: DVP_VERSION,
+        activation_height: 100,
+    }];
+    let mut sunset = config();
+    sunset.suite_deprecations = vec![SuiteDeprecationGenesis {
+        suite: 0x10,
+        announced_at: 100,
+        sunset_height: 1_000_100,
+        emergency: false,
+    }];
+    let mut floor = config();
+    floor.pow_limit_bits = 8;
+
+    let ids = [
+        genesis_id(&plain),
+        genesis_id(&scheduled),
+        genesis_id(&sunset),
+        genesis_id(&floor),
+    ];
+    for (i, a) in ids.iter().enumerate() {
+        for b in &ids[i + 1..] {
+            assert_ne!(a, b, "two levers gave the same genesis id");
+        }
+    }
+}
+
+#[test]
+fn the_upgrade_schedule_is_bound_in_whatever_order_the_file_lists_it() {
+    let upgrade = |version, activation_height| ProtocolUpgrade {
+        version,
+        activation_height,
+    };
+    let mut forward = config();
+    forward.protocol_upgrades = vec![upgrade(2, 10), upgrade(3, 20)];
+    let mut reversed = config();
+    reversed.protocol_upgrades = vec![upgrade(3, 20), upgrade(2, 10)];
+    assert_eq!(genesis_id(&forward), genesis_id(&reversed));
+}
+
+#[test]
+fn a_genesis_names_only_valid_suite_deprecations() {
+    let mut config = config();
+    config.suite_deprecations = vec![SuiteDeprecationGenesis {
+        suite: 0x02,
+        announced_at: 100,
+        sunset_height: 1_000_100,
+        emergency: false,
+    }];
+    assert!(config.validate().is_err(), "unknown suite byte");
+    config.suite_deprecations[0].suite = 0x10;
+    config.suite_deprecations[0].sunset_height = 50;
+    assert!(config.validate().is_err(), "sunset before announcement");
+    config.suite_deprecations[0].sunset_height = 1_000_100;
+    assert!(config.validate().is_ok());
+    let chain = config.chain_config().expect("chain config");
+    assert_eq!(chain.suite_sunsets.entries().count(), 1);
 }
