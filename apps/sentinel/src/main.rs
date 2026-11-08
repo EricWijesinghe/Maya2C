@@ -92,14 +92,18 @@ fn note_startup(cfg: &Config, samples: &[Sample]) {
         &cfg.log,
         &format!("{} START {mode} nodes={}", unix_now(), cfg.nodes.len()),
     );
-    let mempool_seen = samples
-        .iter()
-        .any(|s| s.state.as_ref().is_ok_and(|o| o.pending.is_some()));
-    if !mempool_seen {
-        append_log(
-            &cfg.log,
-            "NOTE stranding detector idle: no node serves get_mempool_info",
-        );
+    // Stranding is live for each node that answers get_mempool_info; the note
+    // names the ones that do not, so a silent gap cannot hide in the log.
+    for s in samples {
+        if s.state.as_ref().is_ok_and(|o| o.pending.is_none()) {
+            append_log(
+                &cfg.log,
+                &format!(
+                    "NOTE stranding idle for {}: get_mempool_info not served",
+                    s.name
+                ),
+            );
+        }
     }
 }
 

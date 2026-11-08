@@ -140,8 +140,10 @@ stayed stuck.
 - **Act:** `chain-halt.md`, then the stuck-upgrade runbook if an upgrade
   height is near. Do not drop mempool entries by hand.
 
-**Not active yet.** The detector reads `get_mempool_info`, which no node
-serves yet. Until it does, the log carries `NOTE stranding detector idle`.
+**Coverage.** The detector reads `get_mempool_info` (`{size, bytes}`, node-local,
+not forwarded by the public gateway). It runs for every node that answers. For a
+node that does not, the log carries `NOTE stranding idle for <node>` at start,
+and that node cannot raise this alert.
 
 ### Resolved (`RESOLVED: <title>`, priority 3)
 
@@ -150,8 +152,8 @@ and check that the chain is producing blocks.
 
 ## Not detected
 
-- **Equivocation and slashing evidence.** No RPC exposes it, so the sentinel
-  cannot see it. Watch the validator logs and `get_validators` by hand.
+- **Equivocation and slashing evidence.** Not exposed over RPC yet, so the
+  sentinel cannot see it. Watch the validator logs and `get_validators` by hand.
 - **Anything inside one node that its RPC does not expose.**
 
 ## Logs and files
