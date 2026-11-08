@@ -50,6 +50,18 @@ struct FrameWindow {
 }
 
 impl FrameWindow {
+    /// Forgets the oldest sizes until only `queued` remain: frames every
+    /// receiver has read no longer hold memory. Without this a read frame
+    /// left the budget only when 512 newer ones pushed it out, so under load
+    /// the last few hundred megabytes of read proposals refused every new
+    /// proposal and certificate, and the DAG stalled for good with no error
+    /// (bench-tps 1000 x 4, 2026-11-08).
+    fn trim(&mut self, queued: usize) {
+        while self.sizes.len() > queued {
+            self.held -= self.sizes.pop_front().unwrap_or(0);
+        }
+    }
+
     /// Admits a frame of `len` bytes, or refuses it if keeping it would take
     /// the channel past `max_bytes`. Admitting a frame into a full channel
     /// evicts the oldest, exactly as the broadcast channel does.
@@ -119,6 +131,8 @@ impl Bus {
     pub(super) fn emit_frame(&self, frame: Arc<Vec<u8>>) -> bool {
         // The lock covers the send, so the window and the channel agree on order.
         let mut window = self.window.lock().unwrap_or_else(PoisonError::into_inner);
+        // FIFO: what `len` no longer counts is the oldest, read by everyone.
+        window.trim(self.frames.len());
         if !window.admit(frame.len()) {
             return false;
         }
@@ -185,8 +199,24 @@ mod tests {
     }
 
     #[test]
+    fn a_read_frame_frees_its_bytes() {
+        // A slot capacity far above what is sent, so only reading can free bytes.
+        let bus = Bus::with_limits(4, 64, 10);
+        let mut frames = bus.subscribe_frames();
+        for n in 0..20u8 {
+            assert!(bus.emit_frame(Arc::new(vec![n; 6])), "frame {n} refused");
+            assert_eq!(frames.try_recv().unwrap().len(), 6);
+        }
+        // Unread frames still count: 6 held, 6 more would pass 10.
+        assert!(bus.emit_frame(Arc::new(vec![0; 6])));
+        assert!(!bus.emit_frame(Arc::new(vec![0; 6])));
+    }
+
+    #[test]
     fn an_evicted_frame_frees_its_bytes() {
         let bus = Bus::with_limits(4, 2, 10);
+        // A receiver that never reads: with none, nothing is held at all.
+        let _stalled = bus.subscribe_frames();
         assert!(bus.emit_frame(Arc::new(vec![0; 5])));
         assert!(bus.emit_frame(Arc::new(vec![0; 5])));
         // The channel is full; the next frame evicts a 5-byte one, so 10 fit.
