@@ -152,6 +152,8 @@ pub struct Replay {
     pub state_root: String,
     /// Every balance it moved, before and after.
     pub changes: Vec<BalanceChange>,
+    /// The network the source's chain id names, when it has a text form (ADR-081).
+    pub network: Option<maya_address::Network>,
 }
 
 /// Replays the block at `height` locally.
@@ -193,12 +195,17 @@ pub fn replay(
     let changes = state
         .balance_changes(&id)?
         .ok_or_else(|| anyhow!("no balance changes recorded"))?;
+    let chain_id = GenesisConfig::from_json(
+        &std::fs::read_to_string(&source.genesis).context("reading the genesis")?,
+    )?
+    .chain_id;
     Ok(Replay {
         height,
         block_id: hex::encode(id),
         txids,
         state_root,
         changes,
+        network: maya_address::Network::for_chain_id(&chain_id),
     })
 }
 
