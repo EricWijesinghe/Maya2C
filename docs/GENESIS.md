@@ -8,11 +8,13 @@ because the shielded-pool circuit is unaudited (`bins/genesis-ceremony`).
 ## Ceremony rehearsal (at least twice, on staging, with the real participants)
 
 1. **Freeze the inputs.** A signed parameter file: chain id, timestamp,
-   difficulty, allocations, treasury share, protocol-upgrade schedule
-   (empty at launch), genesis validators with their signer public keys.
-   Every participant signs the file's BLAKE3 digest.
+   difficulty, `--supply 0` (no premine), the keyless mining reserve, the
+   disclosed bonds (7 × `min_self_bond`, one per genesis validator),
+   protocol-upgrade schedule (empty at launch), genesis validators with their
+   signer public keys. Every participant signs the file's BLAKE3 digest.
 2. **Run** `genesis-ceremony` with those inputs on an offline machine. It
-   generates the root keys, funds the treasury and writes `genesis.json`
+   writes no root key and no treasury. It funds only the keyless reserve,
+   which holds the schedule's lifetime emission, and writes `genesis.json`
    and the commitment sheet.
 3. **Independent reproduction.** At least three participants recompute the
    genesis state root and block id from `genesis.json` on their own

@@ -25,7 +25,7 @@ more and removes none:
 
 Everything here is built so that the day a real ceremony completes, launching
 mainnet is one flag and a genesis file — not a re-plumbing. Today it deploys
-`maya-genesis-rc1`.
+`maya-testnet-1`.
 
 ## The four stages
 
@@ -38,7 +38,7 @@ cannot be retrofitted onto three copies of `10.0.0.0/16`.
 ```bash
 cd terraform
 terraform init
-terraform plan -var 'chain_id=maya-genesis-rc1'
+terraform plan -var 'chain_id=maya-testnet-1'
 ```
 
 `instance_type` defaults to `r6i.4xlarge` (128 GiB). The floor is the

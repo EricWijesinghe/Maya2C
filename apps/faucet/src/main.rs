@@ -63,7 +63,7 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), String> {
-    let chain_id = env_or("MAYA_FAUCET_CHAIN", "maya-genesis-rc1");
+    let chain_id = env_or("MAYA_FAUCET_CHAIN", "maya-testnet-1");
     let node_url = env_or("MAYA_FAUCET_NODE", "http://127.0.0.1:8545");
     let listen: SocketAddr = env_or("MAYA_FAUCET_LISTEN", "127.0.0.1:8080")
         .parse()

@@ -25,7 +25,16 @@ against a live server on its own.
 
 ## 1. Before anything (no approval needed)
 
-1. `cargo xtask genesis-check <genesis.json>` passes on the candidate file.
+1. `cargo xtask genesis-check <genesis.json>` passes on the candidate file. It enforces
+   (`xtask/src/genesis_check.rs`, the full list is in `deploy/genesis/mainnet/README.md`):
+   no premine (only the keyless reserve is funded); `protocol_upgrades` empty; timestamp
+   within 365 days old and 90 days ahead; tail above zero; reserve exactly the lifetime
+   emission; at least 7 validators; `anchor_timeout_ms` at least 500; staking floors set
+   (1,000 coins self-bond, 1 coin delegation); every bond equal to `min_self_bond`; no
+   operator above 20%; shielded pool off; stake-weighted; proof of work; fee floor 10^6;
+   stake above zero. It does **not** read `suite_deprecations`: check that by hand.
+   Also confirm `maya-mainnet` is registered in `Network::for_chain_id`
+   (`crates/address/src/lib.rs`), so the chain has a Bech32m text form.
 2. `cargo xtask release-check` passes.
 3. `cargo xtask go-no-go`: every FAIL is either fixed or listed as waived in
    DECISIONS.md (2026-10-25).
