@@ -19,6 +19,7 @@ mod bench_report;
 mod bench_tps;
 mod bft_devnet;
 mod brand_assets;
+mod ceremony_rehearsal;
 mod check_brand_refs;
 mod claims_check;
 mod coverage;
@@ -88,6 +89,7 @@ fn main() -> ExitCode {
         "bft-devnet" => bft_devnet::run(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
+        "ceremony-rehearsal" => ceremony_rehearsal::run(rest),
         "proving" => proving::proving(rest),
         "proof-ratchet" => proof_ratchet::run(rest),
         "attacknet" => attacknet::attacknet(rest),
@@ -195,6 +197,11 @@ cargo xtask <command>
                         not exist.
   pgo                   Measure profile-guided optimisation on bft_tps:
                         baseline vs PGO build, medians of --runs runs.
+  ceremony-rehearsal [--work DIR] [--no-mining] [--mining-timeout-mins N]
+                        The mainnet genesis ceremony with throwaway keys:
+                        7 validator + 3 council keys, genesis-ceremony,
+                        genesis-check, then 7 validators from that genesis
+                        (chain id, supply, address text, a paid share).
   mining-localnet [--gpu] [--seconds N]
                         Four validators with block rewards in genesis and the
                         release miner on node 1: a share pays, payouts survive
