@@ -134,6 +134,20 @@ fn addresses_are_normalized() {
 }
 
 #[test]
+fn a_text_address_normalizes_to_the_same_id_as_its_hex() {
+    let id = [0x3cu8; 32];
+    let text = maya_address::encode(maya_address::Network::Testnet, &id);
+    assert_eq!(
+        normalize_address(&text).expect("text address"),
+        hex::encode(id)
+    );
+    // A typo in the text form is refused by the checksum, not sent.
+    let mut typo = text.clone();
+    typo.replace_range(10..11, if &text[10..11] == "q" { "p" } else { "q" });
+    assert!(normalize_address(&typo).is_err());
+}
+
+#[test]
 fn malformed_addresses_are_rejected() {
     for candidate in ["", "nothex", &"aa".repeat(31), &"aa".repeat(33), "zz"] {
         assert!(

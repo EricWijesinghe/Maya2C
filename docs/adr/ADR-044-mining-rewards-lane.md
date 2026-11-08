@@ -77,7 +77,7 @@ finalize blocks. They earn issuance by publishing work:
 | `MINER_SHARE_BPS` | 7000 (70% miners, 30% validators) | mining is the adoption path. Validators still earn fees |
 | `TARGET_CLAIMS_PER_EPOCH` | 1,000 | small enough to bound verification |
 | `MAX_CLAIMS_PER_BLOCK` | 16 | bounds Argon2 work per block |
-| Premine | none | Eric chose rewards only |
+| Premine | no premine; genesis holds only the keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-bond) | Eric chose rewards only. The bonds are minted value (`zero_supply_mints_only_the_reserve_and_the_bonds`), so they are disclosed rather than called zero |
 
 ## Consequences
 

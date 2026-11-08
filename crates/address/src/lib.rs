@@ -319,4 +319,19 @@ mod tests {
         );
         assert_eq!(Network::for_chain_id("genesis-earn"), None);
     }
+
+    /// The mainnet chain id gets its prefix in the same change that signs
+    /// mainnet genesis (ADR-081 section 4). Until then this stays ignored, so
+    /// master is not red for a step that has not happened. At genesis: register
+    /// `maya-mainnet` in `Network::for_chain_id` and remove the `ignore`.
+    /// Checked against deploy/genesis/mainnet/README.md, which names the id.
+    #[test]
+    #[ignore = "GENESIS: remove this ignore when maya-mainnet is registered in Network::for_chain_id"]
+    fn mainnet_chain_id_has_a_prefix() {
+        assert_eq!(
+            Network::for_chain_id("maya-mainnet"),
+            Some(Network::Mainnet),
+            "maya-mainnet has no text prefix: register it before genesis"
+        );
+    }
 }

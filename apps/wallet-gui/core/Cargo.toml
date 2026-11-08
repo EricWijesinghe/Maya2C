@@ -19,6 +19,8 @@ path = "src/lib.rs"
 primitive-types.workspace = true
 # The coin's decimals (ADR-068), the one source every client reads.
 maya-amount = { path = "../../../crates/amount" }
+# Text address form (ADR-081): a recipient may be pasted as Bech32m or hex.
+maya-address = { path = "../../../crates/address" }
 custom-l1-node = { path = "../../../crates/node" }
 
 # BIP-39 mnemonics. Wordlist only — seed derivation is PBKDF2 per the spec.
