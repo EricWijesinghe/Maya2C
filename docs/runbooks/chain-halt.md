@@ -73,7 +73,15 @@ keeps for 8 epochs`. Or the data directory is lost.
    and keep the validator key.
 5. Start the node with `--bootstrap-from <peer> --catch-up-from <peer>
    --prune-depth 3600`. Pass `--catch-up-from` once per live peer; the node
-   picks the one with the highest tip.
+   picks the one with the highest tip. Only after step 3 passed, add
+   `--i-know-this-validator-never-signed`: a committee validator with no
+   `bft/` on a recent chain is otherwise refused (audit L-2).
+
+Never delete `bft/`: it is the safety log that stops a restarted validator
+signing a round twice. Every `--catch-up-from` list should include at least
+one validator that is building, not following: a follower can only serve
+checkpoints at or below its own tip, and a list of followers alone recovers
+slowly or not at all.
 
 The validator was jailed for its downtime. It rejoins the committee by
 itself after `jail_epochs` (2). Until then the committee is one seat

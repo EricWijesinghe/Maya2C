@@ -207,12 +207,10 @@ pub fn fetch(
     // behind the checkpoint it serves) is not a failure: there is nothing it can
     // serve from its own chain, so nothing to import from it yet. Returning the
     // range request's "no block" error here failed the node's start-up (attacknet
-    // "restart ahead", 2026-11-03), since no other source was tried.
-    // shortcut: a far-behind node whose only source is 1+ blocks behind its newest
-    // checkpoint imports nothing per round. Importing up to the source's tip needs
-    // an attested block at or below it, and the book keeps one checkpoint per
-    // epoch (attest.rs `of_epoch`): none exists below the newest, so this cannot
-    // be fixed without weakening ADR-038. Upgrade when the book keeps older ones.
+    // "restart ahead", 2026-11-03), since no other source was tried. A current
+    // node serves only a checkpoint at or below its own tip
+    // (`CheckpointBook::set_tip`, audit M-2), so this is an older peer, or a race
+    // between its book and its chain.
     let tip = source.tip_height()?;
     if checkpoint.height > tip {
         eprintln!(
@@ -943,6 +941,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got.len(), 15);
+    }
+
+    #[test]
+    fn a_follower_source_one_block_behind_still_serves_catch_up() {
+        // M-2: a follower at 60 has seen the checkpoint at 61. Its book serves
+        // the one at 60, and a node at 10 imports 11..=60 from it.
+        let (mut source, committee) = chained(61, true);
+        let (signing, _) = keys();
+        let id = source.blocks[59].header.id();
+        let at_sixty = Checkpoint {
+            block: id,
+            signatures: (0..3u16)
+                .map(|v| {
+                    let a =
+                        Attestation::sign(&signing[usize::from(v)], v, &TAG, 1, 60, id).unwrap();
+                    (v, a.signature)
+                })
+                .collect(),
+            ..checkpoint(&signing, 1, 60)
+        };
+        let mut book = crate::consensus::bft::attest::CheckpointBook::default();
+        book.offer(&at_sixty);
+        book.offer(&source.newest);
+        book.set_tip(60);
+        source.newest = book.newest().cloned().unwrap();
+        source.tip = 60;
+        let got = fetch(at_ten(&source), &source, &committee, None).unwrap();
+        assert_eq!(got.len(), 50);
+        assert_eq!(got.last().map(|b| b.header.id()), Some(id));
     }
 
     #[test]

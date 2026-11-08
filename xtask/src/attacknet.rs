@@ -343,6 +343,9 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Re
         if bootstrap {
             let depth = SNAPSHOT_BLOCKS.to_string();
             cmd.args(["--bootstrap-from", &url, "--prune-depth", &depth]);
+            // Its `bft/` was moved aside, and it was down since an earlier
+            // epoch, so it signed nothing in this one (audit L-2 guard).
+            cmd.arg("--i-know-this-validator-never-signed");
         }
         cmd.args(["--catch-up-from", &url, "--trusted-block", &trusted]);
     }
