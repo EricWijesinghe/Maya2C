@@ -516,6 +516,15 @@ impl Mempool {
         self.read_pool().len()
     }
 
+    /// Pooled transactions and their encoded bytes, read under one lock so the
+    /// two agree. Read-only: the sentinel's stranding check uses it.
+    #[must_use]
+    pub fn usage(&self) -> (usize, usize) {
+        let pool = self.read_pool();
+        let bytes = pool.values().map(|tx| tx.to_bytes().len()).sum();
+        (pool.len(), bytes)
+    }
+
     /// Whether the pool is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
