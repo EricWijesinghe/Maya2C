@@ -1,19 +1,45 @@
 /* Deliberately plain. A network dashboard is read at a glance by somebody
    checking whether something is wrong, and the numbers are the interface. */
+/* Forged Light: teal bars and bronze for stale data, on paper or on abyss. */
 :root {
+  color-scheme: light dark;
+  --paper: #ffffff;
   --ink: #1a1d21;
-  --dim: #6b7280;
-  --line: #e5e7eb;
-  --bar: #2563eb;
-  --live: #059669;
-  --stale: #b45309;
+  --dim: #5b6670;
+  --line: #d9e2e4;
+  --panel: #f4f8f8;
+  --bar: #0e8f9c;
+  --live: #047857;
+  --stale: #9a5b13;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #050b0f;
+    --ink: #edf3f2;
+    --dim: #93a4aa;
+    --line: rgb(126 234 240 / 0.14);
+    --panel: #0b161b;
+    --bar: #1fb5c2;
+    --live: #45e0a0;
+    --stale: #e6b260;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #050b0f;
+  --ink: #edf3f2;
+  --dim: #93a4aa;
+  --line: rgb(126 234 240 / 0.14);
+  --panel: #0b161b;
+  --bar: #1fb5c2;
+  --live: #45e0a0;
+  --stale: #e6b260;
 }
 
 body {
   margin: 0;
   font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
-  background: #fff;
+  background: var(--paper);
 }
 
 main { max-width: 60rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
@@ -46,7 +72,7 @@ h2 { font-size: 1rem; margin: 2rem 0 0.5rem; }
   border: 1px solid var(--line);
   margin-top: 1.5rem;
 }
-.figure { background: #fff; padding: 0.75rem 0.9rem; }
+.figure { background: var(--panel); padding: 0.75rem 0.9rem; }
 .figure .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
 .figure .value { font-size: 1.35rem; font-variant-numeric: tabular-nums; margin: 0.15rem 0; }
 .figure .note { font-size: 0.72rem; color: var(--dim); }

@@ -879,3 +879,12 @@ Eric decided both open questions from the genesis audit (PR #374). Decision only
 - **Upgrade authority (Eric 2026-11-07):** protocol upgrades are scheduled on chain. A governance `ScheduleUpgrade` needs at least about 30 days of lead time. The 2-of-3 security council has a fast path for suite sunsets only, with at least about 7 days of lead time. Neither path can move or mint funds. Implemented in PR #376 (ADR-082).
 - **Address format (Eric 2026-11-07):** Bech32m text form, with human-readable prefix `maya` on mainnet, `tmaya` on testnet and `dmaya` on devnet. Implemented in PR #375 (ADR-081).
 - **Recorded in:** `deploy/genesis/mainnet/README.md`, `docs/runbooks/regenesis-checklist.md`, ADR-068, `bins/genesis-ceremony`, `xtask/src/genesis_check.rs`.
+
+## 2026-11-08 — Mainnet min-self-bond is 1,000 coins; genesis carries 7,000 coins of bonds (Claude, under Eric's pre-approval)
+
+A draft said 100 coins per bond. The tool does not allow that: `genesis-check` floors `min_self_bond` at 1,000 coins (decided 2026-10-30). Claude took the floor as the value, so the bond the ceremony writes is the one the tool enforces.
+
+- Each of the 7 genesis validators bonds exactly `min_self_bond` = 1,000 coins (10^27 base units). Genesis holds 7,000 coins of bonds, about 0.036% of the 19.69M era issuance.
+- The bonds are disclosed because they are minted value at genesis; they appear in the mainnet README and the checklist, not hidden.
+- Mainnet launches with an empty protocol-upgrade schedule (ADR-082): `genesis-check` refuses any entry for `maya-mainnet`. Other chains may carry launch entries.
+- Recorded in `deploy/genesis/mainnet/README.md`, `docs/runbooks/regenesis-checklist.md`, `docs/GENESIS.md` and STATE.md.

@@ -127,7 +127,14 @@ fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
 /// Signs `txs` transfers per sender against node 0 (nonces `0..txs`).
 fn presign(senders: &[(PathBuf, String)], txs: usize) -> Result<Vec<Vec<String>>> {
     // Same wallet guard as devnet::send (ADR-036): no terminal, no pinned genesis.
-    let genesis = devnet::genesis_id()?;
+    // Ask node 0 at the bench's port offset: devnet::genesis_id() asks the fixed devnet port.
+    let request = json!({"jsonrpc": "2.0", "id": 1, "method": "get_chain_info", "params": []});
+    let genesis = devnet::post(&localnet::rpc_addr(0), "/", &request)?
+        .1
+        .pointer("/result/genesis")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or("get_chain_info reported no genesis")?;
     let flat = parallel(senders.len() * txs, SIGN_THREADS, &|k| {
         let (key, _) = &senders[k / txs];
         let out = devnet::output(wallet(key, 0).args([

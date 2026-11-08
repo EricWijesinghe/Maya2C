@@ -1,7 +1,7 @@
 variable "chain_id" {
   description = "Genesis chain id these nodes serve."
   type        = string
-  default     = "maya-testnet"
+  default     = "maya-testnet-1"
 }
 
 variable "instance_type" {

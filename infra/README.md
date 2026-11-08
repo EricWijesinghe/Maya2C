@@ -25,7 +25,7 @@ more and removes none:
 
 Everything here is built so that the day a real ceremony completes, launching
 mainnet is one flag and a genesis file — not a re-plumbing. Today it deploys
-`maya-genesis-rc1`.
+`maya-testnet-1`.
 
 ## The four stages
 
@@ -38,7 +38,7 @@ cannot be retrofitted onto three copies of `10.0.0.0/16`.
 ```bash
 cd terraform
 terraform init
-terraform plan -var 'chain_id=maya-genesis-rc1'
+terraform plan -var 'chain_id=maya-testnet-1'
 ```
 
 `instance_type` defaults to `r6i.4xlarge` (128 GiB). The floor is the
@@ -62,17 +62,23 @@ genesis-ceremony contribute --label alice --out-dir ./alice
 That writes `alice.secret` (mode 0600, never printed) and `alice.public`. Only
 the public half is sent anywhere.
 
-The coordinator, over the collected public halves:
+The coordinator, for mainnet (`deploy/genesis/mainnet/README.md` has the inputs
+and the full checklist). `--supply 0` means no premine, no root key and no treasury:
 
 ```bash
-genesis-ceremony assemble \
-    --chain-id maya-genesis-rc1 \
-    --supply 21000000000 \
-    --timestamp 1767225600 \
-    --contributions ./contributions \
-    --treasury-public ./treasury/treasury.public \
-    --out-dir ./ceremony
+genesis-ceremony --chain-id maya-mainnet \
+    --supply 0 \
+    --validators validators.txt \
+    --mining deploy/genesis/mainnet/mining.json \
+    --mining-reserve 122753829695359067419575633036805965021648 \
+    --council council-public --council-threshold 2 --council-max-pause-blocks <N> \
+    --min-self-bond 1000000000000000000000000000 --min-delegation 1000000000000000000000000 \
+    --timestamp <UNIX> --out-dir out
+cargo xtask genesis-check out/genesis.json
 ```
+
+The `assemble` subcommand with `--treasury-public` is the pre-2026-11-07 root-key
+path and is not used for `maya-mainnet`.
 
 `assemble` refuses a contributions directory containing a `.secret` file. That
 is not tidiness: a secret that reached the coordinator has already left the

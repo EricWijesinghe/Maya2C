@@ -1,6 +1,15 @@
 # State
 
 ## Handover
+- **2026-11-07/08 — pre-freeze drift sweep (docs PR, Bech32m mainnet id); #383 open, re-freeze still ahead.**
+  - **Merged:** #370, #372-#382. **Open:** #383 (consensus frames dropped under load: byte budget freed once read). This sweep's PR is open, not merged.
+  - **Decided:** `--supply 0`, no premine (ADR-044, Eric 2026-11-07). Genesis = keyless reserve (lifetime emission) + 7 disclosed min-self-bonds of 1,000 coins each, one per genesis validator (7,000 coins, about 0.036% of the 19.69M era issuance). The bond equals the `genesis-check` floor, decided 2026-11-08 (DECISIONS). The draft's 100-coin figure is withdrawn. Tail ~1.07%/yr at 1 s block time accepted (DECISIONS 2026-11-07). Upgrade authority on chain under compiled leads (ADR-082, invariant 34). Bech32m: `maya-mainnet` registered, HRP `maya` (ADR-081).
+  - **History rewrite:** done 2026-11-08 to remove OWNER_PLAN.md from git history; the file is absent from every branch because of it. Rulesets re-enabled. Eric must send the GitHub Support purge request; Claude does not.
+  - **Bench at 6029a4ba:** consensus frames dropped under load (fixed in #383). After the fix, one machine, localhost: 1000x4 4000/4000 at 319.4/s; 3000x2 6000/6000 at 434.9/s; 32x40 206.3/s. The run output is not yet in `reports/bench/`; commit the report before citing these.
+  - **Fuzz:** 8 decoders, about 462M execs, 0 bugs. Report not yet in the repo either.
+  - **Verified by reading code:** the undo journal records prior values of `up:` writes (`capture_undo` covers every overlay record). No consensus bug found.
+  - **Found and fixed here:** `maya-mainnet` was unregistered (Bech32m test was `#[ignore]`d); faucet default chain was unregistered `maya-genesis-rc1`; `genesis-check` does not read `suite_deprecations`, now said in the docs; "21M" wording in the mainnet README.
+  - **Do first:** land #383, re-freeze, gates, 24 h proving, weighted attacknet x10, ceremony rehearsal.
 - **2026-11-02 — freeze candidate `9913c144`; 24 h local proving run; docs decisions recorded.**
   - **Done:** #324 B49 stale node rejoins only through a trusted block; #325 B51 sealed join-script keys + long-range guard; #328 site build fix (FAQ quote). Docs PR: owner decisions in DECISIONS 2026-11-02 (ADR-076 accepted, ADR-044 supply wording matches code, fee treasury burned, council pause 6 h), bootnode placeholder `deploy/genesis/mainnet/bootnode.env`, C15 drift fixed.
   - **Unfinished:** 24 h proving run on `9913c144`; #330 site install step (open); agents on B1/B2 (Hub Unix TOCTOU, Windows DACL), pool, B52/B17, B38; open code item: fee treasury share is not wired (node burns 100%; `spec/04-fees.md` FEE-1 still describes the split).
