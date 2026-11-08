@@ -51,10 +51,10 @@ a way to tell the real release from a copy.
 ## What does NOT work
 
 **Self-destruct or anti-tamper code does not protect the network.** It is
-malware by definition and would only harm legitimate operators:
+malware by definition and harms legitimate operators:
 
 - A check that "fires" in a modified binary can be removed by whoever runs the
-  modified binary. It can only ever run on the software of honest nodes, which
+  modified binary. Such a check runs only on the software of honest nodes, which
   is the software that is supposed to keep working.
 - Code that disables or damages a node when it detects an unknown genesis
   would hurt the people running the real network, and it would be a backdoor.
