@@ -477,31 +477,39 @@ fn crash_f(net: &mut Net) -> Result<()> {
 fn crash_f_plus_one(net: &mut Net) -> Result<()> {
     let (n, _) = seated()?;
     let (_, down) = victims(faults(n) + 1)?;
+    // The true finalized tip across the WHOLE network, taken before the crash.
+    // It matters that this is measured over every node, not just the survivors:
+    // a survivor that was still catching up keeps importing already-attested
+    // blocks after the crash (ADR-038 followers), so its height climbs toward
+    // this tip without any new finality. Measuring new progress against this
+    // pre-crash tip — which catch-up can approach but never pass — is what tells
+    // a real quorum-less commit apart from a follower catching up. The old check
+    // compared `max(survivors)` before vs after and mistook that catch-up climb
+    // for the chain committing without a quorum.
+    let tip_before = (0..VALIDATORS)
+        .filter_map(height)
+        .max()
+        .ok_or("no node answers")?;
     for i in &down {
         net.procs.kill(usize::from(*i));
     }
     let live = Net::honest(&down);
-    // Let in-flight rounds settle, then watch for progress.
-    std::thread::sleep(Duration::from_secs(5));
-    let before = live
-        .iter()
-        .filter_map(|i| height(*i))
-        .max()
-        .ok_or("no node answers")?;
+    // A block whose quorum certificate was already in flight when the crash
+    // landed may still finalize; allow that slack, then the chain must stop.
+    const IN_FLIGHT: u64 = 2;
     std::thread::sleep(HALT_WATCH);
     let after = live
         .iter()
         .filter_map(|i| height(*i))
         .max()
         .ok_or("no node answers")?;
-    if after > before + 1 {
+    if after > tip_before + IN_FLIGHT {
         return Err(format!(
-            "crash f+1: {} validators kept committing without a quorum ({before} -> {after})",
-            live.len()
+            "crash f+1: the chain finalized past the pre-crash tip without a quorum ({tip_before} -> {after})"
         ));
     }
     net.say(format!(
-        "crash f+1={} of a {n}-seat committee: halted at {after} for {HALT_WATCH:?} (no quorum), as BFT must",
+        "crash f+1={} of a {n}-seat committee: no new finality past {tip_before} for {HALT_WATCH:?} (quorum lost), as BFT must",
         down.len()
     ));
     for i in down {
