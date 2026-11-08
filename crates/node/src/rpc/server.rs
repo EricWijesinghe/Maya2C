@@ -857,6 +857,15 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         })
         .map_err(|e| rejected(e.to_string()))?;
 
+    // Read-only view of the pool, for the sentinel's stranding check. Node-local:
+    // the public gateway does not forward it.
+    module
+        .register_method("get_mempool_info", |_params, ctx, _| {
+            let (size, bytes) = ctx.mempool.usage();
+            Ok::<_, ErrorObjectOwned>(serde_json::json!({ "size": size, "bytes": bytes }))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
     module
         .register_async_method("submit_block", |params, ctx, _| async move {
             if !ctx.accepts_blocks {

@@ -325,6 +325,36 @@ async fn a_generated_key_can_sign_a_transaction_the_node_accepts() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_mempool_info_reports_pooled_count_and_bytes() {
+    let alice = generate_signing_key().expect("keygen");
+    let node = start_node(&[(address_of(&alice), 1_000)], false).await;
+
+    let empty: serde_json::Value = node
+        .client
+        .request("get_mempool_info", rpc_params![])
+        .await
+        .expect("get_mempool_info on an empty pool");
+    assert_eq!(empty, serde_json::json!({ "size": 0, "bytes": 0 }));
+
+    let tx = signed_transfer(&alice, [2u8; 32], 250, 0);
+    let raw = hex::encode(tx.to_bytes());
+    let submitted: SubmitTransactionResult = node
+        .client
+        .request("send_raw_transaction", rpc_params![raw])
+        .await
+        .expect("send_raw_transaction");
+    assert!(submitted.accepted);
+
+    let pooled: serde_json::Value = node
+        .client
+        .request("get_mempool_info", rpc_params![])
+        .await
+        .expect("get_mempool_info after one transaction");
+    assert_eq!(pooled["size"], 1);
+    assert_eq!(pooled["bytes"], tx.to_bytes().len());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_node_rejects_a_transaction_signed_by_an_unfunded_key() {
     let pauper = generate_signing_key().expect("keygen");
     let node = start_node(&[], false).await;
