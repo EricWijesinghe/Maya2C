@@ -5,25 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Maya2C Status</title>
 <meta name="description" content="Live uptime of maya-testnet-1, measured from the chain's own block timestamps.">
-<meta name="theme-color" content="#04110f">
+<meta name="theme-color" content="#050b0f">
 <link rel="icon" href="/brand/emblem.png" type="image/png">
 <style>
   /* Mission control: teal and bronze over a dark console. System fonts only,
      so the page makes no third-party requests. */
-  :root { color-scheme: dark; --void:#04110f; --panel:rgba(12,34,32,.6); --edge:rgba(45,212,191,.16); --text:#e8f6f2;
-    --muted:#8fb3ab; --teal:#2dd4bf; --teal2:#0d9488; --bronze:#d4a06a; --bronze2:#a8703a; --ok:#5eead4; --alert:#f5b04a;
+  :root { color-scheme: dark; --void:#050b0f; --panel:rgba(12,24,30,.6); --edge:rgba(31,181,194,.16); --text:#e8f6f2;
+    --muted:#93a4aa; --teal:#1fb5c2; --teal2:#178f9a; --bronze:#d9b97a; --bronze2:#a8703a; --ok:#7eeaf0; --alert:#e6b260;
     --display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif; --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
     --mono:ui-monospace,SFMono-Regular,Consolas,monospace; --spring:cubic-bezier(.34,1.56,.64,1); }
   * { box-sizing: border-box; }
   html, body { overflow-x: hidden; }
-  body { margin: 0; min-height: 100vh; background: radial-gradient(60rem 28rem at 15% -10%, rgba(45,212,191,.14), transparent 60%),
-    radial-gradient(50rem 26rem at 95% 0%, rgba(212,160,106,.12), transparent 60%), var(--void); color: var(--text); font: 400 16px/1.6 var(--sans); }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(60rem 28rem at 15% -10%, rgba(31,181,194,.14), transparent 60%),
+    radial-gradient(50rem 26rem at 95% 0%, rgba(217,185,122,.12), transparent 60%), var(--void); color: var(--text); font: 400 16px/1.6 var(--sans); }
   body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .35;
-    background-image: linear-gradient(rgba(45,212,191,.05) 1px, transparent 1px); background-size: 100% 28px; }
+    background-image: linear-gradient(rgba(31,181,194,.05) 1px, transparent 1px); background-size: 100% 28px; }
   .wrap { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; padding: 28px 16px 56px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
   header a.brand { color: var(--text); text-decoration: none; font: 600 20px var(--display); display: flex; gap: 10px; align-items: center; min-width: 0; }
-  header a.brand img { width: 34px; height: 34px; filter: drop-shadow(0 0 8px rgba(45,212,191,.5)); }
+  header a.brand img { width: 34px; height: 34px; filter: drop-shadow(0 0 8px rgba(31,181,194,.5)); }
   .pill { padding: 8px 16px; border-radius: 999px; background: var(--panel); border: 1px solid var(--edge); font: 400 13px var(--mono); color: var(--muted); max-width: 100%; }
   .pill b { color: var(--ok); font-weight: 400; }
   .pill.down { border-color: rgba(245,176,74,.5); animation: alarm 1.6s ease-in-out infinite; }
@@ -38,10 +38,10 @@
   .orbs { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; margin: 0; }
   .orb { aspect-ratio: 1; border-radius: 50%; display: grid; place-content: center; text-align: center; padding: 10px; min-width: 0;
     background: radial-gradient(circle at 34% 28%, rgba(255,255,255,.22), transparent 36%), radial-gradient(circle, rgba(13,148,136,.45), rgba(4,17,15,.9) 70%);
-    border: 1px solid var(--edge); box-shadow: 0 0 40px -14px rgba(45,212,191,.55), inset 0 0 30px -10px rgba(45,212,191,.35);
+    border: 1px solid var(--edge); box-shadow: 0 0 40px -14px rgba(31,181,194,.55), inset 0 0 30px -10px rgba(31,181,194,.35);
     animation: breathe 4.2s ease-in-out infinite; }
   .orb.bronze { background: radial-gradient(circle at 34% 28%, rgba(255,255,255,.2), transparent 36%), radial-gradient(circle, rgba(168,112,58,.5), rgba(4,17,15,.9) 70%);
-    box-shadow: 0 0 40px -14px rgba(212,160,106,.6), inset 0 0 30px -10px rgba(212,160,106,.4); animation-delay: -1.4s; }
+    box-shadow: 0 0 40px -14px rgba(217,185,122,.6), inset 0 0 30px -10px rgba(217,185,122,.4); animation-delay: -1.4s; }
   .orb.steel { animation-delay: -2.8s; }
   .orb dt { font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .orb dd { margin: 6px 0 0; font: 300 clamp(18px,3vw,26px)/1.15 var(--display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -49,12 +49,12 @@
   h2 { font: 300 clamp(22px,3.4vw,34px)/1.15 var(--display); letter-spacing: -.01em; margin: 56px 0 16px; }
   .track { position: relative; height: 120px; border-radius: 22px; background: var(--panel); border: 1px solid var(--edge); overflow: hidden; }
   .track::before { content: ""; position: absolute; top: 0; bottom: 0; width: 22%; left: -25%; pointer-events: none;
-    background: linear-gradient(90deg, transparent, rgba(45,212,191,.12), transparent); animation: sweep 6s linear infinite; }
+    background: linear-gradient(90deg, transparent, rgba(31,181,194,.12), transparent); animation: sweep 6s linear infinite; }
   @keyframes sweep { to { left: 110%; } }
   .track .line { position: absolute; left: 22px; right: 22px; top: 50%; height: 2px; background: linear-gradient(90deg, var(--teal2), var(--teal), var(--bronze)); opacity: .55; }
   .halt { position: absolute; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; border: 1px solid rgba(255,220,170,.5); cursor: pointer; padding: 0;
-    background: radial-gradient(circle at 34% 30%, #fff 0 6%, #f1d0a2 20%, var(--bronze) 55%, rgba(212,160,106,.2));
-    box-shadow: 0 0 22px -6px rgba(212,160,106,.85); transition: transform .45s var(--spring); }
+    background: radial-gradient(circle at 34% 30%, #fff 0 6%, #f1d0a2 20%, var(--bronze) 55%, rgba(217,185,122,.2));
+    box-shadow: 0 0 22px -6px rgba(217,185,122,.85); transition: transform .45s var(--spring); }
   .halt:hover, .halt:focus-visible { transform: translate(-50%,-50%) scale(1.2); outline: 2px solid var(--teal); outline-offset: 3px; }
   .ends { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font: 400 12px var(--mono); margin-top: 8px; }
   .detail { margin-top: 14px; min-height: 52px; padding: 14px 18px; border-radius: 18px; background: var(--panel); border: 1px solid var(--edge);
@@ -79,8 +79,8 @@
   <section class="hero">
     <div class="ring" aria-label="Uptime since genesis">
       <svg viewBox="0 0 120 120" aria-hidden="true">
-        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset=".55" stop-color="#2dd4bf"/><stop offset="1" stop-color="#d4a06a"/></linearGradient></defs>
-        <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(45,212,191,.12)" stroke-width="8"/>
+        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7eeaf0"/><stop offset=".55" stop-color="#1fb5c2"/><stop offset="1" stop-color="#d9b97a"/></linearGradient></defs>
+        <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(31,181,194,.12)" stroke-width="8"/>
         <circle id="arc" cx="60" cy="60" r="52" fill="none" stroke="url(#g)" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 400" style="transition: stroke-dasharray 1.1s cubic-bezier(.22,1,.36,1)"/>
       </svg>
       <div class="val"><b id="pct">—</b><span>uptime since genesis</span></div>

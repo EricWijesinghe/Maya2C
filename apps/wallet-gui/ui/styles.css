@@ -1,47 +1,45 @@
-/* Maya Wallet — the same deep-space identity as maya2c.dev
-   (docs/site/src/styles/maya.css): near-black space, a cyan-to-violet
-   aurora, glass surfaces with real depth. One brand across site, wallet,
-   explorer and chat, so the products read as one ecosystem.
+/* Maya Wallet — Forged Light (the emblem's palette, shared with the Hub):
+   abyss, signal teal, bronze gold, steel. Fonts are self-hosted under
+   assets/fonts (OFL, same files as the Hub), so the wallet still works
+   offline and makes no network call at launch. */
 
-   Fonts are the platform's own display faces, deliberately: a wallet must
-   work offline, and a webfont fetched at launch would be a network call and
-   a tracking surface for no gain. */
+@font-face { font-family: "Manrope"; src: url("assets/fonts/manrope-latin-wght-normal.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 100 800; font-display: swap; }
 
 :root {
   color-scheme: dark;
 
   /* Space and surfaces */
-  --space: #05070f;
-  --space-2: #0a0e1c;
-  --glass: rgb(17 22 40 / 0.72);
-  --glass-2: rgb(26 32 56 / 0.78);
-  --hairline: rgb(148 163 184 / 0.14);
-  --hairline-strong: rgb(148 163 184 / 0.26);
+  --space: #050b0f;
+  --space-2: #0a161b;
+  --glass: rgb(12 24 30 / 0.72);
+  --glass-2: rgb(20 38 46 / 0.78);
+  --hairline: rgb(126 234 240 / 0.12);
+  --hairline-strong: rgb(126 234 240 / 0.26);
 
   /* Ink */
-  --fg: #eef1f8;
-  --muted: #8f99b3;
-  --faint: #5f6a86;
+  --fg: #edf3f2;
+  --muted: #93a4aa;
+  --faint: #5f7a82;
 
-  /* Brand: the site's aurora */
-  --cyan: #22d3ee;
-  --violet: #a78bfa;
-  --rose: #f472b6;
-  --aurora: linear-gradient(115deg, var(--cyan), var(--violet) 55%, var(--rose));
-  --glow: 0 0 28px rgb(34 211 238 / 0.28);
+  /* Brand: Forged Light. Names kept from the old palette so rules stay put. */
+  --cyan: #1fb5c2;
+  --violet: #d9b97a;
+  --rose: #c9a86a;
+  --aurora: linear-gradient(115deg, var(--cyan), #7eeaf0 55%, var(--violet));
+  --glow: 0 0 28px rgb(31 181 194 / 0.28);
 
   /* Meaning */
-  --ok: #34d399;
-  --danger: #fb7185;
-  --warn: #fbbf24;
-  --testnet: #fbbf24;
+  --ok: #45e0a0;
+  --danger: #ff6b5b;
+  --warn: #e6b260;
+  --testnet: #e6b260;
 
   /* Type */
-  --font: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", -apple-system,
-    system-ui, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Segoe UI", "SF Pro Display",
-    -apple-system, system-ui, sans-serif;
-  --font-mono: "Cascadia Code", "SF Mono", ui-monospace, Menlo, monospace;
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Manrope", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
 
   /* Shape and motion */
   --r-sm: 8px;
@@ -61,9 +59,9 @@ html, body {
   font: 14px/1.55 var(--font);
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(48rem 26rem at 8% -12%, rgb(34 211 238 / 0.14), transparent 62%),
-    radial-gradient(42rem 24rem at 100% 0%, rgb(167 139 250 / 0.14), transparent 60%),
-    radial-gradient(36rem 22rem at 50% 115%, rgb(244 114 182 / 0.07), transparent 60%),
+    radial-gradient(48rem 26rem at 8% -12%, rgb(31 181 194 / 0.14), transparent 62%),
+    radial-gradient(42rem 24rem at 100% 0%, rgb(217 185 122 / 0.14), transparent 60%),
+    radial-gradient(36rem 22rem at 50% 115%, rgb(201 168 106 / 0.07), transparent 60%),
     var(--space);
   background-attachment: fixed;
   /* A wallet is a single-purpose surface; stray selection looks like a bug. */
@@ -107,7 +105,7 @@ html, body {
 }
 .net-pill.test { color: var(--testnet); border-color: rgb(251 191 36 / 0.35); }
 .net-pill.test .dot { background: var(--testnet); animation: pulse 2.4s var(--ease) infinite; }
-.net-pill.main { color: var(--cyan); border-color: rgb(34 211 238 / 0.35); }
+.net-pill.main { color: var(--cyan); border-color: rgb(31 181 194 / 0.35); }
 .net-pill.main .dot { background: var(--cyan); animation: pulse 2.4s var(--ease) infinite; }
 .net-pill.offline { color: var(--muted); }
 /* A node claiming mainnet without the pinned genesis: never green, never calm. */
@@ -151,8 +149,8 @@ h2 {
   padding: 1.3rem 1.3rem 1.15rem;
   margin-bottom: 0.9rem;
   background:
-    radial-gradient(28rem 12rem at 0% 0%, rgb(34 211 238 / 0.16), transparent 70%),
-    radial-gradient(24rem 12rem at 100% 100%, rgb(167 139 250 / 0.18), transparent 70%),
+    radial-gradient(28rem 12rem at 0% 0%, rgb(31 181 194 / 0.16), transparent 70%),
+    radial-gradient(24rem 12rem at 100% 100%, rgb(217 185 122 / 0.18), transparent 70%),
     var(--space-2);
   box-shadow: var(--glow), 0 18px 50px rgb(0 0 0 / 0.45);
   isolation: isolate;
@@ -209,11 +207,11 @@ h2 {
 .action .icon {
   display: grid; place-items: center;
   width: 2.2rem; height: 2.2rem; border-radius: 50%;
-  background: var(--aurora); color: #05070f;
+  background: var(--aurora); color: #02161a;
   font-size: 1.05rem; font-weight: 800;
-  box-shadow: 0 0 18px rgb(34 211 238 / 0.35);
+  box-shadow: 0 0 18px rgb(31 181 194 / 0.35);
 }
-.action:hover { background: rgb(255 255 255 / 0.07); border-color: rgb(34 211 238 / 0.45); }
+.action:hover { background: rgb(255 255 255 / 0.07); border-color: rgb(31 181 194 / 0.45); }
 .action:active { transform: scale(0.97); }
 
 /* ---------------------------------------------------------------- forms */
@@ -235,7 +233,7 @@ input, textarea {
 input::placeholder { color: var(--faint); }
 input:focus, textarea:focus {
   outline: none; border-color: var(--cyan);
-  box-shadow: 0 0 0 3px rgb(34 211 238 / 0.18);
+  box-shadow: 0 0 0 3px rgb(31 181 194 / 0.18);
 }
 textarea { resize: vertical; }
 
@@ -249,8 +247,8 @@ button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 button:active:not(:disabled) { transform: scale(0.98); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .primary {
-  background: var(--aurora); color: #05070f;
-  box-shadow: 0 6px 24px rgb(34 211 238 / 0.25);
+  background: var(--aurora); color: #02161a;
+  box-shadow: 0 6px 24px rgb(31 181 194 / 0.25);
 }
 .primary:hover:not(:disabled) { filter: brightness(1.08); }
 .secondary { background: var(--glass-2); color: var(--fg); border-color: var(--hairline-strong); }
@@ -332,8 +330,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .account:hover { border-color: var(--hairline-strong); }
 .account.selected {
-  border-color: rgb(34 211 238 / 0.55);
-  background: rgb(34 211 238 / 0.06);
+  border-color: rgb(31 181 194 / 0.55);
+  background: rgb(31 181 194 / 0.06);
   box-shadow: inset 3px 0 0 var(--cyan);
 }
 .account .label { color: var(--muted); font-size: 0.82rem; }
@@ -358,7 +356,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .pill.broadcast, .pill.confirmed { background: rgb(52 211 153 / 0.14); color: var(--ok); }
 .pill.failed { background: rgb(251 113 133 / 0.14); color: var(--danger); }
-.pill.signed { background: rgb(167 139 250 / 0.16); color: var(--violet); }
+.pill.signed { background: rgb(217 185 122 / 0.16); color: var(--violet); }
 
 .empty { text-align: center; padding: 0.6rem 0 0.2rem; }
 .empty p { margin: 0.2rem 0; }
@@ -398,7 +396,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .chips .chip.selected {
   border-color: var(--cyan); color: var(--cyan);
-  background: rgb(34 211 238 / 0.08);
+  background: rgb(31 181 194 / 0.08);
 }
 .chip-value { color: var(--muted); font-size: 0.74rem; font-weight: 500; }
 
