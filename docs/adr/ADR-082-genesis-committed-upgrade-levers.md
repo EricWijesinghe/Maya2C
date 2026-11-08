@@ -105,6 +105,42 @@ enable anything here, and its height is the halt: a block at or past it is refus
 with `UpgradeRequired`, so an old binary stops rather than validating under rules it
 lacks. `SUPPORTED_PROTOCOL_VERSION` is 2, the first epoch with the gates.
 
+### What an old validator does at the halt (DAG-BFT)
+
+The launch binary is the one that will be old at the first upgrade, so this
+behaviour is fixed for good. Once its chain's next height is the halt height H,
+the BFT driver (`consensus/bft/driver.rs`, `halt_reached`) stops feeding its
+engine. It proposes no vertex, casts no vote and signs no attestation for any
+height at or above H. It logs one line, `upgrade required before height H:
+protocol version V activates there and this binary supports up to version S;
+stopped proposing, voting and attesting`. After that, each tick and frame
+returns at once with nothing to send.
+
+The check runs before an engine output is persisted or sent. Whatever the
+engine signed in memory in that step never leaves the process. DAG frames
+already persisted in the step that built block H-1 are withdrawn too, while
+their records stay in the safety log. An upgraded restart therefore never signs
+those slots a second way. To its peers, the halted validator looks like a
+crashed one. It leaves no equivocation evidence and no slashable message.
+
+Votes that it cast before H-1 was built can certify vertices that upgraded
+nodes later order into block H. A vote certifies that a vertex is available. It
+says nothing about whether block H is valid, and upgraded nodes build block H
+under their own rules. Pinned by `crates/node/tests/bft_node_tests.rs`
+(`a_validator_without_the_scheduled_version_goes_silent_at_its_height_and_the_rest_carry_on`).
+
+**Operator consequence.** Operators MUST upgrade before H. A halted validator
+counts as a crashed one. With at most f such validators, the rest keep
+finalizing. If more than f do not upgrade, finality stops at H for every node
+until enough of them upgrade. The chain stalls and does not fork (pinned by
+`more_than_f_validators_without_the_scheduled_version_stall_the_chain_without_a_fork`).
+No test yet covers a validator that is upgraded after the halt and restarts
+from its safety log, so how it rejoins is NOT VERIFIED.
+
+Not changed here: a node restarted on the old binary with its tip already at
+H-1 still refuses to start (`main.rs`, the start-up `check_halt`). It does not
+come up and serve RPC for the history below H.
+
 ### Rules epoch separate from features (HIGH-1)
 
 The version is the rules epoch and only increases. Each entry carries the

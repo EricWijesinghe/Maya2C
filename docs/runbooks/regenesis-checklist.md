@@ -56,8 +56,9 @@ genesis-ceremony --chain-id <ID> --supply 0 \
   --timestamp <UNIX> --difficulty-bits <N> --out-dir out
 ```
 
-`--supply 0` is the mainnet path (zero premine, ADR-044, Eric 2026-11-07): the ceremony refuses
-any other supply on `maya-mainnet`, and writes no root key and no treasury. Amounts are base
+`--supply 0` is the mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds only the
+keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-bond). The ceremony
+refuses any other supply on `maya-mainnet`, and writes no root key and no treasury. Amounts are base
 units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
 `--mining-reserve` + the sum of the bonds**, and nothing else. `--mining-reserve` is the
 lifetime emission (`deploy/genesis/mainnet/README.md`), not cap - supply - bonds. Every bond is
@@ -99,7 +100,8 @@ chain-id.
   `bft.fees.min_base_fee` to at least `1000000` (the 18-decimal equivalent of 1 unit); the
   constant stays 1 so test genesis files keep working.
 - **Supply:** there is no protocol-wide cap. Total supply is exactly what genesis allocates:
-  `--mining-reserve` + bonds (`--supply 0`, zero premine), printed as `total supply` before
+  `--mining-reserve` + bonds (`--supply 0`: no premine; genesis holds only the keyless mining
+  reserve and the disclosed minimum validator bonds, 7 x min-self-bond), printed as `total supply` before
   signing. The four
   halving eras issue 19,687,500 coins in total; the tail then pays forever (ADR-068), so the
   reserve holds the lifetime emission (about 1.23 × 10^17 coins) and the total is far above

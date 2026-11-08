@@ -190,7 +190,11 @@ function renderMiner() {
   setText("t-pace", paceLine(sum));
   $("power").setAttribute("aria-pressed", String(sum.running));
   setText("power-text", sum.running ? "Stop mining" : "Start mining");
-  setText("payout-line", sum.address ? `Paying to ${sum.address}` : "");
+  // The node's snapshot carries the Bech32m form (ADR-081) and any refusal of it.
+  const snap = state.snapshot || {};
+  const payee = snap.address_error ? `Payout address refused: ${snap.address_error}`
+    : sum.address ? `Paying to ${snap.address_text || sum.address}` : "";
+  setText("payout-line", payee);
 
   if (sum.accepted > state.lastAccepted) {
     const fx = $("fx").getBoundingClientRect();

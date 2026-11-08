@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use maya_address::Network;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -20,6 +21,10 @@ pub struct Snapshot {
     pub bft: Option<Value>,
     pub mining: Option<Value>,
     pub account: Option<Value>,
+    /// The payout address as Bech32m, when the chain has a text form.
+    pub address_text: Option<String>,
+    /// Why the payout address was refused (wrong network, bad checksum, ...).
+    pub address_error: Option<String>,
 }
 
 /// Refuses a node URL that would send calls in the clear over the internet, or
@@ -103,10 +108,36 @@ fn is_local_host(host: &str) -> bool {
     }
 }
 
-/// A 32-byte hex address, or `None`.
+/// Reads a miner payout address: 64 hex characters, or a Bech32m text address
+/// (ADR-081). A text address must name `network`; one for another network is
+/// refused by name, never sent to the node. `None` network means the chain has
+/// no text form, so only hex is accepted.
+pub fn payout_bytes(address: &str, network: Option<Network>) -> Result<[u8; 32], String> {
+    let trimmed = address.trim();
+    let raw = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        if raw.len() != 64 {
+            return Err(format!(
+                "a hex payout address is 64 characters, got {}",
+                raw.len()
+            ));
+        }
+        let mut out = [0u8; 32];
+        for (i, pair) in raw.as_bytes().chunks(2).enumerate() {
+            let text = std::str::from_utf8(pair).map_err(|e| e.to_string())?;
+            out[i] = u8::from_str_radix(text, 16).map_err(|e| e.to_string())?;
+        }
+        return Ok(out);
+    }
+    let network =
+        network.ok_or("this chain has no text address form; use the 64-character hex address")?;
+    maya_address::decode(network, trimmed).map_err(|e| format!("payout address: {e}"))
+}
+
+/// Lowercase hex of a 32-byte account id.
 #[must_use]
-pub fn valid_address(address: &str) -> bool {
-    address.len() == 64 && address.bytes().all(|b| b.is_ascii_hexdigit())
+pub fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn call(url: &str, method: &str, params: Value) -> Result<Value, String> {
@@ -143,15 +174,30 @@ pub fn snapshot(url: &str, address: Option<&str>) -> Snapshot {
             };
         }
     };
-    let address = address.filter(|a| valid_address(a));
+    let network = chain["chain_id"].as_str().and_then(Network::for_chain_id);
+    let (payout, address_error) = match address.map(|a| payout_bytes(a, network)) {
+        None => (None, None),
+        Some(Ok(bytes)) => (Some(bytes), None),
+        Some(Err(error)) => (None, Some(error)),
+    };
+    let address_text = payout
+        .zip(network)
+        .map(|(bytes, n)| maya_address::encode(n, &bytes));
+    let hex = payout.map(|bytes| to_hex(&bytes));
     Snapshot {
         reachable: true,
         error: None,
         chain: Some(chain),
         fees: call(url, "get_fee_info", json!([])).ok(),
         bft: call(url, "get_bft_status", json!([])).ok(),
-        mining: address.and_then(|a| call(url, "get_mining_work", json!([a])).ok()),
-        account: address.and_then(|a| call(url, "get_balance", json!([a])).ok()),
+        mining: hex
+            .as_deref()
+            .and_then(|a| call(url, "get_mining_work", json!([a])).ok()),
+        account: hex
+            .as_deref()
+            .and_then(|a| call(url, "get_balance", json!([a])).ok()),
+        address_text,
+        address_error,
     }
 }
 
@@ -196,10 +242,30 @@ mod tests {
     }
 
     #[test]
-    fn addresses_are_64_hex_characters() {
-        assert!(valid_address(&"ab".repeat(32)));
-        assert!(!valid_address("ab"));
-        assert!(!valid_address(&"zz".repeat(32)));
+    fn hex_payout_addresses_are_64_hex_characters() {
+        assert_eq!(payout_bytes(&"ab".repeat(32), None), Ok([0xab; 32]));
+        assert!(payout_bytes("ab", None).is_err());
+        assert!(payout_bytes(&"zz".repeat(32), None).is_err());
+    }
+
+    #[test]
+    fn a_testnet_text_payout_round_trips_and_a_mainnet_one_is_refused() {
+        let id = [0x5au8; 32];
+        let testnet = maya_address::encode(Network::Testnet, &id);
+        assert_eq!(payout_bytes(&testnet, Some(Network::Testnet)), Ok(id));
+        let mainnet = maya_address::encode(Network::Mainnet, &id);
+        let error = payout_bytes(&mainnet, Some(Network::Testnet)).expect_err("refused");
+        assert!(
+            error.contains("'tmaya'"),
+            "names the expected prefix: {error}"
+        );
+    }
+
+    #[test]
+    fn a_text_payout_on_a_chain_without_a_prefix_says_so() {
+        let text = maya_address::encode(Network::Testnet, &[1u8; 32]);
+        let error = payout_bytes(&text, None).expect_err("no text form");
+        assert!(error.contains("no text address form"));
     }
 
     #[test]

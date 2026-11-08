@@ -56,8 +56,10 @@ a reserve that cannot run dry.
   block a second, about 1.2 × 10^12 at two. The genesis reserve is about 1.2 × 10^17 coins
   (1.2275 × 10^41 base units, about 2^136.5), and it is funded at genesis by
   `lifetime_emission`, not minted. The reserve has no key and releases only by the schedule,
-  so it is not a premine. The ceremony's `--supply` allocations to root keys are a separate
-  matter: they are not zero (see the owner decision in the PR).
+  so it is not a premine. Mainnet runs the ceremony with `--supply 0` (Eric 2026-11-07): no
+  premine; genesis holds only the keyless mining reserve and the disclosed minimum validator
+  bonds (7 x min-self-bond). `cargo xtask genesis-check` requires the reserve to equal
+  `lifetime_emission` exactly.
 - Mining record version 4 is unreadable by older nodes and v3 records are refused: re-genesis
   only (rust-reviewer, 2026-10-28). `validate` applies the 2^192 ceiling to every record,
   from genesis or decode (security-reviewer).
