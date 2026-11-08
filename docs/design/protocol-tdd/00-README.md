@@ -114,7 +114,7 @@ one external review, which the owner has deferred until after mainnet.
 |---|---|---|---|
 | 0 | Re-run `bench-tps` on an idle machine; explain 31.3/s vs 502.2/s | P0 | now |
 | 1 | `cargo xtask risk-gate` + `scorecard` (CI only, touches no consensus) | P2 | now |
-| 2 | Genesis-permanent checks: halt-level and risk records fit under existing prefixes or `up:` feature gates, so no re-genesis later | P3 | before 12-03 freeze |
+| 2 | Genesis-permanent checks: halt-level and risk records fit under existing prefixes or `up:` feature gates, so no re-genesis later — **done 2026-11-09, see below** | P3 | before 12-03 freeze |
 | 3 | L0 sentinels + alert feed (off-chain, advisory) | P5 | post-mainnet |
 | 4 | L2–L5 cells, DMZ gateway, progressive throttles (`u64::MAX`) | P5 | post-mainnet |
 | 5 | Risk engine (integer, in-state) | P5 | post-mainnet |
@@ -125,3 +125,19 @@ one external review, which the owner has deferred until after mainnet.
 Step 2 is the only part that touches the launch. ADR-082 already lets every later
 step arrive as a scheduled feature without a re-genesis; step 2 verifies that claim
 for each new record type before the freeze.
+
+### Step 2 result (2026-11-09): nothing to change before genesis
+
+Read against the code, every item first listed as genesis-permanent is already
+extensible without a re-genesis:
+
+| Item | Finding | Evidence |
+|---|---|---|
+| `g:halt:`, `g:risk:` records | Under `GOVERNANCE_PREFIX`, which `RECORD_LAYERS` folds into the root; a layer folds only when non-empty, so adding them later moves no existing root | `crates/node/src/state/commitments.rs:44-67`; test `post_genesis_halt_and_risk_records_need_no_new_layer` |
+| `x:` bridge layer | A new top-level prefix is added to `RECORD_LAYERS` in the binary that first writes it, behind a feature gate; until then `uncovered_keys` reports it, so it cannot slip outside the root | same file; test `a_new_top_level_prefix_is_caught_until_it_gets_a_layer` |
+| Emergency path | Council pause (ADR-050, bounded) and module breakers (inv 28) act at once; suite sunsets have an emergency window; a rule change keeps the 30-day governance lead on purpose (no rushed hard forks), and an out-of-band coordinated release stays possible as on every chain | `crates/node/src/state/upgrades.rs:32-40`, `council.rs:202` |
+| Account migration off a retired suite | Users migrate by transfer inside the compiled migration window; an "exit signed by the broken suite" is refused by design. A later recovery transaction kind arrives through a version entry (ADR-082), not genesis | `upgrades.rs:32-40` |
+
+The earlier estimate of 8–10 days for this step was wrong in the safe direction:
+the launch needs only the two pinning tests above. No new prefix and no new
+transaction kind enter the freeze candidate.
