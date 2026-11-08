@@ -13,8 +13,8 @@
 -->
 <style>
   :root {
-    --bg: #04060c; --panel: rgba(14, 22, 34, .72); --edge: rgba(126, 234, 240, .10); --edge-hi: rgba(126, 234, 240, .28);
-    --text: #e8f3f5; --muted: #7d95a0; --teal: #3fd2e0; --teal-d: #1fb5c2; --gold: #e0b46a; --red: #ff6b6b; --ok: #4ade9a;
+    --bg: #050b0f; --panel: rgba(12, 24, 30, .72); --edge: rgba(126, 234, 240, .10); --edge-hi: rgba(126, 234, 240, .28);
+    --text: #e8f3f5; --muted: #93a4aa; --teal: #1fb5c2; --teal-d: #1fb5c2; --gold: #d9b97a; --red: #ff6b5b; --ok: #45e0a0;
     --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
     --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
@@ -128,7 +128,7 @@
           <line id="gQ" x1="50" y1="3" x2="50" y2="14" stroke="var(--gold)" stroke-width="2" transform="rotate(0 50 50)"/>
           <defs><linearGradient id="gg"><stop offset="0" stop-color="#1fb5c2"/><stop offset="1" stop-color="#7eeaf0"/></linearGradient></defs>
           <text x="50" y="49" text-anchor="middle" fill="#e8f3f5" font-size="17" font-family="Inter,system-ui" id="gText">—</text>
-          <text x="50" y="63" text-anchor="middle" fill="#7d95a0" font-size="7" font-family="monospace">voting / seats</text>
+          <text x="50" y="63" text-anchor="middle" fill="#93a4aa" font-size="7" font-family="monospace">voting / seats</text>
         </svg>
         <dl class="facts">
           <div><dt>quorum (n − f)</dt><dd id="fQ">—</dd></div>
@@ -195,7 +195,7 @@
     const svg = $("rate"), w = 400, h = 120;
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     const vals = rs.filter((v) => v != null);
-    if (!vals.length) { svg.innerHTML = `<text x="8" y="60" fill="#7d95a0" font-size="11" font-family="monospace">collecting samples…</text>`; return; }
+    if (!vals.length) { svg.innerHTML = `<text x="8" y="60" fill="#93a4aa" font-size="11" font-family="monospace">collecting samples…</text>`; return; }
     const hi = Math.max(...vals) * 1.15 || 1, bw = w / rs.length;
     let s = "";
     for (let i = 0; i <= 3; i++) { const y = h - (i / 3) * (h - 16) - 4; s += `<line x1="0" x2="${w}" y1="${y}" y2="${y}" stroke="rgba(126,234,240,.06)"/><text x="${w - 2}" y="${y - 3}" fill="#4d6470" font-size="8" text-anchor="end" font-family="monospace">${((i / 3) * hi).toFixed(0)}</text>`; }
@@ -234,12 +234,12 @@
     const hist = view.history || [];
     $("net").textContent = `${view.network} · ${fmt.format(view.seen_total)} peers seen since start`;
     $("kHeight").textContent = fmt.format(tip);
-    spark($("sHeight"), hist.slice(-120).map((s) => s.height), "#3fd2e0");
+    spark($("sHeight"), hist.slice(-120).map((s) => s.height), "#1fb5c2");
     const rs = rates(hist), last = rs.filter((v) => v != null);
     const bpm = last.length ? last[last.length - 1] : null;
     $("kBt").textContent = bpm ? (60 / bpm).toFixed(2) : "—";
     $("kBtD").textContent = bpm ? `${bpm.toFixed(1)} blocks / min` : "measuring";
-    spark($("sBt"), last.map((v) => v ? 60 / v : 0), "#e0b46a");
+    spark($("sBt"), last.map((v) => v ? 60 / v : 0), "#d9b97a");
     $("kVote").textContent = `${voting} / ${seats}`;
     $("kVote").className = "v " + (voting >= q ? "good" : "bad");
     $("kVoteD").textContent = voting >= q ? `quorum ${q} met` : `below quorum ${q}`;
