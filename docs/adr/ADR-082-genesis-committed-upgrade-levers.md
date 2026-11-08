@@ -20,9 +20,11 @@ committed that way cannot be used after launch at all.
 ## Decision
 
 **The schedule is committed state, written by governance or the security
-council, under the compiled leads.** The genesis id keeps the launch entries
-(`protocol_upgrades`, `suite_deprecations`, and the PoW floor fold). Genesis
-seeds those entries into state, so a later entry never touches the id.
+council, under the compiled leads.** Genesis may carry launch entries
+(`protocol_upgrades`, `suite_deprecations`, and the PoW floor fold); the genesis
+id covers them and genesis seeds them into state, so a later entry never touches
+the id. `maya-mainnet` carries none: `genesis-check` enforces an empty
+`protocol_upgrades` for it.
 
 ### What the state holds
 

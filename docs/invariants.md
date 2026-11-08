@@ -1,6 +1,6 @@
 # Critical Invariants
 
-Thirty-two properties this tree must not lose, each with the reason it
+Thirty live properties this tree must not lose (numbered 1-34; 20-23 are retired and keep their numbers), each with the reason it
 exists. They are numbered, the numbers are referenced from code comments and
 from `docs/adr/`, and **a number is never reused**: if an invariant is
 retired, its entry stays with the retirement recorded.
@@ -153,7 +153,13 @@ phase that did it.
     lists:
     - `RECORD_LAYERS`, the one source for the generic-record prefixes;
     - `committed_prefixes()`;
-    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`).
+    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`, `bdelta:`). `bdelta:` is the Mesh
+      balance-change record (`state::balance_changes`): derived from the block's
+      own before/after pair, so it is not consensus state, and it is deleted with
+      the undo journal on reorg.
+    - The upgrade schedule (`up:`, ADR-082) is a committed layer, not local-only.
+      Its writes are overlay records, so `capture_undo` records their prior values
+      and a reorg restores them.
 
     Until 2026-09-12 contract code, contract storage, the nullifier set, and the
     shielded pool's anchor window and balance were all outside the root.

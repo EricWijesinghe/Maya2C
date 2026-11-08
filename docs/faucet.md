@@ -96,7 +96,7 @@ reachable directly, the direct path has no rate limit at all.
 
 ```bash
 export MAYA_FAUCET_KEY=<4096 bytes of hex>     # never a flag: /proc/<pid>/cmdline
-export MAYA_FAUCET_CHAIN=maya-genesis-rc1
+export MAYA_FAUCET_CHAIN=maya-testnet-1
 export MAYA_FAUCET_NODE=http://127.0.0.1:8545
 export MAYA_FAUCET_DISPENSE=1000
 export MAYA_FAUCET_DAILY_CAP=1000000

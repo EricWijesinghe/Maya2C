@@ -68,10 +68,11 @@ From Master Prompt 11, with how each is enforced *today*:
   exact command. **No `cargo xtask bench` exists yet**; `reports/12-baseline.md`
   is the manual record.
 - "TPS" means signature-verified, executed, state-committed, finalized
-  transactions per second with the mix stated. None has been measured. The
-  node has had DAG-BFT finality since ADR-027 (`bins/maya2c-node/src/bft.rs`,
-  `crates/node/tests/bft_node_tests.rs`), but nobody has run a finalized-TPS
-  benchmark over it yet.
+  transactions per second with the mix stated. Finalized TPS has been measured
+  in several runs, all on one machine, localhost, with the mix stated in each report
+  ([reports/bench/](reports/bench/)). That is not a network figure, and no
+  multi-machine run exists. The node has had DAG-BFT finality since ADR-027
+  (`bins/maya2c-node/src/bft.rs`, `crates/node/tests/bft_node_tests.rs`).
 - Consensus-critical changes need a spec update, conformance vectors
   (`cargo xtask spec-coverage`), an ADR if behaviour changes, and two human
   reviewers (a note; not enforced).
@@ -175,9 +176,9 @@ satellite/light-cone consensus (9), TEE attestation (no numbered invariant yet; 
 
 ## Critical Invariants
 
-Thirty-two of them, in [docs/invariants.md](docs/invariants.md). They are
-numbered, the numbers are cited from code comments and ADRs, and **a number is
-never reused**.
+Thirty live invariants, in [docs/invariants.md](docs/invariants.md). They are
+numbered 1–34; 20–23 are retired and keep their numbers. The numbers are cited
+from code comments and ADRs, and **a number is never reused**.
 
 Read them before changing: `ledger-math`, `dex`, `governance`, `fee-market` or
 `threat-intel` (dependency-freedom for Kani — 1, 6, 12); `crypto-pq` (2, 29);
@@ -186,7 +187,13 @@ transaction wire format or `Transaction::verify` (31); the dev profile overrides
 paths (7, 8, 9, 17); governance (12, 13); `custody-mpc` (18, 19); zkML
 (20–23); `Chain::insert_block` or any apply path (24); any new state prefix
 (25); the block store (26); pruning (27); the invariant guard (28); vault
-accounts (32).
+accounts (32); the block byte cap (33: `crates/node/src/core/block.rs`
+`first_fit` and the import refusal, `MAX_BLOCK_BYTES` from
+`crates/fee-market/src/limits.rs`; pinned by `crates/node/tests/block_bytes_tests.rs`);
+the upgrade schedule and council sunset (34: `crates/node/src/state/upgrades.rs`,
+`crates/governance/src/limits.rs` for the compiled leads, `crates/node/src/state/council.rs`;
+pinned by `crates/node/tests/upgrade_schedule_tests.rs` and `council_pause_tests.rs`;
+ADR-082).
 
 An invariant earns a number only once a test pins the behaviour. A rule nobody
 checks is a comment, and it belongs beside the code it describes.
