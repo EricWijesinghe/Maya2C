@@ -228,6 +228,11 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 
 - [x] Merged to master 2026-11-01..11-02, reconciled 2026-11-03: RPC client-IP fix (#316); consensus pre-audit fixes (#317); wallet sign hardening (#318); MIP-0002 Omega docs (#320); mainnet readiness assessment (#323); proving genesis shielded pool off, genesis-check refuses it (#326); personal details removed from public docs (#327); offsec-sandbox header version per ADR-063 (#329); Kani exact-out harness and redemption paths (#332); owner decisions recorded and code-vs-doc drift fixed (#333); join-scripts test a local devnet (#334); swap default min_out (#337); CI site/deploy fixes (#328, #330, #339). Dependency bumps #335, #338 not tracked here. Launch-checklist status: `docs/launch-checklist.md`
 - [x] Merged by 2026-11-03 (checked on GitHub): #319, #321, #322, #331, #336, #340, #341, #343, #344, #346, #347. Open: #348 (z3 → Kani, draft until the harnesses verify)
+- [x] Merged 2026-11-07/08: #370, #372-#382 (`gh pr list --state merged`); #383 (consensus frame budget under load) still open
+- [x] Zero premine decided 2026-11-07 (`--supply 0`, ADR-044): genesis-check enforces the no-premine rule in `xtask/src/genesis_check.rs`
+- [x] Upgrade schedule on chain under compiled leads (ADR-082, invariant 34; `crates/node/tests/upgrade_schedule_tests.rs`)
+- [x] `maya-mainnet` registered for Bech32m, HRP `maya` (ADR-081; `crates/address` guard test un-ignored)
+- [ ] Fuzz (8 decoders, about 462M execs, 0 bugs) and the post-#383 bench: reported 2026-11-08, reports not yet committed to `reports/`
 
 ## How to resume
 

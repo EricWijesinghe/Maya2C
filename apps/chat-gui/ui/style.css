@@ -1,12 +1,17 @@
+/* Forged Light, shared with the Hub and Wallet. Fonts are self-hosted, so the
+   chat works offline. */
+@font-face { font-family: "Inter"; src: url("fonts/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("fonts/manrope-latin-wght-normal.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+
 :root {
-  --bg: #05070f;
-  --panel: #0a0f1d;
-  --line: rgb(148 163 184 / 0.16);
-  --text: #e2e8f0;
-  --dim: #94a3b8;
-  --cyan: #22d3ee;
-  --violet: #a78bfa;
-  --rose: #f472b6;
+  --bg: #050b0f;
+  --panel: #0b161b;
+  --line: rgb(126 234 240 / 0.12);
+  --text: #edf3f2;
+  --dim: #93a4aa;
+  --cyan: #1fb5c2;
+  --violet: #d9b97a;
+  --rose: #c9a86a;
   color-scheme: dark;
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -22,17 +27,17 @@ body {
   flex-direction: column;
   color: var(--text);
   background:
-    radial-gradient(50rem 26rem at 10% -10%, rgb(34 211 238 / 0.12), transparent 60%),
-    radial-gradient(44rem 24rem at 100% 0%, rgb(167 139 250 / 0.12), transparent 60%),
+    radial-gradient(50rem 26rem at 10% -10%, rgb(31 181 194 / 0.12), transparent 60%),
+    radial-gradient(44rem 24rem at 100% 0%, rgb(217 185 122 / 0.12), transparent 60%),
     var(--bg);
 }
 
 .banner {
   padding: 0.45rem 1rem;
   font-size: 0.8rem;
-  color: #fde68a;
+  color: #e6b260;
   background: rgb(120 53 15 / 0.35);
-  border-bottom: 1px solid rgb(251 191 36 / 0.25);
+  border-bottom: 1px solid rgb(230 178 96 / 0.25);
   text-align: center;
 }
 
@@ -48,7 +53,7 @@ button, input { font: inherit; }
   color: #04111a;
   font-weight: 700;
   background: linear-gradient(100deg, var(--cyan), var(--violet));
-  box-shadow: 0 0 22px rgb(34 211 238 / 0.3);
+  box-shadow: 0 0 22px rgb(31 181 194 / 0.3);
 }
 .primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 .secondary {
@@ -66,7 +71,7 @@ input {
   border-radius: 0.7rem;
   outline: none;
 }
-input:focus { border-color: rgb(34 211 238 / 0.6); }
+input:focus { border-color: rgb(31 181 194 / 0.6); }
 
 .welcome {
   margin: auto;
@@ -105,8 +110,8 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   text-align: left;
   font-family: ui-monospace, monospace;
   color: var(--text);
-  background: rgb(34 211 238 / 0.08);
-  border: 1px solid rgb(34 211 238 / 0.3);
+  background: rgb(31 181 194 / 0.08);
+  border: 1px solid rgb(31 181 194 / 0.3);
   border-radius: 0.6rem;
   padding: 0.5rem 0.7rem;
   cursor: copy;
@@ -122,7 +127,7 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   cursor: pointer;
 }
 .contact:hover { background: rgb(255 255 255 / 0.04); }
-.contact.active { border-color: rgb(167 139 250 / 0.5); background: rgb(167 139 250 / 0.1); }
+.contact.active { border-color: rgb(217 185 122 / 0.5); background: rgb(217 185 122 / 0.1); }
 .add { display: grid; gap: 0.4rem; }
 .settings summary { cursor: pointer; color: var(--dim); }
 .settings { display: grid; gap: 0.4rem; }
@@ -156,7 +161,7 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
 }
 .lines time { font-size: 0.68rem; color: var(--dim); align-self: flex-end; }
 .lines .delivery { font-size: 0.68rem; color: var(--dim); align-self: flex-end; }
-.lines .delivery[data-state="delivered"] { color: #4ade80; }
+.lines .delivery[data-state="delivered"] { color: #45e0a0; }
 .lines .delivery[data-state="expired"] { color: var(--rose); }
 .lines .dismiss {
   align-self: flex-end; border: 1px solid var(--line); border-radius: 999px; background: none;
@@ -164,8 +169,8 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
 }
 .mine {
   align-self: flex-end;
-  background: linear-gradient(120deg, rgb(34 211 238 / 0.22), rgb(167 139 250 / 0.22));
-  border: 1px solid rgb(34 211 238 / 0.3);
+  background: linear-gradient(120deg, rgb(31 181 194 / 0.22), rgb(217 185 122 / 0.22));
+  border: 1px solid rgb(31 181 194 / 0.3);
   border-bottom-right-radius: 0.3rem;
 }
 .theirs {
@@ -185,7 +190,7 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   position: absolute;
   inset: 50% auto auto 50%;
   border-radius: 50%;
-  border: 1px solid rgb(34 211 238 / 0.35);
+  border: 1px solid rgb(31 181 194 / 0.35);
   animation: spin 9s linear infinite;
 }
 .orbit span::after {
@@ -200,9 +205,9 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   box-shadow: 0 0 14px var(--cyan);
 }
 .orbit span:nth-child(1) { width: 5rem; height: 5rem; margin: -2.5rem; }
-.orbit span:nth-child(2) { width: 7rem; height: 7rem; margin: -3.5rem; border-color: rgb(167 139 250 / 0.35); animation-duration: 14s; animation-direction: reverse; }
+.orbit span:nth-child(2) { width: 7rem; height: 7rem; margin: -3.5rem; border-color: rgb(217 185 122 / 0.35); animation-duration: 14s; animation-direction: reverse; }
 .orbit span:nth-child(2)::after { background: var(--violet); box-shadow: 0 0 14px var(--violet); }
-.orbit span:nth-child(3) { width: 2.6rem; height: 2.6rem; margin: -1.3rem; border-color: rgb(244 114 182 / 0.4); animation-duration: 5s; }
+.orbit span:nth-child(3) { width: 2.6rem; height: 2.6rem; margin: -1.3rem; border-color: rgb(201 168 106 / 0.4); animation-duration: 5s; }
 .orbit span:nth-child(3)::after { background: var(--rose); box-shadow: 0 0 14px var(--rose); }
 
 .steps { list-style: none; padding: 0; margin: 1.5rem auto; text-align: left; max-width: 26rem; display: grid; gap: 0.6rem; }
@@ -222,14 +227,14 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   width: 0.95rem;
   height: 0.95rem;
   border-radius: 50%;
-  border: 2px solid rgb(34 211 238 / 0.25);
+  border: 2px solid rgb(31 181 194 / 0.25);
   border-top-color: var(--cyan);
   animation: spin 0.8s linear infinite;
 }
 .steps li.done { border-color: rgb(34 197 94 / 0.35); }
-.steps li.done::before { content: "✓"; animation: none; border: none; color: #4ade80; font-weight: 700; top: 0.6rem; }
+.steps li.done::before { content: "✓"; animation: none; border: none; color: #45e0a0; font-weight: 700; top: 0.6rem; }
 .steps li.failed { border-color: rgb(248 113 113 / 0.4); }
-.steps li.failed::before { content: "!"; animation: none; border: none; color: #f87171; font-weight: 700; top: 0.6rem; left: 1.1rem; }
+.steps li.failed::before { content: "!"; animation: none; border: none; color: #ff6b5b; font-weight: 700; top: 0.6rem; left: 1.1rem; }
 .steps small { display: block; color: var(--dim); font-size: 0.78rem; margin-top: 0.15rem; font-family: ui-monospace, monospace; }
 
 .avatar {
@@ -260,7 +265,7 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
 .sticker-line { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; }
 .mine .sticker-line { align-items: flex-end; }
 .add-pack {
-  border: 1px solid var(--line); border-radius: 999px; background: rgb(34 211 238 / 0.08);
+  border: 1px solid var(--line); border-radius: 999px; background: rgb(31 181 194 / 0.08);
   color: var(--cyan); padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
 }
 .add-pack:disabled { color: var(--dim); cursor: default; }
@@ -278,13 +283,13 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   flex: none; width: 2.5rem; height: 2.5rem; border-radius: 0.6rem; border: 1px solid transparent;
   background: none; color: var(--text); font-size: 1.2rem; cursor: pointer; display: grid; place-items: center;
 }
-.sticker-tabs .tab.active { border-color: var(--cyan); background: rgb(34 211 238 / 0.1); }
+.sticker-tabs .tab.active { border-color: var(--cyan); background: rgb(31 181 194 / 0.1); }
 .sticker-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 0.35rem; padding: 0.6rem 0.75rem; overflow-y: auto;
 }
 .pick { border: none; background: none; border-radius: 0.75rem; padding: 0.25rem; cursor: pointer; display: grid; place-items: center; }
-.pick:hover, .pick:focus-visible { background: rgb(148 163 184 / 0.12); outline: none; transform: scale(1.06); }
+.pick:hover, .pick:focus-visible { background: rgb(126 234 240 / 0.12); outline: none; transform: scale(1.06); }
 .suggest { display: flex; gap: 0.25rem; padding: 0.4rem 1.25rem; overflow-x: auto; border-top: 1px solid var(--line); }
 .pack-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; }
 .pack-row .secondary { margin-left: auto; }

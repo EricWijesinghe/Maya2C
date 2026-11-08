@@ -282,5 +282,14 @@ Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). You may use,
 modify and distribute this code, including commercially, under its terms,
 which include an express patent grant.
 
+**NOTICE: the name is not the network.** The source code is Apache-2.0, so
+anyone may fork it. The names Maya2C and MAYA, the emblem, the wordmark and the
+Forged Light assets are not licensed to forks: see [BRAND.md](BRAND.md). The
+canonical Maya2C network is the one whose genesis hash and validator set the
+maintainer publishes ([docs/GENESIS.md](docs/GENESIS.md)); a build of this code
+does not make a network canonical. A fork is a separate, empty chain, and the
+network handshake is bound to the chain tag, so it cannot join or be confused
+with the canonical network. See [docs/forks.md](docs/forks.md).
+
 The cryptography has **not** been independently audited. Mainnet is blocked
 until it has been (see [docs/mainnet-readiness.md](docs/mainnet-readiness.md)).
