@@ -49,6 +49,7 @@ use std::sync::Arc;
 use async_graphql_axum::GraphQL;
 use axum::Router;
 use axum::routing::post_service;
+use maya_web_security::{secure, security_txt};
 
 use crate::node::NodeClient;
 use crate::rest::AppState;
@@ -58,6 +59,11 @@ use crate::rest::AppState;
 /// Both halves share one [`NodeClient`], and therefore one allowlist. A second
 /// client would be a second policy.
 pub fn app(node: Arc<dyn NodeClient>) -> Router {
+    secure(routes(node), CONTENT_SECURITY_POLICY)
+}
+
+/// The gateway's routes, before the security headers go on.
+fn routes(node: Arc<dyn NodeClient>) -> Router {
     let schema = graphql::schema(Arc::clone(&node));
     let state = Arc::new(AppState { node });
 
@@ -65,8 +71,12 @@ pub fn app(node: Arc<dyn NodeClient>) -> Router {
     // axum handler, and the two are not interchangeable.
     rest::router(state)
         .route("/graphql", post_service(GraphQL::new(schema)))
+        .merge(security_txt())
         .layer(cors())
 }
+
+/// JSON only, no HTML: nothing it serves can run script or be framed.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; frame-ancestors 'none'";
 
 /// [`app`] behind per-client rate limiting: what the public gateway serves.
 ///
@@ -84,26 +94,28 @@ pub fn app_limited(
 /// same one to [`limit::spawn_pruning`], so the table it prunes is the one
 /// this layer fills.
 pub fn app_with_limiter(node: Arc<dyn NodeClient>, config: &limit::Config) -> Router {
-    app(node).layer(tower_governor::GovernorLayer::new(Arc::clone(config)))
+    // Inside `secure`, so a 429 from the limiter carries the headers too.
+    secure(
+        routes(node).layer(tower_governor::GovernorLayer::new(Arc::clone(config))),
+        CONTENT_SECURITY_POLICY,
+    )
 }
 
 /// Lets browser apps (`maya2c.js`, the website's faucet and explorer pages)
-/// call the gateway from any origin.
+/// call the gateway from a browser.
 ///
-/// `Any` is safe here, and only here: the gateway has no cookies, sessions or
-/// credentials, so there is nothing a hostile page could make a visitor's
-/// browser use on its behalf. Everything it serves is public chain data or a
-/// signed transaction the caller built. Credentials stay disallowed.
+/// Defaults to any origin, which is acceptable only because the gateway has no
+/// cookies, sessions or credentials, and everything it serves is public chain
+/// data or a signed transaction the caller built. Set `MAYA2C_CORS_ALLOWED_ORIGINS`
+/// to a comma-separated list to lock it to known front ends. Credentials stay
+/// disallowed either way.
 fn cors() -> tower_http::cors::CorsLayer {
     use axum::http::{Method, header};
-    use tower_http::cors::{Any, CorsLayer};
 
     /// How long a browser may cache a preflight answer.
     const PREFLIGHT_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(3_600);
 
-    CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([Method::GET, Method::POST])
+    maya_web_security::cors_from_env([Method::GET, Method::POST])
         .allow_headers([header::CONTENT_TYPE])
         .max_age(PREFLIGHT_MAX_AGE)
 }

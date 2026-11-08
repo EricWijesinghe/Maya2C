@@ -98,7 +98,7 @@ pub const HUMAN_PAGE: &str = "https://maya2c.dev/guides/testnet/#2-take-free-tes
 
 /// The routes, ready to serve.
 pub fn router(service: Arc<FaucetService>) -> Router {
-    Router::new()
+    let routes = Router::new()
         .route(
             "/",
             get(|| async { axum::response::Redirect::temporary(HUMAN_PAGE) }),
@@ -109,8 +109,13 @@ pub fn router(service: Arc<FaucetService>) -> Router {
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             MAX_BODY_BYTES,
         ))
-        .with_state(service)
+        .with_state(service);
+    maya_web_security::secure(routes, CONTENT_SECURITY_POLICY)
 }
+
+/// Redirects and JSON only, no page of its own: nothing it serves can run
+/// script or be framed.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; frame-ancestors 'none'";
 
 /// How long a browser may cache a preflight answer.
 const PREFLIGHT_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(600);

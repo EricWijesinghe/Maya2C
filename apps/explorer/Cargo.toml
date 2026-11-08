@@ -39,6 +39,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # build-time asset validation — `tests/server_tests.rs` checks the routes
 # instead.
 tower-http = { workspace = true, features = ["trace", "fs", "cors"] }
+maya-web-security = { path = "../../crates/web-security" }
 
 # Runtime queries, not the `query!` macros: those need a live DATABASE_URL at
 # build time (or committed offline metadata), which would make the crate
