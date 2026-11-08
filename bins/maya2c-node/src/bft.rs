@@ -34,7 +34,8 @@ use super::rejoin;
 
 /// Engine tick: re-broadcasts and anchor timeouts. Well under the anchor
 /// timeout, so a timeout fires within a tenth of its length of being due.
-const TICK: Duration = Duration::from_millis(100);
+const TICK_MS: u64 = 100;
+const TICK: Duration = Duration::from_millis(TICK_MS);
 
 /// How long a pooled transaction waits for the validator whose share it is
 /// before any validator proposes it. See `feed_mempool`.
@@ -302,8 +303,10 @@ pub(super) fn setup(
             min_round_interval_ms: genesis.round_interval_ms,
             // Local, not consensus: how often a lost proposal or certificate
             // is re-sent. Half the anchor timeout recovers a loss before the
-            // round would time out anyway.
-            resend_interval_ms: genesis.anchor_timeout_ms / 2,
+            // round would time out anyway. Never under one tick, whatever a
+            // genesis says: at 0 the re-fetch limit and the fetch-reply budget
+            // are off (genesis `validate` refuses such a timeout as well).
+            resend_interval_ms: (genesis.anchor_timeout_ms / 2).max(TICK_MS),
             ..Params::default()
         },
     })

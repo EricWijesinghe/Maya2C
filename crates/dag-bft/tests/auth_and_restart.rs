@@ -17,8 +17,8 @@
 use std::collections::VecDeque;
 
 use maya_dag_bft::{
-    Authenticator, Certificate, Committee, Dest, Digest, Message, Output, Params, SignContext,
-    Validator, ValidatorId, Vertex,
+    Authenticator, BUFFER_ROUNDS, Certificate, Committee, Dest, Digest, Message, Output, Params,
+    SignContext, Validator, ValidatorId, Vertex,
 };
 
 #[derive(Clone, Copy)]
@@ -420,4 +420,84 @@ fn a_certificate_at_the_collection_horizon_is_accepted_without_its_parents() {
     };
     ns[1].handle(0, 3, Message::Cert(cert));
     assert!(!ns[1].dag().contains(&d), "entered without its parents");
+}
+
+#[test]
+fn a_certificate_too_far_ahead_is_not_buffered() {
+    // A certificate waiting on parents is buffered, and asks for them, only
+    // within BUFFER_ROUNDS of what the node holds; past that it is dropped,
+    // so a peer cannot grow the buffer (and every drain's scan) without end.
+    let fetches_for = |round: u64| {
+        let mut ns = nodes(4);
+        let mut parents: Vec<Digest> = (0..3u8).map(|i| [i + 1; 32]).collect();
+        parents.sort_unstable();
+        let vertex = Vertex {
+            epoch: 0,
+            round,
+            author: 3,
+            timestamp_ms: 0,
+            parents,
+            batch: vec![],
+        };
+        let d = vertex.digest();
+        let cert = Certificate {
+            vertex,
+            votes: vec![0, 2, 3],
+            signatures: vec![mac(0, &d), mac(2, &d), mac(3, &d)],
+        };
+        ns[1]
+            .handle(0, 3, Message::Cert(cert))
+            .sends
+            .iter()
+            .filter(|(_, m)| matches!(m, Message::Fetch(_)))
+            .count()
+    };
+    // A fresh node holds round 0 only.
+    assert_eq!(fetches_for(BUFFER_ROUNDS), 3, "at the ceiling: buffered");
+    assert_eq!(fetches_for(BUFFER_ROUNDS + 1), 0, "past it: dropped");
+}
+
+#[test]
+fn a_certificate_buffered_before_a_resume_enters_once_the_horizon_reaches_it() {
+    // Found by `bft_node_tests` (2026-11-08): an engine opened 60 blocks
+    // behind buffers the network's current certificates, waiting on parents
+    // nobody holds any more. The import then resumes it at a round those
+    // certificates sit at, so their parents are below the horizon and exempt,
+    // but they stayed buffered: a re-delivery of one only re-fetched, and a
+    // child of one only walked into the buffer. The engine never advanced.
+    let mut ns = nodes(4);
+    let horizon = 40;
+    let mut parents: Vec<Digest> = (0..3u8).map(|i| [i + 1; 32]).collect();
+    parents.sort_unstable();
+    let vertex = Vertex {
+        epoch: 0,
+        round: horizon,
+        author: 3,
+        timestamp_ms: 0,
+        parents,
+        batch: vec![],
+    };
+    let d = vertex.digest();
+    let cert = Certificate {
+        vertex,
+        votes: vec![0, 2, 3],
+        signatures: vec![mac(0, &d), mac(2, &d), mac(3, &d)],
+    };
+    ns[1].handle(0, 3, Message::Cert(cert.clone()));
+    assert!(
+        !ns[1].dag().contains(&d),
+        "buffered: its parents are unknown"
+    );
+
+    ns[1].resume_after(horizon);
+    let out = ns[1].tick(1);
+
+    assert!(
+        ns[1].dag().contains(&d),
+        "a buffered certificate at the new horizon stayed out of the DAG"
+    );
+    assert!(
+        out.inserted.iter().any(|c| c.vertex == cert.vertex),
+        "the caller is told, so it persists the certificate"
+    );
 }
