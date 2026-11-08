@@ -473,35 +473,51 @@ fn crash_f(net: &mut Net) -> Result<()> {
     Ok(())
 }
 
-/// Attack 2: f + 1 crash; the chain must stop rather than fork, then resume.
+/// Attack 2: crash below quorum; the chain must stop rather than fork, then resume.
+///
+/// Enough must fall that fewer than a quorum (`2f + 1`) remain. Crashing `f + 1`
+/// only achieves that when `n == 3f + 1` (e.g. n=7, f=2: crash 3, leaves 4 < 5).
+/// After a round jails a validator the committee can be, say, n=6, f=1, quorum 3:
+/// there `f + 1 = 2` crashes leave 4 ≥ 3, so the chain *correctly* keeps going and
+/// the old "crash f+1 ⇒ halt" assumption fired a false alarm. Crash `n - 2f`, which
+/// leaves exactly `2f < 2f + 1` for every committee size.
 fn crash_f_plus_one(net: &mut Net) -> Result<()> {
     let (n, _) = seated()?;
-    let (_, down) = victims(faults(n) + 1)?;
+    let to_crash = n.saturating_sub(2 * faults(n));
+    let (_, down) = victims(to_crash)?;
+    // The true finalized tip across the WHOLE network, taken before the crash.
+    // It matters that this is measured over every node, not just the survivors:
+    // a survivor that was still catching up keeps importing already-attested
+    // blocks after the crash (ADR-038 followers), so its height climbs toward
+    // this tip without any new finality. Measuring new progress against this
+    // pre-crash tip — which catch-up can approach but never pass — is what tells
+    // a real quorum-less commit apart from a follower catching up. The old check
+    // compared `max(survivors)` before vs after and mistook that catch-up climb
+    // for the chain committing without a quorum.
+    let tip_before = (0..VALIDATORS)
+        .filter_map(height)
+        .max()
+        .ok_or("no node answers")?;
     for i in &down {
         net.procs.kill(usize::from(*i));
     }
     let live = Net::honest(&down);
-    // Let in-flight rounds settle, then watch for progress.
-    std::thread::sleep(Duration::from_secs(5));
-    let before = live
-        .iter()
-        .filter_map(|i| height(*i))
-        .max()
-        .ok_or("no node answers")?;
+    // A block whose quorum certificate was already in flight when the crash
+    // landed may still finalize; allow that slack, then the chain must stop.
+    const IN_FLIGHT: u64 = 2;
     std::thread::sleep(HALT_WATCH);
     let after = live
         .iter()
         .filter_map(|i| height(*i))
         .max()
         .ok_or("no node answers")?;
-    if after > before + 1 {
+    if after > tip_before + IN_FLIGHT {
         return Err(format!(
-            "crash f+1: {} validators kept committing without a quorum ({before} -> {after})",
-            live.len()
+            "crash f+1: the chain finalized past the pre-crash tip without a quorum ({tip_before} -> {after})"
         ));
     }
     net.say(format!(
-        "crash f+1={} of a {n}-seat committee: halted at {after} for {HALT_WATCH:?} (no quorum), as BFT must",
+        "crash {} of a {n}-seat committee (below quorum): no new finality past {tip_before} for {HALT_WATCH:?} (quorum lost), as BFT must",
         down.len()
     ));
     for i in down {
@@ -510,7 +526,7 @@ fn crash_f_plus_one(net: &mut Net) -> Result<()> {
     let all = Net::honest(&[]);
     let t = wait_until("the halted chain resuming", || agree(&all, after + 3))?;
     net.say(format!(
-        "crash f+1: resumed on one chain in {t:.1?} once quorum returned"
+        "crash below quorum: resumed on one chain in {t:.1?} once quorum returned"
     ));
     Ok(())
 }
