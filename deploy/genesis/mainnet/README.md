@@ -65,13 +65,14 @@ cargo xtask genesis-check out/genesis.json
 
 - `--supply 0` is the only mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds
   only the keyless mining reserve and the disclosed minimum validator bonds (7 x
-  min-self-bond). The bonds are minted value, which is why they are disclosed. The ceremony
+  min-self-bond = 7 × 1,000 = 7,000 coins, about 0.036% of the 19.69M era issuance; DECISIONS
+  2026-11-08). The bonds are minted value, which is why they are disclosed. The ceremony
   refuses any other supply on `maya-mainnet`, and writes no root key and no treasury.
   `genesis-check` refuses any allocation that is not the reserve, and a reserve that is not
   exactly the schedule's `lifetime_emission`.
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
   validators and no operator above 20% of the bonded stake. Every bond is exactly
-  `--min-self-bond` (the tiny bond, Eric 2026-11-07); the ceremony and `genesis-check` both
+  `--min-self-bond` (1,000 coins, DECISIONS 2026-11-08); the ceremony and `genesis-check` both
   refuse any other amount. Stake concentration is therefore the seat count, which the 20% cap
   already bounds.
 - The check counts payout addresses. At launch every validator is run by one person
