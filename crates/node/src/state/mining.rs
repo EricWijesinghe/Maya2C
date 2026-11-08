@@ -425,13 +425,40 @@ impl MiningRecord {
     }
 }
 
-/// `value × bps / 10000`, through a 512-bit product so it cannot overflow.
+// Documentation only: a schedule value never exceeds the ceiling 2^192, so a
+// schedule's `value × bps` would even fit the naive 256-bit product. `bps_of`
+// does NOT depend on this — it is exact for every `Amount`, with no bound
+// (256-bit rule, DECISIONS.md 2026-11-01 and 2026-11-08).
+const _: () = assert!(
+    LIFETIME_EMISSION_CEILING
+        .checked_mul(Amount::from_u64(BPS))
+        .is_some()
+);
+
+/// `floor(value × bps / 10000)`, exact for **every** `Amount` and `bps`, with
+/// no 512-bit intermediate and no overflow. Writing `value = q·BPS + r`
+/// (`0 ≤ r < BPS`), `floor(value·bps/BPS) = q·bps + floor(r·bps/BPS)`: `q·bps`
+/// stays ≤ `value` so it cannot overflow, and `r·bps < BPS² < 2^64`. Equal to
+/// the old 512-bit `mul_div` for every input (consensus: any difference forks).
 #[must_use]
 pub fn bps_of(value: Amount, bps: u64) -> Amount {
-    // At most `value`, so the quotient fits; the fallback is unreachable.
-    value
-        .mul_div(Amount::from_u64(bps.min(BPS)), Amount::from_u64(BPS))
-        .unwrap_or(value)
+    let bps = bps.min(BPS);
+    let denom = Amount::from_u64(BPS);
+    // `BPS != 0`, so the division is defined.
+    let q = value.checked_div(denom).expect("BPS is non-zero");
+    // `q·BPS ≤ value ≤ Amount::MAX`, so neither this product nor the subtraction
+    // can fail, and the remainder `r = value − q·BPS` is below `BPS < 2^64`.
+    let q_bps_full = q.checked_mul(denom).expect("q·BPS ≤ value ≤ Amount::MAX");
+    let r = value
+        .checked_sub(q_bps_full)
+        .expect("q·BPS ≤ value")
+        .to_u64()
+        .expect("value mod BPS < BPS < 2^64");
+    // `q·bps ≤ q·BPS ≤ value`, so no overflow; `r·bps < BPS² < 2^64`.
+    let whole = q.checked_mul(Amount::from_u64(bps)).expect("q·bps ≤ value");
+    whole
+        .checked_add(Amount::from_u64(r * bps / BPS))
+        .expect("floor(value·bps/BPS) ≤ value ≤ Amount::MAX")
 }
 
 /// The header hash a share's DAG proof of work is computed over. Binds the
@@ -857,5 +884,83 @@ mod tests {
         assert_ne!(base, share_header(&[1; 32], 5, &[2; 32], &[9; 32]));
         assert_ne!(seen_key(5, &base, 1), seen_key(5, &base, 2));
         assert!(seen_key(5, &base, 1).starts_with(&seen_epoch_prefix(5)));
+    }
+
+    /// The 2026-11-08 switch to 256-bit math is a consensus change only if
+    /// an output moved: compare against the old 512-bit `mul_div` at the
+    /// edges and over a seeded sweep of values up to the 2^192 ceiling.
+    #[test]
+    fn bps_of_matches_the_512_bit_split_for_every_in_bound_value() {
+        let old = |v: Amount, bps: u64| {
+            v.mul_div(Amount::from_u64(bps), Amount::from_u64(BPS))
+                .unwrap()
+        };
+        let ceiling = LIFETIME_EMISSION_CEILING;
+        let mut values = vec![
+            Amount::ZERO,
+            Amount::from_u64(1),
+            Amount::from_u64(BPS - 1),
+            Amount::from_u64(BPS),
+            ceiling,
+            ceiling.checked_sub(Amount::from_u64(1)).unwrap(),
+        ];
+        // xorshift64, fixed seed: reproducible, no dependency.
+        let mut s: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        for _ in 0..20_000 {
+            // A random bit length in 0..=192 so small values are covered too.
+            let bits = u32::try_from(next() % 193).unwrap();
+            let v = Amount([next(), next(), next(), 0]).shr(192 - bits);
+            values.push(v);
+        }
+        let mut bps_set = vec![0, 1, 2, 5_000, 7_000, 9_999, BPS];
+        bps_set.extend((0..64).map(|_| next() % (BPS + 1)));
+        for &v in &values {
+            assert!(v <= ceiling);
+            for &bps in &bps_set {
+                assert_eq!(bps_of(v, bps), old(v, bps), "value {v} bps {bps}");
+            }
+        }
+        // Above BPS is clamped, as before.
+        assert_eq!(bps_of(ceiling, u64::MAX), ceiling);
+    }
+
+    /// The split-remainder form is exact with no bound: it must stay exact for
+    /// a value far past the schedule ceiling, where the old checked_mul form
+    /// overflowed and fell back to returning the value unchanged. This asserts
+    /// the fix, and fails on that fallback branch.
+    #[test]
+    fn bps_of_is_exact_past_the_schedule_ceiling() {
+        // 2^255, well above LIFETIME_EMISSION_CEILING = 2^192.
+        let v = Amount([0, 0, 0, 1 << 63]);
+        assert_eq!(
+            bps_of(v, 2).to_string(),
+            "11579208923731619542357098500868790785326998466564056403945758400791312963"
+        );
+        // Clamping still holds out here too.
+        assert_eq!(bps_of(v, u64::MAX), bps_of(v, BPS));
+    }
+
+    /// The reward split feeds consensus payouts, so pin `bps_of` through the
+    /// public reward methods on the real mainnet schedule. The literals are
+    /// taken from `master` before the 256-bit change, so a drift in the split
+    /// math (not only in `bps_of`) is caught as the hard fork it would be.
+    #[test]
+    fn the_mainnet_reward_split_pins_bps_of() {
+        let r = mainnet_schedule().record(3_600).unwrap();
+        // miner_budget(0) = bps_of(epoch_reward(0), 7000).
+        assert_eq!(r.miner_budget(0).to_string(), "209616700889801505817932922");
+        // miner_budget at the tail start (epoch 140_256).
+        assert_eq!(
+            r.miner_budget(140_256).to_string(),
+            "16769336071184120465434633"
+        );
+        // share_reward on the epoch-0 record: miner_budget(0) / target_shares.
+        assert_eq!(r.share_reward().to_string(), "209616700889801505817932");
     }
 }
