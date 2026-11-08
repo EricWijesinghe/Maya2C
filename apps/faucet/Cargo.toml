@@ -14,6 +14,7 @@ maya-address = { path = "../../crates/address" }
 axum = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 tower-http = { workspace = true, features = ["trace", "limit", "cors"] }
+maya-web-security = { path = "../../crates/web-security" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true

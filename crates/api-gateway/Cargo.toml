@@ -29,6 +29,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 # The coin's decimals (ADR-068) come from the one source, not a copy here.
 maya-amount = { path = "../amount" }
+# Headers, CORS policy and security.txt, shared with the other HTTP services.
+maya-web-security = { path = "../web-security" }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 hex.workspace = true
