@@ -473,10 +473,18 @@ fn crash_f(net: &mut Net) -> Result<()> {
     Ok(())
 }
 
-/// Attack 2: f + 1 crash; the chain must stop rather than fork, then resume.
+/// Attack 2: crash below quorum; the chain must stop rather than fork, then resume.
+///
+/// Enough must fall that fewer than a quorum (`2f + 1`) remain. Crashing `f + 1`
+/// only achieves that when `n == 3f + 1` (e.g. n=7, f=2: crash 3, leaves 4 < 5).
+/// After a round jails a validator the committee can be, say, n=6, f=1, quorum 3:
+/// there `f + 1 = 2` crashes leave 4 ≥ 3, so the chain *correctly* keeps going and
+/// the old "crash f+1 ⇒ halt" assumption fired a false alarm. Crash `n - 2f`, which
+/// leaves exactly `2f < 2f + 1` for every committee size.
 fn crash_f_plus_one(net: &mut Net) -> Result<()> {
     let (n, _) = seated()?;
-    let (_, down) = victims(faults(n) + 1)?;
+    let to_crash = n.saturating_sub(2 * faults(n));
+    let (_, down) = victims(to_crash)?;
     // The true finalized tip across the WHOLE network, taken before the crash.
     // It matters that this is measured over every node, not just the survivors:
     // a survivor that was still catching up keeps importing already-attested
@@ -509,7 +517,7 @@ fn crash_f_plus_one(net: &mut Net) -> Result<()> {
         ));
     }
     net.say(format!(
-        "crash f+1={} of a {n}-seat committee: no new finality past {tip_before} for {HALT_WATCH:?} (quorum lost), as BFT must",
+        "crash {} of a {n}-seat committee (below quorum): no new finality past {tip_before} for {HALT_WATCH:?} (quorum lost), as BFT must",
         down.len()
     ));
     for i in down {
@@ -518,7 +526,7 @@ fn crash_f_plus_one(net: &mut Net) -> Result<()> {
     let all = Net::honest(&[]);
     let t = wait_until("the halted chain resuming", || agree(&all, after + 3))?;
     net.say(format!(
-        "crash f+1: resumed on one chain in {t:.1?} once quorum returned"
+        "crash below quorum: resumed on one chain in {t:.1?} once quorum returned"
     ));
     Ok(())
 }
