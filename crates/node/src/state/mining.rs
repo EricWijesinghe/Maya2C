@@ -425,12 +425,26 @@ impl MiningRecord {
     }
 }
 
-/// `value × bps / 10000`, through a 512-bit product so it cannot overflow.
+// The bound `bps_of` relies on (256-bit rule, DECISIONS.md 2026-11-01 and
+// 2026-11-08): every value it sees is a schedule reward, at most the ceiling
+// 2^192 (`validate` refuses a record whose lifetime emission reaches it), and
+// bps is clamped to BPS = 10_000 < 2^14, so the product is below 2^206.
+const _: () = assert!(
+    LIFETIME_EMISSION_CEILING
+        .checked_mul(Amount::from_u64(BPS))
+        .is_some()
+);
+
+/// `value × bps / 10000`, rounded down, in checked 256-bit arithmetic. Floor
+/// division of the same exact product, so it equals the old 512-bit
+/// `mul_div` for every in-bound input (consensus: any difference forks).
 #[must_use]
 pub fn bps_of(value: Amount, bps: u64) -> Amount {
-    // At most `value`, so the quotient fits; the fallback is unreachable.
+    // Out of bound (value × bps ≥ 2^256, which `validate` makes unreachable
+    // for schedule values) it returns `value` unchanged, the old fallback.
     value
-        .mul_div(Amount::from_u64(bps.min(BPS)), Amount::from_u64(BPS))
+        .checked_mul(Amount::from_u64(bps.min(BPS)))
+        .and_then(|product| product.checked_div(Amount::from_u64(BPS)))
         .unwrap_or(value)
 }
 
@@ -857,5 +871,49 @@ mod tests {
         assert_ne!(base, share_header(&[1; 32], 5, &[2; 32], &[9; 32]));
         assert_ne!(seen_key(5, &base, 1), seen_key(5, &base, 2));
         assert!(seen_key(5, &base, 1).starts_with(&seen_epoch_prefix(5)));
+    }
+
+    /// The 2026-11-08 switch to 256-bit math is a consensus change only if
+    /// an output moved: compare against the old 512-bit `mul_div` at the
+    /// edges and over a seeded sweep of values up to the 2^192 ceiling.
+    #[test]
+    fn bps_of_matches_the_512_bit_split_for_every_in_bound_value() {
+        let old = |v: Amount, bps: u64| {
+            v.mul_div(Amount::from_u64(bps), Amount::from_u64(BPS))
+                .unwrap()
+        };
+        let ceiling = LIFETIME_EMISSION_CEILING;
+        let mut values = vec![
+            Amount::ZERO,
+            Amount::from_u64(1),
+            Amount::from_u64(BPS - 1),
+            Amount::from_u64(BPS),
+            ceiling,
+            ceiling.checked_sub(Amount::from_u64(1)).unwrap(),
+        ];
+        // xorshift64, fixed seed: reproducible, no dependency.
+        let mut s: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        for _ in 0..20_000 {
+            // A random bit length in 0..=192 so small values are covered too.
+            let bits = u32::try_from(next() % 193).unwrap();
+            let v = Amount([next(), next(), next(), 0]).shr(192 - bits);
+            values.push(v);
+        }
+        let mut bps_set = vec![0, 1, 2, 5_000, 7_000, 9_999, BPS];
+        bps_set.extend((0..64).map(|_| next() % (BPS + 1)));
+        for &v in &values {
+            assert!(v <= ceiling);
+            for &bps in &bps_set {
+                assert_eq!(bps_of(v, bps), old(v, bps), "value {v} bps {bps}");
+            }
+        }
+        // Above BPS is clamped, as before.
+        assert_eq!(bps_of(ceiling, u64::MAX), ceiling);
     }
 }
