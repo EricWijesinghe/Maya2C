@@ -53,8 +53,19 @@ genesis-ceremony --chain-id <ID> --supply 0 \
   --validators validators.txt --mining mining.json --mining-reserve <UNITS> \
   --council council-public --council-threshold 2 --council-max-pause-blocks <N> \
   --min-self-bond <UNITS> --min-delegation <UNITS> \
-  --timestamp <UNIX> --difficulty-bits <N> --out-dir out
+  --timestamp <UNIX> --out-dir out
 ```
+
+No `--difficulty-bits`: with a DAG-BFT committee the ceremony writes difficulty 0 whatever it is
+given. `--council-max-pause-blocks` is 6 hours of blocks (ADR-050): 21600 at one block a second.
+`--timestamp` must be within 365 days before and 90 days after the moment `genesis-check` runs,
+or the check refuses it. Rehearse all of this first with `cargo xtask ceremony-rehearsal`
+(throwaway keys, seven local validators; `reports/sessions/2026-11-08-ceremony-dry-run.md`).
+
+**Address text (ADR-081), in the same change as the signed genesis:** register `maya-mainnet` in
+`Network::for_chain_id` (`crates/address/src/lib.rs`) and remove the `#[ignore]` on
+`mainnet_chain_id_has_a_prefix`. Until then a `maya-mainnet` node serves hex only and no
+`address_text`; the rehearsal's address check fails on purpose to keep the step visible.
 
 `--supply 0` is the mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds only the
 keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-bond). The ceremony

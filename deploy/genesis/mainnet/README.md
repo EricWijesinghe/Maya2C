@@ -57,12 +57,14 @@ genesis-ceremony --chain-id maya-mainnet \
   --validators validators.txt \
   --mining deploy/genesis/mainnet/mining.json \
   --mining-reserve 122753829695359067419575633036805965021648 \
-  --council council-public --council-threshold 2 --council-max-pause-blocks <N> \
+  --council council-public --council-threshold 2 --council-max-pause-blocks 21600 \
   --min-self-bond <UNITS> --min-delegation <UNITS> \
   --timestamp <UNIX> --out-dir out
 cargo xtask genesis-check out/genesis.json
 ```
 
+- `--council-max-pause-blocks 21600` is ADR-050's 6 hours of blocks at one block a second.
+  Recompute it if the block rate is not about one a second.
 - `--supply 0` is the only mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds
   only the keyless mining reserve and the disclosed minimum validator bonds (7 x
   min-self-bond). The bonds are minted value, which is why they are disclosed. The ceremony
@@ -89,13 +91,27 @@ cargo xtask genesis-check out/genesis.json
   and no block difficulty, fewer than 7 validators, an operator above the cap, or staking
   floors below the mainnet constants in `xtask/src/genesis_check.rs`.
 
-## Dry run (2026-10-30, throwaway keys, nothing published)
+## Dry run (2026-11-08, throwaway keys, nothing published)
 
-Inputs: 7 throwaway validator keys, 3 throwaway council keys, and the values above. Results:
+`cargo xtask ceremony-rehearsal` repeats the whole run in one command: 7 sealed validator keys
+from the production node, 7 operator addresses, 3 council keys, the ceremony with the values
+above (`--supply 0`, 1,000-coin bonds, reserve priced from `mining.json`), `genesis-check`, then
+7 validators from that genesis on this machine. Rehearse it before the real ceremony. Results and
+real output: `reports/sessions/2026-11-08-ceremony-dry-run.md`.
 
-- The ceremony wrote the genesis, with total supply 122753829695429068419575633036805965021648 units.
-- `cargo xtask genesis-check`: **PASS**. Fees were 1000000/1000000, stake-weighted, council 2-of-3.
-- `maya2c-node` booted from it as `validator 0 of 7` on `maya-mainnet`, with genesis id `28210c54…`. That id is not mainnet's: the real keys and timestamp change it.
+- The ceremony prints `total supply 122753829695366067419575633036805965021648`, which is the reserve
+  plus 7 × 10^27 (seven 1,000-coin bonds), exactly. `genesis-check`: **PASS** (it prints only
+  PASS or the list of problems).
+- The ceremony does not check the staking floor itself: with `--min-self-bond` at 100 coins it
+  writes a genesis, and `genesis-check` then refuses it. Always run the check.
+- The commitment sheet still says "Secret keys are in this directory as *.secret" with
+  `--supply 0`, though there are none (`roots 0`).
+- RPC `get_supply` leaves out bonded stake, so it reports the reserve alone. The money is in
+  state: `get_validators` shows the 7 × 1,000 coins.
+- Until `maya-mainnet` is registered in `Network::for_chain_id` (ADR-081, part of the genesis
+  change), the node serves no `address_text`.
+- An earlier dry run (2026-10-30) used the premine-era inputs. Its supply figure and genesis
+  id no longer apply.
 - Rejoin guard (B49): a node restarted later with no confirming head, and a tip older than the unbonding window, is refused unless it has `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is for a network halted longer than the window or a genesis signed long before launch only. Do not use it to get past a refusal without knowing which case applies. Runbook: `docs/runbooks/hybrid-testnet-hardening.md` section 4.
 
 Signing the real genesis is **APPROVED: sign genesis**, a separate approval from the re-genesis.

@@ -50,7 +50,7 @@ fn mining_genesis(genesis: &mut Value) {
     });
 }
 
-fn build_miner(gpu: bool) -> Result<PathBuf> {
+pub(crate) fn build_miner(gpu: bool) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.args(["build", "--release", "-p", "maya2c-gpu-miner"])
         .current_dir(devnet::root())
@@ -78,7 +78,7 @@ fn events(log: &Path) -> Vec<Value> {
         .collect()
 }
 
-fn miner_address(log: &Path) -> Result<String> {
+pub(crate) fn miner_address(log: &Path) -> Result<String> {
     let mut found = None;
     localnet::wait_until("the miner's start event", || {
         found = events(log)

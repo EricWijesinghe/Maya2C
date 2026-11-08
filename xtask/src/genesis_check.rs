@@ -25,7 +25,7 @@ const MIN_BASE_FEE: u128 = 1_000_000;
 /// and 1 coin per delegation, decided 2026-10-30 (DECISIONS.md) under Eric's
 /// delegation; changing either is one line here. The devnet defaults (1,000 and
 /// 10 base units) are dust: a free validator seat, a free delegation.
-const MIN_SELF_BOND: u128 = 1_000 * COIN;
+pub(crate) const MIN_SELF_BOND: u128 = 1_000 * COIN;
 const MIN_DELEGATION: u128 = COIN;
 const COIN: u128 = maya_amount::ONE_COIN;
 
@@ -153,7 +153,7 @@ fn mining_reserve_address() -> String {
 
 /// A genesis amount written as a decimal string or a JSON integer, at full
 /// 256 bits; `None` for anything else or an overflow.
-fn amount_of(value: &serde_json::Value) -> Option<Amount> {
+pub(crate) fn amount_of(value: &serde_json::Value) -> Option<Amount> {
     let text = match value {
         serde_json::Value::String(s) => s.clone(),
         serde_json::Value::Number(n) => n.to_string(),
@@ -200,6 +200,19 @@ fn lifetime_emission(
         start = start.saturating_add(era);
     }
     (total < LIFETIME_EMISSION_CEILING).then_some(total)
+}
+
+/// The `--mining-reserve` a `mining.json` needs at `epoch_blocks`: its
+/// lifetime emission, by the rule [`reserve_rule`] checks, so a rehearsal
+/// never copies the figure by hand.
+pub(crate) fn mining_reserve(mining_json: &str, epoch_blocks: u64) -> Result<String, String> {
+    let m: Mining = serde_json::from_str(mining_json).map_err(|e| format!("mining.json: {e}"))?;
+    let initial = amount_of(&m.initial_epoch_reward).ok_or("mining.json: initial_epoch_reward")?;
+    let tail = Amount::from_u128(m.tail_epoch_reward.unwrap_or(0));
+    let halving = m.halving_epochs.ok_or("mining.json: halving_epochs")?;
+    lifetime_emission(initial, tail, halving, epoch_blocks)
+        .map(|a| a.to_string())
+        .ok_or_else(|| "the schedule's lifetime emission reaches 2^192".to_string())
 }
 
 /// The node's `LIFETIME_EMISSION_CEILING`: 2^192.
@@ -663,6 +676,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(lifetime.to_string(), RESERVE);
+        // The rehearsal's helper reads the same file to the same figure.
+        let text = std::fs::read_to_string(path).unwrap();
+        assert_eq!(mining_reserve(&text, 3_600).unwrap(), RESERVE);
     }
 
     #[test]
