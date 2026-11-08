@@ -3506,3 +3506,14 @@ class = "REAL"
 status = "working"
 tests = ["crate:maya-address", "crates/node/tests/rpc_tests.rs"]
 note = "ADR-081. RPC accepts hex or Bech32m and returns address_text; wallet GUI, CLI output, explorer, faucet, pool, hub, chat, Go SDK and genesis docs still emit hex only. Mainnet chain id is not registered yet, so mainnet has no text form until genesis is fixed."
+
+[[subsystem]]
+id = "chain-sentinel"
+name = "Live chain sentinel (ntfy alerts, read-only watchdog)"
+domain = "Operations"
+paths = "`apps/sentinel`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-sentinel"]
+note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding. Stranding reads get_mempool_info, which no node serves yet, so it stays idle on a live network until that method exists. Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."

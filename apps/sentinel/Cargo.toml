@@ -1,0 +1,26 @@
+[package]
+name = "maya-sentinel"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Live watchdog for a Maya2C network: read-only detectors that page by ntfy push"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "maya2c-sentinel"
+path = "src/main.rs"
+
+[dependencies]
+jsonrpsee = { workspace = true, features = ["http-client"] }
+# Same TLS setup as apps/status: the push goes out over HTTPS to ntfy.sh.
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
+primitive-types.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true
