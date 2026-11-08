@@ -888,3 +888,16 @@ A draft said 100 coins per bond. The tool does not allow that: `genesis-check` f
 - The bonds are disclosed because they are minted value at genesis; they appear in the mainnet README and the checklist, not hidden.
 - Mainnet launches with an empty protocol-upgrade schedule (ADR-082): `genesis-check` refuses any entry for `maya-mainnet`. Other chains may carry launch entries.
 - Recorded in `deploy/genesis/mainnet/README.md`, `docs/runbooks/regenesis-checklist.md`, `docs/GENESIS.md` and STATE.md.
+
+## 2026-11-08 — Reward split math stays within 256 bits; seven launch decisions confirmed (Eric)
+
+Eric decided the open items from the pre-freeze review. These are decisions only, except the first, which lands with this entry.
+
+- **`bps_of` in checked 256-bit math:** `bps_of` in `crates/node/src/state/mining.rs` now multiplies with `checked_mul` and divides with `checked_div`, instead of using `mul_div`'s 512-bit product (the 2026-11-01 rule: convert only with a written bound). The bound: every schedule value is at most `LIFETIME_EMISSION_CEILING` = 2^192, which `validate` enforces on every record, and bps is clamped to 10,000 < 2^14, so the product is below 2^206. A `const` assertion pins it. It is the same floor division of the same exact product, so the output does not change. A deterministic sweep against the old `mul_div` and the mainnet emission pins check this, since any difference would be a hard fork. Out of bound it returns `value`, the old fallback. The other 512-bit sites stay as they are until Eric decides each one.
+- **License:** stays Apache-2.0, with the brand protected by `BRAND.md` (PR #387).
+- **Validator bond:** 1,000 coins for each of the 7 genesis validators (entry above).
+- **Council sunset lead:** 13.6 days (1,172,800 blocks, derived in ADR-082). The 2-day migration window stays.
+- **Admin bypass:** removed from the `master` ruleset, so admins also merge only through the required checks.
+- **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
+- **Watchdog alerts:** sent through ntfy.sh.
+- **BitLocker:** turned on for the validator PC before genesis.

@@ -172,6 +172,49 @@ async fn health_does_not_touch_the_node() {
 }
 
 #[tokio::test]
+async fn every_response_sends_the_hardening_headers_and_no_server_name() {
+    for uri in [
+        "/health",
+        "/v1/accounts/nothex",
+        "/no-such-route",
+        "/.well-known/security.txt",
+    ] {
+        let node = Arc::new(MockNode::default());
+        let response = app_with(node)
+            .oneshot(Request::get(uri).body(Body::empty()).expect("request"))
+            .await
+            .expect("served");
+        let headers = response.headers();
+        assert_eq!(headers["x-content-type-options"], "nosniff", "{uri}");
+        assert_eq!(headers["x-frame-options"], "DENY", "{uri}");
+        assert_eq!(headers["referrer-policy"], "no-referrer", "{uri}");
+        assert_eq!(headers["server"], "maya2c", "{uri}");
+        assert_eq!(
+            headers["content-security-policy"], "default-src 'none'; frame-ancestors 'none'",
+            "{uri}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn with_no_configured_origins_any_origin_may_read_but_no_credentials_are_sent() {
+    // Only holds with `MAYA2C_CORS_ALLOWED_ORIGINS` unset, which no test sets.
+    let node = Arc::new(MockNode::default());
+    let response = app_with(node)
+        .oneshot(
+            Request::get("/health")
+                .header("origin", "https://untrusted.example")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("served");
+    let headers = response.headers();
+    assert_eq!(headers["access-control-allow-origin"], "*");
+    assert!(!headers.contains_key("access-control-allow-credentials"));
+}
+
+#[tokio::test]
 async fn an_account_is_served() {
     let node = Arc::new(MockNode::default());
     let (status, body) = get(app_with(node), &format!("/v1/accounts/{}", address())).await;

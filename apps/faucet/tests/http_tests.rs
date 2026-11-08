@@ -347,6 +347,30 @@ async fn status_reports_the_budget_without_revealing_the_key() {
     }
 }
 
+#[tokio::test]
+async fn every_response_sends_the_hardening_headers_and_no_server_name() {
+    let dispenser = Arc::new(RecordingDispenser::new());
+    for (uri, status) in [
+        ("/health", StatusCode::OK),
+        ("/no-such-route", StatusCode::NOT_FOUND),
+    ] {
+        let response = router(service(Arc::clone(&dispenser)))
+            .oneshot(Request::get(uri).body(Body::empty()).expect("request"))
+            .await
+            .expect("served");
+        assert_eq!(response.status(), status, "{uri}");
+        let headers = response.headers();
+        assert_eq!(headers["x-content-type-options"], "nosniff", "{uri}");
+        assert_eq!(headers["x-frame-options"], "DENY", "{uri}");
+        assert_eq!(headers["referrer-policy"], "no-referrer", "{uri}");
+        assert_eq!(headers["server"], "maya2c", "{uri}");
+        assert_eq!(
+            headers["content-security-policy"], "default-src 'none'; frame-ancestors 'none'",
+            "{uri}"
+        );
+    }
+}
+
 fn with_cors() -> axum::Router {
     router(service(Arc::new(RecordingDispenser::new())))
         .layer(maya_faucet::http::cors(&["https://maya2c.dev".to_owned()]).unwrap())

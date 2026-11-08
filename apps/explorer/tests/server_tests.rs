@@ -511,6 +511,48 @@ async fn every_asset_the_page_references_is_served() {
     );
 }
 
+#[tokio::test]
+async fn every_response_sends_the_hardening_headers_and_no_server_name() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let h = harness(1).await;
+    let authority = h.base.trim_start_matches("http://").to_owned();
+    for path in ["/", "/health", "/api/stats", "/no-such-route"] {
+        let mut stream = tokio::net::TcpStream::connect(&authority)
+            .await
+            .expect("connect");
+        let request =
+            format!("GET {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
+        stream.write_all(request.as_bytes()).await.expect("write");
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).await.expect("read");
+        // Lowercased, so the header names and the values compare exactly.
+        let text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+        let head = text.split("\r\n\r\n").next().unwrap_or_default();
+        for expected in [
+            "\r\nx-content-type-options: nosniff\r\n",
+            "\r\nx-frame-options: deny\r\n",
+            "\r\nreferrer-policy: no-referrer\r\n",
+            "\r\nserver: maya2c\r\n",
+            "\r\ncontent-security-policy: ",
+        ] {
+            assert!(
+                head.contains(expected),
+                "{path} is missing {expected:?}:\n{head}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn security_txt_is_served_at_the_well_known_path() {
+    let h = harness(1).await;
+    let (status, body) = get(&format!("{}/.well-known/security.txt", h.base)).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("Contact: https://"), "{body}");
+    assert!(body.contains("Expires: "), "{body}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_bare_favicon_path_is_served() {
     // Browsers request `/favicon.ico` on their own, whatever the `<link>` tags

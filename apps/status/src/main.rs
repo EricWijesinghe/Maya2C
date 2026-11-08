@@ -420,17 +420,7 @@ async fn main() {
     ));
     tokio::spawn(watch(watched, Arc::clone(&live)));
 
-    let live_routes = Router::new()
-        .route("/live", get(live_page))
-        .route("/api/live", get(live_api))
-        .with_state(live);
-    let app = Router::new()
-        .route("/", get(page))
-        .route("/api/status", get(api))
-        .route("/brand/emblem.png", get(emblem))
-        .with_state(shared)
-        .merge(live_routes)
-        .layer(tower_http::cors::CorsLayer::new().allow_origin(tower_http::cors::Any));
+    let app = router(shared, live);
     let listener = match tokio::net::TcpListener::bind(a.listen).await {
         Ok(l) => l,
         Err(e) => {
@@ -441,6 +431,60 @@ async fn main() {
     println!("maya-status on http://{} following {}", a.listen, a.node);
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("status: {e}");
+    }
+}
+
+/// The status page's own inline `<script>` and `<style>` blocks, and the
+/// `style` attributes they build, need `'unsafe-inline'`.
+// shortcut: 'unsafe-inline' on script-src and style-src, because the page's inline blocks and attributes are not hashed; hash or move them to /brand to drop it.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; \
+object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/// Every route the status service serves, each with the security headers.
+fn router(shared: Arc<Shared>, live: Arc<Mutex<Live>>) -> Router {
+    let live_routes = Router::new()
+        .route("/live", get(live_page))
+        .route("/api/live", get(live_api))
+        .with_state(live);
+    let app = Router::new()
+        .route("/", get(page))
+        .route("/api/status", get(api))
+        .route("/brand/emblem.png", get(emblem))
+        .with_state(shared)
+        .merge(live_routes)
+        .layer(maya_web_security::cors_from_env([axum::http::Method::GET]));
+    maya_web_security::secure(app, CONTENT_SECURITY_POLICY)
+}
+
+#[cfg(test)]
+mod router_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn every_route_sends_the_hardening_headers_and_no_server_name() {
+        let shared = Arc::new(Shared {
+            timeline: Mutex::new(Timeline::new(60)),
+            tip: AtomicU64::new(0),
+            stopped: None,
+        });
+        let live = Arc::new(Mutex::new(Live::new("maya-testnet-1")));
+        for uri in ["/", "/api/status", "/live", "/api/live", "/no-such-route"] {
+            let response = router(Arc::clone(&shared), Arc::clone(&live))
+                .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let headers = response.headers();
+            assert_eq!(headers["x-content-type-options"], "nosniff", "{uri}");
+            assert_eq!(headers["x-frame-options"], "DENY", "{uri}");
+            assert!(headers.contains_key("content-security-policy"), "{uri}");
+            assert_eq!(headers["server"], "maya2c", "{uri}");
+        }
     }
 }
 
