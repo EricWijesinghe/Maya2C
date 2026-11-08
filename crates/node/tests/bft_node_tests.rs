@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use custom_l1_node::consensus::bft::attest::{ATTEST_FRAME, Attestation};
+use custom_l1_node::consensus::bft::attest::{ATTEST_FRAME, Attestation, CheckpointBook};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::block::{Block, BlockHeader};
@@ -610,6 +610,8 @@ fn every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain() {
 struct Peer<'a> {
     chain: &'a Chain,
     checkpoint: Option<custom_l1_node::consensus::bft::attest::Checkpoint>,
+    /// The tip it reports: its chain height, or less for a follower that trails.
+    tip: u64,
 }
 
 impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
@@ -635,7 +637,7 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
     }
 
     fn tip_height(&self) -> custom_l1_node::error::Result<u64> {
-        Ok(self.chain.height())
+        Ok(self.tip)
     }
 }
 
@@ -711,9 +713,130 @@ fn catch_up_member(
     let peer = Peer {
         chain: &left[from].chain,
         checkpoint: left[from].driver.as_ref().unwrap().checkpoint().cloned(),
+        tip: left[from].chain.height(),
     };
     custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee, None)
         .expect("catch-up from a peer's checkpoint")
+}
+
+/// Offers member 3's newest checkpoint to `book`, as the node binary publishes
+/// it, and returns the newest height seen.
+fn offer_from_three(mesh: &Mesh, book: &mut CheckpointBook, seen: u64) -> u64 {
+    match mesh.members[3].driver.as_ref().unwrap().checkpoint() {
+        Some(c) => {
+            book.offer(c);
+            seen.max(c.height)
+        }
+        None => seen,
+    }
+}
+
+/// Imports into member 2 from member 3 posing as a follower: its reported tip
+/// one block behind the newest checkpoint it has seen (pre-freeze audit M-2).
+fn catch_up_from_follower(
+    mesh: &mut Mesh,
+    book: &mut CheckpointBook,
+    seen: u64,
+    committee: &[VerifyingKey],
+) -> u64 {
+    let (left, right) = mesh.members.split_at_mut(3);
+    let tip = seen.saturating_sub(1).min(right[0].chain.height());
+    book.set_tip(tip);
+    let peer = Peer {
+        chain: &right[0].chain,
+        checkpoint: book.newest().cloned(),
+        tip,
+    };
+    custom_l1_node::consensus::bft::catchup::catch_up(&mut left[2].chain, &peer, committee, None)
+        .expect("catch-up from a follower's held checkpoint")
+}
+
+/// Validator 2 down far past the engine window, then restarted with member 3,
+/// posing as a follower one block behind, as its only catch-up source.
+/// `open_engine` opens its engine after the first import. Returns the heights
+/// `(start, lead, rejoined)` over 30 more rounds of following that source.
+fn follower_source_scenario(open_engine: bool) -> (u64, u64, u64) {
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(3);
+    mesh.members[2].driver = None;
+    let before = mesh.members[2].chain.height();
+    let mut book = CheckpointBook::default();
+    let mut seen = 0;
+    for _ in 0..400 {
+        if mesh.members[0].chain.height() >= before + 60 {
+            break;
+        }
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+        seen = offer_from_three(&mesh, &mut book, seen);
+    }
+    assert!(
+        mesh.members[0].chain.height() >= before + 60,
+        "3 of 4 stalled"
+    );
+
+    let m = &mut mesh.members[2];
+    m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
+    m.chain = open_chain(&m.state_dir, false);
+    let (_, committee) = signers();
+    let imported = catch_up_from_follower(&mut mesh, &mut book, seen, &committee);
+    assert!(imported >= 50, "imported {imported}");
+
+    if open_engine {
+        let m = &mut mesh.members[2];
+        let (mut driver, step) =
+            BftDriver::open(&mesh.setups[2], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
+        driver.follow_attested(&m.chain);
+        m.driver = Some(driver);
+        mesh.absorb(2, step);
+    }
+
+    let start = mesh.members[0].chain.height();
+    for _ in 0..30 {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+        seen = offer_from_three(&mesh, &mut book, seen);
+        catch_up_from_follower(&mut mesh, &mut book, seen, &committee);
+    }
+    let (lead, rejoined) = (
+        mesh.members[0].chain.height(),
+        mesh.members[2].chain.height(),
+    );
+    let at = usize::try_from(rejoined).unwrap();
+    assert_eq!(
+        mesh.members[2].chain.active_chain().unwrap()[at],
+        mesh.members[0].chain.active_chain().unwrap()[at],
+        "the imported chain is the network's"
+    );
+    assert_eq!(mesh.equivocations, 0);
+    (start, lead, rejoined)
+}
+
+#[test]
+fn a_restarting_validator_catches_up_from_a_follower_source_alone() {
+    // M-2 and gate 10: the restarting validator's only `--catch-up-from` source
+    // trails the newest checkpoint it has seen. It used to serve that one, which
+    // it held no block for, so nothing was ever imported. Now the first import
+    // takes it 50+ blocks, and it keeps pace with the network from that source.
+    let (start, lead, rejoined) = follower_source_scenario(false);
+    assert!(
+        lead > start + 5,
+        "the network kept going: {start} -> {lead}"
+    );
+    assert!(lead - rejoined <= 4, "it keeps pace: {rejoined} vs {lead}");
+}
+
+#[test]
+#[ignore = "open finding (2026-11-08): an engine opened a few blocks behind the network, \
+            far past the window, stalls the three builders in this mesh; see PR notes"]
+fn a_validator_opened_behind_the_tip_does_not_stall_the_builders() {
+    let (start, lead, rejoined) = follower_source_scenario(true);
+    assert!(
+        lead > start + 5,
+        "the network kept going: {start} -> {lead}, rejoined {rejoined}"
+    );
 }
 
 #[test]

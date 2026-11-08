@@ -52,11 +52,13 @@ pub(super) struct Reporting {
 
 /// Puts the driver's checkpoints where `get_checkpoint` reads them: this
 /// epoch's newest, and the just-ended epoch's final one, which late
-/// attestations can still complete after the switch.
-fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<CheckpointBook>) {
+/// attestations can still complete after the switch. `tip` is this node's
+/// height, so only checkpoints it holds the block of are served (M-2).
+fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<CheckpointBook>, tip: u64) {
     let mut book = slot
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    book.set_tip(tip);
     for checkpoint in [driver.closing_checkpoint(), driver.checkpoint()]
         .into_iter()
         .flatten()
@@ -82,6 +84,48 @@ pub(super) const BFT_DIR: &str = "bft";
 /// ten seconds.
 const STUCK_ROUNDS: u32 = 10;
 const STUCK_ROUNDS_MAX: u32 = 320;
+
+/// The follow loop's count towards a certificate-replay rescue. Neither count
+/// resets when the source rotates (audit L-1): resetting `patience` held the
+/// back-off near 40 rounds, so rescues hit sources twice a minute forever, and
+/// resetting `stuck` alone would stop rescues outright once `patience` passed
+/// [`FOLLOW_ROTATE_AFTER`]. Only progress resets them.
+struct ReplayBackoff {
+    stuck: u32,
+    patience: u32,
+}
+
+impl ReplayBackoff {
+    const fn new() -> Self {
+        Self {
+            stuck: 0,
+            patience: STUCK_ROUNDS,
+        }
+    }
+
+    /// One round still behind a source that is ahead. Returns the patience that
+    /// ran out when a replay is due, and doubles it for the next one.
+    fn behind(&mut self) -> Option<u32> {
+        self.stuck += 1;
+        if self.stuck < self.patience {
+            return None;
+        }
+        self.stuck = 0;
+        let spent = self.patience;
+        self.patience = (self.patience * 2).min(STUCK_ROUNDS_MAX);
+        Some(spent)
+    }
+
+    /// The source is not ahead: nothing to be stuck behind.
+    fn level(&mut self) {
+        self.stuck = 0;
+    }
+
+    /// A round imported blocks, or the node builds again.
+    fn progress(&mut self) {
+        *self = Self::new();
+    }
+}
 
 /// How the follow loop rescues a follower that checkpoints cannot move
 /// (attacknet 2026-10-30, attack 7). A follower imports only to a checkpoint,
@@ -633,8 +677,7 @@ pub(super) async fn follow_loop(
     // same held blocks is said once, not on every poll.
     let mut last_held: Option<u64> = None;
     let mut idle: u32 = 0;
-    let mut stuck: u32 = 0;
-    let mut patience = STUCK_ROUNDS;
+    let mut backoff = ReplayBackoff::new();
     loop {
         ticker.tick().await;
         // Every second only while following. A builder derives its own
@@ -728,20 +771,18 @@ pub(super) async fn follow_loop(
                 let ours = lock_chain(&chain).height();
                 match source_height(&url).await {
                     Some(theirs) if theirs > ours => {
-                        stuck += 1;
-                        if stuck == 1 {
+                        let due = backoff.behind();
+                        if backoff.stuck == 1 {
                             eprintln!(
                                 "catch-up: no checkable checkpoint from {url}; {} behind",
                                 theirs - ours
                             );
                         }
-                        if stuck >= patience {
-                            stuck = 0;
+                        if let Some(patience) = due {
                             eprintln!(
                                 "catch-up: still {} behind after {patience} rounds; replaying certificates from {url}",
                                 theirs - ours
                             );
-                            patience = (patience * 2).min(STUCK_ROUNDS_MAX);
                             // Full means a replay is already queued.
                             // Not while the trusted block is still pending: a
                             // replay would verify against the committee alone.
@@ -750,13 +791,12 @@ pub(super) async fn follow_loop(
                             }
                         }
                     }
-                    _ => stuck = 0,
+                    _ => backoff.level(),
                 }
             }
             Ok(_) => {
                 last_error = None;
-                stuck = 0;
-                patience = STUCK_ROUNDS;
+                backoff.progress();
             }
             Err(e) => {
                 let message = e;
@@ -773,11 +813,10 @@ pub(super) async fn follow_loop(
                 sources.rotate_after
             );
             url = next;
-            // The head and the stuck count were measured on the old source.
+            // The head was measured on the old source. The replay back-off
+            // is not reset: it counts this node's stall, not the source's.
             claimed = None;
             probe_in = 0;
-            stuck = 0;
-            patience = STUCK_ROUNDS;
         }
     }
 }
@@ -1093,7 +1132,9 @@ pub(super) async fn bft_loop(
                 driver.on_tick(&mut guard, now_ms())
             }
         };
-        publish_checkpoint(&driver, &checkpoint);
+        // Height read before the book is locked: the two locks are never held together.
+        let tip = lock_chain(&chain).height();
+        publish_checkpoint(&driver, &checkpoint, tip);
         *status
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = driver.status();
@@ -1311,6 +1352,33 @@ mod tests {
             assert!(sources.record(true).is_none());
         }
         assert_eq!(sources.url(), "only");
+    }
+
+    #[test]
+    fn the_replay_back_off_keeps_growing_across_source_rotations() {
+        // L-1: two followers as sources, both ahead and never moving us. The
+        // loop's order: back-off first, then rotation. Rescue gaps must double
+        // to the cap and rescues must never stop.
+        let mut sources = rotation(&["a", "b"], super::FOLLOW_ROTATE_AFTER);
+        let mut backoff = super::ReplayBackoff::new();
+        let mut rescues = Vec::new();
+        let mut rotations = 0;
+        for round in 1..=4_000u32 {
+            if backoff.behind().is_some() {
+                rescues.push(round);
+            }
+            rotations += u32::from(sources.record(true).is_some());
+        }
+        assert!(rotations > 60, "{rotations}");
+        let gaps: Vec<u32> = std::iter::once(rescues[0])
+            .chain(rescues.windows(2).map(|w| w[1] - w[0]))
+            .collect();
+        assert_eq!(gaps[..7], [10, 20, 40, 80, 160, 320, 320]);
+        assert!(gaps.iter().all(|g| *g <= super::STUCK_ROUNDS_MAX));
+        assert!(rescues.len() > 12, "rescues keep coming: {rescues:?}");
+        backoff.progress();
+        assert_eq!(backoff.behind(), None);
+        assert_eq!(backoff.patience, super::STUCK_ROUNDS, "progress resets it");
     }
 
     #[test]

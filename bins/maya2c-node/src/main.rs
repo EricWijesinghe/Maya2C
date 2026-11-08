@@ -55,6 +55,7 @@ mod import;
 mod power_guard;
 mod pruning;
 mod rejoin;
+mod safety_guard;
 mod update_notice;
 mod validator_key;
 use custom_l1_node::consensus::bft::catchup::Anchor;
@@ -209,6 +210,9 @@ struct Args {
     /// Start a stale-looking node with no confirming head (B49). The operator's
     /// statement that the network halted or the genesis is old, not an eclipse.
     allow_unconfirmed_start: bool,
+    /// Start a validator with no BFT safety log on a recent chain (audit L-2).
+    /// The operator's statement that this key never signed in this epoch.
+    never_signed: bool,
     /// DAG-BFT: catch up through this peer's attested checkpoint and follow
     /// attested blocks (ADR-038), for a node that was down too long to rejoin.
     catch_up_from: Vec<String>,
@@ -284,6 +288,7 @@ impl Default for Args {
             bootstrap_from: None,
             trusted_block: None,
             allow_unconfirmed_start: false,
+            never_signed: false,
             catch_up_from: Vec::new(),
             allow_private_peers: false,
             allow_sleep: false,
@@ -346,6 +351,9 @@ fn print_usage() {
          --allow-unconfirmed-start  start with an old tip and no source head beyond the window. Only for a\n                           \
          halted network (longer than the window) or a genesis signed long before launch. It is\n                           \
          refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
+         --i-know-this-validator-never-signed  start a committee validator whose <data-dir>/bft is missing\n                           \
+         on a recent chain. Only for a key that signed nothing this epoch: otherwise it can sign\n                           \
+         a round twice, which is equivocation and is slashed\n  \
          --allow-sleep        Windows: start a validator even if the AC power plan can sleep the PC\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
@@ -433,6 +441,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
             "--allow-unconfirmed-start" => args.allow_unconfirmed_start = true,
+            "--i-know-this-validator-never-signed" => args.never_signed = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
             "--allow-sleep" => args.allow_sleep = true,
@@ -1044,6 +1053,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             (None, None) => None,
         };
         let setup = bft::setup(committee, signer)?;
+        // Before certificate sync or the engine creates a fresh, empty `bft/`.
+        safety_guard::check(&setup, &args.data_dir, &chain, args.never_signed)?;
         // A snapshot lands outside the engine's window, so without catch-up
         // the node sits at the snapshot height and says nothing (found in the
         // 2026-10-19 recovery drill).
