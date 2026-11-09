@@ -81,9 +81,15 @@ interrupted rehearsal held `target/release/maya2c-gpu-miner.exe` open
 (`os error 5`); it was stopped by PID and the run repeated.
 
 ## 24 h proving run
-Started 2026-11-09T16:02:38+09:00 at **bb4e0940** (`cargo xtask proving
---hours 24` in the `D:/Maya2C-wt-audit` worktree, detached launcher). Hourly
-lines go to that worktree's `reports/proving/`. Result: pending.
+The first start at bb4e0940 failed at genesis-check: the harness still
+funded a 1,000-coin root allocation and bonded 10,000 coins, which the
+no-premine and floor-bond rules (#374) refuse. Fixed in #400 (`--supply 0`,
+bond = `genesis_check::MIN_SELF_BOND`); node code unchanged.
+
+Started 2026-11-09T16:21:35+09:00 at **6fcfc65e** (#400 tip; node code
+identical to bb4e0940): `genesis-check: PASS`, `7 validators on one chain
+after 5s`, `0.0 h: height 62, epoch 0, … halts 0`. Hourly lines go to
+`D:/Maya2C-wt-audit/reports/proving/`. Result: pending.
 
 ## Fuzz
 The 2026-11-08 campaign is now in `reports/fuzz/2026-11-08-consensus-decoders.md`:
