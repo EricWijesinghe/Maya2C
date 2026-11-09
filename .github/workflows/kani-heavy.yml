@@ -20,7 +20,7 @@ env:
 
 jobs:
   kani:
-    name: kani ${{ matrix.harness }}
+    name: kani ${{ matrix.package }} ${{ matrix.harness }}
     # Standard public-repo Linux runner: 4 vCPU, 16 GB RAM, 14 GB SSD
     # (GitHub docs, runners reference, checked 2026-11-04).
     runs-on: ubuntu-latest
@@ -29,9 +29,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        harness:
-          - a_swap_leaves_both_reserves_non_empty
-          - a_one_sided_exit_keeps_the_price_usable
+        # Each pair is named in nightly.yml's heavy list for its crate, so
+        # nightly skips it and only this workflow proves it.
+        include:
+          - { package: maya-dex, harness: a_swap_leaves_both_reserves_non_empty }
+          - { package: maya-dex, harness: a_one_sided_exit_keeps_the_price_usable }
+          # 256-bit cross-multiplication: past 2 h each in WSL (2026-11-09).
+          - { package: maya-governance, harness: more_support_never_turns_a_pass_into_a_failure }
+          - { package: maya-governance, harness: more_turnout_never_loses_a_quorum }
+          # Past 1 h in WSL (2026-11-09); #348 saw no verdict in 50 min.
+          - { package: maya-fee-market, harness: a_split_conserves_every_unit }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # .cargo/config.toml links through clang + mold on Linux; a runner
@@ -52,8 +59,9 @@ jobs:
       # The harness carries its own #[kani::unwind(513)]; see proofs.rs.
       # Exit codes: 124 = time budget, 137/143 = killed (out of memory),
       # anything else non-zero = a real verdict from Kani.
-      - name: Prove ${{ matrix.harness }}
+      - name: Prove ${{ matrix.package }} ${{ matrix.harness }}
         env:
+          PACKAGE: ${{ matrix.package }}
           HARNESS: ${{ matrix.harness }}
         run: |
           # Runner shells run with -e: the exit code must be classified below, not raised.
@@ -61,7 +69,7 @@ jobs:
           mkdir -p kani-out
           start=$(date +%s)
           timeout --kill-after=60 300m /usr/bin/time -v -o kani-out/time.txt \
-            cargo kani -p maya-dex --harness "$HARNESS" 2>&1 | tee kani-out/kani.log
+            cargo kani -p "$PACKAGE" --harness "proofs::$HARNESS" --exact 2>&1 | tee kani-out/kani.log
           code=${PIPESTATUS[0]}
           secs=$(( $(date +%s) - start ))
           rss_kb=$(sed -n 's/.*Maximum resident set size (kbytes): //p' kani-out/time.txt)
