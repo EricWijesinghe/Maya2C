@@ -239,6 +239,11 @@ fn nothing_executes_before_its_timelock() {
 }
 
 /// A settled proposal admits no further transition.
+///
+/// The four settled tags (3..=6) are taken one by one rather than as one
+/// symbolic tag: the same states, all of them, but each a constant, so CBMC
+/// drops `finalize`'s tally branch (a 512-bit product) that no settled state
+/// reaches. With a symbolic tag the harness ran past 15 minutes (2026-11-09).
 #[kani::proof]
 fn a_settled_proposal_never_moves_again() {
     let height: u64 = kani::any();
@@ -246,37 +251,39 @@ fn a_settled_proposal_never_moves_again() {
     let timelock: u64 = kani::any();
     let at: u64 = kani::any();
 
-    let tag: u8 = kani::any();
-    kani::assume(tag >= 3 && tag <= 6);
-    let Some(state) = ProposalState::from_tag(tag) else {
-        return;
-    };
-    assert!(state.is_settled());
+    for tag in 3u8..=6 {
+        let Some(state) = ProposalState::from_tag(tag) else {
+            panic!("tag {tag} names no state");
+        };
+        assert!(state.is_settled());
 
-    if let Ok(proposal) = Proposal::open(height, voting, timelock) {
-        let settled = Proposal { state, ..proposal };
+        if let Ok(proposal) = Proposal::open(height, voting, timelock) {
+            let settled = Proposal { state, ..proposal };
 
-        assert!(settled.vote(any_choice(), Amount::ONE, at).is_err());
-        assert!(settled.execute(at).is_err());
-        assert!(settled.cancel().is_err());
-        assert!(!settled.is_executable(at));
-        // Finalizing is a no-op rather than an error, because the end-of-block
-        // pass visits every proposal and must not fail on a settled one.
-        assert!(settled.finalize(at, Amount::ONE, MIN_QUORUM_BPS, MIN_APPROVAL_BPS) == Ok(settled));
+            assert!(settled.vote(any_choice(), Amount::ONE, at).is_err());
+            assert!(settled.execute(at).is_err());
+            assert!(settled.cancel().is_err());
+            assert!(!settled.is_executable(at));
+            // Finalizing is a no-op rather than an error, because the end-of-block
+            // pass visits every proposal and must not fail on a settled one.
+            assert!(
+                settled.finalize(at, Amount::ONE, MIN_QUORUM_BPS, MIN_APPROVAL_BPS) == Ok(settled)
+            );
+        }
     }
 }
 
 /// A parameter value is accepted exactly when it is inside its own range.
 ///
 /// The bound between "governance may adjust this" and "governance may break
-/// this", proved for every key and every `u64`.
+/// this", proved for every key and every 256-bit value.
 #[kani::proof]
 fn a_parameter_is_accepted_exactly_within_its_range() {
     let index: usize = kani::any();
     kani::assume(index < ALL_KEYS.len());
     let key = ALL_KEYS[index];
 
-    let value: u64 = kani::any();
+    let value = any_amount();
     let bounds = key.bounds();
 
     if key.check(value).is_ok() {

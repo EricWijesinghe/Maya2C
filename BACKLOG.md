@@ -27,6 +27,12 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P2 — found in the 2026-11-01 hardening wave (post-freeze)
 
+- **Pay the lint ratchet back from 844 to 790 or below (after genesis).** It rose by 54 between
+  10-28 and 11-09 while nightly was red: compile errors in clippy kept `--check` from counting.
+  It was raised on 11-09 rather than edited during the freeze, because the largest share is
+  pedantic cast lints in `crates/vm/src/runtime.rs` (frozen consensus code). Top kinds:
+  truncating casts (~100), doc backticks (49), sign-loss casts (24), f64 precision (36).
+
 - **OS-native wallet confirm dialog.** #287 makes `Wallet::sign` spend one confirm, but a
   compromised webview can still call confirm and then sign without rendering anything. A
   native dialog outside the webview closes that.

@@ -17,10 +17,18 @@ class Wallet:
 
     The password is passed in ``L1_WALLET_PASSWORD`` to the child process
     only; it never appears on a command line.
+
+    ``genesis`` is the network's published genesis id. ``l1-wallet`` signs
+    without it only for a network its build pins (mainnet, the public
+    testnet); for any other it must be given, and must match the node.
+    Calling :meth:`sign_transfer` is the confirmation, so it passes ``--yes``.
     """
 
-    def __init__(self, l1_wallet: str, keystore: str, password: str, client: Client) -> None:
+    def __init__(
+        self, l1_wallet: str, keystore: str, password: str, client: Client, genesis: str | None = None
+    ) -> None:
         self.l1_wallet = l1_wallet
+        self.genesis = genesis
         self.keystore = keystore
         self._password = password
         self.client = client
@@ -43,15 +51,22 @@ class Wallet:
         return fields
 
     def address(self) -> str:
-        """The keystore's address: 64 hex characters, printed alone."""
+        """The keystore's address as 64 hex characters.
+
+        ``l1-wallet address`` prints the Bech32m text, then ``hex: <64 hex>``
+        (ADR-081); a build from before that printed the hex alone.
+        """
         printed = self._output("address").strip()
-        if len(printed) != 64 or any(c not in "0123456789abcdef" for c in printed):
+        lines = printed.splitlines()
+        hexed = next((v.strip() for k, _, v in (l.partition(":") for l in lines) if k.strip() == "hex"), printed)
+        if len(hexed) != 64 or any(c not in "0123456789abcdef" for c in hexed):
             raise WalletError(f"l1-wallet address printed {printed!r}")
-        return printed
+        return hexed
 
     def sign_transfer(self, to: str, amount: int) -> tuple[str, str]:
         """Builds and signs a transfer without broadcasting: ``(raw_hex, txid)``."""
-        fields = self._run("send", "--to", to, "--amount", str(amount), "--no-broadcast")
+        pin = ("--genesis", self.genesis) if self.genesis else ()
+        fields = self._run("send", "--yes", *pin, "--to", to, "--amount", str(amount), "--no-broadcast")
         if "raw" not in fields:
             raise WalletError("l1-wallet printed no raw transaction")
         return fields["raw"], fields.get("txid", "")

@@ -170,10 +170,25 @@ jobs:
   # Formal verification. Kani on the dependency-free arithmetic crates -
   # which is why they are dependency-free (invariants 1, 6, 12).
   # ---------------------------------------------------------------------
+  # One runner per crate. With 256-bit amounts (ADR-046/068) the six crates
+  # in one 90-minute job never finished: every nightly from 10-19 to 11-08
+  # was cancelled at the limit or failed. Each crate now has the budget
+  # kani-heavy.yml uses, under GitHub's 360-minute cap.
   kani:
-    name: kani proofs
+    name: kani ${{ matrix.package }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - maya-ledger-math
+          - maya-governance
+          - maya-fee-market
+          - maya-threat-intel
+          - maya-iot-anchor
+          - maya-htlc-lattice
+          - maya-dex
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # .cargo/config.toml links through clang + mold on Linux; a runner
@@ -191,20 +206,42 @@ jobs:
           cargo install --locked kani-verifier
           cargo kani setup
 
+      # Harnesses in a crate's heavy list run only in kani-heavy.yml (one
+      # runner each). Guard: every heavy name must exist, so a rename cannot
+      # drop a proof from both workflows.
       - name: Proofs
+        if: matrix.package != 'maya-dex'
+        env:
+          PACKAGE: ${{ matrix.package }}
         run: |
-          cargo kani -p maya-ledger-math
-          cargo kani -p maya-governance
-          cargo kani -p maya-fee-market
-          cargo kani -p maya-threat-intel
-          cargo kani -p maya-iot-anchor
-          cargo kani -p maya-htlc-lattice
+          set -euo pipefail
+          case "$PACKAGE" in
+            maya-governance) heavy="more_support_never_turns_a_pass_into_a_failure more_turnout_never_loses_a_quorum" ;;
+            maya-fee-market) heavy="a_split_conserves_every_unit" ;;
+            *) heavy="" ;;
+          esac
+          if [ -z "$heavy" ]; then
+            cargo kani -p "$PACKAGE"
+            exit 0
+          fi
+          file="crates/${PACKAGE#maya-}/src/proofs.rs"
+          for h in $heavy; do
+            grep -q "^fn $h()" "$file" || { echo "no harness $h in $file"; exit 1; }
+          done
+          names=$(grep -A8 '#\[kani::proof\]' "$file" | sed -n 's/^fn \([a-z0-9_]*\)().*/\1/p' | sort -u)
+          total=$(grep -c '#\[kani::proof\]' "$file")
+          [ "$(echo "$names" | wc -l)" -eq "$total" ] || { echo "found $(echo "$names" | wc -l) harness names for $total #[kani::proof] in $file"; exit 1; }
+          for h in $names; do
+            case " $heavy " in *" $h "*) continue ;; esac
+            cargo kani -p "$PACKAGE" --harness "proofs::$h" --exact
+          done
 
       # maya-dex is run per harness. Its two heavy harnesses (CBMC needs
       # more than this runner's budget within 90 minutes) run in
       # kani-heavy.yml. Guard: the lists must cover every #[kani::proof] in
       # the file, so a new harness cannot be silently skipped.
       - name: Dex proofs (light)
+        if: matrix.package == 'maya-dex'
         run: |
           set -euo pipefail
           file=crates/dex/src/proofs.rs
@@ -309,7 +346,9 @@ jobs:
   localnet:
     name: four-validator localnet
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Measured 2026-11-09: localnet 18 min, SDKs 15 min, then the crash test
+    # compiles ~7 min before its 1,000 runs; 45 minutes cut it off mid-run.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Free runner disk

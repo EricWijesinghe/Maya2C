@@ -3,6 +3,8 @@
 //! from the benchmark: consensus keeps finalizing, but the blocks are empty
 //! while transactions wait in the mempool.
 
+#![allow(clippy::unwrap_used)] // a test that fails should panic, and say where
+
 use std::future::Future;
 use std::sync::Mutex;
 
