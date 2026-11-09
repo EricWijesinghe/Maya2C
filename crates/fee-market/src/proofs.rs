@@ -97,7 +97,9 @@ fn the_neural_rule_never_leaves_the_envelope() {
 /// fail exactly where the true result leaves 0..2^256. This is the carry and
 /// borrow chain the supply bound rests on.
 #[kani::proof]
-#[kani::unwind(5)]
+// 41, not 5: `==` on `Amount` and `Option<Amount>` is a byte-wise memcmp
+// over up to 40 bytes. 5 (the limb loops) failed the unwinding check in CI.
+#[kani::unwind(41)]
 fn amount_add_and_sub_are_exact_inverses() {
     let a = any_amount();
     let b = any_amount();
@@ -118,7 +120,9 @@ fn amount_add_and_sub_are_exact_inverses() {
 /// A burn conserves `total` and moves `circulating` by exactly the burn, for
 /// every 256-bit supply, and is refused only when it exceeds what circulates.
 #[kani::proof]
-#[kani::unwind(5)]
+// 41, not 5: `==` on `Amount` and `Option<Amount>` is a byte-wise memcmp
+// over up to 40 bytes. 5 (the limb loops) failed the unwinding check in CI.
+#[kani::unwind(41)]
 fn a_burn_moves_only_circulating_and_by_exactly_the_burn() {
     let total = any_amount();
     let circulating = any_amount();
