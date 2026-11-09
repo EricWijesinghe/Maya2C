@@ -62,6 +62,9 @@ const preview = (() => {
         bft: { committee: 4, epoch: 118 }, mining: { active: true, epoch: 118, shares: 412, target_shares: 1000, share_reward: 7_000_000_000 },
         account: { balance: accepted * 7_000_000_000 } };
     },
+    // Synthetic, like the rest of preview mode: the header already says so.
+    watch_balances: ({ addresses }) => addresses.map((input, i) => ({ input, address_text: input,
+      balance: (BigInt(i + 1) * 1234567n * 10n ** 21n).toString(), nonce: i, error: null })),
     gpu_telemetry: () => ({ devices: [{ index: 0, name: "Preview GPU", temp_c: 58 + Math.random() * 4, power_w: 170 + Math.random() * 15,
       power_limit_w: 250, util_pct: 97, fan_pct: 54, mem_used_mib: 4300, mem_total_mib: 12227, clock_mhz: 2610 }], note: null }),
   };
@@ -665,6 +668,7 @@ async function main() {
   wireNav();
   wireSettings(defaults, state.gpus);
   renderUniverse();
+  Wallet.init({ call, url: () => state.settings.rpc });
   NetView.init({ canvas: $("orb"), layer: $("net-layer"), tip: $("net-tip"), reduced: reducedMotion, onSelect: showNetDetail });
   if (defaults.can_mine === false) {
     // Phones watch; the desktop Hub mines.
