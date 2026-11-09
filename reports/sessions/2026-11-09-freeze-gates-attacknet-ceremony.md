@@ -95,6 +95,40 @@ after 5s`, `0.0 h: height 62, epoch 0, … halts 0`. Hourly lines go to
 The 2026-11-08 campaign is now in `reports/fuzz/2026-11-08-consensus-decoders.md`:
 8 targets, 462,261,905 execs, 0 crashes.
 
+## Evening: nightly red since 11-06 (PR #404)
+The laptop slept for about 1.2 h during the proving run (1.0 h at height 3540,
+then 3.2 h at height 6221). The harness slept too, so it recorded no halt. All 7
+validators woke together and went on, with no fork. The run's real running time
+will be about 22.8 h of the 24 h it reports.
+
+Nightly had failed every night since 11-06 on three jobs. Fixed in #404:
+- **clippy debt ratchet:** four test modules (bft builder, l1-wallet
+  guard, sentinel stranding replay, rpc limit) were missing the unwrap
+  allow. With them fixed, `cargo clippy --workspace --all-targets
+  --keep-going` reports no errors. The count was then 844 against a 790
+  baseline. It grew while the gate could not count, mostly from cast lints
+  in frozen `crates/vm/src/runtime.rs`. The baseline was raised to 844 with
+  that reason, and paying it back is in BACKLOG (P2). CI: success.
+- **four-validator localnet:** the SDKs signed without `--genesis` or
+  `--yes`, and #390 changed what `address` prints. The fixed SDKs pass:
+  `cargo xtask sdk-e2e --lang python`, `Ran 7 tests ... OK` (local and CI);
+  Go, `ok maya2c.dev/sdk` with 3 PASS (CI). The 1,000-run kill -9 step behind
+  them had never run; it timed the job out at 45 minutes. Run locally:
+  `test result: ok. 2 passed ... finished in 863.20s`. The job budget is now
+  120 min.
+- **kani proofs:** no nightly since 10-19 passed, because every run was
+  cancelled at 90 minutes or failed. `maya-governance` also no longer compiled:
+  its range proof still drew a u64 after parameters became `Amount`. The job is
+  now one runner per crate at 340 min. The range proof now covers every 256-bit
+  value, and the settled-proposal harness checks the four settled tags one by
+  one, which took it from over 15 min to 7 s. WSL results: ledger-math,
+  threat-intel, iot-anchor 3/3, htlc-lattice 3/3; governance 12 harnesses,
+  9 in seconds, and `adding_a_vote_moves_exactly_one_column` SUCCESSFUL in
+  841 s; the other two tally harnesses and fee-market are measured below.
+
+These changes touch only `#[cfg(test)]`, `#[cfg(kani)]`, the SDKs, xtask and
+CI, so the node binary of the freeze is unchanged.
+
 ## Not done here
 - The 24 h proving run (above) is still running. No heavy work runs on this PC until it ends.
 - Promote `release/mainnet-v1` and publish a release: this publishes, so it
