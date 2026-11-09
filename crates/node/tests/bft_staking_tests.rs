@@ -716,7 +716,10 @@ fn get_supply_counts_what_staking_holds() {
     let report = custom_l1_node::rpc::market::supply(&chain).unwrap();
 
     let expected = config.total_supply().unwrap();
-    assert_eq!(expected, primitive_types::U256::from(1_000_000 + 4 * 10_000));
+    assert_eq!(
+        expected,
+        primitive_types::U256::from(1_000_000 + 4 * 10_000)
+    );
     assert_eq!(report.total, expected);
     assert_eq!(report.circulating, expected);
 }
