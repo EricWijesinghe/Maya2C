@@ -48,9 +48,16 @@ func (w *Wallet) Address() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The Bech32m text, then "hex: <64 hex>" (ADR-081); an older build
+	// printed the hex alone.
 	addr := strings.TrimSpace(out)
+	for _, line := range strings.Split(addr, "\n") {
+		if key, value, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(key) == "hex" {
+			addr = strings.TrimSpace(value)
+		}
+	}
 	if len(addr) != 64 {
-		return "", fmt.Errorf("l1-wallet address printed %q", addr)
+		return "", fmt.Errorf("l1-wallet address printed %q", strings.TrimSpace(out))
 	}
 	return addr, nil
 }

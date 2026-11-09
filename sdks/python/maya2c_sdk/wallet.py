@@ -51,11 +51,17 @@ class Wallet:
         return fields
 
     def address(self) -> str:
-        """The keystore's address: 64 hex characters, printed alone."""
+        """The keystore's address as 64 hex characters.
+
+        ``l1-wallet address`` prints the Bech32m text, then ``hex: <64 hex>``
+        (ADR-081); a build from before that printed the hex alone.
+        """
         printed = self._output("address").strip()
-        if len(printed) != 64 or any(c not in "0123456789abcdef" for c in printed):
+        lines = printed.splitlines()
+        hexed = next((v.strip() for k, _, v in (l.partition(":") for l in lines) if k.strip() == "hex"), printed)
+        if len(hexed) != 64 or any(c not in "0123456789abcdef" for c in hexed):
             raise WalletError(f"l1-wallet address printed {printed!r}")
-        return printed
+        return hexed
 
     def sign_transfer(self, to: str, amount: int) -> tuple[str, str]:
         """Builds and signs a transfer without broadcasting: ``(raw_hex, txid)``."""
