@@ -254,7 +254,10 @@ mod tests {
         // left outside the root.
         let (db, _dir) = open();
         db.raw_put(b"x:route", &[1]).expect("put");
-        assert_eq!(db.uncovered_keys().expect("scan"), vec![b"x:route".to_vec()]);
+        assert_eq!(
+            db.uncovered_keys().expect("scan"),
+            vec![b"x:route".to_vec()]
+        );
     }
 
     #[test]
