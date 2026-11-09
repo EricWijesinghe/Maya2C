@@ -100,6 +100,9 @@ better, and how success is measured are to be answered in that statement.
 
 ## 5. Later services
 
+The full list of planned apps and services, with what each builds on, its
+gate and its wave, is [ecosystem/CATALOG.md](ecosystem/CATALOG.md).
+
 Each is its own app on the shared identity, and each must first answer the
 three questions: who it is for, the one thing it does better than what
 those people use today, and how success is measured. Field extensions
