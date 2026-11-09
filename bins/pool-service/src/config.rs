@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use custom_l1_node::state::Address;
+use maya_address::Network;
 use primitive_types::{U256, U512};
 
 use crate::error::{PoolError, Result};
@@ -96,6 +97,8 @@ const MAX_TARGET_BITS: u32 = 63;
 /// Everything the daemon needs to run.
 #[derive(Clone, Debug)]
 pub struct PoolConfig {
+    /// Network the pool's text addresses are written for (ADR-081).
+    pub network: Network,
     /// Stratum listen address.
     pub stratum_addr: SocketAddr,
     /// Dashboard and JSON API listen address.
@@ -154,6 +157,8 @@ pub struct PoolConfig {
 impl Default for PoolConfig {
     fn default() -> Self {
         Self {
+            // Testnet until mainnet is launched; `--network mainnet` overrides it.
+            network: Network::Testnet,
             stratum_addr: "0.0.0.0:3333".parse().expect("literal address"),
             api_addr: "0.0.0.0:8080".parse().expect("literal address"),
             // Off unless asked for, matching `bins/maya2c-node/src/main.rs`: the deployment

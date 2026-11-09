@@ -34,6 +34,7 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::rpc::ChainInfo;
 
 use l1_wallet::client::NodeClient;
+use maya_address::Network;
 use zeroize::Zeroizing;
 
 /// Environment variable consulted when no terminal is available.
@@ -60,6 +61,11 @@ struct Cli {
         env = "L1_RPC_URL"
     )]
     rpc_url: String,
+
+    /// Network whose text addresses are printed offline: mainnet, testnet or
+    /// devnet. Commands that reach a node use the node's own chain instead.
+    #[arg(long, global = true, default_value = "testnet", value_parser = parse_network, env = "L1_WALLET_NETWORK")]
+    network: Network,
 
     #[command(subcommand)]
     command: Command,
@@ -89,7 +95,7 @@ enum Command {
 
     /// Sign and broadcast a transfer.
     Send {
-        /// Recipient address, 32 bytes hex encoded.
+        /// Recipient: Bech32m text address or 32 bytes hex.
         #[arg(long)]
         to: String,
 
@@ -246,10 +252,21 @@ fn load_key(path: &Path) -> Result<HybridSigningKey> {
     keystore::decrypt(&bytes, &password)
 }
 
-/// Accepts hex (optionally `0x`) or a Bech32m address (ADR-081). The wallet is
-/// not bound to a network, so a text address is taken for whichever known
-/// network its prefix names; the node still checks it against its own.
-fn decode_address(value: &str) -> Result<[u8; 32]> {
+fn parse_network(value: &str) -> std::result::Result<Network, String> {
+    match value {
+        "mainnet" => Ok(Network::Mainnet),
+        "testnet" => Ok(Network::Testnet),
+        "devnet" => Ok(Network::Devnet),
+        other => Err(format!(
+            "unknown network '{other}': use mainnet, testnet or devnet"
+        )),
+    }
+}
+
+/// Accepts hex (optionally `0x`) or a Bech32m address (ADR-081). With
+/// `expected` set, a text address for another network is refused; without it,
+/// a text address is taken for whichever known network its prefix names.
+fn decode_address(value: &str, expected: Option<Network>) -> Result<[u8; 32]> {
     let trimmed = value.trim();
     let raw = trimmed.strip_prefix("0x").unwrap_or(trimmed);
     if raw.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -257,12 +274,30 @@ fn decode_address(value: &str) -> Result<[u8; 32]> {
         return <[u8; 32]>::try_from(bytes.as_slice())
             .map_err(|_| anyhow::anyhow!("address must be 32 bytes, got {}", bytes.len()));
     }
-    maya_address::decode_any(trimmed)
+    let decoded = match expected {
+        Some(network) => maya_address::decode(network, trimmed).map(|id| (network, id)),
+        None => maya_address::decode_any(trimmed),
+    };
+    decoded
         .map(|(_, id)| id)
         .map_err(|e| anyhow::anyhow!("address: {e}"))
 }
 
-fn command_generate(path: &Path) -> Result<()> {
+/// The network the connected node runs, when its chain id has a text form.
+async fn node_network(client: &NodeClient) -> Result<Option<Network>> {
+    let info = client.get_network().await?;
+    Ok(info.chain_id.as_deref().and_then(Network::for_chain_id))
+}
+
+/// Text form on `network`, falling back to hex where no text form exists.
+fn display_address(id: &[u8; 32], network: Option<Network>) -> String {
+    match network {
+        Some(n) => maya_address::encode(n, id),
+        None => hex::encode(id),
+    }
+}
+
+fn command_generate(path: &Path, network: Network) -> Result<()> {
     if path.exists() {
         bail!(
             "{} already exists — refusing to overwrite an existing key",
@@ -278,7 +313,9 @@ fn command_generate(path: &Path) -> Result<()> {
     keystore::save(path, &blob)?;
 
     println!("keystore written to {}", path.display());
+    // `address:` stays hex: xtask and infra scripts parse that line.
     println!("address: {}", hex::encode(address));
+    println!("text:    {}", display_address(&address, Some(network)));
 
     if !keystore::permissions_are_restricted() {
         eprintln!(
@@ -290,27 +327,29 @@ fn command_generate(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn command_address(path: &Path) -> Result<()> {
+fn command_address(path: &Path, network: Network) -> Result<()> {
     let key = load_key(path)?;
-    println!("{}", hex::encode(key.address()));
+    let id = key.address();
+    println!("{}", display_address(&id, Some(network)));
+    println!("hex: {}", hex::encode(id));
     Ok(())
 }
 
 async fn command_balance(path: &Path, rpc_url: &str, address: Option<String>) -> Result<()> {
+    let client = NodeClient::connect(rpc_url)?;
     // Only unlock the keystore when the address was not supplied: querying
     // someone else's balance should not require a password.
     let address_hex = match address {
-        Some(value) => {
-            decode_address(&value)?;
-            value
-        }
+        Some(value) => hex::encode(decode_address(&value, node_network(&client).await?)?),
         None => hex::encode(load_key(path)?.address()),
     };
 
-    let client = NodeClient::connect(rpc_url)?;
     let account = client.get_balance(&address_hex).await?;
 
-    println!("address: {}", account.address);
+    println!(
+        "address: {}",
+        account.address_text.as_deref().unwrap_or(&account.address)
+    );
     println!("balance: {}", account.balance);
     println!("nonce:   {}", account.nonce);
     Ok(())
@@ -347,14 +386,16 @@ async fn command_send(
     amount: U256,
     opts: &TxOptions,
 ) -> Result<()> {
-    let recipient = decode_address(to)?;
+    // Checked against the node's network before any key is unlocked.
+    let network = node_network(&NodeClient::connect(rpc_url)?).await?;
+    let recipient = decode_address(to, network)?;
     let key = load_key(path)?;
     let payload = Payload {
         kind: TxKind::Transfer,
         outputs: vec![TxOutput { amount, recipient }],
     };
     if submit(&key, rpc_url, payload, opts).await? {
-        println!("to:       {}", hex::encode(recipient));
+        println!("to:       {}", display_address(&recipient, network));
         println!("amount:   {amount}");
     }
     Ok(())
@@ -586,7 +627,7 @@ async fn with_fee(
     }
     // The collector comes from the node, so it is checked against the protocol's before any fee is paid to it.
     guard::check_collector(&info.collector)?;
-    let collector = decode_address(&info.collector)?;
+    let collector = decode_address(&info.collector, None)?;
     outputs.push(TxOutput {
         amount: U256::zero(),
         recipient: collector,
@@ -635,8 +676,8 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Generate => command_generate(&cli.keystore),
-        Command::Address => command_address(&cli.keystore),
+        Command::Generate => command_generate(&cli.keystore, cli.network),
+        Command::Address => command_address(&cli.keystore, cli.network),
         Command::Balance { address } => command_balance(&cli.keystore, &cli.rpc_url, address).await,
         Command::Block { height } => command_block(&cli.rpc_url, height).await,
         Command::Send { to, amount, tx } => {
