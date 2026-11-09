@@ -76,7 +76,9 @@ fn parse(input: &str, network: Option<Network>) -> Watched {
 /// sends as a string is kept exact; a missing one is an error, not zero.
 fn fill(row: &mut Watched, account: &Value) {
     row.balance = match &account["balance"] {
-        Value::String(s) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => Some(s.clone()),
+        Value::String(s) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
+            Some(s.clone())
+        }
         Value::Number(n) if n.is_u64() => Some(n.to_string()),
         _ => None,
     };
@@ -125,7 +127,11 @@ mod tests {
 
     #[test]
     fn a_missing_or_odd_balance_is_an_error_not_zero() {
-        for reply in [json!({}), json!({ "balance": "-5" }), json!({ "balance": 1.5 })] {
+        for reply in [
+            json!({}),
+            json!({ "balance": "-5" }),
+            json!({ "balance": 1.5 }),
+        ] {
             let mut row = Watched::default();
             fill(&mut row, &reply);
             assert!(row.balance.is_none() && row.error.is_some(), "{reply}");

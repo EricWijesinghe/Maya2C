@@ -89,7 +89,10 @@ async fn node_snapshot(url: String, address: Option<String>) -> Result<node::Sna
 
 /// Watch-only balances for the Wallet page: public reads, no keys (ADR-083).
 #[tauri::command]
-async fn watch_balances(url: String, addresses: Vec<String>) -> Result<Vec<watch::Watched>, String> {
+async fn watch_balances(
+    url: String,
+    addresses: Vec<String>,
+) -> Result<Vec<watch::Watched>, String> {
     let url = node::check_url(&url)?.to_owned();
     tauri::async_runtime::spawn_blocking(move || watch::watch(&url, &addresses))
         .await
