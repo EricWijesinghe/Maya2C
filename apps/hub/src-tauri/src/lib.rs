@@ -11,6 +11,7 @@ mod miner_guard;
 mod node;
 mod notify;
 mod pools;
+mod watch;
 mod watchdog;
 
 use std::path::PathBuf;
@@ -84,6 +85,18 @@ async fn node_snapshot(url: String, address: Option<String>) -> Result<node::Sna
     tauri::async_runtime::spawn_blocking(move || node::snapshot(&url, address.as_deref()))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Watch-only balances for the Wallet page: public reads, no keys (ADR-083).
+#[tauri::command]
+async fn watch_balances(
+    url: String,
+    addresses: Vec<String>,
+) -> Result<Vec<watch::Watched>, String> {
+    let url = node::check_url(&url)?.to_owned();
+    tauri::async_runtime::spawn_blocking(move || watch::watch(&url, &addresses))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -179,6 +192,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             defaults,
             node_snapshot,
+            watch_balances,
             gpu_telemetry,
             miner_start,
             miner_stop,

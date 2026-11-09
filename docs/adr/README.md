@@ -97,3 +97,4 @@ The observation that would make this worth reopening.
 | [080](ADR-080-release-provenance-attestations.md) | Release provenance attestations for every file; threshold (k-of-n) release signing as a follow-up | Accepted |
 | [081](ADR-081-address-text-bech32m.md) | Addresses: Bech32m text form with a network prefix and checksum; account id unchanged | Accepted |
 | [082](ADR-082-genesis-committed-upgrade-levers.md) | Genesis-committed upgrade levers: dark features via the schedule, suite sunset record, schedule and PoW floor in the genesis id | Accepted |
+| [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |

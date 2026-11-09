@@ -274,3 +274,23 @@ h2 small { text-transform: none; letter-spacing: 0; font: 400 12px var(--body); 
 .lvl.info { background: rgb(126 234 240 / 0.12); color: var(--teal-glow); }
 .lvl.warn { background: rgb(217 185 122 / 0.18); color: var(--gold); }
 .lvl.critical { background: rgb(255 107 91 / 0.16); color: var(--hot); }
+
+/* Wallet page: watch-only balances (ADR-083) */
+.watch-add { display: flex; gap: 10px; margin: 16px 0 6px; }
+.watch-add input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel-solid); color: var(--text); font: 13px var(--mono); }
+.watch-add input:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.watch-list { display: grid; gap: 8px; margin-top: 8px; }
+.watch-row { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.watch-addr { display: grid; gap: 3px; min-width: 0; }
+.watch-addr strong { font: 600 13px var(--mono); overflow-wrap: anywhere; }
+.watch-bal { font: 800 16px var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ghost { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  color: var(--dim); cursor: pointer; font: 600 12px var(--display); }
+.ghost:hover { color: var(--text); border-color: var(--teal); }
+.warn-text { color: var(--gold); }
+@media (max-width: 640px) {
+  .watch-row { grid-template-columns: 1fr auto; }
+  .watch-row .ghost { grid-column: 1 / -1; justify-self: start; }
+}
