@@ -289,10 +289,11 @@ fn balance(i: u16, address: &str) -> Result<Amount> {
     amount(&rpc(i, "get_balance", &json!([address]))?["balance"])
 }
 
-/// Node 0's account total (`get_supply`) and the stake its validators hold
+/// Node 0's total supply (`get_supply`: accounts, shielded pool and
+/// everything staking holds) and the stake its validators hold
 /// (`get_validators`: self bond plus delegations).
 fn money() -> Result<(Amount, Amount)> {
-    let accounts = amount(&rpc(0, "get_supply", &json!([]))?["total"])?;
+    let total = amount(&rpc(0, "get_supply", &json!([]))?["total"])?;
     let info = rpc(0, "get_validators", &json!([]))?;
     let rows = info["validators"]
         .as_array()
@@ -305,7 +306,7 @@ fn money() -> Result<(Amount, Amount)> {
                 .ok_or("stake overflow")?;
         }
     }
-    Ok((accounts, staked))
+    Ok((total, staked))
 }
 
 struct Checks(Vec<String>);
@@ -391,20 +392,19 @@ fn rehearse(opts: &Opts) -> Result<()> {
         .ok_or("supply overflow")?;
     let supply = rpc(0, "get_supply", &json!([]))?;
     println!("ceremony-rehearsal: get_supply {supply}");
-    let (accounts, staked) = money()?;
-    let held = accounts.checked_add(staked).ok_or("supply overflow")?;
+    let (total, staked) = money()?;
+    let bonds = Amount::from_u128(bond)
+        .checked_mul(Amount::from_u64(u64::from(VALIDATORS)))
+        .ok_or("bonds overflow")?;
     checks.check(
-        held == expected,
-        format!("accounts {accounts} + staked {staked} = {held} == reserve {reserve} + 7 x {bond} = {expected}"),
+        staked == bonds,
+        format!("get_validators stake {staked} == 7 x {bond} = {bonds}"),
     );
-    // Found 2026-11-08: get_supply sums account balances only, so it leaves
-    // out the bonded stake that genesis counts in its total supply.
+    // get_supply counted accounts only until 2026-11-09; it now adds what
+    // staking holds, so this is the genesis total supply.
     checks.check(
-        amount(&supply["total"])? == expected,
-        format!(
-            "get_supply total {} == {expected} (get_supply counts accounts only, not staked)",
-            supply["total"]
-        ),
+        total == expected,
+        format!("get_supply total {total} == reserve {reserve} + 7 x {bond} = {expected}"),
     );
 
     let text = rpc(0, "get_balance", &json!([RESERVE_ADDRESS]))?["address_text"].clone();
@@ -466,8 +466,7 @@ fn mine(work: &Path, opts: &Opts, supply: &Amount, checks: &mut Checks) -> Resul
     drop(miner);
     let paid = balance(0, &address)?;
     let after = balance(0, RESERVE_ADDRESS)?;
-    let (accounts, staked) = money()?;
-    let total = accounts.checked_add(staked).ok_or("supply overflow")?;
+    let (total, _) = money()?;
     checks.check(
         paid > Amount::ZERO,
         format!("miner {address} paid {paid} after {t:?}"),
