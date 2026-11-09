@@ -12,10 +12,16 @@ import (
 // Wallet is a keystore, the l1-wallet binary that can open it, and a node.
 // The password reaches the child process in L1_WALLET_PASSWORD only; it
 // never appears on a command line.
+//
+// Genesis is the network's published genesis id. l1-wallet signs without it
+// only for a network its build pins (mainnet, the public testnet); for any
+// other it must be set, and must match the node. Calling SignTransfer is the
+// confirmation, so it passes --yes.
 type Wallet struct {
 	L1Wallet string
 	Keystore string
 	Client   *Client
+	Genesis  string
 	password string
 }
 
@@ -52,7 +58,12 @@ func (w *Wallet) Address() (string, error) {
 // SignTransfer builds and signs a transfer without broadcasting it and
 // returns the raw transaction and its txid.
 func (w *Wallet) SignTransfer(to string, amount *big.Int) (raw, txid string, err error) {
-	out, err := w.output("send", "--to", to, "--amount", amount.String(), "--no-broadcast")
+	args := []string{"send", "--yes"}
+	if w.Genesis != "" {
+		args = append(args, "--genesis", w.Genesis)
+	}
+	args = append(args, "--to", to, "--amount", amount.String(), "--no-broadcast")
+	out, err := w.output(args...)
 	if err != nil {
 		return "", "", err
 	}

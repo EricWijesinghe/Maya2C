@@ -269,14 +269,14 @@ fn a_settled_proposal_never_moves_again() {
 /// A parameter value is accepted exactly when it is inside its own range.
 ///
 /// The bound between "governance may adjust this" and "governance may break
-/// this", proved for every key and every `u64`.
+/// this", proved for every key and every 256-bit value.
 #[kani::proof]
 fn a_parameter_is_accepted_exactly_within_its_range() {
     let index: usize = kani::any();
     kani::assume(index < ALL_KEYS.len());
     let key = ALL_KEYS[index];
 
-    let value: u64 = kani::any();
+    let value = any_amount();
     let bounds = key.bounds();
 
     if key.check(value).is_ok() {

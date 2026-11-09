@@ -225,6 +225,7 @@ fn first_failing_prefix<B>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::core::block::{decode_cut, decode_plan};
     use crate::core::transaction::TxOutput;

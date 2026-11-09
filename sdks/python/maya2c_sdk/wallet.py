@@ -17,10 +17,18 @@ class Wallet:
 
     The password is passed in ``L1_WALLET_PASSWORD`` to the child process
     only; it never appears on a command line.
+
+    ``genesis`` is the network's published genesis id. ``l1-wallet`` signs
+    without it only for a network its build pins (mainnet, the public
+    testnet); for any other it must be given, and must match the node.
+    Calling :meth:`sign_transfer` is the confirmation, so it passes ``--yes``.
     """
 
-    def __init__(self, l1_wallet: str, keystore: str, password: str, client: Client) -> None:
+    def __init__(
+        self, l1_wallet: str, keystore: str, password: str, client: Client, genesis: str | None = None
+    ) -> None:
         self.l1_wallet = l1_wallet
+        self.genesis = genesis
         self.keystore = keystore
         self._password = password
         self.client = client
@@ -51,7 +59,8 @@ class Wallet:
 
     def sign_transfer(self, to: str, amount: int) -> tuple[str, str]:
         """Builds and signs a transfer without broadcasting: ``(raw_hex, txid)``."""
-        fields = self._run("send", "--to", to, "--amount", str(amount), "--no-broadcast")
+        pin = ("--genesis", self.genesis) if self.genesis else ()
+        fields = self._run("send", "--yes", *pin, "--to", to, "--amount", str(amount), "--no-broadcast")
         if "raw" not in fields:
             raise WalletError("l1-wallet printed no raw transaction")
         return fields["raw"], fields.get("txid", "")
