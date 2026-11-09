@@ -320,7 +320,9 @@ jobs:
   localnet:
     name: four-validator localnet
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Measured 2026-11-09: localnet 18 min, SDKs 15 min, then the crash test
+    # compiles ~7 min before its 1,000 runs; 45 minutes cut it off mid-run.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Free runner disk
