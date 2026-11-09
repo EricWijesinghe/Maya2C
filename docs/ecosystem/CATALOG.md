@@ -116,6 +116,50 @@ L is more. *Wave* is when, defined at the end of the file.
 Research subsystems (space links, bio, photonic and others) are already
 `planned` in `features.toml` with their own gates, and are not repeated here.
 
+## G. Future-proofing already fixed at genesis
+
+These are what make the chain hard to outdate. Each is in the frozen tree
+with a test, so it is a fact to check, not a promise. Lead claims against
+named chains are only those in
+[prior-art/pq-l1-comparison-2026-11.md](../prior-art/pq-l1-comparison-2026-11.md).
+
+| Property | Where it is pinned |
+|---|---|
+| Swappable cryptography: a suite registry and a sunset record, so a broken algorithm is retired by schedule, not by a hard fork | invariants 29 and 30, ADR-082 |
+| Two post-quantum signatures on every transaction (ML-DSA plus SLH-DSA, two different hardness assumptions) | `Transaction::verify`, invariant 31 |
+| Post-quantum transport and ML-DSA-87 validator keys | Noise prologue (#377), DECISIONS 2026-10-28 |
+| Upgrades on chain under compiled leads; no feature switches on without a scheduled height | ADR-082, invariant 34 |
+| 256-bit amounts at 24 decimals: no ceiling to outgrow | ADR-046, ADR-068 |
+| Every state prefix under the state root; an uncovered key is caught | invariant 25, `uncovered_keys` (#395) |
+| Network-prefixed, checksummed addresses | ADR-081 |
+| A council that sunsets by itself | invariant 34 (ADR-082) |
+
+**Gaps, stated plainly.** These are the places where another chain is ahead
+today:
+- **Decentralization:** the launch is a disclosed single machine, which leaves
+  validator count and geography as gaps.
+- **Audit:** there is no independent audit yet; the self pre-audit is not one.
+- **Track record:** the chain has no time in production yet.
+- **Ecosystem size:** there are no third-party apps yet.
+
+Waves W1 to W3 exist to close them.
+
+## H. The long journey (vision; Eric 2026-11-10)
+
+The chain is the first step toward an operating system and an ecosystem
+for a civilization far larger than ours. Eric's framing is "type VII". These
+are directions, not plans: none starts before W4, and each needs research
+and an ADR first.
+
+| id | Direction | Builds on | Gate |
+|---|---|---|---|
+| maya-os | A Rust operating system whose user identity is the post-quantum chain identity, and whose packages are reproducibly built and signed | `crates/build-guard`, ADR-080 provenance | research, ADR |
+| attested-hardware | Boot and device attestation that a node or wallet can prove | `hal/`, `crates/tiers` | TEE invariant first (CLAUDE.md) |
+| compute-fabric | One market for CPU, GPU and later other compute, verified per job | ADR-079 | ADR-079 phases |
+| long-archive | Records that outlive their media (DNA and optical archival research) | dna-quaternary-archival-engine (planned) | research |
+| interplanetary | Delay-tolerant links and timing across light-minutes | ccsds-delay-tolerant-networking-bpv7 (planned) | invariant 9 (heights, never timestamps) reconciliation |
+| self-governing-evolution | Pre-shipped code turned on by vote, never code loaded from state | ADR-078 (Omega), ADR-082 | ADR-078 acceptance; invariant 13 (no governance value is a program) |
+
 ## Waves
 
 | Wave | When | Rule |
