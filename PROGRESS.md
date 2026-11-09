@@ -232,7 +232,10 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Zero premine decided 2026-11-07 (`--supply 0`, ADR-044): genesis-check enforces the no-premine rule in `xtask/src/genesis_check.rs`
 - [x] Upgrade schedule on chain under compiled leads (ADR-082, invariant 34; `crates/node/tests/upgrade_schedule_tests.rs`)
 - [x] `maya-mainnet` registered for Bech32m, HRP `maya` (ADR-081; `crates/address` guard test un-ignored)
-- [ ] Fuzz (8 decoders, about 462M execs, 0 bugs) and the post-#383 bench: reported 2026-11-08, reports not yet committed to `reports/`
+- [x] Fuzz (8 decoders, 462,261,905 execs, 0 crashes): `reports/fuzz/2026-11-08-consensus-decoders.md`; post-#383 bench at b6b5f536, every transfer finalized: 413.3/s, 390.2/s, 245.0/s (`reports/bench/tps-179419*.md`)
+- [x] Merged 2026-11-08/09: #383-#397
+- [x] Weighted attacknet x10 at b6b5f536: PASS, no fork through 3482 (`reports/attacknet/2026-11-09-1.md`)
+- [x] Freeze gates at 8e764b6f (2026-11-09): coverage --verify-targets, spec-coverage, claims-check, release-check, cargo deny, nextest 4016/4016 passed (14 skipped)
 
 ## How to resume
 
