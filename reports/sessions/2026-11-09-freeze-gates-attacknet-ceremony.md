@@ -69,16 +69,28 @@ apply to the frozen tree.
 **Fixed:** #398 makes `get_supply` total add `Staking::held()` (bonds,
 delegations, unbonding). This is RPC only; consensus and state are unchanged.
 Test `get_supply_counts_what_staking_holds` fails on master (`left: 1000000
-right: 1040000`) and passes with the fix. Rehearsal 2 runs on the #398
-branch; its result is below.
+right: 1040000`) and passes with the fix. #398 merged as bb4e0940.
+
+## Ceremony rehearsal 2 on the #398 branch
+`exit 0`, all 9 checks ok: 7 validators agree at height 5 (6.6 s) and at
+3649 (3781 s); `get_validators` stake == 7 x bond; **`get_supply` total ==
+reserve + 7 x bond**; `maya1` address text; miner paid
+209616700889801505817932 after 3697 s from the reserve; supply after the
+payout equals genesis supply. Between the runs, a GPU miner orphaned by an
+interrupted rehearsal held `target/release/maya2c-gpu-miner.exe` open
+(`os error 5`); it was stopped by PID and the run repeated.
+
+## 24 h proving run
+Started 2026-11-09T16:02:38+09:00 at **bb4e0940** (`cargo xtask proving
+--hours 24` in the `D:/Maya2C-wt-audit` worktree, detached launcher). Hourly
+lines go to that worktree's `reports/proving/`. Result: pending.
 
 ## Fuzz
 The 2026-11-08 campaign is now in `reports/fuzz/2026-11-08-consensus-decoders.md`:
 8 targets, 462,261,905 execs, 0 crashes.
 
 ## Not done here
-- 24 h proving run on the final freeze sha. It starts after #398 merges, and
-  no heavy work may run during it.
+- The 24 h proving run (above) is still running. No heavy work runs on this PC until it ends.
 - Promote `release/mainnet-v1` and publish a release: this publishes, so it
   needs Eric's `APPROVED:`.
 - `APPROVED: sign genesis`: Eric only.
