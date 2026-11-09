@@ -160,6 +160,39 @@ and an ADR first.
 | interplanetary | Delay-tolerant links and timing across light-minutes | ccsds-delay-tolerant-networking-bpv7 (planned) | invariant 9 (heights, never timestamps) reconciliation |
 | self-governing-evolution | Pre-shipped code turned on by vote, never code loaded from state | ADR-078 (Omega), ADR-082 | ADR-078 acceptance; invariant 13 (no governance value is a program) |
 
+## I. Horizon ideas from science fiction (Eric 2026-11-10)
+
+Films have shown things that later became real. Each idea below starts from
+a need such a film points at, not from the gadget. **Rung** says how far it
+is today: R0 = buildable with what exists now, R1 = needs engineering we do
+not have yet, R2 = needs a research result. **Every row is unverified for
+novelty**: before any "others don't have this" wording it needs a dated
+`docs/prior-art/` search. Some already have known prior art, noted where we
+know it.
+
+| id | Need (inspired by) | Rung | Builds on | Known prior art / gate |
+|---|---|---|---|---|
+| time-capsule | Messages and payments that open at a future height, sealed until then (time-travel films) | R0 | timelock encryption, block heights (invariant 9) | drand tlock exists; differentiator would be PQ timelock, research |
+| digital-will | Assets and messages that pass to heirs if the owner stops signing (many dramas) | R0 | inheritance (B), smart account | legal wording; dead-man switches exist |
+| babel-chat | Real-time translation inside end-to-end encrypted chat, on the device (the universal translator of space operas) | R1 | chat, on-device-assistant | on-device models; data-leaves-device statement |
+| personal-agent | An AI aide that runs errands with hard spending limits and asks before large acts (the household AI of superhero films) | R0 | agent-wallets, mcp-server | ADR (limits, kill switch); never holds root keys |
+| human-or-machine | Proving a person is a person without biometrics on chain (the replicant test) | R1 | personhood | privacy red team |
+| avatar-passport | One identity and owned items across virtual worlds and games (VR films) | R1 | identity-app, rwa | interop standards survey |
+| fabrication-rights | Licensed, traceable files for 3D printers and future fabricators (the replicator) | R0 | notary, rwa, render-market | DRM pitfalls; provenance only, never lock-in |
+| health-vault | Medical records the patient owns and grants per visit (the medical bays of space films) | R1 | genetics-vault, identity-app | health-data law per country |
+| foundation-archive | Civilisation's knowledge kept verifiable for centuries (the galactic encyclopedia) | R1 | long-archive, research-records, `crates/da` | archival formats; long-term hash migration via the suite registry |
+| light-lag-ledger | Payments between planets minutes apart, settled when links return (space operas) | R2 | interplanetary, `crates/l2-flash` | invariant 9; DTN research |
+| mind-link-safety | Consent and logging for brain-computer interfaces (neural-link films) | R2 | `hal/bci-sim` (SIM) | SIM only; never on a production path (Standing Order 3) |
+| swarm-coordination | Many robots or drones agreeing on tasks without a central controller (swarm films) | R1 | `hal/swarm`, dag-bft research | civil uses only |
+| city-mesh | Phones keep messaging and paying when the network goes down (disaster films) | R1 | mesh-network, light client | spectrum rules |
+| energy-credits | Measured, verifiable energy sharing between neighbours (solar-punk futures) | R1 | `hal/energy`, iot-anchor | metering law |
+| quantum-ready-keys | Keys that rotate to new algorithms with no user action (the quantum threat in thrillers) | R0 | suite registry, smart account | already partly true (G); UX for rotation |
+| guardian-ai | A defence AI that watches the network and proposes fixes but can never act alone (the rogue-AI warnings) | R0 | sentinel-ai, ADR-077 | ADR-077; this is the anti-Skynet design |
+| truth-stamps | Proving a photo or video is original and unedited since capture (deepfake thrillers) | R1 | notary, attested-hardware | C2PA exists; differentiator would be PQ signing at capture |
+
+The list is open: new ideas are added as rows here, each with its need, its
+rung and a prior-art check, and they wait their wave like everything else.
+
 ## Waves
 
 | Wave | When | Rule |
