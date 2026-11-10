@@ -3520,6 +3520,17 @@ tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding. Stranding reads get_mempool_info (node RPC, added with this entry); a node that does not serve it is logged as idle, not silently skipped. Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
+id = "supply-audit"
+name = "Supply audit: maya2c-audit supply (no-mint, emission and fee-sink checks from public RPC)"
+domain = "Security and macro engines"
+paths = "`bins/maya2c-audit`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya2c-audit"]
+note = "ADR-098. Standalone: depends on maya-amount, maya-ledger-math and maya-spec-ref, never on the node. Checks: total supply equals the genesis total at the tip; reserve reconciles to its genesis allocation from height 1; per-epoch reserve decrease lies in [committee, committee + miner budget] (spec/09 MINE-1, MINE-2, MINE-4); fee burn <= fees collected and collector accounting exact off boundary. Unavailable data is NOT VERIFIED, never a pass. Fixture tests cover each fault. A devnet run is recorded in the PR report; without one it is NOT RUN. Not checked: genesis id, account enumeration, committee/miner split inside an epoch, base fee."
+
+[[subsystem]]
 id = "testnet-kit"
 name = "Testnet kit: local devnet, explorer, faucet and attack lab (`cargo xtask kit`)"
 domain = "Developer and operator tooling"

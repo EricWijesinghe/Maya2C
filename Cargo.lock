@@ -6926,6 +6926,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya2c-audit"
+version = "0.1.0"
+dependencies = [
+ "clap 4.6.7",
+ "hex",
+ "maya-amount",
+ "maya-ledger-math",
+ "maya-spec-ref",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya2c-cli"
 version = "0.1.0"
 dependencies = [
