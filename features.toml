@@ -2700,7 +2700,8 @@ paths = "`apps/explorer`, `apps/dashboard/`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["apps/explorer/tests/indexer_tests.rs", "apps/explorer/tests/server_tests.rs"]
+tests = ["apps/explorer/tests/indexer_tests.rs", "apps/explorer/tests/server_tests.rs", "apps/explorer/tests/chart_tests.rs", "apps/explorer/tests/fixture_tests.rs"]
+note = "explorer-v2 (CATALOG explorer-v2). Address pages take hex or Bech32m (ADR-081) at /account and /account/<address>; /mining shows the estimated hashrate; block-time, transactions-per-block and stake charts are inline SVG (src/chart.rs, pure and deterministic, no script); light and dark themes via a nav toggle. Validator uptime is NOT shown: the node RPC does not report it. Golden HTML in design/visual/explorer is screenshot-diffed by the visual job; its baselines are generated in the pinned Playwright container, not on a laptop."
 
 [[subsystem]]
 id = "axum-rest-graphql-gateway"
