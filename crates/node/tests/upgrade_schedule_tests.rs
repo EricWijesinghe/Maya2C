@@ -267,7 +267,13 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
     };
     assert!(
         schedule
-            .admit(&not_later, now, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87, SHIELDED_NEVER)
+            .admit(
+                &not_later,
+                now,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                SuiteId::MlDsa87,
+                SHIELDED_NEVER
+            )
             .is_err()
     );
     let same_version = ScheduleRequest {
@@ -298,7 +304,13 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
     };
     assert!(
         schedule
-            .admit(&nothing, 1, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87, SHIELDED_NEVER)
+            .admit(
+                &nothing,
+                1,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                SuiteId::MlDsa87,
+                SHIELDED_NEVER
+            )
             .is_err()
     );
     let feature_without_version = ScheduleRequest {

@@ -723,7 +723,7 @@ impl GenesisConfig {
                 )));
             }
         }
-        self.upgrade_schedule()?;
+        // Validates the schedule, then that one source names the pool (ADR-087).
         self.resolved_shielded_activation()?;
         self.suite_sunsets()?;
 

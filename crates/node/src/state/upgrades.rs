@@ -78,7 +78,11 @@ pub fn sunset_key(suite: u8) -> Vec<u8> {
 /// # Errors
 ///
 /// [`NodeError::Governance`] naming the rule.
-pub fn check_shielded_entry(features: FeatureSet, pool_activation: u64, audited: bool) -> Result<()> {
+pub fn check_shielded_entry(
+    features: FeatureSet,
+    pool_activation: u64,
+    audited: bool,
+) -> Result<()> {
     if !features.contains(FeatureSet::SHIELDED) {
         return Ok(());
     }
@@ -515,7 +519,13 @@ mod tests {
             ..version_at(between)
         };
         schedule
-            .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
+            .admit(
+                &request,
+                NOW,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                DEFAULT,
+                SHIELDED_NEVER,
+            )
             .expect("a version between a version and a later sunset is admitted");
     }
 
@@ -524,7 +534,13 @@ mod tests {
         let beyond = NOW + MAX_SCHEDULE_HORIZON_BLOCKS + 1;
         assert!(
             empty()
-                .admit(&version_at(beyond), NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
+                .admit(
+                    &version_at(beyond),
+                    NOW,
+                    MIN_UPGRADE_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
         // A sunset whose sunset height passes the horizon is refused too.
@@ -549,13 +565,25 @@ mod tests {
         let sunset = council_sunset(NOW + COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65);
         assert!(
             empty()
-                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65, SHIELDED_NEVER)
+                .admit(
+                    &sunset,
+                    NOW,
+                    COUNCIL_SUNSET_LEAD_BLOCKS,
+                    SuiteId::MlDsa65,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
         // Once governance has moved the default to ML-DSA-87, it is admitted.
         assert!(
             empty()
-                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
+                .admit(
+                    &sunset,
+                    NOW,
+                    COUNCIL_SUNSET_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_ok()
         );
     }
@@ -589,7 +617,13 @@ mod tests {
         let request = council_sunset(NOW + COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::Ed25519);
         assert!(
             empty()
-                .admit(&request, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
+                .admit(
+                    &request,
+                    NOW,
+                    COUNCIL_SUNSET_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
     }
@@ -617,8 +651,12 @@ mod tests {
             "{refused:?}"
         );
         // The same rule with the flag on admits it: the audit is the only gate.
-        assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, true).is_ok());
-        assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, false).is_err());
+        assert!(
+            check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, true).is_ok()
+        );
+        assert!(
+            check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, false).is_err()
+        );
         assert!(check_shielded_entry(FeatureSet(FeatureSet::DVP), SHIELDED_NEVER, false).is_ok());
     }
 
@@ -652,8 +690,13 @@ mod tests {
             version: Some(3),
             ..shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS + 1)
         };
-        let refused =
-            scheduled.admit(&later, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER);
+        let refused = scheduled.admit(
+            &later,
+            NOW,
+            MIN_UPGRADE_LEAD_BLOCKS,
+            DEFAULT,
+            SHIELDED_NEVER,
+        );
         assert!(
             matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("already")),
             "{refused:?}"
@@ -669,7 +712,13 @@ mod tests {
         };
         assert!(
             empty()
-                .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
+                .admit(
+                    &request,
+                    NOW,
+                    MIN_UPGRADE_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
     }

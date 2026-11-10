@@ -263,6 +263,18 @@ fn check(case: &Value) {
                 "{id}"
             );
         }
+        "shielded_activation" | "shielded_entry" => check_shielded(case),
+        other => panic!("{id}: unknown fn {other}"),
+    }
+}
+
+/// CON-14 / CON-15 (ADR-087): the shielded activation's resolution and the
+/// schedule writer's refusal.
+fn check_shielded(case: &Value) {
+    let id = case["id"].as_str().unwrap();
+    let expect = &case["expect"];
+    let want = expect["result"].as_str().unwrap();
+    match case["fn"].as_str().unwrap() {
         "shielded_activation" => {
             let resolved = custom_l1_node::upgrade::resolve_shielded_activation(
                 num(&case["genesis"]),
@@ -270,7 +282,11 @@ fn check(case: &Value) {
             );
             assert_eq!(outcome(resolved.is_ok()), want, "{id}");
             if let Ok(at) = resolved {
-                assert_eq!(at.to_string(), expect["activation"].as_str().unwrap(), "{id}");
+                assert_eq!(
+                    at.to_string(),
+                    expect["activation"].as_str().unwrap(),
+                    "{id}"
+                );
                 let context = custom_l1_node::state::BlockContext::at_height(num(&case["height"]))
                     .with_shielded_activation(at);
                 assert_eq!(

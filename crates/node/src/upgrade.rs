@@ -25,9 +25,9 @@ use serde::{Deserialize, Serialize};
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::error::{NodeError, Result};
 use crate::state::context::{
-    DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT,
+    DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT, SHIELDED_NEVER,
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
-    SHIELDED_NEVER, ZKML_ACTIVATION_HEIGHT,
+    ZKML_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
@@ -378,8 +378,14 @@ mod tests {
     #[test]
     fn the_shielded_bit_is_known_and_resolves_from_its_entry() {
         assert!(FeatureSet(FeatureSet::SHIELDED).is_known());
-        assert!(!FeatureSet(1 << 9).is_known(), "bit 9 is not this branch's to define");
-        assert_eq!(UpgradeSchedule::default().features().shielded, SHIELDED_NEVER);
+        assert!(
+            !FeatureSet(1 << 9).is_known(),
+            "bit 9 is not this branch's to define"
+        );
+        assert_eq!(
+            UpgradeSchedule::default().features().shielded,
+            SHIELDED_NEVER
+        );
         let s = UpgradeSchedule::new(vec![with(2, 40, FeatureSet::SHIELDED)]).unwrap();
         assert_eq!(s.features().shielded, 40);
     }

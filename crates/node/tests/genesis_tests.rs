@@ -506,8 +506,14 @@ fn a_scheduled_shielded_pool_turns_on_exactly_at_its_height() {
             .with_shielded_activation(scheduled.shielded_activation()),
     )
     .expect("open");
-    assert!(!chain.context_at(39).expect("context").shielded_active(), "H-1");
-    assert!(chain.context_at(40).expect("context").shielded_active(), "H");
+    assert!(
+        !chain.context_at(39).expect("context").shielded_active(),
+        "H-1"
+    );
+    assert!(
+        chain.context_at(40).expect("context").shielded_active(),
+        "H"
+    );
     assert_eq!(chain.shielded_activation(), Ok(40));
 }
 
