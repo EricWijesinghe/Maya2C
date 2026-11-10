@@ -3541,3 +3541,14 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "notary"
+name = "Notary: timestamp a file by its BLAKE3 hash, verify with a JSON receipt"
+domain = "Developer experience"
+paths = "`bins/maya2c-cli/src/notary.rs`, `docs/ecosystem/notary.md`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["bins/maya2c-cli/tests/notary_tests.rs"]
+note = "ADR-094. Unit tests pass (7/7); live stamp not yet confirmed on a devnet: the RegisterDid and stamp transactions were accepted, but the stamp was not seen in any block. Status stays stub until the e2e passes. Uses the existing AnchorAttestation payload (tag 34, schema notary-v1); no node change. Verify scans blocks (no txid lookup RPC) and checks the block tx root against its header; finality trusts the node's checkpoint (signatures not verified yet)."
