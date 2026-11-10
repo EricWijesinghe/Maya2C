@@ -25,3 +25,8 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Fabrication rights (provenance-only print licences)](fabrication-rights.md) — searched 2026-11-10
 - [Quantum-ready keys (rotation and suite sunset)](quantum-ready-keys.md) — searched 2026-11-10
 - [Guardian AI (advisory sentinels, consensus boundary)](guardian-ai.md) — searched 2026-11-10
+- [Emergency identity (guardian recovery for lost papers)](emergency-identity.md) — searched 2026-11-10
+- [Autonomous-vehicle payments (session limits, consensus-enforced)](autonomous-vehicle-payments.md) — searched 2026-11-10
+- [Space-debris registry (mirror of state-filed records)](space-debris-registry.md) — searched 2026-11-10
+- [Seed-vault attestation (lab custody records)](seed-vault-attestation.md) — searched 2026-11-10
+- [Aid tracing (chain-enforced recipient limits)](aid-tracing.md) — searched 2026-11-10
