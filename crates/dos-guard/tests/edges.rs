@@ -10,7 +10,10 @@ use maya_dos_guard::puzzle;
 /// The exact number of leading zero bits of the digest for `nonce`, found
 /// through the public `check` only (it is monotone in `bits`).
 fn zero_bits(challenge: &[u8; 32], nonce: u64) -> u32 {
-    (0..=256).take_while(|b| puzzle::check(challenge, nonce, *b)).last().unwrap()
+    (0..=256)
+        .take_while(|b| puzzle::check(challenge, nonce, *b))
+        .last()
+        .unwrap()
 }
 
 #[test]
@@ -39,7 +42,10 @@ fn solve_returns_the_first_solution_and_counts_attempts() {
 fn difficulty_zero_always_passes_and_impossible_difficulty_never() {
     for nonce in 0..64 {
         assert!(puzzle::check(&[1; 32], nonce, 0));
-        assert!(!puzzle::check(&[1; 32], nonce, 257), "more bits than a hash has");
+        assert!(
+            !puzzle::check(&[1; 32], nonce, 257),
+            "more bits than a hash has"
+        );
     }
 }
 
@@ -62,8 +68,15 @@ fn prune_drops_only_buckets_idle_for_the_full_window() {
     assert_eq!(b.len(), 4, "idle 9,999 ms < 10,000 ms: nothing expired");
 
     b.prune(10_000, 10_000);
-    assert_eq!(b.len(), 2, "old idle exactly the window: its two buckets go");
-    assert!(!b.admit(fresh, 10_000), "unexpired bucket keeps its drained state");
+    assert_eq!(
+        b.len(),
+        2,
+        "old idle exactly the window: its two buckets go"
+    );
+    assert!(
+        !b.admit(fresh, 10_000),
+        "unexpired bucket keeps its drained state"
+    );
     assert!(b.admit(old, 10_000), "pruned bucket starts full again");
 }
 
@@ -72,7 +85,10 @@ fn prune_everything_empties_and_a_refused_admit_still_counts_as_activity() {
     let mut b = Budgets::new(rate(0, 1), rate(0, 100));
     let a = Addr::V4([3, 3, 3, 3]);
     assert!(b.admit(a, 0));
-    assert!(!b.admit(a, 9_000), "refused, but touches the bucket at 9,000");
+    assert!(
+        !b.admit(a, 9_000),
+        "refused, but touches the bucket at 9,000"
+    );
     b.prune(10_000, 10_000);
     // The refused IP bucket was touched at 9,000; admit short-circuits before
     // it reads the subnet bucket, so only that one survives.
@@ -128,7 +144,11 @@ fn peers_are_independent() {
 fn cost_halves_exactly_once_per_half_life() {
     let mut l = ledger();
     l.charge(1, 400, 0);
-    assert_eq!(l.verdict(1, HALF_LIFE_MS - 1), Verdict::Disconnect, "no decay yet");
+    assert_eq!(
+        l.verdict(1, HALF_LIFE_MS - 1),
+        Verdict::Disconnect,
+        "no decay yet"
+    );
     assert_eq!(l.verdict(1, HALF_LIFE_MS), Verdict::Throttle, "400 -> 200");
     assert_eq!(l.verdict(1, 2 * HALF_LIFE_MS - 1), Verdict::Throttle);
     assert_eq!(l.verdict(1, 2 * HALF_LIFE_MS), Verdict::Ok, "200 -> 100");
@@ -140,7 +160,10 @@ fn decay_keeps_the_phase_when_polled_off_boundary() {
     // second halving still lands at 2 half-lives rather than 2.5.
     let mut l = ledger();
     l.charge(1, 400, 0);
-    assert_eq!(l.verdict(1, HALF_LIFE_MS + HALF_LIFE_MS / 2), Verdict::Throttle);
+    assert_eq!(
+        l.verdict(1, HALF_LIFE_MS + HALF_LIFE_MS / 2),
+        Verdict::Throttle
+    );
     assert_eq!(l.verdict(1, 2 * HALF_LIFE_MS), Verdict::Ok);
 }
 
@@ -157,7 +180,11 @@ fn charges_saturate_instead_of_wrapping() {
     let mut l = ledger();
     l.charge(1, u64::MAX, 0);
     l.charge(1, u64::MAX, 0);
-    assert_eq!(l.verdict(1, 0), Verdict::Disconnect, "no wrap to a small value");
+    assert_eq!(
+        l.verdict(1, 0),
+        Verdict::Disconnect,
+        "no wrap to a small value"
+    );
 }
 
 #[test]

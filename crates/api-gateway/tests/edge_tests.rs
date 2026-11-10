@@ -86,7 +86,12 @@ async fn rpc(node: &Arc<CountingNode>, body: Vec<u8>) -> (StatusCode, serde_json
         .await
         .expect("response");
     let status = response.status();
-    let bytes = response.into_body().collect().await.expect("body").to_bytes();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
     (status, serde_json::from_slice(&bytes).unwrap_or_default())
 }
 
@@ -134,7 +139,11 @@ async fn an_invalid_request_echoes_its_id_and_a_bad_method_type_is_invalid() {
     assert_eq!(reply["id"], 77);
     let (_, reply) = rpc(&node, br#"{"jsonrpc":"2.0","id":"a"}"#.to_vec()).await;
     assert_eq!(code(&reply), -32_600, "method missing");
-    let (_, reply) = rpc(&node, br#"{"jsonrpc":2.0,"id":1,"method":"get_supply"}"#.to_vec()).await;
+    let (_, reply) = rpc(
+        &node,
+        br#"{"jsonrpc":2.0,"id":1,"method":"get_supply"}"#.to_vec(),
+    )
+    .await;
     assert_eq!(code(&reply), -32_600, "version must be the string 2.0");
     assert_eq!(node.calls(), 0);
 }
@@ -176,7 +185,11 @@ async fn status(app: &axum::Router, peer: &str, headers: &[(&str, &str)]) -> Sta
     let mut request = request.body(Body::empty()).expect("request");
     let peer: SocketAddr = peer.parse().expect("peer");
     request.extensions_mut().insert(ConnectInfo(peer));
-    app.clone().oneshot(request).await.expect("response").status()
+    app.clone()
+        .oneshot(request)
+        .await
+        .expect("response")
+        .status()
 }
 
 const PEER: &str = "127.0.0.1:40000";
@@ -206,11 +219,17 @@ async fn an_unparseable_forwarded_hop_falls_back_to_the_socket_not_a_free_key() 
     for junk in ["garbage", "1.2.3.4,", "1.2.3.4, not-an-ip", "", "999.1.1.1"] {
         // Each junk value must land in the same (socket) bucket: burst 2 then 429.
         let app = limited(ClientIp::XForwardedForLast);
-        let refused = refused_of(&app, 5, PEER, |_| vec![("x-forwarded-for", junk.to_string())]).await;
+        let refused = refused_of(&app, 5, PEER, |_| {
+            vec![("x-forwarded-for", junk.to_string())]
+        })
+        .await;
         assert_eq!(refused, 3, "junk {junk:?}");
     }
     // A rotating junk value is still one socket.
-    let refused = refused_of(&app, 5, PEER, |i| vec![("x-forwarded-for", format!("junk{i}"))]).await;
+    let refused = refused_of(&app, 5, PEER, |i| {
+        vec![("x-forwarded-for", format!("junk{i}"))]
+    })
+    .await;
     assert_eq!(refused, 3);
 }
 
@@ -234,7 +253,10 @@ async fn other_proxy_headers_do_not_choose_the_key() {
         ]
     })
     .await;
-    assert_eq!(rotated_xff, 4, "x-forwarded-for is ignored in Cloudflare mode");
+    assert_eq!(
+        rotated_xff, 4,
+        "x-forwarded-for is ignored in Cloudflare mode"
+    );
 }
 
 #[tokio::test]
@@ -243,8 +265,16 @@ async fn real_clients_behind_the_proxy_keep_separate_budgets() {
     let hop = |ip: &str| vec![("x-forwarded-for", format!("evil, {ip}"))];
     assert_eq!(refused_of(&app, 4, PEER, |_| hop("203.0.113.7")).await, 2);
     assert_eq!(refused_of(&app, 2, PEER, |_| hop("203.0.113.8")).await, 0);
-    assert_eq!(refused_of(&app, 2, PEER, |_| hop("2001:db8::1")).await, 0, "IPv6 key");
-    assert_eq!(refused_of(&app, 2, PEER, |_| hop("2001:db8::2")).await, 0, "other IPv6 key");
+    assert_eq!(
+        refused_of(&app, 2, PEER, |_| hop("2001:db8::1")).await,
+        0,
+        "IPv6 key"
+    );
+    assert_eq!(
+        refused_of(&app, 2, PEER, |_| hop("2001:db8::2")).await,
+        0,
+        "other IPv6 key"
+    );
     assert_eq!(refused_of(&app, 1, PEER, |_| hop("2001:db8::1")).await, 1);
 }
 

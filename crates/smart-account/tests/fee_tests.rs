@@ -36,7 +36,11 @@ fn token_cost_matches_exact_double_ceiling_over_a_grid() {
                 let base = ceil_div(u128::from(fee) * u128::from(token), u128::from(native));
                 let want = ceil_div(base * factor, 10_000);
                 let got = price(native, token).token_cost(amt(fee)).unwrap();
-                assert_eq!(got, Amount::from_u128(want), "fee {fee} at {token}/{native}");
+                assert_eq!(
+                    got,
+                    Amount::from_u128(want),
+                    "fee {fee} at {token}/{native}"
+                );
             }
         }
     }
@@ -61,15 +65,27 @@ fn token_cost_never_underpays_the_native_fee() {
 #[test]
 fn a_tiny_fee_still_costs_at_least_one_token_unit() {
     // 1 native = 1 token / 3: floor would give 0 and a free fee.
-    assert_eq!(price(3, 1).token_cost(amt(1)), Some(amt(2)), "1 -> 1 -> ceil(1.05) = 2");
+    assert_eq!(
+        price(3, 1).token_cost(amt(1)),
+        Some(amt(2)),
+        "1 -> 1 -> ceil(1.05) = 2"
+    );
     assert_eq!(price(1_000, 1).token_cost(amt(1)), Some(amt(2)));
-    assert_eq!(price(3, 1).token_cost(amt(0)), Some(amt(0)), "no fee, no cost");
+    assert_eq!(
+        price(3, 1).token_cost(amt(0)),
+        Some(amt(0)),
+        "no fee, no cost"
+    );
 }
 
 #[test]
 fn zero_native_price_has_no_cost_and_overflow_is_none_not_a_wrap() {
     assert_eq!(price(0, 5).token_cost(amt(1)), None, "division by zero");
-    assert_eq!(price(1, 1).token_cost(Amount::MAX), None, "margin pushes past MAX");
+    assert_eq!(
+        price(1, 1).token_cost(Amount::MAX),
+        None,
+        "margin pushes past MAX"
+    );
     assert_eq!(
         TokenPrice {
             native: amt(1),
@@ -101,8 +117,19 @@ fn a_product_wider_than_256_bits_is_computed_not_overflowed() {
     };
     let cost = p.token_cost(two_200).unwrap();
     let five_percent = two_200.mul_div(amt(5), amt(100)).unwrap();
-    assert!(cost >= two_200.checked_add(five_percent).unwrap().saturating_sub(amt(1)));
-    assert!(cost <= two_200.checked_add(five_percent).unwrap().checked_add(amt(2)).unwrap());
+    assert!(
+        cost >= two_200
+            .checked_add(five_percent)
+            .unwrap()
+            .saturating_sub(amt(1))
+    );
+    assert!(
+        cost <= two_200
+            .checked_add(five_percent)
+            .unwrap()
+            .checked_add(amt(2))
+            .unwrap()
+    );
 }
 
 // ---- charge_fee through Registry::apply ----------------------------------
@@ -210,7 +237,11 @@ fn an_unfunded_token_fee_is_insufficient_without_underflow_or_side_effects() {
     assert_eq!(snapshot(&r, a, b), before);
     r.token_balances.insert((a, 7), amt(210));
     r.apply(&o, 1, amt(100)).unwrap();
-    assert_eq!(r.token_balances[&(a, 7)], amt(0), "exactly the rounded-up cost");
+    assert_eq!(
+        r.token_balances[&(a, 7)],
+        amt(0),
+        "exactly the rounded-up cost"
+    );
     assert_eq!(r.fees_collected, amt(100));
 }
 
@@ -223,14 +254,19 @@ fn a_token_cost_above_the_quoted_maximum_is_refused() {
     let o = transfer(a, b, 1, token_fee(209), &k);
     assert_eq!(r.apply(&o, 1, amt(100)), Err(AccountError::FeeAboveMaximum));
     assert_eq!(snapshot(&r, a, b), before);
-    assert!(r.apply(&transfer(a, b, 1, token_fee(210), &k), 1, amt(100)).is_ok());
+    assert!(
+        r.apply(&transfer(a, b, 1, token_fee(210), &k), 1, amt(100))
+            .is_ok()
+    );
 }
 
 #[test]
 fn a_native_fee_beyond_the_balance_is_insufficient_not_an_underflow() {
     let (mut r, a, k, b) = setup(50);
     let before = snapshot(&r, a, b);
-    let fee = FeeSpec::Native { max_fee: amt(1_000) };
+    let fee = FeeSpec::Native {
+        max_fee: amt(1_000),
+    };
     let o = transfer(a, b, 1, fee, &k);
     assert_eq!(r.apply(&o, 1, amt(51)), Err(AccountError::Insufficient));
     assert_eq!(snapshot(&r, a, b), before);
@@ -269,7 +305,11 @@ fn a_failing_action_after_the_fee_refunds_the_fee() {
     let before = snapshot(&r, a, b);
     let o = transfer(a, b, 1_000_000, FeeSpec::Sponsored { paymaster: pm }, &k);
     assert_eq!(r.apply(&o, 1, amt(10)), Err(AccountError::Insufficient));
-    assert_eq!(snapshot(&r, a, b), before, "sponsor budget and daily tally restored");
+    assert_eq!(
+        snapshot(&r, a, b),
+        before,
+        "sponsor budget and daily tally restored"
+    );
     assert_eq!(r.paymasters[&pm].budget, amt(1_000));
     assert!(r.paymasters[&pm].spent.is_empty());
 }

@@ -97,8 +97,14 @@ fn digest_equal_for_equal_results_and_sensitive_to_every_field() {
     // Receipt order matters: build two distinct receipts and swap them.
     let mut ordered = r.clone();
     ordered.receipts = vec![
-        Receipt { success: true, gas: 1 },
-        Receipt { success: false, gas: 2 },
+        Receipt {
+            success: true,
+            gas: 1,
+        },
+        Receipt {
+            success: false,
+            gas: 2,
+        },
     ];
     let mut sw = ordered.clone();
     sw.receipts.swap(0, 1);
