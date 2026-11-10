@@ -1,0 +1,1110 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Maya2C indexer API",
+    "description": "Read-only access to indexed history and live node values. Amounts are decimal strings (256-bit). Hashes are lowercase hex. Addresses are Bech32m. Timestamps are unix seconds. Lists are paged by opaque cursor; a null next_cursor ends the walk.",
+    "license": {
+      "name": ""
+    },
+    "version": "1"
+  },
+  "paths": {
+    "/api/v1/accounts/{address}": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Live balance and next nonce of an account.",
+        "operationId": "account",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "description": "Bech32m address (ADR-081)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The account now, read from the node.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_address or wrong_network",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "node_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/accounts/{address}/transactions": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "summary": "Transactions an address sent, received or both, newest first.",
+        "operationId": "account_transactions",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "description": "Bech32m address (ADR-081)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "sent, received or both (default)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, default 25",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from next_cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the address's transactions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Transaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_address, wrong_network, invalid_param or invalid_cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blocks": {
+      "get": {
+        "tags": [
+          "blocks"
+        ],
+        "summary": "Newest blocks first, by height.",
+        "operationId": "blocks",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, default 25",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from next_cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of blocks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Block"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_param or invalid_cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blocks/{reference}": {
+      "get": {
+        "tags": [
+          "blocks"
+        ],
+        "summary": "One block, by height or by id.",
+        "operationId": "block",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "description": "Height, or 64-hex block id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The block.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_param",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blocks/{reference}/transactions": {
+      "get": {
+        "tags": [
+          "blocks"
+        ],
+        "summary": "Transactions in one block, in inclusion order.",
+        "description": "Ascending, unlike the other lists: the cursor continues after the position\nit names.",
+        "operationId": "block_transactions",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "description": "Height, or 64-hex block id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, default 25",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from next_cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the block's transactions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Transaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_param or invalid_cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mempool": {
+      "get": {
+        "tags": [
+          "chain"
+        ],
+        "summary": "Mempool occupancy: size and bytes, nothing else.",
+        "operationId": "mempool",
+        "responses": {
+          "200": {
+            "description": "Mempool occupancy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mempool"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "node_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "tags": [
+          "chain"
+        ],
+        "summary": "Chain and index summary.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Chain and index summary. Node fields are null while the node is unreachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/supply": {
+      "get": {
+        "tags": [
+          "chain"
+        ],
+        "summary": "Total and circulating supply. Cached 30 s: the node scans every account.",
+        "operationId": "supply",
+        "responses": {
+          "200": {
+            "description": "Supply figures.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Supply"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "node_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Transactions across the chain, newest first.",
+        "operationId": "transactions",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, default 25",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from next_cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of transactions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Transaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_param or invalid_cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/transactions/{txid}": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "One transaction with its outputs.",
+        "operationId": "transaction",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "path",
+            "description": "64-hex transaction id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The transaction and its outputs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_param",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/validators": {
+      "get": {
+        "tags": [
+          "chain"
+        ],
+        "summary": "The validator set. `404 no_staking` on a chain without staking.",
+        "operationId": "validators",
+        "responses": {
+          "200": {
+            "description": "The committee and validator list, as the node reports them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no_staking",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "node_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Account": {
+        "type": "object",
+        "description": "An account's live state.",
+        "required": [
+          "address",
+          "balance",
+          "nonce"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The address as Bech32m, as the caller wrote it."
+          },
+          "balance": {
+            "type": "string",
+            "description": "Spendable balance, as a decimal string (256-bit)."
+          },
+          "nonce": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Nonce the next transaction must carry.",
+            "minimum": 0
+          }
+        }
+      },
+      "Block": {
+        "type": "object",
+        "description": "A block.",
+        "required": [
+          "height",
+          "id",
+          "prev_hash",
+          "state_root",
+          "timestamp",
+          "nonce",
+          "difficulty_target",
+          "tx_count",
+          "work"
+        ],
+        "properties": {
+          "difficulty_target": {
+            "type": "string",
+            "description": "Hex difficulty target."
+          },
+          "height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Distance from genesis."
+          },
+          "id": {
+            "type": "string",
+            "description": "Lowercase hex header id."
+          },
+          "nonce": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Proof-of-work nonce."
+          },
+          "prev_hash": {
+            "type": "string",
+            "description": "Lowercase hex parent id."
+          },
+          "state_root": {
+            "type": "string",
+            "description": "Lowercase hex state root."
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix seconds."
+          },
+          "tx_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Transactions in the block."
+          },
+          "work": {
+            "type": "string",
+            "description": "Expected hashes at this target, as a decimal string."
+          }
+        }
+      },
+      "Code": {
+        "type": "string",
+        "description": "The failures a client can act on. The strings are part of the v1 contract:\na new failure needs a new code, and an old one is never renamed.",
+        "enum": [
+          "invalid_address",
+          "wrong_network",
+          "invalid_cursor",
+          "invalid_param",
+          "not_found",
+          "rate_limited",
+          "node_unavailable",
+          "index_behind",
+          "no_staking"
+        ]
+      },
+      "Counts": {
+        "type": "object",
+        "description": "Index counters.",
+        "required": [
+          "blocks",
+          "transactions"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Blocks indexed."
+          },
+          "transactions": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transactions indexed."
+          }
+        }
+      },
+      "Mempool": {
+        "type": "object",
+        "description": "Mempool occupancy.",
+        "required": [
+          "size",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Their total encoded size in bytes.",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transactions waiting.",
+            "minimum": 0
+          }
+        }
+      },
+      "Output": {
+        "type": "object",
+        "description": "One output of a transaction.",
+        "required": [
+          "idx",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount as a decimal string (256-bit)."
+          },
+          "idx": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Position within the transaction."
+          },
+          "recipient": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Recipient as Bech32m; absent until the node names its network."
+          }
+        }
+      },
+      "Page_Block": {
+        "type": "object",
+        "description": "One page of a list, and the cursor for the page after it.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A block.",
+              "required": [
+                "height",
+                "id",
+                "prev_hash",
+                "state_root",
+                "timestamp",
+                "nonce",
+                "difficulty_target",
+                "tx_count",
+                "work"
+              ],
+              "properties": {
+                "difficulty_target": {
+                  "type": "string",
+                  "description": "Hex difficulty target."
+                },
+                "height": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Distance from genesis."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Lowercase hex header id."
+                },
+                "nonce": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Proof-of-work nonce."
+                },
+                "prev_hash": {
+                  "type": "string",
+                  "description": "Lowercase hex parent id."
+                },
+                "state_root": {
+                  "type": "string",
+                  "description": "Lowercase hex state root."
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Unix seconds."
+                },
+                "tx_count": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "Transactions in the block."
+                },
+                "work": {
+                  "type": "string",
+                  "description": "Expected hashes at this target, as a decimal string."
+                }
+              }
+            },
+            "description": "Rows in order, newest first."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page. Absent on the last page."
+          }
+        }
+      },
+      "Page_Transaction": {
+        "type": "object",
+        "description": "One page of a list, and the cursor for the page after it.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A transaction, without its outputs. See [`TransactionDetail`].",
+              "required": [
+                "txid",
+                "block_height",
+                "position",
+                "nonce",
+                "output_count",
+                "total_out",
+                "signed",
+                "kind",
+                "summary",
+                "careful"
+              ],
+              "properties": {
+                "block_height": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Height of the containing block."
+                },
+                "careful": {
+                  "type": "boolean",
+                  "description": "Whether signing it needs a closer look."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "Transaction kind as the wallet names it."
+                },
+                "nonce": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Sender's nonce."
+                },
+                "output_count": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "Number of outputs."
+                },
+                "position": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Index within the block."
+                },
+                "sender": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Sender as Bech32m; absent until the node names its network."
+                },
+                "signed": {
+                  "type": "boolean",
+                  "description": "Whether a signature is present."
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "What the wallet shows before signing."
+                },
+                "total_out": {
+                  "type": "string",
+                  "description": "Total value moved, as a decimal string (256-bit)."
+                },
+                "txid": {
+                  "type": "string",
+                  "description": "Lowercase hex transaction id."
+                }
+              }
+            },
+            "description": "Rows in order, newest first."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` to get the next page. Absent on the last page."
+          }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "description": "The RFC 9457 body every failure carries.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/Code",
+            "description": "The stable failure code. Branch on this, not on `detail`."
+          },
+          "detail": {
+            "type": "string",
+            "description": "What went wrong, for a person to read."
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The HTTP status, repeated in the body.",
+            "minimum": 0
+          },
+          "title": {
+            "type": "string",
+            "description": "The HTTP reason phrase."
+          },
+          "type": {
+            "type": "string",
+            "description": "`urn:maya2c:error:<code>`."
+          }
+        }
+      },
+      "Status": {
+        "type": "object",
+        "description": "Summary of the chain and the index.",
+        "required": [
+          "counts",
+          "average_block_time_seconds"
+        ],
+        "properties": {
+          "average_block_time_seconds": {
+            "type": "number",
+            "format": "double",
+            "description": "Mean seconds between the last 30 mined blocks."
+          },
+          "chain_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Registered chain name, when the node has one."
+          },
+          "counts": {
+            "$ref": "#/components/schemas/Counts",
+            "description": "Index counters."
+          },
+          "finalized_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Highest height with a finality checkpoint, when the chain has one.",
+            "minimum": 0
+          },
+          "indexed_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Highest indexed height."
+          },
+          "lag_blocks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Tip minus indexed height, when both are known.",
+            "minimum": 0
+          },
+          "network": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Address prefix for the chain's network (`maya`, `tmaya`, `dmaya`)."
+          },
+          "oldest_indexed_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Lowest indexed height; above zero on a pruned node."
+          },
+          "tip_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The node's tip, when it answered.",
+            "minimum": 0
+          }
+        }
+      },
+      "Supply": {
+        "type": "object",
+        "description": "Total and circulating supply.",
+        "required": [
+          "total",
+          "circulating"
+        ],
+        "properties": {
+          "circulating": {
+            "type": "string",
+            "description": "Units that can move, as a decimal string."
+          },
+          "total": {
+            "type": "string",
+            "description": "Every unit that exists, as a decimal string."
+          }
+        }
+      },
+      "Transaction": {
+        "type": "object",
+        "description": "A transaction, without its outputs. See [`TransactionDetail`].",
+        "required": [
+          "txid",
+          "block_height",
+          "position",
+          "nonce",
+          "output_count",
+          "total_out",
+          "signed",
+          "kind",
+          "summary",
+          "careful"
+        ],
+        "properties": {
+          "block_height": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Height of the containing block."
+          },
+          "careful": {
+            "type": "boolean",
+            "description": "Whether signing it needs a closer look."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Transaction kind as the wallet names it."
+          },
+          "nonce": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sender's nonce."
+          },
+          "output_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of outputs."
+          },
+          "position": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Index within the block."
+          },
+          "sender": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sender as Bech32m; absent until the node names its network."
+          },
+          "signed": {
+            "type": "boolean",
+            "description": "Whether a signature is present."
+          },
+          "summary": {
+            "type": "string",
+            "description": "What the wallet shows before signing."
+          },
+          "total_out": {
+            "type": "string",
+            "description": "Total value moved, as a decimal string (256-bit)."
+          },
+          "txid": {
+            "type": "string",
+            "description": "Lowercase hex transaction id."
+          }
+        }
+      },
+      "TransactionDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Transaction",
+            "description": "The transaction."
+          },
+          {
+            "type": "object",
+            "required": [
+              "outputs"
+            ],
+            "properties": {
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Output"
+                },
+                "description": "Every output, in order."
+              }
+            }
+          }
+        ],
+        "description": "A transaction with its outputs."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "chain",
+      "description": "Chain status, validators, supply and mempool"
+    },
+    {
+      "name": "blocks",
+      "description": "Indexed blocks"
+    },
+    {
+      "name": "transactions",
+      "description": "Indexed transactions"
+    },
+    {
+      "name": "accounts",
+      "description": "Accounts: live balance and address history"
+    }
+  ]
+}

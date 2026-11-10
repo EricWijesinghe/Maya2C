@@ -207,7 +207,7 @@ fn limit_of(burst: u32, per_second: u64, client_ip: ClientIp) -> RateLimit {
     }
 }
 
-fn app(store: Arc<MemoryStore>, node: Arc<FakeNode>) -> Router {
+fn build_app(store: Arc<MemoryStore>, node: Arc<FakeNode>) -> Router {
     app_with(store, node, limit_of(1_000, 1_000, ClientIp::Socket))
 }
 
@@ -266,7 +266,8 @@ async fn walk(app: &Router, base: &str, limit: usize) -> Vec<String> {
     let mut seen = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
-        let mut uri = format!("{base}?limit={limit}");
+        let sep = if base.contains('?') { '&' } else { '?' };
+        let mut uri = format!("{base}{sep}limit={limit}");
         if let Some(next) = &cursor {
             uri.push_str(&format!("&cursor={next}"));
         }
@@ -288,7 +289,7 @@ async fn walk(app: &Router, base: &str, limit: usize) -> Vec<String> {
 
 #[tokio::test]
 async fn status_reports_chain_and_index() {
-    let app = app(seeded(5).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(5).await, Arc::new(FakeNode::default()));
     let reply = get(&app, "/api/v1/status").await;
     assert_eq!(reply.status, StatusCode::OK);
     let body = &reply.body;
@@ -307,7 +308,7 @@ async fn status_reports_chain_and_index() {
 
 #[tokio::test]
 async fn blocks_and_block_lookup_by_height_and_id() {
-    let app = app(seeded(5).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(5).await, Arc::new(FakeNode::default()));
     let page = get(&app, "/api/v1/blocks?limit=2").await;
     assert_eq!(page.body["items"][0]["height"], 5);
     assert_eq!(page.body["items"][1]["height"], 4);
@@ -321,7 +322,7 @@ async fn blocks_and_block_lookup_by_height_and_id() {
 
 #[tokio::test]
 async fn block_transactions_come_in_inclusion_order() {
-    let app = app(seeded(2).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
     let reply = get(&app, "/api/v1/blocks/2/transactions").await;
     assert_eq!(reply.body["items"][0]["position"], 0);
     assert_eq!(reply.body["items"][1]["position"], 1);
@@ -331,7 +332,7 @@ async fn block_transactions_come_in_inclusion_order() {
 
 #[tokio::test]
 async fn transaction_detail_includes_outputs_with_exact_amounts() {
-    let app = app(seeded(2).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
     let reply = get(&app, &format!("/api/v1/transactions/{}", txid(2, 0))).await;
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(reply.body["sender"], bech(1));
@@ -347,7 +348,7 @@ async fn transaction_detail_includes_outputs_with_exact_amounts() {
 
 #[tokio::test]
 async fn account_reads_live_balance_and_history_from_index() {
-    let app = app(seeded(3).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(3).await, Arc::new(FakeNode::default()));
     let account = get(&app, &format!("/api/v1/accounts/{}", bech(1))).await;
     assert_eq!(account.status, StatusCode::OK);
     assert_eq!(account.body["nonce"], 4);
@@ -361,20 +362,20 @@ async fn account_reads_live_balance_and_history_from_index() {
 
 #[tokio::test]
 async fn validators_are_no_staking_on_a_proof_of_work_chain() {
-    let app = app(seeded(1).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     assert_eq!(get(&app, "/api/v1/validators").await.code(), "no_staking");
 
     let staking = FakeNode {
         staking: true,
         ..FakeNode::default()
     };
-    let app = app(seeded(1).await, Arc::new(staking));
+    let app = build_app(seeded(1).await, Arc::new(staking));
     assert_eq!(get(&app, "/api/v1/validators").await.status, StatusCode::OK);
 }
 
 #[tokio::test]
 async fn supply_and_mempool_have_their_documented_fields() {
-    let app = app(seeded(1).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     let supply = get(&app, "/api/v1/supply").await;
     assert_eq!(supply.body["total"], (U256::one() << 100).to_string());
     assert_eq!(supply.body["circulating"], (U256::one() << 99).to_string());
@@ -398,7 +399,7 @@ async fn cursor_walk_returns_the_full_set_once() {
         .map(|(_, tx)| tx.txid)
         .collect();
     assert_eq!(expected.len(), 10);
-    let app = app(store, Arc::new(FakeNode::default()));
+    let app = build_app(store, Arc::new(FakeNode::default()));
     for limit in [1, 3, 4, 10, 100] {
         assert_eq!(walk(&app, "/api/v1/transactions", limit).await, expected, "limit {limit}");
     }
@@ -406,7 +407,7 @@ async fn cursor_walk_returns_the_full_set_once() {
 
 #[tokio::test]
 async fn address_walk_covers_both_sides_without_duplicates() {
-    let app = app(seeded(5).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(5).await, Arc::new(FakeNode::default()));
     // Addr 1 sends position 0 of every block and receives position 1: all 10.
     let base = format!("/api/v1/accounts/{}/transactions", bech(1));
     let mut seen = walk(&app, &base, 3).await;
@@ -420,7 +421,7 @@ async fn address_walk_covers_both_sides_without_duplicates() {
 async fn rollback_removes_abandoned_rows_from_every_list() {
     let store = seeded(5).await;
     store.rollback_from(4).await.unwrap();
-    let app = app(store, Arc::new(FakeNode::default()));
+    let app = build_app(store, Arc::new(FakeNode::default()));
     let txs = walk(&app, "/api/v1/transactions", 2).await;
     assert_eq!(txs.len(), 6);
     for abandoned in [txid(4, 0), txid(4, 1), txid(5, 0), txid(5, 1)] {
@@ -434,7 +435,7 @@ async fn rollback_removes_abandoned_rows_from_every_list() {
 
 #[tokio::test]
 async fn receive_only_account_lists_incoming_transactions() {
-    let app = app(seeded(3).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(3).await, Arc::new(FakeNode::default()));
     let base = format!("/api/v1/accounts/{}/transactions", bech(3));
     assert_eq!(walk(&app, &base, 10).await.len(), 3);
     let received = format!("{base}?direction=received");
@@ -445,7 +446,7 @@ async fn receive_only_account_lists_incoming_transactions() {
 
 #[tokio::test]
 async fn direction_filter_splits_sent_and_received() {
-    let app = app(seeded(5).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(5).await, Arc::new(FakeNode::default()));
     let base = format!("/api/v1/accounts/{}/transactions", bech(2));
     assert_eq!(walk(&app, &format!("{base}?direction=sent"), 4).await.len(), 5);
     assert_eq!(walk(&app, &format!("{base}?direction=received"), 4).await.len(), 5);
@@ -460,7 +461,7 @@ async fn direction_filter_splits_sent_and_received() {
 
 #[tokio::test]
 async fn bad_limits_and_cursors_are_typed_errors() {
-    let app = app(seeded(2).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
     for limit in ["0", "101", "-1", "many"] {
         let reply = get(&app, &format!("/api/v1/transactions?limit={limit}")).await;
         assert_eq!(reply.status, StatusCode::BAD_REQUEST, "limit {limit}");
@@ -474,7 +475,7 @@ async fn bad_limits_and_cursors_are_typed_errors() {
 
 #[tokio::test]
 async fn cursor_from_another_block_is_refused() {
-    let app = app(seeded(3).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(3).await, Arc::new(FakeNode::default()));
     let first = get(&app, "/api/v1/blocks/3/transactions?limit=1").await;
     assert!(!first.body["next_cursor"].is_null());
     let page = get(&app, "/api/v1/transactions?limit=1").await;
@@ -485,7 +486,7 @@ async fn cursor_from_another_block_is_refused() {
 
 #[tokio::test]
 async fn addresses_must_be_bech32m_for_this_network() {
-    let app = app(seeded(1).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     let hex_form = get(&app, &format!("/api/v1/accounts/{}", addr_hex(1))).await;
     assert_eq!(hex_form.code(), "invalid_address");
 
@@ -587,7 +588,7 @@ async fn fifty_concurrent_supply_requests_make_one_node_call() {
 async fn node_down_blocks_live_routes_and_leaves_history_working() {
     let node = Arc::new(FakeNode::default());
     node.down.store(true, Ordering::SeqCst);
-    let app = app(seeded(3).await, node);
+    let app = build_app(seeded(3).await, node);
     assert_eq!(get(&app, "/api/v1/supply").await.code(), "node_unavailable");
     assert_eq!(get(&app, "/api/v1/mempool").await.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(get(&app, &format!("/api/v1/accounts/{}", bech(1))).await.code(), "node_unavailable");
@@ -605,7 +606,7 @@ async fn cache_headers_follow_finality() {
         finalized: Some(3),
         ..FakeNode::default()
     });
-    let app = app(seeded(5).await, node);
+    let app = build_app(seeded(5).await, node);
     let final_block = get(&app, "/api/v1/blocks/2").await;
     assert_eq!(final_block.headers["cache-control"], "public, max-age=31536000, immutable");
     let tip_block = get(&app, "/api/v1/blocks/4").await;
@@ -616,14 +617,14 @@ async fn cache_headers_follow_finality() {
 
 #[tokio::test]
 async fn without_a_checkpoint_nothing_is_immutable() {
-    let app = app(seeded(2).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
     let block = get(&app, "/api/v1/blocks/1").await;
     assert_eq!(block.headers["cache-control"], "public, max-age=5");
 }
 
 #[tokio::test]
 async fn live_data_revalidates_with_etag() {
-    let app = app(seeded(1).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     let first = get(&app, "/api/v1/mempool").await;
     let etag = first.headers["etag"].to_str().unwrap().to_string();
     let again = send(&app, "/api/v1/mempool", Some(peer(1)), &[("if-none-match", etag.as_str())]).await;
@@ -652,7 +653,7 @@ fn every_route_is_in_the_spec_and_the_spec_has_no_extra_path() {
 
 #[tokio::test]
 async fn every_route_is_served() {
-    let app = app(seeded(2).await, Arc::new(FakeNode::default()));
+    let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
     let concrete: Vec<String> = [
         "/api/v1/status".to_string(),
         "/api/v1/blocks".to_string(),
@@ -670,7 +671,8 @@ async fn every_route_is_served() {
     assert_eq!(concrete.len(), ROUTES.len(), "one sample URI per route");
     for uri in &concrete {
         let reply = get(&app, uri).await;
-        assert_ne!(reply.status, StatusCode::NOT_FOUND, "{uri} is not routed");
+        // An unrouted path gets axum's empty 404; ours always answer JSON.
+        assert!(!reply.body.is_null(), "{uri} is not routed");
     }
 }
 

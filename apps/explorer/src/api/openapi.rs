@@ -9,7 +9,7 @@ use serde::Serialize;
 use utoipa::{OpenApi, ToSchema};
 
 use crate::api::chain;
-use crate::api::dto::{Account, Block, Counts, Mempool, Output, Page, Status, Supply, Transaction, TransactionDetail};
+use crate::api::dto::{Account, Block, Counts, Mempool, Output, Status, Supply, Transaction, TransactionDetail};
 use crate::api::history;
 use crate::api::problem::Code;
 
@@ -65,7 +65,6 @@ pub struct Problem {
         Supply,
         Transaction,
         TransactionDetail,
-        chain::ValidatorSet,
     )),
     tags(
         (name = "chain", description = "Chain status, validators, supply and mempool"),

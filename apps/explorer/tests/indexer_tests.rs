@@ -73,7 +73,6 @@ impl StubChain {
                     kind: "transfer".to_owned(),
                     summary: String::new(),
                     careful: true,
-                    outputs: Vec::new(),
                 })
                 .collect(),
             raw: String::new(),
@@ -108,7 +107,6 @@ impl StubChain {
                     kind: (*kind).to_owned(),
                     summary: (*summary).to_owned(),
                     careful: *careful,
-                    outputs: Vec::new(),
                 },
             )
             .collect();

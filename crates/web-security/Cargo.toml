@@ -17,9 +17,10 @@ tracing.workspace = true
 governor = { workspace = true, optional = true }
 tower_governor = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt", "time"], optional = true }
 
 [features]
-rate-limit = ["dep:governor", "dep:tower_governor", "dep:thiserror"]
+rate-limit = ["dep:governor", "dep:tower_governor", "dep:thiserror", "dep:tokio"]
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

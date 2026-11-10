@@ -110,7 +110,9 @@ pub enum BlockRef {
 ///
 /// [`Code::InvalidParam`] for anything else, or a height past the signed range.
 pub fn block_ref(text: &str) -> Result<BlockRef, ApiError> {
-    if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+    // A 64-digit all-numeric string is a hash, not a height: heights fit in
+    // far fewer digits, so length decides before content does.
+    if text.len() != 64 && !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
         return text
             .parse::<i64>()
             .map(BlockRef::Height)

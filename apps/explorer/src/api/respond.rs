@@ -101,14 +101,12 @@ pub fn json<T: Serialize>(body: &T, freshness: Freshness, meta: Meta) -> Respons
 }
 
 fn cache_control(freshness: Freshness) -> HeaderValue {
-    match freshness {
-        Freshness::Immutable => HeaderValue::from_str(&format!(
-            "public, max-age={IMMUTABLE_MAX_AGE}, immutable"
-        )),
-        Freshness::Short => HeaderValue::from_str(&format!("public, max-age={SHORT_MAX_AGE}")),
-        Freshness::Live => HeaderValue::from_static("no-cache"),
-    }
-    .unwrap_or(HeaderValue::from_static("no-cache"))
+    let text = match freshness {
+        Freshness::Immutable => format!("public, max-age={IMMUTABLE_MAX_AGE}, immutable"),
+        Freshness::Short => format!("public, max-age={SHORT_MAX_AGE}"),
+        Freshness::Live => "no-cache".to_string(),
+    };
+    HeaderValue::from_str(&text).unwrap_or(HeaderValue::from_static("no-cache"))
 }
 
 /// Answers `If-None-Match` with 304 when the body's ETag matches.

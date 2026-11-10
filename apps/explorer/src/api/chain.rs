@@ -131,7 +131,7 @@ pub async fn account(
     path = "/api/v1/validators",
     tag = "chain",
     responses(
-        (status = 200, description = "The committee and validator list, as the node reports them.", body = ValidatorSet),
+        (status = 200, description = "The committee and validator list, as the node reports them.", body = Object),
         (status = 404, description = "no_staking", body = crate::api::openapi::Problem),
         (status = 503, description = "node_unavailable", body = crate::api::openapi::Problem),
     )
@@ -149,19 +149,13 @@ pub async fn validators(State(state): State<ApiState>) -> Result<Response, ApiEr
         ..Meta::default()
     };
     match value {
-        Some(info) => Ok(respond::json(&ValidatorSet(info), Freshness::Live, meta)),
+        Some(info) => Ok(respond::json(&info, Freshness::Live, meta)),
         None => Err(ApiError::new(
             Code::NoStaking,
             "this network has no staking, so it has no validator set",
         )),
     }
 }
-
-/// The validator set as the node reports it.
-#[derive(Serialize, ToSchema)]
-#[serde(transparent)]
-pub struct ValidatorSet(#[schema(value_type = Object)] pub custom_l1_node::rpc::validators::ValidatorsInfo);
-
 /// Total and circulating supply. Cached 30 s: the node scans every account.
 #[utoipa::path(
     get,
