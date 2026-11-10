@@ -19,3 +19,9 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Post-quantum L1 comparison, 18 chains](pq-l1-comparison-2026-11.md) — searched 2026-11-01
 - [Chain-level exploit containment and recovery (Sentinel Recovery Network)](chain-level-exploit-recovery.md) — searched 2026-11-02
 - [Forkless upgrades and on-chain adaptive control (Omega design)](forkless-upgrades-and-adaptive-control.md) — searched 2026-11-02
+- [Time-capsule (height-released messages)](time-capsule.md) — searched 2026-11-10
+- [Digital will (inactivity trigger on a native account)](digital-will.md) — searched 2026-11-10
+- [Personal agent (session-scoped spending)](personal-agent.md) — searched 2026-11-10
+- [Fabrication rights (provenance-only print licences)](fabrication-rights.md) — searched 2026-11-10
+- [Quantum-ready keys (rotation and suite sunset)](quantum-ready-keys.md) — searched 2026-11-10
+- [Guardian AI (advisory sentinels, consensus boundary)](guardian-ai.md) — searched 2026-11-10
