@@ -34,11 +34,14 @@ jobs:
         include:
           - { package: maya-dex, harness: a_swap_leaves_both_reserves_non_empty }
           - { package: maya-dex, harness: a_one_sided_exit_keeps_the_price_usable }
-          # 256-bit cross-multiplication: past 2 h each in WSL (2026-11-09).
-          - { package: maya-governance, harness: more_support_never_turns_a_pass_into_a_failure }
-          - { package: maya-governance, harness: more_turnout_never_loses_a_quorum }
-          # Past 1 h in WSL (2026-11-09); #348 saw no verdict in 50 min.
+          # Symbolic division of a 256-bit product: no verdict in 30 min in WSL with
+          # the 16-bit share bound (2026-11-10). Not tractable at this width yet.
           - { package: maya-fee-market, harness: a_split_conserves_every_unit }
+          # Symbolic division of a 256-bit parent by a 32-bit-bounded scale: no
+          # verdict in ~27 min in WSL (2026-11-10, stopped by hand).
+          - { package: maya-fee-market, harness: the_base_fee_respects_its_floor_and_its_step }
+          # Not measured yet in WSL (2026-11-10); same division shape as the base fee.
+          - { package: maya-fee-market, harness: a_rise_is_one_denominator_share_and_stops_at_the_ceiling }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # .cargo/config.toml links through clang + mold on Linux; a runner
@@ -56,7 +59,6 @@ jobs:
           cargo install --locked kani-verifier
           cargo kani setup
 
-      # The harness carries its own #[kani::unwind(513)]; see proofs.rs.
       # Exit codes: 124 = time budget, 137/143 = killed (out of memory),
       # anything else non-zero = a real verdict from Kani.
       - name: Prove ${{ matrix.package }} ${{ matrix.harness }}
