@@ -26,11 +26,21 @@ wallet without becoming one.
 3. **No signing, sending or receiving in the Hub.** The page says so and
    points to the Wallet app. The Chat card describes the Chat app; the Hub
    reads nothing from it.
-4. **Opening the apps from the Hub is a later step.** It is to be done
-   through an OS-registered link scheme each app declares (the OS starts
-   the installed app), not by the Hub resolving and running a binary path.
-   That needs the deep-link plugin in three apps and installer
-   registration, so it gets a dependency review first.
+4. **Opening the apps from the Hub goes through an OS link scheme.** Each
+   app declares its own scheme (`maya2c-wallet://`, `maya2c-chat://`) in
+   `tauri.conf.json` under `plugins.deep-link.desktop.schemes`, so the
+   installer registers it. The OS starts the installed app; the Hub never
+   resolves or runs a binary path. Status: **built** on `feat/hub-launch`
+   (2026-11-10). Official plugins, exact pins: `tauri-plugin-deep-link`
+   2.6.3, `tauri-plugin-single-instance` 2.5.5 (`deep-link` feature),
+   `tauri-plugin-opener` 2.7.2 in the Hub only. The Hub's capability allows
+   `opener:allow-open-url` for those two URLs and nothing else. Wallet
+   routes: `open`, and `pay?to=<maya1…>&amount=<decimal>` which only
+   prefills Send (no signing, no sending). Chat accepts `open` only. Every
+   other link is refused by a strict parser (`apps/*/src-tauri/src/deeplink.rs`).
+   **Not yet verified:** registration in an installed NSIS/MSI or `.desktop`
+   build, and the live click-through from the Hub. Those need an installed
+   build, recorded in `docs/app-link-schemes.md` once run.
 
 ## Consequences
 

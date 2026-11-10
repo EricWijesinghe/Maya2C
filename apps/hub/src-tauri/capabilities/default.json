@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Minimal capability set: the node, the GPU and the miner process are reached only through this app's Rust commands, never from the webview.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "maya2c-wallet://open" }, { "url": "maya2c-chat://open" }]
+    }
+  ]
 }
