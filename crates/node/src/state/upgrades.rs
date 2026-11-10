@@ -20,6 +20,7 @@
 
 use crate::crypto::suites::{SuiteSunset, SuiteSunsets};
 use crate::error::{NodeError, Result};
+use crate::state::context::SHIELDED_NEVER;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::vault::MAX_DELAY_BLOCKS;
 use crate::upgrade::{
@@ -65,6 +66,33 @@ pub fn sunset_key(suite: u8) -> Vec<u8> {
     key.push(SUNSET_KIND);
     key.push(suite);
     key
+}
+
+/// Refuses a schedule entry carrying [`FeatureSet::SHIELDED`] (ADR-087,
+/// CON-15) while the circuit is unaudited, or when the pool already has an
+/// activation height (`pool_activation` is not [`SHIELDED_NEVER`]). The second
+/// rule keeps an on-chain vote from producing the two-source conflict that
+/// [`crate::upgrade::resolve_shielded_activation`] refuses, which would stop
+/// every later block context.
+///
+/// # Errors
+///
+/// [`NodeError::Governance`] naming the rule.
+pub fn check_shielded_entry(features: FeatureSet, pool_activation: u64, audited: bool) -> Result<()> {
+    if !features.contains(FeatureSet::SHIELDED) {
+        return Ok(());
+    }
+    if pool_activation != SHIELDED_NEVER {
+        return Err(NodeError::Governance {
+            reason: format!("the shielded pool already activates at height {pool_activation}"),
+        });
+    }
+    if !audited {
+        return Err(NodeError::Governance {
+            reason: "the shielded pool cannot be scheduled until its circuit is audited".into(),
+        });
+    }
+    Ok(())
 }
 
 /// A suite sunset as a governance or council proposal names it. The
@@ -129,8 +157,10 @@ impl EffectiveSchedule {
     /// Refuses an entry that schedules nothing, a version or a height that does
     /// not lie after every existing one, an activation fewer than `min_lead`
     /// blocks after `now`, unknown feature bits, features on a sunset-only entry,
-    /// and any sunset the genesis policy would refuse (a duplicate, the default
-    /// suite, or a window shorter than the minimum).
+    /// any sunset the genesis policy would refuse (a duplicate, the default
+    /// suite, or a window shorter than the minimum), and a shielded entry
+    /// [`check_shielded_entry`] refuses. `pool_activation` is the shielded
+    /// height the block runs under (`BlockContext::shielded_activation`).
     ///
     /// # Errors
     ///
@@ -141,6 +171,7 @@ impl EffectiveSchedule {
         now: u64,
         min_lead: u64,
         default_suite: SuiteId,
+        pool_activation: u64,
     ) -> Result<()> {
         let refuse = |reason: String| Err(NodeError::Governance { reason });
         if request.version.is_none() && request.sunsets.is_empty() {
@@ -152,6 +183,13 @@ impl EffectiveSchedule {
         if request.version.is_none() && request.features.0 != 0 {
             return refuse("a sunset-only entry cannot switch features on".into());
         }
+        // An entry staged earlier in this block is in `self` but not yet in
+        // the context's height, so either source counts.
+        check_shielded_entry(
+            request.features,
+            pool_activation.min(self.upgrades.features().shielded),
+            maya_zk_stark::pool::circuit_is_audited(),
+        )?;
         // Heights are bounded above as well as below. Without a horizon one far
         // entry would fix the floor for every later entry of its kind.
         let horizon = now.saturating_add(MAX_SCHEDULE_HORIZON_BLOCKS);
@@ -452,6 +490,7 @@ mod tests {
                 NOW,
                 MIN_UPGRADE_LEAD_BLOCKS,
                 DEFAULT,
+                SHIELDED_NEVER,
             )
             .expect("a version after a far sunset is admitted");
     }
@@ -476,7 +515,7 @@ mod tests {
             ..version_at(between)
         };
         schedule
-            .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+            .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
             .expect("a version between a version and a later sunset is admitted");
     }
 
@@ -485,7 +524,7 @@ mod tests {
         let beyond = NOW + MAX_SCHEDULE_HORIZON_BLOCKS + 1;
         assert!(
             empty()
-                .admit(&version_at(beyond), NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+                .admit(&version_at(beyond), NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
                 .is_err()
         );
         // A sunset whose sunset height passes the horizon is refused too.
@@ -496,7 +535,8 @@ mod tests {
                     &council_sunset(late_sunset, SuiteId::MlDsa65),
                     NOW,
                     COUNCIL_SUNSET_LEAD_BLOCKS,
-                    DEFAULT
+                    DEFAULT,
+                    SHIELDED_NEVER,
                 )
                 .is_err()
         );
@@ -509,13 +549,13 @@ mod tests {
         let sunset = council_sunset(NOW + COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65);
         assert!(
             empty()
-                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65)
+                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65, SHIELDED_NEVER)
                 .is_err()
         );
         // Once governance has moved the default to ML-DSA-87, it is admitted.
         assert!(
             empty()
-                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT)
+                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
                 .is_ok()
         );
     }
@@ -549,8 +589,74 @@ mod tests {
         let request = council_sunset(NOW + COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::Ed25519);
         assert!(
             empty()
-                .admit(&request, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT)
+                .admit(&request, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
                 .is_err()
+        );
+    }
+
+    fn shielded_at(activation: u64) -> ScheduleRequest {
+        ScheduleRequest {
+            features: FeatureSet(FeatureSet::SHIELDED),
+            ..version_at(activation)
+        }
+    }
+
+    #[test]
+    fn a_shielded_entry_is_refused_while_the_circuit_is_unaudited() {
+        // ADR-087: enforced by the writer, from the flag itself.
+        assert!(!maya_zk_stark::pool::circuit_is_audited());
+        let refused = empty().admit(
+            &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
+            NOW,
+            MIN_UPGRADE_LEAD_BLOCKS,
+            DEFAULT,
+            SHIELDED_NEVER,
+        );
+        assert!(
+            matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("audited")),
+            "{refused:?}"
+        );
+        // The same rule with the flag on admits it: the audit is the only gate.
+        assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, true).is_ok());
+        assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, false).is_err());
+        assert!(check_shielded_entry(FeatureSet(FeatureSet::DVP), SHIELDED_NEVER, false).is_ok());
+    }
+
+    #[test]
+    fn a_shielded_entry_is_refused_when_the_pool_already_has_a_height() {
+        // From the genesis (the context's height) ...
+        for pool in [0, 1, NOW + MIN_UPGRADE_LEAD_BLOCKS] {
+            assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), pool, true).is_err());
+            let refused = empty().admit(
+                &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
+                NOW,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                DEFAULT,
+                pool,
+            );
+            assert!(
+                matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("already")),
+                "pool {pool}: {refused:?}"
+            );
+        }
+        // ... or from an entry already in the schedule.
+        let mut scheduled = empty();
+        scheduled.upgrades = UpgradeSchedule::new(vec![ProtocolUpgrade {
+            version: 2,
+            activation_height: NOW + MIN_UPGRADE_LEAD_BLOCKS,
+            features: FeatureSet(FeatureSet::SHIELDED),
+        }])
+        .unwrap();
+        scheduled.last_version_height = NOW + MIN_UPGRADE_LEAD_BLOCKS;
+        let later = ScheduleRequest {
+            version: Some(3),
+            ..shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS + 1)
+        };
+        let refused =
+            scheduled.admit(&later, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER);
+        assert!(
+            matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("already")),
+            "{refused:?}"
         );
     }
 
@@ -563,7 +669,7 @@ mod tests {
         };
         assert!(
             empty()
-                .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+                .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER)
                 .is_err()
         );
     }

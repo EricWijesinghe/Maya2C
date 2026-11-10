@@ -27,7 +27,7 @@ use crate::error::{NodeError, Result};
 use crate::state::context::{
     DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT,
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
-    ZKML_ACTIVATION_HEIGHT,
+    SHIELDED_NEVER, ZKML_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
@@ -56,8 +56,12 @@ impl FeatureSet {
     pub const ZKML: u64 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
     pub const RWA_STRICT: u64 = 1 << 7;
+    /// The shielded pool, for a genesis that keeps it off
+    /// ([`SHIELDED_NEVER`]). Admitted on chain only once the circuit is
+    /// audited (ADR-087).
+    pub const SHIELDED: u64 = 1 << 8;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u64 = (1 << 9) - 1;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -95,6 +99,9 @@ pub struct FeatureActivations {
     pub zkml: u64,
     /// Strictly ascending RWA issuer lists.
     pub rwa_strict: u64,
+    /// The shielded pool. [`SHIELDED_NEVER`] unless an entry schedules it; the
+    /// height a block runs under is [`resolve_shielded_activation`]'s.
+    pub shielded: u64,
 }
 
 impl Default for FeatureActivations {
@@ -109,6 +116,7 @@ impl Default for FeatureActivations {
             htlc_lattice: HTLC_L_ACTIVATION_HEIGHT,
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            shielded: SHIELDED_NEVER,
         }
     }
 }
@@ -218,6 +226,7 @@ impl UpgradeSchedule {
             htlc_lattice: at(FeatureSet::HTLC_LATTICE, never.htlc_lattice),
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
+            shielded: at(FeatureSet::SHIELDED, never.shielded),
         }
     }
 
@@ -246,6 +255,23 @@ impl UpgradeSchedule {
     /// activated at, so the message reads "upgrade required before height H".
     pub fn check(&self, height: u64) -> Result<()> {
         refuse_unsupported(self.first_unsupported(), height)
+    }
+}
+
+/// The shielded pool's activation height from its two sources (ADR-087): the
+/// genesis's `shielded_activation_height` and the schedule's
+/// [`FeatureSet::SHIELDED`] entry. Whichever is not [`SHIELDED_NEVER`] wins.
+///
+/// # Errors
+///
+/// [`NodeError::ShieldedActivationConflict`] when both name a height: two
+/// sources for one rule would let nodes that read them in a different order
+/// disagree about which blocks may carry a join-split.
+pub fn resolve_shielded_activation(genesis: u64, scheduled: u64) -> Result<u64> {
+    match (genesis, scheduled) {
+        (genesis, SHIELDED_NEVER) => Ok(genesis),
+        (SHIELDED_NEVER, scheduled) => Ok(scheduled),
+        (genesis, scheduled) => Err(NodeError::ShieldedActivationConflict { genesis, scheduled }),
     }
 }
 
@@ -347,6 +373,32 @@ mod tests {
     fn zkml_cannot_be_scheduled() {
         let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::ZKML)]);
         assert!(refused.is_err(), "zkML has no verifier yet (M3)");
+    }
+
+    #[test]
+    fn the_shielded_bit_is_known_and_resolves_from_its_entry() {
+        assert!(FeatureSet(FeatureSet::SHIELDED).is_known());
+        assert!(!FeatureSet(1 << 9).is_known(), "bit 9 is not this branch's to define");
+        assert_eq!(UpgradeSchedule::default().features().shielded, SHIELDED_NEVER);
+        let s = UpgradeSchedule::new(vec![with(2, 40, FeatureSet::SHIELDED)]).unwrap();
+        assert_eq!(s.features().shielded, 40);
+    }
+
+    #[test]
+    fn the_shielded_height_comes_from_exactly_one_source() {
+        assert_eq!(resolve_shielded_activation(0, SHIELDED_NEVER), Ok(0));
+        assert_eq!(resolve_shielded_activation(SHIELDED_NEVER, 40), Ok(40));
+        assert_eq!(
+            resolve_shielded_activation(SHIELDED_NEVER, SHIELDED_NEVER),
+            Ok(SHIELDED_NEVER)
+        );
+        assert_eq!(
+            resolve_shielded_activation(0, 40),
+            Err(NodeError::ShieldedActivationConflict {
+                genesis: 0,
+                scheduled: 40
+            })
+        );
     }
 
     #[test]

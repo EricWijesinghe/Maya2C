@@ -263,6 +263,39 @@ fn check(case: &Value) {
                 "{id}"
             );
         }
+        "shielded_activation" => {
+            let resolved = custom_l1_node::upgrade::resolve_shielded_activation(
+                num(&case["genesis"]),
+                num(&case["scheduled"]),
+            );
+            assert_eq!(outcome(resolved.is_ok()), want, "{id}");
+            if let Ok(at) = resolved {
+                assert_eq!(at.to_string(), expect["activation"].as_str().unwrap(), "{id}");
+                let context = custom_l1_node::state::BlockContext::at_height(num(&case["height"]))
+                    .with_shielded_activation(at);
+                assert_eq!(
+                    context.shielded_active(),
+                    expect["active"].as_bool().unwrap(),
+                    "{id}"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        resolved,
+                        Err(custom_l1_node::error::NodeError::ShieldedActivationConflict { .. })
+                    ),
+                    "{id}"
+                );
+            }
+        }
+        "shielded_entry" => {
+            let admitted = custom_l1_node::state::upgrades::check_shielded_entry(
+                custom_l1_node::upgrade::FeatureSet(custom_l1_node::upgrade::FeatureSet::SHIELDED),
+                num(&case["pool_activation"]),
+                case["audited"].as_bool().unwrap(),
+            );
+            assert_eq!(outcome(admitted.is_ok()), want, "{id}");
+        }
         other => panic!("{id}: unknown fn {other}"),
     }
 }

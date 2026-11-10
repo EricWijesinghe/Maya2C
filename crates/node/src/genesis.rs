@@ -724,6 +724,7 @@ impl GenesisConfig {
             }
         }
         self.upgrade_schedule()?;
+        self.resolved_shielded_activation()?;
         self.suite_sunsets()?;
 
         if self.pow_limit_bits > self.difficulty_bits {
@@ -1200,11 +1201,27 @@ impl GenesisConfig {
         *h.finalize().as_bytes()
     }
 
-    /// First height at which shielded join-splits execute on this network.
+    /// First height at which shielded join-splits execute on this network,
+    /// as the genesis field gives it. A launch schedule entry can give it
+    /// instead: [`Self::resolved_shielded_activation`] reads both.
     #[must_use]
     pub fn shielded_activation(&self) -> u64 {
         self.shielded_activation_height
             .unwrap_or(SHIELDED_ACTIVATION_HEIGHT)
+    }
+
+    /// The shielded activation height from the genesis field and the launch
+    /// schedule together (ADR-087).
+    ///
+    /// # Errors
+    ///
+    /// A malformed schedule, or
+    /// [`NodeError::ShieldedActivationConflict`] when both name a height.
+    pub fn resolved_shielded_activation(&self) -> Result<u64> {
+        crate::upgrade::resolve_shielded_activation(
+            self.shielded_activation(),
+            self.upgrade_schedule()?.features().shielded,
+        )
     }
 
     /// The chain id, and the DAG-BFT committee where there is one.

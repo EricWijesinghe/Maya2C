@@ -566,6 +566,49 @@ fn prune_cases() -> Vec<Value> {
         .collect()
 }
 
+/// CON-14: one source names the shielded height; a join-split runs from it.
+fn shielded_activation_cases() -> Vec<Value> {
+    let never = consensus::SHIELDED_NEVER;
+    [
+        ("shielded-genesis-height-wins", 0u64, never, 0u64),
+        ("shielded-scheduled-before-height", never, 40, 39),
+        ("shielded-scheduled-at-height", never, 40, 40),
+        ("shielded-never-anywhere", never, never, never - 1),
+        ("shielded-both-sources-refused", 0, 40, 40),
+        ("shielded-both-sources-refused-late-genesis", 10, 40, 40),
+    ]
+    .iter()
+    .map(|(id, genesis, scheduled, height)| {
+        let expect = match consensus::shielded_activation(*genesis, *scheduled) {
+            Some(at) => json!({"result": "ok", "activation": at.to_string(), "active": *height >= at}),
+            None => json!({"result": "error", "error": "ShieldedActivationConflict"}),
+        };
+        json!({"id": id, "rules": ["CON-14"], "fn": "shielded_activation", "genesis": genesis.to_string(), "scheduled": scheduled.to_string(), "height": height.to_string(), "expect": expect})
+    })
+    .collect()
+}
+
+/// CON-15: an on-chain `SHIELDED` entry needs an audited circuit and an idle pool.
+fn shielded_entry_cases() -> Vec<Value> {
+    let never = consensus::SHIELDED_NEVER;
+    [
+        ("shielded-entry-audited-idle-pool", never, true),
+        ("shielded-entry-unaudited-refused", never, false),
+        ("shielded-entry-pool-already-on-refused", 0, true),
+        ("shielded-entry-pool-already-scheduled-refused", 40, true),
+    ]
+    .iter()
+    .map(|(id, pool, audited)| {
+        let expect = if consensus::shielded_entry_admitted(*pool, *audited) {
+            json!({"result": "ok"})
+        } else {
+            json!({"result": "error", "error": "Governance"})
+        };
+        json!({"id": id, "rules": ["CON-15"], "fn": "shielded_entry", "pool_activation": pool.to_string(), "audited": audited, "expect": expect})
+    })
+    .collect()
+}
+
 /// CON-10: a header version other than 0 is invalid.
 fn header_version_cases() -> Vec<Value> {
     [("header-version-zero", 0u8), ("header-version-one-is-invalid", 1), ("header-version-max-is-invalid", 255)]
@@ -691,6 +734,8 @@ fn consensus_vectors() -> Value {
         verification_cases(),
         block_size_cases(),
         decode_fair_cases(),
+        shielded_activation_cases(),
+        shielded_entry_cases(),
     ]
     .into_iter()
     .flatten()

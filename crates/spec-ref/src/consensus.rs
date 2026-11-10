@@ -245,6 +245,28 @@ pub fn cumulative_work(targets: &[[u8; 32]]) -> [u8; 32] {
     to_be(&total)
 }
 
+/// CON-14/15: the shielded height meaning "never".
+pub const SHIELDED_NEVER: u64 = u64::MAX;
+
+/// CON-14: the shielded activation height from the genesis height and the
+/// schedule's height. `None` when both name one (`ShieldedActivationConflict`).
+#[must_use]
+pub fn shielded_activation(genesis: u64, scheduled: u64) -> Option<u64> {
+    if genesis == SHIELDED_NEVER {
+        Some(scheduled)
+    } else if scheduled == SHIELDED_NEVER {
+        Some(genesis)
+    } else {
+        None
+    }
+}
+
+/// CON-15: whether an on-chain entry carrying `SHIELDED` may be written.
+#[must_use]
+pub fn shielded_entry_admitted(pool_activation: u64, audited: bool) -> bool {
+    pool_activation == SHIELDED_NEVER && audited
+}
+
 /// CON-8: a block at or below the prune horizon is refused.
 #[must_use]
 pub fn below_prune_horizon(height: u64, horizon: u64) -> bool {

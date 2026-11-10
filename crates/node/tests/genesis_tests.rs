@@ -471,3 +471,66 @@ fn a_bft_genesis_with_empty_levers_has_its_pinned_id() {
     assert!(bft.protocol_upgrades.is_empty() && bft.suite_deprecations.is_empty());
     assert_eq!(hex::encode(genesis_id(&bft)), PINNED_BFT_EMPTY_LEVERS_ID);
 }
+
+/// A genesis with the pool off and a launch entry carrying `SHIELDED` at 40.
+fn scheduled_pool() -> GenesisConfig {
+    let mut scheduled = config();
+    scheduled.shielded_activation_height = Some(u64::MAX);
+    scheduled.protocol_upgrades = vec![ProtocolUpgrade {
+        version: 2,
+        activation_height: 40,
+        features: FeatureSet(FeatureSet::SHIELDED),
+    }];
+    scheduled
+}
+
+fn conflict() -> custom_l1_node::error::NodeError {
+    custom_l1_node::error::NodeError::ShieldedActivationConflict {
+        genesis: 0,
+        scheduled: 40,
+    }
+}
+
+#[test]
+fn a_scheduled_shielded_pool_turns_on_exactly_at_its_height() {
+    // ADR-087: the schedule, not only the genesis, can switch the pool on.
+    let scheduled = scheduled_pool();
+    scheduled.validate().expect("one source names the height");
+    assert_eq!(scheduled.resolved_shielded_activation(), Ok(40));
+    let (state, _dir) = open_state();
+    scheduled.seed_state(&state).expect("seed");
+    let chain = Chain::open(
+        state,
+        scheduled.genesis_block().expect("block"),
+        ChainConfig::without_pow_verification()
+            .with_shielded_activation(scheduled.shielded_activation()),
+    )
+    .expect("open");
+    assert!(!chain.context_at(39).expect("context").shielded_active(), "H-1");
+    assert!(chain.context_at(40).expect("context").shielded_active(), "H");
+    assert_eq!(chain.shielded_activation(), Ok(40));
+}
+
+#[test]
+fn a_genesis_naming_the_pool_twice_is_refused() {
+    let mut both = scheduled_pool();
+    both.shielded_activation_height = Some(0);
+    assert_eq!(both.validate(), Err(conflict()));
+    // An absent field means block zero, so it names a height too.
+    both.shielded_activation_height = None;
+    assert_eq!(both.validate(), Err(conflict()));
+    assert!(GenesisConfig::from_json(&both.to_json().expect("json")).is_err());
+
+    // A chain whose configuration names the pool while its committed schedule
+    // also does refuses every context, with the typed error.
+    let scheduled = scheduled_pool();
+    let (state, _dir) = open_state();
+    scheduled.seed_state(&state).expect("seed");
+    let chain = Chain::open(
+        state,
+        scheduled.genesis_block().expect("block"),
+        ChainConfig::without_pow_verification().with_shielded_activation(0),
+    )
+    .expect("open");
+    assert_eq!(chain.context_at(1).err(), Some(conflict()));
+}

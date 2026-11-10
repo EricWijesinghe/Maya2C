@@ -258,11 +258,22 @@ phase that did it.
     height its proposal can execute at and its activation. The security council's
     `SunsetSuites` needs `MIN_COUNCIL_SUNSET_LEAD_BLOCKS` (7 days) and may schedule
     nothing else. Neither can move funds or mint: a schedule entry switches on a
-    dark feature or retires a suite. Both leads are compiled in
+    dark feature or retires a suite. The shielded pool (feature bit 8,
+    `FeatureSet::SHIELDED`, ADR-087, post-genesis) is the one feature that can
+    mint, so its entry is refused by the writer while
+    `maya_zk_stark::pool::circuit_is_audited()` is false and whenever the pool
+    already has an activation height; its height comes from exactly one source,
+    the genesis or the schedule, and a genesis naming both is refused
+    (`ShieldedActivationConflict`). Both leads are compiled in
     `crates/governance/src/limits.rs` (invariant 12), so no proposal shortens them.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and
     `crates/node/tests/council_pause_tests.rs`
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
-    — ADR-082.
+    — ADR-082; the shielded clause by `crates/node/tests/genesis_tests.rs`
+    (`a_scheduled_shielded_pool_turns_on_exactly_at_its_height`,
+    `a_genesis_naming_the_pool_twice_is_refused`) and
+    `crates/node/src/state/upgrades.rs`
+    (`a_shielded_entry_is_refused_while_the_circuit_is_unaudited`,
+    `a_shielded_entry_is_refused_when_the_pool_already_has_a_height`) — ADR-087.

@@ -212,6 +212,7 @@ impl StateDB {
             context.height,
             COUNCIL_SUNSET_LEAD_BLOCKS,
             default,
+            context.shielded_activation,
         );
         if let Err(error) = admitted {
             return Err(NodeError::Network(format!(
