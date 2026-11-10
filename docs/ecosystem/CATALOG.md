@@ -79,7 +79,7 @@ L is more. *Wave* is when, defined at the end of the file.
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
 |---|---|---|---|---|---|
-| sdks-1.0 | Stable Rust, TypeScript, Python and Go SDKs with versioned releases | `sdks/`, `bins/l1-wallet` | publishing approval (Eric) | M | W1 |
+| sdks-1.0 | Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`) | `sdks/`, `bins/l1-wallet` | publishing approval (Eric) | M | W1 |
 | dev-portal | Docs, tutorials, playground and contract templates | `apps/dev-hub`, `apps/portal`, `docs/ecosystem/COURSE.md` | none | M | W1 |
 | public-api | Indexer API (REST, later GraphQL) for wallets and dashboards | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
 | mcp-server | AI assistants can read the chain and draft (never sign) transactions | `bins/maya2c-mcp` | key-safety review | S | W1 |
