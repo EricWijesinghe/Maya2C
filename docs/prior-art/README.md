@@ -30,3 +30,14 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Space-debris registry (mirror of state-filed records)](space-debris-registry.md) — searched 2026-11-10
 - [Seed-vault attestation (lab custody records)](seed-vault-attestation.md) — searched 2026-11-10
 - [Aid tracing (chain-enforced recipient limits)](aid-tracing.md) — searched 2026-11-10
+- [On-device translation inside encrypted chat (babel-chat)](babel-chat.md) — partially searched 2026-11-10
+- [Proof of personhood without biometrics on chain (human-or-machine)](human-or-machine.md) — partially searched 2026-11-10
+- [One identity and owned items across virtual worlds (avatar-passport)](avatar-passport.md) — partially searched 2026-11-10
+- [Patient-owned medical records granted per visit (health-vault)](health-vault.md) — partially searched 2026-11-10
+- [Civilisation's knowledge kept verifiable for centuries (foundation-archive)](foundation-archive.md) — partially searched 2026-11-10
+- [Proving a photo or video is original since capture (truth-stamps)](truth-stamps.md) — partially searched 2026-11-10
+- [Light-lag ledger, payments between distant sites (light-lag-ledger)](light-lag-ledger.md) — searched 2026-11-10
+- [Mind-link safety, consent and logging for BCIs (mind-link-safety)](mind-link-safety.md) — searched 2026-11-10
+- [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
+- [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
+- [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
