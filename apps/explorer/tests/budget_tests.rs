@@ -67,6 +67,7 @@ fn a_deferred_script_does_not_block_and_a_plain_one_does() {
 fn pages_stay_within_their_byte_budgets() {
     let account = account_page(
         "ab".repeat(32),
+        None,
         Some(5u64.into()),
         Some(50),
         (0..50).map(tx).collect(),

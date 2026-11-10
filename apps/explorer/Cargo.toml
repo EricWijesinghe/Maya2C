@@ -27,6 +27,8 @@ primitive-types.workspace = true
 # The shared tokens (Master Prompt 29): one palette for every interface,
 # checked against WCAG AA in its own tests.
 maya-design-system = { path = "../../crates/design-system" }
+# ADR-081: addresses are shown as Bech32m text beside their hex id.
+maya-address = { path = "../../crates/address" }
 
 # SSR only. A hydrating build needs cargo-leptos and wasm-bindgen to produce a
 # client bundle; this renders on the server and pushes updates over WebSocket.
