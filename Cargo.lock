@@ -7020,6 +7020,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya2c-sdk"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "maya-address",
+ "primitive-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya2c-signer"
 version = "0.1.0"
 dependencies = [

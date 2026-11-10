@@ -341,9 +341,22 @@ fn a_slow_gateway_hits_the_client_timeout() {
 
 #[test]
 fn an_unreachable_gateway_is_a_network_error() {
-    // Nothing listens on port 1 of loopback.
-    let client = Client::with_timeout("http://127.0.0.1:1", Duration::from_secs(2)).unwrap();
-    assert!(matches!(client.health(), Err(Error::Network(_))));
+    // A port that was just released refuses at once. Port 1 does not: on
+    // Windows the connect to it waits out the timeout instead.
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let client =
+        Client::with_timeout(&format!("http://127.0.0.1:{port}"), Duration::from_secs(2)).unwrap();
+    // Refused and connect-timeout are both "unreachable". This Windows host
+    // reports the closed port as a connect timeout, so either is accepted.
+    let result = client.health();
+    assert!(
+        matches!(result, Err(Error::Network(_) | Error::Timeout)),
+        "got {result:?}"
+    );
 }
 
 #[test]
