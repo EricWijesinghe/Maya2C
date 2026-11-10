@@ -303,11 +303,14 @@ mod tests {
     fn mainnet_bonds_must_be_exactly_the_floor() {
         let floor = primitive_types::U256::from(10);
         let staked = |bonds: &[u64]| -> Vec<Member> {
-            let lines: String = bonds
+            let lines = bonds
                 .iter()
                 .zip(['a', 'b', 'c'])
-                .map(|(b, c)| format!("{c} {} {} {b}\n", key(c), address(c)))
-                .collect();
+                .fold(String::new(), |mut s, (b, c)| {
+                    use std::fmt::Write as _;
+                    let _ = writeln!(s, "{c} {} {} {b}", key(c), address(c));
+                    s
+                });
             parse(&lines).expect("parse")
         };
         assert!(check_tiny_bonds(&staked(&[10, 10, 10]), floor).is_ok());

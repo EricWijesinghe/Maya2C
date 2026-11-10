@@ -158,6 +158,62 @@ async fn a_regenesis_found_on_submit_is_reported_and_the_retry_signs_for_the_new
     assert!(verifies_on_new_chain(&sent[1]));
 }
 
+fn margins() -> Margins {
+    Margins {
+        maya_confirmations: 2,
+        counterparty_confirmations: 2,
+        submission_blocks: 1,
+    }
+}
+
+fn hash_secret(byte: u8) -> SwapSecret {
+    SwapSecret::Hash {
+        function: HashFunction::Sha256,
+        preimage: Preimage::new([byte; 32]),
+    }
+}
+
+#[tokio::test]
+async fn a_lock_refused_for_a_changed_genesis_leaves_no_swap_watching_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = Journal::open(&dir.path().join("journal.json")).unwrap();
+    let chain = Arc::new(Chain::new());
+    let key = generate_signing_key().unwrap();
+    let mut worker = Worker::new(
+        chain.clone(),
+        Arc::new(Chain::new()),
+        key,
+        margins(),
+        journal,
+    );
+    chain.regenesis();
+    let amount = primitive_types::U256::from(1_000);
+
+    let err = worker
+        .initiate(hash_secret(1), [9; 32], amount, 200)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, WatcherError::GenesisChanged { .. }),
+        "{err:?}"
+    );
+    // The lock was signed for a chain that is gone; nothing will ever fund
+    // it. Kept active, its lock id (address, nonce) is the one the next
+    // swap derives, and two swaps would watch one lock.
+    assert!(
+        worker.journal().swaps().is_empty(),
+        "an unfunded swap stayed journalled"
+    );
+
+    worker
+        .initiate(hash_secret(2), [9; 32], amount, 200)
+        .await
+        .unwrap();
+    assert_eq!(worker.journal().swaps().len(), 1);
+    let on_disk = Journal::open(&dir.path().join("journal.json")).unwrap();
+    assert_eq!(on_disk.swaps().len(), 1, "the journal on disk disagrees");
+}
+
 #[tokio::test]
 async fn a_lock_is_never_broadcast_when_its_swap_cannot_be_journalled() {
     let dir = tempfile::tempdir().unwrap();

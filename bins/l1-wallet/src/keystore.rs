@@ -278,8 +278,6 @@ pub fn decrypt(bytes: &[u8], password: &str) -> Result<HybridSigningKey> {
 /// be made owner-only. Silently overwriting would destroy a key with no way
 /// to recover it.
 pub fn save(path: &std::path::Path, contents: &[u8]) -> Result<()> {
-    use std::io::Write as _;
-
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -289,7 +287,7 @@ pub fn save(path: &std::path::Path, contents: &[u8]) -> Result<()> {
 
     // `create_new`, not an `exists` check first: the check and the write race,
     // and the loser of that race is someone's only key.
-    let mut file = match create_owner_only(path) {
+    let file = match create_owner_only(path) {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => bail!(
             "{} already exists — refusing to overwrite an existing key",
@@ -297,19 +295,34 @@ pub fn save(path: &std::path::Path, contents: &[u8]) -> Result<()> {
         ),
         Err(e) => return Err(e).with_context(|| format!("creating {}", path.display())),
     };
-    if let Err(e) = restrict_permissions(path) {
+    restrict_then_write(path, file, contents)
+}
+
+/// Restricts the file we just created, then writes and syncs the key. Any
+/// failure removes the file: a half-written or unrestricted keystore is a
+/// file nobody should find later and take for a key.
+fn restrict_then_write(
+    path: &std::path::Path,
+    mut file: std::fs::File,
+    contents: &[u8],
+) -> Result<()> {
+    use std::io::Write as _;
+    let result = restrict_permissions(path, &file).and_then(|()| {
+        file.write_all(contents)
+            .and_then(|()| file.sync_all())
+            .with_context(|| format!("writing {}", path.display()))
+    });
+    if result.is_err() {
         drop(file);
-        // Still empty, so removing it loses nothing.
         let _ = std::fs::remove_file(path);
-        return Err(e);
     }
-    file.write_all(contents)
-        .and_then(|()| file.sync_all())
-        .with_context(|| format!("writing {}", path.display()))
+    result
 }
 
 /// Creates `path`, failing if it exists. On Unix the mode is 0600 from
-/// creation; a umask can only remove bits from it.
+/// creation; a umask can only remove bits from it. On Windows the handle
+/// shares nothing, so no other handle to the file can be opened before its
+/// DACL is replaced and the key written.
 fn create_owner_only(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -318,14 +331,20 @@ fn create_owner_only(path: &std::path::Path) -> std::io::Result<std::fs::File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0);
+    }
     options.open(path)
 }
 
-/// Unix: re-asserts 0600, for a file system that ignored the creation mode.
+/// Unix: re-asserts 0600 on the open handle (`fchmod`), not the path, for a
+/// file system that ignored the creation mode.
 #[cfg(unix)]
-fn restrict_permissions(path: &std::path::Path) -> Result<()> {
+fn restrict_permissions(path: &std::path::Path, file: &std::fs::File) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
         .with_context(|| format!("restricting {}", path.display()))
 }
 
@@ -334,7 +353,7 @@ fn restrict_permissions(path: &std::path::Path) -> Result<()> {
 /// `icacls`, by full path under `%SystemRoot%`, rather than a new dependency on
 /// the Windows security API.
 #[cfg(windows)]
-fn restrict_permissions(path: &std::path::Path) -> Result<()> {
+fn restrict_permissions(path: &std::path::Path, _file: &std::fs::File) -> Result<()> {
     use std::process::Command;
     let system32 = std::path::PathBuf::from(
         std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into()),
@@ -366,7 +385,7 @@ fn restrict_permissions(path: &std::path::Path) -> Result<()> {
 
 /// Elsewhere the file keeps its directory's access rules; the caller warns.
 #[cfg(not(any(unix, windows)))]
-fn restrict_permissions(_path: &std::path::Path) -> Result<()> {
+fn restrict_permissions(_path: &std::path::Path, _file: &std::fs::File) -> Result<()> {
     Ok(())
 }
 
@@ -560,6 +579,34 @@ mod tests {
         let err = save(&path, b"second").expect_err("overwrote a key");
         assert!(err.to_string().contains("already exists"), "{err}");
         assert_eq!(std::fs::read(&path).expect("read"), b"first");
+    }
+
+    #[test]
+    fn a_keystore_that_could_not_be_written_is_removed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("wallet.key");
+        std::fs::write(&path, b"").expect("create");
+        // A read-only handle: restricting works, writing the key fails.
+        let read_only = std::fs::File::open(&path).expect("open");
+        assert!(restrict_then_write(&path, read_only, b"key").is_err());
+        assert!(!path.exists(), "a partial keystore was left behind");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn no_second_handle_opens_while_the_keystore_is_being_made() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("wallet.key");
+        let file = create_owner_only(&path).expect("create");
+        // Before the DACL is replaced the file still has inherited access;
+        // a handle that shares nothing is what keeps anyone out meanwhile.
+        assert!(
+            std::fs::File::open(&path).is_err(),
+            "opened during creation"
+        );
+        // The system tool still replaces the DACL through it.
+        restrict_then_write(&path, file, b"k").expect("restrict and write");
+        assert_eq!(std::fs::read(&path).expect("read"), b"k");
     }
 
     #[cfg(unix)]

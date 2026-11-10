@@ -42,7 +42,7 @@ impl Setup {
         std::fs::write(dir.path().join("wrong"), "not the passphrase\n").unwrap();
         let s = Self { dir };
         for ks in ["validator.ks", "identity.ks"] {
-            let out = s.run(&[
+            let out = run(&[
                 "init",
                 "--keystore",
                 path(&s.p(ks)),
@@ -60,10 +60,6 @@ impl Setup {
 
     fn p(&self, name: &str) -> PathBuf {
         self.dir.path().join(name)
-    }
-
-    fn run(&self, args: &[&str]) -> Output {
-        bin().args(args).output().unwrap()
     }
 
     fn serve_args(&self, allow: &str, listen: &str) -> Vec<String> {
@@ -94,8 +90,16 @@ impl Setup {
     }
 }
 
+fn run(args: &[&str]) -> Output {
+    bin().args(args).output().unwrap()
+}
+
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 fn node_identity(b: u8) -> Identity {
@@ -167,7 +171,7 @@ fn not_a_panic(out: &Output) {
 #[test]
 fn a_wrong_passphrase_opens_nothing_and_echoes_nothing() {
     let s = Setup::new();
-    let out = s.run(&[
+    let out = run(&[
         "export",
         "--keystore",
         path(&s.p("validator.ks")),
@@ -237,6 +241,37 @@ fn a_silent_connection_does_not_lock_the_pinned_node_out() {
     let mut ch = channel::client(connect(server.addr), &node, &s.signer_pk())
         .expect("the pinned node was locked out by a silent peer");
     assert!(matches!(ask(&mut ch, &vote(1)), Response::Signed(_)));
+}
+
+#[test]
+fn a_peer_dribbling_bytes_does_not_hold_the_slot_past_the_handshake_deadline() {
+    let s = Setup::new();
+    let node = node_identity(1);
+    let server = serve(&s, &node);
+    // One byte a second: every read finishes well inside any per-read
+    // timeout, so only a deadline on the whole handshake ends it. It keeps
+    // going past CLIENT_TIMEOUT, so without one the pinned node times out.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let dribbler = {
+        let (stop, addr) = (stop.clone(), server.addr);
+        std::thread::spawn(move || {
+            let mut peer = TcpStream::connect(addr).unwrap();
+            let mut bytes = 60_000u32.to_le_bytes().to_vec();
+            bytes.resize(60, 0);
+            for b in bytes {
+                if stop.load(std::sync::atomic::Ordering::SeqCst) || peer.write_all(&[b]).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        })
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    let served = channel::client(connect(server.addr), &node, &s.signer_pk());
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut ch = served.expect("a dribbling peer held the only slot");
+    assert!(matches!(ask(&mut ch, &vote(1)), Response::Signed(_)));
+    dribbler.join().unwrap();
 }
 
 #[test]
