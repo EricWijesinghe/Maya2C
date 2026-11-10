@@ -1060,6 +1060,43 @@ impl StateDB {
             .verify(tx, height, policy, self.get_chain_tag()?)
     }
 
+    /// Refuses `tx` on the payload rules the block executor applies, against
+    /// committed state at `height` (ADR-099). A refusal here carries the reason;
+    /// the same refusal at build time was a silent drop.
+    ///
+    /// The executor's own [`Self::stage_transaction`] runs on a throwaway overlay
+    /// whose sender nonce is the transaction's, so the nonce rule passes and every
+    /// other rule is the executor's. A nonce ahead of the account is not refused
+    /// here: its predecessor may still be pooled.
+    ///
+    /// Not applied to mining shares. Their work is judged against the block's
+    /// difficulty target, which admission does not know; `check_mining_share`
+    /// judges them instead.
+    ///
+    /// shortcut: the context takes the compiled shielded activation, not the
+    /// chain's genesis value, because the mempool holds no `ChainConfig`. The
+    /// compiled value is the lowest, so a shielded payload is admitted at least
+    /// as readily as the executor allows it. Upgrade by passing the chain config
+    /// into `Mempool`.
+    ///
+    /// # Errors
+    ///
+    /// The executor's refusal, or a storage failure.
+    pub fn admit_payload(&self, tx: &Transaction, height: u64) -> Result<()> {
+        let schedule = self.effective_schedule()?;
+        let context = BlockContext::at_height(height)
+            .with_features(schedule.features())
+            .with_suite_sunsets(schedule.sunsets);
+        let policy = crate::crypto::suites::verification_policy(&context.suite_sunsets)?;
+        let sender = tx.sender();
+        let mut overlay = Overlay::new();
+        self.mark_sparse_accounts(&mut overlay, context)?;
+        let mut account = self.load(&overlay, &sender)?;
+        account.nonce = tx.nonce;
+        overlay.accounts.insert(sender, account);
+        self.stage_transaction(&mut overlay, tx, context, &policy)
+    }
+
     /// The longest prefix-closed subsequence of `transactions` that executes,
     /// in the order given: each transaction is staged on top of the ones kept
     /// before it, and one that fails is dropped rather than failing the rest.

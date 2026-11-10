@@ -350,6 +350,11 @@ impl Mempool {
         let sunsets = self.state.effective_schedule()?.sunsets;
         let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
         self.state.verify_cached(tx, height, &policy)?;
+        // The executor's payload rules at the same height. Refused here with the
+        // reason, not dropped silently at build (ADR-099).
+        if !matches!(tx.kind, crate::core::TxKind::MiningShare(_)) {
+            self.state.admit_payload(tx, height)?;
+        }
 
         // Evidence is stateless to check, so garbage never reaches a block
         // template — the executor checks it again regardless. Chain tag is required
@@ -610,12 +615,16 @@ impl Mempool {
             .map(|(hash, tx)| (*hash, tx.clone()))
             .collect();
 
-        // Validate outside the lock, then apply the evictions in one pass.
-        let stale: Vec<TxHash> = candidates
-            .into_iter()
-            .filter(|(_, tx)| self.validate(tx).is_err())
-            .map(|(hash, _)| hash)
-            .collect();
+        // Validate outside the lock, then apply the evictions in one pass. Each
+        // eviction logs its reason, so a transaction that stopped executing is
+        // never pooled silently (ADR-099).
+        let mut stale = Vec::new();
+        for (hash, tx) in candidates {
+            if let Err(reason) = self.validate(&tx) {
+                eprintln!("mempool: evicted {} after commit: {reason}", hex::encode(hash));
+                stale.push(hash);
+            }
+        }
 
         Ok(self.remove_all(&stale))
     }
