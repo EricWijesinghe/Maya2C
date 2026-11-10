@@ -19,7 +19,10 @@
 use maya_amount::Amount;
 use std::collections::BTreeSet;
 
-use maya_clear_sign::{Address, Context, Effect, UNLIMITED, Warning, render, review};
+use maya_clear_sign::{
+    Address, Context, Effect, Network, UNLIMITED, Warning, drains, grouped, render, review,
+    text_look_alike,
+};
 
 fn addr(tag: u8, i: u8) -> Address {
     let mut a = [tag; 32];
@@ -297,10 +300,157 @@ fn rendering_says_the_dangerous_part_in_capitals() {
         spender: addr(0xBA, 1),
         amount: UNLIMITED,
     };
-    assert!(render(&e).contains("ALL of your token"), "{}", render(&e));
+    let text = render(&e, Network::Mainnet);
+    assert!(text.contains("ALL of your token"), "{text}");
     let e = Effect::ApproveAll {
         collection: addr(0x71, 0),
         operator: addr(0xBA, 1),
     };
-    assert!(render(&e).contains("EVERY item"));
+    assert!(render(&e, Network::Mainnet).contains("EVERY item"));
+}
+
+/// The Bech32 generator g(x) = x^6 + 29x^5 + 22x^4 + 20x^3 + 21x^2 + 29x + 18
+/// (BIP-173). XOR-ing a shifted copy into the data leaves the checksum
+/// unchanged: the strongest poisoning a person reading the ends can face.
+const GENERATOR: [u8; 7] = [1, 29, 22, 20, 21, 29, 18];
+
+/// A look-alike of `of` whose Bech32m text matches at both ends, with the
+/// change at payload symbols `at..at + 7`.
+fn bech32m_poison(of: &Address, at: usize) -> Address {
+    let text = maya_address::encode(Network::Mainnet, of);
+    let (hrp, mut data) = maya_address::bech32m::split(&text).unwrap();
+    // data[0] is the version symbol; the payload starts at 1.
+    for (d, g) in data[1 + at..1 + at + GENERATOR.len()].iter_mut().zip(GENERATOR) {
+        *d ^= g;
+    }
+    let forged = maya_address::bech32m::join(&hrp, &data);
+    assert_eq!(forged[forged.len() - 6..], text[text.len() - 6..], "checksum kept");
+    maya_address::decode(Network::Mainnet, &forged).unwrap()
+}
+
+#[test]
+fn every_bech32m_look_alike_of_a_contact_is_flagged() {
+    let ctx = context();
+    let mut missed = Vec::new();
+    let mut bytes_rule_would_miss = 0;
+    for i in 0..20u8 {
+        let contact = addr(0xC0, i);
+        let to = bech32m_poison(&contact, 6 + 2 * usize::from(i));
+        assert_ne!(to, contact);
+        assert!(text_look_alike(&contact, &to));
+        if to[30..] != contact[30..] {
+            bytes_rule_would_miss += 1;
+        }
+        let e = vec![Effect::Transfer {
+            token: NATIVE,
+            to,
+            amount: Amount::from_u64(1_000),
+        }];
+        let w = review(&e, &e, &ctx);
+        if !w.contains(&Warning::LookAlikeRecipient) {
+            missed.push(format!("contact {i}: got {w:?}"));
+        }
+    }
+    println!(
+        "20 Bech32m look-alikes (same first 6 payload + last 6 characters): missed {}; \
+         {bytes_rule_would_miss} of them differ in the last two bytes, so the old byte rule alone missed them",
+        missed.len()
+    );
+    assert!(missed.is_empty(), "{missed:#?}");
+    assert!(bytes_rule_would_miss > 0, "the family must exercise the text rule");
+}
+
+#[test]
+fn the_bech32m_look_alike_false_alarm_rate_is_measured() {
+    let ctx = context();
+    // splitmix64: deterministic stand-ins for unrelated addresses.
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut next = || {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let trials = 10_000;
+    let mut alarms = 0;
+    for _ in 0..trials {
+        let mut to = [0u8; 32];
+        for chunk in to.chunks_mut(8) {
+            chunk.copy_from_slice(&next().to_le_bytes());
+        }
+        let e = vec![Effect::Transfer {
+            token: NATIVE,
+            to,
+            amount: Amount::from_u64(1_000),
+        }];
+        if review(&e, &e, &ctx).contains(&Warning::LookAlikeRecipient) {
+            alarms += 1;
+        }
+    }
+    println!(
+        "{trials} unrelated recipients against {} contacts: {alarms} look-alike false alarms",
+        ctx.contacts.len()
+    );
+}
+
+#[test]
+fn the_drain_check_holds_at_the_90_percent_boundary_within_256_bits() {
+    // Small values: 9 of 10 drains, 8 of 10 does not.
+    assert!(drains(Amount::from_u64(9), Amount::from_u64(10)));
+    assert!(!drains(Amount::from_u64(8), Amount::from_u64(10)));
+    assert!(!drains(Amount::from_u64(5), Amount::ZERO));
+    // ceil(0.9 × 11) = 10.
+    assert!(drains(Amount::from_u64(10), Amount::from_u64(11)));
+    assert!(!drains(Amount::from_u64(9), Amount::from_u64(11)));
+    // Near the top, where 10a and 9b overflow 256 bits: a >= b - b/10.
+    let b = Amount::MAX;
+    let edge = b.saturating_sub(b.checked_div(Amount::from_u64(10)).unwrap());
+    assert!(drains(edge, b));
+    assert!(!drains(edge.saturating_sub(Amount::ONE), b));
+    assert!(drains(Amount::MAX, Amount::MAX));
+    // Against the exact 512-bit products (the old rule, kept here as the oracle).
+    let oracle = |a: Amount, b: Amount| {
+        !b.is_zero() && a.mul_wide(Amount::from_u64(100)) >= b.mul_wide(Amount::from_u64(90))
+    };
+    let mut checked = 0;
+    for shift in [0u32, 1, 63, 64, 128, 200, 252, 253, 255] {
+        let base = Amount::MAX.shr(shift);
+        for db in 0..12u64 {
+            let b = base.saturating_sub(Amount::from_u64(db));
+            let e = b.saturating_sub(b.checked_div(Amount::from_u64(10)).unwrap());
+            for a in [
+                e.saturating_sub(Amount::from_u64(2)),
+                e.saturating_sub(Amount::ONE),
+                e,
+                e.saturating_add(Amount::ONE),
+            ] {
+                assert_eq!(drains(a, b), oracle(a, b), "a={a} b={b}");
+                checked += 1;
+            }
+        }
+    }
+    println!("drain boundary: {checked} pairs agree with the 512-bit oracle");
+}
+
+#[test]
+fn rendering_shows_the_full_grouped_bech32m_address() {
+    let to = addr(0xBA, 1);
+    let text = render(
+        &Effect::Transfer {
+            token: NATIVE,
+            to,
+            amount: Amount::from_u64(5),
+        },
+        Network::Testnet,
+    );
+    let shown = grouped(Network::Testnet, &to);
+    assert!(text.contains(&shown), "{text}");
+    assert!(shown.starts_with("tmaya1 "), "{shown}");
+    assert!(shown.split(' ').skip(1).all(|g| g.len() <= 4), "{shown}");
+    assert_eq!(
+        shown.replace(' ', ""),
+        maya_address::encode(Network::Testnet, &to)
+    );
+    assert!(!text.contains('…'), "never abbreviated: {text}");
 }
