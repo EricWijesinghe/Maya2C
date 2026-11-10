@@ -648,11 +648,15 @@ fn evidence_that_does_not_convict_its_author_is_refused_and_moves_no_root() {
         );
     }
 
-    // Genuine evidence is admitted, and still refused while the branch is dark.
+    // Genuine evidence is refused while the branch is dark, at admission and at
+    // build alike. Admission applies the executor's payload rules with the
+    // reason (ADR-099), so the pool never holds what the block would drop.
     let genuine_tx = attest_tx(&genuine, 0, &reporter);
-    mempool
-        .validate(&genuine_tx)
-        .expect("genuine evidence is admitted");
+    let refused = mempool.validate(&genuine_tx);
+    assert!(
+        matches!(refused, Err(NodeError::ThreatIntel(_))),
+        "dark-branch evidence admitted: {refused:?}"
+    );
     let dark = db.apply_block(&block_of(vec![genuine_tx]), BlockContext::at_height(1));
     assert!(matches!(dark, Err(NodeError::ThreatIntel(_))), "{dark:?}");
     assert_eq!(db.state_root().expect("root"), root);

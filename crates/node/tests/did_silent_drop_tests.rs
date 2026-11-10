@@ -202,10 +202,12 @@ fn admit_and_build(c: &mut Chain, pool: &Mempool, tx: &Transaction) -> usize {
     build_and_insert(c, vec![tx.clone()])
 }
 
-/// The error the block builder discarded.
-fn refusal(c: &Chain, tx: &Transaction) -> NodeError {
-    c.candidate_block(GENESIS_TIME + c.height() + 1, vec![tx.clone()])
-        .expect_err("the block must refuse it")
+/// Admission refuses the transaction with the reason execution gives, and
+/// nothing is pooled: the block builder would only refuse it later, silently.
+fn refused_at_admission(pool: &Mempool, tx: &Transaction) -> NodeError {
+    let refused = pool.insert(tx.clone());
+    assert!(!pool.contains(&tx.txid()), "pooled despite refusal");
+    refused.expect_err("admission must refuse it")
 }
 
 fn register_lands(devnet_staking: bool) {
@@ -239,12 +241,10 @@ fn the_cli_register_did_lands_with_the_devnets_staking_genesis() {
 }
 
 #[test]
-fn the_cli_stamp_is_admitted_then_silently_dropped_for_its_schema() {
-    // `AnchorAttestation::decode` checks only length and UTF-8, so the mempool
-    // admits "notary/v1"; execution builds a `CryptographicAttestation`
-    // (`crates/identity/src/attestation.rs`), which allows lowercase, digits
-    // and hyphens only, and refuses the '/'. `select_applicable_within`
-    // discards that error (`Err(_) => false`), so nothing reports why.
+fn the_cli_stamp_is_refused_at_admission_for_its_schema() {
+    // `AnchorAttestation::decode` checks only length and UTF-8, so the schema
+    // rule lives in execution (`CryptographicAttestation`: lowercase, digits and
+    // hyphens). Admission now runs the same payload rules as block building.
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir, true);
     let key = wallet();
@@ -253,53 +253,38 @@ fn the_cli_stamp_is_admitted_then_silently_dropped_for_its_schema() {
     assert_eq!(admit_and_build(&mut c, &pool, &setup), 1);
 
     let stamp = cli_tx(&key, stamp_kind(SCHEMA), 1);
-    let reason = refusal(&c, &stamp);
+    let reason = refused_at_admission(&pool, &stamp);
     assert!(
         matches!(&reason, NodeError::Decode(m) if m.contains("notary/v1") && m.contains("hyphens")),
         "{reason:?}"
     );
-    assert_eq!(
-        admit_and_build(&mut c, &pool, &stamp),
-        0,
-        "dropped, not refused"
-    );
     assert_eq!(nonce(&c), 1, "the nonce does not move");
-    assert!(pool.contains(&stamp.txid()), "still pooled after the drop");
-    // Re-validation evicts only the committed registration (stale nonce); the
-    // stamp passes every admission check again and stays.
-    assert_eq!(pool.revalidate().unwrap(), 1);
-    assert!(!pool.contains(&setup.txid()));
-    assert!(
-        pool.contains(&stamp.txid()),
-        "re-validation against committed state keeps it"
-    );
 
-    // Control: the same stamp under a hyphenated schema lands.
+    // Control: the same stamp under a hyphenated schema is admitted and lands.
     let fixed = cli_tx(&key, stamp_kind(VALID_SCHEMA), 1);
     assert_eq!(admit_and_build(&mut c, &pool, &fixed), 1);
     assert_eq!(nonce(&c), 2);
 }
 
 #[test]
-fn a_stamp_before_setup_is_admitted_then_silently_dropped_for_the_missing_did() {
-    // A valid schema, but the issuer has no document, which only execution
-    // checks (`identity_exec.rs` `require_document`).
+fn a_stamp_before_setup_is_refused_at_admission_for_the_missing_did() {
+    // A valid schema, but the issuer has no document. Execution checks that
+    // (`identity_exec.rs` `require_document`), so admission does too.
     let dir = TempDir::new().unwrap();
-    let mut c = chain(&dir, true);
+    let c = chain(&dir, true);
     let pool = Mempool::new(Arc::clone(c.state()));
 
     let stamp = cli_tx(&wallet(), stamp_kind(VALID_SCHEMA), 0);
-    let reason = refusal(&c, &stamp);
+    let reason = refused_at_admission(&pool, &stamp);
     assert!(
         matches!(&reason, NodeError::Decode(m) if m.contains("has no document")),
         "{reason:?}"
     );
-    assert_eq!(admit_and_build(&mut c, &pool, &stamp), 0);
     assert_eq!(nonce(&c), 0);
 }
 
 #[test]
-fn a_second_registration_is_admitted_then_silently_dropped() {
+fn a_second_registration_is_refused_at_admission() {
     // Re-registration is refused at execution only (`register_did`).
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir, true);
@@ -309,11 +294,10 @@ fn a_second_registration_is_admitted_then_silently_dropped() {
     assert_eq!(admit_and_build(&mut c, &pool, &setup), 1);
 
     let again = cli_tx(&key, cli_register(&key), 1);
-    let reason = refusal(&c, &again);
+    let reason = refused_at_admission(&pool, &again);
     assert!(
         matches!(&reason, NodeError::Decode(m) if m.contains("already has a document")),
         "{reason:?}"
     );
-    assert_eq!(admit_and_build(&mut c, &pool, &again), 0);
     assert_eq!(nonce(&c), 1);
 }
