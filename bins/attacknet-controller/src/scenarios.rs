@@ -768,9 +768,9 @@ impl<'a> ScenarioRunner<'a> {
     }
 
     async fn verify_quorum_behavior(&self) -> Result<bool> {
-        // For quorum edge conditions, we verify the scenario ran correctly
-        // The actual behavior is verified in the existing attacknet
-        Ok(true)
+        // This returned Ok(true) unconditionally, so scenario 1.8 always
+        // "passed". The f / f+1 behaviour is checked by `cargo xtask attacknet`.
+        anyhow::bail!("quorum-edge verification not implemented; use cargo xtask attacknet")
     }
 
     async fn check_for_forks(&self) -> Result<bool> {
@@ -849,6 +849,7 @@ impl<'a> ScenarioRunner<'a> {
 
     async fn collect_scenario_metrics(&self) -> Result<ScenarioMetrics> {
         let mut metrics = ScenarioMetrics::default();
+        let client = reqwest::Client::new();
 
         // Collect from each validator
         for name in self.lab.config.validator_names() {
@@ -856,7 +857,15 @@ impl<'a> ScenarioRunner<'a> {
                 continue;
             };
 
-            if let Ok(resp) = reqwest::get(&format!("{}/get_tip_height", v.rpc_url())).await
+            // The RPC is JSON-RPC over POST; the old `GET /get_tip_height`
+            // never answered, so blocks_finalized was always 0.
+            let request = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "get_tip_height",
+                "params": []
+            });
+            if let Ok(resp) = client.post(v.rpc_url()).json(&request).send().await
                 && let Ok(json) = resp.json::<serde_json::Value>().await
                 && let Some(h) = json.get("result").and_then(|r| r.as_u64())
             {

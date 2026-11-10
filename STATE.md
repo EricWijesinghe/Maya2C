@@ -219,7 +219,10 @@
     watcher is fixed. Eric confirmed Cloudflare is clear.
   - Harness settings restored, and the non-existent MCP entries removed.
   - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
-    - attacknet faults are now honest;
+    - attacknet faults: kill fixed (by data dir); pause, latency, loss and
+      bandwidth `bail!`. Correction 2026-11-10: restart, protocol, resource
+      and net-mangle faults were still no-ops logging Ok; they now fail
+      loudly (branch `fix/attacknet-honesty`);
     - the broken lab scripts are quarantined;
     - the property tests are fixed;
     - lint debt is 794.
@@ -432,7 +435,10 @@ un-node.cmd` at 02:35; neither was touched.
     watcher is fixed. Eric confirmed Cloudflare is clear.
   - Harness settings restored, and the non-existent MCP entries removed.
   - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
-    - attacknet faults are now honest;
+    - attacknet faults: kill fixed (by data dir); pause, latency, loss and
+      bandwidth `bail!`. Correction 2026-11-10: restart, protocol, resource
+      and net-mangle faults were still no-ops logging Ok; they now fail
+      loudly (branch `fix/attacknet-honesty`);
     - the broken lab scripts are quarantined;
     - the property tests are fixed;
     - lint debt is 794.
