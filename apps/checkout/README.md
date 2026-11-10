@@ -54,11 +54,13 @@ again with a growing wait (about 1 minute, then 2, 4 and so on, up to an hour)
 and gives up after 8 attempts. You can always read the true state with
 `GET /v1/invoices/<id>`.
 
-**Amounts that clash.** While an invoice for an amount is open (pending, or
-paid but not yet confirmed), a second invoice to you for the exact same amount
-is refused. Add or remove one base unit to make the amount different. This is
-deliberate: the chain does not say which order a payment is for, so the exact
-amount is what tells them apart.
+**The amount is quoted, and you show it.** The chain does not say which order a
+payment is for, so the exact amount tells them apart. If another open invoice
+already holds the amount you asked for, the service quotes the next free base
+unit above it. The reply gives both: `requested_amount` (what you asked for)
+and `amount` (what the customer must pay). Show `amount` and the `pay_uri`. The
+offset is at most 1,000 base units, which is negligible at 24 decimals. Nobody
+gets an error because a stranger has an open invoice at your price.
 
 **Only exact payments settle.**
 - A payment of exactly the invoice amount settles it. Anything else does not.
@@ -66,7 +68,8 @@ amount is what tells them apart.
   stays pending until it expires.
 - Every other payment to you is kept as an *unmatched* record, which you can
   read with `GET /v1/unmatched` (bearer token). Nothing is credited for it.
-  Refund it or assign it yourself.
+  Refund it or assign it yourself. The list is paged: `GET /v1/unmatched?offset=0&limit=50`
+  (limit at most 100), and the reply gives `next_offset`.
 
 **Failed webhooks.** If every retry fails, `POST /v1/invoices/<id>/resend`
 (bearer token) puts it back in the queue once. A webhook already delivered
@@ -103,7 +106,13 @@ What an attacker can try, and what stops it. Each line has a test.
 | **Wrong invoice** | A payment for one order settles a different, unpaid one | Only an exact amount settles, and only if exactly one pending invoice fits | `first_pending_invoice_cannot_take_another_invoices_payment`, `two_pending_invoices_with_one_amount_settle_nothing` |
 | **Underpayment** | Customer pays less and expects the order to count | Not settled; kept as an unmatched record for you | `underpayment_is_recorded_as_unmatched_and_settles_nothing` |
 | **Overpayment** | Customer pays more; shop may credit the wrong amount | Not settled; kept as an unmatched record for you | `overpayment_is_recorded_as_unmatched_and_never_settles` |
-| **Double use** | One payment is used to pay two invoices | Each `txid:index` is claimed once, durably. Two live invoices cannot share an amount | `one_output_is_claimed_once_even_when_the_block_repeats`, `a_claimed_output_cannot_settle_a_later_invoice`, `second_open_invoice_with_same_amount_is_refused`, `a_detected_invoice_still_holds_its_amount` |
+| **Double use** | One payment is used to pay two invoices | Each `txid:index` is claimed once, durably. Live invoices never share an amount: a clash is quoted one base unit higher | `one_output_is_claimed_once_even_when_the_block_repeats`, `a_claimed_output_cannot_settle_a_later_invoice`, `second_open_invoice_with_same_amount_is_quoted_a_unit_higher`, `a_confirmed_invoice_that_can_still_revert_holds_its_amount` |
+| **Same-height competing branch** | The payment's block is replaced at the same height and the tip does not move | Each scan checks the stored block at the scan position against the node before deciding | `a_same_height_competing_branch_does_not_confirm` |
+| **Reverted invoice reported as delivered** | A shop's 200 arrives after a reorg reverted the invoice | A result is recorded only against the same confirmed payment | `a_delivery_recorded_after_its_invoice_was_reverted_is_not_marked_delivered` |
+| **Reorg after delivery** | The shop acted on a payment that a reorg removed | The invoice is flagged and listed at `GET /v1/alerts` (token needed), and an error is logged | `a_reorg_after_delivery_flags_the_invoice_for_the_merchant`, `alerts_list_invoices_whose_delivered_payment_was_reorged_out` |
+| **Dust flood** | Many tiny payments to the merchant grow the records without bound | Unmatched records are capped at 1,000, oldest evicted and logged; the list is paged | `dust_to_the_merchant_cannot_grow_the_unmatched_records_without_bound`, `unmatched_payments_are_paged_and_the_page_size_is_capped` |
+| **One client uses up reads** | A single client makes everyone else's status and QR reads fail | Reads are limited per client address (50 a second), with a global ceiling (500 a second) | `public_reads_are_budgeted_per_client_address`, `public_reads_have_a_global_ceiling_across_clients` |
+| **Ledger rewrite each block** | Every block rewrites the whole ledger | Block ids live in their own sidecar file | `block_id_changes_do_not_rewrite_the_ledger` |
 | **Reorg after payment** | The payment's block is replaced; the invoice would still confirm | Block ids are stored; a changed parent rolls back; confirmation re-checks the block id | `a_reorged_payment_is_unsettled_and_never_confirmed`, `a_payment_on_the_replacement_branch_is_detected_from_that_branch`, `confirm_refuses_a_payment_whose_block_id_changed` |
 | **Webhook through a proxy** | A proxy resolves the shop's host and skips the address check | Proxies are disabled for webhook delivery | Reviewed, not tested offline |
 | **Ledger read by others** | Invoice ids (read keys) and webhook URLs leak from the file | The ledger file is created 0600 on Unix and fsynced before the rename | `the_ledger_file_is_private_to_its_owner` (Unix only) |
@@ -112,7 +121,6 @@ What an attacker can try, and what stops it. Each line has a test.
 | **Stuck webhook** | Retries run out and the shop never hears | Resend endpoint for failed webhooks; delivered ones cannot be resent | `a_failed_webhook_can_be_resent_but_a_delivered_one_cannot` |
 | **Dead node stops webhooks** | A node outage stops retries to shops | Delivery runs even when the scan fails | `a_failed_scan_does_not_stop_webhook_delivery` |
 | **Slow node freezes the API** | A hung node holds the ledger lock | The tip is read before the lock is taken | `a_slow_node_does_not_hold_the_ledger_while_an_invoice_is_created` |
-| **Read flood** | Public reads starve the scanner | Public reads share a per-second budget (50) | `public_reads_are_budgeted_per_second` |
 | **Old payment reused** | A payment made before the invoice existed is counted | Only blocks above the tip at creation count | `payment_in_or_before_the_creation_block_is_ignored` |
 | **Late payment** | A payment after expiry is counted | Only blocks up to the expiry height count | `payment_after_the_window_is_ignored`, `expiry_happens_only_after_the_window_is_scanned` |
 | **Restart forgets claims** | After a crash the same output settles a second invoice | Claims and scan position are committed together, atomically | `claims_survive_a_reopen`, `the_scan_position_survives_a_restart` |
@@ -133,8 +141,12 @@ What an attacker can try, and what stops it. Each line has a test.
 - A webhook already delivered is not recalled if a reorg later removes its
   payment. The service logs it as an error; you must resolve it.
 - A payment split across several outputs is not added together.
-- The chain has no memo, so the exact amount is the link between a payment and
-  an invoice. That is why live amounts must differ for each recipient.
+- The chain has no memo, so the amount is the link between a payment and an
+  invoice. Live invoices get distinct quoted amounts, so you must show the
+  quoted `amount`, not the one you asked for.
+- A customer can still be asked for an amount a few base units above the
+  price, and the service does not limit how many open invoices you create. Limit
+  open orders per customer in your own backend.
 - Payments to you before your first invoice exists are recorded as unmatched
   only if `MAYA_CHECKOUT_PAY_TO` is set, which it must be.
 - Deliveries run one at a time. A slow shop delays the rest of the queue (not

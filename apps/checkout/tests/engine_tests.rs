@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 
 use async_trait::async_trait;
@@ -355,4 +356,83 @@ async fn a_failed_scan_does_not_stop_webhook_delivery() {
 
     assert!(matches!(result, Err(CheckoutError::Chain(_))), "the scan error is still reported");
     assert_eq!(back_up.sent.lock().unwrap().len(), 1, "the due retry was not sent");
+}
+
+/// N1: a payment is confirmed on branch `a`. A competing branch `b` of the same
+/// height replaces the payment's block, and the tip does not move. Nothing may
+/// confirm or send the webhook for the orphaned payment.
+#[tokio::test]
+async fn a_same_height_competing_branch_does_not_confirm() {
+    let path = temp_ledger("same-height.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+
+    // Confirmation depth 6: the payment at 5 is final at tip 10.
+    scan(&store, &branch(10, u64::MAX, "a", Some((5, 500))), 6, NOW).await.unwrap();
+    assert_eq!(store.lock().await.find("inv1").unwrap().status, Status::Confirmed);
+
+    // Same tip height, different branch from height 5: the payment is gone.
+    scan(&store, &branch(10, 5, "b", None), 6, NOW).await.unwrap();
+
+    assert_ne!(store.lock().await.find("inv1").unwrap().status, Status::Confirmed);
+    let sender = RecordingSender { status: 200, ..Default::default() };
+    deliver(&store, &sender, SECRET, NOW).await.unwrap();
+    assert!(sender.sent.lock().unwrap().is_empty(), "an orphaned payment was announced");
+}
+
+/// N6: a payment whose webhook already went out is later removed by a reorg.
+/// The invoice keeps its status (the shop acted on it) but is flagged.
+#[tokio::test]
+async fn a_reorg_after_delivery_flags_the_invoice_for_the_merchant() {
+    let path = temp_ledger("reorg-after-delivery.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+    let sender = RecordingSender { status: 200, ..Default::default() };
+    run_once(&store, &chain_with_payment(10, 5, 500), &sender, SECRET, 6, NOW).await.unwrap();
+    assert_eq!(store.lock().await.find("inv1").unwrap().delivery, Delivery::Delivered);
+
+    scan(&store, &branch(10, 5, "b", None), 6, NOW).await.unwrap();
+
+    let guard = store.lock().await;
+    assert!(guard.find("inv1").unwrap().reorged, "the merchant must be told");
+}
+
+/// A shop that answers 200 but whose invoice was reverted while the request was
+/// in flight: the delivery must not be recorded against the reverted invoice.
+struct RevertingShop {
+    store: Arc<Mutex<Store>>,
+}
+
+#[async_trait]
+impl WebhookSender for RevertingShop {
+    async fn post(&self, _target: &Target, _headers: Vec<(&'static str, String)>, _body: Vec<u8>) -> Result<u16> {
+        let mut guard = self.store.lock().await;
+        let inv = &mut guard.ledger_mut().invoices[0];
+        inv.status = Status::Pending;
+        inv.payment = None;
+        inv.delivery = Delivery::NotDue;
+        Ok(200)
+    }
+}
+
+#[tokio::test]
+async fn a_delivery_recorded_after_its_invoice_was_reverted_is_not_marked_delivered() {
+    let path = temp_ledger("record-check.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Arc::new(Mutex::new(store));
+    scan(&store, &chain_with_payment(10, 2, 500), 1, NOW).await.unwrap();
+    assert_eq!(store.lock().await.find("inv1").unwrap().status, Status::Confirmed);
+
+    deliver(&store, &RevertingShop { store: Arc::clone(&store) }, SECRET, NOW).await.unwrap();
+
+    let guard = store.lock().await;
+    let inv = guard.find("inv1").unwrap();
+    assert_eq!(inv.status, Status::Pending);
+    assert_ne!(inv.delivery, Delivery::Delivered, "a reverted invoice must not look delivered");
 }

@@ -106,7 +106,19 @@ fn record_unmatched(
         reason,
     });
     ledger.claims.insert(key.to_owned(), Claim::Unmatched);
+    while ledger.unmatched.len() > UNMATCHED_CAP {
+        let evicted = ledger.unmatched.remove(0);
+        ledger.claims.remove(&claim_key(&evicted.txid, evicted.index));
+        tracing::warn!(
+            txid = %evicted.txid,
+            "unmatched payment records are full; the oldest was evicted"
+        );
+    }
 }
+
+/// Most unmatched records kept. Dust sent to the merchant cannot grow the
+/// ledger without bound: the oldest records go first, and each eviction is logged.
+pub const UNMATCHED_CAP: usize = 1_000;
 
 /// Confirms detected payments that have `confirmations` blocks on top of them
 /// (the payment's own block counts as the first), and queues their webhooks.
@@ -166,7 +178,8 @@ pub fn roll_back(ledger: &mut Ledger, height: u64) -> usize {
         }
         let delivered = invoice.delivery == Delivery::Delivered;
         if delivered {
-            tracing::error!(invoice = %invoice.id, height = payment.height, "reorg removed a payment whose webhook was already delivered");
+            invoice.reorged = true;
+            tracing::error!(invoice = %invoice.id, height = payment.height, "reorg removed a payment whose webhook was already delivered; flagged for the merchant");
             continue;
         }
         revert_to_pending(invoice, claims);

@@ -81,6 +81,11 @@ impl ChainSource for GatedChain {
     }
 }
 
+/// Gives a request the peer address that `serve` with connect info would add.
+fn with_peer(req: axum::http::request::Builder) -> axum::http::request::Builder {
+    req.extension(axum::extract::ConnectInfo(std::net::SocketAddr::from(([203, 0, 113, 7], 40000))))
+}
+
 async fn call(app: &Router, method: &str, uri: &str, auth: Option<&str>, body: Option<Value>) -> (StatusCode, Vec<u8>) {
     let mut req = Request::builder().method(method).uri(uri);
     if let Some(token) = auth {
@@ -93,7 +98,7 @@ async fn call(app: &Router, method: &str, uri: &str, auth: Option<&str>, body: O
         }
         None => Body::empty(),
     };
-    let response = app.clone().oneshot(req.body(body).unwrap()).await.unwrap();
+    let response = app.clone().oneshot(with_peer(req).body(body).unwrap()).await.unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes().to_vec();
     (status, bytes)
@@ -156,11 +161,68 @@ async fn a_webhook_to_a_private_or_plain_address_is_refused_at_creation() {
 }
 
 #[tokio::test]
-async fn a_second_open_invoice_for_the_same_amount_is_a_conflict() {
+async fn a_second_open_invoice_for_the_same_amount_is_quoted_a_unit_higher() {
+    // N4: no 409 that a stranger's open invoice could trigger. The second invoice
+    // quotes the next free base unit, and the response says both amounts.
     let app = app("clash", false);
     let body = invoice_body("777", PUBLIC_HOOK);
     assert_eq!(call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body.clone())).await.0, StatusCode::CREATED);
-    assert_eq!(call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body)).await.0, StatusCode::CONFLICT);
+    let (status, bytes) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let view: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(view["amount"], "778");
+    assert_eq!(view["requested_amount"], "777");
+}
+
+#[tokio::test]
+async fn alerts_list_invoices_whose_delivered_payment_was_reorged_out() {
+    let store = fresh_store("alerts");
+    let app = with_chain(Arc::clone(&store), Arc::new(FakeChain { fail: false }));
+    let (_, created) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
+    let id = serde_json::from_slice::<Value>(&created).unwrap()["id"].as_str().unwrap().to_owned();
+    store.lock().await.ledger_mut().invoices[0].reorged = true;
+
+    let (status, _) = call(&app, "GET", "/v1/alerts", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = call(&app, "GET", "/v1/alerts", Some(TOKEN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let rows: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(rows["items"][0]["invoice_id"], id.as_str());
+}
+
+#[tokio::test]
+async fn unmatched_payments_are_paged_and_the_page_size_is_capped() {
+    let store = fresh_store("paging");
+    {
+        let mut guard = store.lock().await;
+        for n in 0..3u64 {
+            guard.ledger_mut().unmatched.push(UnmatchedPayment {
+                txid: format!("t{n}"),
+                index: 0,
+                height: n,
+                block_id: format!("b{n}"),
+                recipient: [9; 32],
+                amount: U256::from(n + 1),
+                reason: UnmatchedReason::NoExactInvoice,
+            });
+        }
+    }
+    let app = with_chain(store, Arc::new(FakeChain { fail: false }));
+
+    let (_, body) = call(&app, "GET", "/v1/unmatched?limit=2", Some(TOKEN), None).await;
+    let page: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 2);
+    assert_eq!(page["total"], 3);
+    assert_eq!(page["next_offset"], 2);
+
+    let (_, body) = call(&app, "GET", "/v1/unmatched?offset=2&limit=2", Some(TOKEN), None).await;
+    let page: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert!(page["next_offset"].is_null());
+
+    let (_, body) = call(&app, "GET", "/v1/unmatched?limit=100000", Some(TOKEN), None).await;
+    let page: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 3);
 }
 
 #[tokio::test]
@@ -184,7 +246,7 @@ async fn the_qr_code_is_an_svg() {
     let id = serde_json::from_slice::<Value>(&bytes).unwrap()["id"].as_str().unwrap().to_owned();
     let response = app
         .clone()
-        .oneshot(Request::builder().uri(format!("/v1/invoices/{id}/qr.svg")).body(Body::empty()).unwrap())
+        .oneshot(with_peer(Request::builder().uri(format!("/v1/invoices/{id}/qr.svg"))).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -260,19 +322,38 @@ async fn unmatched_payments_are_listed_for_the_merchant_only() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, body) = call(&app, "GET", "/v1/unmatched", Some(TOKEN), None).await;
     assert_eq!(status, StatusCode::OK);
-    let rows: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(rows[0]["txid"], "ab");
-    assert_eq!(rows[0]["amount"], "999");
-    assert_eq!(rows[0]["reason"], "no_exact_invoice");
+    let page: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(page["items"][0]["txid"], "ab");
+    assert_eq!(page["items"][0]["amount"], "999");
+    assert_eq!(page["items"][0]["reason"], "no_exact_invoice");
 }
 
 #[test]
-fn public_reads_are_budgeted_per_second() {
+fn public_reads_are_budgeted_per_client_address() {
+    // N2: one client cannot spend the budget of every other client.
     let limiter = ReadLimiter::default();
     let now = 1_800_000_000;
+    let a: std::net::IpAddr = "198.51.100.1".parse().unwrap();
+    let b: std::net::IpAddr = "198.51.100.2".parse().unwrap();
     for _ in 0..50 {
-        assert!(limiter.admit(now));
+        assert!(limiter.admit(a, now));
     }
-    assert!(!limiter.admit(now), "the 51st read in one second must be refused");
-    assert!(limiter.admit(now + 1), "the budget refills with the next second");
+    assert!(!limiter.admit(a, now), "client A's 51st read in one second must be refused");
+    assert!(limiter.admit(b, now), "client B has its own budget");
+    assert!(limiter.admit(a, now + 1), "A's budget refills with the next second");
+}
+
+#[test]
+fn public_reads_have_a_global_ceiling_across_clients() {
+    let limiter = ReadLimiter::default();
+    let now = 1_800_000_000;
+    let mut admitted = 0u32;
+    for n in 0..(maya_checkout::http::GLOBAL_READS_PER_SEC + 100) {
+        let [hi, lo] = u16::try_from(n).unwrap().to_be_bytes();
+        let ip = std::net::IpAddr::from([10, 0, hi, lo]);
+        if limiter.admit(ip, now) {
+            admitted += 1;
+        }
+    }
+    assert_eq!(admitted, maya_checkout::http::GLOBAL_READS_PER_SEC);
 }

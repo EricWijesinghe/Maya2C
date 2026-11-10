@@ -36,10 +36,16 @@ code. Three choices needed a written decision:
    - An output settles an invoice only if it pays the invoice's recipient,
      exactly the amount due, in a block above the invoice's creation height and
      no later than its expiry height.
-   - The service refuses a new invoice whose recipient and amount equal a
-     pending or detected invoice's. The amount is then the key a payment is
-     matched by. The shop changes the amount by one base unit (24 decimals,
-     ADR-068) if it hits this.
+   - Each live invoice holds its amount: pending and detected invoices, and
+     confirmed ones whose webhook is not yet delivered (a reorg can still revert
+     those to pending). A new invoice is quoted the requested amount, or the
+     next free base unit above it (24 decimals, ADR-068). The shop shows the
+     quoted `amount`, which is the key a payment is matched by. Nothing is
+     refused, so a stranger's open invoice at the shop's price cannot block
+     checkout. A quote can move at most `MAX_AMOUNT_OFFSET` (1,000) base units
+     above the request. This replaces the earlier refusal (409), which let one
+     unpaid invoice block every other customer at that price, and it closes the
+     reorg case where a reverted invoice could share an amount with a newer one.
    - If more than one pending invoice fits an output, nothing settles. The
      output is recorded as ambiguous.
    - Every other payment to the merchant (over, under, late, early, or with no
@@ -60,8 +66,27 @@ code. Three choices needed a written decision:
      height. Otherwise it is reverted.
    - A payment whose webhook was already delivered is not reverted. It is
      logged as an error for the operator to resolve.
-   - Reorg checks cover the last 256 blocks (`store::RETAIN_BLOCKS`). Upgrade
+   - Each scan first compares the stored block at the scan position with the
+     node's block at that height. Ids chain, so a match at the top covers every
+     block below it. A same-height competing branch (tip unchanged, earlier
+     blocks replaced) is caught this way, and the scan rolls back to the fork
+     point before anything is confirmed. Without this check, a tip that did not
+     move would never be compared.
+   - Block ids live in a sidecar file (`<ledger>.blocks`), rewritten when they
+     change. The ledger file is not, so an ordinary block does not rewrite the
+     invoices and claims.
+   - A webhook result is recorded only if the invoice is still confirmed with
+     the same payment. A reverted invoice is never marked delivered.
+   - A reorg that removes an already-delivered payment flags the invoice
+     `reorged` and logs an error. `GET /v1/alerts` (bearer token) lists flagged
+     invoices. The webhook cannot be recalled, so the merchant resolves it.
+   - Reorg checks cover the last 256 blocks (`store::RETAIN_BLOCKS`). When the
+     stored parent id is missing, the batch's check is skipped and logged. Upgrade
      path: anchor to the BFT checkpoint (`get_checkpoint`).
+   - A residual window remains: a reorg between a scan and the next webhook
+     send can still send a webhook for a payment that was reorged after that
+     scan. It is bounded by the poll interval, and the next scan reverts it.
+     Upgrade path: send only after a scan that verified the frontier.
 3. **A detached service: `apps/checkout`, a workspace member.** It reads the
    chain only through public JSON-RPC (`get_chain_info`,
    `get_blocks_by_height_range`) and links the address codec
@@ -90,8 +115,20 @@ code. Three choices needed a written decision:
 - A payment without the shop's exact amount is not settled. The chain does not
   say whose order it pays, so it is kept as an unmatched record for the shop
   to handle by hand. Nothing is credited automatically.
-- Two live invoices cannot share an amount, so a shop with very many open
-  orders at one price needs to vary the amount.
+- Open invoices at one price are quoted different base units. The customer
+  pays the quoted amount, which the shop must show. The shop still decides how
+  many open orders it allows per customer: the service bounds the quote offset,
+  not the count of invoices.
+- Unmatched records are capped at `UNMATCHED_CAP` (1,000). The oldest is evicted
+  and logged. Claims for unmatched outputs are released with their records.
+  Invoices and their claims are not pruned yet (a pruned claim could let an old
+  output settle again).
+- Public reads are limited per client address (50 a second) with a global
+  ceiling (500 a second). These are chosen bounds, not measured capacity. Behind
+  a TLS proxy every client shares the proxy's address, so only the ceiling
+  applies there until a trusted forwarded-address setting exists.
+- Windows durability: the directory is not fsynced there. Whether the rename is
+  durable on Windows is NOT VERIFIED on the test host.
 - Reorgs deeper than the retained block window (256 blocks) are not detected.
   Shortcut: depth-limited reorg check; upgrade by anchoring to the BFT
   checkpoint (`get_checkpoint`).

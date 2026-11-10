@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use maya_address::Network;
 use maya_checkout::chain::{ChainSource, RpcChain};
-use maya_checkout::config::Config;
+use maya_checkout::config::{Config, redact_url};
 use maya_checkout::engine::{self, HttpSender};
 use maya_checkout::http::{AppState, ReadLimiter, router};
 use maya_checkout::store::Store;
@@ -33,7 +33,16 @@ fn unix_now() -> u64 {
 
 async fn run() -> Result<()> {
     let cfg = Config::from_lookup(|k| std::env::var(k).ok())?;
-    tracing::info!(config = ?cfg, "configuration loaded");
+    // Named fields only. Logging the whole config would print whatever a future
+    // field holds, and the RPC URL can carry credentials, so it is redacted.
+    tracing::info!(
+        listen = %cfg.listen,
+        rpc = %redact_url(&cfg.rpc_url),
+        store = %cfg.store_path.display(),
+        confirmations = cfg.confirmations,
+        poll_secs = cfg.poll_secs,
+        "configuration loaded"
+    );
     let chain: Arc<dyn ChainSource> = Arc::new(RpcChain::new(&cfg.rpc_url)?);
     let tip = chain.tip().await?;
     let network = tip
@@ -90,7 +99,8 @@ async fn run() -> Result<()> {
         .await
         .map_err(|e| CheckoutError::Config(format!("cannot listen on {}: {e}", cfg.listen)))?;
     tracing::info!(listen = %cfg.listen, "serving");
-    axum::serve(listener, router(state))
+    // Connect info gives the read limiter each client's socket address.
+    axum::serve(listener, router(state).into_make_service_with_connect_info::<std::net::SocketAddr>())
         .await
         .map_err(|e| CheckoutError::Internal(format!("server: {e}")))
 }

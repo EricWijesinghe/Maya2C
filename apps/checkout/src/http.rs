@@ -4,12 +4,14 @@
 //! - `GET /v1/invoices/{id}`: status and payment link. The id is the capability.
 //! - `GET /v1/invoices/{id}/qr.svg`: the payment QR code.
 
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -46,29 +48,48 @@ pub struct AppState {
     pub reads: ReadLimiter,
 }
 
-/// Public reads admitted per second, across all callers. The node's own
-/// per-address limit is 50 per second; the service keeps the same bound so a
-/// flood cannot hold the ledger lock for long.
+/// Public reads one client address may make per second. The node's own
+/// per-address limit is 50 per second, so the service uses the same bound.
 pub const PUBLIC_READS_PER_SEC: u32 = 50;
+/// Public reads admitted per second across all clients. A ceiling, not a
+/// measured capacity: it keeps a flood from holding the ledger lock.
+pub const GLOBAL_READS_PER_SEC: u32 = 500;
 
-/// A fixed one-second window. Simple on purpose: a flood is refused, not queued.
+/// Fixed one-second windows, per client address, with a global ceiling.
+/// Simple on purpose: a flood is refused, not queued. Behind a TLS proxy every
+/// client shares the proxy's address, so only the global ceiling applies there.
 #[derive(Debug, Default)]
 pub struct ReadLimiter {
-    /// The window's second and how many reads it has admitted.
-    window: std::sync::Mutex<(u64, u32)>,
+    window: std::sync::Mutex<Window>,
+}
+
+#[derive(Debug, Default)]
+struct Window {
+    /// The second this window covers.
+    second: u64,
+    /// Reads admitted across all clients in this second.
+    admitted: u32,
+    /// Reads admitted per client address in this second. At most
+    /// `GLOBAL_READS_PER_SEC` entries, because each admitted read adds at most one.
+    per_client: HashMap<IpAddr, u32>,
 }
 
 impl ReadLimiter {
-    /// Whether a read at `now_unix` fits in the budget.
-    pub fn admit(&self, now_unix: u64) -> bool {
+    /// Whether a read from `client` at `now_unix` fits in both budgets.
+    pub fn admit(&self, client: IpAddr, now_unix: u64) -> bool {
         let mut window = self.window.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if window.0 != now_unix {
-            *window = (now_unix, 0);
+        if window.second != now_unix {
+            *window = Window { second: now_unix, ..Window::default() };
         }
-        if window.1 >= PUBLIC_READS_PER_SEC {
+        if window.admitted >= GLOBAL_READS_PER_SEC {
             return false;
         }
-        window.1 += 1;
+        let used = window.per_client.get(&client).copied().unwrap_or(0);
+        if used >= PUBLIC_READS_PER_SEC {
+            return false;
+        }
+        window.per_client.insert(client, used + 1);
+        window.admitted += 1;
         true
     }
 }
@@ -81,6 +102,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/invoices/{id}/qr.svg", get(qr))
         .route("/v1/invoices/{id}/resend", post(resend))
         .route("/v1/unmatched", get(unmatched))
+        .route("/v1/alerts", get(alerts))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
@@ -131,15 +153,17 @@ async fn create(
     // the insert can hold an exact-amount payment the scanner records as
     // unmatched. That fails safe: the merchant reviews it, nothing settles wrongly.
     let tip = state.chain.tip().await?;
-    let inv = Invoice::open(id, state.pay_to, &req, tip.height)?;
+    let inv = Invoice::open(id.clone(), state.pay_to, &req, tip.height)?;
     let mut store = state.store.lock().await;
-    store.insert(inv.clone())?;
-    Ok((StatusCode::CREATED, Json(render(&state, &inv))))
+    // The store quotes the amount: the requested one, or a free one just above it.
+    store.insert(inv)?;
+    let stored = store.find(&id).ok_or_else(|| CheckoutError::Internal("invoice vanished after insert".into()))?;
+    Ok((StatusCode::CREATED, Json(render(&state, stored))))
 }
 
-/// Admits one public read, or refuses it when the per-second budget is spent.
-fn admit_read(state: &AppState) -> Result<()> {
-    if state.reads.admit(unix_now()) { Ok(()) } else { Err(CheckoutError::RateLimited) }
+/// Admits one public read from `peer`, or refuses it when a budget is spent.
+fn admit_read(state: &AppState, peer: SocketAddr) -> Result<()> {
+    if state.reads.admit(peer.ip(), unix_now()) { Ok(()) } else { Err(CheckoutError::RateLimited) }
 }
 
 fn unix_now() -> u64 {
@@ -150,34 +174,80 @@ fn unix_now() -> u64 {
 
 async fn view(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>> {
-    admit_read(&state)?;
+    admit_read(&state, peer)?;
     let store = state.store.lock().await;
     let inv = store.find(&id).ok_or(CheckoutError::NotFound)?;
     Ok(Json(render(&state, inv)))
 }
 
+/// Page size when the caller does not ask, and the most a page may hold.
+const PAGE_DEFAULT: usize = 50;
+const PAGE_MAX: usize = 100;
+
+#[derive(Deserialize)]
+struct PageQuery {
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_page")]
+    limit: usize,
+}
+
+fn default_page() -> usize {
+    PAGE_DEFAULT
+}
+
+/// One page of `items`, with the total and where the next page starts.
+fn page(items: impl Iterator<Item = Value>, total: usize, query: &PageQuery) -> Value {
+    let limit = query.limit.clamp(1, PAGE_MAX);
+    let rows: Vec<Value> = items.skip(query.offset).take(limit).collect();
+    let end = query.offset.saturating_add(limit);
+    let next = (end < total).then_some(end);
+    json!({ "items": rows, "total": total, "next_offset": next })
+}
+
 /// The merchant's view of payments that settled nothing: refund or assign by hand.
-async fn unmatched(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Result<Json<Value>> {
+async fn unmatched(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Value>> {
     authorize(&state, &headers)?;
     let store = state.store.lock().await;
-    let rows: Vec<Value> = store
-        .ledger()
-        .unmatched
-        .iter()
-        .map(|u| {
-            json!({
-                "txid": u.txid,
-                "index": u.index,
-                "height": u.height,
-                "recipient": hex::encode(u.recipient),
-                "amount": u.amount.to_string(),
-                "reason": u.reason,
-            })
+    let all = &store.ledger().unmatched;
+    let rows = all.iter().map(|u| {
+        json!({
+            "txid": u.txid,
+            "index": u.index,
+            "height": u.height,
+            "recipient": hex::encode(u.recipient),
+            "amount": u.amount.to_string(),
+            "reason": u.reason,
         })
-        .collect();
-    Ok(Json(Value::Array(rows)))
+    });
+    Ok(Json(page(rows, all.len(), &query)))
+}
+
+/// Invoices whose delivered payment a reorg removed. Needs the bearer token.
+async fn alerts(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Value>> {
+    authorize(&state, &headers)?;
+    let store = state.store.lock().await;
+    let flagged: Vec<&Invoice> = store.ledger().invoices.iter().filter(|inv| inv.reorged).collect();
+    let rows = flagged.iter().map(|inv| {
+        json!({
+            "invoice_id": inv.id,
+            "status": inv.status,
+            "txid": inv.payment.as_ref().map(|p| p.txid.clone()),
+            "height": inv.payment.as_ref().map(|p| p.height),
+        })
+    });
+    Ok(Json(page(rows, flagged.len(), &query)))
 }
 
 /// Puts a webhook that ran out of attempts back in the queue. Refuses one the
@@ -211,8 +281,12 @@ async fn resend(
     Ok(Json(view))
 }
 
-async fn qr(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Result<Response> {
-    admit_read(&state)?;
+async fn qr(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(id): Path<String>,
+) -> Result<Response> {
+    admit_read(&state, peer)?;
     let uri = {
         let store = state.store.lock().await;
         let inv = store.find(&id).ok_or(CheckoutError::NotFound)?;
@@ -241,6 +315,8 @@ fn render(state: &AppState, inv: &Invoice) -> Value {
         "id": inv.id,
         "status": inv.status,
         "amount": inv.amount.to_string(),
+        "requested_amount": inv.requested_amount.to_string(),
+        "reorged": inv.reorged,
         "memo": inv.memo,
         "created_height": inv.created_height,
         "expires_at_height": inv.expires_at_height,

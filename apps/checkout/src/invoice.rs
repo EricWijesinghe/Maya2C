@@ -107,10 +107,18 @@ pub struct Invoice {
     /// Recipient address, 32 bytes, hex in storage.
     #[serde(with = "hex32")]
     pub recipient: [u8; 32],
-    /// Amount due, base units. Only an output of exactly this amount settles
-    /// the invoice; any other amount is recorded as unmatched.
+    /// Amount the customer must pay, base units: the requested amount plus a
+    /// small offset when another live invoice holds the same amount. Only an
+    /// output of exactly this amount settles the invoice.
     #[serde(with = "amount")]
     pub amount: U256,
+    /// The amount the shop asked for, before any offset.
+    #[serde(with = "amount")]
+    pub requested_amount: U256,
+    /// Set when a reorg removed the payment of a webhook that was already
+    /// delivered. The shop acted on it; the merchant must resolve it.
+    #[serde(default)]
+    pub reorged: bool,
     /// Order id or note from the shop. Carried in the payment URI only; it is
     /// not on chain.
     pub memo: String,
@@ -168,6 +176,8 @@ impl Invoice {
             id,
             recipient,
             amount: req.amount,
+            requested_amount: req.amount,
+            reorged: false,
             memo: req.memo.clone(),
             webhook_url: req.webhook_url.clone(),
             created_height: tip_height,

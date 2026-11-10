@@ -4,7 +4,7 @@
 
 use maya_checkout::chain::{BlockOutputs, Output, TxOutputs};
 use maya_checkout::invoice::{Delivery, Invoice, NewInvoice, Status, UnmatchedReason};
-use maya_checkout::matching::{confirm, detect, expire, roll_back};
+use maya_checkout::matching::{UNMATCHED_CAP, confirm, detect, expire, roll_back};
 use maya_checkout::store::{Claim, Ledger, claim_key};
 use primitive_types::U256;
 
@@ -192,4 +192,22 @@ fn an_expired_invoice_is_not_confirmed_by_a_late_scan() {
     expire(&mut ledger, 10);
     assert!(confirm(&mut ledger, 100, 1, 0).is_empty());
     assert_eq!(status_of(&ledger, "a"), Status::Expired);
+}
+
+#[test]
+fn dust_to_the_merchant_cannot_grow_the_unmatched_records_without_bound() {
+    // N3: a flood of unmatched outputs keeps only the newest UNMATCHED_CAP records,
+    // and each evicted record releases its claim.
+    let mut ledger = Ledger { invoices: vec![invoice("a", 5000, 0, 50)], ..Ledger::default() };
+    let txs: Vec<TxOutputs> = (1..=(UNMATCHED_CAP as u64 + 5))
+        .map(|amount| TxOutputs {
+            txid: format!("dust{amount}"),
+            outputs: vec![Output { recipient: MERCHANT, amount: U256::from(amount) }],
+        })
+        .collect();
+    let flood = BlockOutputs { height: 5, id: "b5".into(), prev_id: "b4".into(), txs };
+    detect(&mut ledger, &flood);
+    assert_eq!(ledger.unmatched.len(), UNMATCHED_CAP);
+    assert_eq!(ledger.unmatched[0].amount, U256::from(6u64), "the oldest five are evicted");
+    assert_eq!(ledger.claims.len(), UNMATCHED_CAP);
 }

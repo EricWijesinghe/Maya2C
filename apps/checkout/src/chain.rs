@@ -8,6 +8,7 @@ use jsonrpsee::rpc_params;
 use primitive_types::U256;
 use serde::Deserialize;
 
+use crate::config::redact_url;
 use crate::error::{CheckoutError, Result};
 
 /// The node's cap on `get_blocks_by_height_range` per call.
@@ -99,6 +100,9 @@ struct RawOutput {
 /// JSON-RPC client over HTTP.
 pub struct RpcChain {
     client: HttpClient,
+    /// The configured URL, which may carry credentials. Kept only to scrub it
+    /// out of transport error messages.
+    url: String,
 }
 
 impl RpcChain {
@@ -110,9 +114,21 @@ impl RpcChain {
     pub fn new(url: &str) -> Result<Self> {
         let client = HttpClientBuilder::default()
             .build(url)
-            .map_err(|e| CheckoutError::Config(format!("rpc url: {e}")))?;
-        Ok(Self { client })
+            .map_err(|e| CheckoutError::Config(format!("rpc url: {}", scrub(&e.to_string(), url))))?;
+        Ok(Self { client, url: url.to_owned() })
     }
+}
+
+/// Replaces the configured URL in `text` with its redacted form, so credentials
+/// never reach an error message or a log line.
+fn scrub(text: &str, url: &str) -> String {
+    text.replace(url, &redact_url(url))
+}
+
+/// A transport failure. The message is scrubbed, because the HTTP stack can
+/// include the full URL in its text.
+fn transport_err(e: impl std::fmt::Display, url: &str) -> CheckoutError {
+    CheckoutError::Chain(scrub(&e.to_string(), url))
 }
 
 fn rpc_err(e: impl std::fmt::Display) -> CheckoutError {
@@ -126,7 +142,7 @@ impl ChainSource for RpcChain {
             .client
             .request("get_chain_info", rpc_params![])
             .await
-            .map_err(rpc_err)?;
+            .map_err(|e| transport_err(e, &self.url))?;
         Ok(Tip { height: info.height, chain_id: info.chain_id })
     }
 
@@ -138,7 +154,7 @@ impl ChainSource for RpcChain {
             .client
             .request("get_blocks_by_height_range", rpc_params![from, count])
             .await
-            .map_err(rpc_err)?;
+            .map_err(|e| transport_err(e, &self.url))?;
         raw.into_iter().map(convert_block).collect()
     }
 }
