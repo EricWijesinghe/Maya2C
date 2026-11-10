@@ -3540,3 +3540,14 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "merchant-checkout"
+name = "Merchant checkout (invoices, payment links, signed webhooks)"
+domain = "Finance"
+paths = "`apps/checkout`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-checkout", "apps/checkout/tests/payment_matching.rs", "apps/checkout/tests/webhook_tests.rs", "apps/checkout/tests/ssrf_tests.rs", "apps/checkout/tests/engine_tests.rs", "apps/checkout/tests/http_tests.rs"]
+note = "ADR-091. Detached service: reads the chain over public RPC, never links the node. Payment link is maya: payment request v2 (ADR-086): Bech32m recipient, order id as id=. Matching by recipient and amount with a durable per-output claim; open amounts unique per recipient. Webhooks HMAC-SHA256 with timestamp and nonce, HTTPS only with pinned, public-only destinations. Shortcuts: no reorg rescan below the scan position (relies on finality and confirmations), no split-payment summing, no BFT checkpoint check yet. Not externally audited."

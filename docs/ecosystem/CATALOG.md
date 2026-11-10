@@ -52,7 +52,7 @@ L is more. *Wave* is when, defined at the end of the file.
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
 |---|---|---|---|---|---|
-| merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1 |
+| merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1. **Built:** `apps/checkout`, ADR-091, `features.toml` `merchant-checkout` (working) |
 | pos-terminal | Point of sale on an Android phone: QR request, wait for finality, receipt | merchant-checkout, light client | none | M | W2 |
 | recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys | consensus review if a new state prefix is needed | M | W2 |
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
