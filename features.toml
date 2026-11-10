@@ -3101,7 +3101,7 @@ tier = "core"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/smart-account/tests/account_tests.rs"]
-note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type."
+note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type. Recovery corrected 2026-11-10 (ADR-086 §4 F1-F6, see ADR-056 Corrections): queued guardian changes, bounded sets, per-key requests with WithdrawApproval, finish drops every key and cancels pending transfers; a proptest pins below-threshold guardians and value conservation. F7 (policy day length) open."
 
 [[subsystem]]
 id = "data-availability"

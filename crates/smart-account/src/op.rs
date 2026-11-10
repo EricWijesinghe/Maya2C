@@ -75,6 +75,11 @@ pub enum Action {
         /// Account being recovered.
         target: AccountId,
     },
+    /// A guardian withdraws its approval of any key for `target`.
+    WithdrawApproval {
+        /// Account the approval was for.
+        target: AccountId,
+    },
 }
 
 /// A signed operation. Carries key *hashes*, never public keys, except in
@@ -170,6 +175,10 @@ impl Action {
             Self::CancelRecovery => out.push(10),
             Self::FinalizeRecovery { target } => {
                 out.push(11);
+                out.extend_from_slice(target);
+            }
+            Self::WithdrawApproval { target } => {
+                out.push(12);
                 out.extend_from_slice(target);
             }
         }

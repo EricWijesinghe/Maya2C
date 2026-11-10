@@ -6651,6 +6651,7 @@ dependencies = [
  "blake3",
  "maya-amount",
  "maya-crypto-pq",
+ "proptest",
 ]
 
 [[package]]
