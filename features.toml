@@ -3246,7 +3246,7 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = ["crates/clear-sign/tests/phishing_set.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
-note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction."
+note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) and 5 ground to a contact's displayed first and last group (review fix H1: the check compares exactly those groups) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction."
 
 [[subsystem]]
 id = "contract-safety-runtime"

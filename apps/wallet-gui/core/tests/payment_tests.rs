@@ -725,3 +725,45 @@ fn a_bech32m_request_with_a_bad_checksum_is_refused() {
     text.push(if last == 'q' { 'p' } else { 'q' });
     assert!(PaymentRequest::parse(&format!("maya:{text}")).is_err());
 }
+
+#[test]
+fn a_repeated_parameter_is_refused() {
+    // Review fix LOW: two `amount=` values let a QR show one and pay another,
+    // depending on which one a reader takes.
+    let base = address(25);
+    for uri in [
+        format!("maya:{base}?amount=1&amount=1000"),
+        format!("maya:{base}?label=A&label=B"),
+        format!("maya:{base}?x=1&x=2"),
+    ] {
+        assert!(
+            matches!(PaymentRequest::parse(&uri), Err(WalletError::Qr(_))),
+            "{uri}"
+        );
+    }
+}
+
+#[test]
+fn label_and_message_are_capped_and_stripped_of_invisible_characters() {
+    let base = address(26);
+    let request =
+        PaymentRequest::parse(&format!("maya:{base}?label=%E2%80%AEShop%C2%AD&message=Hi%E2%80%8B"))
+            .expect("parse");
+    assert_eq!(request.label.as_deref(), Some("Shop"));
+    assert_eq!(request.message.as_deref(), Some("Hi"));
+    let long = "x".repeat(maya_wallet_core::payment::MAX_LABEL_CHARS + 1);
+    assert!(PaymentRequest::parse(&format!("maya:{base}?label={long}")).is_err());
+    let long = "x".repeat(maya_wallet_core::payment::MAX_MESSAGE_CHARS + 1);
+    assert!(PaymentRequest::parse(&format!("maya:{base}?message={long}")).is_err());
+}
+
+#[test]
+fn a_percent_escape_at_the_very_end_decodes_and_a_cut_one_stays_literal() {
+    // Pins `index + 2 < len` in percent_decode: the review suggested `<=`,
+    // which would read past the end of "%4".
+    let base = address(27);
+    let full = PaymentRequest::parse(&format!("maya:{base}?label=A%41")).expect("parse");
+    assert_eq!(full.label.as_deref(), Some("AA"));
+    let cut = PaymentRequest::parse(&format!("maya:{base}?label=A%4")).expect("parse");
+    assert_eq!(cut.label.as_deref(), Some("A%4"));
+}

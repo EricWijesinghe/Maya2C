@@ -190,8 +190,8 @@ From ADR-086 (phases P0 and P1), in `apps/wallet-gui/core`:
   of invisible right-to-left characters, and a name that reads like another
   warns. The book is encrypted on disk with a key from your wallet seed; an
   export opens only in a wallet restored from the same phrase.
-- **Poisoning defenses.** A recipient whose first 6 and last 6 address
-  characters match a contact is flagged. The send form takes a paste, a scan or
+- **Poisoning defenses.** A recipient whose first and last group of four match
+  a contact's is flagged, as is saving such an address. Saving or deleting a contact asks in a native dialog. The send form takes a paste, a scan or
   a contact, never typing, and an address you have never saved or paid needs a
   full read-back before Review unlocks.
 - **Payment requests v2:** `maya:<bech32m>?amount=&label=&message=&exp=&id=`.

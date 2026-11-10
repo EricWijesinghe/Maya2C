@@ -36,6 +36,20 @@ pub const MAX_QR_PIXELS: u32 = 4096;
 
 /// Longest payment-request `id`, in characters (ADR-086 §7).
 pub const MAX_REQUEST_ID_CHARS: usize = 32;
+/// Longest `label`, in characters after invisible characters are removed.
+pub const MAX_LABEL_CHARS: usize = 128;
+/// Longest `message`, in characters after invisible characters are removed.
+pub const MAX_MESSAGE_CHARS: usize = 256;
+
+/// A request's label or message: percent-decoded, invisible and bidi
+/// characters removed, and refused past `max` characters.
+fn claimed_text(value: &str, max: usize, what: &str) -> Result<String> {
+    let text = crate::address_book::strip_invisible(&percent_decode(value));
+    if text.chars().count() > max {
+        return Err(WalletError::Qr(format!("{what} is longer than {max} characters")));
+    }
+    Ok(text)
+}
 
 /// A request to pay someone (ADR-086 §7, v2):
 /// `maya:<bech32m>?amount=<base units>&label=&message=&exp=<unix s>&id=`.
@@ -109,10 +123,16 @@ impl PaymentRequest {
         let mut id = None;
 
         if let Some(query) = query {
+            let mut seen = std::collections::BTreeSet::new();
             for pair in query.split('&').filter(|p| !p.is_empty()) {
                 let (key, value) = pair.split_once('=').ok_or_else(|| {
                     WalletError::Qr(format!("malformed query parameter '{pair}'"))
                 })?;
+                // Two values for one key let a code show one and pay another,
+                // depending on which a reader takes. The key is not echoed.
+                if !seen.insert(key) {
+                    return Err(WalletError::Qr("a parameter appears twice".to_string()));
+                }
                 match key {
                     "amount" => {
                         // Strict decimal base units: a QR code is untrusted input.
@@ -121,8 +141,10 @@ impl PaymentRequest {
                             WalletError::Qr(format!("amount is not valid base units: {e}"))
                         })?);
                     }
-                    "label" => label = Some(percent_decode(value)),
-                    "message" => message = Some(percent_decode(value)),
+                    "label" => label = Some(claimed_text(value, MAX_LABEL_CHARS, "label")?),
+                    "message" => {
+                        message = Some(claimed_text(value, MAX_MESSAGE_CHARS, "message")?);
+                    }
                     "exp" => {
                         expires_at = Some(value.parse::<u64>().map_err(|_| {
                             WalletError::Qr("exp is not a whole number of seconds".to_string())

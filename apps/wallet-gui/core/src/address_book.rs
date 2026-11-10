@@ -12,11 +12,13 @@
 //!
 //! ## At rest
 //!
-//! The book is one record in the same [`SecretStore`] as the sealed seed:
-//! ChaCha20-Poly1305 under a [`BookKey`] derived from the seed. The seed itself
-//! is sealed under the vault's Argon2id passphrase key, so reading the book
-//! needs what unlocking the wallet needs. An export is the same sealed bytes:
-//! it opens in any wallet restored from the same recovery phrase, and nowhere
+//! The book is a file in the wallet's data directory, ChaCha20-Poly1305 under
+//! a [`BookKey`] derived from the seed. The seed itself is sealed under the
+//! vault's Argon2id passphrase key in the OS keychain, so reading the book
+//! needs what unlocking the wallet needs. It is not a keychain entry because
+//! the Windows Credential Manager caps a secret at 2,560 bytes, which a book
+//! of a few dozen contacts exceeds. An export is the same sealed bytes: it
+//! opens in any wallet restored from the same recovery phrase, and nowhere
 //! else.
 //!
 //! ```text
@@ -37,7 +39,6 @@ use unicode_normalization::UnicodeNormalization;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::{Result, WalletError};
-use crate::vault::SecretStore;
 
 const MAGIC: &[u8; 8] = b"MAYABOK1";
 const VERSION: u8 = 1;
@@ -45,8 +46,8 @@ const NONCE_LEN: usize = 12;
 const HEADER_LEN: usize = MAGIC.len() + 1 + NONCE_LEN;
 /// BLAKE3 key-derivation context for [`BookKey`]; changing it orphans every book.
 const KEY_CONTEXT: &str = "maya2c wallet address book v1";
-/// Store entry suffix: the book for wallet `w` is the entry `w.contacts`.
-const ENTRY_SUFFIX: &str = ".contacts";
+/// Suffix of the temporary file a save writes before the atomic rename.
+const TMP_SUFFIX: &str = "tmp";
 
 /// Longest name, in characters after cleaning.
 pub const MAX_NAME_CHARS: usize = 64;
@@ -88,7 +89,8 @@ pub enum Source {
 /// One saved address.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Contact {
-    /// The account id.
+    /// The account id; stored as 64 hex characters, not a JSON number array.
+    #[serde(with = "hex_address")]
     pub address: [u8; 32],
     /// The address prefix it was saved for (`maya`, `tmaya`, `dmaya`).
     pub network: String,
@@ -160,28 +162,47 @@ impl AddressBook {
         source: Source,
         added_at_height: u64,
     ) -> Result<NameCheck> {
-        let name = clean_name(name)?;
+        let check = self.check_add(&address, name)?;
         let note = clean_text(note, MAX_NOTE_CHARS, "note")?;
-        if let Some(existing) = self.find(&address) {
-            return Err(WalletError::Contact(format!(
-                "this address is already saved as '{}'",
-                existing.name
-            )));
-        }
         if self.contacts.len() >= MAX_CONTACTS {
             return Err(WalletError::Contact(format!(
                 "the book holds at most {MAX_CONTACTS} entries"
             )));
         }
-        let warnings = self.name_warnings(&name);
         self.contacts.push(Contact {
             address,
             network: network.hrp().to_string(),
-            name: name.clone(),
+            name: check.name.clone(),
             added_at_height,
             source,
             note,
         });
+        Ok(check)
+    }
+
+    /// What [`AddressBook::add`] would save and warn about, without saving:
+    /// the text the native confirm dialog shows before a contact is added.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Contact`] for an unusable name or an address already saved.
+    pub fn check_add(&self, address: &[u8; 32], name: &str) -> Result<NameCheck> {
+        let name = clean_name(name)?;
+        if let Some(existing) = self.find(address) {
+            return Err(WalletError::Contact(format!(
+                "this address is already saved as '{}'",
+                existing.name
+            )));
+        }
+        let mut warnings = self.name_warnings(&name);
+        // A poisoner's look-alike saved under a new name would become a
+        // contact the confirm screen trusts.
+        if let Some(c) = self.look_alike_of(address) {
+            warnings.push(format!(
+                "this address looks like the saved contact '{}' but is a different address; compare every group",
+                c.name
+            ));
+        }
         Ok(NameCheck { name, warnings })
     }
 
@@ -215,8 +236,8 @@ impl AddressBook {
     }
 
     /// The saved contact `address` looks like without being one: the same
-    /// first 6 payload and last 6 Bech32m characters, or the same first and
-    /// last two bytes.
+    /// first and last group of the grouped Bech32m display, or the same first
+    /// and last two bytes.
     #[must_use]
     pub fn look_alike_of(&self, address: &[u8; 32]) -> Option<&Contact> {
         if self.find(address).is_some() {
@@ -350,25 +371,32 @@ impl AddressBook {
         Ok(added)
     }
 
-    /// Loads wallet `wallet`'s book from `store`; an absent book is empty.
+    /// Loads the book sealed at `path`; no file yet is an empty book.
     ///
     /// # Errors
     ///
-    /// Backend failures, and [`AddressBook::open`]'s.
-    pub fn load(store: &dyn SecretStore, wallet: &str, key: &BookKey) -> Result<Self> {
-        match store.get(&format!("{wallet}{ENTRY_SUFFIX}"))? {
-            Some(sealed) => Self::open(&sealed, key),
-            None => Ok(Self::default()),
+    /// [`WalletError::Contact`] if the file cannot be read, and
+    /// [`AddressBook::open`]'s errors.
+    pub fn load_file(path: &std::path::Path, key: &BookKey) -> Result<Self> {
+        match std::fs::read(path) {
+            Ok(sealed) => Self::open(&sealed, key),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(WalletError::Contact(format!("cannot read the address book: {e}"))),
         }
     }
 
-    /// Seals and stores this book for wallet `wallet`.
+    /// Seals this book to `path`, through a temporary file and a rename so a
+    /// crash mid-write leaves the old book, never half of a new one.
     ///
     /// # Errors
     ///
-    /// Sealing and backend failures.
-    pub fn save(&self, store: &dyn SecretStore, wallet: &str, key: &BookKey) -> Result<()> {
-        store.put(&format!("{wallet}{ENTRY_SUFFIX}"), &self.seal(key)?)
+    /// Sealing failures, and [`WalletError::Contact`] if the file cannot be written.
+    pub fn save_file(&self, path: &std::path::Path, key: &BookKey) -> Result<()> {
+        let sealed = self.seal(key)?;
+        let tmp = path.with_extension(TMP_SUFFIX);
+        let io = |e: std::io::Error| WalletError::Contact(format!("cannot write the address book: {e}"));
+        std::fs::write(&tmp, &sealed).map_err(io)?;
+        std::fs::rename(&tmp, path).map_err(io)
     }
 }
 
@@ -376,9 +404,32 @@ impl AddressBook {
 /// invisible, and able to make one name render as another.
 fn is_invisible(c: char) -> bool {
     matches!(c,
-        '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}'
-        | '\u{2060}'..='\u{2069}' | '\u{FEFF}')
+        '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{200B}'..='\u{200F}'
+        | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}'
+        | '\u{FE00}'..='\u{FE0F}' | '\u{FEFF}' | '\u{E0000}'..='\u{E007F}')
         || c.is_control()
+}
+
+/// `input` without invisible characters (see [`is_invisible`]). Payment
+/// request labels and messages go through this too.
+pub(crate) fn strip_invisible(input: &str) -> String {
+    input.chars().filter(|c| !is_invisible(*c)).collect()
+}
+
+/// An address as 64 lowercase hex characters in the sealed JSON.
+mod hex_address {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(a: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(a))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
+        let text = String::deserialize(d)?;
+        let bytes = hex::decode(&text).map_err(serde::de::Error::custom)?;
+        <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| serde::de::Error::custom("an address is 32 bytes"))
+    }
 }
 
 fn clean_text(input: &str, max: usize, what: &str) -> Result<String> {

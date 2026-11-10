@@ -42,6 +42,7 @@ use maya_wallet_core::wallet::{
 };
 use maya_wallet_core::{generate_mnemonic, payment, validate_mnemonic, wallet};
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 /// The unlocked session, if any.
@@ -95,6 +96,7 @@ impl Session {
     /// addresses paid this session; saves the book afterwards when `save`.
     fn with_book<T>(
         &self,
+        app: &tauri::AppHandle,
         save: bool,
         body: impl FnOnce(&mut AddressBook, &BTreeSet<[u8; 32]>) -> Result<T, String>,
     ) -> Result<T, String> {
@@ -112,11 +114,11 @@ impl Session {
                 .collect();
             Ok((wallet.address_book_key(), paid))
         })?;
-        let store = OsKeychain::new();
-        let mut book = AddressBook::load(&store, &name, &key).map_err(|e| e.to_string())?;
+        let path = book_path(app, &name)?;
+        let mut book = AddressBook::load_file(&path, &key).map_err(|e| e.to_string())?;
         let out = body(&mut book, &paid)?;
         if save {
-            book.save(&store, &name, &key).map_err(|e| e.to_string())?;
+            book.save_file(&path, &key).map_err(|e| e.to_string())?;
         }
         Ok(out)
     }
@@ -125,14 +127,34 @@ impl Session {
     ///
     /// shortcut: no balances, so `DrainsBalance` is not raised in the GUI yet;
     /// pass the node-read balance in once the core reads it itself.
-    fn review_context(&self) -> Result<Context, String> {
-        self.with_book(false, |book, _| {
+    fn review_context(&self, app: &tauri::AppHandle) -> Result<Context, String> {
+        self.with_book(app, false, |book, _| {
             Ok(Context {
                 contacts: book.review_contacts(),
                 ..Context::default()
             })
         })
     }
+}
+
+/// Where wallet `name`'s sealed address book lives: a file in the app's data
+/// directory, because the Windows keychain caps a secret at 2,560 bytes. The
+/// name came from the webview, so it is held to a plain file stem: no
+/// separators, no `..`, nothing that could point the write elsewhere.
+fn book_path(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, String> {
+    const MAX_NAME: usize = 64;
+    if name.is_empty()
+        || name.len() > MAX_NAME
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err("a wallet name is letters, digits, '-' and '_' only".to_string());
+    }
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no data directory for the address book: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    Ok(dir.join(format!("{name}.contacts")))
 }
 
 /// A newly created wallet.
@@ -315,13 +337,18 @@ pub fn scan_qr(png_base64: String, genesis: Option<String>) -> Result<PaymentReq
     checked_request(request, genesis.as_deref())
 }
 
+/// This machine's clock in Unix seconds: wallet wall-clock, never consensus.
+fn unix_now() -> Result<u64, String> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "this computer's clock is before 1970; fix it to read payment requests")?
+        .as_secs())
+}
+
 /// Refuses a request for another network or past its `exp`, before the send
 /// form opens (ADR-086 §7). `exp` is this machine's clock, not consensus.
 fn checked_request(request: PaymentRequest, genesis: Option<&str>) -> Result<PaymentRequest, String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| "this computer's clock is before 1970; fix it to read payment requests")?
-        .as_secs();
+    let now = unix_now()?;
     request
         .check(networks::address_network(genesis.unwrap_or_default()), now)
         .map_err(|e| e.to_string())?;
@@ -354,8 +381,11 @@ pub struct ContactView {
 
 /// The saved contacts, in the order added.
 #[tauri::command]
-pub fn contacts(session: tauri::State<'_, Session>) -> Result<Vec<ContactView>, String> {
-    session.with_book(false, |book, _| {
+pub fn contacts(
+    app: tauri::AppHandle,
+    session: tauri::State<'_, Session>,
+) -> Result<Vec<ContactView>, String> {
+    session.with_book(&app, false, |book, _| {
         Ok(book
             .contacts()
             .iter()
@@ -374,10 +404,16 @@ pub fn contacts(session: tauri::State<'_, Session>) -> Result<Vec<ContactView>, 
     })
 }
 
-/// Saves `address` under the name the user typed. `scanned` marks one read
-/// from a QR code. The name never comes from a payment request's label.
+/// Saves `address` under the name the user typed, after a native OK/Cancel
+/// dialog whose words the core wrote: a compromised webview cannot save an
+/// attacker's address as a trusted contact without the person seeing it.
+/// `scanned` marks one read from a QR code. The name never comes from a
+/// payment request's label.
 #[tauri::command]
-pub fn add_contact(
+#[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
+pub async fn add_contact(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     address: String,
     name: String,
     note: String,
@@ -388,26 +424,59 @@ pub fn add_contact(
     let network = networks::address_network(&genesis);
     let id = payment::decode_address_for(&address, network).map_err(|e| e.to_string())?;
     let source = if scanned { Source::Scanned } else { Source::Manual };
-    session.with_book(true, |book, _| {
+    let preview = session.with_book(&app, false, |book, _| {
+        book.check_add(&id, &name).map_err(|e| e.to_string())
+    })?;
+    let mut lines: Vec<String> = preview.warnings.iter().map(|w| format!("Warning: {w}")).collect();
+    lines.push(format!("Save as: {}", preview.name));
+    lines.push(format!("Address: {}", maya_clear_sign::grouped(network, &id)));
+    if !native_ok(&app, &window, "Save contact", lines.join("\n"), "Save").await? {
+        return Err("cancelled on the native dialog; nothing was saved".to_string());
+    }
+    session.with_book(&app, true, |book, _| {
         book.add(id, network, &name, &note, source, 0)
             .map_err(|e| e.to_string())
     })
 }
 
-/// Deletes a saved address. Returns whether it was saved.
+/// Deletes a saved address after a native OK/Cancel dialog, so a compromised
+/// webview cannot quietly remove the real contact a look-alike imitates.
+/// Returns whether it was deleted.
 #[tauri::command]
-pub fn remove_contact(address: String, session: tauri::State<'_, Session>) -> Result<bool, String> {
+pub async fn remove_contact(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    address: String,
+    session: tauri::State<'_, Session>,
+) -> Result<bool, String> {
     let id = payment::decode_address(&address).map_err(|e| e.to_string())?;
-    session.with_book(true, |book, _| Ok(book.remove(&id)))
+    let Some((name, hrp)) = session.with_book(&app, false, |book, _| {
+        Ok(book.find(&id).map(|c| (c.name.clone(), c.network.clone())))
+    })?
+    else {
+        return Ok(false);
+    };
+    let network = maya_address::Network::from_hrp(&hrp).unwrap_or(maya_address::Network::Devnet);
+    let message = format!(
+        "Delete the contact '{name}'?\nAddress: {}",
+        maya_clear_sign::grouped(network, &id)
+    );
+    if !native_ok(&app, &window, "Delete contact", message, "Delete").await? {
+        return Ok(false);
+    }
+    session.with_book(&app, true, |book, _| Ok(book.remove(&id)))
 }
 
 /// The address book sealed for export, base64. Opens only in a wallet
 /// restored from the same recovery phrase.
 #[tauri::command]
-pub fn export_contacts(session: tauri::State<'_, Session>) -> Result<String, String> {
+pub fn export_contacts(
+    app: tauri::AppHandle,
+    session: tauri::State<'_, Session>,
+) -> Result<String, String> {
     use base64::Engine;
     let key = session.with(|wallet| Ok(wallet.address_book_key()))?;
-    session.with_book(false, |book, _| {
+    session.with_book(&app, false, |book, _| {
         let sealed = book.seal(&key).map_err(|e| e.to_string())?;
         Ok(base64::engine::general_purpose::STANDARD.encode(sealed))
     })
@@ -415,13 +484,17 @@ pub fn export_contacts(session: tauri::State<'_, Session>) -> Result<String, Str
 
 /// Adds every entry of an export that is not already saved. Returns the count.
 #[tauri::command]
-pub fn import_contacts(data: String, session: tauri::State<'_, Session>) -> Result<usize, String> {
+pub fn import_contacts(
+    app: tauri::AppHandle,
+    data: String,
+    session: tauri::State<'_, Session>,
+) -> Result<usize, String> {
     use base64::Engine;
     let sealed = base64::engine::general_purpose::STANDARD
         .decode(data.trim().as_bytes())
         .map_err(|e| format!("not an address-book export: {e}"))?;
     let key = session.with(|wallet| Ok(wallet.address_book_key()))?;
-    session.with_book(true, |book, _| {
+    session.with_book(&app, true, |book, _| {
         book.import(&sealed, &key).map_err(|e| e.to_string())
     })
 }
@@ -430,12 +503,13 @@ pub fn import_contacts(data: String, session: tauri::State<'_, Session>) -> Resu
 /// look-alike of a saved one, or new (the interstitial is then mandatory).
 #[tauri::command]
 pub fn check_recipient(
+    app: tauri::AppHandle,
     text: String,
     genesis: String,
     session: tauri::State<'_, Session>,
 ) -> Result<PasteCheck, String> {
     let network = networks::address_network(&genesis);
-    session.with_book(false, |book, paid| {
+    session.with_book(&app, false, |book, paid| {
         book.check_paste(&text, network, paid)
             .map_err(|e| e.to_string())
     })
@@ -446,6 +520,7 @@ pub fn check_recipient(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
 pub fn preview_transfer(
+    app: tauri::AppHandle,
     index: u32,
     recipient: String,
     amount: String,
@@ -464,7 +539,7 @@ pub fn preview_transfer(
         chain: &chain,
         allow_high_fee: false,
     };
-    let ctx = session.review_context()?;
+    let ctx = session.review_context(&app)?;
     session.with(|wallet| {
         wallet
             .confirm_with(index, &recipient, amount, &terms, &ctx)
@@ -500,10 +575,15 @@ pub async fn sign_transfer(
     nonce: u64,
     genesis: String,
     confirmed_hash: String,
+    expires_at: Option<u64>,
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
     // Taken first: a refused concurrent call must not touch the reviewed slot.
     let _slot = DialogSlot::take(&session.dialog_open)?;
+    // The request may have expired while the form sat open (ADR-086 §7).
+    if expires_at.is_some_and(|exp| unix_now().is_ok_and(|now| now > exp)) {
+        return Err("the payment request has expired; nothing was signed".to_string());
+    }
     let chain = parse_genesis(&genesis)?;
     let amount = parse_amount_arg("amount", &amount)?;
     let fee = parse_amount_arg("fee", &fee)?;
@@ -517,7 +597,7 @@ pub async fn sign_transfer(
         allow_high_fee: false,
     };
     // Rust computes the confirmation; the reviewed slot is set here by `confirm`.
-    let ctx = session.review_context()?;
+    let ctx = session.review_context(&app)?;
     let shown = session.with(|wallet| {
         wallet
             .confirm_with(index, &recipient, amount, &terms, &ctx)
@@ -546,16 +626,25 @@ async fn approved_on_screen(
     window: &tauri::WebviewWindow,
     shown: &Confirmation,
 ) -> Result<bool, String> {
+    native_ok(app, window, "Confirm transfer", approval_message(shown), "Sign").await
+}
+
+/// A native OK/Cancel dialog with words the core wrote; `ok` labels the
+/// button that proceeds.
+async fn native_ok(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    title: &str,
+    message: String,
+    ok: &str,
+) -> Result<bool, String> {
     let question = app
         .dialog()
-        .message(approval_message(shown))
+        .message(message)
         .parent(window)
-        .title("Confirm transfer")
+        .title(title)
         .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Sign".into(),
-            "Cancel".into(),
-        ));
+        .buttons(MessageDialogButtons::OkCancelCustom(ok.into(), "Cancel".into()));
     // A blocking dialog must not hold an async worker thread (as in app-update).
     tauri::async_runtime::spawn_blocking(move || question.blocking_show())
         .await

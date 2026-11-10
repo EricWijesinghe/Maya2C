@@ -451,6 +451,7 @@ pub async fn sign_transfer(
     nonce: u64,
     terms: &FeeTerms,
     confirmed_hash: &str,
+    expires_at: Option<u64>,
 ) -> Result<SignedTransfer, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -463,6 +464,7 @@ pub async fn sign_transfer(
         nonce: u64,
         genesis: &'a str,
         confirmed_hash: &'a str,
+        expires_at: Option<u64>,
     }
     call(
         "sign_transfer",
@@ -475,6 +477,7 @@ pub async fn sign_transfer(
             nonce,
             genesis: &terms.genesis,
             confirmed_hash,
+            expires_at,
         },
     )
     .await

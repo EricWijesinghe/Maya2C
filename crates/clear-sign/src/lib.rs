@@ -33,9 +33,6 @@ const _: () = assert!(DRAIN_PERCENT == 90);
 
 /// Characters per group when an address is shown in full (ADR-081 §6.1).
 pub const GROUP_LEN: usize = 4;
-/// Leading payload and trailing characters the look-alike check compares:
-/// 6 + 6 symbols of 5 bits, 60 bits a poisoner must grind.
-pub const LOOK_ALIKE_CHARS: usize = 6;
 
 /// One effect of a transaction.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -211,9 +208,9 @@ pub fn render(e: &Effect, network: Network) -> String {
 }
 
 /// Differs from a contact but shares what a person checks: its first two and
-/// last two bytes (the hex form), or the first [`LOOK_ALIKE_CHARS`] payload
-/// and last [`LOOK_ALIKE_CHARS`] characters of its Bech32m form on any network
-/// (the checksum differs per prefix, so all are checked).
+/// last two bytes (the hex form), or the first and last group of its grouped
+/// Bech32m form on any network (the checksum differs per prefix, so all are
+/// checked).
 fn looks_like_contact(to: &Address, ctx: &Context) -> bool {
     !ctx.contacts.contains(to)
         && ctx
@@ -222,18 +219,27 @@ fn looks_like_contact(to: &Address, ctx: &Context) -> bool {
             .any(|c| (c[..2] == to[..2] && c[30..] == to[30..]) || text_look_alike(c, to))
 }
 
-/// The first [`LOOK_ALIKE_CHARS`] payload characters (after `hrp1` and the
-/// version symbol) and the last [`LOOK_ALIKE_CHARS`] characters match.
+/// The first and the last group of the [`grouped`] display match: the
+/// characters a person compares at a glance. The data part is 59 characters,
+/// so that is 4 leading (the version symbol and 3 payload symbols) and 3
+/// trailing; derived from the string, so it follows the display if either
+/// changes. 30 varying bits per network: cheap to grind, which is why it must
+/// warn.
 #[must_use]
 pub fn text_look_alike(a: &Address, b: &Address) -> bool {
     [Network::Mainnet, Network::Testnet, Network::Devnet]
         .into_iter()
-        .any(|n| {
-            let (x, y) = (maya_address::encode(n, a), maya_address::encode(n, b));
-            let start = n.hrp().len() + 2;
-            let head = start..start + LOOK_ALIKE_CHARS;
-            let tail = x.len() - LOOK_ALIKE_CHARS..;
-            x[head.clone()] == y[head] && x[tail.clone()] == y[tail]
+        .any(|network| {
+            let shown_a = maya_address::encode(network, a);
+            let shown_b = maya_address::encode(network, b);
+            let data = network.hrp().len() + 1;
+            let tail_len = match (shown_a.len() - data) % GROUP_LEN {
+                0 => GROUP_LEN,
+                rest => rest,
+            };
+            let head = data..data + GROUP_LEN;
+            let tail = shown_a.len() - tail_len..;
+            shown_a[head.clone()] == shown_b[head] && shown_a[tail.clone()] == shown_b[tail]
         })
 }
 

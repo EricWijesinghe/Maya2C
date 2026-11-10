@@ -715,8 +715,14 @@ pub mod send {
         // read-back to be acknowledged when the address is new.
         let checked = RwSignal::new(None::<bridge::PasteCheck>);
         let acknowledged = RwSignal::new(false);
+        // Each check is numbered; a reply for an older recipient is dropped,
+        // so a slow answer cannot mark a newer paste as saved or known.
+        let check_seq = StoredValue::new(0u64);
+        let expires_at = request.expires_at;
         Effect::new(move |_| {
             let text = recipient.get();
+            check_seq.update_value(|n| *n += 1);
+            let seq = check_seq.get_value();
             // Untracked: the header polls the node, and a re-check on every
             // poll would clear the acknowledgement under the person's cursor.
             let genesis = state.genesis();
@@ -727,7 +733,11 @@ pub mod send {
                 return;
             }
             spawn_local(async move {
-                match bridge::check_recipient(&text, &genesis).await {
+                let reply = bridge::check_recipient(&text, &genesis).await;
+                if check_seq.get_value() != seq {
+                    return;
+                }
+                match reply {
                     Ok(check) => checked.set(Some(check)),
                     Err(error) => state.fail(error),
                 }
@@ -812,6 +822,7 @@ pub mod send {
                     review.nonce,
                     &review.terms,
                     &review.confirmation.signing_hash,
+                    expires_at,
                 )
                 .await;
                 match outcome {

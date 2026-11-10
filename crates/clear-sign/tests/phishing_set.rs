@@ -389,9 +389,68 @@ fn the_bech32m_look_alike_false_alarm_rate_is_measured() {
         }
     }
     println!(
-        "{trials} unrelated recipients against {} contacts: {alarms} look-alike false alarms",
-        ctx.contacts.len()
+        "{trials} unrelated recipients against {} contacts ({} pair checks): {alarms} look-alike false alarms",
+        ctx.contacts.len(),
+        trials * ctx.contacts.len()
     );
+}
+
+/// Grinds an address whose grouped Bech32m shows the same first and last
+/// group as `of` (`maya1 qXXX … XXX`): what a person compares at a glance.
+/// Keeping the first two bytes fixes the first three payload symbols, so only
+/// the three trailing checksum symbols (15 bits) are ground. Returns the
+/// address and the tries it took.
+fn grind_displayed_ends(of: &Address, mut state: u64) -> (Address, u64) {
+    let shown = grouped(Network::Mainnet, of);
+    let groups: Vec<&str> = shown.split(' ').collect();
+    let (first, last) = (groups[1].to_string(), groups[groups.len() - 1].to_string());
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let mut a = *of;
+        for chunk in a[2..].chunks_mut(8) {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^= z >> 31;
+            chunk.copy_from_slice(&z.to_le_bytes()[..chunk.len()]);
+        }
+        let candidate = grouped(Network::Mainnet, &a);
+        let g: Vec<&str> = candidate.split(' ').collect();
+        if a != *of && g[1] == first && g[g.len() - 1] == last {
+            return (a, tries);
+        }
+    }
+}
+
+#[test]
+fn a_look_alike_ground_to_the_displayed_first_and_last_group_is_flagged() {
+    let ctx = context();
+    let mut missed = Vec::new();
+    let mut total_tries = 0;
+    for i in 0..5u8 {
+        let contact = addr(0xC0, i);
+        let (to, tries) = grind_displayed_ends(&contact, 0xA11C_E000 + u64::from(i));
+        total_tries += tries;
+        let e = vec![Effect::Transfer {
+            token: NATIVE,
+            to,
+            amount: Amount::from_u64(1_000),
+        }];
+        if !review(&e, &e, &ctx).contains(&Warning::LookAlikeRecipient) {
+            missed.push(format!(
+                "contact {i}: {} vs {}",
+                grouped(Network::Mainnet, &contact),
+                grouped(Network::Mainnet, &to)
+            ));
+        }
+    }
+    println!(
+        "5 addresses ground to a contact's displayed first and last group in {total_tries} tries; missed {}",
+        missed.len()
+    );
+    assert!(missed.is_empty(), "{missed:#?}");
 }
 
 #[test]

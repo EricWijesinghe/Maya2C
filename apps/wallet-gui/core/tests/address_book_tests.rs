@@ -9,7 +9,6 @@ use maya_clear_sign::Network;
 use maya_wallet_core::address_book::{Activity, AddressBook, BookKey, Source, recent};
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::payment::PaymentRequest;
-use maya_wallet_core::vault::{MemoryStore, SecretStore};
 use maya_wallet_core::wallet::Wallet;
 use primitive_types::U256;
 
@@ -32,21 +31,23 @@ fn book_with(names: &[(&str, u8)]) -> AddressBook {
 #[test]
 fn the_book_is_encrypted_at_rest_and_opens_only_with_its_wallets_key() {
     let book = book_with(&[("Alice", 1), ("Bob", 2)]);
-    let store = MemoryStore::new();
-    book.save(&store, "main", &key()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.contacts");
+    book.save_file(&path, &key()).unwrap();
 
-    let raw = store.get("main.contacts").unwrap().unwrap();
+    let raw = std::fs::read(&path).unwrap();
     let as_text = String::from_utf8_lossy(&raw);
     assert!(!as_text.contains("Alice") && !as_text.contains("Bob"), "names in clear");
     assert!(!raw.windows(32).any(|w| w == [1u8; 32]), "address in clear");
+    assert!(!as_text.contains(&hex::encode([1u8; 32])), "hex address in clear");
 
-    assert_eq!(AddressBook::load(&store, "main", &key()).unwrap(), book);
+    assert_eq!(AddressBook::load_file(&path, &key()).unwrap(), book);
 
     let other = Wallet::from_mnemonic(PHRASE, "a different passphrase")
         .unwrap()
         .address_book_key();
     assert!(matches!(
-        AddressBook::load(&store, "main", &other),
+        AddressBook::load_file(&path, &other),
         Err(WalletError::Unlock)
     ));
 
@@ -61,7 +62,7 @@ fn the_book_is_encrypted_at_rest_and_opens_only_with_its_wallets_key() {
     assert_ne!(book.seal(&key()).unwrap(), book.seal(&key()).unwrap());
     // No book yet is an empty book, not an error.
     assert_eq!(
-        AddressBook::load(&store, "nobody", &key()).unwrap(),
+        AddressBook::load_file(&dir.path().join("nobody.contacts"), &key()).unwrap(),
         AddressBook::default()
     );
 }
@@ -172,4 +173,43 @@ fn dust_and_never_paid_incoming_transfers_stay_out_of_recent() {
         Activity { counterparty: paid, amount: U256::from(2_000), incoming: true },
     ];
     assert_eq!(recent(&activity, &book, dust), vec![[1; 32], paid]);
+}
+
+#[test]
+fn saving_an_address_that_looks_like_a_saved_contact_warns() {
+    // Review fix M1: a poisoner's look-alike saved under a new name would
+    // otherwise become a trusted contact the confirm screen stays quiet about.
+    let mut book = book_with(&[("Alice", 0x22)]);
+    let mut poison = [0x22_u8; 32];
+    poison[12] ^= 0x01;
+    let check = book
+        .add(poison, Network::Testnet, "Bob", "", Source::Manual, 1)
+        .unwrap();
+    assert!(
+        check.warnings.iter().any(|w| w.contains("looks like the saved contact 'Alice'")),
+        "{check:?}"
+    );
+    // The preview the native dialog shows gives the same warning and saves nothing.
+    let preview = book_with(&[("Alice", 0x22)])
+        .check_add(&poison, "Bob")
+        .unwrap();
+    assert_eq!(preview.warnings, check.warnings);
+}
+
+#[test]
+fn more_invisible_characters_are_stripped_from_names() {
+    // Review fix LOW: soft hyphen, combining grapheme joiner, variation
+    // selectors and tag characters render as nothing.
+    let mut book = AddressBook::default();
+    let check = book
+        .add(
+            [6; 32],
+            Network::Testnet,
+            "Al\u{00AD}i\u{034F}c\u{FE0F}e\u{E0041}",
+            "",
+            Source::Manual,
+            1,
+        )
+        .unwrap();
+    assert_eq!(check.name, "Alice");
 }
