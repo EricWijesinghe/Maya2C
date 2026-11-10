@@ -356,16 +356,18 @@ async fn carry(client: TcpStream, link: Arc<Link>, seed: u64) {
     let mut cut = link.cut.subscribe();
     tokio::select! {
         () = both => {}
-        () = wait_cut(&mut cut, link.from, link.to) => {
-            link.stats.severed.fetch_add(1, Ordering::Relaxed);
-        }
+        () = wait_cut(&mut cut, link.from, link.to, &link.stats) => {}
     }
 }
 
-/// Resolves once the link is cut. An error means the relay is gone, which
-/// also ends the connection.
-async fn wait_cut(cut: &mut watch::Receiver<Cut>, from: u16, to: u16) {
-    let _ = cut.wait_for(|state| severed(state, from, to)).await;
+/// Resolves once the link is cut, counting the severed connection first: the
+/// count must be visible before `select!` drops the sockets, or a reader sees
+/// EOF and checks the count too early. An error means the relay is gone,
+/// which also ends the connection.
+async fn wait_cut(cut: &mut watch::Receiver<Cut>, from: u16, to: u16, stats: &Stats) {
+    if cut.wait_for(|state| severed(state, from, to)).await.is_ok() {
+        stats.severed.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Copies one direction. The reader stamps each chunk with its due time; the
