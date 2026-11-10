@@ -77,6 +77,12 @@ Source list:
 - **[S8]** Monero vs Zcash comparison, https://www.monero.how/monero-vs-zcash-vs-dash-privacy-comparison (accessed 2026-11-10), secondary. Official docs (getmonero.org, zcash.readthedocs.io) not reached, so treat privacy cells as provisional.
 - **[S9]** The Block, Mina mainnet launch, https://www.theblock.co/post/99081/mina-protocol-mainnet-launch-zero-knowledge-proof-blockchain (accessed 2026-11-10). **[S9b]** Mina, Coda relaunch as Mina, https://minaprotocol.com/blog/coda-protocol-relaunches-as-mina-the-worlds-lightest-blockchain (accessed 2026-11-10). Sources disagree on the 22 KB figure (one 2022 article says 11 kB).
 - **[S10]** Celestia validators, searched 2026-11-10, no reliable source. Left as `n/a`.
+- **[S11]** Bitcoin Wiki, Units, https://en.bitcoin.it/wiki/Units (accessed 2026-11-10). 1 satoshi = 10^-8 BTC, 8 decimal places.
+- **[S12]** ethereum.org, Intro to ether, https://ethereum.org/en/developers/docs/intro-to-ether/ (accessed 2026-11-10). Wei is 10^-18 ether, 18 decimal places.
+- **[S13]** Polkadot Wiki, Learn DOT, https://wiki.polkadot.com/docs/learn-DOT (accessed 2026-11-10). Planck is the smallest unit, 10 decimal places. Page gives no validator count, so DOT validator figures stay secondary.
+- **[S14]** Aptos glossary, https://aptos.dev/en/network/glossary (accessed 2026-11-10). Transaction final at commit; typical block times tens of ms; user-visible latency typically sub-second. Octa unit quoted as "1 APT = 10^8 Octas", read from a page that lost its superscript; treated as unverified.
+- **[S15]** Mina docs, https://docs.minaprotocol.com/ (accessed 2026-11-10). Describes Mina as "a layer-1 blockchain with a 22KB blockchain". Recursive-proof wording not on this page.
+- **Fetch failures this session (accessed 2026-11-10):** solana.com/docs/terminology (429), dev.algorand.co (no decimals or finality figure), getmonero.org atomic units (404), zips.z.cash protocol PDF (unreadable), docs.sui.io tokenomics (no MIST figure), docs.cardano.org roadmap (404), docs.celestia.org glossary (404), github QRL Zond tokenomics (404).
 - **Prior-art sources** (accessed 2026-11-01): see [pq-l1-comparison-2026-11.md](../prior-art/pq-l1-comparison-2026-11.md) for QRL, Algorand, Ethereum, Bitcoin, Solana, Cardano, Aptos, Sui and the rest, each with its own URL.
 
 ## 3. Verdict matrix
@@ -88,8 +94,8 @@ Rows are dimensions, columns are chains. Each cell is Maya2C against that chain.
 | PQ signatures live on mainnet | Par | Par | Par | Par | Par | Trail | Trail | Par | n/a | n/a | n/a | n/a | n/a |
 | Two PQ families required per default tx | Lead | Lead | Lead | Lead | Lead | Lead | Lead | Lead | n/a | n/a | n/a | n/a | n/a |
 | Upgrade and crypto-agility mechanism | Par | Par | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| Finality, measured latency | n/a | n/a | n/a | Trail | n/a | Trail | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| Amount width and precision | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| Finality, measured latency | n/a | n/a | n/a | Trail | Trail | Trail | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| Amount width and precision | Lead | Lead | n/a | n/a | n/a | n/a | n/a | n/a | Lead | n/a | n/a | n/a | n/a |
 | Formal verification coverage | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | Determinism rules written and tested | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | Address format | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
@@ -109,8 +115,16 @@ Notes on the matrix:
   families on the default path. This is a design comparison, not a live one.
 - **Decentralization: every chain with a public count is ahead.** Four
   validators on one machine is behind any figure above.
-- **Finality and amount width** are `n/a` for most chains because the sources
-  were not fetched. A Maya2C throughput figure is not a finality latency, so
+- **Amount width.** Lead against BTC (8 decimals, [S11]), ETH (18, [S12]) and
+  DOT (10, [S13]) on decimal places only. This is a precision comparison; it
+  says nothing about value or safety.
+- **Finality.** Aptos states that a transaction is final at commit and
+  user-visible latency is sub-second ([S14]). Maya2C has no per-transaction
+  latency measurement, so it trails there. Lead is not claimed on finality.
+- **`n/a` means unfetched.** Every `n/a` cell is a primary source the session
+  could not reach: a 404, a 429 rate limit, a redirect not followed, or an
+  unreadable PDF (Solana, Algorand, Monero, Zcash, Sui, Cardano, Celestia, QRL
+  Zond). Those rows are open work, not a verdict. A Maya2C throughput figure is not a finality latency, so
   it does not count as a Lead.
 
 ## 4. Where we trail and what closes it
@@ -125,7 +139,7 @@ builds on. NEW rows are added to CATALOG in the same change.
 | Independent audit (QRL is ahead on audit progress) | **NEW** `independent-audit-program` (section D, W1) | Gate: Eric approval and a budget. The self pre-audit is not an audit. Builds on `features.toml` `kani-model-checking` and `crates/build-guard` |
 | Years live and track record (SOL, QRL, MINA) | No catalog row can close it. Time, and the mainnet gate | Stated as a gap in CATALOG section G |
 | Ecosystem size (ETH, SOL, SUI, APT, ADA) | Existing: `sdks-1.0`, `dev-portal`, `testnet-kit`, `merchant-checkout` (all W1) | Ecosystem size is a result of these rows, not a row by itself |
-| Measured finality latency (SUI, ALGO) | **NEW** `finality-latency-bench` (section D, W0, size S). Measures per-transaction time from submit to finalized, with a stated mix and hardware | Non-consensus. Builds on `cargo xtask bench-tps` and `reports/bench/`. Must be run and reported with the mix, hardware and command (Standing Order 2) |
+| Measured finality latency (SUI, APT, ALGO) | **NEW** `finality-latency-bench` (section D, W0, size S). Measures per-transaction time from submit to finalized, with a stated mix and hardware | Non-consensus. Builds on `cargo xtask bench-tps` and `reports/bench/`. Must be run and reported with the mix, hardware and command (Standing Order 2) |
 | Privacy (XMR, ZEC; shielded pool is off) | **NEW** `shielded-pool-enable` (section B, W3) | Gate: an independent audit of the join-split circuit, then an activation height (ADR-002, ADR-037). Builds on `crates/node/tests/shielded_tests.rs` |
 | Succinct light client (MINA) | **NEW** `succinct-state-proofs` (section D, W4) | Research and an ADR come before code. Builds on `crates/stateless-core` and `crates/light-client`, which is verified as SPV |
 | PQ signatures live (ALGO, QRL) | No catalog row. Closed by the mainnet gate | Mainnet launch is the closing item, not an app |
