@@ -20,6 +20,7 @@ use maya_governance::tally::Choice;
 use primitive_types::U256;
 
 use crate::core::council_payload::CouncilKind;
+use crate::core::governance_payload::{ProposalSubmission, ScheduleUpgrade};
 use crate::core::payload::TxKind;
 use crate::core::staking_payload::StakingAction;
 use crate::core::transaction::Transaction;
@@ -27,6 +28,8 @@ use crate::core::transaction::TxOutput;
 use crate::core::vault_payload::VaultAction;
 use crate::state::fees::FEE_COLLECTOR;
 use crate::state::shielded::FEE_SINK;
+use crate::state::upgrades::SunsetSpec;
+use crate::upgrade::FeatureSet;
 
 /// How closely a signer should look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -333,15 +336,7 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             format!("Release {} of locked governance stake.", amount(u.amount)),
             Routine,
         ),
-        TxKind::Propose(p) => Description::new(
-            format!(
-                "Propose changing {} on-chain, with {} blocks of voting and a {}-block delay.",
-                plural(p.changes.len(), "parameter", "parameters"),
-                p.voting_blocks,
-                p.timelock_blocks
-            ),
-            Careful,
-        ),
+        TxKind::Propose(p) => describe_proposal(p),
         TxKind::CastVote(b) => Description::new(
             // The governance crate's own tags, never numbers written here: a
             // wallet that told a signer "for" when the wire said "against"
@@ -477,6 +472,106 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             Routine,
         ),
     }
+}
+
+/// Feature bits by name, for every bit in [`FeatureSet::KNOWN`]. A test fails
+/// when a bit is added without a name here.
+const FEATURE_NAMES: &[(u64, &str)] = &[
+    (FeatureSet::DVP, "dvp"),
+    (FeatureSet::IOT, "iot"),
+    (FeatureSet::THREAT_INTEL, "threat-intel"),
+    (FeatureSet::STATELESS, "stateless"),
+    (FeatureSet::WORK_CLAIM, "work-claim"),
+    (FeatureSet::HTLC_LATTICE, "htlc-lattice"),
+    (FeatureSet::ZKML, "zkml"),
+    (FeatureSet::RWA_STRICT, "rwa-strict"),
+];
+
+/// Describes a proposal. The exhaustive destructuring is the guard: a field
+/// added to [`ProposalSubmission`] does not compile until it is shown here.
+fn describe_proposal(p: &ProposalSubmission) -> Description {
+    let ProposalSubmission {
+        voting_blocks,
+        timelock_blocks,
+        changes,
+        upgrade,
+    } = p;
+    let mut acts = Vec::new();
+    if !changes.is_empty() || upgrade.is_none() {
+        acts.push(format!(
+            "changing {}",
+            plural(changes.len(), "parameter", "parameters")
+        ));
+    }
+    if let Some(u) = upgrade {
+        acts.push(format!(
+            "a protocol upgrade to version {} at block {}",
+            u.version,
+            group_digits(U256::from(u.activation_height))
+        ));
+    }
+    let mut d = Description::new(
+        format!(
+            "Propose {}, with {} blocks of voting and a {}-block delay.",
+            acts.join(" and "),
+            voting_blocks,
+            timelock_blocks
+        ),
+        Review::Careful,
+    );
+    if let Some(u) = upgrade {
+        d = describe_upgrade(d, u);
+    }
+    d
+}
+
+/// Adds the upgrade's version, activation, features and sunsets to `d`.
+fn describe_upgrade(mut d: Description, u: &ScheduleUpgrade) -> Description {
+    let ScheduleUpgrade {
+        version,
+        activation_height,
+        features,
+        sunsets,
+    } = u;
+    d = d.with("upgrade version", version.to_string()).with(
+        "activation block",
+        group_digits(U256::from(*activation_height)),
+    );
+    let named: Vec<&str> = FEATURE_NAMES
+        .iter()
+        .filter(|(bit, _)| features.contains(*bit))
+        .map(|(_, name)| *name)
+        .collect();
+    let listed = if named.is_empty() {
+        "none".to_string()
+    } else {
+        named.join(", ")
+    };
+    d = d.with("features", listed);
+    let unknown = features.0 & !FeatureSet::KNOWN;
+    if unknown != 0 {
+        d = d.with("unknown feature bits", format!("{unknown:#x}"));
+    }
+    for sunset in sunsets {
+        let SunsetSpec {
+            suite,
+            sunset_height,
+            emergency,
+        } = sunset;
+        let window = if *emergency {
+            " (emergency window)"
+        } else {
+            ""
+        };
+        d = d.with(
+            "suite sunset",
+            format!(
+                "suite {suite} at block {}{window}",
+                group_digits(U256::from(*sunset_height))
+            ),
+        );
+    }
+    d
 }
 
 fn describe_staking(action: &StakingAction) -> Description {
@@ -743,6 +838,133 @@ mod tests {
             d.summary
         );
         assert!(d.summary.contains("2 guardians"), "{}", d.summary);
+    }
+
+    fn proposal_with_upgrade(upgrade: Option<ScheduleUpgrade>) -> ProposalSubmission {
+        ProposalSubmission {
+            voting_blocks: 100,
+            timelock_blocks: 10,
+            changes: Vec::new(),
+            upgrade,
+        }
+    }
+
+    fn upgrade_v3() -> ScheduleUpgrade {
+        ScheduleUpgrade {
+            version: 3,
+            activation_height: 5_000,
+            features: FeatureSet(FeatureSet::DVP | FeatureSet::ZKML),
+            sunsets: vec![SunsetSpec {
+                suite: 7,
+                sunset_height: 9_000,
+                emergency: true,
+            }],
+        }
+    }
+
+    #[test]
+    fn an_upgrade_only_proposal_says_what_it_upgrades_to() {
+        let d = describe_kind(&TxKind::Propose(Box::new(proposal_with_upgrade(Some(
+            upgrade_v3(),
+        )))));
+        assert_eq!(d.review, Review::Careful);
+        assert!(
+            d.summary
+                .contains("protocol upgrade to version 3 at block 5,000"),
+            "{}",
+            d.summary
+        );
+        assert!(!d.summary.contains("0 parameters"), "{}", d.summary);
+        assert!(d.details.contains(&("features", "dvp, zkml".to_string())));
+        assert!(d.details.contains(&(
+            "suite sunset",
+            "suite 7 at block 9,000 (emergency window)".into()
+        )));
+    }
+
+    #[test]
+    fn a_proposal_without_an_upgrade_still_counts_its_changes() {
+        let mut p = proposal_with_upgrade(None);
+        p.changes = vec![
+            (1, maya_dex::Amount::from(5_u64)),
+            (2, maya_dex::Amount::from(6_u64)),
+        ];
+        let d = describe_kind(&TxKind::Propose(Box::new(p)));
+        assert_eq!(
+            d.summary,
+            "Propose changing 2 parameters, with 100 blocks of voting and a 10-block delay."
+        );
+        assert!(d.details.iter().all(|(l, _)| *l != "upgrade version"));
+    }
+
+    #[test]
+    fn an_unknown_feature_bit_is_shown_not_dropped() {
+        let mut upgrade = upgrade_v3();
+        upgrade.features = FeatureSet(FeatureSet::DVP | (1 << 40));
+        let d = describe_kind(&TxKind::Propose(Box::new(proposal_with_upgrade(Some(
+            upgrade,
+        )))));
+        assert!(
+            d.details
+                .contains(&("unknown feature bits", format!("{:#x}", 1_u64 << 40))),
+            "{:?}",
+            d.details
+        );
+    }
+
+    /// Fails to compile when a field is added to [`ProposalSubmission`] or
+    /// [`ScheduleUpgrade`] without this test deciding how it is shown (ADR
+    /// for finding F2: an upgrade-only proposal once read "changing 0
+    /// parameters").
+    #[test]
+    fn every_field_of_a_proposal_is_rendered() {
+        let ProposalSubmission {
+            voting_blocks,
+            timelock_blocks,
+            changes,
+            upgrade,
+        } = proposal_with_upgrade(Some(upgrade_v3()));
+        let ScheduleUpgrade {
+            version,
+            activation_height,
+            features,
+            sunsets,
+        } = upgrade.expect("set above");
+        let mut p = proposal_with_upgrade(None);
+        p.voting_blocks = voting_blocks;
+        p.timelock_blocks = timelock_blocks;
+        p.changes = changes;
+        p.upgrade = Some(ScheduleUpgrade {
+            version,
+            activation_height,
+            features,
+            sunsets,
+        });
+        p.changes.push((4, maya_dex::Amount::from(8_u64)));
+        let d = describe_kind(&TxKind::Propose(Box::new(p)));
+        let text = format!("{} {:?}", d.summary, d.details);
+        assert!(text.contains("version 3"), "{text}");
+        assert!(text.contains("5,000"), "{text}");
+        assert!(text.contains("dvp"), "{text}");
+        assert!(text.contains("zkml"), "{text}");
+        assert!(text.contains("suite 7"), "{text}");
+        assert!(text.contains("9,000"), "{text}");
+        assert!(text.contains("100 blocks"), "{text}");
+        assert!(text.contains("10-block"), "{text}");
+        assert!(text.contains("1 parameter"), "{text}");
+    }
+
+    #[test]
+    fn every_defined_feature_bit_has_a_name() {
+        for bit in 0..64 {
+            let mask = 1_u64 << bit;
+            if FeatureSet::KNOWN & mask != 0 {
+                assert!(
+                    FEATURE_NAMES.iter().any(|(b, _)| *b == mask),
+                    "bit {bit} has no name in FEATURE_NAMES"
+                );
+            }
+        }
     }
 
     #[test]
