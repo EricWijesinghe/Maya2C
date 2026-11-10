@@ -24,6 +24,7 @@ use crate::core::payload::TxKind;
 use crate::core::staking_payload::StakingAction;
 use crate::core::transaction::Transaction;
 use crate::core::transaction::TxOutput;
+use crate::core::account_payload::AccountAction;
 use crate::core::vault_payload::VaultAction;
 use crate::state::fees::FEE_COLLECTOR;
 use crate::state::shielded::FEE_SINK;
@@ -472,6 +473,7 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             ),
         },
         TxKind::Vault(action) => describe_vault(action),
+        TxKind::Account(action) => describe_account(action),
         TxKind::MiningShare(m) => Description::new(
             format!("Submit a mining share for epoch {}.", m.epoch),
             Routine,
@@ -571,6 +573,63 @@ fn describe_vault(action: &VaultAction) -> Description {
             Review::Routine,
         )
         .with("vault owner", full(owner)),
+    }
+}
+
+fn describe_account(action: &AccountAction) -> Description {
+    use Review::{Careful, Routine};
+    match action {
+        AccountAction::AdoptPolicy(policy) => Description::new(
+            format!(
+                "Change who signs for this account: {} of {} keys from now on, after the guardian delay if guardians are set.",
+                policy.threshold(),
+                policy.keys().len()
+            ),
+            Careful,
+        )
+        .with("new policy", full(&policy.digest())),
+        AccountAction::SetGuardians(set) => Description::new(
+            format!(
+                "Set this account's recovery guardians: {} of {} can recover it after {} blocks.",
+                set.threshold,
+                set.guardians.len(),
+                set.delay_blocks
+            ),
+            Careful,
+        )
+        .with(
+            "guardians",
+            set.guardians.iter().map(|g| full(g)).collect::<Vec<_>>().join(", "),
+        ),
+        AccountAction::ProposeRecovery { account, policy } => Description::new(
+            format!(
+                "Approve that account {} be controlled by new keys ({} of {}).",
+                short(account),
+                policy.threshold(),
+                policy.keys().len()
+            ),
+            Careful,
+        )
+        .with("account", full(account))
+        .with("new policy", full(&policy.digest())),
+        AccountAction::CancelRecovery { account } => Description::new(
+            "Cancel the open recovery and every queued change on this account.",
+            Routine,
+        )
+        .with("account", full(account)),
+        AccountAction::FinishRecovery { account } => Description::new(
+            format!(
+                "Finish the matured recovery of account {}, handing it to its new keys.",
+                short(account)
+            ),
+            Careful,
+        )
+        .with("account", full(account)),
+        AccountAction::WithdrawApproval { account } => Description::new(
+            format!("Withdraw your recovery approval for account {}.", short(account)),
+            Routine,
+        )
+        .with("account", full(account)),
     }
 }
 

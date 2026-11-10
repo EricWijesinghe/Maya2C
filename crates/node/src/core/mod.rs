@@ -1,5 +1,7 @@
 //! Core chain data structures.
 
+pub mod account_payload;
+pub mod account_tx;
 pub mod batch;
 pub mod block;
 pub mod codec;

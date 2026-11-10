@@ -115,6 +115,9 @@ pub enum Module {
     /// Vault configuration, requests and execution (ADR-030). A cancel belongs
     /// to no module — see [`Module::of`].
     Vault,
+    /// Account authority and guardian recovery (ADR-086). A cancel or a
+    /// withdrawn approval belongs to no module — see [`Module::of`].
+    Account,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -133,6 +136,7 @@ pub const MODULES: &[Module] = &[
     Module::ThreatIntel,
     Module::Iot,
     Module::Vault,
+    Module::Account,
 ];
 
 impl Module {
@@ -153,6 +157,7 @@ impl Module {
             Self::ThreatIntel => 10,
             Self::Iot => 11,
             Self::Vault => 12,
+            Self::Account => 13,
         }
     }
 
@@ -173,6 +178,7 @@ impl Module {
             10 => Some(Self::ThreatIntel),
             11 => Some(Self::Iot),
             12 => Some(Self::Vault),
+            13 => Some(Self::Account),
             _ => None,
         }
     }
@@ -194,6 +200,7 @@ impl Module {
             Self::ThreatIntel => "threat intel",
             Self::Iot => "iot anchor",
             Self::Vault => "vault",
+            Self::Account => "account authority",
         }
     }
 
@@ -296,6 +303,16 @@ impl Module {
             TxKind::Vault(action) => match **action {
                 crate::core::vault_payload::VaultAction::Cancel { .. } => None,
                 _ => Some(Self::Vault),
+            },
+
+            // A cancel is the owner's defence and a withdrawal a guardian's
+            // retreat, both during a delay the breaker cannot pause: halting
+            // either would hand the race to whoever proposed. Policy changes,
+            // proposals and finishing can wait for a breaker (ADR-086 §3.4).
+            TxKind::Account(action) => match **action {
+                crate::core::account_payload::AccountAction::CancelRecovery { .. }
+                | crate::core::account_payload::AccountAction::WithdrawApproval { .. } => None,
+                _ => Some(Self::Account),
             },
         }
     }

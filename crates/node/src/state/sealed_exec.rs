@@ -438,6 +438,12 @@ fn open_envelope(
     if matches!(kind, TxKind::Seal(_) | TxKind::RevealShare(_)) {
         return None;
     }
+    // An account action is judged against the authority in force when it
+    // stages (ADR-086); a reveal blocks later would act under an authority
+    // that may have moved since, so it opens to nothing.
+    if matches!(kind, TxKind::Account(_)) {
+        return None;
+    }
 
     Some(kind)
 }

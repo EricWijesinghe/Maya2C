@@ -179,6 +179,8 @@ const TAG_COUNCIL: u8 = 51;
 const TAG_VAULT: u8 = 52;
 // Mining shares (ADR-044).
 const TAG_MINING_SHARE: u8 = 53;
+// Account authority and guardian recovery (ADR-086), dark until scheduled.
+const TAG_ACCOUNT: u8 = 54;
 
 /// Largest joinsplit proof accepted on the wire.
 ///
@@ -563,6 +565,9 @@ pub enum TxKind {
     /// A proof-of-work share paid from the mining reserve — see
     /// [`crate::core::mining_payload`] and ADR-044.
     MiningShare(crate::core::mining_payload::MiningShare),
+    /// An account-authority action — see [`crate::core::account_payload`]
+    /// and ADR-086. Moves no value.
+    Account(Box<crate::core::account_payload::AccountAction>),
 }
 
 impl TxKind {
@@ -630,6 +635,7 @@ impl TxKind {
             Self::Council(_) => "council",
             Self::Vault(_) => "vault",
             Self::MiningShare(_) => "mining_share",
+            Self::Account(_) => "account",
         }
     }
 
@@ -859,6 +865,10 @@ impl TxKind {
                 buf.push(TAG_MINING_SHARE);
                 share.encode_into(buf);
             }
+            Self::Account(action) => {
+                buf.push(TAG_ACCOUNT);
+                action.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -990,6 +1000,9 @@ impl TxKind {
             TAG_MINING_SHARE => Ok(Self::MiningShare(
                 crate::core::mining_payload::MiningShare::decode(reader)?,
             )),
+            TAG_ACCOUNT => Ok(Self::Account(Box::new(
+                crate::core::account_payload::AccountAction::decode(reader)?,
+            ))),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

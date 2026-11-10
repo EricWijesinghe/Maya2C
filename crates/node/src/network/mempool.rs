@@ -328,6 +328,15 @@ impl Mempool {
             &sender_address,
             self.admission_height()?,
         )?;
+        // ADR-086 Rule A at the tip, and the v9 / account-action activation
+        // gate, before the signature like every state check here.
+        self.state.authority_check(
+            &crate::state::db::Overlay::default(),
+            tx,
+            &sender_address,
+            self.admission_height()?,
+            self.state.effective_schedule()?.features().account_authority,
+        )?;
 
         // Then the signature, with the same rule block execution applies, at
         // the first height this transaction could execute at, under the policy

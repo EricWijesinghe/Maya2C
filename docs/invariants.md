@@ -233,9 +233,12 @@ phase that did it.
     validity rests on. `SUITE_ENVELOPE_ACTIVATION_HEIGHT` is 0 (ADR-013).
     Pinned by `crates/node/tests/suite_parity_tests.rs` and
     `crates/node/tests/suite_envelope_live_tests.rs` — ADR-007, ADR-013.
+    Wire version 9 (account-bound, ADR-086) is a multisig frame and follows
+    the same rule; it is additionally refused below its activation height.
 32. **A vault account moves at most its `limit` per window of `delay_blocks`
     without a delayed, guardian-cancellable request, and by no door but a
-    plain transfer or a vault action.** Outputs to the fee collector count
+    plain transfer, a vault action, or an account-authority action (ADR-086,
+    which moves no value).** Outputs to the fee collector count
     toward the limit above 4x the required fee. Before review closed that
     door, one transaction could send a vault's whole balance to the
     collector. A settled request is deleted, so it cannot be settled twice,
@@ -266,3 +269,20 @@ phase that did it.
     `crates/node/tests/council_pause_tests.rs`
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
     — ADR-082.
+35. *(Proposed — not live until account authority activates; pinned by
+    `crates/node/tests/account_authority_tests.rs`.)* **An address's authority
+    changes only by its own authority (queued behind its guardians' delay once
+    guardians are set) or by a guardian quorum after `delay_blocks`; never
+    after a cancel; and no account action writes a balance.** Once `ka:a:<X>`
+    exists, only a wire-version-9 frame naming `X` with the recorded policy
+    acts for `X` (Rule A): every older frame for `X`, the original key's
+    included, is refused. Approvals count only from current guardians, one per
+    guardian, so a single guardian cannot hold a recovery hostage. Pinned by
+    `old_key_frames_are_refused_after_recovery`,
+    `nothing_changes_before_quorum_and_delay`, `a_cancel_ends_the_request`,
+    `account_actions_write_no_balance`,
+    `a_later_guardian_change_is_queued_behind_the_current_delay`,
+    `one_guardian_cannot_block_a_majority`,
+    `removed_guardians_approvals_are_ignored`,
+    `the_root_is_unchanged_when_no_account_opts_in` and
+    `a_reorg_restores_authority_records` — ADR-086.

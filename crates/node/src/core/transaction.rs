@@ -42,7 +42,16 @@
 //! An m-of-n policy over the suite registry ([`crate::core::multisig_tx`]),
 //! carried in [`Transaction::multisig`]. The sender is the policy's address,
 //! so the account is the policy. Behind the same gate as version 7.
+//!
+//! ## Account-bound transactions (wire version 9)
+//!
+//! A v8 authorization naming its account explicitly
+//! ([`crate::core::account_tx`], ADR-086), carried as a [`MultisigAuth`] with
+//! an account. The one frame whose sender is read from the wire, and so the
+//! one that is valid only beside a stored authority record whose policy it
+//! presents — checked in `stage_transaction` (Rule A), not here.
 
+use crate::core::account_tx;
 use crate::core::codec::ByteReader;
 use crate::core::multisig_tx::{self, MultisigAuth};
 use crate::core::payload::TxKind;
@@ -104,6 +113,7 @@ const TXID_DOMAIN: &[u8] = b"custom-l1-node.txid.v1";
 const TXID_KIND_HYBRID: u8 = 0;
 const TXID_KIND_SUITE: u8 = 7;
 const TXID_KIND_MULTISIG: u8 = 8;
+const TXID_KIND_ACCOUNT: u8 = 9;
 
 /// Wire format version for a plain transfer.
 ///
@@ -241,7 +251,12 @@ impl Transaction {
     #[must_use]
     pub fn sender(&self) -> [u8; ADDRESS_LEN] {
         if let Some(auth) = &self.multisig {
-            return multisig_tx::multisig_address(auth.policy());
+            // A v9 frame names its account; staging admits it only when that
+            // account's authority record holds this policy (ADR-086 Rule A).
+            return match auth.account() {
+                Some(account) => *account,
+                None => multisig_tx::multisig_address(auth.policy()),
+            };
         }
         match &self.suite_auth {
             Some(auth) => crate::crypto::suites::suite_address(auth.suite, &auth.public_key),
@@ -294,7 +309,10 @@ impl Transaction {
     #[must_use]
     pub fn signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
         if let Some(auth) = &self.multisig {
-            return multisig_tx::signing_bytes(self, auth, chain);
+            return match auth.account() {
+                Some(account) => account_tx::signing_bytes(self, auth, account, chain),
+                None => multisig_tx::signing_bytes(self, auth, chain),
+            };
         }
         if let Some(auth) = &self.suite_auth {
             return suite_tx::signing_bytes(self, auth, chain);
@@ -381,7 +399,10 @@ impl Transaction {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         if let Some(auth) = &self.multisig {
-            return multisig_tx::encode(self, auth);
+            return match auth.account() {
+                Some(account) => account_tx::encode(self, auth, account),
+                None => multisig_tx::encode(self, auth),
+            };
         }
         if let Some(auth) = &self.suite_auth {
             return suite_tx::encode(self, auth);
@@ -456,6 +477,9 @@ impl Transaction {
         }
         if version == multisig_tx::WIRE_VERSION_MULTISIG {
             return multisig_tx::decode(&mut reader);
+        }
+        if version == account_tx::WIRE_VERSION_ACCOUNT {
+            return account_tx::decode(&mut reader);
         }
         if version != WIRE_VERSION && version != WIRE_VERSION_PAYLOAD {
             return Err(NodeError::Decode(format!(
@@ -564,8 +588,16 @@ impl Transaction {
         let mut hasher = blake3::Hasher::new();
         hasher.update(TXID_DOMAIN);
         if let Some(auth) = &self.multisig {
-            hasher.update(&[TXID_KIND_MULTISIG]);
-            hasher.update(&multisig_tx::body_bytes(self, auth));
+            match auth.account() {
+                Some(account) => {
+                    hasher.update(&[TXID_KIND_ACCOUNT]);
+                    hasher.update(&account_tx::body_bytes(self, auth, account));
+                }
+                None => {
+                    hasher.update(&[TXID_KIND_MULTISIG]);
+                    hasher.update(&multisig_tx::body_bytes(self, auth));
+                }
+            }
         } else if let Some(auth) = &self.suite_auth {
             hasher.update(&[TXID_KIND_SUITE]);
             hasher.update(&suite_tx::body_bytes(self, auth));

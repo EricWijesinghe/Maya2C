@@ -48,6 +48,9 @@ const MULTISIG_ADDRESS_DOMAIN: &str = "maya2c 2026-09-21 multisig account addres
 pub struct MultisigAuth {
     policy: MultisigPolicy,
     approvals: Vec<Approval>,
+    /// The account a wire-version-9 frame names (ADR-086); `None` for v8,
+    /// whose account is the policy's own address.
+    account: Option<[u8; 32]>,
 }
 
 impl MultisigAuth {
@@ -57,6 +60,7 @@ impl MultisigAuth {
         Self {
             policy,
             approvals: Vec::new(),
+            account: None,
         }
     }
 
@@ -76,7 +80,11 @@ impl MultisigAuth {
                 "multisig approvals must be distinct listed keys in increasing order".into(),
             ));
         }
-        Ok(Self { policy, approvals })
+        Ok(Self {
+            policy,
+            approvals,
+            account: None,
+        })
     }
 
     /// The policy the sender address commits to.
@@ -89,6 +97,22 @@ impl MultisigAuth {
     #[must_use]
     pub fn approvals(&self) -> &[Approval] {
         &self.approvals
+    }
+
+    /// The same authorization naming `account` explicitly: a wire-version-9
+    /// account-bound frame (ADR-086, [`crate::core::account_tx`]).
+    #[must_use]
+    pub fn bound_to(self, account: [u8; 32]) -> Self {
+        Self {
+            account: Some(account),
+            ..self
+        }
+    }
+
+    /// The account a v9 frame names, or `None` for a v8 frame.
+    #[must_use]
+    pub const fn account(&self) -> Option<&[u8; 32]> {
+        self.account.as_ref()
     }
 }
 
@@ -128,7 +152,13 @@ pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth, chain: &Chain
 /// The v8 wire encoding.
 pub(crate) fn encode(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
     let mut buf = vec![WIRE_VERSION_MULTISIG];
-    tx.encode_io_into(&mut buf);
+    encode_tail(tx, auth, &mut buf);
+    buf
+}
+
+/// Everything after the version byte; v9 writes its account in between.
+pub(crate) fn encode_tail(tx: &Transaction, auth: &MultisigAuth, buf: &mut Vec<u8>) {
+    tx.encode_io_into(buf);
     buf.extend_from_slice(&auth.policy.encode());
     buf.extend_from_slice(&tx.nonce.to_le_bytes());
     // `MultisigAuth::new` holds this to at most the policy's key count (≤ 16).
@@ -143,8 +173,7 @@ pub(crate) fn encode(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
         buf.extend_from_slice(&approval.signature);
     }
     buf.push(u8::from(tx.kind.has_payload()));
-    tx.kind.encode_into(&mut buf);
-    buf
+    tx.kind.encode_into(buf);
 }
 
 /// Reads one approval, its length checked against the key it names.
@@ -228,7 +257,9 @@ pub(crate) fn verify_at(
     for key in auth.policy.keys() {
         suites::check_admissible(policy, key.suite, height)?;
     }
+    // `tx.signing_bytes`, not this module's: a v9 frame (ADR-086) signs the
+    // account-bound bytes, and only the dispatch there knows which.
     auth.policy
-        .verify(&signing_bytes(tx, auth, chain), &auth.approvals)
+        .verify(&tx.signing_bytes(chain), &auth.approvals)
         .map_err(|e| NodeError::SignatureSuite(e.to_string()))
 }

@@ -107,6 +107,15 @@ impl StateDB {
         // than the key itself, so this is a computation and not a field read.
         let sender = tx.sender();
 
+        // An account action needs the transaction, not just its sender: an
+        // opt-in records the policy that signed it (ADR-086 Rule B).
+        if let TxKind::Account(action) = &tx.kind {
+            if let Some(module) = Module::of(&tx.kind) {
+                self.require_module(overlay, module, context.height)?;
+            }
+            return self.apply_account(overlay, tx, action, context);
+        }
+
         self.apply_kind_for(overlay, &sender, tx.nonce, &tx.kind, context)
     }
 
@@ -323,6 +332,11 @@ impl StateDB {
             TxKind::Council(action) => self.apply_council(overlay, action, context),
             TxKind::Vault(action) => self.apply_vault(overlay, &sender, action, context),
             TxKind::MiningShare(share) => self.apply_mining_share(overlay, &sender, share),
+            // Only reachable from a sealed reveal, which refuses account
+            // actions: authority is judged when its own transaction stages.
+            TxKind::Account(_) => Err(NodeError::Account(
+                "an account action executes only as its own transaction".into(),
+            )),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,
