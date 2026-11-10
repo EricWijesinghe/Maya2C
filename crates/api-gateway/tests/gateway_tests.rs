@@ -1,7 +1,7 @@
 //! Gateway behaviour against a recorded node.
 //!
 //! The [`NodeClient`] trait exists so these run without a chain: an end-to-end
-//! test that needs RocksDB, a genesis file and a mined block in order to check
+//! test that needs `RocksDB`, a genesis file and a mined block in order to check
 //! that a 404 is a 404 is a test nobody runs.
 //!
 //! What is asserted here is the gateway's own policy — the allowlist, the size
@@ -487,7 +487,10 @@ async fn graphql_exposes_no_mutation() {
 // ---------------------------------------------------------------------------
 
 fn rpc_request(method: &str, params: serde_json::Value) -> serde_json::Value {
-    serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params })
+    // `json!` borrows its operands; assigning moves `params` in as clippy wants.
+    let mut request = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method });
+    request["params"] = params;
+    request
 }
 
 #[tokio::test]
