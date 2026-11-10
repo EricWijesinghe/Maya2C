@@ -88,6 +88,12 @@ L is more. *Wave* is when, defined at the end of the file.
 | contract-studio | Write, test and formally check WASM contracts | `crates/vm`, `crates/contract-safety`, `crates/multivm` | none | L | W3 |
 | testnet-kit | Faucet, local devnet and attack lab for developers | `apps/faucet`, `cargo xtask localnet`, attacknet | none | S | W1 |
 
+Status of the two rows above: **testnet-kit** and **node-in-a-box** are
+stubs (tool code in `xtask/src/kit.rs` and `xtask/src/node_box/`, unit-tested,
+ledger entries `stub`). Guides: [testnet-kit.md](testnet-kit.md),
+[node-in-a-box-windows.md](node-in-a-box-windows.md),
+[node-in-a-box-linux.md](node-in-a-box-linux.md). Not yet run end to end.
+
 ## E. AI-native network (post-mainnet; models never in consensus)
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
