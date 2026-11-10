@@ -34,6 +34,14 @@ cargo fuzz run tx_decode
 | `rwa_payload_decode` | the five RWA sections in `core::rwa_payload` | no panic; an accepted section re-encodes to itself |
 | `rwa_record_decode` | `maya_rwa` token, attestation, distribution, eligibility, cap-table records | no panic; an accepted record re-encodes to its bytes |
 | `sealed_payload_decode` | `SealedEnvelope`, `RevealShare`, `maya_mev::SealedPayload`, `ShareProof` | no panic; an accepted input re-encodes to its bytes |
+| `pow_target` | proof-of-work target arithmetic and the prune-horizon predicate | no panic; the pure rules a header and a reorg depend on |
+| `payment_uri_decode` | `maya:` URI and address normalisation in `maya_wallet_core::payment` | no panic; a parsed request re-renders to a URI that parses to itself |
+| `address_decode` | `maya_address::decode_any` (Bech32m account text) | no panic; an accepted address has exactly one, lower-case, spelling |
+| `faucet_request_decode` | `GrantRequest` JSON and `Faucet::parse_address` | no panic; a text recipient and its hex form name the same account |
+| `pool_identity_decode` | `maya_pool_service::model::parse_user_identity` | no panic; worker name within bounds; rendering re-parses to the same key |
+| `explorer_route_decode` | `is_account_hex`, `short_hash`, `format_hashrate` | no panic on any text or float; account ids are 64 hex characters |
+| `chat_envelope_decode` | `maya_chat::relay::Envelope::decode`, `receipt::parse` | no panic; accepted envelopes and receipts round-trip to themselves |
+| `status_input_decode` | `mark_stopped`, `timestamp_from_header`, `decentral::host_of` | no panic; a stopped report cannot hide a halt; host is part of the URL |
 
 The DEX, oracle, governance, identity, RWA and sealed-mempool sections are also
 reached through `payload_decode`, but only after a one-byte tag selects them.

@@ -62,10 +62,15 @@ pub fn blocks_per_minute(average_block_time: f64) -> String {
 /// Shortens a hex identifier for display.
 #[must_use]
 pub fn short_hash(hash: &str) -> String {
-    if hash.len() <= 16 {
+    // Counted in chars: a byte index can fall inside a multi-byte character,
+    // and slicing there panics. Identical to byte slicing for ASCII hex.
+    let chars: Vec<char> = hash.chars().collect();
+    if chars.len() <= 16 {
         return hash.to_string();
     }
-    format!("{}…{}", &hash[..8], &hash[hash.len() - 6..])
+    let head: String = chars[..8].iter().collect();
+    let tail: String = chars[chars.len() - 6..].iter().collect();
+    format!("{head}…{tail}")
 }
 
 // ---------------------------------------------------------------------------
@@ -915,6 +920,25 @@ const LIVE_SCRIPT: &str = r"
   });
 })();
 ";
+
+#[cfg(test)]
+mod short_hash_tests {
+    use super::short_hash;
+
+    #[test]
+    fn a_hex_id_keeps_eight_leading_and_six_trailing_characters() {
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(short_hash(id), "01234567…abcdef");
+    }
+
+    #[test]
+    fn a_multibyte_value_does_not_panic_at_a_byte_boundary() {
+        // Byte 8 falls inside the third two-byte character; byte slicing panicked.
+        // 32 characters: the first eight are "aaaaaaaé", the last six "aaaaaé".
+        let value = "aaaaaaaé".repeat(4);
+        assert_eq!(short_hash(&value), "aaaaaaaé…aaaaaé");
+    }
+}
 
 #[cfg(test)]
 mod ribbon_tests {
