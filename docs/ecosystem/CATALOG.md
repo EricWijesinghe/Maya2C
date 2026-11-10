@@ -172,13 +172,13 @@ know it.
 
 | id | Need (inspired by) | Rung | Builds on | Known prior art / gate |
 |---|---|---|---|---|
-| time-capsule | Messages and payments that open at a future height, sealed until then (time-travel films) | R0 | timelock encryption, block heights (invariant 9) | drand tlock exists; differentiator would be PQ timelock, research |
-| digital-will | Assets and messages that pass to heirs if the owner stops signing (many dramas) | R0 | inheritance (B), smart account | legal wording; dead-man switches exist |
+| time-capsule | Messages and payments that open at a future height, sealed until then (time-travel films) | R0 | timelock encryption, block heights (invariant 9) | [prior art](../prior-art/time-capsule.md): drand tlock; differentiator = chain-committed release height, PQ sealing is research |
+| digital-will | Assets and messages that pass to heirs if the owner stops signing (many dramas) | R0 | inheritance (B), smart account | [prior art](../prior-art/digital-will.md): Webacy, Safe/Argent recovery; legal wording open |
 | babel-chat | Real-time translation inside end-to-end encrypted chat, on the device (the universal translator of space operas) | R1 | chat, on-device-assistant | on-device models; data-leaves-device statement |
-| personal-agent | An AI aide that runs errands with hard spending limits and asks before large acts (the household AI of superhero films) | R0 | agent-wallets, mcp-server | ADR (limits, kill switch); never holds root keys |
+| personal-agent | An AI aide that runs errands with hard spending limits and asks before large acts (the household AI of superhero films) | R0 | agent-wallets, mcp-server | [prior art](../prior-art/personal-agent.md): Coinbase Agentic Wallets; ADR (limits, kill switch) still to write |
 | human-or-machine | Proving a person is a person without biometrics on chain (the replicant test) | R1 | personhood | privacy red team |
 | avatar-passport | One identity and owned items across virtual worlds and games (VR films) | R1 | identity-app, rwa | interop standards survey |
-| fabrication-rights | Licensed, traceable files for 3D printers and future fabricators (the replicator) | R0 | notary, rwa, render-market | DRM pitfalls; provenance only, never lock-in |
+| fabrication-rights | Licensed, traceable files for 3D printers and future fabricators (the replicator) | R0 | notary, rwa, render-market | [prior art](../prior-art/fabrication-rights.md): two US patents; provenance only, never lock-in |
 | health-vault | Medical records the patient owns and grants per visit (the medical bays of space films) | R1 | genetics-vault, identity-app | health-data law per country |
 | foundation-archive | Civilisation's knowledge kept verifiable for centuries (the galactic encyclopedia) | R1 | long-archive, research-records, `crates/da` | archival formats; long-term hash migration via the suite registry |
 | light-lag-ledger | Payments between planets minutes apart, settled when links return (space operas) | R2 | interplanetary, `crates/l2-flash` | invariant 9; DTN research |
@@ -186,9 +186,14 @@ know it.
 | swarm-coordination | Many robots or drones agreeing on tasks without a central controller (swarm films) | R1 | `hal/swarm`, dag-bft research | civil uses only |
 | city-mesh | Phones keep messaging and paying when the network goes down (disaster films) | R1 | mesh-network, light client | spectrum rules |
 | energy-credits | Measured, verifiable energy sharing between neighbours (solar-punk futures) | R1 | `hal/energy`, iot-anchor | metering law |
-| quantum-ready-keys | Keys that rotate to new algorithms with no user action (the quantum threat in thrillers) | R0 | suite registry, smart account | already partly true (G); UX for rotation |
-| guardian-ai | A defence AI that watches the network and proposes fixes but can never act alone (the rogue-AI warnings) | R0 | sentinel-ai, ADR-077 | ADR-077; this is the anti-Skynet design |
+| quantum-ready-keys | Keys that rotate to new algorithms with no user action (the quantum threat in thrillers) | R0 | suite registry, smart account | [prior art](../prior-art/quantum-ready-keys.md): Algorand Falcon, XRPL RegularKey; silent-rotation UX unbuilt |
+| guardian-ai | A defence AI that watches the network and proposes fixes but can never act alone (the rogue-AI warnings) | R0 | sentinel-ai, ADR-077 | [prior art](../prior-art/guardian-ai.md): Forta, Hypernative; ADR-077 consensus boundary |
 | truth-stamps | Proving a photo or video is original and unedited since capture (deepfake thrillers) | R1 | notary, attested-hardware | C2PA exists; differentiator would be PQ signing at capture |
+| emergency-identity | A portable, recoverable identity for people who lost their papers (refugee films) | R1 | `crates/identity`, `crates/smart-account/src/recovery.rs` | prior art: not yet searched; gate: privacy and legal review |
+| autonomous-vehicle-payments | Vehicles pay tolls and charging inside limits they cannot exceed (self-driving films) | R1 | `crates/smart-account/src/policy.rs`, `hal/swarm` | prior art: not yet searched; gate: safety certification |
+| space-debris-registry | One public registry of objects in orbit with owners and manoeuvre history (orbital-clutter films) | R2 | `crates/rwa`, `crates/da` | prior art: not yet searched; gate: orbital data sources |
+| seed-vault-attestation | Proof that a crop seed sample is held, viable and genetically distinct (seed vaults in survival films) | R1 | `crates/da`, `crates/archive` | prior art: not yet searched; gate: lab certification |
+| aid-tracing | Disaster-relief funds traced to recipients, with allow-lists and limits (relief-convoy films) | R1 | `crates/smart-account/src/policy.rs`, `crates/rwa` | prior art: not yet searched; gate: NGO and legal partners |
 
 The list is open: new ideas are added as rows here, each with its need, its
 rung and a prior-art check, and they wait their wave like everything else.
