@@ -10,37 +10,57 @@ use maya_btc_spv::{
     prove, sha256d, target_from_compact, work_from_target,
 };
 
-/// Bitcoin Core `src/test/pow_tests.cpp`, the `get_next_work*` cases: each is
-/// (time of the period's first block, time of its last block, last bits,
-/// expected next bits). The block numbers are the ones Core's comments give.
-const CORE_RETARGETS: [(u32, u32, u32, u32, &str); 4] = [
+/// Bitcoin Core `src/test/pow_tests.cpp`, the `get_next_work*` cases,
+/// checked against the file at
+/// <https://github.com/bitcoin/bitcoin/blob/316ea3280e9981453457bee3bf1e1560936adb85/src/test/pow_tests.cpp>
+/// (latest commit touching it on 2026-11-10). Each entry is (time of the
+/// period's first block, time of its last block, last bits, expected next
+/// bits, Core's test name).
+const CORE_RETARGETS: [(u32, u32, u32, u32, &str); 6] = [
     (
         1_261_130_161,
         1_262_152_739,
         0x1d00_ffff,
         0x1d00_d86a,
-        "block 30240..32255",
+        "get_next_work",
     ),
     (
         1_231_006_505,
         1_233_061_996,
         0x1d00_ffff,
         0x1d00_ffff,
-        "pow limit, block 0..2015",
+        "get_next_work_pow_limit",
     ),
     (
         1_279_008_237,
         1_279_297_671,
         0x1c05_a3f4,
         0x1c01_68fd,
-        "4x lower clamp, block 66528..68543",
+        "get_next_work_lower_limit_actual",
     ),
+    // first = last - timespan / 4, with a mantissa that is not a multiple of four.
+    (
+        1_279_297_671 - 1_209_600 / 4,
+        1_279_297_671,
+        0x1c05_a3f5,
+        0x1c01_68fd,
+        "get_next_work_lower_limit_rounding",
+    ),
+    // The "first" block is stamped after the last one.
+    (
+        1_279_297_671,
+        1_279_008_237,
+        0x1c05_a3f4,
+        0x1c01_68fd,
+        "get_next_work_negative_actual",
+    ),
+    // Core notes the first time here is "not an actual block time".
     (
         1_263_163_443,
         1_269_211_443,
         0x1c38_7f6f,
         0x1d00_e1fd,
-        "4x upper clamp, block 46368..48383",
+        "get_next_work_upper_limit_actual",
     ),
 ];
 
@@ -112,7 +132,7 @@ fn median_time_past_is_a_strict_boundary_over_the_last_eleven() {
     // Heights 1..=11 at T0 + 10*i. The last eleven are heights 1..=11, so
     // the median is height 6: T0 + 60. Genesis (T0) has already left the window.
     for i in 1..=11u32 {
-        tip = push(&mut chain, &tip, T0 + 10 * i, i as u8);
+        tip = push(&mut chain, &tip, T0 + 10 * i, u8::try_from(i).unwrap());
     }
     let at_median = mine(tip.hash(), T0 + 60, EASY, 100);
     assert_eq!(chain.add(at_median), Err(HeaderError::TimeTooOld));
@@ -200,7 +220,7 @@ fn the_chain_demands_the_retargeted_bits_at_the_boundary_and_not_between() {
     // Heights 1..=3 arrive 1 s apart: the 3 s span is under the floor of
     // 10 s (timespan / 4), so the clamp applies and the target quarters.
     for i in 1..=3u32 {
-        tip = mine(tip.hash(), T0 + i, WIDE, i as u8);
+        tip = mine(tip.hash(), T0 + i, WIDE, u8::try_from(i).unwrap());
         chain.add(tip).unwrap();
     }
     let want = TINY.retarget(T0, T0 + 3, WIDE).unwrap();
@@ -235,7 +255,7 @@ fn a_slow_period_at_the_pow_limit_keeps_the_limit() {
     let mut chain = HeaderChain::from_checkpoint(TINY, 0, g);
     let mut tip = g;
     for i in 1..=3u32 {
-        tip = mine(tip.hash(), T0 + 100 * i, WIDE, i as u8);
+        tip = mine(tip.hash(), T0 + 100 * i, WIDE, u8::try_from(i).unwrap());
         chain.add(tip).unwrap();
     }
     // 300 s clamps to 160 s: the target would grow 4x, past the limit.
@@ -258,7 +278,7 @@ fn a_retarget_too_wide_for_256_bits_fails_closed() {
     let mut chain = HeaderChain::from_checkpoint(params, 0, g);
     let mut tip = g;
     for i in 1..=3u32 {
-        tip = push(&mut chain, &tip, T0 + 100 * i, i as u8);
+        tip = push(&mut chain, &tip, T0 + 100 * i, u8::try_from(i).unwrap());
     }
     assert_eq!(
         chain.add(mine(tip.hash(), T0 + 400, EASY, 9)),
@@ -275,7 +295,7 @@ fn a_retarget_whose_period_starts_before_the_checkpoint_is_refused() {
     let mut chain = HeaderChain::from_checkpoint(TINY, 1, g);
     let mut tip = g;
     for i in 1..=2u32 {
-        tip = mine(tip.hash(), T0 + i, WIDE, i as u8);
+        tip = mine(tip.hash(), T0 + i, WIDE, u8::try_from(i).unwrap());
         chain.add(tip).unwrap();
     }
     // Height 4 needs the header at height 0, which this chain never saw.
