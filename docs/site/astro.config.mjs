@@ -54,6 +54,11 @@ export default defineConfig({
           // <Tabs syncKey>: restores the reader's chosen OS tab from
           // localStorage; reads one key, no network. Reviewed 2026-10-12.
           "sha256-OizSKqsU+f0G4vojbxNt0Lao3kUpTmCLQSv3y6P7qhQ=",
+          // Starlight 0.42.9 <Tabs syncKey> restore body (user-components/Tabs.astro),
+          // emitted only on guides/quickstart and guides/help-run. Reviewed 2026-11-10:
+          // reads one localStorage key, compares tab textContent, toggles hidden/aria/tabindex;
+          // no eval, fetch, innerHTML or remote code.
+          "sha256-j066YyZLmxi7hThtvu2oKJArg82wWVur6pfnklFFLH0=",
         ],
       },
       directives: [
