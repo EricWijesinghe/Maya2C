@@ -2796,8 +2796,8 @@ paths = "`apps/wallet-gui/core`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
-note = "#271, #287, #275: sign refuses any hash other than the one the confirm screen showed, and each confirm signs once (confirm_tests.rs signing_needs_a_confirm_from_this_session_and_spends_it). Unbound sign_transfer, sign_transfer_to and compose_swap are removed from the public API. Limit: a compromised webview can still confirm and sign; an OS-native confirm is on the backlog. The logic the Tauri shell and the CLI both use. Clear signing: the confirm screen is computed from the transaction that gets signed (describe, checksummed recipient, display units, chain id); sign refuses any transaction whose signing hash differs from the reviewed one (confirm_tests.rs)."
+tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs", "apps/wallet-gui/core/tests/confirm_tests.rs", "apps/wallet-gui/core/tests/address_book_tests.rs"]
+note = "#271, #287, #275: sign refuses any hash other than the one the confirm screen showed, and each confirm signs once (confirm_tests.rs signing_needs_a_confirm_from_this_session_and_spends_it). Unbound sign_transfer, sign_transfer_to and compose_swap are removed from the public API. Limit: a compromised webview can still confirm and sign; an OS-native confirm is on the backlog. The logic the Tauri shell and the CLI both use. Clear signing: the confirm screen is computed from the transaction that gets signed (describe, display units, chain id); sign refuses any transaction whose signing hash differs from the reviewed one (confirm_tests.rs). ADR-086 P0+P1: every address on the confirm screen in grouped Bech32m, maya-clear-sign review warnings most severe first, encrypted address book with user-typed names, look-alike/dust/new-recipient poisoning defenses, payment request v2 (address_book_tests.rs, payment_tests.rs, confirm_tests.rs every_address_on_a_confirm_screen_is_full_bech32m_and_never_hex). Limit: the GUI passes no balance into the review yet, so DrainsBalance reaches the confirm screen only through the core API."
 
 [[subsystem]]
 id = "maya-chat"
@@ -3243,10 +3243,10 @@ name = "Clear signing: intent standard and pre-sign review"
 domain = "Cryptography and key management"
 paths = "`crates/clear-sign`"
 tier = "extended"
-class = "RESEARCH"
+class = "REAL"
 status = "working"
-tests = ["crates/clear-sign/tests/phishing_set.rs"]
-note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged; no wallet simulates contract calls yet, so it is not user-facing."
+tests = ["crates/clear-sign/tests/phishing_set.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
+note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction."
 
 [[subsystem]]
 id = "contract-safety-runtime"

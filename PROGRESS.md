@@ -236,6 +236,7 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Merged 2026-11-08/09: #383-#397
 - [x] Weighted attacknet x10 at b6b5f536: PASS, no fork through 3482 (`reports/attacknet/2026-11-09-1.md`)
 - [x] Freeze gates at 8e764b6f (2026-11-09): coverage --verify-targets, spec-coverage, claims-check, release-check, cargo deny, nextest 4016/4016 passed (14 skipped)
+- [x] Wallet-v2 P0+P1 (ADR-086, wallet-only): Bech32m confirm screens with clear-sign review, 256-bit drain check, encrypted address book, poisoning defenses, payment request v2 (branch feat/wallet-v2-clear-sign)
 
 ## How to resume
 
