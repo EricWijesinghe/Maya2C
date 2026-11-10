@@ -269,7 +269,7 @@ fn every_registry_length_fits_the_u32_length_prefix() {
 fn a_failed_suite_signature_leaves_the_transaction_untouched_and_rpc_reports_the_suite() {
     use custom_l1_node::rpc::TransactionInfo;
     let (tx, _) = v7_transfer();
-    let info = TransactionInfo::from(&tx);
+    let info = TransactionInfo::new(&tx, None);
     let suite = info.suite.expect("v7 reports its suite");
     assert_eq!(suite.id, SuiteId::MlDsa87.to_byte());
     assert!(info.signed && info.lattice_public_key.is_empty());
@@ -277,6 +277,6 @@ fn a_failed_suite_signature_leaves_the_transaction_untouched_and_rpc_reports_the
     let key = hybrid::signing_key_from_seed(&chain_key(6)).expect("key");
     let mut legacy = Transaction::new(Vec::new(), Vec::new(), 3);
     legacy.sign(&key, &common::test_chain()).expect("sign");
-    let legacy_info = TransactionInfo::from(&legacy);
+    let legacy_info = TransactionInfo::new(&legacy, None);
     assert!(legacy_info.suite.is_none() && !legacy_info.lattice_public_key.is_empty());
 }

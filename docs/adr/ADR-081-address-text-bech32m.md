@@ -1,6 +1,6 @@
 # ADR-081: Addresses have a Bech32m text form with a network prefix and a checksum
 
-**Status:** Accepted, 2026-11-07. Implemented for the crate, the node RPC and the `maya-address` tests. Wallet GUI, explorer, faucet, pool, hub, chat, CLI output and the Go SDK are not converted yet (see "Not done").
+**Status:** Accepted, 2026-11-07. Implemented for the crate, the node RPC, the genesis decoder and the `maya-address` tests. Wallet GUI, explorer, faucet, pool, hub, chat, CLI output and the Go SDK are not converted yet (see "Not done").
 **Date:** 2026-11-07
 **Related:** [ADR-005](ADR-005-dependency-unification.md) (no new dependency), [ADR-036](ADR-036-genesis-id-signature-binding.md) (genesis id binds signatures, not the network name), `crates/node/src/crypto/hybrid.rs` (derivation, unchanged), `spec/address-vectors.json`
 
@@ -67,10 +67,35 @@ people paste, so it has to be fixed before then.
 
 ## Not done in this change
 
-Wired, now: `maya-address` crate; node RPC input (`get_balance`,
+Wired: `maya-address` crate; node RPC input (`get_balance`,
 `get_balance_at_height`, `get_account_at_tip`, and the miner param of
-`get_mining_work`) and the additive `address_text` reply field on
-`get_balance` / `get_account_at_tip`; the shared vectors.
+`get_mining_work`); the shared vectors.
+
+Wired in the node RPC output (additive `*_text` field beside every hex account
+address; the hex field is never removed): `get_balance` and
+`get_account_at_tip` (`address_text`), `get_balance_at_height`
+(`address_text`), `get_balance_changes` (`changes[].address_text`),
+`get_block_by_height` and `get_blocks_by_height_range` (transactions'
+`sender_text` and outputs' `recipient_text`), `htlc_get_lock`
+(`sender_text`, `recipient_text`), `iot_device` (`owner_text`),
+`get_validators` (`operator_text`), `vault_get` (`to_text` per request,
+`guardians_text`), `get_fee_info` (`collector_text`). Typed fields are omitted
+when the chain has no text form; untyped JSON replies carry `null` there.
+
+Not returned as an account address, so no text field: validator ids,
+`threat_indicators` authors (ed25519 keys), peer addresses, mining work.
+
+Genesis: `decode_address` takes the chain's network and accepts text for it.
+Hex is unchanged, and a genesis written with text has the same chain id
+commitment, genesis id and state root as its hex twin (pinned in
+`genesis::tests`). The committee commitment hashes a bond operator as before
+for hex (lower-cased string), and as its hex form for text, so ids written
+before this change are unchanged. `validate()` refuses any undecodable bond
+operator before the commitment is used. A chain id with no registered prefix
+refuses text in genesis.
+
+Conformance: RPC responses are not covered by `spec/`, so no RPC vector was
+added. The shared text vectors in `spec/address-vectors.json` are unchanged.
 
 Not wired (list from `rg`, to convert in follow-ups): wallet GUI core
 (`apps/wallet-gui/core/src/payment.rs` `normalize_address`/`decode_address`,
@@ -78,8 +103,8 @@ Not wired (list from `rg`, to convert in follow-ups): wallet GUI core
 print; `bins/maya2c-cli` (`dev.rs`, `main.rs` address prints);
 `apps/faucet`, `bins/pool-service`, `apps/hub/src-tauri`, `apps/chat*`
 (`hex::encode` of addresses); `sdks/sdk-ffi`, `sdks/sdk-wasm`; `sdks/go`;
-`crates/node/src/genesis.rs` `decode_address` (genesis config is being edited
-by another change and was left alone); genesis and deploy docs.
+`bins/maya2c-genesis` `--alloc` (hex only: the chain id that names a text
+network is read after the flags); genesis and deploy docs.
 TypeScript and Python SDKs gained the encoder and decoder with this change
 (`sdks/sdk-js/src/address.ts`, `sdks/python/maya2c_sdk/address.py`) and read the
 shared vectors. The Go SDK does not.
