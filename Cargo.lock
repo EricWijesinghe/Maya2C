@@ -6475,6 +6475,7 @@ name = "maya-parallel-exec"
 version = "0.1.0"
 dependencies = [
  "maya-loadgen",
+ "proptest",
 ]
 
 [[package]]
