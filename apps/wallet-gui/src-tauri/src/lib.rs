@@ -9,8 +9,10 @@
 //! boundary.
 
 pub mod commands;
+pub mod deeplink;
 
 use commands::Session;
+use tauri_plugin_deep_link::DeepLinkExt;
 
 /// wry's own WebView2 arguments (the mini menu and SmartScreen off), kept
 /// when automation adds its own.
@@ -35,9 +37,25 @@ fn with_automation_args<R: tauri::Runtime>(mut context: tauri::Context<R>) -> ta
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be first: a second launch (with a link) hands its argv to the
+        // running app and exits, instead of opening a second wallet.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            deeplink::focus(app);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(maya_app_update::dialog())
-        .setup(|app| Ok(maya_app_update::start(app)?))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            app.deep_link()
+                .on_open_url(move |event| deeplink::handle(&handle, &event.urls()));
+            // Windows and Linux pass a startup link as argv, not as an event.
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                deeplink::handle(app.handle(), &urls);
+            }
+            Ok(maya_app_update::start(app)?)
+        })
         .manage(Session::default())
+        .manage(deeplink::PendingPay::default())
         .invoke_handler(tauri::generate_handler![
             commands::create_wallet,
             commands::recover_wallet,
@@ -59,6 +77,7 @@ pub fn run() {
             commands::fee_options,
             commands::network_status,
             commands::receive_request,
+            deeplink::take_pending_pay,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");

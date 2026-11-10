@@ -138,11 +138,15 @@
           <div class="grid2">
             <div class="card">
               <h2>Wallet app</h2>
-              <p class="fine">Keys, sending, receiving and the signing confirmation live in the Wallet app, never in the Hub. Opening it from here comes in a later step (ADR-083).</p>
+              <p class="fine">Keys, sending, receiving and the signing confirmation live in the Wallet app, never in the Hub.</p>
+              <button class="save" id="open-wallet">Open Wallet</button>
+              <p class="fine" id="open-wallet-msg" role="status"></p>
             </div>
             <div class="card">
               <h2>Chat app</h2>
               <p class="fine">End-to-end encrypted messages with signed delivery receipts (ADR-074) run in the Chat app, which keeps its own keys.</p>
+              <button class="save" id="open-chat">Open Chat</button>
+              <p class="fine" id="open-chat-msg" role="status"></p>
             </div>
           </div>
         </section>

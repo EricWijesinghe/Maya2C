@@ -31,6 +31,9 @@ const DEFAULT_NODE_URL: &str = "https://rpc.maya2c.dev/rpc";
 /// How often the header re-reads the network's height. A block lands every
 /// few seconds on the testnet; faster polling would only load the gateway.
 const NETWORK_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+/// Pending-link check. Polled, not evented: a wasm page cannot listen to a
+/// Tauri event without JS glue. One cheap IPC call a second, Wallet screen only.
+const PENDING_PAY_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Which screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,6 +151,20 @@ fn App() -> impl IntoView {
     };
     poll_network();
     let _ = set_interval_with_handle(poll_network, NETWORK_POLL);
+
+    // A payment link arrives while the app runs; it is applied only on the
+    // Wallet screen, so it never interrupts an unlock, backup or signing step.
+    let poll_pending_pay = move || {
+        if !matches!(state.screen.get_untracked(), Screen::Wallet) {
+            return;
+        }
+        leptos::task::spawn_local(async move {
+            if let Ok(Some(request)) = bridge::take_pending_pay().await {
+                state.screen.set(Screen::Send(request));
+            }
+        });
+    };
+    let _ = set_interval_with_handle(poll_pending_pay, PENDING_PAY_POLL);
 
     view! {
         <div class="app">

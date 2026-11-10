@@ -35,7 +35,7 @@ L is more. *Wave* is when, defined at the end of the file.
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
 |---|---|---|---|---|---|
-| hub-launch | Open Wallet and Chat from the Hub through an OS link scheme (ADR-083 decision 4) | `apps/hub`, `apps/wallet-gui`, `apps/chat-gui` | deep-link plugin review, installer registration | S | W0 |
+| hub-launch | Open Wallet and Chat from the Hub through an OS link scheme (ADR-083 decision 4). **Built on `feat/hub-launch`; installed-build registration not yet run** | `apps/hub`, `apps/wallet-gui`, `apps/chat-gui` | installed NSIS/MSI and `.desktop` check (`docs/app-link-schemes.md`) | S | W0 |
 | address-text-everywhere | Bech32m `maya1…` in the wallet GUI, explorer, pool, chat and docs (ADR-081 leftovers) | `crates/address` | none | S | W0 |
 | signed-installers | Signed installers for Windows, Linux and Android for every app, with auto-update | `apps/app-update`, ADR-080 | code-signing cost (Eric) | M | W0 |
 | wallet-v2 | Clear signing, smart-account recovery without a paper seed, address book, payment requests | `apps/wallet-gui/core`, `crates/smart-account`, `crates/clear-sign` | ADR for the recovery UX | L | W1 |

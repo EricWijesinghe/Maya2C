@@ -113,8 +113,28 @@ const Wallet = (() => {
     refresh();
   }
 
+  // ADR-083 decision 4: the OS starts the installed app from its own link
+  // scheme. The Hub never resolves or runs a binary path. Only these two URLs
+  // are allowed by capabilities/default.json.
+  const APP_LINKS = [
+    { button: "open-wallet", url: "maya2c-wallet://open", note: "open-wallet-msg", name: "Maya2C Wallet" },
+    { button: "open-chat", url: "maya2c-chat://open", note: "open-chat-msg", name: "Maya Chat" },
+  ];
+  async function openApp(link) {
+    const note = document.getElementById(link.note);
+    note.textContent = "";
+    try {
+      await window.__TAURI__.core.invoke("plugin:opener|open_url", { url: link.url });
+    } catch {
+      note.textContent = `${link.name} is not installed, or did not start. Install it from the Maya2C GitHub releases page, then try again.`;
+    }
+  }
+
   function init(context) {
     ctx = context;
+    for (const link of APP_LINKS) {
+      document.getElementById(link.button).addEventListener("click", () => openApp(link));
+    }
     document.getElementById("w-add").addEventListener("click", add);
     document.getElementById("w-input").addEventListener("keydown", (e) => {
       if (e.key === "Enter") add();
