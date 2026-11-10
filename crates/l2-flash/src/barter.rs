@@ -91,6 +91,16 @@ pub struct Market {
     breaches: u64,
 }
 
+/// What one `tick` can write, kept so a failed tick can be undone.
+struct Snapshot {
+    provider: (Option<U256>, Option<(U256, U256)>),
+    consumer: (Option<U256>, Option<(U256, U256)>),
+    held: U256,
+    escrow_out: U256,
+    updates: u64,
+    breaches: u64,
+}
+
 /// A signed 256-bit change: a magnitude and a direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Delta {
@@ -135,35 +145,42 @@ impl Market {
     ///
     /// [`BarterError::Insufficient`] if the provider cannot post it.
     pub fn open(&mut self, sla: Sla) -> Result<usize, BarterError> {
-        self.debit(sla.provider, sla.collateral)?;
-        self.slas.push(sla);
-        self.held.push(sla.collateral);
-        self.escrow_in = self
+        // Escrow total first: a failure after the debit would burn the collateral.
+        let escrow_in = self
             .escrow_in
             .checked_add(sla.collateral)
             .ok_or(BarterError::Overflow)?;
+        self.debit(sla.provider, sla.collateral)?;
+        self.slas.push(sla);
+        self.held.push(sla.collateral);
+        self.escrow_in = escrow_in;
         Ok(self.slas.len() - 1)
     }
 
     fn debit(&mut self, who: Address, amount: U256) -> Result<(), BarterError> {
-        let balance = self.balances.entry(who).or_default();
-        let available = *balance;
-        *balance = available
+        let available = self.balance(&who);
+        let new_balance = available
             .checked_sub(amount)
             .ok_or(BarterError::Insufficient {
                 required: amount,
                 available,
             })?;
-        let net = self.net.entry(who).or_default();
-        net.1 = net.1.checked_add(amount).ok_or(BarterError::Overflow)?;
+        let net = self.net.get(&who).copied().unwrap_or_default();
+        let debits = net.1.checked_add(amount).ok_or(BarterError::Overflow)?;
+        self.balances.insert(who, new_balance);
+        self.net.insert(who, (net.0, debits));
         Ok(())
     }
 
     fn credit(&mut self, who: Address, amount: U256) -> Result<(), BarterError> {
-        let balance = self.balances.entry(who).or_default();
-        *balance = balance.checked_add(amount).ok_or(BarterError::Overflow)?;
-        let net = self.net.entry(who).or_default();
-        net.0 = net.0.checked_add(amount).ok_or(BarterError::Overflow)?;
+        let new_balance = self
+            .balance(&who)
+            .checked_add(amount)
+            .ok_or(BarterError::Overflow)?;
+        let net = self.net.get(&who).copied().unwrap_or_default();
+        let credits = net.0.checked_add(amount).ok_or(BarterError::Overflow)?;
+        self.balances.insert(who, new_balance);
+        self.net.insert(who, (credits, net.1));
         Ok(())
     }
 
@@ -177,6 +194,55 @@ impl Market {
     /// An unknown SLA, or a consumer that cannot pay for what it received.
     pub fn tick(&mut self, id: usize, delivered: U256) -> Result<bool, BarterError> {
         let sla = *self.slas.get(id).ok_or(BarterError::UnknownSla(id))?;
+        // A tick is several writes; a failure part-way (a credit at the ceiling)
+        // must not leave the payer debited and the payee unpaid, which would
+        // also unbalance the next settlement. Restore only what it can touch.
+        let snapshot = self.snapshot(id, &sla);
+        let result = self.tick_inner(id, &sla, delivered);
+        if result.is_err() {
+            self.restore(snapshot, id, &sla);
+        }
+        result
+    }
+
+    fn snapshot(&self, id: usize, sla: &Sla) -> Snapshot {
+        let side = |who: Address| {
+            (
+                self.balances.get(&who).copied(),
+                self.net.get(&who).copied(),
+            )
+        };
+        Snapshot {
+            provider: side(sla.provider),
+            consumer: side(sla.consumer),
+            held: self.held[id],
+            escrow_out: self.escrow_out,
+            updates: self.updates,
+            breaches: self.breaches,
+        }
+    }
+
+    fn restore(&mut self, snap: Snapshot, id: usize, sla: &Sla) {
+        // Consumer first so a self-SLA (same address) ends on the provider's
+        // identical snapshot rather than a stale one.
+        for (who, (balance, net)) in [(sla.consumer, snap.consumer), (sla.provider, snap.provider)]
+        {
+            match balance {
+                Some(b) => self.balances.insert(who, b),
+                None => self.balances.remove(&who),
+            };
+            match net {
+                Some(n) => self.net.insert(who, n),
+                None => self.net.remove(&who),
+            };
+        }
+        self.held[id] = snap.held;
+        self.escrow_out = snap.escrow_out;
+        self.updates = snap.updates;
+        self.breaches = snap.breaches;
+    }
+
+    fn tick_inner(&mut self, id: usize, sla: &Sla, delivered: U256) -> Result<bool, BarterError> {
         let owed = delivered
             .checked_mul(sla.price_per_unit)
             .ok_or(BarterError::Overflow)?;
@@ -208,12 +274,16 @@ impl Market {
     ///
     /// An unknown SLA.
     pub fn close(&mut self, id: usize) -> Result<(), BarterError> {
-        let left = std::mem::take(self.held.get_mut(id).ok_or(BarterError::UnknownSla(id))?);
-        self.escrow_out = self
+        let left = *self.held.get(id).ok_or(BarterError::UnknownSla(id))?;
+        let escrow_out = self
             .escrow_out
             .checked_add(left)
             .ok_or(BarterError::Overflow)?;
-        self.credit(self.slas[id].provider, left)
+        // Credit before releasing: if it fails the collateral is still held.
+        self.credit(self.slas[id].provider, left)?;
+        self.held[id] = U256::zero();
+        self.escrow_out = escrow_out;
+        Ok(())
     }
 
     /// Collateral still held across open SLAs.
@@ -236,14 +306,17 @@ impl Market {
     pub fn settle(&mut self) -> Result<Settlement, BarterError> {
         // Value in must equal value out: credits + collateral posted == debits +
         // collateral released. (The old signed form summed these to zero.)
-        let (mut credits, mut debits) = (self.escrow_in, self.escrow_out);
+        // 512-bit totals: many accounts each near 2^256 must not make a balanced
+        // batch unsettleable (a refused settle keeps its books, so it would stick).
+        let (mut credits, mut debits) = (U512::from(self.escrow_in), U512::from(self.escrow_out));
         let mut deltas = Vec::new();
-        for (who, (gain, loss)) in std::mem::take(&mut self.net) {
-            credits = credits.checked_add(gain).ok_or(BarterError::Overflow)?;
-            debits = debits.checked_add(loss).ok_or(BarterError::Overflow)?;
+        for (who, (gain, loss)) in &self.net {
+            let (gain, loss) = (*gain, *loss);
+            credits += U512::from(gain);
+            debits += U512::from(loss);
             if gain != loss {
                 deltas.push((
-                    who,
+                    *who,
                     Delta {
                         negative: loss > gain,
                         magnitude: if loss > gain {
@@ -255,11 +328,13 @@ impl Market {
                 ));
             }
         }
-        self.escrow_in = U256::zero();
-        self.escrow_out = U256::zero();
         if credits != debits {
             return Err(BarterError::NotConserved);
         }
+        // Reset only once the batch is accepted, so a refusal loses nothing.
+        self.net.clear();
+        self.escrow_in = U256::zero();
+        self.escrow_out = U256::zero();
         let out = Settlement {
             deltas,
             updates: self.updates,
