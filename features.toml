@@ -3540,3 +3540,14 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "finality-latency-bench"
+name = "Per-transaction finality latency benchmark"
+domain = "Tooling and formal verification"
+paths = "`xtask/src/bench_finality.rs`, `reports/bench/`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:xtask"]
+note = "cargo xtask bench-finality. Open-loop submit at a stated rate to the 4-validator localnet; included = node 3 serves the block, finalized = node 3 get_checkpoint (2f+1 attested) covers it. Percentile math and report writer are unit-tested; the measurement itself is a manual run whose report is in reports/bench/. Single machine, localhost: no network latency. No node change."

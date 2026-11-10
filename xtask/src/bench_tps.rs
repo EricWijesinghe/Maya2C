@@ -27,10 +27,10 @@ use crate::devnet::{self, Procs, Result};
 use crate::localnet::{self, VALIDATORS};
 
 /// Clear of the live testnet (31400s, 8545, 18700s) and of `localnet`/`mining-localnet`.
-const PORT_OFFSET: u16 = 3_000;
-const SENDER_BALANCE: u64 = 1_000_000;
+pub(crate) const PORT_OFFSET: u16 = 3_000;
+pub(crate) const SENDER_BALANCE: u64 = 1_000_000;
 const SIGN_THREADS: usize = 16;
-const SUBMIT_THREADS: usize = 32;
+pub(crate) const SUBMIT_THREADS: usize = 32;
 /// No new transfer visible on the replica for this long means it is stuck
 /// (`BENCH_STALL_SECS` overrides it, to see whether a stalled chain recovers).
 const STALL_SECS: u64 = 90;
@@ -70,7 +70,7 @@ fn parse(args: &[String]) -> Result<Options> {
     Ok(o)
 }
 
-fn wallet(keystore: &Path, node: u16) -> Command {
+pub(crate) fn wallet(keystore: &Path, node: u16) -> Command {
     let mut cmd = Command::new(devnet::bin("l1-wallet"));
     cmd.env("L1_WALLET_PASSWORD", devnet::PASSWORD)
         .arg("--keystore")
@@ -80,7 +80,7 @@ fn wallet(keystore: &Path, node: u16) -> Command {
 }
 
 /// Runs `job(i)` for `0..count` on `threads` threads; the first error wins.
-fn parallel<T: Send>(
+pub(crate) fn parallel<T: Send>(
     count: usize,
     threads: usize,
     job: &(dyn Fn(usize) -> Result<T> + Sync),
@@ -111,7 +111,7 @@ fn parallel<T: Send>(
 }
 
 /// A wallet per sender, kept outside the localnet dir (which setup clears).
-fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
+pub(crate) fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     parallel(n, SIGN_THREADS, &|i| {
         let key = dir.join(format!("s{i}.key"));
@@ -125,7 +125,7 @@ fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
 }
 
 /// Signs `txs` transfers per sender against node 0 (nonces `0..txs`).
-fn presign(senders: &[(PathBuf, String)], txs: usize) -> Result<Vec<Vec<String>>> {
+pub(crate) fn presign(senders: &[(PathBuf, String)], txs: usize) -> Result<Vec<Vec<String>>> {
     // Same wallet guard as devnet::send (ADR-036): no terminal, no pinned genesis.
     // Ask node 0 at the bench's port offset: devnet::genesis_id() asks the fixed devnet port.
     let request = json!({"jsonrpc": "2.0", "id": 1, "method": "get_chain_info", "params": []});
