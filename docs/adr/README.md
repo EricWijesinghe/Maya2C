@@ -98,3 +98,5 @@ The observation that would make this worth reopening.
 | [081](ADR-081-address-text-bech32m.md) | Addresses: Bech32m text form with a network prefix and checksum; account id unchanged | Accepted |
 | [082](ADR-082-genesis-committed-upgrade-levers.md) | Genesis-committed upgrade levers: dark features via the schedule, suite sunset record, schedule and PoW floor in the genesis id | Accepted |
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
+| [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
+| [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
