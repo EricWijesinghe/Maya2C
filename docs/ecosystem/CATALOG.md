@@ -36,7 +36,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | id | What, for whom | Builds on | Gate | Size | Wave |
 |---|---|---|---|---|---|
 | hub-launch | Open Wallet and Chat from the Hub through an OS link scheme (ADR-083 decision 4). **Built on `feat/hub-launch`; installed-build registration not yet run** | `apps/hub`, `apps/wallet-gui`, `apps/chat-gui` | installed NSIS/MSI and `.desktop` check (`docs/app-link-schemes.md`) | S | W0 |
-| address-text-everywhere | Bech32m `maya1…` in the wallet GUI, explorer, pool, chat and docs (ADR-081 leftovers) | `crates/address` | none | S | W0 |
+| address-text-everywhere | Bech32m `maya1…` in the wallet GUI, explorer, pool, chat and docs (ADR-081 leftovers). Status 2026-11-10: partly done (pool and explorer input, site faucet form, testnet docs); wallet GUI screens, chat, SDK FFI and Go SDK still hex, see ADR-081 "Leftovers" | `crates/address` | none | S | W0 |
 | signed-installers | Signed installers for Windows, Linux and Android for every app, with auto-update | `apps/app-update`, ADR-080 | code-signing cost (Eric) | M | W0 |
 | wallet-v2 | Clear signing, smart-account recovery without a paper seed, address book, payment requests | `apps/wallet-gui/core`, `crates/smart-account`, `crates/clear-sign` | gate: [ADR-085](../adr/ADR-085-chat-v2-groups-on-mls.md)/[ADR-086](../adr/ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) Proposed, decisions for Eric listed | L | W1 |
 | wallet-mobile | Android wallet (light client); iOS after the MacBook | `crates/light-client`, wallet core | platform targets (memory 2026-10-12) | L | W2 |

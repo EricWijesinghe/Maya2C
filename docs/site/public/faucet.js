@@ -4,7 +4,10 @@
 // today..."), rather than inventing a second wording here.
 (() => {
   const FAUCET = "https://faucet.maya2c.dev";
-  const ADDRESS = /^(0x)?[0-9a-fA-F]{64}$/;
+  // 64 hex characters, or the testnet's Bech32m text form (ADR-081): "tmaya1"
+  // then 59 symbols. The faucet checks the checksum; this only catches typos early.
+  const HEX = /^(0x)?[0-9a-fA-F]{64}$/;
+  const TEXT = /^tmaya1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{59}$/i;
 
   const form = document.getElementById("faucet-form");
   if (!form) return;
@@ -19,11 +22,13 @@
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const address = input.value.trim().replace(/^0x/, "");
-    if (!ADDRESS.test(address)) {
-      show("That is not a Maya2C address: it should be 64 hex characters.", false);
+    const typed = input.value.trim();
+    const isText = TEXT.test(typed);
+    if (!isText && !HEX.test(typed)) {
+      show("That is not a Maya2C testnet address: it should be 64 hex characters or start with tmaya1.", false);
       return;
     }
+    const address = isText ? typed.toLowerCase() : typed.replace(/^0x/, "");
     button.disabled = true;
     show("Asking the faucet…", true);
     try {

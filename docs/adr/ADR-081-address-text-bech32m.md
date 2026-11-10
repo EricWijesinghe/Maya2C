@@ -1,6 +1,6 @@
 # ADR-081: Addresses have a Bech32m text form with a network prefix and a checksum
 
-**Status:** Accepted, 2026-11-07. Implemented for the crate, the node RPC and the `maya-address` tests. Wallet GUI, explorer, faucet, pool, hub, chat, CLI output and the Go SDK are not converted yet (see "Not done").
+**Status:** Accepted, 2026-11-07. Implemented for the crate, the node RPC and the `maya-address` tests. Faucet, pool, hub, explorer account lookup and the l1-wallet CLI are converted; the wallet GUI screens, chat, some CLI prints and the Go SDK are not (see "Not done" and "Leftovers, 2026-11-10").
 **Date:** 2026-11-07
 **Related:** [ADR-005](ADR-005-dependency-unification.md) (no new dependency), [ADR-036](ADR-036-genesis-id-signature-binding.md) (genesis id binds signatures, not the network name), `crates/node/src/crypto/hybrid.rs` (derivation, unchanged), `spec/address-vectors.json`
 
@@ -83,3 +83,30 @@ by another change and was left alone); genesis and deploy docs.
 TypeScript and Python SDKs gained the encoder and decoder with this change
 (`sdks/sdk-js/src/address.ts`, `sdks/python/maya2c_sdk/address.py`) and read the
 shared vectors. The Go SDK does not.
+
+## Leftovers, 2026-11-10
+
+Converted (text accepted on input, hex still accepted, no output field changed):
+`bins/pool-service/src/model.rs` `parse_user_identity` (miner login, now takes the
+configured network; caller `session.rs`), `apps/explorer/src/server.rs`
+`account_hex` (account lookup), `docs/site/public/faucet.js` (site faucet form
+rejected `tmaya1…`), `docs/site/authored/testnet.mdx` placeholder.
+Already converted before this change: pool API `parse_address` and `address_text`,
+the l1-wallet CLI (`decode_address`, `text:` line), `bins/maya2c-cli` `main.rs`,
+the faucet, the Hub.
+
+Still hex, with the reason:
+- Wallet GUI `apps/wallet-gui/core/src/confirm.rs` `checksummed` (recipient on the
+  confirm screen) and `wallet.rs` `Account.address` (Receive screen). The core
+  holds the chain's genesis id (`ChainTag`), not the network name, so it cannot
+  pick a prefix. Needs the name from `network_status` threaded in. Not done.
+- Chat CLI and chat GUI (`apps/chat/src/cli/*`, `apps/chat-gui/src-tauri/src/sticker_cmds.rs`):
+  no network in the chat identity.
+- `sdks/sdk-ffi` `address()` returns hex; a text form needs a network parameter, so
+  it is an additive API change, not done. Go SDK: not touched.
+- `bins/maya2c-cli/src/dev.rs` (dev key print) and `apps/faucet/src/main.rs:188`.
+
+Post-genesis, needs a node change (not made, the frozen binary bb4e0940 links
+`crates/node`): `crates/node/src/genesis.rs` `decode_address`; any node RPC field
+that should switch from hex to text (the additive `address_text` stays, hex
+output stays until every consumer has switched).

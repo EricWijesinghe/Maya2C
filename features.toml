@@ -3507,7 +3507,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crate:maya-address", "crates/node/tests/rpc_tests.rs"]
-note = "ADR-081. RPC accepts hex or Bech32m and returns address_text. Converted (PR #379): faucet (accepts and echoes text on its network; default chain maya-testnet-1), hub payout (snapshot address_text), wallet core (payment.rs accepts Bech32m). Still hex only: wallet GUI and CLI output, explorer, pool, chat, Go SDK, genesis docs. maya-mainnet is registered in Network::for_chain_id (2026-11-08), so mainnet has a text form."
+note = "ADR-081. RPC accepts hex or Bech32m and returns address_text. Converted (PR #379): faucet (accepts and echoes text on its network; default chain maya-testnet-1), hub payout (snapshot address_text), wallet core (payment.rs accepts Bech32m). 2026-11-10: pool miner login (`parse_user_identity`) and explorer account lookup accept text on their network; site faucet form and testnet docs show `tmaya1`. Still hex only: wallet GUI confirm and Receive screens (need network name), chat, sdk-ffi, Go SDK, genesis decode (post-genesis). maya-mainnet is registered in Network::for_chain_id (2026-11-08), so mainnet has a text form."
 
 [[subsystem]]
 id = "chain-sentinel"

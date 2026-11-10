@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use custom_l1_node::state::Address;
+use maya_address::Network;
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
@@ -57,19 +58,14 @@ impl WorkerKey {
 ///
 /// Returns [`PoolError::BadRequest`] for a missing, malformed, or over-long
 /// identity.
-pub fn parse_user_identity(identity: &str) -> Result<WorkerKey> {
+pub fn parse_user_identity(identity: &str, network: Network) -> Result<WorkerKey> {
     let (address_part, worker_part) = match identity.split_once('.') {
         Some((address, worker)) => (address, worker),
         None => (identity, DEFAULT_WORKER_NAME),
     };
 
-    let bytes = hex::decode(address_part)
-        .map_err(|_| PoolError::BadRequest(format!("user identity {identity:?} is not hex")))?;
-    let miner: Address = bytes.try_into().map_err(|_| {
-        PoolError::BadRequest(format!(
-            "user identity {identity:?} does not begin with a 32-byte address"
-        ))
-    })?;
+    let miner = parse_miner(address_part, network)
+        .map_err(|reason| PoolError::BadRequest(format!("user identity {identity:?} {reason}")))?;
 
     if worker_part.is_empty() || worker_part.len() > MAX_WORKER_NAME {
         return Err(PoolError::BadRequest(format!(
@@ -92,6 +88,23 @@ pub fn parse_user_identity(identity: &str) -> Result<WorkerKey> {
     Ok(WorkerKey {
         miner,
         worker: worker_part.to_string(),
+    })
+}
+
+/// The miner address as hex (as miners have always sent it) or as its Bech32m
+/// text form (ADR-081). Text for another network is refused, because a payout
+/// address on the wrong chain is a payout nobody can collect.
+fn parse_miner(text: &str, network: Network) -> std::result::Result<Address, String> {
+    if let Ok(bytes) = hex::decode(text) {
+        return bytes
+            .try_into()
+            .map_err(|_| "does not begin with a 32-byte address".to_string());
+    }
+    maya_address::decode(network, text).map_err(|e| {
+        format!(
+            "is neither 64 hex characters nor a {} address: {e}",
+            network.hrp()
+        )
     })
 }
 
@@ -375,16 +388,50 @@ mod tests {
 
     const ADDRESS_HEX: &str = "11223344556677889900aabbccddeeff\
                                11223344556677889900aabbccddeeff";
+    const NET: Network = Network::Testnet;
+
+    /// The same 32 bytes as [`ADDRESS_HEX`], written as a text address on `network`.
+    fn address_text(network: Network) -> String {
+        let id = <[u8; 32]>::try_from(hex::decode(ADDRESS_HEX).unwrap().as_slice()).unwrap();
+        maya_address::encode(network, &id)
+    }
+
+    #[test]
+    fn a_text_address_on_this_network_is_the_same_miner_as_its_hex() {
+        let from_text = parse_user_identity(&format!("{}.rig-3", address_text(NET)), NET).unwrap();
+        let from_hex = parse_user_identity(&format!("{ADDRESS_HEX}.rig-3"), NET).unwrap();
+        assert_eq!(from_text, from_hex);
+    }
+
+    #[test]
+    fn a_text_address_for_another_network_is_refused() {
+        let error = parse_user_identity(&address_text(Network::Mainnet), NET)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("tmaya"),
+            "error should name the expected prefix: {error}"
+        );
+    }
+
+    #[test]
+    fn a_mistyped_text_address_is_refused_by_its_checksum() {
+        let mut text = address_text(NET).into_bytes();
+        let last = text.len() - 1;
+        text[last] = if text[last] == b'q' { b'p' } else { b'q' };
+        let text = String::from_utf8(text).unwrap();
+        assert!(parse_user_identity(&text, NET).is_err());
+    }
 
     #[test]
     fn an_identity_without_a_worker_gets_the_default_name() {
-        let key = parse_user_identity(ADDRESS_HEX).unwrap();
+        let key = parse_user_identity(ADDRESS_HEX, NET).unwrap();
         assert_eq!(key.worker, DEFAULT_WORKER_NAME);
     }
 
     #[test]
     fn an_identity_with_a_worker_splits_on_the_first_dot() {
-        let key = parse_user_identity(&format!("{ADDRESS_HEX}.rig-3")).unwrap();
+        let key = parse_user_identity(&format!("{ADDRESS_HEX}.rig-3"), NET).unwrap();
         assert_eq!(key.worker, "rig-3");
         assert_eq!(key.miner[0], 0x11);
     }
@@ -392,13 +439,13 @@ mod tests {
     #[test]
     fn an_identity_without_an_address_is_refused() {
         // No default address, ever: a pool that invents one pays itself.
-        assert!(parse_user_identity("rig-3").is_err());
-        assert!(parse_user_identity("").is_err());
+        assert!(parse_user_identity("rig-3", NET).is_err());
+        assert!(parse_user_identity("", NET).is_err());
     }
 
     #[test]
     fn a_short_address_is_refused() {
-        assert!(parse_user_identity("1122334455").is_err());
+        assert!(parse_user_identity("1122334455", NET).is_err());
     }
 
     #[test]
@@ -406,7 +453,7 @@ mod tests {
         for name in ["rig 3", "rig/3", "<script>", "rig\n3"] {
             let identity = format!("{ADDRESS_HEX}.{name}");
             assert!(
-                parse_user_identity(&identity).is_err(),
+                parse_user_identity(&identity, NET).is_err(),
                 "worker name {name:?} was accepted"
             );
         }
@@ -415,7 +462,7 @@ mod tests {
     #[test]
     fn an_over_long_worker_name_is_refused() {
         let identity = format!("{ADDRESS_HEX}.{}", "a".repeat(MAX_WORKER_NAME + 1));
-        assert!(parse_user_identity(&identity).is_err());
+        assert!(parse_user_identity(&identity, NET).is_err());
     }
 
     #[test]
