@@ -42,6 +42,12 @@ jobs:
           - { package: maya-fee-market, harness: the_base_fee_respects_its_floor_and_its_step }
           # Not measured yet in WSL (2026-11-10); same division shape as the base fee.
           - { package: maya-fee-market, harness: a_rise_is_one_denominator_share_and_stops_at_the_ceiling }
+          # No verdict within 20 min each in WSL (2026-11-10).
+          - { package: maya-amount, harness: mul_then_div_round_trips }
+          - { package: maya-amount, harness: mul_wide_matches_u128_multiplication }
+          - { package: maya-amount, harness: mul_wide_is_commutative }
+          - { package: maya-amount, harness: decimal_chunk_step_is_exact }
+          - { package: maya-amount, harness: display_round_trips_through_a_decimal_reader }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # .cargo/config.toml links through clang + mold on Linux; a runner
