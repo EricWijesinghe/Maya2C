@@ -102,9 +102,20 @@ Still hex, with the reason:
   pick a prefix. Needs the name from `network_status` threaded in. Not done.
 - Chat CLI and chat GUI (`apps/chat/src/cli/*`, `apps/chat-gui/src-tauri/src/sticker_cmds.rs`):
   no network in the chat identity.
-- `sdks/sdk-ffi` `address()` returns hex; a text form needs a network parameter, so
-  it is an additive API change, not done. Go SDK: not touched.
-- `bins/maya2c-cli/src/dev.rs` (dev key print) and `apps/faucet/src/main.rs:188`.
+- Go SDK (`sdks/go/wallet.go`): not ported. `Balance` passes the address through to
+  the node, which takes text, so Go callers can already pass `maya1…`. A Go encoder
+  with the shared vectors is follow-up work.
+- `bins/maya2c-cli/src/dev.rs:161` is a genesis allocation input, not a user print;
+  `apps/faucet/src/main.rs:188` is left as is.
+
+Converted in the second set: `sdks/sdk-ffi` gains `SigningKey::address_text(chain_id)`
+(additive; `address()` stays hex; `None` for an unregistered chain).
+
+Not done, with the reason: the wallet GUI confirm and Receive screens. Deriving the
+network from the genesis id would need a table of genesis ids, but the testnet is
+re-genesised regularly, so a table would go stale. Threading the network name from
+`network_status` through the confirmation is the sound route; left for a follow-up.
+Chat has no network in its identity; the chat CLI needs a network option first.
 
 Post-genesis, needs a node change (not made, the frozen binary bb4e0940 links
 `crates/node`): `crates/node/src/genesis.rs` `decode_address`; any node RPC field

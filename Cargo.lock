@@ -6594,6 +6594,7 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "maya-address",
  "maya-crypto-pq",
  "thiserror 2.0.21",
  "uniffi",
