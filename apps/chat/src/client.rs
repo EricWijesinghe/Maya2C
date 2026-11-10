@@ -12,6 +12,7 @@ use zeroize::Zeroizing;
 
 use crate::identity::{Identity, PrekeyBundle};
 use crate::outbox::{self, Expired, Pending, Standing};
+use crate::pay;
 use crate::receipt;
 use crate::relay::{Envelope, MAX_ENVELOPE_VERSION, Payload};
 use crate::session::{self, MAX_HANDSHAKE_AGE, Session};
@@ -41,6 +42,26 @@ pub enum Frame {
         from: Address,
         /// The ids that left the outbox.
         ids: Vec<[u8; 32]>,
+    },
+    /// A payment request from `from` (ADR-088). Also queued for
+    /// [`Client::take_pay_frames`].
+    Pay {
+        /// The payee who asked.
+        from: Address,
+        /// The request id, as [`pay::Request::id`] gives it for this user.
+        id: [u8; 32],
+        /// The checked request.
+        request: pay::Request,
+    },
+    /// A payer's receipt that it paid one of our requests. Not yet checked
+    /// against the chain: the caller does that, then calls [`Client::settle`].
+    Paid {
+        /// The payer who reports it.
+        from: Address,
+        /// The request it claims to pay.
+        request_id: [u8; 32],
+        /// The transaction it claims.
+        tx_id: [u8; 32],
     },
 }
 
@@ -79,6 +100,8 @@ struct State {
     send_version: u8,
     #[serde(default)]
     expired: VecDeque<([u8; 32], Expired)>,
+    #[serde(default)]
+    pay: pay::Ledger,
 }
 
 /// One identity's sessions, outbox and receipt state.
@@ -105,6 +128,11 @@ pub struct Client {
     /// Messages that expired unreceipted, newest last, at most
     /// [`outbox::MAX_EXPIRED`]. Kept for the user; not counted in the outbox.
     expired: VecDeque<([u8; 32], Expired)>,
+    /// Payment requests and receipts issued, settled and received (ADR-088).
+    pay: pay::Ledger,
+    /// Payment frames opened and not yet taken. Not saved: a restart before
+    /// the caller takes them loses them, as an unsaved message is lost.
+    pay_inbox: Vec<Frame>,
 }
 
 impl Client {
@@ -121,6 +149,8 @@ impl Client {
             receipts_off: BTreeSet::new(),
             send_version: v1(),
             expired: VecDeque::new(),
+            pay: pay::Ledger::default(),
+            pay_inbox: Vec::new(),
         }
     }
 
@@ -145,6 +175,7 @@ impl Client {
             receipts_off: self.receipts_off.clone(),
             send_version: self.send_version,
             expired: self.expired.clone(),
+            pay: self.pay.clone(),
         };
         let mut plain = Zeroizing::new(Vec::new());
         ciborium::into_writer(&state, &mut *plain).map_err(|_| ChatError::Encoding)?;
@@ -191,6 +222,8 @@ impl Client {
             receipts_off: state.receipts_off,
             send_version: state.send_version,
             expired: state.expired,
+            pay: state.pay,
+            pay_inbox: Vec::new(),
         })
     }
 
@@ -226,11 +259,24 @@ impl Client {
         version: u8,
     ) -> Result<Envelope, ChatError> {
         // Refused before any state moves: receipts share the session's chain.
-        if receipt::is_receipt(text) {
+        if receipt::is_receipt(text) || pay::is_marked(text) {
             return Err(ChatError::Refused(
-                "text cannot start with the receipt marker",
+                "text cannot start with a protocol marker",
             ));
         }
+        self.seal_marked(to, bundle, text, now, version)
+    }
+
+    /// [`Client::seal_as`] without the user-text check, for the payment
+    /// messages that carry their own markers.
+    fn seal_marked(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+    ) -> Result<Envelope, ChatError> {
         let payload = if let Some(session) = self.sessions.get_mut(&to) {
             Payload::Chat(session.encrypt(text)?)
         } else {
@@ -259,7 +305,7 @@ impl Client {
     pub fn open(&mut self, envelope: &Envelope, now: u64) -> Result<Received, ChatError> {
         match self.open_frame(envelope, now)? {
             Frame::Text(received) => Ok(received),
-            Frame::Receipt { .. } => Err(ChatError::NotText),
+            Frame::Receipt { .. } | Frame::Pay { .. } | Frame::Paid { .. } => Err(ChatError::NotText),
         }
     }
 
@@ -283,8 +329,8 @@ impl Client {
                 }
                 let (mut session, from) = session::accept(&self.identity, handshake, now)?;
                 let text = session.decrypt(first)?;
-                if receipt::is_receipt(&text) {
-                    return Err(ChatError::Refused("a receipt cannot open a session"));
+                if receipt::is_receipt(&text) || pay::is_marked(&text) {
+                    return Err(ChatError::Refused("only text opens a session"));
                 }
                 self.accepted
                     .retain(|_, sent| now.saturating_sub(*sent) <= MAX_HANDSHAKE_AGE);
@@ -310,10 +356,129 @@ impl Client {
                     let ids = self.apply_receipt(&from, &peer_key, &message.session, &text)?;
                     return Ok(Frame::Receipt { from, ids });
                 }
+                let frame = if pay::is_request(&text) {
+                    self.incoming_request(from, &peer_key, &text, now)?
+                } else if pay::is_paid(&text) {
+                    Self::incoming_paid(from, &peer_key, &self.identity.address(), &text)?
+                } else {
+                    Frame::Text(Received { from, text })
+                };
+                if matches!(frame, Frame::Pay { .. } | Frame::Paid { .. }) {
+                    self.pay_inbox.push(frame.clone());
+                }
                 self.note_received(from, envelope.id()?);
-                Ok(Frame::Text(Received { from, text }))
+                Ok(frame)
             }
         }
+    }
+
+    /// Checks a request from `from` and records it, so a replay is refused.
+    fn incoming_request(
+        &mut self,
+        from: Address,
+        peer_key: &[u8],
+        plain: &[u8],
+        now: u64,
+    ) -> Result<Frame, ChatError> {
+        let request = pay::Request::parse(plain)?;
+        let me = self.identity.address();
+        request.verify(&from, peer_key, &me, now)?;
+        let id = request.id(&me);
+        self.pay.remember_received(id, request.expires_at, now)?;
+        Ok(Frame::Pay { from, id, request })
+    }
+
+    /// Checks a payer's receipt. The chain check is the caller's job.
+    fn incoming_paid(
+        from: Address,
+        peer_key: &[u8],
+        me: &Address,
+        plain: &[u8],
+    ) -> Result<Frame, ChatError> {
+        let paid = pay::Paid::parse(plain)?;
+        paid.verify(&from, peer_key, me)?;
+        Ok(Frame::Paid {
+            from,
+            request_id: paid.request_id,
+            tx_id: paid.tx_id,
+        })
+    }
+
+    /// Payment frames opened since the last call, in arrival order.
+    pub fn take_pay_frames(&mut self) -> Vec<Frame> {
+        std::mem::take(&mut self.pay_inbox)
+    }
+
+    /// Records that `request_id` was paid by `tx_id`. Call only after the
+    /// chain check ([`pay::settles_on_chain`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`pay::Ledger::settle`].
+    pub fn settle(
+        &mut self,
+        request_id: [u8; 32],
+        tx_id: [u8; 32],
+        now: u64,
+    ) -> Result<(), ChatError> {
+        self.pay.settle(request_id, tx_id, now)
+    }
+
+    /// Sends a payment request to `to`, who must already have a session with
+    /// us: a request cannot open one (ADR-088). Returns the outbox id, as
+    /// [`Client::queue`] does; the request id is `request.id(&to)`.
+    ///
+    /// # Errors
+    ///
+    /// A request naming another account, no session, a full ledger, or an
+    /// outbox refusal.
+    pub fn queue_request(
+        &mut self,
+        to: Address,
+        request: &pay::Request,
+        now: u64,
+        version: u8,
+    ) -> Result<[u8; 32], ChatError> {
+        if request.payee != self.identity.address() {
+            return Err(ChatError::Refused(
+                "a request names only its signer's account",
+            ));
+        }
+        let id = request.id(&to);
+        self.pay.issue(id, request.expires_at, now)?;
+        match self.queue_marked(to, &request.encode(), now, version) {
+            Ok(outbox_id) => Ok(outbox_id),
+            Err(e) => {
+                self.pay.withdraw(&id);
+                Err(e)
+            }
+        }
+    }
+
+    /// Sends a payment receipt to the payee `to`, over the existing session.
+    ///
+    /// # Errors
+    ///
+    /// No session, or an outbox refusal.
+    pub fn queue_paid(
+        &mut self,
+        to: Address,
+        paid: &pay::Paid,
+        now: u64,
+        version: u8,
+    ) -> Result<[u8; 32], ChatError> {
+        self.queue_marked(to, &paid.encode(), now, version)
+    }
+
+    /// [`Client::queue`] for the payment messages.
+    fn queue_marked(
+        &mut self,
+        to: Address,
+        text: &[u8],
+        now: u64,
+        version: u8,
+    ) -> Result<[u8; 32], ChatError> {
+        self.queue_with(to, None, text, now, version, false)
     }
 
     fn note_received(&mut self, from: Address, id: [u8; 32]) {
@@ -432,9 +597,25 @@ impl Client {
         now: u64,
         version: u8,
     ) -> Result<[u8; 32], ChatError> {
+        self.queue_with(to, bundle, text, now, version, true)
+    }
+
+    fn queue_with(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+        user: bool,
+    ) -> Result<[u8; 32], ChatError> {
         self.sweep(now);
         let had_session = self.sessions.contains_key(&to);
-        let envelope = self.seal_as(to, bundle, text, now, version)?;
+        let envelope = if user {
+            self.seal_as(to, bundle, text, now, version)?
+        } else {
+            self.seal_marked(to, bundle, text, now, version)?
+        };
         let size = envelope.encode()?.len();
         let id = envelope.id()?;
         if let Err(e) = outbox::check_room(self.outbox.len(), self.outbox_bytes(), size) {

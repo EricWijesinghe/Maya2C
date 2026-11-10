@@ -17,6 +17,8 @@ path = "src/cli/main.rs"
 # Detached by design (ADR-031): no dependency on the node. The chain's
 # cryptography comes from `maya-crypto-pq`, which the node uses too.
 [dependencies]
+maya-address = { path = "../../crates/address" }
+maya-amount = { path = "../../crates/amount" }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }
 blake3.workspace = true
 chacha20poly1305.workspace = true

@@ -6020,6 +6020,8 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "libp2p",
+ "maya-address",
+ "maya-amount",
  "maya-crypto-pq",
  "serde",
  "serde_bytes",
