@@ -723,3 +723,36 @@ fn get_supply_counts_what_staking_holds() {
     assert_eq!(report.total, expected);
     assert_eq!(report.circulating, expected);
 }
+
+/// The keyless mining reserve holds unissued supply. `get_supply` once counted
+/// it as circulating (finding F1, post-genesis v2 A1): a reserve of 1,000 with
+/// 1,000,000 elsewhere reported 1,001,000 circulating.
+#[test]
+fn get_supply_excludes_the_unissued_mining_reserve() {
+    let root = TempDir::new().unwrap();
+    let mut config = genesis();
+    let reserve = 1_000_u64;
+    config.allocations.push(Allocation {
+        address: hex::encode(custom_l1_node::state::mining::MINING_RESERVE),
+        balance: primitive_types::U256::from(reserve),
+    });
+    let state = Arc::new(StateDB::open(root.path()).unwrap());
+    config.seed_state(&state).unwrap();
+    let chain = common::open_chain(
+        state,
+        config.genesis_block().unwrap(),
+        ChainConfig::without_pow_verification(),
+    )
+    .unwrap();
+    let chain = Arc::new(std::sync::Mutex::new(chain));
+
+    let report = custom_l1_node::rpc::market::supply(&chain).unwrap();
+
+    let total = config.total_supply().unwrap();
+    assert_eq!(report.total, total);
+    assert_eq!(report.burned, primitive_types::U256::from(reserve));
+    assert_eq!(
+        report.circulating,
+        total - primitive_types::U256::from(reserve)
+    );
+}

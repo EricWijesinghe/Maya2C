@@ -38,14 +38,19 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::consensus::chain::Chain;
-use crate::error::Result;
+use crate::error::{NodeError, Result};
 use crate::state::Address;
 
 /// Addresses whose balances are not in circulation.
 ///
 /// The fee sink accumulates burned fees. They are unspendable — nobody holds
 /// its key — so counting them as circulating would inflate the figure forever.
-const NON_CIRCULATING: &[Address] = &[crate::state::shielded::FEE_SINK];
+/// The mining reserve holds supply not yet issued; it has no key either, and
+/// it is paid out only by consensus, one epoch reward at a time.
+const NON_CIRCULATING: &[Address] = &[
+    crate::state::shielded::FEE_SINK,
+    crate::state::mining::MINING_RESERVE,
+];
 
 /// A supply figure, in base units.
 ///
@@ -72,7 +77,8 @@ pub struct SupplyReport {
     /// auditor most wants and the one a transparent scan cannot recover.
     #[serde(with = "crate::state::amount_serde")]
     pub shielded: U256,
-    /// Units held at addresses that can never spend them.
+    /// Units held at addresses outside circulation: burned fees and the
+    /// unissued mining reserve. `total - burned` is `circulating`.
     #[serde(with = "crate::state::amount_serde")]
     pub burned: U256,
 }
@@ -88,16 +94,10 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let state = chain.state();
 
-    let mut transparent = U256::zero();
-    let mut burned = U256::zero();
-
-    for (address, account) in state.all_accounts()? {
-        transparent = transparent.saturating_add(account.balance);
-        if NON_CIRCULATING.contains(&address) {
-            burned = burned.saturating_add(account.balance);
-        }
-    }
-
+    let balances = state
+        .all_accounts()?
+        .into_iter()
+        .map(|(address, account)| (address, account.balance));
     let shielded = state.stored_pool()?.balance();
     // Bonds, delegations and unbonding funds were debited from accounts but
     // still exist; genesis counts them in total supply, so this must too.
@@ -105,14 +105,40 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
         .committed_staking()?
         .and_then(|r| r.staking.held())
         .map_or(U256::zero(), maya_stateless_core::amount::to_u256);
-    let total = transparent.saturating_add(shielded).saturating_add(staked);
 
+    tally(balances, shielded, staked)
+}
+
+/// Folds balances into a [`SupplyReport`].
+///
+/// Every sum is checked. A saturated figure would be published as a plausible
+/// but wrong supply, which is worse than no figure.
+fn tally(
+    balances: impl IntoIterator<Item = (Address, U256)>,
+    shielded: U256,
+    staked: U256,
+) -> Result<SupplyReport> {
+    let mut transparent = U256::zero();
+    let mut burned = U256::zero();
+    for (address, balance) in balances {
+        transparent = checked_sum(transparent, balance)?;
+        if NON_CIRCULATING.contains(&address) {
+            burned = checked_sum(burned, balance)?;
+        }
+    }
+    let total = checked_sum(checked_sum(transparent, shielded)?, staked)?;
     Ok(SupplyReport {
         total,
+        // `burned` is a subset of `transparent` by construction, so this
+        // cannot underflow.
         circulating: total.saturating_sub(burned),
         shielded,
         burned,
     })
+}
+
+fn checked_sum(a: U256, b: U256) -> Result<U256> {
+    a.checked_add(b).ok_or(NodeError::BalanceOverflow)
 }
 
 /// A quote from an exchange feed.
@@ -250,6 +276,7 @@ impl MarketFeed {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use crate::state::mining::MINING_RESERVE;
 
     fn quote(pair: &str) -> MarketQuote {
         MarketQuote {
@@ -258,6 +285,35 @@ mod tests {
             base_volume: 1_000.0,
             quote_volume: 1_250.0,
         }
+    }
+
+    #[test]
+    fn an_overflowing_sum_is_an_error_not_a_clamped_figure() {
+        let one_account = tally([([1; 32], U256::MAX)], U256::one(), U256::zero());
+        assert!(matches!(one_account, Err(NodeError::BalanceOverflow)));
+
+        let two_accounts = tally(
+            [([1; 32], U256::MAX), ([2; 32], U256::one())],
+            U256::zero(),
+            U256::zero(),
+        );
+        assert!(matches!(two_accounts, Err(NodeError::BalanceOverflow)));
+    }
+
+    #[test]
+    fn the_mining_reserve_is_in_total_but_not_circulating() {
+        let report = tally(
+            [
+                (MINING_RESERVE, U256::from(1_000)),
+                ([7; 32], U256::from(10)),
+            ],
+            U256::zero(),
+            U256::zero(),
+        )
+        .unwrap();
+        assert_eq!(report.total, U256::from(1_010));
+        assert_eq!(report.circulating, U256::from(10));
+        assert_eq!(report.burned, U256::from(1_000));
     }
 
     #[test]

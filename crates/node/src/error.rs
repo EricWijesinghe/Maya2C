@@ -138,7 +138,7 @@ pub enum NodeError {
         address: String,
     },
 
-    /// An arithmetic operation on balances would overflow `u64`.
+    /// An arithmetic operation on balances would overflow the 256-bit balance width.
     #[error("balance arithmetic overflowed")]
     BalanceOverflow,
 
