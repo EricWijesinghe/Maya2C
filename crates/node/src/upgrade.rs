@@ -58,7 +58,7 @@ impl FeatureSet {
     pub const RWA_STRICT: u64 = 1 << 7;
     /// The shielded pool, for a genesis that keeps it off
     /// ([`SHIELDED_NEVER`]). Admitted on chain only once the circuit is
-    /// audited (ADR-087).
+    /// audited (ADR-093).
     pub const SHIELDED: u64 = 1 << 8;
     /// Every bit this binary defines. A bit outside it names no feature.
     pub const KNOWN: u64 = (1 << 9) - 1;
@@ -258,7 +258,7 @@ impl UpgradeSchedule {
     }
 }
 
-/// The shielded pool's activation height from its two sources (ADR-087): the
+/// The shielded pool's activation height from its two sources (ADR-093): the
 /// genesis's `shielded_activation_height` and the schedule's
 /// [`FeatureSet::SHIELDED`] entry. Whichever is not [`SHIELDED_NEVER`] wins.
 ///

@@ -268,7 +268,7 @@ fn check(case: &Value) {
     }
 }
 
-/// CON-14 / CON-15 (ADR-087): the shielded activation's resolution and the
+/// CON-14 / CON-15 (ADR-093): the shielded activation's resolution and the
 /// schedule writer's refusal.
 fn check_shielded(case: &Value) {
     let id = case["id"].as_str().unwrap();

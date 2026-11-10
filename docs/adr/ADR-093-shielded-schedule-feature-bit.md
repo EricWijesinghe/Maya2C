@@ -1,4 +1,4 @@
-# ADR-087: The shielded pool as a schedule-activated feature bit
+# ADR-093: The shielded pool as a schedule-activated feature bit
 
 **Status:** Proposed, 2026-11-10. **Post-genesis** consensus change: drafted
 for review, not merged before mainnet.

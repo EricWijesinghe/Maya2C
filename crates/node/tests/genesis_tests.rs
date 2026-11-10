@@ -493,7 +493,7 @@ fn conflict() -> custom_l1_node::error::NodeError {
 
 #[test]
 fn a_scheduled_shielded_pool_turns_on_exactly_at_its_height() {
-    // ADR-087: the schedule, not only the genesis, can switch the pool on.
+    // ADR-093: the schedule, not only the genesis, can switch the pool on.
     let scheduled = scheduled_pool();
     scheduled.validate().expect("one source names the height");
     assert_eq!(scheduled.resolved_shielded_activation(), Ok(40));

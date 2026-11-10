@@ -209,7 +209,7 @@ impl BlockContext {
     /// The same context with every dark feature at the height the upgrade
     /// schedule gives it (ADR-082). The shielded height is left alone: it has
     /// two sources, and only [`crate::consensus::chain::Chain::context_at`]
-    /// holds both (ADR-087).
+    /// holds both (ADR-093).
     #[must_use]
     pub const fn with_features(self, features: FeatureActivations) -> Self {
         Self {

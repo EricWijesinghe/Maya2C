@@ -413,7 +413,7 @@ pub enum NodeError {
     },
 
     /// Both the genesis and the upgrade schedule name a shielded activation
-    /// height (ADR-087). Exactly one may: two sources for one rule is a
+    /// height (ADR-093). Exactly one may: two sources for one rule is a
     /// configuration nodes could resolve differently.
     #[error(
         "the shielded pool is activated twice: genesis height {genesis} and schedule height {scheduled}"

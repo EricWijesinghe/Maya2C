@@ -113,7 +113,7 @@ fn is_value_bearing(chain_id: &str) -> bool {
 /// notice later. A genesis that keeps the pool off for good
 /// (`shielded_activation_height` = `u64::MAX`, ADR-037) cannot mint through
 /// it, so that one configuration is allowed; turning the pool on later is a
-/// scheduled upgrade, after an audit (ADR-087). Callers pass the height
+/// scheduled upgrade, after an audit (ADR-093). Callers pass the height
 /// resolved from the genesis and the schedule together, never the genesis
 /// field alone: a schedule entry is a second way for the pool to run.
 fn check_shielded_guard(
@@ -1354,7 +1354,7 @@ mod tests {
 
     #[test]
     fn mainnet_with_the_pool_scheduled_is_refused_until_the_audit() {
-        // ADR-087: the genesis keeps the pool off, but a schedule entry turns it
+        // ADR-093: the genesis keeps the pool off, but a schedule entry turns it
         // on. The guard sees the resolved height, so it refuses.
         let scheduled =
             custom_l1_node::upgrade::resolve_shielded_activation(SHIELDED_NEVER, 40).unwrap();

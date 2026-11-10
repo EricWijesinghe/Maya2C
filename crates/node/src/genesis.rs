@@ -723,7 +723,7 @@ impl GenesisConfig {
                 )));
             }
         }
-        // Validates the schedule, then that one source names the pool (ADR-087).
+        // Validates the schedule, then that one source names the pool (ADR-093).
         self.resolved_shielded_activation()?;
         self.suite_sunsets()?;
 
@@ -1211,7 +1211,7 @@ impl GenesisConfig {
     }
 
     /// The shielded activation height from the genesis field and the launch
-    /// schedule together (ADR-087).
+    /// schedule together (ADR-093).
     ///
     /// # Errors
     ///

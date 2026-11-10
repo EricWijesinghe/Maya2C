@@ -349,7 +349,7 @@ impl Chain {
     pub fn context_at(&self, height: u64) -> Result<BlockContext> {
         let schedule = self.state.effective_schedule()?;
         let features = schedule.features();
-        // ADR-087: the genesis height or the schedule's, never both.
+        // ADR-093: the genesis height or the schedule's, never both.
         let shielded = crate::upgrade::resolve_shielded_activation(
             self.config.shielded_activation,
             features.shielded,
@@ -361,7 +361,7 @@ impl Chain {
     }
 
     /// The shielded activation height every block context carries: the
-    /// genesis's or the committed schedule's (ADR-087).
+    /// genesis's or the committed schedule's (ADR-093).
     ///
     /// # Errors
     ///

@@ -68,7 +68,7 @@ pub fn sunset_key(suite: u8) -> Vec<u8> {
     key
 }
 
-/// Refuses a schedule entry carrying [`FeatureSet::SHIELDED`] (ADR-087,
+/// Refuses a schedule entry carrying [`FeatureSet::SHIELDED`] (ADR-093,
 /// CON-15) while the circuit is unaudited, or when the pool already has an
 /// activation height (`pool_activation` is not [`SHIELDED_NEVER`]). The second
 /// rule keeps an on-chain vote from producing the two-source conflict that
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn a_shielded_entry_is_refused_while_the_circuit_is_unaudited() {
-        // ADR-087: enforced by the writer, from the flag itself.
+        // ADR-093: enforced by the writer, from the flag itself.
         assert!(!maya_zk_stark::pool::circuit_is_audited());
         let refused = empty().admit(
             &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),

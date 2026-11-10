@@ -259,7 +259,7 @@ phase that did it.
     `SunsetSuites` needs `MIN_COUNCIL_SUNSET_LEAD_BLOCKS` (7 days) and may schedule
     nothing else. Neither can move funds or mint: a schedule entry switches on a
     dark feature or retires a suite. The shielded pool (feature bit 8,
-    `FeatureSet::SHIELDED`, ADR-087, post-genesis) is the one feature that can
+    `FeatureSet::SHIELDED`, ADR-093, post-genesis) is the one feature that can
     mint, so its entry is refused by the writer while
     `maya_zk_stark::pool::circuit_is_audited()` is false and whenever the pool
     already has an activation height; its height comes from exactly one source,
@@ -276,4 +276,4 @@ phase that did it.
     `a_genesis_naming_the_pool_twice_is_refused`) and
     `crates/node/src/state/upgrades.rs`
     (`a_shielded_entry_is_refused_while_the_circuit_is_unaudited`,
-    `a_shielded_entry_is_refused_when_the_pool_already_has_a_height`) — ADR-087.
+    `a_shielded_entry_is_refused_when_the_pool_already_has_a_height`) — ADR-093.
