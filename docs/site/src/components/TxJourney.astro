@@ -1,0 +1,152 @@
+---
+// "How a transaction becomes final", one step at a time (site UI upgrade,
+// 2026-11-10). An illustration of the rules in the transaction and consensus
+// guides, not a simulator: nothing here talks to the network, and the step
+// says so. The only arithmetic is the quorum, from math/quorum.ts, which
+// math.test.ts checks against ADR-039 at every size from 1 to 1000.
+// Without JavaScript every step is shown as a plain ordered list.
+const steps = [
+  { key: "sign", title: "Sign", line: "Your wallet signs twice: ML-DSA-65 and SLH-DSA." },
+  { key: "check", title: "Check", line: "Every node checks both signatures, the nonce, the balance and the fee." },
+  { key: "order", title: "Order", line: "Validators gossip it into the DAG; an anchor commits it into a block." },
+  { key: "vote", title: "Vote", line: "n − f of the committee sign the block's certificate." },
+  { key: "final", title: "Final", line: "The block is final. It never reorganises." },
+];
+---
+
+<figure class="not-content txj" data-txj aria-labelledby="txj-cap">
+  <figcaption id="txj-cap" class="txj-cap">How a transaction becomes final <span>illustration · not live data</span></figcaption>
+
+  <div class="txj-track" aria-hidden="true">
+    <span class="txj-rail"><span class="txj-fill" data-fill></span></span>
+    {steps.map((s, i) => <span class="txj-node" data-node={i}>{i + 1}</span>)}
+  </div>
+
+  <div class="txj-controls" role="group" aria-label="Steps">
+    {steps.map((s, i) => (
+      <button type="button" data-step={i} aria-current={i === 0 ? "step" : undefined}>
+        {s.title}
+      </button>
+    ))}
+    <button type="button" class="txj-play" data-play aria-pressed="false">Play</button>
+  </div>
+
+  <ol class="txj-panels">
+    {steps.map((s, i) => (
+      <li class="txj-panel" data-panel={i} id={`txj-${s.key}`}>
+        <b>{i + 1} · {s.title}</b>
+        <p>{s.line}</p>
+        {s.key === "sign" && (
+          <div class="locks">
+            <span class="lock" data-lock="lattice"><i aria-hidden="true">◆</i>ML-DSA-65<small>lattice</small></span>
+            <span class="lock" data-lock="hash"><i aria-hidden="true">◆</i>SLH-DSA<small>hash</small></span>
+            <label class="break"><input type="checkbox" data-break /> Suppose a quantum computer breaks lattices</label>
+            <p class="verdict" data-verdict aria-live="polite">A forger needs both locks. Breaking one buys nothing.</p>
+          </div>
+        )}
+        {s.key === "vote" && (
+          <div class="quorum">
+            <label>Committee size n = <output data-n-out>4</output>
+              <input type="range" min="1" max="100" value="4" data-n />
+            </label>
+            <p data-q-out aria-live="polite"></p>
+          </div>
+        )}
+        <a class="more" href={s.key === "sign" ? "/learn/signatures-live/" : s.key === "vote" || s.key === "final" ? "/guides/consensus/" : "/guides/transactions/"}>Learn more →</a>
+      </li>
+    ))}
+  </ol>
+</figure>
+
+<script>
+  import { faults, quorum } from "./math/quorum";
+
+  const AUTOPLAY_MS = 2800;
+  for (const root of document.querySelectorAll<HTMLElement>("[data-txj]")) mount(root);
+
+  function mount(root: HTMLElement) {
+    root.classList.add("js");
+    const steps = [...root.querySelectorAll<HTMLButtonElement>("[data-step]")];
+    const panels = [...root.querySelectorAll<HTMLElement>("[data-panel]")];
+    const nodes = [...root.querySelectorAll<HTMLElement>("[data-node]")];
+    const fill = root.querySelector<HTMLElement>("[data-fill]")!;
+    const play = root.querySelector<HTMLButtonElement>("[data-play]")!;
+    let timer = 0;
+
+    const show = (i: number) => {
+      panels.forEach((p, k) => (p.hidden = k !== i));
+      steps.forEach((b, k) => (k === i ? b.setAttribute("aria-current", "step") : b.removeAttribute("aria-current")));
+      nodes.forEach((n, k) => n.classList.toggle("on", k <= i));
+      fill.style.transform = `scaleX(${i / (panels.length - 1)})`;
+    };
+    const stop = () => { clearInterval(timer); timer = 0; play.setAttribute("aria-pressed", "false"); play.textContent = "Play"; };
+    steps.forEach((b, i) => b.addEventListener("click", () => { stop(); show(i); }));
+    // User-started only (WCAG 2.2.2): nothing moves until Play is pressed.
+    play.addEventListener("click", () => {
+      if (timer) return stop();
+      let i = steps.findIndex((b) => b.hasAttribute("aria-current"));
+      play.setAttribute("aria-pressed", "true"); play.textContent = "Pause";
+      timer = window.setInterval(() => { i = (i + 1) % panels.length; show(i); }, AUTOPLAY_MS);
+    });
+
+    const brk = root.querySelector<HTMLInputElement>("[data-break]");
+    const verdict = root.querySelector<HTMLElement>("[data-verdict]");
+    brk?.addEventListener("change", () => {
+      root.querySelector("[data-lock=lattice]")!.classList.toggle("broken", brk.checked);
+      verdict!.textContent = brk.checked
+        ? "Lattice lock broken. The hash lock still holds, so the forged transaction is refused."
+        : "A forger needs both locks. Breaking one buys nothing.";
+    });
+
+    const n = root.querySelector<HTMLInputElement>("[data-n]")!;
+    const nOut = root.querySelector<HTMLElement>("[data-n-out]")!;
+    const qOut = root.querySelector<HTMLElement>("[data-q-out]")!;
+    const draw = () => {
+      const v = Number(n.value);
+      nOut.textContent = String(v);
+      qOut.textContent = `${quorum(v)} of ${v} must sign; finality survives ${faults(v)} faulty or offline.`;
+    };
+    n.addEventListener("input", draw);
+    draw();
+    show(0);
+  }
+</script>
+
+<style>
+  .txj { margin: 28px 0 8px; padding: clamp(18px, 3vw, 30px); border-radius: var(--r-l); background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow); }
+  .txj-cap { font: 600 clamp(20px, 2.4vw, 26px)/1.2 var(--display); color: var(--text); margin-bottom: 18px; }
+  .txj-cap span { display: block; margin-top: 6px; font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .txj-track { display: none; position: relative; justify-content: space-between; align-items: center; margin: 4px 6px 18px; }
+  .js .txj-track { display: flex; }
+  .txj-rail { position: absolute; left: 20px; right: 20px; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 3px; background: var(--glass-edge); }
+  .txj-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: var(--brand-line); border-radius: 3px; transition: transform .6s var(--glide); }
+  .txj-node { position: relative; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 600 14px var(--sans); color: var(--muted); background: var(--deep); border: 1.5px solid var(--glass-edge); transition: background .4s, color .4s, border-color .4s; }
+  .txj-node.on { color: var(--on-accent); background: var(--accent-fill); border-color: transparent; }
+  .txj-controls { display: none; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .js .txj-controls { display: flex; }
+  .txj-controls button { font: 600 13.5px var(--sans); min-height: 44px; padding: 10px 16px; border-radius: var(--r-pill); border: 1px solid var(--glass-edge); background: var(--deep); color: var(--muted); cursor: pointer; }
+  .txj-controls button[aria-current="step"] { color: var(--text); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .txj-play { margin-left: auto; color: var(--accent-text) !important; }
+  .txj-panels { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  .txj-panel { padding: 18px 20px; border-radius: var(--r-m); background: var(--well); border: 1px solid var(--glass-edge); }
+  .txj-panel b { font: 600 17px/1.2 var(--display); color: var(--text); }
+  .txj-panel p { margin: 8px 0 0; color: var(--lede); font-size: 15px; line-height: 1.5; }
+  .txj-panel .more { display: inline-block; margin-top: 12px; font: 600 13.5px var(--sans); color: var(--accent-text); }
+  .locks { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; align-items: center; }
+  .lock { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--r-pill); border: 1.5px solid var(--verified); color: var(--text); font: 600 14px var(--sans); }
+  .lock i { color: var(--verified); font-style: normal; }
+  .lock small { font: 500 11.5px var(--mono); color: var(--muted); }
+  .lock.broken { border-color: var(--signal); border-style: dashed; }
+  .lock.broken i { color: var(--signal); }
+  .break { flex-basis: 100%; display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--lede); cursor: pointer; }
+  .break input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .verdict { flex-basis: 100%; margin: 0 !important; font-weight: 600; color: var(--text) !important; }
+  .quorum { margin-top: 14px; display: grid; gap: 8px; font-size: 14px; color: var(--lede); }
+  .quorum input { display: block; width: 100%; max-width: 360px; margin-top: 8px; accent-color: var(--accent); }
+  .quorum p { font-weight: 600; color: var(--text) !important; }
+  @media (prefers-reduced-motion: reduce) { .txj-fill, .txj-node { transition: none; } }
+  @media (max-width: 480px) {
+    .txj-node { width: 32px; height: 32px; font-size: 13px; }
+    .txj-play { margin-left: 0; }
+  }
+</style>
