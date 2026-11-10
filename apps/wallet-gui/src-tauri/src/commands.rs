@@ -25,8 +25,13 @@
 //!
 //! An unlocked [`Wallet`] lives in Tauri's managed state behind a mutex. Locking
 //! drops it, which zeroizes the seed.
+use std::collections::BTreeSet;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use maya_clear_sign::Context;
+use maya_wallet_core::address_book::{AddressBook, NameCheck, PasteCheck, Source};
+use maya_wallet_core::networks;
 
 use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::hd::seed_from_mnemonic;
@@ -43,6 +48,8 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 #[derive(Default)]
 pub struct Session {
     wallet: Mutex<Option<Wallet>>,
+    /// The unlocked wallet's name: where its address book is stored.
+    name: Mutex<Option<String>>,
     /// True while a sign_transfer call holds the one native confirm screen.
     dialog_open: AtomicBool,
 }
@@ -76,6 +83,55 @@ impl Session {
             Some(wallet) => body(wallet),
             None => Err("the wallet is locked".to_string()),
         }
+    }
+
+    /// Opens a session over `wallet`, stored under `name`.
+    fn open(&self, name: &str, wallet: Wallet) {
+        *self.wallet.lock().unwrap_or_else(|p| p.into_inner()) = Some(wallet);
+        *self.name.lock().unwrap_or_else(|p| p.into_inner()) = Some(name.to_string());
+    }
+
+    /// Runs `body` against the unlocked wallet's address book and the
+    /// addresses paid this session; saves the book afterwards when `save`.
+    fn with_book<T>(
+        &self,
+        save: bool,
+        body: impl FnOnce(&mut AddressBook, &BTreeSet<[u8; 32]>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let name = self
+            .name
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .ok_or("the wallet is locked")?;
+        let (key, paid) = self.with(|wallet| {
+            let paid = wallet
+                .history()
+                .iter()
+                .filter_map(|p| payment::decode_address(&p.transfer.recipient).ok())
+                .collect();
+            Ok((wallet.address_book_key(), paid))
+        })?;
+        let store = OsKeychain::new();
+        let mut book = AddressBook::load(&store, &name, &key).map_err(|e| e.to_string())?;
+        let out = body(&mut book, &paid)?;
+        if save {
+            book.save(&store, &name, &key).map_err(|e| e.to_string())?;
+        }
+        Ok(out)
+    }
+
+    /// The review context for a confirm screen: the saved contacts.
+    ///
+    /// shortcut: no balances, so `DrainsBalance` is not raised in the GUI yet;
+    /// pass the node-read balance in once the core reads it itself.
+    fn review_context(&self) -> Result<Context, String> {
+        self.with_book(false, |book, _| {
+            Ok(Context {
+                contacts: book.review_contacts(),
+                ..Context::default()
+            })
+        })
     }
 }
 
@@ -135,10 +191,7 @@ pub fn create_wallet(
     let mut wallet = Wallet::from_seed(seed);
     let account = wallet.account(0).map_err(|e| e.to_string())?;
 
-    *session
-        .wallet
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(wallet);
+    session.open(&name, wallet);
 
     Ok(CreatedWallet {
         mnemonic: mnemonic.to_string(),
@@ -167,10 +220,7 @@ pub fn recover_wallet(
     let mut wallet = Wallet::from_seed(seed);
     let account = wallet.account(0).map_err(|e| e.to_string())?;
 
-    *session
-        .wallet
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(wallet);
+    session.open(&name, wallet);
 
     Ok(account)
 }
@@ -202,10 +252,7 @@ pub fn unlock(
     }
     let derived = wallet.accounts();
 
-    *session
-        .wallet
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(wallet);
+    session.open(&name, wallet);
 
     Ok(derived)
 }
@@ -217,6 +264,7 @@ pub fn lock(session: tauri::State<'_, Session>) -> Result<(), String> {
         .wallet
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    *session.name.lock().unwrap_or_else(|p| p.into_inner()) = None;
     Ok(())
 }
 
@@ -256,20 +304,141 @@ pub fn list_accounts(session: tauri::State<'_, Session>) -> Result<Vec<Account>,
 /// happen in Rust: a QR payload is attacker-controlled, and parsing it in the
 /// frontend would put that string inside the trust boundary.
 #[tauri::command]
-pub fn scan_qr(png_base64: String) -> Result<PaymentRequest, String> {
+pub fn scan_qr(png_base64: String, genesis: Option<String>) -> Result<PaymentRequest, String> {
     use base64::Engine;
 
     let png = base64::engine::general_purpose::STANDARD
         .decode(png_base64.as_bytes())
         .map_err(|e| format!("image is not valid base64: {e}"))?;
 
-    payment::scan_payment_request(&png).map_err(|e| e.to_string())
+    let request = payment::scan_payment_request(&png).map_err(|e| e.to_string())?;
+    checked_request(request, genesis.as_deref())
+}
+
+/// Refuses a request for another network or past its `exp`, before the send
+/// form opens (ADR-086 §7). `exp` is this machine's clock, not consensus.
+fn checked_request(request: PaymentRequest, genesis: Option<&str>) -> Result<PaymentRequest, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "this computer's clock is before 1970; fix it to read payment requests")?
+        .as_secs();
+    request
+        .check(networks::address_network(genesis.unwrap_or_default()), now)
+        .map_err(|e| e.to_string())?;
+    Ok(request)
 }
 
 /// Parses a pasted address or `maya:` URI.
 #[tauri::command]
-pub fn parse_payment_uri(input: String) -> Result<PaymentRequest, String> {
-    PaymentRequest::parse(&input).map_err(|e| e.to_string())
+pub fn parse_payment_uri(input: String, genesis: Option<String>) -> Result<PaymentRequest, String> {
+    let request = PaymentRequest::parse(&input).map_err(|e| e.to_string())?;
+    checked_request(request, genesis.as_deref())
+}
+
+// ---------------------------------------------------------------------------
+// address book (ADR-086 §7)
+// ---------------------------------------------------------------------------
+
+/// One saved address as the Contacts screen shows it.
+#[derive(Serialize)]
+pub struct ContactView {
+    /// Bech32m, ungrouped: what Copy and "Pay" use.
+    pub address: String,
+    /// Bech32m in groups of four.
+    pub grouped: String,
+    /// The user's name for it.
+    pub name: String,
+    /// The user's note.
+    pub note: String,
+}
+
+/// The saved contacts, in the order added.
+#[tauri::command]
+pub fn contacts(session: tauri::State<'_, Session>) -> Result<Vec<ContactView>, String> {
+    session.with_book(false, |book, _| {
+        Ok(book
+            .contacts()
+            .iter()
+            .map(|c| {
+                // `open` refuses an unknown prefix, so this default is never taken.
+                let network = maya_address::Network::from_hrp(&c.network)
+                    .unwrap_or(maya_address::Network::Devnet);
+                ContactView {
+                    address: maya_address::encode(network, &c.address),
+                    grouped: maya_clear_sign::grouped(network, &c.address),
+                    name: c.name.clone(),
+                    note: c.note.clone(),
+                }
+            })
+            .collect())
+    })
+}
+
+/// Saves `address` under the name the user typed. `scanned` marks one read
+/// from a QR code. The name never comes from a payment request's label.
+#[tauri::command]
+pub fn add_contact(
+    address: String,
+    name: String,
+    note: String,
+    scanned: bool,
+    genesis: String,
+    session: tauri::State<'_, Session>,
+) -> Result<NameCheck, String> {
+    let network = networks::address_network(&genesis);
+    let id = payment::decode_address_for(&address, network).map_err(|e| e.to_string())?;
+    let source = if scanned { Source::Scanned } else { Source::Manual };
+    session.with_book(true, |book, _| {
+        book.add(id, network, &name, &note, source, 0)
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// Deletes a saved address. Returns whether it was saved.
+#[tauri::command]
+pub fn remove_contact(address: String, session: tauri::State<'_, Session>) -> Result<bool, String> {
+    let id = payment::decode_address(&address).map_err(|e| e.to_string())?;
+    session.with_book(true, |book, _| Ok(book.remove(&id)))
+}
+
+/// The address book sealed for export, base64. Opens only in a wallet
+/// restored from the same recovery phrase.
+#[tauri::command]
+pub fn export_contacts(session: tauri::State<'_, Session>) -> Result<String, String> {
+    use base64::Engine;
+    let key = session.with(|wallet| Ok(wallet.address_book_key()))?;
+    session.with_book(false, |book, _| {
+        let sealed = book.seal(&key).map_err(|e| e.to_string())?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(sealed))
+    })
+}
+
+/// Adds every entry of an export that is not already saved. Returns the count.
+#[tauri::command]
+pub fn import_contacts(data: String, session: tauri::State<'_, Session>) -> Result<usize, String> {
+    use base64::Engine;
+    let sealed = base64::engine::general_purpose::STANDARD
+        .decode(data.trim().as_bytes())
+        .map_err(|e| format!("not an address-book export: {e}"))?;
+    let key = session.with(|wallet| Ok(wallet.address_book_key()))?;
+    session.with_book(true, |book, _| {
+        book.import(&sealed, &key).map_err(|e| e.to_string())
+    })
+}
+
+/// Checks a pasted recipient before it fills the send form: saved, a
+/// look-alike of a saved one, or new (the interstitial is then mandatory).
+#[tauri::command]
+pub fn check_recipient(
+    text: String,
+    genesis: String,
+    session: tauri::State<'_, Session>,
+) -> Result<PasteCheck, String> {
+    let network = networks::address_network(&genesis);
+    session.with_book(false, |book, paid| {
+        book.check_paste(&text, network, paid)
+            .map_err(|e| e.to_string())
+    })
 }
 
 /// The confirm screen's content for a transfer, computed by the wallet core
@@ -295,9 +464,10 @@ pub fn preview_transfer(
         chain: &chain,
         allow_high_fee: false,
     };
+    let ctx = session.review_context()?;
     session.with(|wallet| {
         wallet
-            .confirm(index, &recipient, amount, &terms)
+            .confirm_with(index, &recipient, amount, &terms, &ctx)
             .map_err(|e| e.to_string())
     })
 }
@@ -347,9 +517,10 @@ pub async fn sign_transfer(
         allow_high_fee: false,
     };
     // Rust computes the confirmation; the reviewed slot is set here by `confirm`.
+    let ctx = session.review_context()?;
     let shown = session.with(|wallet| {
         wallet
-            .confirm(index, &recipient, amount, &terms)
+            .confirm_with(index, &recipient, amount, &terms, &ctx)
             .map_err(|e| e.to_string())
     })?;
     if shown.signing_hash != confirmed_hash {
@@ -460,8 +631,10 @@ pub async fn network_status(node_url: String) -> Result<wallet::NetworkStatus, S
 /// `maya:` URI and that URI as a QR code. No network access.
 #[derive(Serialize, Deserialize)]
 pub struct ReceiveRequest {
-    /// The account's address, hex.
+    /// The account's address, Bech32m: what Copy puts on the clipboard.
     pub address: String,
+    /// The same address in groups of four, for reading aloud or comparing.
+    pub grouped: String,
     /// The payment URI the QR code encodes.
     pub uri: String,
     /// The QR code, as an SVG document.
@@ -474,8 +647,10 @@ pub struct ReceiveRequest {
 pub fn receive_request(
     index: u32,
     amount: Option<String>,
+    genesis: Option<String>,
     session: tauri::State<'_, Session>,
 ) -> Result<ReceiveRequest, String> {
+    let network = networks::address_network(genesis.as_deref().unwrap_or_default());
     let amount = amount
         .map(|text| parse_amount_arg("amount", &text))
         .transpose()?;
@@ -485,15 +660,17 @@ pub fn receive_request(
             .map(|account| account.address)
             .map_err(|e| e.to_string())
     })?;
+    let id = payment::decode_address(&address).map_err(|e| e.to_string())?;
     let request = PaymentRequest {
-        recipient: address.clone(),
+        recipient: address,
         amount,
-        label: None,
+        ..PaymentRequest::default()
     };
     Ok(ReceiveRequest {
-        uri: request.to_uri(),
-        qr_svg: payment::payment_qr_svg(&request).map_err(|e| e.to_string())?,
-        address,
+        uri: request.to_uri(network).map_err(|e| e.to_string())?,
+        qr_svg: payment::payment_qr_svg(&request, network).map_err(|e| e.to_string())?,
+        address: maya_address::encode(network, &id),
+        grouped: maya_clear_sign::grouped(network, &id),
     })
 }
 

@@ -175,6 +175,29 @@ Nothing is signed or broadcast on a refusal.
    [#287](https://github.com/EricWijesinghe/Maya2C/pull/287)). A fully compromised
    webview can still confirm and sign; an OS-level confirm is on the backlog.
 
+## What the desktop wallet shows before you sign
+
+From ADR-086 (phases P0 and P1), in `apps/wallet-gui/core`:
+
+- **Every address in full Bech32m**, in groups of four, with its prefix named
+  (`maya` mainnet, `tmaya` testnet, `dmaya` a chain whose genesis this build
+  does not pin). No hex address appears on the confirm screen.
+- **Warnings first, most severe first**, from `maya-clear-sign`'s review: a
+  recipient that looks like a contact, 90% or more of a balance, an unverified
+  contract.
+- **Address book.** Names are the ones you type; a payment request's label is
+  shown as the payee's claim and never saved. Names are normalized and stripped
+  of invisible right-to-left characters, and a name that reads like another
+  warns. The book is encrypted on disk with a key from your wallet seed; an
+  export opens only in a wallet restored from the same phrase.
+- **Poisoning defenses.** A recipient whose first 6 and last 6 address
+  characters match a contact is flagged. The send form takes a paste, a scan or
+  a contact, never typing, and an address you have never saved or paid needs a
+  full read-back before Review unlocks.
+- **Payment requests v2:** `maya:<bech32m>?amount=&label=&message=&exp=&id=`.
+  A request for another network or past its `exp` is refused before the form
+  opens. Old hex requests still work.
+
 ## Fees are burned
 
 There is no coinbase. The fee goes to an unspendable address rather than to a
@@ -233,6 +256,9 @@ makes the fee $13\,255\,b$ at base fee $b$ (measured, 2026-09-29). See the
 
 - Keystore v4, signing, and the l1-wallet commands: built and tested. Not audited.
 - Parity between `sdk-wasm` and the node: tested, not formally verified.
+- Desktop wallet clear signing, address book and payment requests v2
+  (ADR-086 P0+P1): built and tested in the wallet core. Not audited. Seedless
+  recovery (P2 onward) is not built.
 
 </TabItem>
 </Tabs>

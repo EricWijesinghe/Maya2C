@@ -20,6 +20,7 @@
 mod amount;
 mod bridge;
 mod camera;
+mod contacts;
 mod receive;
 mod screens;
 
@@ -57,6 +58,8 @@ pub enum Screen {
     Receive,
     /// A transfer was broadcast.
     Sent(receive::SentTransfer),
+    /// The address book.
+    Contacts,
 }
 
 /// Application state shared across screens.
@@ -121,6 +124,15 @@ impl AppState {
     pub fn clear(&self) {
         self.error.set(None);
         self.notice.set(None);
+    }
+
+    /// The connected node's genesis id, hex, or empty before it answers: the
+    /// core decides the address prefix from it, never from the node's name.
+    pub fn genesis(&self) -> String {
+        self.network
+            .get_untracked()
+            .map(|n| n.genesis)
+            .unwrap_or_default()
     }
 }
 
@@ -221,6 +233,7 @@ fn App() -> impl IntoView {
                     }
                     Screen::Receive => view! { <receive::Receive/> }.into_any(),
                     Screen::Sent(sent) => view! { <receive::Sent sent=sent/> }.into_any(),
+                    Screen::Contacts => view! { <contacts::Contacts/> }.into_any(),
                 }}
             </main>
         </div>

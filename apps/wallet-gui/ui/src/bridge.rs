@@ -37,8 +37,20 @@ pub struct PaymentRequest {
     /// Requested amount, if any: a decimal string, as the wallet core sends
     /// every 256-bit amount (ADR-046).
     pub amount: Option<String>,
-    /// Requester-supplied label. Untrusted text.
+    /// Requester-supplied label. Untrusted text, never saved as a name.
     pub label: Option<String>,
+    /// The address prefix the request names; `None` for a hex address.
+    #[serde(default)]
+    pub network: Option<String>,
+    /// Requester-supplied message. Untrusted text.
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Unix seconds after which the core refuses the request.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
+    /// The requester's reference.
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
 /// A signed, broadcastable transaction.
@@ -90,13 +102,19 @@ pub struct Confirmation {
     pub description: String,
     /// `describe`'s detail lines, in full.
     pub details: Vec<(String, String)>,
-    /// Genesis id the signature commits to, hex.
+    /// Genesis id the signature commits to, hex. Shown as `chain_prefix`.
     pub chain_id: String,
-    /// Sender address, hex.
+    /// Network name, decided by the genesis id alone.
+    pub network: String,
+    /// The genesis id's two ends.
+    pub chain_prefix: String,
+    /// The address prefix and what it names.
+    pub address_prefix: String,
+    /// Sender address, grouped Bech32m.
     pub sender: String,
     /// Nonce.
     pub nonce: u64,
-    /// Recipient, checksummed hex (transfers only).
+    /// Recipient, grouped Bech32m (transfers only).
     pub recipient: Option<String>,
     /// Amount in display units (transfers only).
     pub amount: Option<String>,
@@ -104,6 +122,8 @@ pub struct Confirmation {
     pub fee: Option<String>,
     /// Fee above the amount: shown as a warning.
     pub fee_exceeds_amount: bool,
+    /// The core's pre-sign review, most severe first.
+    pub warnings: Vec<String>,
 }
 
 /// A fee preset.
@@ -265,23 +285,120 @@ pub async fn list_accounts() -> Result<Vec<Account>, String> {
 }
 
 /// Parses a scanned QR frame. Decoding happens in Rust, not here.
-pub async fn scan_qr(png_base64: &str) -> Result<PaymentRequest, String> {
+pub async fn scan_qr(png_base64: &str, genesis: &str) -> Result<PaymentRequest, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Args<'a> {
         png_base64: &'a str,
+        genesis: &'a str,
     }
-    call("scan_qr", &Args { png_base64 }).await
+    call("scan_qr", &Args { png_base64, genesis }).await
 }
 
 /// Parses a pasted address or `maya:` URI.
-pub async fn parse_payment_uri(input: &str) -> Result<PaymentRequest, String> {
+pub async fn parse_payment_uri(input: &str, genesis: &str) -> Result<PaymentRequest, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Args<'a> {
         input: &'a str,
+        genesis: &'a str,
     }
-    call("parse_payment_uri", &Args { input }).await
+    call("parse_payment_uri", &Args { input, genesis }).await
+}
+
+/// One saved address.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Contact {
+    /// Bech32m, ungrouped.
+    pub address: String,
+    /// Bech32m in groups of four.
+    pub grouped: String,
+    /// The user's name for it.
+    pub name: String,
+    /// The user's note.
+    pub note: String,
+}
+
+/// A name as saved, with any confusable warnings.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NameCheck {
+    /// The cleaned name.
+    pub name: String,
+    /// Warnings to show.
+    pub warnings: Vec<String>,
+}
+
+/// What a pasted recipient is.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PasteCheck {
+    /// Hex: what the transfer is built from.
+    pub address: String,
+    /// Grouped Bech32m: what the read-back shows.
+    pub grouped: String,
+    /// The saved name, when saved.
+    pub contact: Option<String>,
+    /// A saved contact this looks like without being it.
+    pub look_alike_of: Option<String>,
+    /// Never saved, never paid.
+    pub new_recipient: bool,
+}
+
+/// The saved contacts.
+pub async fn contacts() -> Result<Vec<Contact>, String> {
+    call("contacts", &NoArgs {}).await
+}
+
+/// Saves `address` under the name the user typed.
+pub async fn add_contact(
+    address: &str,
+    name: &str,
+    note: &str,
+    scanned: bool,
+    genesis: &str,
+) -> Result<NameCheck, String> {
+    #[derive(Serialize)]
+    struct Args<'a> {
+        address: &'a str,
+        name: &'a str,
+        note: &'a str,
+        scanned: bool,
+        genesis: &'a str,
+    }
+    let args = Args { address, name, note, scanned, genesis };
+    call("add_contact", &args).await
+}
+
+/// Deletes a saved address.
+pub async fn remove_contact(address: &str) -> Result<bool, String> {
+    #[derive(Serialize)]
+    struct Args<'a> {
+        address: &'a str,
+    }
+    call("remove_contact", &Args { address }).await
+}
+
+/// The sealed export, base64.
+pub async fn export_contacts() -> Result<String, String> {
+    call("export_contacts", &NoArgs {}).await
+}
+
+/// Imports a sealed export; returns how many entries were added.
+pub async fn import_contacts(data: &str) -> Result<usize, String> {
+    #[derive(Serialize)]
+    struct Args<'a> {
+        data: &'a str,
+    }
+    call("import_contacts", &Args { data }).await
+}
+
+/// Checks a pasted recipient against the book and the network.
+pub async fn check_recipient(text: &str, genesis: &str) -> Result<PasteCheck, String> {
+    #[derive(Serialize)]
+    struct Args<'a> {
+        text: &'a str,
+        genesis: &'a str,
+    }
+    call("check_recipient", &Args { text, genesis }).await
 }
 
 #[derive(Serialize)]
@@ -483,8 +600,10 @@ pub async fn network_status(node_url: &str) -> Result<NetworkStatus, String> {
 /// What the Receive screen shows.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReceiveRequest {
-    /// The account's address, hex.
+    /// The account's address, Bech32m.
     pub address: String,
+    /// The same address in groups of four.
+    pub grouped: String,
     /// The `maya:` URI the code encodes.
     pub uri: String,
     /// The QR code as an SVG document, drawn by the wallet core.
@@ -492,13 +611,18 @@ pub struct ReceiveRequest {
 }
 
 /// Builds the Receive screen's request for account `index`.
-pub async fn receive_request(index: u32, amount: Option<String>) -> Result<ReceiveRequest, String> {
+pub async fn receive_request(
+    index: u32,
+    amount: Option<String>,
+    genesis: Option<String>,
+) -> Result<ReceiveRequest, String> {
     #[derive(Serialize)]
     struct Args {
         index: u32,
         amount: Option<String>,
+        genesis: Option<String>,
     }
-    call("receive_request", &Args { index, amount }).await
+    call("receive_request", &Args { index, amount, genesis }).await
 }
 
 #[wasm_bindgen]

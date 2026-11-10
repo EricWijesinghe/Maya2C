@@ -29,7 +29,7 @@ pub struct SentTransfer {
 
 /// A button that copies `text` and says so for a moment.
 #[component]
-fn CopyButton(#[prop(into)] text: Signal<String>, label: &'static str) -> impl IntoView {
+pub fn CopyButton(#[prop(into)] text: Signal<String>, label: &'static str) -> impl IntoView {
     let state = expect_context::<AppState>();
     let copied = RwSignal::new(false);
     let copy = move |_| {
@@ -62,17 +62,21 @@ pub fn Receive() -> impl IntoView {
     // someone is still typing.
     Effect::new(move |_| {
         let index = state.selected.get();
+        // Tracked, so the prefix follows the node once it answers.
+        let genesis = state.network.get().map(|n| n.genesis);
         // Typed as whole coins, sent as base units; zero asks for nothing.
         let wanted = typed_amount(&amount.get()).ok().filter(|base| base != "0");
         spawn_local(async move {
-            match bridge::receive_request(index, wanted).await {
+            match bridge::receive_request(index, wanted, genesis).await {
                 Ok(drawn) => request.set(Some(drawn)),
                 Err(error) => state.fail(error),
             }
         });
     });
 
+    // Copy takes the ungrouped form; the groups are for reading.
     let address = Signal::derive(move || request.get().map(|r| r.address).unwrap_or_default());
+    let grouped = move || request.get().map(|r| r.grouped).unwrap_or_default();
     let uri = Signal::derive(move || request.get().map(|r| r.uri).unwrap_or_default());
     let testnet = move || state.network.get().is_none_or(|n| n.is_test_network());
 
@@ -96,7 +100,7 @@ pub fn Receive() -> impl IntoView {
 
             <label>"Address"</label>
             <div class="copy-row">
-                <code class="mono address">{move || address.get()}</code>
+                <code class="mono address">{grouped}</code>
                 <CopyButton text=address label="Copy"/>
             </div>
 

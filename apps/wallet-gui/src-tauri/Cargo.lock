@@ -4294,6 +4294,14 @@ name = "maya-build-guard"
 version = "0.1.0"
 
 [[package]]
+name = "maya-clear-sign"
+version = "0.1.0"
+dependencies = [
+ "maya-address",
+ "maya-amount",
+]
+
+[[package]]
 name = "maya-contract-safety"
 version = "0.1.0"
 dependencies = [
@@ -4520,6 +4528,7 @@ dependencies = [
  "keyring",
  "maya-address",
  "maya-amount",
+ "maya-clear-sign",
  "maya-zk-stark",
  "pbkdf2",
  "primitive-types",
@@ -4530,6 +4539,7 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "tokio",
+ "unicode-normalization",
  "zeroize",
 ]
 
@@ -4541,6 +4551,7 @@ dependencies = [
  "hex",
  "maya-address",
  "maya-app-update",
+ "maya-clear-sign",
  "maya-wallet-core",
  "primitive-types",
  "serde",
