@@ -63,6 +63,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | btc-bridge-app | BTC in and out with SPV proofs | `crates/btc-bridge`, `crates/btc-spv`, `crates/deposit-watcher` | security review, bridge ADR | L | W3 |
 | rwa-issuance | Tokenized real-world assets with issuer rules | `crates/rwa`, `crates/permissioned-finance`, `crates/iso20022` | compliance and legal (Eric) | L | W3 |
 | grants-quadratic | Community grants and crowdfunding with quadratic matching | `crates/governance`, `crates/personhood` | Sybil-resistance review | M | W3 |
+| shielded-pool-enable | Turn on the shielded pool (private transfers), closing the privacy gap to Monero and Zcash ([COMPETITORS.md](COMPETITORS.md) section 4) | `crates/node/tests/shielded_tests.rs`, ADR-037 | independent audit of the join-split circuit, then an activation height (ADR-002) | L | W3 |
 
 ## C. Identity and trust
 
@@ -87,6 +88,10 @@ L is more. *Wave* is when, defined at the end of the file.
 | pool-dashboard | Pool operators' and miners' web view | `bins/pool-service` dashboard | B34 to B37 pool items | M | W2 |
 | contract-studio | Write, test and formally check WASM contracts | `crates/vm`, `crates/contract-safety`, `crates/multivm` | none | L | W3 |
 | testnet-kit | Faucet, local devnet and attack lab for developers | `apps/faucet`, `cargo xtask localnet`, attacknet | none | S | W1 |
+| finality-latency-bench | Per-transaction submit-to-finalized latency, with the mix, hardware and command stated; closes the measured-finality gap ([COMPETITORS.md](COMPETITORS.md) section 4) | `cargo xtask bench-tps`, `reports/bench/` | none (non-consensus) | S | W0 |
+| validator-recruitment | Public validator onboarding and operator guide, so the validator count can grow beyond the disclosed launch set | `apps/status`, `apps/sentinel`, one-line-node-join | owner decision: no third-party validators before mainnet (2026-10-28 directive) | M | W1 |
+| independent-audit-program | Scoped external audit of the consensus, crypto and ledger crates, with a public report | `features.toml` `kani-model-checking`, `crates/build-guard` | Eric approval and budget | L | W1 |
+| succinct-state-proofs | Constant-size proofs of chain state for light clients, beyond today's SPV | `crates/stateless-core`, `crates/light-client` | research and an ADR before code | L | W4 |
 
 ## E. AI-native network (post-mainnet; models never in consensus)
 
@@ -142,7 +147,9 @@ today:
 - **Track record:** the chain has no time in production yet.
 - **Ecosystem size:** there are no third-party apps yet.
 
-Waves W1 to W3 exist to close them.
+Waves W1 to W3 exist to close them. The per-chain comparison, with sources
+and each trailing cell mapped to a row here, is in
+[COMPETITORS.md](COMPETITORS.md).
 
 ## H. The long journey (vision; Eric 2026-11-10)
 
