@@ -93,6 +93,12 @@ L is more. *Wave* is when, defined at the end of the file.
 | independent-audit-program | Scoped external audit of the consensus, crypto and ledger crates, with a public report | `features.toml` `kani-model-checking`, `crates/build-guard` | Eric approval and budget | L | W1 |
 | succinct-state-proofs | Constant-size proofs of chain state for light clients, beyond today's SPV | `crates/stateless-core`, `crates/light-client` | research and an ADR before code | L | W4 |
 
+Status of the two rows above: **testnet-kit** and **node-in-a-box** are
+stubs (tool code in `xtask/src/kit.rs` and `xtask/src/node_box/`, unit-tested,
+ledger entries `stub`). Guides: [testnet-kit.md](testnet-kit.md),
+[node-in-a-box-windows.md](node-in-a-box-windows.md),
+[node-in-a-box-linux.md](node-in-a-box-linux.md). Not yet run end to end.
+
 ## E. AI-native network (post-mainnet; models never in consensus)
 
 | id | What, for whom | Builds on | Gate | Size | Wave |

@@ -35,9 +35,11 @@ mod guides_check;
 mod hub_bundle;
 mod hybrid_genesis;
 mod kheavyhash;
+mod kit;
 mod localnet;
 mod mesh_check;
 mod mining_localnet;
+mod node_box;
 mod og_card;
 mod ordered_json;
 mod pgo;
@@ -95,6 +97,8 @@ fn main() -> ExitCode {
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
+        "kit" => kit::run(rest),
+        "node" => node_box::run(rest),
         "status" => status::run(rest),
         "sweep" => sweep::run(rest),
         "verify-release" => verify_release::run(rest),
@@ -209,7 +213,8 @@ cargo xtask <command>
   hub-bundle            Build the release miner and package the Maya2C Hub
                         with it: NSIS/MSI on Windows, deb/rpm/AppImage on
                         Linux (run in WSL).
-  attacknet [--rounds N] [--weighted] [--beyond-retention]  Seven validators as processes, attacked:
+  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME]
+                        Seven validators as processes, attacked (--scenario: one attack once):
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
   bench-tps [--senders N] [--txs N]  Finalized transfers/s on the 4-validator localnet
@@ -223,6 +228,12 @@ cargo xtask <command>
                         four validators, the API gateway, a chat relay and a
                         funded devnet wallet. Prints the endpoints.
   down                  Stop what `up` started.
+  node setup|doctor     Node-in-a-box: host checks, node-config.toml, key permissions,
+                        the service text to apply by hand, and a health check.
+  kit up|down|status|attack [NAME]
+                        The testnet kit: `up` is the devnet with its explorer and
+                        wallet path; `attack` runs one named attacknet scenario
+                        (no NAME lists them). `cargo xtask kit help` for more.
   status [--live]       Where the project stands, from evidence on disk: the
                         last sweep, the gap register, the ledger, STATE.md's
                         milestone and next tasks. Builds nothing unless --live.

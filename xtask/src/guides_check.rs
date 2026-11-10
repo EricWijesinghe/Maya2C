@@ -49,6 +49,8 @@ const XTASK_COMMANDS: &[&str] = &[
     "localnet",
     "up",
     "down",
+    "kit",
+    "node",
     "help",
 ];
 /// `maya2c` subcommands (`bins/maya2c-cli/src/main.rs`).

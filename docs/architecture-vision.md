@@ -221,6 +221,7 @@ is a fork; §7 states the rule.
 | Chain status and uptime | **SHIPPED** | `apps/status` | Uptime and halts recomputed from block timestamps, never self-reported; status.maya2c.dev; push alert on a halt when configured |
 | Live chain sentinel (ADR-077 watcher) | **SHIPPED** (tool) | `apps/sentinel` | Read-only RPC polling; halt, fork, supply, peer, unreachable and stranding detectors; one ntfy push per incident and a resolve on clear. Stranding needs a node that serves `get_mempool_info` (nodes without it are logged as idle); equivocation is not detected (no evidence RPC) |
 | Workspace automation (`xtask`) | **SHIPPED** | `xtask` | `cargo xtask disk` measures build output against the 30 GiB ceiling — this volume has been filled to zero bytes twice, and a full disk reports as `os error 112`. `cargo xtask coverage` fails when `features.toml` claims a subsystem works and names no test that exists |
+| Testnet kit and node-in-a-box (`xtask kit`, `xtask node`) | **SHIPPED** (tool; end-to-end run pending) | `xtask/src/kit.rs`, `xtask/src/node_box/` | `kit up` starts the devnet, explorer and a funded wallet; `kit attack` runs one attacknet scenario; `node setup` and `node doctor` check the host and key permissions and print the service text, installing nothing. Unit-tested; `kit up` and `node setup` not yet run end to end |
 | Lean 4 mathematical proof engine | **PLANNED** | — | Machine-checked proofs of the ledger and consensus rules. Kani covers the arithmetic crates today; Lean would reach what bounded model checking cannot |
 
 ## 7. Execution directives
