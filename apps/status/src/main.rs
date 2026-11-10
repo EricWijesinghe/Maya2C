@@ -127,26 +127,7 @@ fn args() -> Result<Args, String> {
 /// or that records a halt, so the flag cannot paper over one.
 fn stopped_report(path: &str) -> Result<serde_json::Value, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut report: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-    for field in [
-        "height",
-        "genesis",
-        "last_block",
-        "streak_seconds",
-        "uptime",
-        "halts",
-    ] {
-        if report.get(field).is_none() {
-            return Err(format!("{path}: not a status report (no {field})"));
-        }
-    }
-    if report["halted_now"] == serde_json::Value::Bool(true) {
-        return Err(format!("{path}: records a halt in progress, not a stop"));
-    }
-    report["stopped"] = serde_json::Value::Bool(true);
-    report["halted_now"] = serde_json::Value::Bool(false);
-    Ok(report)
+    maya_status::mark_stopped(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 fn now() -> u64 {
@@ -160,10 +141,6 @@ async fn height(client: &HttpClient) -> Option<u64> {
     info.get("height")?.as_u64()
 }
 
-/// Byte range of the timestamp in a serialized header: after the 32-byte
-/// parent hash and 32-byte state root, little-endian `u64`.
-const TIMESTAMP_AT: std::ops::Range<usize> = 64..72;
-
 /// Timestamps of blocks `from..=to` in one `get_headers` call (the node's
 /// own catch-up interface, at most `BATCH` per call). Reads the chain in a
 /// few dozen requests instead of one per block, inside the node's RPC rate
@@ -175,14 +152,7 @@ async fn timestamps(client: &HttpClient, from: u64, to: u64) -> Option<Vec<u64>>
         .ok()?;
     headers
         .iter()
-        .map(|h| {
-            let bytes = h.get(TIMESTAMP_AT.start * 2..TIMESTAMP_AT.end * 2)?;
-            let mut out = [0u8; 8];
-            for (i, b) in out.iter_mut().enumerate() {
-                *b = u8::from_str_radix(bytes.get(i * 2..i * 2 + 2)?, 16).ok()?;
-            }
-            Some(u64::from_le_bytes(out))
-        })
+        .map(|h| maya_status::timestamp_from_header(h))
         .collect()
 }
 
