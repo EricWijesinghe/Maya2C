@@ -43,10 +43,13 @@ impl ChainSource for FakeChain {
     }
 }
 
+/// Each recorded delivery: its headers and body.
+type Sent = Vec<(Vec<(&'static str, String)>, Vec<u8>)>;
+
 #[derive(Default)]
 struct RecordingSender {
     status: u16,
-    sent: StdMutex<Vec<(Vec<(&'static str, String)>, Vec<u8>)>>,
+    sent: StdMutex<Sent>,
 }
 
 #[async_trait]
@@ -70,21 +73,49 @@ fn temp_ledger(name: &str) -> PathBuf {
     path
 }
 
-fn payment_block(height: u64, amount: u64) -> BlockOutputs {
-    BlockOutputs {
-        height,
-        txs: vec![TxOutputs {
-            txid: "pay".into(),
-            outputs: vec![Output { recipient: MERCHANT, amount: U256::from(amount) }],
-        }],
-    }
+/// Block ids: heights below `fork_at` are on the shared branch `a`; the rest
+/// are on `tag`. A branch with `fork_at` = `u64::MAX` is simply branch `a`.
+fn id_of(height: u64, fork_at: u64, tag: &str) -> String {
+    if height < fork_at { format!("a{height}") } else { format!("{tag}{height}") }
+}
+
+/// A chain up to `tip` with an optional `(height, amount)` payment to the merchant.
+fn branch(tip: u64, fork_at: u64, tag: &str, payment: Option<(u64, u64)>) -> FakeChain {
+    let blocks = (1..=tip)
+        .map(|h| {
+            let txs = match payment {
+                Some((pay_height, amount)) if pay_height == h => vec![TxOutputs {
+                    txid: "pay".into(),
+                    outputs: vec![Output { recipient: MERCHANT, amount: U256::from(amount) }],
+                }],
+                _ => vec![],
+            };
+            BlockOutputs {
+                height: h,
+                id: id_of(h, fork_at, tag),
+                prev_id: id_of(h - 1, fork_at, tag),
+                txs,
+            }
+        })
+        .collect();
+    FakeChain { height: tip, blocks }
 }
 
 fn chain_with_payment(tip: u64, pay_height: u64, amount: u64) -> FakeChain {
-    let blocks = (1..=tip)
-        .map(|h| if h == pay_height { payment_block(h, amount) } else { BlockOutputs { height: h, txs: vec![] } })
-        .collect();
-    FakeChain { height: tip, blocks }
+    branch(tip, u64::MAX, "a", Some((pay_height, amount)))
+}
+
+/// A node that cannot answer at all.
+struct DownChain;
+
+#[async_trait]
+impl ChainSource for DownChain {
+    async fn tip(&self) -> Result<Tip> {
+        Err(CheckoutError::Chain("node down".into()))
+    }
+    async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
+        Err(CheckoutError::Chain("node down".into()))
+    }
 }
 
 fn open_invoice(store: &mut Store, id: &str, amount: u64, tip_at_creation: u64) {
@@ -126,7 +157,7 @@ async fn payment_is_detected_confirmed_and_delivered_with_a_verifiable_signature
     let json: serde_json::Value = serde_json::from_slice(body).unwrap();
     assert_eq!(json["event_id"], "inv1:confirmed");
     assert_eq!(json["amount_paid"], "500");
-    assert_eq!(json["overpaid"], false);
+    assert!(json.get("overpaid").is_none(), "only exact payments settle, so no overpaid field");
 }
 
 #[tokio::test]
@@ -161,7 +192,8 @@ async fn a_failing_shop_is_retried_on_the_backoff_schedule_then_marked_failed() 
         let guard = store.lock().await;
         let inv = guard.find("inv1").unwrap();
         assert_eq!(inv.attempts, 1);
-        assert_eq!(inv.next_attempt_unix, NOW + backoff_secs(1));
+        let base = NOW + backoff_secs(1);
+        assert!(inv.next_attempt_unix >= base && inv.next_attempt_unix <= base + backoff_secs(1) / 4);
         assert_eq!(inv.delivery, Delivery::Due);
     }
 
@@ -190,7 +222,7 @@ async fn each_delivery_gets_a_fresh_nonce_so_a_replay_is_detectable() {
     let chain = chain_with_payment(10, 2, 500);
     let sender = RecordingSender { status: 500, ..Default::default() };
     run_once(&store, &chain, &sender, SECRET, 1, NOW).await.unwrap();
-    deliver(&store, &sender, SECRET, NOW + backoff_secs(1)).await.unwrap();
+    deliver(&store, &sender, SECRET, NOW + 2 * backoff_secs(1)).await.unwrap();
 
     let sent = sender.sent.lock().unwrap();
     let nonce = |i: usize| sent[i].0.iter().find(|(k, _)| *k == HEADER_NONCE).unwrap().1.clone();
@@ -253,4 +285,74 @@ async fn a_private_webhook_destination_is_never_contacted() {
     run_once(&store, &chain, &sender, SECRET, 1, NOW).await.unwrap();
     assert!(sender.sent.lock().unwrap().is_empty(), "a private destination was contacted");
     assert_eq!(store.lock().await.find("inv1").unwrap().attempts, 1);
+}
+
+/// The reorg scenario: the payment sits in block 5 of branch `a`. Branch `b`
+/// replaces everything from height 4 up, and has no payment.
+#[tokio::test]
+async fn a_reorged_payment_is_unsettled_and_never_confirmed() {
+    let path = temp_ledger("reorg-away.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+
+    // Confirmation depth 10: a payment at 5 with tip 12 is detected, not final.
+    scan(&store, &branch(12, u64::MAX, "a", Some((5, 500))), 10, NOW).await.unwrap();
+    {
+        let guard = store.lock().await;
+        let inv = guard.find("inv1").unwrap();
+        assert_eq!(inv.status, Status::Detected);
+        assert_eq!(inv.payment.as_ref().unwrap().block_id, "a5");
+    }
+
+    scan(&store, &branch(14, 4, "b", None), 10, NOW).await.unwrap();
+
+    let guard = store.lock().await;
+    assert_eq!(guard.find("inv1").unwrap().status, Status::Pending);
+    assert!(guard.find("inv1").unwrap().payment.is_none());
+    assert!(guard.ledger().claims.is_empty(), "the orphaned output must be claimable again");
+    assert_eq!(guard.ledger().block_ids.get(&5).map(String::as_str), Some("b5"));
+}
+
+/// The same reorg, but the replacement branch carries the payment in block 6.
+/// It is settled from that branch, with that branch's block id.
+#[tokio::test]
+async fn a_payment_on_the_replacement_branch_is_detected_from_that_branch() {
+    let path = temp_ledger("reorg-again.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+
+    scan(&store, &branch(12, u64::MAX, "a", Some((5, 500))), 10, NOW).await.unwrap();
+    scan(&store, &branch(14, 4, "b", Some((6, 500))), 10, NOW).await.unwrap();
+
+    let guard = store.lock().await;
+    let inv = guard.find("inv1").unwrap();
+    assert_eq!(inv.status, Status::Detected);
+    assert_eq!(inv.payment.as_ref().unwrap().height, 6);
+    assert_eq!(inv.payment.as_ref().unwrap().block_id, "b6");
+}
+
+/// A dead node must not stop webhook retries for invoices already confirmed.
+#[tokio::test]
+async fn a_failed_scan_does_not_stop_webhook_delivery() {
+    let path = temp_ledger("scan-down.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+    // The shop is down, so the first attempt fails and a retry is scheduled.
+    let down_shop = RecordingSender { status: 500, ..Default::default() };
+    run_once(&store, &chain_with_payment(10, 2, 500), &down_shop, SECRET, 1, NOW).await.unwrap();
+    assert_eq!(down_shop.sent.lock().unwrap().len(), 1);
+    let retry_at = store.lock().await.find("inv1").unwrap().next_attempt_unix;
+
+    // Later the node is gone but the shop is back: the retry must still go out.
+    let back_up = RecordingSender { status: 200, ..Default::default() };
+    let result = run_once(&store, &DownChain, &back_up, SECRET, 1, retry_at).await;
+
+    assert!(matches!(result, Err(CheckoutError::Chain(_))), "the scan error is still reported");
+    assert_eq!(back_up.sent.lock().unwrap().len(), 1, "the due retry was not sent");
 }

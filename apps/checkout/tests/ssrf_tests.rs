@@ -13,7 +13,7 @@ fn ip(text: &str) -> IpAddr {
 #[test]
 fn public_https_url_is_accepted() {
     assert!(parse_https("https://shop.example.com/hooks/maya").is_ok());
-    assert!(parse_https("https://93.184.216.34:8443/hook").is_ok());
+    assert!(parse_https("https://93.184.216.34/hook").is_ok());
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn private_ip_literals_are_refused_before_any_lookup() {
         "https://[::ffff:127.0.0.1]/hook",
     ] {
         let url = parse_https(literal).expect(literal);
-        assert_eq!(pin(url, &[]).map(|_| ()), Err(UrlError::PrivateAddress), "accepted {literal}");
+        assert_eq!(pin(url, &[]).map(|_| ()), Err(UrlError::NotPublic), "accepted {literal}");
     }
 }
 
@@ -79,13 +79,13 @@ fn a_name_resolving_to_a_private_address_is_refused() {
     // private one later is refused as soon as any answer is private.
     let url = parse_https("https://shop.example.com/hook").unwrap();
     let answers = [ip("93.184.216.34"), ip("10.0.0.5")];
-    assert_eq!(pin(url, &answers).map(|_| ()), Err(UrlError::PrivateAddress));
+    assert_eq!(pin(url, &answers).map(|_| ()), Err(UrlError::NotPublic));
 }
 
 #[test]
 fn a_name_that_does_not_resolve_is_refused() {
     let url = parse_https("https://shop.example.com/hook").unwrap();
-    assert_eq!(pin(url, &[]).map(|_| ()), Err(UrlError::Unresolved));
+    assert_eq!(pin(url, &[]).map(|_| ()), Err(UrlError::NotPublic));
 }
 
 #[test]
@@ -123,7 +123,21 @@ fn public_ip_table() {
         "::ffff:10.0.0.1",
         "64:ff9b::7f00:1",
         "2002:7f00:1::1",
+        "fec0::1",
+        "2001::1",
+        "2001:10::1",
+        "64:ff9b:1::1",
+        "192.88.99.1",
     ] {
         assert!(!is_public_ip(ip(private)), "{private} should be refused");
     }
+}
+
+#[test]
+fn only_the_https_default_port_is_allowed() {
+    // Any other port turns the webhook into a port scanner aimed at public hosts.
+    assert_eq!(parse_https("https://shop.example:8443/hook").map(|_| ()), Err(UrlError::Port));
+    assert_eq!(parse_https("https://shop.example:80/hook").map(|_| ()), Err(UrlError::Port));
+    assert!(parse_https("https://shop.example:443/hook").is_ok());
+    assert!(parse_https("https://shop.example/hook").is_ok());
 }

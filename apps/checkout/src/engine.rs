@@ -13,14 +13,16 @@ use tokio::sync::Mutex;
 use crate::chain::{BlockOutputs, ChainSource, MAX_RANGE};
 use crate::error::{CheckoutError, Result};
 use crate::invoice::{Delivery, Invoice};
-use crate::matching::{confirm, detect, expire};
+use crate::matching::{confirm, detect, expire, roll_back};
 use crate::ssrf::{self, Target};
-use crate::store::Store;
+use crate::store::{RETAIN_BLOCKS, Store};
 use crate::webhook::{self, HEADER_NONCE, HEADER_SIGNATURE, HEADER_TIMESTAMP, MAX_ATTEMPTS};
 
 /// Per-request timeout for a webhook, in seconds. A shop that cannot answer in
 /// this time gets a retry, not a held connection.
 const WEBHOOK_TIMEOUT_SECS: u64 = 10;
+/// Longest a destination's DNS lookup may take before the attempt is abandoned.
+const DNS_TIMEOUT_SECS: u64 = 5;
 
 /// Sends one HTTP POST to a vetted target. A trait so tests can record the
 /// requests instead of making them.
@@ -51,7 +53,10 @@ impl WebhookSender for HttpSender {
             .url
             .host_str()
             .ok_or_else(|| CheckoutError::Internal("vetted url has no host".into()))?;
+        // A proxy from the environment would resolve the host itself, which
+        // skips the address pinning below: refuse proxies outright.
         let client = reqwest::Client::builder()
+            .no_proxy()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(WEBHOOK_TIMEOUT_SECS))
@@ -92,16 +97,18 @@ pub async fn scan(
     now_unix: u64,
 ) -> Result<u64> {
     let tip = chain.tip().await?;
-    let mut next = scan_position(&*store.lock().await)? + 1;
-    while next <= tip.height {
+    loop {
+        // Re-read the position every batch: a rollback moves it backwards.
+        let next = scan_position(&*store.lock().await)? + 1;
+        if next > tip.height {
+            break;
+        }
         let count = (tip.height - next + 1).min(MAX_RANGE);
         let blocks = chain.blocks(next, count).await?;
         if blocks.is_empty() {
             break;
         }
         apply_batch(store, next, &blocks).await?;
-        next += u64::try_from(blocks.len())
-            .map_err(|_| CheckoutError::Internal("batch too large".into()))?;
     }
     let mut guard = store.lock().await;
     let scanned = scan_position(&guard)?;
@@ -112,9 +119,21 @@ pub async fn scan(
     Ok(tip.height)
 }
 
-/// Applies one batch that starts at `first`. Checks the sequence before any
-/// change, so a bad batch leaves the ledger untouched.
-async fn apply_batch(store: &Mutex<Store>, first: u64, blocks: &[BlockOutputs]) -> Result<()> {
+/// What one batch did to the ledger.
+#[derive(Debug, PartialEq, Eq)]
+enum Progress {
+    /// The blocks were examined and the scan position advanced.
+    Applied,
+    /// The batch did not follow the stored chain. The ledger was rolled back
+    /// one step and nothing from the batch was examined.
+    RolledBack,
+}
+
+/// Applies one batch that starts at `first`. Checks the sequence and the
+/// internal links before any change, so a malformed batch leaves the ledger
+/// untouched. If the first block does not descend from the stored block at
+/// `first - 1`, that stored block was reorged out: roll back over it.
+async fn apply_batch(store: &Mutex<Store>, first: u64, blocks: &[BlockOutputs]) -> Result<Progress> {
     for (offset, block) in blocks.iter().enumerate() {
         let expected = first.saturating_add(offset as u64);
         if block.height != expected {
@@ -124,12 +143,34 @@ async fn apply_batch(store: &Mutex<Store>, first: u64, blocks: &[BlockOutputs]) 
             )));
         }
     }
+    if blocks.windows(2).any(|pair| pair[1].prev_id != pair[0].id) {
+        return Err(CheckoutError::Chain("node sent blocks that do not link".into()));
+    }
     let mut guard = store.lock().await;
+    // Genesis is never rolled back, so the check starts at height 2.
+    let stored_parent = first.checked_sub(1).filter(|h| *h >= 1);
+    let stored = stored_parent.and_then(|h| guard.ledger().block_ids.get(&h).cloned());
+    if let Some(parent) = stored.filter(|parent| *parent != blocks[0].prev_id) {
+        // `stored` is only Some when `stored_parent` is, so `first - 1` is the orphan.
+        let orphan = first - 1;
+        let reverted = roll_back(guard.ledger_mut(), orphan);
+        tracing::warn!(height = orphan, reverted, stored = %parent, "reorg detected; rolled back");
+        guard.commit()?;
+        return Ok(Progress::RolledBack);
+    }
     for block in blocks {
         detect(guard.ledger_mut(), block);
-        guard.ledger_mut().scanned_to = Some(block.height);
+        let ledger = guard.ledger_mut();
+        ledger.block_ids.insert(block.height, block.id.clone());
+        ledger.scanned_to = Some(block.height);
     }
-    guard.commit()
+    if let Some(top) = guard.ledger().scanned_to {
+        let keep_from = top.saturating_sub(RETAIN_BLOCKS);
+        let ledger = guard.ledger_mut();
+        ledger.block_ids = ledger.block_ids.split_off(&keep_from);
+    }
+    guard.commit()?;
+    Ok(Progress::Applied)
 }
 
 /// Sends every due webhook once. Failures are recorded and retried later.
@@ -190,7 +231,6 @@ fn payload(inv: &Invoice) -> Result<Vec<u8>> {
         "memo": inv.memo,
         "amount": inv.amount.to_string(),
         "amount_paid": payment.amount_paid.to_string(),
-        "overpaid": payment.amount_paid > inv.amount,
         "txid": payment.txid,
         "index": payment.index,
         "height": payment.height,
@@ -200,10 +240,15 @@ fn payload(inv: &Invoice) -> Result<Vec<u8>> {
 
 /// One delivery attempt. Every failure is logged and reported as `false`.
 async fn attempt(sender: &dyn WebhookSender, secret: &[u8], job: &Job, now_unix: u64) -> bool {
-    let target = match ssrf::vet(&job.url).await {
-        Ok(target) => target,
-        Err(reason) => {
+    let vetted = tokio::time::timeout(Duration::from_secs(DNS_TIMEOUT_SECS), ssrf::vet(&job.url)).await;
+    let target = match vetted {
+        Ok(Ok(target)) => target,
+        Ok(Err(reason)) => {
             tracing::warn!(invoice = %job.id, %reason, "webhook destination refused");
+            return false;
+        }
+        Err(_) => {
+            tracing::warn!(invoice = %job.id, "webhook destination lookup timed out");
             return false;
         }
     };
@@ -236,6 +281,8 @@ async fn attempt(sender: &dyn WebhookSender, secret: &[u8], job: &Job, now_unix:
 /// Records the outcome: success ends the job, failure schedules a retry or
 /// gives up after [`MAX_ATTEMPTS`].
 async fn record(store: &Mutex<Store>, id: &str, delivered: bool, now_unix: u64) -> Result<()> {
+    // Randomness is drawn before the lock: the lock is never held across I/O.
+    let jitter_seed = webhook::random_u64()?;
     let mut guard = store.lock().await;
     let Some(inv) = guard.ledger_mut().invoices.iter_mut().find(|inv| inv.id == id) else {
         return Ok(());
@@ -247,7 +294,8 @@ async fn record(store: &Mutex<Store>, id: &str, delivered: bool, now_unix: u64) 
         if inv.attempts >= MAX_ATTEMPTS {
             inv.delivery = Delivery::Failed;
         } else {
-            inv.next_attempt_unix = now_unix.saturating_add(webhook::backoff_secs(inv.attempts));
+            let delay = webhook::backoff_jittered_secs(inv.attempts, jitter_seed);
+            inv.next_attempt_unix = now_unix.saturating_add(delay);
         }
     }
     guard.commit()
@@ -266,7 +314,9 @@ pub async fn run_once(
     confirmations: u64,
     now_unix: u64,
 ) -> Result<()> {
-    scan(store, chain, confirmations, now_unix).await?;
+    // A failing node must not stop webhooks that are already due: deliver
+    // first, then report the scan error.
+    let scanned = scan(store, chain, confirmations, now_unix).await;
     deliver(store, sender, secret, now_unix).await?;
-    Ok(())
+    scanned.map(|_| ())
 }

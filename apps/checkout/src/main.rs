@@ -8,7 +8,7 @@ use maya_address::Network;
 use maya_checkout::chain::{ChainSource, RpcChain};
 use maya_checkout::config::Config;
 use maya_checkout::engine::{self, HttpSender};
-use maya_checkout::http::{AppState, router};
+use maya_checkout::http::{AppState, ReadLimiter, router};
 use maya_checkout::store::Store;
 use maya_checkout::{CheckoutError, Result};
 use tokio::sync::Mutex;
@@ -50,27 +50,29 @@ async fn run() -> Result<()> {
     }
     let mut store = Store::open(&cfg.store_path)?;
     store.ledger_mut().scanned_to.get_or_insert(tip.height);
+    store.ledger_mut().merchant = Some(hex::encode(pay_to));
     store.commit()?;
     let store = Arc::new(Mutex::new(store));
 
-    let secret = cfg.webhook_secret.clone();
+    // Scanning and delivery are separate loops: a slow shop endpoint must not
+    // hold up confirmation, and a node outage must not hold up retries.
+    let (confirmations, poll) = (cfg.confirmations, Duration::from_secs(cfg.poll_secs));
     let scanner_store = Arc::clone(&store);
     let scanner_chain = Arc::clone(&chain);
-    let (confirmations, poll) = (cfg.confirmations, Duration::from_secs(cfg.poll_secs));
     tokio::spawn(async move {
         loop {
-            let sender = HttpSender;
-            if let Err(e) = engine::run_once(
-                &scanner_store,
-                scanner_chain.as_ref(),
-                &sender,
-                &secret,
-                confirmations,
-                unix_now(),
-            )
-            .await
-            {
+            if let Err(e) = engine::scan(&scanner_store, scanner_chain.as_ref(), confirmations, unix_now()).await {
                 tracing::warn!(error = %e, "scan cycle failed; retrying");
+            }
+            tokio::time::sleep(poll).await;
+        }
+    });
+    let delivery_store = Arc::clone(&store);
+    let secret = cfg.webhook_secret.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = engine::deliver(&delivery_store, &HttpSender, &secret, unix_now()).await {
+                tracing::warn!(error = %e, "delivery cycle failed; retrying");
             }
             tokio::time::sleep(poll).await;
         }
@@ -82,6 +84,7 @@ async fn run() -> Result<()> {
         network,
         pay_to,
         api_token: cfg.api_token.clone(),
+        reads: ReadLimiter::default(),
     });
     let listener = tokio::net::TcpListener::bind(cfg.listen)
         .await

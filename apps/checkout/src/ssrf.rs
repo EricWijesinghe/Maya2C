@@ -28,12 +28,15 @@ pub enum UrlError {
     /// The host is a local or internal name, or has no public-looking shape.
     #[error("webhook host is not a public name")]
     HostName,
-    /// The host resolves (or is) a private, loopback, link-local or reserved address.
-    #[error("webhook host resolves to a private or reserved address")]
-    PrivateAddress,
-    /// The name did not resolve to anything.
-    #[error("webhook host did not resolve")]
-    Unresolved,
+    /// Not the default https port. Any other port would let a shop's URL probe
+    /// services on public hosts.
+    #[error("webhook URL must use the default https port")]
+    Port,
+    /// The host does not resolve to public addresses only, or does not resolve.
+    /// One message for both cases: the difference would tell a caller about
+    /// the internal DNS.
+    #[error("webhook host is not a public address")]
+    NotPublic,
 }
 
 /// A vetted destination: the URL plus the only addresses it may connect to.
@@ -61,6 +64,10 @@ pub fn parse_https(raw: &str) -> Result<Url, UrlError> {
     if !url.username().is_empty() || url.password().is_some() {
         return Err(UrlError::Credentials);
     }
+    // `port()` is None when the port is the https default, so any `Some` is non-default.
+    if url.port().is_some() {
+        return Err(UrlError::Port);
+    }
     let host_ok = match host_kind(&url) {
         Some(Host::Literal(_)) => true,
         Some(Host::Name(name)) => is_public_name(name),
@@ -75,16 +82,16 @@ pub fn parse_https(raw: &str) -> Result<Url, UrlError> {
 ///
 /// # Errors
 ///
-/// [`UrlError::Unresolved`] or [`UrlError::PrivateAddress`].
+/// [`UrlError::NotPublic`] when the name is unresolved or any address is not public.
 pub fn pin(url: Url, resolved: &[IpAddr]) -> Result<Target, UrlError> {
     let addrs: Vec<IpAddr> = match host_kind(&url) {
         Some(Host::Literal(ip)) => vec![ip],
-        Some(Host::Name(_)) if resolved.is_empty() => return Err(UrlError::Unresolved),
+        Some(Host::Name(_)) if resolved.is_empty() => return Err(UrlError::NotPublic),
         Some(Host::Name(_)) => resolved.to_vec(),
         None => return Err(UrlError::HostName),
     };
     if addrs.iter().any(|ip| !is_public_ip(*ip)) {
-        return Err(UrlError::PrivateAddress);
+        return Err(UrlError::NotPublic);
     }
     let port = url.port_or_known_default().ok_or(UrlError::Malformed)?;
     let addrs = addrs.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
@@ -98,17 +105,16 @@ pub fn pin(url: Url, resolved: &[IpAddr]) -> Result<Target, UrlError> {
 /// Any [`UrlError`].
 pub async fn vet(raw: &str) -> Result<Target, UrlError> {
     let url = parse_https(raw)?;
-    let resolved = match host_kind(&url) {
-        Some(Host::Literal(_)) => Vec::new(),
-        _ => {
-            let port = url.port_or_known_default().ok_or(UrlError::Malformed)?;
-            let host = url.host_str().ok_or(UrlError::HostName)?;
-            tokio::net::lookup_host((host, port))
-                .await
-                .map_err(|_| UrlError::Unresolved)?
-                .map(|sa| sa.ip())
-                .collect()
-        }
+    let resolved = if let Some(Host::Literal(_)) = host_kind(&url) {
+        Vec::new()
+    } else {
+        let port = url.port_or_known_default().ok_or(UrlError::Malformed)?;
+        let host = url.host_str().ok_or(UrlError::HostName)?;
+        tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| UrlError::NotPublic)?
+            .map(|sa| sa.ip())
+            .collect()
     };
     pin(url, &resolved)
 }
@@ -161,6 +167,7 @@ fn is_public_v4(o: [u8; 4]) -> bool {
         || (o[0] == 192 && o[1] == 0 && (o[2] == 0 || o[2] == 2)) // protocol, documentation
         || (o[0] == 192 && o[1] == 168) // private
         || (o[0] == 198 && (18..=19).contains(&o[1])) // benchmarking
+        || (o[0] == 192 && o[1] == 88 && o[2] == 99) // 6to4 relay anycast (deprecated)
         || (o[0] == 198 && o[1] == 51 && o[2] == 100) // documentation
         || (o[0] == 203 && o[1] == 0 && o[2] == 113) // documentation
         || o[0] >= 224; // multicast, reserved, broadcast
@@ -180,6 +187,10 @@ fn is_public_v6(s: [u16; 8]) -> bool {
         || s[0..6] == [0; 6] // deprecated IPv4-compatible
         || (s[0] & 0xfe00) == 0xfc00 // unique local
         || (s[0] & 0xffc0) == 0xfe80 // link-local
+        || (s[0] & 0xffc0) == 0xfec0 // site-local (deprecated)
+        || (s[0] == 0x2001 && s[1] == 0x0000) // Teredo, carries an IPv4 address
+        || (s[0] == 0x2001 && (s[1] & 0xfff0) == 0x0010) // ORCHID (deprecated)
+        || (s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0x0001) // local-use NAT64 (RFC 8215)
         || (s[0] & 0xff00) == 0xff00 // multicast
         || (s[0] == 0x2001 && s[1] == 0x0db8) // documentation
         || (s[0] == 0x0100 && s[1..4] == [0; 3]); // discard-only

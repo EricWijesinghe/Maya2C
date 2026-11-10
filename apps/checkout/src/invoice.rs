@@ -46,7 +46,8 @@ pub enum Delivery {
     Failed,
 }
 
-/// The payment that settled an invoice.
+/// The payment that settled an invoice. Only an exact-amount output settles,
+/// so `amount_paid` always equals the invoice amount.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Payment {
     /// Hex transaction id.
@@ -56,9 +57,45 @@ pub struct Payment {
     pub index: u32,
     /// Block height that included the payment.
     pub height: u64,
-    /// What the output actually paid. May exceed the invoice amount.
+    /// Id of the block at `height` when the payment was seen. Checked again
+    /// before confirmation: a changed id means a reorg removed the payment.
+    pub block_id: String,
+    /// What the output paid. Equal to the invoice amount.
     #[serde(with = "amount")]
     pub amount_paid: U256,
+}
+
+/// Why a payment to one of the merchant's addresses did not settle an invoice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnmatchedReason {
+    /// No pending invoice asks for exactly this amount inside its window
+    /// (underpayment, overpayment, a late or early payment, or no invoice).
+    NoExactInvoice,
+    /// More than one pending invoice fits. Never settled by guesswork.
+    AmbiguousInvoices,
+}
+
+/// A payment to the merchant that settled nothing. Kept for the merchant to
+/// refund or assign by hand. Never settles an invoice on its own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnmatchedPayment {
+    /// Hex transaction id.
+    pub txid: String,
+    /// Output index within the transaction.
+    pub index: u32,
+    /// Block height that included the output.
+    pub height: u64,
+    /// Id of that block when it was seen.
+    pub block_id: String,
+    /// Recipient the output paid, hex.
+    #[serde(with = "hex32")]
+    pub recipient: [u8; 32],
+    /// What the output paid, base units.
+    #[serde(with = "amount")]
+    pub amount: U256,
+    /// Why it did not settle.
+    pub reason: UnmatchedReason,
 }
 
 /// A stored invoice.
@@ -70,7 +107,8 @@ pub struct Invoice {
     /// Recipient address, 32 bytes, hex in storage.
     #[serde(with = "hex32")]
     pub recipient: [u8; 32],
-    /// Amount due, base units.
+    /// Amount due, base units. Only an output of exactly this amount settles
+    /// the invoice; any other amount is recorded as unmatched.
     #[serde(with = "amount")]
     pub amount: U256,
     /// Order id or note from the shop. Carried in the payment URI only; it is
@@ -226,7 +264,7 @@ pub mod amount {
 }
 
 /// Serde adapter for 32-byte addresses, written as hex.
-mod hex32 {
+pub mod hex32 {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(value: &[u8; 32], s: S) -> std::result::Result<S::Ok, S::Error> {

@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use crate::error::{CheckoutError, Result};
+use crate::store::RETAIN_BLOCKS;
 use crate::webhook::MIN_SECRET_BYTES;
 
 /// Default listen address: loopback only. Put a TLS proxy in front to expose it.
@@ -43,7 +44,7 @@ impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")
             .field("listen", &self.listen)
-            .field("rpc_url", &self.rpc_url)
+            .field("rpc_url", &redact_url(&self.rpc_url))
             .field("pay_to", &self.pay_to)
             .field("store_path", &self.store_path)
             .field("api_token", &format_args!("<{} bytes, redacted>", self.api_token.len()))
@@ -68,9 +69,12 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .ok_or_else(|| CheckoutError::Config(format!("{name} is not set")))
         };
-        let api_token = secret(&required("MAYA_CHECKOUT_API_TOKEN")?, "MAYA_CHECKOUT_API_TOKEN")?;
+        // Secret text is moved straight into a zeroizing buffer, so the only copy
+        // that outlives this function is the zeroized one.
+        let required_secret = |name: &str| required(name).map(Zeroizing::new);
+        let api_token = secret(&required_secret("MAYA_CHECKOUT_API_TOKEN")?, "MAYA_CHECKOUT_API_TOKEN")?;
         let webhook_secret = secret(
-            &required("MAYA_CHECKOUT_WEBHOOK_SECRET")?,
+            &required_secret("MAYA_CHECKOUT_WEBHOOK_SECRET")?,
             "MAYA_CHECKOUT_WEBHOOK_SECRET",
         )?;
         if api_token.as_slice() == webhook_secret.as_slice() {
@@ -86,12 +90,23 @@ impl Config {
         if confirmations == 0 {
             return Err(CheckoutError::Config("MAYA_CHECKOUT_CONFIRMATIONS must be at least 1".into()));
         }
+        // A depth beyond the retained block ids could never be checked for reorgs.
+        if confirmations > RETAIN_BLOCKS {
+            return Err(CheckoutError::Config(format!(
+                "MAYA_CHECKOUT_CONFIRMATIONS must be at most {RETAIN_BLOCKS}"
+            )));
+        }
+        // A relative default would open an empty ledger from whatever directory the
+        // service was started in, and forget every pending invoice.
+        let store_path = PathBuf::from(required("MAYA_CHECKOUT_STORE")?);
+        if !store_path.is_absolute() {
+            return Err(CheckoutError::Config("MAYA_CHECKOUT_STORE must be an absolute path".into()));
+        }
         Ok(Self {
             listen,
             rpc_url: required("MAYA_CHECKOUT_RPC")?,
             pay_to: required("MAYA_CHECKOUT_PAY_TO")?,
-            store_path: get("MAYA_CHECKOUT_STORE")
-                .map_or_else(|| PathBuf::from("checkout-ledger.json"), PathBuf::from),
+            store_path,
             api_token,
             webhook_secret,
             confirmations,
@@ -108,6 +123,20 @@ fn secret(value: &str, name: &str) -> Result<Zeroizing<Vec<u8>>> {
         )));
     }
     Ok(Zeroizing::new(value.as_bytes().to_vec()))
+}
+
+/// The URL with any `user:password@` removed, for logs. Only the authority is
+/// searched, so an `@` in the path is left alone.
+#[must_use]
+pub fn redact_url(raw: &str) -> String {
+    let Some(start) = raw.find("://").map(|i| i + 3) else {
+        return raw.to_owned();
+    };
+    let authority_end = raw[start..].find('/').map_or(raw.len(), |i| start + i);
+    match raw[start..authority_end].rfind('@') {
+        Some(at) => format!("{}<redacted>{}", &raw[..start], &raw[start + at..]),
+        None => raw.to_owned(),
+    }
 }
 
 fn number(get: &impl Fn(&str) -> Option<String>, name: &str, default: u64) -> Result<u64> {
@@ -134,13 +163,37 @@ mod tests {
         move |k| map.get(k).cloned()
     }
 
+    const STORE: &str = if cfg!(windows) { r"D:\checkout\ledger.json" } else { "/var/lib/maya/ledger.json" };
+
     fn base() -> Vec<(&'static str, &'static str)> {
         vec![
             ("MAYA_CHECKOUT_RPC", "http://127.0.0.1:9944"),
             ("MAYA_CHECKOUT_PAY_TO", "tmaya1example"),
             ("MAYA_CHECKOUT_API_TOKEN", TOKEN),
             ("MAYA_CHECKOUT_WEBHOOK_SECRET", SECRET),
+            ("MAYA_CHECKOUT_STORE", STORE),
         ]
+    }
+
+    #[test]
+    fn the_ledger_path_must_be_set_and_absolute() {
+        // A relative default would open an empty ledger from whatever directory
+        // the service was started in, and forget every pending invoice.
+        let without = base().into_iter().filter(|(k, _)| *k != "MAYA_CHECKOUT_STORE").collect::<Vec<_>>();
+        assert!(Config::from_lookup(lookup(&without)).is_err());
+        let mut relative = base();
+        relative[4] = ("MAYA_CHECKOUT_STORE", "ledger.json");
+        assert!(Config::from_lookup(lookup(&relative)).is_err());
+    }
+
+    #[test]
+    fn debug_never_prints_rpc_credentials() {
+        let mut pairs = base();
+        pairs[0] = ("MAYA_CHECKOUT_RPC", "https://operator:hunter2-password@node.example:9944");
+        let cfg = Config::from_lookup(lookup(&pairs)).unwrap();
+        let shown = format!("{cfg:?}");
+        assert!(!shown.contains("hunter2-password"));
+        assert!(shown.contains("node.example:9944"));
     }
 
     #[test]

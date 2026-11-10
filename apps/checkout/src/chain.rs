@@ -45,6 +45,11 @@ pub struct TxOutputs {
 pub struct BlockOutputs {
     /// Block height.
     pub height: u64,
+    /// This block's id. Two nodes that agree on the chain agree on this.
+    pub id: String,
+    /// The parent block's id. Must equal the id stored for `height - 1`, or a
+    /// reorg has replaced that block.
+    pub prev_id: String,
     /// Transactions in block order.
     pub txs: Vec<TxOutputs>,
 }
@@ -69,7 +74,14 @@ struct RawChainInfo {
 #[derive(Deserialize)]
 struct RawBlock {
     height: u64,
+    header: RawHeader,
     transactions: Vec<RawTx>,
+}
+
+#[derive(Deserialize)]
+struct RawHeader {
+    id: String,
+    prev_hash: String,
 }
 
 #[derive(Deserialize)]
@@ -152,7 +164,12 @@ fn convert_block(block: RawBlock) -> Result<BlockOutputs> {
             Ok(TxOutputs { txid: tx.txid, outputs })
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(BlockOutputs { height: block.height, txs })
+    Ok(BlockOutputs {
+        height: block.height,
+        id: block.header.id,
+        prev_id: block.header.prev_hash,
+        txs,
+    })
 }
 
 fn decode_recipient(text: &str) -> Result<[u8; 32]> {

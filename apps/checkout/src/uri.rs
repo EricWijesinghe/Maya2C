@@ -9,6 +9,8 @@
 //! an older wallet still pays the right address and amount. ADR-091 records
 //! why no separate `maya2c-wallet://` scheme is used.
 
+use std::fmt::Write;
+
 use maya_address::Network;
 use primitive_types::U256;
 
@@ -56,7 +58,10 @@ fn percent_encode(value: &str) -> String {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(char::from(byte));
             }
-            _ => out.push_str(&format!("%{byte:02X}")),
+            _ => {
+                // Writing to a String cannot fail.
+                let _ = write!(out, "%{byte:02X}");
+            }
         }
     }
     out

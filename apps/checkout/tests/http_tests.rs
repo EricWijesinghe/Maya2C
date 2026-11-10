@@ -11,7 +11,9 @@ use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use maya_address::Network;
 use maya_checkout::chain::{BlockOutputs, ChainSource, Tip};
-use maya_checkout::http::{AppState, router};
+use maya_checkout::http::{AppState, ReadLimiter, router};
+use maya_checkout::invoice::{UnmatchedPayment, UnmatchedReason, Delivery};
+use primitive_types::U256;
 use maya_checkout::store::Store;
 use maya_checkout::{CheckoutError, Result};
 use serde_json::{Value, json};
@@ -43,13 +45,40 @@ fn app(name: &str, fail_chain: bool) -> Router {
     let path = std::env::temp_dir().join(format!("maya-checkout-http-{}-{name}.json", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let store = Store::open(&path).unwrap();
+    with_chain(Arc::new(Mutex::new(store)), Arc::new(FakeChain { fail: fail_chain }))
+}
+
+fn with_chain(store: Arc<Mutex<Store>>, chain: Arc<dyn ChainSource>) -> Router {
     router(Arc::new(AppState {
-        store: Arc::new(Mutex::new(store)),
-        chain: Arc::new(FakeChain { fail: fail_chain }),
+        store,
+        chain,
         network: Network::Testnet,
         pay_to: [9; 32],
         api_token: Zeroizing::new(TOKEN.as_bytes().to_vec()),
+        reads: ReadLimiter::default(),
     }))
+}
+
+fn fresh_store(name: &str) -> Arc<Mutex<Store>> {
+    let path = std::env::temp_dir().join(format!("maya-checkout-http-{}-{name}.json", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    Arc::new(Mutex::new(Store::open(&path).unwrap()))
+}
+
+/// A node that answers the tip only once the test releases it.
+struct GatedChain {
+    release: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl ChainSource for GatedChain {
+    async fn tip(&self) -> Result<Tip> {
+        self.release.notified().await;
+        Ok(Tip { height: 100, chain_id: Some("maya-testnet-1".into()) })
+    }
+    async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
+        Ok(vec![])
+    }
 }
 
 async fn call(app: &Router, method: &str, uri: &str, auth: Option<&str>, body: Option<Value>) -> (StatusCode, Vec<u8>) {
@@ -167,4 +196,83 @@ async fn an_unreachable_node_stops_creation_rather_than_guessing_a_height() {
     let app = app("down", true);
     let (status, _) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn a_slow_node_does_not_hold_the_ledger_while_an_invoice_is_created() {
+    let store = fresh_store("slow-node");
+    let release = Arc::new(tokio::sync::Notify::new());
+    let app = with_chain(Arc::clone(&store), Arc::new(GatedChain { release: Arc::clone(&release) }));
+    let creating = tokio::spawn(async move {
+        call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await
+    });
+    // Let the request reach the node call and park there.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(store.try_lock().is_ok(), "the ledger lock was held across the node call");
+    release.notify_one();
+    let (status, _) = creating.await.unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn a_failed_webhook_can_be_resent_but_a_delivered_one_cannot() {
+    let store = fresh_store("resend");
+    let app = with_chain(Arc::clone(&store), Arc::new(FakeChain { fail: false }));
+    let (_, created) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
+    let id: Value = serde_json::from_slice(&created).unwrap();
+    let uri = format!("/v1/invoices/{}/resend", id["id"].as_str().unwrap());
+    {
+        let mut guard = store.lock().await;
+        let inv = &mut guard.ledger_mut().invoices[0];
+        inv.status = maya_checkout::invoice::Status::Confirmed;
+        inv.delivery = Delivery::Failed;
+        inv.attempts = 8;
+    }
+
+    let (status, body) = call(&app, "POST", &uri, Some(TOKEN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let view: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(view["delivery"], "due");
+    assert_eq!(store.lock().await.ledger().invoices[0].attempts, 0);
+
+    store.lock().await.ledger_mut().invoices[0].delivery = Delivery::Delivered;
+    let (status, _) = call(&app, "POST", &uri, Some(TOKEN), None).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = call(&app, "POST", &uri, None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "resend needs the bearer token");
+}
+
+#[tokio::test]
+async fn unmatched_payments_are_listed_for_the_merchant_only() {
+    let store = fresh_store("unmatched");
+    store.lock().await.ledger_mut().unmatched.push(UnmatchedPayment {
+        txid: "ab".into(),
+        index: 0,
+        height: 7,
+        block_id: "b7".into(),
+        recipient: [9; 32],
+        amount: U256::from(999u64),
+        reason: UnmatchedReason::NoExactInvoice,
+    });
+    let app = with_chain(store, Arc::new(FakeChain { fail: false }));
+
+    let (status, _) = call(&app, "GET", "/v1/unmatched", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = call(&app, "GET", "/v1/unmatched", Some(TOKEN), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let rows: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(rows[0]["txid"], "ab");
+    assert_eq!(rows[0]["amount"], "999");
+    assert_eq!(rows[0]["reason"], "no_exact_invoice");
+}
+
+#[test]
+fn public_reads_are_budgeted_per_second() {
+    let limiter = ReadLimiter::default();
+    let now = 1_800_000_000;
+    for _ in 0..50 {
+        assert!(limiter.admit(now));
+    }
+    assert!(!limiter.admit(now), "the 51st read in one second must be refused");
+    assert!(limiter.admit(now + 1), "the budget refills with the next second");
 }

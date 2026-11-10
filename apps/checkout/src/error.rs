@@ -18,6 +18,9 @@ pub enum CheckoutError {
     /// No such invoice.
     #[error("not found")]
     NotFound,
+    /// The public read budget for this second is spent.
+    #[error("rate limited")]
+    RateLimited,
     /// The request clashes with state the service already holds.
     #[error("{0}")]
     Conflict(String),
@@ -43,6 +46,7 @@ impl IntoResponse for CheckoutError {
         let (status, message) = match &self {
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_owned()),
+            Self::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate limited".to_owned()),
             Self::NotFound => (StatusCode::NOT_FOUND, "not found".to_owned()),
             Self::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             Self::Chain(_) => {
