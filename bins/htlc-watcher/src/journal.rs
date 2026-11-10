@@ -85,7 +85,11 @@ impl Journal {
             return Err(WatcherError::DuplicateSwap(hex::encode(swap.commitment_id)));
         }
         self.swaps.push(swap);
-        self.save()
+        // Not kept unsaved: nothing was broadcast for it, and a kept entry
+        // would refuse the retry as a reused secret.
+        self.save().inspect_err(|_| {
+            self.swaps.pop();
+        })
     }
 
     /// Records the responder's lock on an initiator's swap, and saves.
@@ -150,5 +154,47 @@ fn failure(path: &Path, reason: impl ToString) -> WatcherError {
     WatcherError::Journal {
         path: path.display().to_string(),
         reason: reason.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use crate::swap::{ChainSide, Role};
+
+    fn swap() -> Swap {
+        Swap {
+            commitment_id: [7; 32],
+            role: Role::Initiator,
+            inbound: None,
+            outbound: Leg {
+                side: ChainSide::Maya,
+                lock_id: [8; 32],
+                expiry_height: 100,
+            },
+            phase: Phase::Active,
+        }
+    }
+
+    #[test]
+    fn a_swap_that_could_not_be_saved_is_not_kept_and_can_be_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        // The directory does not exist yet, so the save's staging file fails.
+        let path = dir.path().join("later").join("journal.json");
+        let mut journal = Journal::open(&path).unwrap();
+        assert!(matches!(
+            journal.insert(swap()),
+            Err(WatcherError::Journal { .. })
+        ));
+        assert!(
+            journal.get(&[7; 32]).is_none(),
+            "an unsaved swap stayed in memory and blocks a retry as a duplicate"
+        );
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        journal
+            .insert(swap())
+            .expect("retry after the disk recovers");
+        assert!(Journal::open(&path).unwrap().get(&[7; 32]).is_some());
     }
 }

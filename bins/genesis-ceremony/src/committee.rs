@@ -223,6 +223,7 @@ pub fn sheet_lines(members: &[Member]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     fn key(byte: char) -> String {
@@ -296,6 +297,33 @@ mod tests {
                 &case[..case.len().min(40)]
             );
         }
+    }
+
+    #[test]
+    fn mainnet_bonds_must_be_exactly_the_floor() {
+        let floor = primitive_types::U256::from(10);
+        let staked = |bonds: &[u64]| -> Vec<Member> {
+            let lines: String = bonds
+                .iter()
+                .zip(['a', 'b', 'c'])
+                .map(|(b, c)| format!("{c} {} {} {b}\n", key(c), address(c)))
+                .collect();
+            parse(&lines).expect("parse")
+        };
+        assert!(check_tiny_bonds(&staked(&[10, 10, 10]), floor).is_ok());
+        let err = check_tiny_bonds(&staked(&[10, 11, 10]), floor).unwrap_err();
+        assert!(err.to_string().starts_with("b: bond 11"), "{err}");
+        assert!(check_tiny_bonds(&staked(&[9]), floor).is_err());
+        let unbonded = parse(&format!("a {}\n", key('a'))).expect("parse");
+        let err = check_tiny_bonds(&unbonded, floor).unwrap_err();
+        assert!(err.to_string().contains("must bond"), "{err}");
+    }
+
+    #[test]
+    fn a_key_repeated_in_another_case_or_with_0x_is_still_a_repeat() {
+        let upper = key('a').to_ascii_uppercase();
+        let text = format!("a {}\nb 0x{upper}\n", key('a'));
+        assert!(parse(&text).unwrap_err().to_string().contains("repeats"));
     }
 
     #[test]

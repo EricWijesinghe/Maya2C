@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use maya_crypto_pq::suite::MasterSeed;
 use maya_signer::backend::KeystoreBackend;
@@ -25,6 +26,11 @@ use maya_signer::keystore;
 use maya_signer::protection::SlashingDb;
 use maya_signer::service::{Request, Service};
 use zeroize::Zeroizing;
+
+/// How long a connection may take to authenticate. The signer serves one
+/// connection at a time, so without a bound a peer that connects and sends
+/// nothing would hold the only slot and stop the validator signing.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn args() -> Result<(String, BTreeMap<String, String>), String> {
     let mut it = std::env::args().skip(1);
@@ -59,6 +65,8 @@ fn unhex(s: &str) -> Result<Vec<u8>, String> {
         .step_by(2)
         .map(|i| {
             s.get(i..i + 2)
+                // `from_str_radix` alone accepts a sign: "+f" would parse as 0x0f.
+                .filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()))
                 .and_then(|h| u8::from_str_radix(h, 16).ok())
                 .ok_or("bad hex".to_string())
         })
@@ -89,10 +97,17 @@ fn serve(f: &BTreeMap<String, String>) -> Result<(), String> {
     // protection database, which is the point.
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
+        if stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
+            continue;
+        }
         let Ok(mut ch) = channel::server(stream, &identity, &allowed) else {
             eprintln!("maya2c-signer: refused a connection that failed authentication");
             continue;
         };
+        // An authenticated node may sit idle between requests.
+        if ch.stream_mut().set_read_timeout(None).is_err() {
+            continue;
+        }
         while let Ok(frame) = ch.recv() {
             let Ok(req) = serde_json::from_slice::<Request>(&frame) else {
                 break;

@@ -269,17 +269,16 @@ pub fn decrypt(bytes: &[u8], password: &str) -> Result<HybridSigningKey> {
 
 /// Writes a keystore to `path`, refusing to clobber an existing file.
 ///
+/// The file is made owner-only while still empty, before the key is written
+/// into it, so no other local account can read it at any moment.
+///
 /// # Errors
 ///
-/// Returns an error if the file already exists or cannot be written. Silently
-/// overwriting would destroy a key with no way to recover it.
+/// Returns an error if the file already exists, cannot be written, or cannot
+/// be made owner-only. Silently overwriting would destroy a key with no way
+/// to recover it.
 pub fn save(path: &std::path::Path, contents: &[u8]) -> Result<()> {
-    if path.exists() {
-        bail!(
-            "{} already exists — refusing to overwrite an existing key",
-            path.display()
-        );
-    }
+    use std::io::Write as _;
 
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -288,29 +287,85 @@ pub fn save(path: &std::path::Path, contents: &[u8]) -> Result<()> {
             .with_context(|| format!("creating {}", parent.display()))?;
     }
 
-    std::fs::write(path, contents).with_context(|| format!("writing {}", path.display()))?;
-
-    restrict_permissions(path)?;
-    Ok(())
+    // `create_new`, not an `exists` check first: the check and the write race,
+    // and the loser of that race is someone's only key.
+    let mut file = match create_owner_only(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => bail!(
+            "{} already exists — refusing to overwrite an existing key",
+            path.display()
+        ),
+        Err(e) => return Err(e).with_context(|| format!("creating {}", path.display())),
+    };
+    if let Err(e) = restrict_permissions(path) {
+        drop(file);
+        // Still empty, so removing it loses nothing.
+        let _ = std::fs::remove_file(path);
+        return Err(e);
+    }
+    file.write_all(contents)
+        .and_then(|()| file.sync_all())
+        .with_context(|| format!("writing {}", path.display()))
 }
 
-/// Restricts the keystore to the owner where the platform supports it.
+/// Creates `path`, failing if it exists. On Unix the mode is 0600 from
+/// creation; a umask can only remove bits from it.
+fn create_owner_only(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+/// Unix: re-asserts 0600, for a file system that ignored the creation mode.
 #[cfg(unix)]
 fn restrict_permissions(path: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    let mut permissions = std::fs::metadata(path)?.permissions();
-    permissions.set_mode(0o600);
-    std::fs::set_permissions(path, permissions)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("restricting {}", path.display()))
+}
+
+/// Windows: replaces the inherited DACL with one entry, full control for the
+/// account running this process (by SID). Uses the system's own `whoami` and
+/// `icacls`, by full path under `%SystemRoot%`, rather than a new dependency on
+/// the Windows security API.
+#[cfg(windows)]
+fn restrict_permissions(path: &std::path::Path) -> Result<()> {
+    use std::process::Command;
+    let system32 = std::path::PathBuf::from(
+        std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into()),
+    )
+    .join("System32");
+    let whoami = Command::new(system32.join("whoami.exe"))
+        .args(["/user", "/fo", "csv", "/nh"])
+        .output()
+        .context("running whoami")?;
+    let sid = String::from_utf8_lossy(&whoami.stdout)
+        .split(',')
+        .map(|f| f.trim().trim_matches('"').to_owned())
+        .find(|f| f.starts_with("S-1-"))
+        .ok_or_else(|| anyhow!("whoami did not report this account's SID"))?;
+    let icacls = Command::new(system32.join("icacls.exe"))
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r", &format!("*{sid}:F")])
+        .output()
+        .context("running icacls")?;
+    if !icacls.status.success() {
+        bail!(
+            "could not make {} owner-only: {}",
+            path.display(),
+            String::from_utf8_lossy(&icacls.stdout).trim()
+        );
+    }
     Ok(())
 }
 
-/// Windows has no chmod equivalent that maps cleanly here.
-///
-/// The file inherits the parent directory's ACL. Proper hardening would rewrite
-/// the DACL to grant the owning user alone, which needs the Windows security
-/// APIs; that is not done, and the caller is warned at generation time rather
-/// than being left to assume the file is locked down.
-#[cfg(not(unix))]
+/// Elsewhere the file keeps its directory's access rules; the caller warns.
+#[cfg(not(any(unix, windows)))]
 fn restrict_permissions(_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
@@ -318,7 +373,7 @@ fn restrict_permissions(_path: &std::path::Path) -> Result<()> {
 /// Whether file permissions were restricted on this platform.
 #[must_use]
 pub const fn permissions_are_restricted() -> bool {
-    cfg!(unix)
+    cfg!(any(unix, windows))
 }
 
 #[cfg(test)]
@@ -482,6 +537,59 @@ mod tests {
     fn wrong_password_is_rejected() {
         let blob = encrypt(&test_key(), "right").expect("encrypt");
         assert!(decrypt(&blob, "wrong").is_err());
+    }
+
+    #[test]
+    fn a_wrong_password_error_names_neither_password() {
+        let blob = encrypt(&test_key(), "right-pw-4c1e").expect("encrypt");
+        let Err(err) = decrypt(&blob, "typo-pw-9b2d") else {
+            panic!("a wrong password decrypted");
+        };
+        let shown = format!("{err:#} {err:?}");
+        assert!(
+            !shown.contains("right-pw-4c1e") && !shown.contains("typo-pw-9b2d"),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn save_refuses_to_overwrite_and_leaves_the_first_key() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("nested").join("wallet.key");
+        save(&path, b"first").expect("save");
+        let err = save(&path, b"second").expect_err("overwrote a key");
+        assert!(err.to_string().contains("already exists"), "{err}");
+        assert_eq!(std::fs::read(&path).expect("read"), b"first");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_keystore_is_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("wallet.key");
+        save(&path, b"k").expect("save");
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "mode {mode:o}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_saved_keystore_has_one_uninherited_entry_for_its_owner() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("wallet.key");
+        save(&path, b"k").expect("save");
+        let out = std::process::Command::new("icacls")
+            .arg(&path)
+            .output()
+            .expect("run icacls");
+        let acl = String::from_utf8_lossy(&out.stdout);
+        // One line per entry, each `principal:(rights)`; `(I)` marks inherited.
+        assert_eq!(acl.matches(":(").count(), 1, "expected one entry:\n{acl}");
+        assert!(!acl.contains("(I)"), "an inherited entry survived:\n{acl}");
+        let user = std::env::var("USERNAME").expect("USERNAME");
+        assert!(acl.to_lowercase().contains(&user.to_lowercase()), "{acl}");
+        assert_eq!(std::fs::read(&path).expect("owner can read"), b"k");
     }
 
     #[test]

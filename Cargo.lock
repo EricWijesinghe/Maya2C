@@ -7026,6 +7026,7 @@ dependencies = [
  "maya-crypto-pq",
  "maya-signer",
  "serde_json",
+ "tempfile",
  "zeroize",
 ]
 
