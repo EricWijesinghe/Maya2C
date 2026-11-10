@@ -216,8 +216,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$PACKAGE" in
-            maya-governance) heavy="more_support_never_turns_a_pass_into_a_failure more_turnout_never_loses_a_quorum" ;;
-            maya-fee-market) heavy="a_split_conserves_every_unit" ;;
+            maya-fee-market) heavy="a_split_conserves_every_unit the_base_fee_respects_its_floor_and_its_step a_rise_is_one_denominator_share_and_stops_at_the_ceiling" ;;
             *) heavy="" ;;
           esac
           if [ -z "$heavy" ]; then

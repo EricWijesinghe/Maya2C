@@ -18,22 +18,48 @@ fn any_amount() -> Amount {
     Amount([kani::any(), kani::any(), kani::any(), kani::any()])
 }
 
+/// A symbolic `u32` widened to `u64`: the high 32 bits are structurally zero,
+/// so CBMC builds 32-bit-wide products and divisors, not 64-bit symbolic ones.
+///
+/// Block sizes and targets are below `MAX_BLOCK_BYTES` (5 MiB, 2^23), and the
+/// change denominator is a validated config value. Bounded, and said so; the
+/// 256-bit fee and floor stay full width.
+fn any_u32_as_u64() -> u64 {
+    u64::from(kani::any::<u32>())
+}
+
+/// Proves the split for every 256-bit fee and tip, and every treasury share
+/// from 0 to 65 535 basis points. `split` clamps above `BPS` (10 000), so the
+/// clamp is inside the range; the validated share is at most
+/// `MAX_TREASURY_BPS` (5 000). A 64-bit symbolic share made the 512-bit
+/// product a 256-by-64 symbolic multiplier, which did not finish in CBMC
+/// (nightly 2026-11-09). With this 16-bit share the harness still gave no
+/// verdict in 30 min (WSL, 2026-11-10): the division by 10 000 is the
+/// obstacle, so this harness is listed in kani-heavy.yml. Shares above 65 535 take the same `min` clamp; the
+/// unit test `a_treasury_share_above_one_hundred_percent_cannot_create_value`
+/// pins it at 50 000, and `no_unit_is_created_or_lost_across_a_wide_sweep`
+/// sweeps the 256-bit fees.
 #[kani::proof]
 fn a_split_conserves_every_unit() {
     let fee = any_amount();
     let tip = any_amount();
-    let bps: u64 = kani::any();
+    let bps = u64::from(kani::any::<u16>());
     let s = split(fee, tip, bps);
     assert!(s.total() == fee.checked_add(tip));
     assert!(s.treasury <= fee);
 }
 
+/// The floor holds and a fall is at most one denominator's share, for every
+/// 256-bit parent fee and floor, and every size, target and denominator below
+/// 2^32 (see [`any_u32_as_u64`]). Full-width `u64` inputs made the scale
+/// `target * denominator` a 128-bit divisor. The bounded form gave no verdict
+/// in about 27 min in WSL (2026-11-10), so it stays in kani-heavy.yml.
 #[kani::proof]
 fn the_base_fee_respects_its_floor_and_its_step() {
     let parent = any_amount();
-    let size: u64 = kani::any();
-    let target: u64 = kani::any();
-    let denominator: u64 = kani::any();
+    let size = any_u32_as_u64();
+    let target = any_u32_as_u64();
+    let denominator = any_u32_as_u64();
     let floor = any_amount();
     kani::assume(target > 0 && denominator >= 8);
     let next = next_base_fee(parent, size, target, denominator, floor);
@@ -46,13 +72,15 @@ fn the_base_fee_respects_its_floor_and_its_step() {
 }
 
 /// The linear rise is at most one denominator's share, and ends at the ceiling
-/// (FEE-3 and FEE-6, ADR-076).
+/// (FEE-3 and FEE-6, ADR-076). Size, target and denominator are bounded to
+/// below 2^32 as in [`the_base_fee_respects_its_floor_and_its_step`]; the fee
+/// stays 256-bit.
 #[kani::proof]
 fn a_rise_is_one_denominator_share_and_stops_at_the_ceiling() {
     let parent = any_amount();
-    let size: u64 = kani::any();
-    let target: u64 = kani::any();
-    let denominator: u64 = kani::any();
+    let size = any_u32_as_u64();
+    let target = any_u32_as_u64();
+    let denominator = any_u32_as_u64();
     let floor = any_amount();
     kani::assume(target > 0 && denominator >= 8 && size > target);
     let next = next_base_fee(parent, size, target, denominator, floor);
