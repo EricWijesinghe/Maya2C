@@ -12,7 +12,12 @@
 #![warn(missing_docs)]
 
 pub mod decentral;
+pub mod gates;
+pub mod incident_store;
+pub mod incidents;
 pub mod live;
+pub mod operator;
+pub mod slo;
 
 use serde::Serialize;
 

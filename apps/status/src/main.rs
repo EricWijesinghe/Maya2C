@@ -17,6 +17,7 @@
 //! one when it resumes.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -28,11 +29,18 @@ use axum::routing::get;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
-use maya_status::Timeline;
 use maya_status::decentral::{self, StakeSet};
+use maya_status::gates::{self, Gate};
+use maya_status::incident_store::{self, StoreError};
+use maya_status::incidents;
 use maya_status::live::{BftStatus, Live, NetworkView, NodePoll};
+use maya_status::slo::{self, Finality};
+use maya_status::{operator, Timeline};
 
 const POLL: Duration = Duration::from_secs(2);
+
+/// How often the node's metrics are read for the finality figures.
+const FINALITY_POLL: Duration = Duration::from_secs(10);
 
 /// How often the live view polls each watched node: "within seconds" of a
 /// peer connecting, it is on the page.
@@ -59,6 +67,12 @@ struct Shared {
     /// The final report of a chain stopped on purpose (`--stopped`): served
     /// as is, because a stopped chain is not halting and has nothing to follow.
     stopped: Option<serde_json::Value>,
+    /// The incident log, when `--incidents` names one.
+    incidents: Option<incidents::Log>,
+    /// The bundled launch gates.
+    gates: Vec<Gate>,
+    /// The node's latest finality read; `None` is MISSING.
+    finality: Mutex<Option<Finality>>,
 }
 
 impl Shared {
@@ -77,6 +91,9 @@ struct Args {
     watch: Vec<(String, String)>,
     known: Vec<(String, String)>,
     stopped: Option<String>,
+    incidents: Option<PathBuf>,
+    operators: Option<PathBuf>,
+    metrics: Option<String>,
 }
 
 fn args() -> Result<Args, String> {
@@ -88,6 +105,9 @@ fn args() -> Result<Args, String> {
         watch: Vec::new(),
         known: Vec::new(),
         stopped: None,
+        incidents: None,
+        operators: None,
+        metrics: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -110,9 +130,12 @@ fn args() -> Result<Args, String> {
                 a.known.push((name.to_owned(), id.to_owned()));
             }
             "--stopped" => a.stopped = Some(value()?),
+            "--incidents" => a.incidents = Some(PathBuf::from(value()?)),
+            "--operators" => a.operators = Some(PathBuf::from(value()?)),
+            "--metrics" => a.metrics = Some(value()?),
             "--help" | "-h" => {
                 return Err(
-                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]... [--known NAME=PEERID]... [--stopped FINAL.json]"
+                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]... [--known NAME=PEERID]... [--stopped FINAL.json] [--incidents DIR] [--operators FILE] [--metrics URL]"
                         .into(),
                 );
             }
@@ -196,6 +219,8 @@ async fn notify(http: &reqwest::Client, url: &str, text: String) {
 async fn follow(client: HttpClient, shared: Arc<Shared>, ntfy: Option<String>) {
     let http = reqwest::Client::new();
     let mut alerted = false;
+    // The last log error printed, so a tampered log logs once, not every poll.
+    let mut log_error = String::new();
     loop {
         let next = shared
             .timeline
@@ -222,6 +247,15 @@ async fn follow(client: HttpClient, shared: Arc<Shared>, ntfy: Option<String>) {
         let report = shared
             .caught_up()
             .and_then(|_| shared.timeline.lock().ok().and_then(|t| t.report(now())));
+        if let (Some(r), Some(log)) = (report.as_ref(), shared.incidents.as_ref())
+            && let Err(e) = log.sync_halts(r, now())
+        {
+            let text = e.to_string();
+            if text != log_error {
+                eprintln!("status: incident log: {text}");
+                log_error = text;
+            }
+        }
         if let (Some(r), Some(url)) = (report, ntfy.as_deref()) {
             if r.halted_now && !alerted {
                 notify(
@@ -286,6 +320,77 @@ async fn emblem() -> impl IntoResponse {
         ],
         EMBLEM,
     )
+}
+
+async fn history_page() -> Html<&'static str> {
+    Html(include_str!("history.html"))
+}
+
+/// The incident log, verified on every read. A tampered log says so and
+/// shows no rows: a broken history must not look like a clean one.
+async fn incidents_api(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let Some(log) = &shared.incidents else {
+        return Json(serde_json::json!({ "status": "off", "incidents": [] }));
+    };
+    match log.records() {
+        Ok(records) => Json(serde_json::json!({
+            "status": "verified",
+            "records": records.len(),
+            "head": incident_store::head(&records),
+            "incidents": incidents::fold(&records),
+        })),
+        Err(e) => {
+            let status = if matches!(e, StoreError::Tampered { .. }) {
+                "tampered"
+            } else {
+                "unreadable"
+            };
+            Json(serde_json::json!({ "status": status, "error": e.to_string(), "incidents": [] }))
+        }
+    }
+}
+
+async fn gates_api(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    Json(serde_json::json!({
+        "progress": gates::progress(&shared.gates),
+        "gates": shared.gates,
+    }))
+}
+
+/// Uptime over the window from the timeline, finality from the last node
+/// read. A figure not measured is `null`.
+async fn slo_api(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    let at = now();
+    let uptime = shared
+        .timeline
+        .lock()
+        .ok()
+        .and_then(|t| t.report(at))
+        .and_then(|r| slo::uptime_window(&r, at));
+    let finality = shared.finality.lock().ok().and_then(|f| *f);
+    Json(serde_json::json!({
+        "window_seconds": slo::WINDOW_SECS,
+        "uptime": { "percent": uptime, "target_percent": slo::UPTIME_TARGET_PCT },
+        "finality": finality,
+        "targets": { "p50_s": slo::FINALITY_P50_TARGET_S, "p99_s": slo::FINALITY_P99_TARGET_S },
+    }))
+}
+
+/// Reads the node's exposition every `FINALITY_POLL`. A read that fails
+/// leaves the figure missing rather than stale.
+async fn scrape_finality(url: String, shared: Arc<Shared>) {
+    let http = reqwest::Client::new();
+    loop {
+        let text = match http.get(&url).timeout(LIVE_TIMEOUT).send().await {
+            Ok(response) => response.text().await.ok(),
+            Err(_) => None,
+        };
+        let measured = text.and_then(|t| slo::finality_from(&t, now()));
+        if let Ok(mut f) = shared.finality.lock() {
+            *f = measured;
+        }
+        tokio::time::sleep(FINALITY_POLL).await;
+    }
 }
 
 async fn live_api(State(live): State<Arc<Mutex<Live>>>) -> impl IntoResponse {
@@ -387,11 +492,37 @@ async fn main() {
             std::process::exit(2);
         }
     };
+    let incident_log = a.incidents.as_deref().map(|dir| {
+        let path = a
+            .operators
+            .clone()
+            .unwrap_or_else(|| dir.join("operators.txt"));
+        match operator::read_operators(&path) {
+            Ok(trusted) => incidents::Log::new(dir, trusted),
+            Err(e) => {
+                eprintln!("status: --operators: {e}");
+                std::process::exit(2);
+            }
+        }
+    });
+    let bundled_gates = match gates::parse(gates::BUNDLED) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("status: {e}");
+            std::process::exit(1);
+        }
+    };
     let shared = Arc::new(Shared {
         timeline: Mutex::new(Timeline::new(a.threshold)),
         tip: AtomicU64::new(u64::MAX),
         stopped,
+        incidents: incident_log,
+        gates: bundled_gates,
+        finality: Mutex::new(None),
     });
+    if let Some(url) = a.metrics.clone() {
+        tokio::spawn(scrape_finality(url, Arc::clone(&shared)));
+    }
     if shared.stopped.is_none() {
         tokio::spawn(follow(client, Arc::clone(&shared), a.ntfy));
     }
@@ -451,6 +582,10 @@ fn router(shared: Arc<Shared>, live: Arc<Mutex<Live>>) -> Router {
         .route("/", get(page))
         .route("/api/status", get(api))
         .route("/brand/emblem.png", get(emblem))
+        .route("/history", get(history_page))
+        .route("/api/incidents", get(incidents_api))
+        .route("/api/gates", get(gates_api))
+        .route("/api/slo", get(slo_api))
         .with_state(shared)
         .merge(live_routes)
         .layer(maya_web_security::cors_from_env([axum::http::Method::GET]));
@@ -466,15 +601,106 @@ mod router_tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
-    #[tokio::test]
-    async fn every_route_sends_the_hardening_headers_and_no_server_name() {
-        let shared = Arc::new(Shared {
+    fn shared_with(incidents: Option<incidents::Log>, finality: Option<Finality>) -> Arc<Shared> {
+        Arc::new(Shared {
             timeline: Mutex::new(Timeline::new(60)),
             tip: AtomicU64::new(0),
             stopped: None,
-        });
+            incidents,
+            gates: gates::parse(gates::BUNDLED).unwrap(),
+            finality: Mutex::new(finality),
+        })
+    }
+
+    async fn get_json(shared: Arc<Shared>, uri: &str) -> serde_json::Value {
         let live = Arc::new(Mutex::new(Live::new("maya-testnet-1")));
-        for uri in ["/", "/api/status", "/live", "/api/live", "/no-such-route"] {
+        let response = router(shared, live)
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "{uri}");
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_incident_api_is_off_without_a_log_and_verified_with_one() {
+        let off = get_json(shared_with(None, None), "/api/incidents").await;
+        assert_eq!(off["status"], "off");
+
+        let dir = tempfile::tempdir().unwrap();
+        let log = incidents::Log::new(dir.path(), Vec::new());
+        let r = report_with_halt();
+        log.sync_halts(&r, 2_000).unwrap();
+        let on = get_json(shared_with(Some(log), None), "/api/incidents").await;
+        assert_eq!(on["status"], "verified");
+        assert_eq!(on["records"], 1);
+        assert_eq!(on["incidents"][0]["id"], "halt-1000");
+        assert_eq!(on["incidents"][0]["published"], false);
+    }
+
+    #[tokio::test]
+    async fn a_tampered_log_is_reported_as_tampered_with_no_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = incidents::Log::new(dir.path(), Vec::new());
+        log.sync_halts(&report_with_halt(), 2_000).unwrap();
+        let path = dir.path().join(incident_store::FILE);
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, text.replace("Chain halt", "Quiet day")).unwrap();
+        let body = get_json(shared_with(Some(log), None), "/api/incidents").await;
+        assert_eq!(body["status"], "tampered");
+        assert!(body["error"].as_str().unwrap().contains("line 1"));
+        assert_eq!(body["incidents"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn gates_come_from_the_plan_with_progress() {
+        let body = get_json(shared_with(None, None), "/api/gates").await;
+        assert_eq!(body["progress"]["total"], 10);
+        assert_eq!(body["gates"].as_array().unwrap().len(), 10);
+    }
+
+    #[tokio::test]
+    async fn finality_is_null_until_the_node_has_been_read() {
+        let missing = get_json(shared_with(None, None), "/api/slo").await;
+        assert!(missing["finality"].is_null(), "not measured is MISSING, not zero");
+        assert_eq!(missing["targets"]["p99_s"], 6.0);
+        let measured = Finality { samples: 100, p50_s: 1.0, p99_s: 5.6, measured_at: 1 };
+        let body = get_json(shared_with(None, Some(measured)), "/api/slo").await;
+        assert_eq!(body["finality"]["samples"], 100);
+        assert!(body["uptime"]["percent"].is_null(), "no timeline yet");
+    }
+
+    /// One completed halt, from block 5 at t=1000 to t=1120.
+    fn report_with_halt() -> maya_status::Report {
+        maya_status::Report {
+            height: 7,
+            genesis: 0,
+            last_block: 1_120,
+            uptime: 1.0,
+            streak_seconds: 0,
+            halted_now: false,
+            since_last_block: 0,
+            halts: vec![maya_status::Halt { height: 5, started: 1_000, ended: 1_120 }],
+            threshold_seconds: 60,
+        }
+    }
+
+    #[tokio::test]
+    async fn every_route_sends_the_hardening_headers_and_no_server_name() {
+        let shared = shared_with(None, None);
+        let live = Arc::new(Mutex::new(Live::new("maya-testnet-1")));
+        for uri in [
+            "/",
+            "/api/status",
+            "/live",
+            "/api/live",
+            "/history",
+            "/api/incidents",
+            "/api/gates",
+            "/api/slo",
+            "/no-such-route",
+        ] {
             let response = router(Arc::clone(&shared), Arc::clone(&live))
                 .oneshot(Request::get(uri).body(Body::empty()).unwrap())
                 .await
