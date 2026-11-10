@@ -11,6 +11,10 @@ use axum::routing::get;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 
+/// Per-client rate limiting (`rate-limit` feature).
+#[cfg(feature = "rate-limit")]
+pub mod rate_limit;
+
 /// Environment variable naming the browser origins allowed to read a service,
 /// comma-separated. Unset or empty means any origin.
 pub const CORS_ENV: &str = "MAYA2C_CORS_ALLOWED_ORIGINS";

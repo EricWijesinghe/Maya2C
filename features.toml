@@ -3517,3 +3517,14 @@ class = "REAL"
 status = "working"
 tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding. Stranding reads get_mempool_info (node RPC, added with this entry); a node that does not serve it is logged as idle, not silently skipped. Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
+
+[[subsystem]]
+id = "public-api"
+name = "Public indexer API v1 (/api/v1, rate limited, golden OpenAPI)"
+domain = "Developer platform"
+paths = "`apps/explorer/src/api/`, `crates/web-security/src/rate_limit.rs`, `apps/explorer/openapi/v1.yaml`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["apps/explorer/tests/api_v1_tests.rs", "apps/explorer/src/api/query.rs", "apps/explorer/src/api/address.rs", "apps/explorer/src/api/cache.rs"]
+note = "ADR-092. Read-only GET under /api/v1. History from the index (tx_outputs added, index generation 3); live values from the node through a TTL single-flight cache (supply 30 s). Bech32m addresses, cursor pages, RFC 9457 problem codes, per-client 10 rps / burst 30 limit, finality-aware Cache-Control. Postgres SQL for the new queries is NOT VERIFIED against a server (no Postgres harness in the repo); MemoryStore proves the logic. The golden spec is JSON in a .yaml file."

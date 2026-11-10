@@ -27,6 +27,7 @@
 
 #![warn(missing_docs)]
 
+pub mod api;
 pub mod error;
 pub mod indexer;
 pub mod model;

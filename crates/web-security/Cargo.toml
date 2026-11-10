@@ -12,6 +12,14 @@ description = "Security headers, CORS policy and security.txt shared by Maya2C's
 axum.workspace = true
 tower-http = { workspace = true, features = ["set-header", "cors"] }
 tracing.workspace = true
+# Per-client token buckets (`rate_limit`). Optional so services that only need
+# the headers and CORS policy do not compile the limiter.
+governor = { workspace = true, optional = true }
+tower_governor = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+
+[features]
+rate-limit = ["dep:governor", "dep:tower_governor", "dep:thiserror"]
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

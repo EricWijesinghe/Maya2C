@@ -56,6 +56,7 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         kind: String::new(),
         summary: String::new(),
         careful: false,
+        outputs: Vec::new(),
     }
 }
 
@@ -81,6 +82,7 @@ async fn harness(blocks: i64) -> Harness {
         // rather than skipped. `cargo test` and `cargo nextest` do not agree
         // on the cwd of a test binary; `CARGO_MANIFEST_DIR` is fixed.
         assets: Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")),
+        api_client_ip: maya_web_security::rate_limit::ClientIp::Socket,
     };
 
     // Port 0: the OS assigns one, so concurrent tests never collide.
@@ -577,6 +579,7 @@ async fn a_deployment_without_an_assets_directory_still_serves_pages() {
             events,
             node_rpc: None,
             assets: None,
+            api_client_ip: maya_web_security::rate_limit::ClientIp::Socket,
         },
     )
     .await
@@ -624,6 +627,7 @@ async fn seed_kinded_tx(h: &Harness, height: i64, kind: &str, summary: &str) -> 
         kind: kind.to_owned(),
         summary: summary.to_owned(),
         careful: true,
+        outputs: Vec::new(),
         ..transaction(height, 9)
     };
     h.store
