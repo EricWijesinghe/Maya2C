@@ -200,7 +200,7 @@ impl Market {
         let snapshot = self.snapshot(id, &sla);
         let result = self.tick_inner(id, &sla, delivered);
         if result.is_err() {
-            self.restore(snapshot, id, &sla);
+            self.restore(&snapshot, id, &sla);
         }
         result
     }
@@ -222,7 +222,7 @@ impl Market {
         }
     }
 
-    fn restore(&mut self, snap: Snapshot, id: usize, sla: &Sla) {
+    fn restore(&mut self, snap: &Snapshot, id: usize, sla: &Sla) {
         // Consumer first so a self-SLA (same address) ends on the provider's
         // identical snapshot rather than a stale one.
         for (who, (balance, net)) in [(sla.consumer, snap.consumer), (sla.provider, snap.provider)]
@@ -306,14 +306,13 @@ impl Market {
     pub fn settle(&mut self) -> Result<Settlement, BarterError> {
         // Value in must equal value out: credits + collateral posted == debits +
         // collateral released. (The old signed form summed these to zero.)
-        // 512-bit totals: many accounts each near 2^256 must not make a balanced
-        // batch unsettleable (a refused settle keeps its books, so it would stick).
-        let (mut credits, mut debits) = (U512::from(self.escrow_in), U512::from(self.escrow_out));
+        let mut credits = vec![self.escrow_in];
+        let mut debits = vec![self.escrow_out];
         let mut deltas = Vec::new();
         for (who, (gain, loss)) in &self.net {
             let (gain, loss) = (*gain, *loss);
-            credits += U512::from(gain);
-            debits += U512::from(loss);
+            credits.push(gain);
+            debits.push(loss);
             if gain != loss {
                 deltas.push((
                     *who,
@@ -328,7 +327,7 @@ impl Market {
                 ));
             }
         }
-        if credits != debits {
+        if !balances(credits, debits)? {
             return Err(BarterError::NotConserved);
         }
         // Reset only once the batch is accepted, so a refusal loses nothing.
@@ -343,5 +342,83 @@ impl Market {
         self.updates = 0;
         self.breaches = 0;
         Ok(out)
+    }
+}
+
+/// Whether `credits` and `debits` sum to the same value, in checked 256-bit
+/// arithmetic.
+///
+/// Summing each side overflows long before a balanced batch is wrong (many
+/// accounts near 2^256 on each side). So the terms are folded into one signed
+/// running difference, always taking a term of the opposite sign first: the
+/// difference then never leaves `[-MAX, MAX]` while both sides have terms, and
+/// once one side is empty the rest is bounded by the difference itself in any
+/// balanced batch. An unbalanced batch can still overflow, and is refused.
+fn balances(credits: Vec<U256>, debits: Vec<U256>) -> Result<bool, BarterError> {
+    let (mut up, mut down) = (credits.into_iter(), debits.into_iter());
+    let (mut magnitude, mut negative) = (U256::zero(), false);
+    loop {
+        let next = if negative {
+            up.next()
+                .map(|v| (v, false))
+                .or_else(|| down.next().map(|v| (v, true)))
+        } else {
+            down.next()
+                .map(|v| (v, true))
+                .or_else(|| up.next().map(|v| (v, false)))
+        };
+        let Some((term, term_negative)) = next else {
+            return Ok(magnitude.is_zero());
+        };
+        if magnitude.is_zero() {
+            (magnitude, negative) = (term, term_negative);
+        } else if term_negative == negative {
+            magnitude = magnitude.checked_add(term).ok_or(BarterError::Overflow)?;
+        } else if magnitude >= term {
+            magnitude -= term;
+        } else {
+            (magnitude, negative) = (term - magnitude, term_negative);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn who(i: u8) -> Address {
+        [i; 32]
+    }
+
+    #[test]
+    fn near_max_accounts_that_balance_settle_without_wide_arithmetic() {
+        let mut m = Market::default();
+        for i in 0..6u8 {
+            m.net.insert(who(i), (U256::MAX, U256::MAX));
+        }
+        m.net.insert(who(7), (U256::MAX, U256::zero()));
+        m.net.insert(who(8), (U256::zero(), U256::MAX));
+        assert!(m.settle().is_ok());
+    }
+
+    #[test]
+    fn an_overflowing_batch_is_refused_and_the_books_are_untouched() {
+        let mut m = Market::default();
+        m.net.insert(who(1), (U256::MAX, U256::zero()));
+        m.net.insert(who(2), (U256::MAX, U256::zero()));
+        m.updates = 3;
+        assert_eq!(m.settle(), Err(BarterError::Overflow));
+        assert_eq!(m.net.len(), 2);
+        assert_eq!(m.updates, 3);
+    }
+
+    #[test]
+    fn a_value_creating_batch_is_not_conserved_and_keeps_its_books() {
+        let mut m = Market::default();
+        m.net.insert(who(1), (U256::from(5), U256::zero()));
+        assert_eq!(m.settle(), Err(BarterError::NotConserved));
+        assert_eq!(m.net.len(), 1);
+        m.escrow_out = U256::from(5);
+        assert!(m.settle().is_ok());
     }
 }
