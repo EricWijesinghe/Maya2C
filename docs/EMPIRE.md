@@ -118,3 +118,8 @@ ordering, and it is Eric's decision.
   defers. Does M1 require all of MP06, or only the parts inside the ADR-016
   mainnet core (CBDC vault, tax, compliance)? Recommended: only the core
   parts; the rest stays P6.
+- **Q2 (ADR-085 D2b).** Group application messages are authenticated by Ed25519 only. Options: (i) reviewed fork or upstream change adding a composite ML-DSA-65 + SLH-DSA-128s scheme, recommended end state; (ii) per-message `0x30` co-signature (~11 KB), short-term only; (iii) single-leg and disclose, rejected. No group message reaches users until decided. See [ADR-085](adr/ADR-085-chat-v2-groups-on-mls.md).
+- **Q3 (ADR-086 §14.1).** Block time for "days": 1 s (ADR-082) or 2 s (`smart-account` policy)? See [ADR-086](adr/ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md).
+- **Q4 (ADR-086 §14.2).** Cap recovery delay at 1,000,000 blocks instead of ADR-056's 30 days?
+- **Q5 (ADR-086 §14.3).** Guardians with no lock power (recommended) or a capped lock?
+- **Q6 (ADR-086 §14.4).** Accept that opted-in accounts become stateful to verify (light-client gap)?
