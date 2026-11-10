@@ -15,5 +15,8 @@ maya-amount = { path = "../amount" }
 maya-crypto-pq = { path = "../crypto-pq" }
 blake3.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true
