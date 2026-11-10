@@ -1,0 +1,28 @@
+---
+// Ecosystem roadmap: the catalog by wave, the horizon ideas, and the comparison.
+// Everything is read from docs/ecosystem at build time (src/data/ecosystem.ts).
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import RoadmapWaves from "../../components/RoadmapWaves.astro";
+import RoadmapHorizon from "../../components/RoadmapHorizon.astro";
+import RoadmapCompare from "../../components/RoadmapCompare.astro";
+import { loadEcosystem } from "../../data/ecosystem";
+
+const eco = loadEcosystem();
+---
+
+<StarlightPage frontmatter={{ title: "Ecosystem roadmap", description: "Every planned Maya2C app and service by wave, the horizon ideas behind them, and how the chain compares with others, generated from the ecosystem catalog.", template: "splash" }}>
+  <div class="intro not-content">
+    <p class="lede">
+      What we plan to build, in order. This is a staging list, not a status claim: what is built is in
+      <code>features.toml</code>. Every entry comes from the catalog at build time, so the page follows the docs.
+    </p>
+  </div>
+  <RoadmapWaves eco={eco} />
+  <RoadmapHorizon eco={eco} />
+  <RoadmapCompare eco={eco} />
+</StarlightPage>
+
+<style>
+  .intro { margin: 1rem 0 0; }
+  .lede { max-width: 46rem; color: var(--lede); font-size: 1.02rem; }
+</style>

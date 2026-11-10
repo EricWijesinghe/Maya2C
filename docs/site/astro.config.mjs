@@ -186,6 +186,7 @@ export default defineConfig({
             { label: "Wallet integration", link: "/guides/wallet" },
             { label: "Compiling a contract", link: "/guides/contracts" },
             { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
+            { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },
           ],
         },
         // The whole of docs/, in the order ingest found it.

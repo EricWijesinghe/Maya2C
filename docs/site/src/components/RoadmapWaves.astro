@@ -1,0 +1,211 @@
+---
+// Waves W0 to W4: a timeline of lanes, an orbit with one bubble per entry, and
+// one detail card per entry. Lanes and bubbles pick the same card, so a phone
+// (where the orbit is small) taps a chip instead. Without JavaScript every card
+// is listed in order. Data: src/data/ecosystem.ts, read from docs/ecosystem.
+import type { Ecosystem, Entry, GateKind } from "../data/ecosystem";
+
+interface Props {
+  eco: Ecosystem;
+}
+const { eco } = Astro.props;
+
+// Ring radius for each wave, W0 innermost. The outer ring stays inside the 640 viewBox with room for a bubble.
+const RING = [80, 140, 200, 255, 300];
+const CENTRE = 320;
+const GATE_LABEL: Record<GateKind, string> = { open: "no gate", review: "review first", decision: "owner decision" };
+
+const sectionName = (key: string) => eco.sections.find((s) => s.key === key)?.name ?? key;
+
+const nodes = eco.waves.flatMap((w, wi) => {
+  const inWave = eco.entries.filter((e) => e.wave === w.id);
+  return inWave.map((e, i) => {
+    // Each wave starts at its own angle so the rings do not line up; same-section entries stay adjacent.
+    const angle = ((-90 + wi * 17 + (i * 360) / inWave.length) * Math.PI) / 180;
+    return {
+      e,
+      x: (CENTRE + RING[wi] * Math.cos(angle)).toFixed(1),
+      y: (CENTRE + RING[wi] * Math.sin(angle)).toFixed(1),
+    };
+  });
+});
+const countIn = (wave: string) => eco.entries.filter((e) => e.wave === wave).length;
+const first: Entry = eco.entries[0];
+---
+
+<div class="roadmap not-content" data-roadmap>
+  <section class="lanes" aria-labelledby="waves-h">
+    <h2 id="waves-h">Waves, in order</h2>
+    {eco.waves.map((w) => (
+      <div class="lane">
+        <header>
+          <span class={`wv wv-${w.id}`}>{w.id}</span>
+          <strong>{w.when}</strong>
+          <span class="count">{countIn(w.id)} entries</span>
+        </header>
+        <p class="rule">{w.rule}</p>
+        <ul class="picks">
+          {eco.entries.filter((e) => e.wave === w.id).map((e) => (
+            <li>
+              <button type="button" class="pick" data-pick={e.id} aria-pressed={e.id === first.id ? "true" : "false"}>
+                <i class={`dot s-${e.section}`} aria-hidden="true"></i>{e.id}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </section>
+
+  <div class="stage">
+    <figure class="orbit">
+      <svg viewBox="0 0 640 640" role="img" aria-labelledby="orbit-t orbit-d">
+        <title id="orbit-t">Ecosystem orbit: each ring is a wave, W0 at the centre to W4 at the rim</title>
+        <desc id="orbit-d">{eco.entries.length} entries. Pick a bubble to read its card. Colour is the catalog section; line style is the gate.</desc>
+        {RING.map((r, wi) => (
+          <circle cx={CENTRE} cy={CENTRE} r={r} class={`ring ring-${eco.waves[wi].id}`} />
+        ))}
+        <circle cx={CENTRE} cy={CENTRE} r="40" class="core" />
+        <text x={CENTRE} y={CENTRE - 2} class="core-t">Maya2C</text>
+        <text x={CENTRE} y={CENTRE + 14} class="core-s">ecosystem</text>
+        {nodes.map(({ e, x, y }) => (
+          <a href="#roadmap-panel" data-pick={e.id} class={`node s-${e.section} g-${e.gateKind}`} aria-label={`${e.id}, ${e.wave}: ${e.what}`}>
+            <title>{e.id}: {e.what}</title>
+            <circle cx={x} cy={y} r="22" class="hit" />
+            <circle cx={x} cy={y} r="11" class="bub" />
+          </a>
+        ))}
+      </svg>
+    </figure>
+
+    <div id="roadmap-panel" class="panel" aria-live="polite">
+      {eco.entries.map((e) => (
+        <article class="card" data-id={e.id} id={`card-${e.id}`}>
+          <p class="chips">
+            <span class="chip">{e.section} · {sectionName(e.section)}</span>
+            <span class={`chip wv wv-${e.wave}`}>{e.wave}</span>
+            <span class="chip">size {e.size}</span>
+            <span class={`chip gate g-${e.gateKind}`}>{GATE_LABEL[e.gateKind]}</span>
+          </p>
+          <h3>{e.id}</h3>
+          <p class="what">{e.what}</p>
+          <dl>
+            <dt>Builds on</dt><dd>{e.builds}</dd>
+            <dt>Gate</dt><dd>{e.gate}</dd>
+          </dl>
+          <p class="src"><a href={eco.links.catalog}>CATALOG.md, section {e.section}</a></p>
+        </article>
+      ))}
+    </div>
+  </div>
+
+  <ul class="legend" aria-label="Key">
+    {eco.sections.map((s) => <li><i class={`dot s-${s.key}`} aria-hidden="true"></i>{s.key}. {s.name}</li>)}
+    <li><i class="line g-open" aria-hidden="true"></i>no gate</li>
+    <li><i class="line g-review" aria-hidden="true"></i>review first</li>
+    <li><i class="line g-decision" aria-hidden="true"></i>owner decision</li>
+  </ul>
+</div>
+
+<script>
+  // One delegated listener: the lanes, the orbit and the comparison page's links all pick a card.
+  const roots = document.querySelectorAll<HTMLElement>("[data-roadmap]");
+  const cards = [...document.querySelectorAll<HTMLElement>("#roadmap-panel .card")];
+  const pickers = [...document.querySelectorAll<HTMLElement>("[data-pick]")];
+  const show = (id: string) => {
+    cards.forEach((c) => (c.hidden = c.dataset.id !== id));
+    pickers.forEach((p) => {
+      if (p.classList.contains("pick")) p.setAttribute("aria-pressed", String(p.dataset.pick === id));
+    });
+  };
+  if (roots.length && cards.length) {
+    roots.forEach((r) => r.classList.add("js"));
+    show(cards[0].dataset.id ?? "");
+    document.addEventListener("click", (event) => {
+      const target = (event.target as Element | null)?.closest<HTMLElement>("[data-pick]");
+      if (!target?.dataset.pick) return;
+      event.preventDefault();
+      show(target.dataset.pick);
+      document.getElementById("roadmap-panel")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }
+</script>
+
+<style>
+  .roadmap { margin: 1.5rem 0 2.5rem; color: var(--lede); }
+  .roadmap h2 { font: 800 1.3rem/1.2 var(--display); color: var(--text); margin: 0 0 .8rem; }
+  .dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; margin-right: .4rem; vertical-align: -1px; background: currentColor; }
+  .s-A { color: var(--cherenkov); } .s-B { color: var(--gold); } .s-C { color: var(--verified); }
+  .s-D { color: var(--steel); } .s-E { color: var(--signal); } .s-F { color: var(--iris-a); }
+
+  /* Lanes: a timeline read top to bottom, one row per wave. */
+  .lanes { margin-bottom: 2rem; }
+  .lane { padding: 1rem 1.2rem; margin-bottom: .7rem; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); }
+  .lane header { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: baseline; }
+  .lane strong { color: var(--text); font-family: var(--display); }
+  .count { margin-left: auto; font: .75rem var(--mono); color: var(--muted); }
+  .rule { margin: .35rem 0 .6rem; font-size: .88rem; color: var(--muted); }
+  .picks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .45rem; }
+  .pick {
+    display: inline-flex; align-items: center; min-height: 2.25rem; padding: .3rem .7rem; border-radius: var(--r-pill);
+    background: var(--well); border: 1px solid var(--glass-edge); color: var(--text); font: 600 .8rem var(--mono); cursor: pointer;
+  }
+  .pick:hover, .pick[aria-pressed="true"] { border-color: var(--cherenkov-hi); box-shadow: 0 0 0 1px var(--cherenkov-hi); }
+  .pick:focus-visible { outline: 3px solid var(--cherenkov-hi); outline-offset: 2px; }
+
+  .wv { font: 800 .72rem var(--mono); padding: .15rem .45rem; border-radius: var(--r-pill); border: 1px solid currentColor; color: var(--cherenkov-hi); }
+  .wv-W0 { color: var(--verified); } .wv-W1 { color: var(--cherenkov-hi); } .wv-W2 { color: var(--iris-b); }
+  .wv-W3 { color: var(--signal); } .wv-W4 { color: var(--muted); }
+
+  /* Stage: orbit and detail card side by side; stacked on phones. */
+  .stage { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; margin: 1rem 0; }
+  .orbit { margin: 0; }
+  .orbit svg { width: 100%; height: auto; display: block; }
+  .ring { fill: none; stroke: var(--glass-edge); stroke-width: 1.2; stroke-dasharray: 3 6; }
+  .ring-W4 { stroke-dasharray: none; opacity: .5; }
+  .core { fill: color-mix(in srgb, var(--cherenkov) 22%, transparent); stroke: var(--cherenkov-hi); stroke-width: 1; }
+  .core-t { fill: var(--text); font: 800 15px var(--display); text-anchor: middle; }
+  .core-s { fill: var(--muted); font: 600 10px var(--mono); text-anchor: middle; }
+  .node { cursor: pointer; outline: none; }
+  .node .hit { fill: transparent; }
+  .node .bub { fill: var(--sl-color-bg, var(--void)); stroke-width: 2.2; transition: transform .25s var(--spring); transform-box: fill-box; transform-origin: center; }
+  .node:hover .bub, .node:focus-visible .bub { transform: scale(1.25); }
+  .node:focus-visible .bub { stroke: var(--text) !important; }
+  .node.s-A .bub { stroke: var(--cherenkov); } .node.s-B .bub { stroke: var(--gold); } .node.s-C .bub { stroke: var(--verified); }
+  .node.s-D .bub { stroke: var(--steel); } .node.s-E .bub { stroke: var(--signal); } .node.s-F .bub { stroke: var(--iris-a); }
+  /* Gate as line style, so the orbit shows it without colour: solid none, dashed review, dotted owner decision. */
+  .node.g-review .bub { stroke-dasharray: 5 3; }
+  .node.g-decision .bub { stroke-dasharray: 1.5 2.5; stroke-linecap: round; }
+
+  .panel { min-width: 0; }
+  .card { padding: 1.25rem 1.35rem; border-radius: var(--r-m); background: var(--well); border: 1px solid var(--glass-edge); }
+  .card[hidden] { display: none !important; }
+  .card h3 { margin: .6rem 0 .3rem; font: 800 1.35rem/1.2 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+  .what { margin: 0 0 .7rem; color: var(--lede); }
+  .card dl { margin: 0 0 .6rem; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .35rem .9rem; font-size: .88rem; }
+  .card dt { color: var(--muted); font-weight: 600; }
+  .card dd { margin: 0; color: var(--lede); overflow-wrap: anywhere; }
+  .src { margin: 0; font-size: .82rem; }
+  .src a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
+  .src a:hover { text-decoration: underline; }
+  .chips { margin: 0; display: flex; flex-wrap: wrap; gap: .35rem; }
+  .chip { font: 600 .7rem var(--mono); letter-spacing: .03em; padding: .2rem .55rem; border-radius: var(--r-pill); border: 1px solid var(--glass-edge); color: var(--muted); }
+  /* Status words are text: mixed toward --text so the light theme keeps contrast. */
+  .chip.g-open { color: color-mix(in srgb, var(--verified) 70%, var(--text)); border-color: currentColor; }
+  .chip.g-review { color: color-mix(in srgb, var(--cherenkov-hi) 70%, var(--text)); border-color: currentColor; }
+  .chip.g-decision { color: color-mix(in srgb, var(--gold) 70%, var(--text)); border-color: currentColor; border-style: dashed; }
+
+  .legend { list-style: none; margin: 1.2rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; font-size: .8rem; color: var(--muted); }
+  .legend li { display: inline-flex; align-items: center; }
+  .line { display: inline-block; width: 1.6rem; height: 0; border-top: 2px solid var(--muted); margin-right: .4rem; }
+  .line.g-review { border-top-style: dashed; }
+  .line.g-decision { border-top-style: dotted; }
+
+  @media (max-width: 900px) {
+    .stage { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 520px) {
+    .lane { padding: .85rem; }
+    .count { margin-left: 0; }
+  }
+</style>
