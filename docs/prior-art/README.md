@@ -41,3 +41,7 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
 - [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
 - [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [State rent, storage deposits and state expiry (state-rent)](state-rent.md) — searched 2026-11-12
+- [Restaking and shared-security export (restaking)](restaking.md) — searched 2026-11-12
+- [Paid storage markets with possession proofs (storage-market)](storage-market.md) — searched 2026-11-12
+- [Appchains secured by a base chain's validators (appchains)](appchains.md) — searched 2026-11-12
