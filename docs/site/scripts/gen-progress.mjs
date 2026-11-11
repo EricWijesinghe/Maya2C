@@ -41,9 +41,11 @@ const finality = (() => {
   try {
     const f = readdirSync(new URL("reports/bench/", root)).filter((n) => /^finality-.*\.json$/.test(n)).sort().pop();
     if (!f) return null;
+    if (!/^finality-[0-9-]+\.json$/.test(f)) { console.warn("finality: unexpected file name", f); return null; }
     const b = JSON.parse(read(`reports/bench/${f}`));
+    if (!/^[0-9a-f]{7,40}$/.test(String(b.commit))) { console.warn("finality: bad commit in", f); return null; }
     return { report: `reports/bench/${f.replace(/\.json$/, ".md")}`, commit: b.commit, validators: b.validators, finalized: b.finalized, attempted: b.attempted, p50_ms: Math.round(b.latency_ms.p50), p90_ms: Math.round(b.latency_ms.p90), p99_ms: Math.round(b.latency_ms.p99), machine: b.machine, stamp: b.stamp };
-  } catch { return null; }
+  } catch (e) { console.warn("finality: report unreadable:", e.message); return null; }
 })();
 const run = ci?.workflow_runs?.[0];
 const progress = {

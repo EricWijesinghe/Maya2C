@@ -73,7 +73,8 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       if (!r.ok) throw new Error(String(r.status));
       return r.json();
     };
-    const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
+    // Nearest-rank percentile.
+    const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.max(0, Math.ceil(s.length * p) - 1)]; };
     const hashFmt = (h: number) => { const u = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s"]; let i = 0; while (h >= 1000 && i < u.length - 1) { h /= 1000; i++; } return `${h.toFixed(2)} ${u[i]}`; };
 
     function bars(svg: string, ys: number[]) {
@@ -89,7 +90,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 
     function addBlocks(list: Block[]) {
       const byHeight = new Map(blocks.map((b) => [b.height, b]));
-      for (const b of list) byHeight.set(b.height, b);
+      for (const b of list) if (Number.isFinite(b.height) && Number.isFinite(b.timestamp)) byHeight.set(b.height, { ...b, tx_count: Number.isFinite(b.tx_count) ? b.tx_count : 0 });
       blocks = [...byHeight.values()].sort((a, b) => a.height - b.height).slice(-WINDOW);
       render();
     }
@@ -106,15 +107,20 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         $("bt90").textContent = `${pct(gaps, 0.9).toFixed(1)} s`;
         bars("btChart", gaps);
       }
-      const txs = blocks.reduce((s, b) => s + b.tx_count, 0);
+      const all = blocks.reduce((s, b) => s + b.tx_count, 0);
+      // The first block's transactions belong to the interval before the window.
+      const inSpan = all - blocks[0].tx_count;
       const span = last.timestamp - blocks[0].timestamp;
-      $("txb").textContent = (txs / blocks.length).toFixed(2);
-      $("tps").textContent = span > 0 ? `${(txs / span).toFixed(3)} tx/s` : "—";
+      $("txb").textContent = (all / blocks.length).toFixed(2);
+      $("tps").textContent = span > 0 ? `${(inSpan / span).toFixed(3)} tx/s` : "—";
     }
 
     function state(text: string, ok: boolean) { $("state").textContent = text; $("dot").classList.toggle("on", ok); }
 
+    let polling = false;
     async function poll() {
+      if (polling) return;
+      polling = true;
       try {
         const [stats, recent] = await Promise.all([json(`${EXPLORER}/api/stats`), json(`${EXPLORER}/api/blocks`)]);
         $("txall").textContent = fmt(stats.transactions_indexed);
@@ -128,10 +134,12 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         if (result) {
           $("committee").textContent = fmt(result.committee);
           const now = Date.now();
-          if (lastBft && now > lastBft.at) $("rpm").textContent = (((result.committed_round - lastBft.round) * 60000) / (now - lastBft.at)).toFixed(1);
+          // A restarted node can report a lower round: skip that sample.
+          if (lastBft && now > lastBft.at && result.committed_round >= lastBft.round) $("rpm").textContent = (((result.committed_round - lastBft.round) * 60000) / (now - lastBft.at)).toFixed(1);
           lastBft = { round: result.committed_round, at: now };
         }
       } catch { /* gateway without DAG-BFT: dashes stay */ }
+      polling = false;
     }
 
     function stream() {
@@ -164,7 +172,11 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       if (f) {
         $("f50").textContent = `${fmt(f.p50_ms)} ms`; $("f90").textContent = `${fmt(f.p90_ms)} ms`; $("f99").textContent = `${fmt(f.p99_ms)} ms`;
         $("fok").textContent = `${f.finalized}/${f.attempted}`;
-        $("finNote").innerHTML = `Submit to finalized, ${f.validators} validators on ${f.machine}, commit <code>${f.commit}</code>. Not a network figure. <a href="https://github.com/EricWijesinghe/Maya2C/blob/master/${f.report}">Full report</a>.`;
+        // Built from nodes, not HTML: these strings come from committed files.
+        const note = $("finNote"); note.textContent = `Submit to finalized, ${f.validators} validators on ${f.machine}, commit `;
+        const code = document.createElement("code"); code.textContent = f.commit;
+        const link = document.createElement("a"); link.href = `https://github.com/EricWijesinghe/Maya2C/blob/master/${f.report}`; link.textContent = "Full report";
+        note.append(code, ". Not a network figure. ", link, ".");
       }
     }
 
