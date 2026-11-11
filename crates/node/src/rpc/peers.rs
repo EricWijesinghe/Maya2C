@@ -42,6 +42,11 @@ pub struct PeerInfo {
     pub block_latency_ms: Option<u64>,
     /// Whether this node is currently ignoring the peer for misbehaviour.
     pub quarantined: bool,
+    /// The protocol version the peer advertises over identify. A claim the
+    /// peer makes about itself, not checked: absent from nodes that predate
+    /// it (ADR-100).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_protocol: Option<u32>,
 }
 
 /// What `get_peers` returns: this node's own id, so a dashboard polling
@@ -70,7 +75,42 @@ impl PeerInfo {
                 .and_then(|r| r.mean_latency)
                 .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
             quarantined: report.is_some_and(|r| r.quarantined),
+            claimed_protocol: link.claimed_protocol,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use crate::network::{PeerLink, Transport};
+    use libp2p::PeerId;
+    use std::time::Duration;
+
+    fn link(claimed: Option<u32>) -> PeerLink {
+        PeerLink {
+            peer: PeerId::random(),
+            inbound: true,
+            transport: Transport::Tcp,
+            connected_for: Duration::from_secs(5),
+            connections: 1,
+            claimed_protocol: claimed,
+        }
+    }
+
+    #[test]
+    fn a_peers_advertised_version_is_listed_as_a_claim() {
+        let info = PeerInfo::new(&link(Some(2)), None);
+        assert_eq!(info.claimed_protocol, Some(2));
+    }
+
+    #[test]
+    fn an_answer_from_a_node_without_the_claim_still_parses() {
+        let old = r#"{"peer_id":"p","direction":"inbound","transport":"tcp","connected_secs":1,"connections":1,"score":null,"block_latency_ms":null,"quarantined":false}"#;
+        let parsed: PeerInfo = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.claimed_protocol, None);
     }
 }
 

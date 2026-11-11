@@ -30,7 +30,7 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use maya_status::Timeline;
 use maya_status::decentral::{self, StakeSet};
-use maya_status::live::{BftStatus, Live, NetworkView, NodePoll};
+use maya_status::live::{BftStatus, Live, NetworkView, NextUpgrade, NodePoll};
 
 const POLL: Duration = Duration::from_secs(2);
 
@@ -296,11 +296,12 @@ async fn live_api(State(live): State<Arc<Mutex<Live>>>) -> impl IntoResponse {
 /// One watched node's three answers; any it did not give stays `None`.
 async fn poll_node(name: &str, client: &HttpClient) -> NodePoll {
     // `get_validators` is null on a chain without staking: no stakes, no spread.
-    let (bft, view, height, stakes) = tokio::join!(
+    let (bft, view, height, stakes, next) = tokio::join!(
         client.request::<BftStatus, _>("get_bft_status", rpc_params![]),
         client.request::<NetworkView, _>("get_peers", rpc_params![]),
         self::height(client),
         client.request::<Option<StakeSet>, _>("get_validators", rpc_params![]),
+        client.request::<Option<NextUpgrade>, _>("get_next_upgrade", rpc_params![]),
     );
     NodePoll {
         name: name.to_owned(),
@@ -308,6 +309,7 @@ async fn poll_node(name: &str, client: &HttpClient) -> NodePoll {
         view: view.ok(),
         height,
         stakes: stakes.ok().flatten(),
+        next_upgrade: next.ok().flatten(),
     }
 }
 

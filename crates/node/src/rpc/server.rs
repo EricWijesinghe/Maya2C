@@ -533,9 +533,9 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_bft_status", |_params, ctx, _| {
             let status = ctx.bft_status.as_ref().map(|slot| {
-                *slot
-                    .lock()
+                slot.lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone()
             });
             Ok::<_, ErrorObjectOwned>(status)
         })
@@ -816,6 +816,19 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .committed_staking()
                 .map_err(|e| rejected(e.to_string()))?;
             Ok::<_, ErrorObjectOwned>(record.as_ref().map(super::validators::validators_info))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_next_upgrade", |_params, ctx, _| {
+            // The next scheduled protocol version, read from committed state, so
+            // a dashboard can measure committee readiness for it (ADR-100).
+            let chain = ctx.chain();
+            let schedule = chain
+                .state()
+                .effective_schedule()
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(schedule.upgrades.next_after(chain.height()))
         })
         .map_err(|e| rejected(e.to_string()))?;
 

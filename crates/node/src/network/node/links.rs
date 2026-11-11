@@ -68,6 +68,9 @@ pub struct PeerLink {
     pub connected_for: Duration,
     /// Open connections to it (libp2p may hold more than one).
     pub connections: u32,
+    /// The protocol version the peer advertised over identify. A claim,
+    /// not a fact: the peer chose the string.
+    pub claimed_protocol: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -76,6 +79,7 @@ struct Link {
     inbound: bool,
     transport: Transport,
     connections: u32,
+    claimed_protocol: Option<u32>,
 }
 
 /// Connected peers, kept by the swarm task from connection events.
@@ -100,6 +104,7 @@ impl LinkBook {
                 inbound,
                 transport: Transport::of(address),
                 connections: 1,
+                claimed_protocol: None,
             });
     }
 
@@ -109,6 +114,14 @@ impl LinkBook {
             self.links.remove(&peer);
         } else if let Some(l) = self.links.get_mut(&peer) {
             l.connections = remaining;
+        }
+    }
+
+    /// Records the protocol version `peer` advertised. Ignored for a peer
+    /// with no open link, so a late identify cannot create an entry.
+    pub fn set_claimed(&mut self, peer: PeerId, claimed: Option<u32>) {
+        if let Some(l) = self.links.get_mut(&peer) {
+            l.claimed_protocol = claimed;
         }
     }
 
@@ -125,6 +138,7 @@ impl LinkBook {
                 transport: l.transport,
                 connected_for: now.saturating_duration_since(l.since),
                 connections: l.connections,
+                claimed_protocol: l.claimed_protocol,
             })
             .collect();
         out.sort_by(|a, b| {
@@ -195,6 +209,22 @@ mod tests {
         assert_eq!(book.snapshot(now)[0].connections, 1);
         book.closed(a, 0);
         assert!(book.snapshot(now).is_empty());
+    }
+
+    #[test]
+    fn a_claimed_version_is_kept_while_connected_and_dropped_with_the_link() {
+        let (a, b, now) = (PeerId::random(), PeerId::random(), Instant::now());
+        let mut book = LinkBook::default();
+        book.opened(a, &dialer("/ip4/10.0.0.1/tcp/1"), now);
+        book.set_claimed(a, Some(2));
+        book.set_claimed(b, Some(9)); // not connected: nothing to attach to
+        let s = book.snapshot(now);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].claimed_protocol, Some(2));
+
+        book.closed(a, 0);
+        book.opened(a, &dialer("/ip4/10.0.0.1/tcp/1"), now);
+        assert_eq!(book.snapshot(now)[0].claimed_protocol, None);
     }
 
     #[test]

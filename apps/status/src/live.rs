@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use crate::decentral::{self, Decentralization, StakeSet};
+use crate::decentral::{self, Decentralization, Readiness, Seat, SeatClaim, StakeSet};
 
 /// Events kept for the feed.
 pub const EVENT_LOG: usize = 60;
@@ -38,6 +38,9 @@ pub struct PeerInfo {
     pub block_latency_ms: Option<u64>,
     /// Ignored for misbehaviour right now.
     pub quarantined: bool,
+    /// The protocol version the peer advertises: its own claim, not checked.
+    #[serde(default)]
+    pub claimed_protocol: Option<u32>,
 }
 
 /// A node's `get_peers` answer.
@@ -50,7 +53,7 @@ pub struct NetworkView {
 }
 
 /// A node's `get_bft_status` answer.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct BftStatus {
     /// Current epoch.
     pub epoch: u64,
@@ -64,6 +67,18 @@ pub struct BftStatus {
     pub committee: u64,
     /// Following rather than voting.
     pub follower: bool,
+    /// The node's staking id, hex, when it holds a seat (self-reported).
+    #[serde(default)]
+    pub validator_id: Option<String>,
+}
+
+/// The next scheduled protocol upgrade, as `get_next_upgrade` serves it.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NextUpgrade {
+    /// Protocol version it switches on.
+    pub version: u32,
+    /// Height it activates at.
+    pub activation_height: u64,
 }
 
 /// What one watched node answered this poll (`None`: no answer).
@@ -79,6 +94,8 @@ pub struct NodePoll {
     pub height: Option<u64>,
     /// `get_validators` stake set; `None` on a chain without staking.
     pub stakes: Option<StakeSet>,
+    /// `get_next_upgrade`; `None` when nothing is scheduled or it is not served.
+    pub next_upgrade: Option<NextUpgrade>,
 }
 
 /// One watched node in the view.
@@ -168,6 +185,11 @@ pub struct LiveView {
     pub seen_total: usize,
     /// Committee stake spread; `None` (MISSING) when it cannot be measured.
     pub decentralization: Option<Decentralization>,
+    /// The next scheduled upgrade, as the nodes report it.
+    pub next_upgrade: Option<NextUpgrade>,
+    /// Stake share whose peers claim the next upgrade's version (ADR-100);
+    /// `None` (MISSING) without a pending upgrade or a readable committee.
+    pub readiness: Option<Readiness>,
     /// Set when every watched URL names one host: a plain sentence.
     pub one_host: Option<String>,
 }
@@ -197,6 +219,75 @@ fn latest_stakes(polls: &[NodePoll]) -> Option<&StakeSet> {
         .iter()
         .filter_map(|p| p.stakes.as_ref())
         .max_by_key(|s| s.epoch)
+}
+
+/// The lowest protocol version each seen peer claims, by peer id. Several
+/// watched nodes may see one peer; the lowest claim counts, so an observer
+/// that hears no claim keeps the peer from counting as ready. A claim of
+/// nothing is stored as 0.
+fn peer_claims(polls: &[NodePoll]) -> BTreeMap<String, u32> {
+    let mut claims = BTreeMap::new();
+    for peer in polls
+        .iter()
+        .filter_map(|p| p.view.as_ref())
+        .flat_map(|v| v.peers.iter())
+    {
+        let claim = peer.claimed_protocol.unwrap_or(0);
+        claims
+            .entry(peer.peer_id.clone())
+            .and_modify(|c: &mut u32| *c = (*c).min(claim))
+            .or_insert(claim);
+    }
+    claims
+}
+
+/// The peer each watched node's seat id names, from the node's own report
+/// of its seat and its own peer id.
+fn seat_peers(polls: &[NodePoll]) -> BTreeMap<String, String> {
+    polls
+        .iter()
+        .filter_map(|p| {
+            let seat = p.bft.as_ref()?.validator_id.clone()?;
+            let peer = p.view.as_ref()?.peer_id.clone();
+            Some((seat, peer))
+        })
+        .collect()
+}
+
+/// One seat per committee member. `None` (MISSING) when the listing is
+/// short of the committee or a stake cannot be read.
+fn seat_claims(polls: &[NodePoll], stakes: &StakeSet) -> Option<Vec<SeatClaim>> {
+    let members: Vec<&Seat> = stakes.validators.iter().filter(|s| s.in_committee).collect();
+    if members.len() != stakes.committee {
+        return None;
+    }
+    let claims = peer_claims(polls);
+    let peers = seat_peers(polls);
+    members
+        .into_iter()
+        .map(|seat| {
+            let stake = decentral::stake(seat)?;
+            let claimed = peers.get(&seat.id).and_then(|peer| claims.get(peer));
+            Some(SeatClaim {
+                stake,
+                observed: claimed.is_some(),
+                claimed: claimed.copied().unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+/// The next scheduled upgrade any watched node reported.
+fn next_upgrade(polls: &[NodePoll]) -> Option<NextUpgrade> {
+    polls.iter().find_map(|p| p.next_upgrade)
+}
+
+/// Readiness for the next scheduled upgrade, from the committee and the
+/// claims the watched peers make.
+fn latest_readiness(polls: &[NodePoll]) -> Option<Readiness> {
+    let upgrade = next_upgrade(polls)?;
+    let seats = seat_claims(polls, latest_stakes(polls)?)?;
+    decentral::readiness(&seats, upgrade.version)
 }
 
 fn short(id: &str) -> String {
@@ -273,6 +364,8 @@ impl Live {
             history: self.history.iter().copied().collect(),
             seen_total: self.first_seen.len(),
             decentralization: latest_stakes(polls).and_then(decentral::measure),
+            next_upgrade: next_upgrade(polls),
+            readiness: latest_readiness(polls),
             one_host: self.one_host_sentence(),
         };
     }
@@ -368,7 +461,7 @@ impl Live {
     ) -> Vec<WatchedNode> {
         let best = polls
             .iter()
-            .filter_map(|p| p.bft.map(|b| b.committed_round))
+            .filter_map(|p| p.bft.as_ref().map(|b| b.committed_round))
             .max();
         let mut out = Vec::with_capacity(polls.len());
         for p in polls {
@@ -391,26 +484,26 @@ impl Live {
                 }),
                 up,
                 height: p.height,
-                bft: p.bft,
-                lag_rounds: match (best, p.bft) {
+                bft: p.bft.clone(),
+                lag_rounds: match (best, p.bft.as_ref()) {
                     (Some(best), Some(b)) => Some(best.saturating_sub(b.committed_round)),
                     _ => None,
                 },
                 peers: p.view.as_ref().map_or(0, |v| v.peers.len()),
-                voting: p.bft.is_some_and(|b| b.validator.is_some() && !b.follower),
+                voting: p.bft.as_ref().is_some_and(|b| b.validator.is_some() && !b.follower),
             });
         }
         out
     }
 
     fn note_epoch(&mut self, at_ms: u64, polls: &[NodePoll]) {
-        let Some(epoch) = polls.iter().filter_map(|p| p.bft.map(|b| b.epoch)).max() else {
+        let Some(epoch) = polls.iter().filter_map(|p| p.bft.as_ref().map(|b| b.epoch)).max() else {
             return;
         };
         if self.epoch.is_some_and(|e| e < epoch) {
             let committee = polls
                 .iter()
-                .filter_map(|p| p.bft.map(|b| b.committee))
+                .filter_map(|p| p.bft.as_ref().map(|b| b.committee))
                 .max()
                 .unwrap_or(0);
             self.push(
@@ -438,6 +531,7 @@ mod tests {
             score: Some(1.0),
             block_latency_ms: Some(40),
             quarantined: false,
+            claimed_protocol: None,
         }
     }
 
@@ -457,6 +551,7 @@ mod tests {
                 validator: seat,
                 committee: 4,
                 follower: false,
+                validator_id: None,
             }),
             view: Some(NetworkView {
                 peer_id: own.into(),
@@ -464,6 +559,7 @@ mod tests {
             }),
             height: Some(100),
             stakes: None,
+            next_upgrade: None,
         }
     }
 
@@ -541,6 +637,7 @@ mod tests {
             view: None, // an old binary: no get_peers
             height: Some(5),
             stakes: None,
+            next_upgrade: None,
         };
         live.observe(
             1_000,
@@ -589,6 +686,106 @@ mod tests {
         assert!(live.view().events.iter().any(|e| e.kind == "epoch"));
     }
 
+    fn claimed(id: &str, version: Option<u32>) -> PeerInfo {
+        PeerInfo {
+            claimed_protocol: version,
+            ..peer(id, 60, "tcp")
+        }
+    }
+
+    fn seated(mut p: NodePoll, seat: &str) -> NodePoll {
+        if let Some(bft) = p.bft.as_mut() {
+            bft.validator_id = Some(seat.into());
+        }
+        p
+    }
+
+    fn with_seats(mut p: NodePoll, seats: &[(&str, u64)]) -> NodePoll {
+        p.stakes = Some(StakeSet {
+            epoch: 3,
+            committee: seats.len(),
+            validators: seats
+                .iter()
+                .map(|(id, bond)| crate::decentral::Seat {
+                    id: (*id).into(),
+                    in_committee: true,
+                    self_bond: bond.to_string(),
+                    delegated: "0".into(),
+                })
+                .collect(),
+        });
+        p
+    }
+
+    /// Three seats of 5, each on a watched node; `a` names protocol 3 next.
+    fn upgrade_fixture(c_claim_of_b: Option<u32>, with_c: bool) -> Vec<NodePoll> {
+        let mut a_peers = vec![claimed("PB", Some(3))];
+        if with_c {
+            a_peers.push(claimed("PC", Some(2)));
+        }
+        let a = NodePoll {
+            next_upgrade: Some(NextUpgrade {
+                version: 3,
+                activation_height: 500,
+            }),
+            ..seated(poll("a", "PA", a_peers, Some(0), 1), "aa")
+        };
+        let b = seated(poll("b", "PB", vec![claimed("PA", Some(3))], Some(1), 1), "bb");
+        let mut polls = vec![with_seats(a, &[("aa", 5), ("bb", 5), ("cc", 5)]), b];
+        if with_c {
+            let c = poll("c", "PC", vec![claimed("PB", c_claim_of_b)], Some(2), 1);
+            polls.push(seated(c, "cc"));
+        }
+        polls
+    }
+
+    #[test]
+    fn readiness_is_the_stake_share_whose_peers_claim_the_next_version() {
+        let mut live = Live::new("t");
+        live.observe(1_000, &upgrade_fixture(Some(3), true));
+        let r = live.view().readiness.clone().unwrap();
+        // aa and bb claim 3; cc claims 2. Observed: all three seats.
+        assert_eq!((r.protocol, r.ready_seats, r.ready_bps), (3, 2, 6_666));
+        assert_eq!((r.observed_seats, r.observed_bps), (3, 10_000));
+    }
+
+    #[test]
+    fn a_peer_that_claims_nothing_is_seen_but_not_ready() {
+        let mut polls = upgrade_fixture(Some(3), true);
+        polls[0].view.as_mut().unwrap().peers[1] = claimed("PC", None);
+        let mut live = Live::new("t");
+        live.observe(1_000, &polls);
+        let r = live.view().readiness.clone().unwrap();
+        assert_eq!((r.ready_seats, r.observed_seats), (2, 3));
+    }
+
+    #[test]
+    fn the_lowest_claim_from_any_observer_counts() {
+        // b's peer PB is claimed 3 by a but 2 by c: not ready.
+        let mut live = Live::new("t");
+        live.observe(1_000, &upgrade_fixture(Some(2), true));
+        let r = live.view().readiness.clone().unwrap();
+        assert_eq!((r.ready_seats, r.ready_bps), (1, 3_333));
+    }
+
+    #[test]
+    fn a_seat_no_watched_node_can_see_is_unobserved() {
+        let mut live = Live::new("t");
+        live.observe(1_000, &upgrade_fixture(Some(3), false));
+        let r = live.view().readiness.clone().unwrap();
+        assert_eq!((r.observed_seats, r.observed_bps), (2, 6_666));
+        assert_eq!((r.ready_seats, r.ready_bps), (2, 6_666));
+    }
+
+    #[test]
+    fn no_pending_upgrade_means_no_readiness() {
+        let mut polls = upgrade_fixture(Some(3), true);
+        polls[0].next_upgrade = None;
+        let mut live = Live::new("t");
+        live.observe(1_000, &polls);
+        assert!(live.view().readiness.is_none());
+    }
+
     fn with_stakes(mut p: NodePoll, bonds: &[u64]) -> NodePoll {
         p.stakes = Some(StakeSet {
             epoch: 3,
@@ -599,6 +796,7 @@ mod tests {
                     in_committee: true,
                     self_bond: b.to_string(),
                     delegated: "0".into(),
+                    ..Seat::default()
                 })
                 .collect(),
         });
