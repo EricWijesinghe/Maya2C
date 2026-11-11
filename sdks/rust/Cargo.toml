@@ -1,0 +1,25 @@
+[package]
+name = "maya2c-sdk"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Typed Rust client for the Maya2C API gateway (REST /v1)"
+
+# A client, not a node: it links no consensus crate. Amounts are the node's own
+# 256-bit type (ADR-046) and addresses come from `maya-address` (ADR-081), so the
+# text form and the number form match the chain without a second copy of either.
+# Blocking HTTP keeps the public surface synchronous; the reqwest crate is
+# already in the lock for `xtask` and `maya-archive`.
+
+[dependencies]
+maya-address = { path = "../../crates/address" }
+primitive-types.workspace = true
+reqwest = { workspace = true, features = ["blocking", "json", "rustls-tls-native-roots"] }
+serde = { workspace = true, features = ["derive"] }
+hex.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

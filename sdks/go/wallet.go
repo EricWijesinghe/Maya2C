@@ -30,10 +30,18 @@ func NewWallet(l1Wallet, keystore, password string, client *Client) *Wallet {
 	return &Wallet{L1Wallet: l1Wallet, Keystore: keystore, Client: client, password: password}
 }
 
-func (w *Wallet) output(args ...string) (string, error) {
+// command builds the l1-wallet invocation. The password goes in the child's
+// environment only: argv is visible to every user on the machine through the
+// process list.
+func (w *Wallet) command(args ...string) *exec.Cmd {
 	full := append([]string{"--keystore", w.Keystore, "--rpc-url", w.Client.URL}, args...)
 	cmd := exec.Command(w.L1Wallet, full...)
 	cmd.Env = append(os.Environ(), "L1_WALLET_PASSWORD="+w.password)
+	return cmd
+}
+
+func (w *Wallet) output(args ...string) (string, error) {
+	cmd := w.command(args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
