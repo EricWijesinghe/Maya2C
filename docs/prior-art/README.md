@@ -41,3 +41,11 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
 - [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
 - [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [Mixed-suite multisig and suite-diverse quorums (multisig-suite-diversity)](multisig-suite-diversity.md) — searched 2026-11-12
+- [State compression (state-compression)](state-compression.md) — searched 2026-11-12
+- [Data-carrier outputs and metaprotocols (data-carrier)](data-carrier.md) — searched 2026-11-12
+- [Cross-chain token standards (cross-chain-tokens)](cross-chain-tokens.md) — searched 2026-11-12
+- [Blockspace reservation and preconfirmations (blockspace-reservation)](blockspace-reservation.md) — searched 2026-11-12
+- [Generic cross-chain messaging (cross-chain-messaging)](cross-chain-messaging.md) — searched 2026-11-12
+- [Blob transactions and DA attestations (blobs-and-da)](blobs-and-da.md) — searched 2026-11-12
+- [Inclusion lists and fair ordering (inclusion-lists)](inclusion-lists.md) — searched 2026-11-12
