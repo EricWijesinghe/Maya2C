@@ -65,6 +65,8 @@ const label = { built: "Built", research: "Research", planned: "Planned" } as co
       apps.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.app === id)));
       details.forEach((d) => (d.hidden = d.dataset.detail !== id));
       spokes.forEach((s) => s.classList.toggle("lit", s.dataset.spoke === id));
+      // On phones the card sits below the grid: bring it into view.
+      if (matchMedia("(max-width: 759px)").matches) root.querySelector("#eco-detail")!.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       seen.add(id);
       seenOut.textContent = String(seen.size);
       document.dispatchEvent(new CustomEvent("maya:quest", { detail: { id: "eco", count: seen.size } }));

@@ -43,7 +43,7 @@ const quiz = [
   <div id="quiz" class="quiz" data-quiz>
     <h3>Quantum check</h3>
     {quiz.map((item, qi) => (
-      <fieldset data-q={qi} data-a={item.a}>
+      <fieldset data-q={qi} data-a={item.a} aria-live="polite">
         <legend>{qi + 1}. {item.q}</legend>
         {item.options.map((o, oi) => <button type="button" data-o={oi}>{o}</button>)}
         <p class="why" hidden>{item.why}</p>
@@ -64,12 +64,15 @@ const quiz = [
 <script>
   const KEY = "maya-journey-v1";
   const RANKS = ["Visitor", "Visitor", "Explorer", "Explorer", "Builder", "Builder", "Quantum-safe"];
-  const load = (): Set<string> => { try { return new Set(JSON.parse(localStorage.getItem(KEY) ?? "[]")); } catch { return new Set(); } };
+  // Stored data is untrusted: keep only known mission ids.
+  const load = (known: Set<string>): Set<string> => {
+    try { const v = JSON.parse(localStorage.getItem(KEY) ?? "[]"); return new Set(Array.isArray(v) ? v.filter((id) => known.has(id)) : []); } catch { return new Set(); }
+  };
   const save = (s: Set<string>) => { try { localStorage.setItem(KEY, JSON.stringify([...s])); } catch { /* private mode: progress lasts for this page view */ } };
 
   for (const root of document.querySelectorAll<HTMLElement>("[data-qt]")) {
-    const done = load();
     const items = [...root.querySelectorAll<HTMLElement>("[data-m]")];
+    const done = load(new Set(items.map((li) => li.dataset.m!)));
     const total = items.length;
     const ring = root.querySelector<SVGCircleElement>("[data-ring]")!;
     const C = 2 * Math.PI * 52;
@@ -103,7 +106,7 @@ const quiz = [
       fs.querySelectorAll<HTMLButtonElement>("[data-o]").forEach((b) => b.addEventListener("click", () => {
         const right = b.dataset.o === fs.dataset.a;
         b.classList.add(right ? "right" : "wrong");
-        if (!right) return;
+        if (!right) { b.setAttribute("aria-label", `${b.textContent}: not quite, try another answer`); return; }
         fs.querySelectorAll("button").forEach((x) => (x.disabled = true));
         fs.querySelector<HTMLElement>(".why")!.hidden = false;
         answered.add(Number(fs.dataset.q));
@@ -111,7 +114,12 @@ const quiz = [
       }));
     });
 
-    root.querySelector("[data-reset]")!.addEventListener("click", () => { done.clear(); save(done); render(); });
+    root.querySelector("[data-reset]")!.addEventListener("click", () => {
+      done.clear(); answered.clear(); save(done);
+      root.querySelectorAll<HTMLButtonElement>("[data-o]").forEach((b) => { b.disabled = false; b.classList.remove("right", "wrong"); b.removeAttribute("aria-label"); });
+      root.querySelectorAll<HTMLElement>(".why").forEach((w) => (w.hidden = true));
+      render();
+    });
     render();
   }
 </script>
@@ -159,7 +167,7 @@ const quiz = [
 
   .pill { position: fixed; left: 1rem; bottom: 1rem; z-index: 20; padding: 0.55rem 1rem; border-radius: 999px; background: var(--accent-fill); color: var(--on-accent); font-weight: 800; font-size: 0.85rem; text-decoration: none; box-shadow: 0 0.4rem 1.5rem rgba(31, 181, 194, 0.45); }
   /* Phones: a small chip that stays clear of content and buttons. */
-  @media (max-width: 759px) { .pill { left: 0.6rem; bottom: 0.6rem; padding: 0.35rem 0.7rem; font-size: 0.75rem; opacity: 0.92; } .pill-w { display: none; } }
+  @media (max-width: 759px) { .pill { left: 0.6rem; bottom: 0.6rem; padding: 0.35rem 0.8rem; min-height: 44px; display: inline-flex; align-items: center; font-size: 0.75rem; opacity: 0.92; } .pill-w { display: none; } }
   .pill.full { background: linear-gradient(135deg, #d9b97a, #c9a86a); }
   .pill.bump { animation: pop 0.6s cubic-bezier(.34,1.56,.64,1); }
   @keyframes pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }
