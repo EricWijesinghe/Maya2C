@@ -16,6 +16,7 @@ pub struct FaultInjector {
 }
 
 impl FaultInjector {
+    /// Creates an injector over the given lab config. Nothing is changed until a fault is injected.
     pub fn new(config: LabConfig) -> Self {
         Self { config }
     }
@@ -451,6 +452,12 @@ impl FaultInjector {
         Ok(())
     }
 
+    /// Removes the firewall rules that a partition on `segment` added.
+    ///
+    /// Affected ports are the validators' p2p ports for segments S1, S2, S3, S6 and S7,
+    /// plus the bootnode and adversary p2p ports. An unknown segment returns `Ok` with a warning.
+    /// Failures from `netsh` are discarded by `remove_firewall_rules`, so `Ok` does not mean
+    /// every rule was removed.
     pub async fn heal_partition(&self, segment: &str) -> Result<()> {
         info!("Healing partition on segment {}", segment);
 
@@ -718,23 +725,37 @@ impl FaultInjector {
 /// Process fault types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProcessFault {
+    /// Stops every process whose command line contains the target's data directory. Unknown targets are an error.
     Kill {
+        /// Validator name.
         target: String,
     },
+    /// Logs the request and returns `Ok`. It does not restart anything; restarts go through `ValidatorManager::restart`.
     Restart {
+        /// Validator name.
         target: String,
+        /// Peer to catch up from. Only logged.
         catch_up_from: Option<String>,
     },
+    /// Not implemented: returns an error.
     Pause {
+        /// Validator name.
         target: String,
+        /// Requested pause length. Not used.
         duration: Duration,
     },
+    /// Logs and returns `Ok`. No CPU limit is applied.
     CpuLimit {
+        /// Validator name.
         target: String,
+        /// Requested CPU ceiling, in percent. Not used.
         percent: u8,
     },
+    /// Logs and returns `Ok`. No memory limit is applied.
     MemoryLimit {
+        /// Validator name.
         target: String,
+        /// Requested memory ceiling, in MiB. Not used.
         limit_mb: usize,
     },
 }
@@ -742,96 +763,158 @@ pub enum ProcessFault {
 /// Network fault types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkFault {
+    /// Not implemented: returns an error.
     Latency {
+        /// Segment name, as in `NetworkConfig::segments`.
         segment: String,
+        /// Added delay, in milliseconds.
         ms: u32,
+        /// Random variation around `ms`, in milliseconds.
         jitter_ms: u32,
     },
+    /// Not implemented: returns an error.
     PacketLoss {
+        /// Segment name.
         segment: String,
+        /// Fraction of packets dropped (0.0 to 1.0).
         percent: f32,
     },
+    /// Not implemented: returns an error.
     BandwidthLimit {
+        /// Segment name.
         segment: String,
+        /// Bandwidth ceiling, in kilobits per second.
         kbps: u32,
     },
+    /// Blocks the segment's ports in the given direction with Windows firewall rules. See `inject_partition`.
     Partition {
+        /// Segment name whose ports are blocked.
         segment: String,
+        /// Which traffic is blocked.
         direction: PartitionDirection,
     },
+    /// Logs and returns `Ok`. No connection is reset.
     ConnectionReset {
+        /// Segment name.
         segment: String,
+        /// Bytes to send before the reset. Only logged.
         after_bytes: Option<u64>,
     },
+    /// Logs and returns `Ok`. No packets are duplicated.
     Duplicate {
+        /// Segment name.
         segment: String,
+        /// Fraction of packets to duplicate (0.0 to 1.0). Only logged.
         percent: f32,
     },
+    /// Logs and returns `Ok`. No packets are reordered.
     Reorder {
+        /// Segment name.
         segment: String,
+        /// Fraction of packets to reorder (0.0 to 1.0). Only logged.
         percent: f32,
+        /// Reorder gap as given by the caller. Only logged.
         gap: u32,
     },
+    /// Logs and returns `Ok`. No packets are corrupted.
     Corruption {
+        /// Segment name.
         segment: String,
+        /// Fraction of packets to corrupt (0.0 to 1.0). Only logged.
         percent: f32,
     },
+    /// Logs and returns `Ok`. Traffic is not slowed.
     SlowSend {
+        /// Segment name.
         segment: String,
+        /// Send rate, in bytes per second. Only logged.
         bytes_per_sec: u32,
     },
 }
 
+/// Which traffic a network partition blocks on the given ports.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PartitionDirection {
+    /// Block traffic in both directions.
     Bidirectional,
+    /// Block only inbound traffic.
     Inbound,
+    /// Block only outbound traffic.
     Outbound,
 }
 
 /// Storage fault types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageFault {
+    /// Writes a 5 GB × `percent` file into `D:\Maya2C-attacknet-<target>`. The path is hard-coded, not the configured `data_dir`.
     DiskFull {
+        /// Validator name, used in the hard-coded path.
         target: String,
+        /// Fraction of the 5 GB file to write (0.0 to 1.0).
         percent: f32,
     },
+    /// Makes the target directory read-only with `icacls`. Windows only; other platforms get an error.
     ReadOnly {
+        /// Validator name, used in the hard-coded path.
         target: String,
     },
+    /// Applies `corruption_type` to files matching `file_pattern` in `D:\Maya2C-attacknet-<target>`.
     CorruptFile {
+        /// Validator name, used in the hard-coded path.
         target: String,
+        /// File-name pattern to match.
         file_pattern: String,
+        /// How to damage the matched files.
         corruption_type: CorruptionType,
     },
+    /// Truncates files matching `file_pattern` by `percent`, using the `CorruptionType::Truncate` path.
     TruncateFile {
+        /// Validator name, used in the hard-coded path.
         target: String,
+        /// File-name pattern to match.
         file_pattern: String,
+        /// Fraction of each file to remove (0.0 to 1.0).
         percent: f32,
     },
+    /// Deletes files matching `file_pattern` in `D:\Maya2C-attacknet-<target>`.
     DeleteFile {
+        /// Validator name, used in the hard-coded path.
         target: String,
+        /// File-name pattern to match.
         file_pattern: String,
     },
+    /// Runs `fsutil quota enforce` on `D:\Maya2C-attacknet-<target>`. Windows only.
     QuotaExceeded {
+        /// Validator name, used in the hard-coded path.
         target: String,
     },
 }
 
+/// How `StorageFault::CorruptFile` damages a file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CorruptionType {
+    /// Each byte is XOR-ed with one random bit with this probability (0.0 to 1.0).
     BitFlip {
+        /// Chance that a given byte is changed.
         probability: f32,
     },
+    /// Removes the last `percent` of the file (0.0 to 1.0 of its length).
     Truncate {
+        /// Fraction of the file length to remove.
         percent: f32,
     },
+    /// Sets the bytes from `range_start` to `range_end` to zero. Both are fractions of the file length (0.0 to 1.0).
     ZeroOut {
+        /// Start of the zeroed range, as a fraction of the file length.
         range_start: f32,
+        /// End of the zeroed range, as a fraction of the file length.
         range_end: f32,
     },
+    /// Intended to replace `pattern` with `replacement`. Not implemented: the file is left unchanged.
     ReplacePattern {
+        /// Byte sequence to search for.
         pattern: Vec<u8>,
+        /// Byte sequence to write in its place.
         replacement: Vec<u8>,
     },
 }
@@ -839,24 +922,58 @@ pub enum CorruptionType {
 /// Protocol fault types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProtocolFault {
-    MalformedFrames { target: String, rate: u32 },
-    InvalidHandshakes { target: String, rate: u32 },
-    OversizedMessages { target: String, size_mb: u32 },
-    PeerChurn { target: String, rate_per_sec: u32 },
-    InvalidPeerAnnouncements { target: String },
+    /// Logs and returns `Ok`. No frames are sent.
+    MalformedFrames {
+        /// Node the frames would be sent to. Only logged.
+        target: String,
+        /// Frames per second. Only logged.
+        rate: u32,
+    },
+    /// Logs and returns `Ok`. No handshakes are sent.
+    InvalidHandshakes {
+        /// Node the handshakes would be sent to. Only logged.
+        target: String,
+        /// Handshakes per second. Only logged.
+        rate: u32,
+    },
+    /// Logs and returns `Ok`. No messages are sent.
+    OversizedMessages {
+        /// Node the messages would be sent to. Only logged.
+        target: String,
+        /// Message size, in MiB. Only logged.
+        size_mb: u32,
+    },
+    /// Logs and returns `Ok`. No peers connect or disconnect.
+    PeerChurn {
+        /// Node the churn would target. Only logged.
+        target: String,
+        /// Connect and disconnect rate, per second. Only logged.
+        rate_per_sec: u32,
+    },
+    /// Logs and returns `Ok`. No announcements are sent.
+    InvalidPeerAnnouncements {
+        /// Node the announcements would be sent to. Only logged.
+        target: String,
+    },
 }
 
 /// Combined fault specification for scenarios
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FaultSpec {
+    /// Process faults to inject, or `None` for none.
     pub process: Option<Vec<ProcessFault>>,
+    /// Network faults to inject, or `None` for none.
     pub network: Option<Vec<NetworkFault>>,
+    /// Storage faults to inject, or `None` for none.
     pub storage: Option<Vec<StorageFault>>,
+    /// Protocol faults to inject, or `None` for none.
     pub protocol: Option<Vec<ProtocolFault>>,
+    /// Wait after the faults are injected, before the success criteria are checked. `None` means 60 seconds.
     pub duration: Option<Duration>,
 }
 
 impl FaultSpec {
+    /// A spec with no faults and no duration, so the runner uses its 60-second default wait.
     pub fn empty() -> Self {
         Self {
             process: None,
