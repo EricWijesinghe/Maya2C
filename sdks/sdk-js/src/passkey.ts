@@ -76,6 +76,9 @@ export type SeedEnvelope =
       ciphertext: string;
     };
 
+// Omit over each union member, so the object literals below keep their discriminant checks.
+type EnvelopeHeader = SeedEnvelope extends infer E ? (E extends SeedEnvelope ? Omit<E, "ciphertext"> : never) : never;
+
 const SALT_BYTES = 32;
 const IV_BYTES = 12;
 const CHALLENGE_BYTES = 32;
@@ -111,7 +114,7 @@ function aad(e: SeedEnvelope): Uint8Array<ArrayBuffer> {
   return utf8(head.join("|"));
 }
 
-async function seal(key: CryptoKey, seed: Uint8Array, header: Omit<SeedEnvelope, "ciphertext">): Promise<SeedEnvelope> {
+async function seal(key: CryptoKey, seed: Uint8Array, header: EnvelopeHeader): Promise<SeedEnvelope> {
   const env = { ...header, ciphertext: "" } as SeedEnvelope;
   const plain = new Uint8Array(seed);
   try {

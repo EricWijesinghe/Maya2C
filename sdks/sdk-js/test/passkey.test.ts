@@ -27,7 +27,7 @@ function mockAuthenticator(deviceSecret: Uint8Array, prf = true) {
     },
     async get(options) {
       calls.push(options);
-      const first = (options as { publicKey: { extensions: { prf: { eval: { first: Uint8Array } } } } }).publicKey
+      const first = (options as { publicKey: { extensions: { prf: { eval: { first: Uint8Array<ArrayBuffer> } } } } }).publicKey
         .extensions.prf.eval.first;
       if (!prf) return { getClientExtensionResults: () => ({}) };
       const key = await crypto.subtle.importKey("raw", new Uint8Array(deviceSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
