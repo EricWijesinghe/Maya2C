@@ -6,6 +6,7 @@ import {
   type CredentialsLike,
   PasskeyError,
   type SeedEnvelope,
+  PBKDF2_ITERATIONS,
   protectSeed,
   registerPasskey,
   unlockSeed,
@@ -13,7 +14,7 @@ import {
   wrapWithPassword,
 } from "../src/passkey.js";
 
-const FAST = 1_000; // PBKDF2 iterations for tests only; the default is 600,000
+const ITER = PBKDF2_ITERATIONS; // the module refuses anything lower
 
 function mockAuthenticator(deviceSecret: Uint8Array, prf = true) {
   const calls: unknown[] = [];
@@ -84,10 +85,28 @@ describe("passkey unlock (P-17)", () => {
   it("falls back to the password when the authenticator has no PRF", async () => {
     const { credentials } = mockAuthenticator(deviceA, false);
     const ref = { credentialId: "AQIDBA", rpId: "wallet.example" };
-    const env = await protectSeed(seed(), { passkey: ref, password: "correct horse", credentials, iterations: FAST });
+    const env = await protectSeed(seed(), { passkey: ref, password: "correct horse", credentials, iterations: ITER, allowPasswordFallback: true });
     expect(env.kind).toBe("password");
     await expect(unlockSeed(env, { password: "correct horse" })).resolves.toEqual(seed());
     await expect(unlockSeed(env, { password: "wrong" })).rejects.toMatchObject({ kind: "unlock-failed" });
+  });
+
+  it("refuses a silent downgrade to the password unless the caller allows it", async () => {
+    const { credentials } = mockAuthenticator(deviceA, false);
+    const ref = { credentialId: "AQIDBA", rpId: "wallet.example" };
+    await expect(protectSeed(seed(), { passkey: ref, password: "pw", credentials })).rejects.toMatchObject({ kind: "prf-unsupported" });
+  });
+
+  it("refuses PBKDF2 below the iteration floor", async () => {
+    await expect(wrapWithPassword(seed(), "pw", 1)).rejects.toMatchObject({ kind: "bad-envelope" });
+    const env = await wrapWithPassword(seed(), "pw", ITER);
+    const weak = { ...env, iterations: 1 } as SeedEnvelope;
+    await expect(unlockSeed(weak, { password: "pw" })).rejects.toMatchObject({ kind: "bad-envelope" });
+  });
+
+  it("refuses a passkey created without PRF", async () => {
+    const { credentials } = mockAuthenticator(deviceA, false);
+    await expect(registerPasskey({ rp: { id: "wallet.example", name: "W" }, user: { id: new Uint8Array([1]), name: "u", displayName: "u" }, credentials })).rejects.toMatchObject({ kind: "prf-unsupported" });
   });
 
   it("refuses when there is no PRF and no password", async () => {
@@ -100,13 +119,13 @@ describe("passkey unlock (P-17)", () => {
   it("prefers the passkey when PRF works", async () => {
     const { credentials } = mockAuthenticator(deviceA);
     const ref = { credentialId: "AQIDBA", rpId: "wallet.example" };
-    const env = await protectSeed(seed(), { passkey: ref, password: "pw", credentials, iterations: FAST });
+    const env = await protectSeed(seed(), { passkey: ref, password: "pw", credentials, iterations: ITER });
     expect(env.kind).toBe("passkey-prf");
   });
 
   it("does not modify the caller's seed and rejects unknown envelopes", async () => {
     const s = seed();
-    const env = await wrapWithPassword(s, "pw", FAST);
+    const env = await wrapWithPassword(s, "pw", ITER);
     expect(s).toEqual(seed());
     await expect(unlockSeed({ ...env, v: 2 } as unknown as SeedEnvelope, { password: "pw" })).rejects.toMatchObject({
       kind: "bad-envelope",

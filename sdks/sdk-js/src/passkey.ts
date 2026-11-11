@@ -10,9 +10,13 @@
  * HKDF turns it into an AES-256-GCM key-encryption key, and that key unwraps
  * the seed in memory. An attacker who breaks P-256 learns nothing that helps:
  * the P-256 public key is never published, and even with the private key they
- * still need the authenticator's separate PRF secret, which is on the device.
- * So stealing funds still needs the device (or the fallback password), plus
- * whatever user verification it demands.
+ * still need the authenticator's separate PRF secret. That secret lives where
+ * the passkey lives: on one device for a device-bound key (a security key,
+ * some platform authenticators), but for a *synced* passkey (iCloud Keychain,
+ * Google Password Manager, Windows) on every device signed in to that account
+ * and in the provider's sync store. WebAuthn has no flag a page can use to
+ * forbid sync. So stealing funds needs an authenticator holding the passkey
+ * (or the fallback password), plus whatever user verification it demands.
  *
  * What this does not protect against: malware running in the page while the
  * seed is unlocked, or a weak fallback password (PBKDF2 slows guessing, it
@@ -22,7 +26,10 @@
  *
  * Every intermediate buffer this module owns is filled with zeros before it
  * returns. JavaScript cannot promise more than that: the engine may have
- * copied a buffer, and the seed handed back is the caller's to zero.
+ * copied a buffer, a `password` string is immutable and cannot be zeroed, and
+ * the seed handed back is the caller's to zero. User verification is requested
+ * as "required" and enforced by the browser; this module does not re-check the
+ * UV flag (a different UV state yields a different PRF output, so unlock fails).
  */
 
 /** Why an unlock or wrap was refused. Messages never contain secret bytes. */
@@ -105,13 +112,24 @@ export function fromB64u(text: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
-/** Every envelope field but the ciphertext is authenticated as AES-GCM additional data. */
+/**
+ * Every envelope field but the ciphertext is authenticated as AES-GCM
+ * additional data. JSON array encoding, not a separator join: fields such as
+ * `rpId` are free text, and an array keeps field boundaries unambiguous.
+ */
 function aad(e: SeedEnvelope): Uint8Array<ArrayBuffer> {
   const head =
     e.kind === "passkey-prf"
       ? [e.v, e.kind, e.credentialId, e.rpId, e.prfSalt, e.hkdfSalt, e.iv]
       : [e.v, e.kind, e.iterations, e.salt, e.iv];
-  return utf8(head.join("|"));
+  return utf8(JSON.stringify(head));
+}
+
+/** Refuses PBKDF2 below the module's floor, on wrap and on unlock. */
+function checkIterations(iterations: number): void {
+  if (!Number.isInteger(iterations) || iterations < PBKDF2_ITERATIONS) {
+    throw new PasskeyError("bad-envelope", `PBKDF2 iterations below ${PBKDF2_ITERATIONS}`);
+  }
 }
 
 async function seal(key: CryptoKey, seed: Uint8Array, header: EnvelopeHeader): Promise<SeedEnvelope> {
@@ -142,12 +160,16 @@ async function open(key: CryptoKey, env: SeedEnvelope): Promise<Uint8Array> {
   }
 }
 
-/** HKDF-SHA256 over the PRF output; the KEK is non-extractable. Zeroes `prf`. */
-async function kekFromPrf(prf: Uint8Array<ArrayBuffer>, hkdfSalt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+/**
+ * HKDF-SHA256 over the PRF output; the KEK is non-extractable. Zeroes `prf`.
+ * `info` binds the relying party and credential (defence in depth; the random
+ * PRF salt already separates envelopes).
+ */
+async function kekFromPrf(prf: Uint8Array<ArrayBuffer>, hkdfSalt: Uint8Array<ArrayBuffer>, ref: PasskeyRef): Promise<CryptoKey> {
   try {
     const ikm = await subtle().importKey("raw", prf, "HKDF", false, ["deriveKey"]);
     return await subtle().deriveKey(
-      { name: "HKDF", hash: "SHA-256", salt: hkdfSalt, info: utf8(HKDF_INFO) },
+      { name: "HKDF", hash: "SHA-256", salt: hkdfSalt, info: utf8(JSON.stringify([HKDF_INFO, ref.rpId, ref.credentialId])) },
       ikm,
       { name: "AES-GCM", length: 256 },
       false,
@@ -234,10 +256,12 @@ export async function registerPasskey(opts: RegisterOptions): Promise<{ ref: Pas
     },
   })) as { rawId?: ArrayBuffer } | null;
   if (!cred?.rawId) throw new PasskeyError("prf-unsupported", "no credential was created");
-  return {
-    ref: { credentialId: toB64u(new Uint8Array(cred.rawId)), rpId: opts.rp.id },
-    prfEnabled: extensionResults(cred).prf?.enabled === true,
-  };
+  // Enforced, not reported: a passkey without PRF cannot wrap a seed, and a
+  // caller that ignored a `false` would only find out later.
+  if (extensionResults(cred).prf?.enabled !== true) {
+    throw new PasskeyError("prf-unsupported", "the authenticator created a passkey without PRF support");
+  }
+  return { ref: { credentialId: toB64u(new Uint8Array(cred.rawId)), rpId: opts.rp.id }, prfEnabled: true };
 }
 
 /** Wraps `seed` under a KEK derived from the passkey's PRF output. */
@@ -246,7 +270,7 @@ export async function wrapWithPasskey(seed: Uint8Array, ref: PasskeyRef, given?:
   const prf = await evaluatePrf(ref, prfSalt, given);
   if (!prf) throw new PasskeyError("prf-unsupported", "the authenticator returned no PRF output");
   const hkdfSalt = random(SALT_BYTES);
-  const key = await kekFromPrf(prf, hkdfSalt);
+  const key = await kekFromPrf(prf, hkdfSalt, ref);
   return seal(key, seed, {
     v: 1,
     kind: "passkey-prf",
@@ -260,6 +284,7 @@ export async function wrapWithPasskey(seed: Uint8Array, ref: PasskeyRef, given?:
 
 /** Wraps `seed` under a PBKDF2-SHA256 key from `password`. */
 export async function wrapWithPassword(seed: Uint8Array, password: string, iterations = PBKDF2_ITERATIONS): Promise<SeedEnvelope> {
+  checkIterations(iterations);
   const salt = random(SALT_BYTES);
   const key = await kekFromPassword(password, salt, iterations);
   return seal(key, seed, { v: 1, kind: "password", iterations, salt: toB64u(salt), iv: toB64u(random(IV_BYTES)) });
@@ -270,18 +295,26 @@ export interface ProtectOptions {
   password?: string;
   credentials?: CredentialsLike;
   iterations?: number;
+  /**
+   * Must be true for a passkey that fails PRF to fall back to the password.
+   * Default refuse: a downgrade (old browser, or a page shim that hides PRF)
+   * would otherwise store the seed password-only without the user choosing it.
+   */
+  allowPasswordFallback?: boolean;
 }
 
 /**
- * Feature-detecting entry point: the passkey when its PRF works, otherwise the
- * password. Refuses rather than store a seed with neither.
+ * Entry point: the passkey when its PRF works; the password only when no
+ * passkey is given, or when `allowPasswordFallback` is set. Refuses rather than
+ * store a seed with neither.
  */
 export async function protectSeed(seed: Uint8Array, opts: ProtectOptions): Promise<SeedEnvelope> {
   if (opts.passkey) {
     try {
       return await wrapWithPasskey(seed, opts.passkey, opts.credentials);
     } catch (e) {
-      if (!(e instanceof PasskeyError && e.kind === "prf-unsupported") || opts.password === undefined) throw e;
+      const fallback = e instanceof PasskeyError && e.kind === "prf-unsupported" && opts.password !== undefined && opts.allowPasswordFallback === true;
+      if (!fallback) throw e;
     }
   }
   if (opts.password !== undefined) return wrapWithPassword(seed, opts.password, opts.iterations);
@@ -294,10 +327,11 @@ export async function unlockSeed(env: SeedEnvelope, opts: { password?: string; c
   if (env.kind === "passkey-prf") {
     const prf = await evaluatePrf(env, fromB64u(env.prfSalt), opts.credentials);
     if (!prf) throw new PasskeyError("prf-unsupported", "the authenticator returned no PRF output");
-    return open(await kekFromPrf(prf, fromB64u(env.hkdfSalt)), env);
+    return open(await kekFromPrf(prf, fromB64u(env.hkdfSalt), env), env);
   }
   if (env.kind === "password") {
     if (opts.password === undefined) throw new PasskeyError("no-method", "this envelope needs its password");
+    checkIterations(env.iterations);
     return open(await kekFromPassword(opts.password, fromB64u(env.salt), env.iterations), env);
   }
   throw new PasskeyError("bad-envelope", "unknown envelope kind");

@@ -23,18 +23,28 @@ If your device cannot do this, the wallet uses a password instead, and says so.
   signature suite is added (invariants 29 and 30 are untouched).
 - **What the passkey does:** the WebAuthn **PRF** extension (CTAP2
   `hmac-secret`) makes the authenticator compute a secret from a value that
-  never leaves the device. HKDF-SHA256 turns that secret into an AES-256-GCM
+  never leaves the authenticator. HKDF-SHA256 turns that secret into an AES-256-GCM
   key-encryption key, and that key decrypts the post-quantum seed in memory.
-- **A quantum attacker who breaks P-256** still needs the device. Breaking
-  P-256 needs the public key, which is never published. And even the
-  passkey's private signing key does not give the PRF output, which comes from
-  a separate secret held by the authenticator. Without the device (or the
-  fallback password) the encrypted seed stays encrypted.
+- **A quantum attacker who breaks P-256** still needs an authenticator that
+  holds the passkey. Breaking P-256 needs the public key, which is never
+  published. And even the passkey's private signing key does not give the PRF
+  output, which comes from a separate secret held by the authenticator.
+- **Where that secret lives:** a device-bound passkey (a hardware security
+  key, some platform authenticators) keeps it on that one device. A **synced**
+  passkey (iCloud Keychain, Google Password Manager, Windows) copies it to
+  every device signed in to that account and to the provider's sync store, so
+  anyone who controls the account can unlock the seed. A website cannot forbid
+  syncing; choose a hardware security key if you want one device only.
 - **Not protected:** malware running in the wallet while the seed is unlocked;
   a weak fallback password (PBKDF2 with 600,000 iterations slows guessing, it
   does not stop it); a device someone else can unlock.
-- **Lost device:** a passkey that is gone cannot unlock anything. Keep the
-  password envelope or a seed backup as recovery.
+- **Lost device:** a passkey that is gone cannot unlock anything. Keep an
+  **offline seed backup** as recovery. Do not keep a password envelope next to
+  the passkey one: the seed is then only as safe as the password, because
+  anyone who copies the stored envelopes can guess the password offline.
+- **Password fallback is never silent:** if a passkey cannot produce PRF
+  output, the wallet refuses unless the user chose the password route
+  (`allowPasswordFallback`).
 
 ## For engineers
 
