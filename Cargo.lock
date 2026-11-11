@@ -5167,6 +5167,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "primitive-types",
+ "proptest",
  "tempfile",
  "thiserror 2.0.21",
 ]
