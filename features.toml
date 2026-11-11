@@ -2733,7 +2733,7 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = ["crate:maya2c-sdk", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
-gate = "Go and Python tests are NOT run by any CI job: run by hand with `cd sdks/go && go test ./...` and `python -m unittest discover -s sdks/python/tests`"
+gate = "Go and Python unit tests run in the `sdks` workflow (.github/workflows/sdks.yml): `go test ./...` in sdks/go and `python -m unittest discover -s tests` in sdks/python. The live-node tests skip there and run only in nightly.yml's devnet job."
 note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. Tests run against an in-process mock gateway, not a live node: no live run is recorded yet, so this is not `verified`. Not published (publish needs Eric's APPROVED)."
 
 [[subsystem]]
