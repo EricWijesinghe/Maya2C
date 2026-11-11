@@ -161,7 +161,7 @@ impl Detector {
         let mut out = Vec::new();
         for (name, o) in ups {
             let Some(s) = o.supply else { continue };
-            if s.circulating.saturating_add(s.burned) != s.total {
+            if !s.adds_up() {
                 out.push(mismatch(name, s));
             }
             if let Some((h, prev)) = self.last_total.get(*name)
@@ -230,8 +230,8 @@ fn mismatch(name: &str, s: Supply) -> Finding {
         severity: Severity::Critical,
         title: "Maya2C supply does not add up".into(),
         body: format!(
-            "{name}: circulating {} + burned {} != total {}",
-            s.circulating, s.burned, s.total
+            "{name}: circulating {} + burned {} + unissued {} != total {}",
+            s.circulating, s.burned, s.unissued, s.total
         ),
     }
 }

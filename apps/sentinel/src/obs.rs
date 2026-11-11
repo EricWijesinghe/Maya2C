@@ -50,8 +50,22 @@ pub struct Supply {
     pub total: U256,
     /// Units that can move.
     pub circulating: U256,
-    /// Units at addresses that can never spend them.
+    /// Units burned to the fee sink. Only grows.
     pub burned: U256,
+    /// Units still in the mining reserve. Zero from a node that predates the
+    /// field, whose `burned` already includes them.
+    pub unissued: U256,
+}
+
+impl Supply {
+    /// Whether every unit sits in exactly one bucket. An overflow fails it.
+    #[must_use]
+    pub fn adds_up(&self) -> bool {
+        self.circulating
+            .checked_add(self.burned)
+            .and_then(|sum| sum.checked_add(self.unissued))
+            == Some(self.total)
+    }
 }
 
 /// One successful observation of a node.
@@ -162,6 +176,10 @@ async fn fetch_supply<T: Transport>(t: &T) -> Option<Supply> {
         total: amount("total")?,
         circulating: amount("circulating")?,
         burned: amount("burned")?,
+        unissued: match v.get("unissued") {
+            None => U256::zero(),
+            Some(_) => amount("unissued")?,
+        },
     })
 }
 
