@@ -171,7 +171,9 @@ fn App() -> impl IntoView {
             return;
         }
         leptos::task::spawn_local(async move {
-            if let Ok(Some(request)) = bridge::take_pending_pay().await {
+            // A refused link (wrong network, expired) is dropped, as the OS
+            // handler drops a malformed one.
+            if let Ok(Some(request)) = bridge::take_pending_pay(&state.genesis()).await {
                 state.screen.set(Screen::Send(request));
             }
         });

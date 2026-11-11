@@ -347,7 +347,7 @@ fn unix_now() -> Result<u64, String> {
 
 /// Refuses a request for another network or past its `exp`, before the send
 /// form opens (ADR-086 §7). `exp` is this machine's clock, not consensus.
-fn checked_request(request: PaymentRequest, genesis: Option<&str>) -> Result<PaymentRequest, String> {
+pub(crate) fn checked_request(request: PaymentRequest, genesis: Option<&str>) -> Result<PaymentRequest, String> {
     let now = unix_now()?;
     request
         .check(networks::address_network(genesis.unwrap_or_default()), now)

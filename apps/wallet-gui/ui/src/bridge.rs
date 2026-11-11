@@ -246,9 +246,13 @@ pub async fn unlock(name: &str, passphrase: &str, accounts: u32) -> Result<Vec<A
 }
 
 /// A payment link (`maya2c-wallet://pay`) waiting to prefill Send, if any.
-/// Taken once: the command clears it.
-pub async fn take_pending_pay() -> Result<Option<PaymentRequest>, String> {
-    call("take_pending_pay", &NoArgs {}).await
+/// Taken once: the command clears it, and refuses one for another network.
+pub async fn take_pending_pay(genesis: &str) -> Result<Option<PaymentRequest>, String> {
+    #[derive(Serialize)]
+    struct Args<'a> {
+        genesis: &'a str,
+    }
+    call("take_pending_pay", &Args { genesis }).await
 }
 
 /// Locks the wallet, zeroizing the seed.
