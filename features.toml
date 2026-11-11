@@ -3449,7 +3449,7 @@ tier = "core"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/account_authority_tests.rs"]
-note = "ADR-086 §3, phase P3 (dark): ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT = u64::MAX, FeatureSet bit 9. Rule A/B in stage_transaction and the mempool; ka: state layer (tag 18) folded only when non-empty; guardian bounds, F1/F3/F4/F6 semantics; cancel and withdraw never halted. Proposed invariant 35. Not active anywhere: needs a testnet schedule entry, two human reviewers and a governance ScheduleUpgrade. Vectors: spec/account-authority-vectors.json."
+note = "ADR-086 §3, phase P3 (dark): ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT = u64::MAX, FeatureSet bit 9. Rule A/B in stage_transaction and the mempool; ka: state layer (tag 18) folded only when non-empty; guardian bounds, F1/F3/F4/F6 semantics; cancel and withdraw never halted. Proposed invariant 35. Not active anywhere: needs a testnet schedule entry, two human reviewers and a governance ScheduleUpgrade. Vectors: spec/account-authority-vectors.json. Invariant 33 for v9 frames: `v9_frames_fill_the_block_cap_and_the_rest_carry_over` fills MAX_BLOCK_BYTES with recovered-account frames (184 2-of-3, 120 3-of-5), carries the next one over, and imports both blocks."
 
 [[subsystem]]
 id = "private-contract-state"

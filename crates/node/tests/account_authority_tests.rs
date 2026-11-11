@@ -6,6 +6,7 @@
 
 use custom_l1_node::core::account_payload::{AccountAction, GuardianSet};
 use custom_l1_node::core::account_tx::signer_policy;
+use custom_l1_node::core::block::{block_wire_len, first_fit, transaction_wire_len};
 use custom_l1_node::core::multisig_tx::{MultisigAuth, multisig_address};
 use custom_l1_node::core::vault_payload::{VaultAction, VaultConfig};
 use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind, TxOutput};
@@ -16,6 +17,7 @@ use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::account_authority::MIN_DELAY_BLOCKS;
 use custom_l1_node::state::{Account, Address, BlockContext, Module, StateDB};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
+use maya_fee_market::limits::MAX_BLOCK_BYTES;
 use maya_crypto_pq::suite::{
     HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa65, MlDsa87, SignatureSuite, SuiteId,
 };
@@ -878,6 +880,126 @@ fn measured_v9_frame_bytes() {
             "v9 frame, suite 0x30 {label}, one output: {v9_len} bytes (v6 single-key transfer: {} bytes)",
             v6.to_bytes().len()
         );
+    }
+}
+
+// ------------------------------------------------------ block byte cap --
+
+type HybridKey = <HybridMlDsa65SlhDsa128s as SignatureSuite>::SigningKey;
+
+fn hybrid_devices(n: u8) -> Vec<HybridKey> {
+    (1..=n)
+        .map(|i| HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([i; 32])))
+        .collect()
+}
+
+fn hybrid_policy(threshold: usize, keys: &[HybridKey]) -> MultisigPolicy {
+    let listed = keys
+        .iter()
+        .map(|k| PolicyKey {
+            suite: SuiteId::HybridMlDsa65SlhDsa128s,
+            public_key: HybridMlDsa65SlhDsa128s::public_key(k),
+        })
+        .collect();
+    MultisigPolicy::new(threshold, listed).expect("policy")
+}
+
+/// A signed v9 transfer of `account` at `nonce`, approved by the first `threshold` devices.
+fn hybrid_frame(
+    account: Address,
+    policy: &MultisigPolicy,
+    keys: &[HybridKey],
+    nonce: u64,
+) -> Transaction {
+    let mut tx = Transaction::with_kind(TxKind::Transfer, nonce);
+    tx.outputs = pay(1);
+    tx.multisig = Some(Box::new(
+        MultisigAuth::unsigned(policy.clone()).bound_to(account),
+    ));
+    let message = tx.signing_bytes(&CHAIN);
+    let approvals = (0..u8::try_from(policy.threshold()).unwrap())
+        .map(|i| Approval {
+            index: i,
+            signature: HybridMlDsa65SlhDsa128s::sign(&keys[usize::from(i)], &message).unwrap(),
+        })
+        .collect();
+    tx.multisig = Some(Box::new(
+        MultisigAuth::new(policy.clone(), approvals)
+            .unwrap()
+            .bound_to(account),
+    ));
+    tx
+}
+
+/// Frames from one recovered account fill a block to the cap. The count is
+/// derived from the measured frame size, and the selection path is the one the
+/// producer runs. The frame that does not fit is carried into the next block.
+#[test]
+fn v9_frames_fill_the_block_cap_and_the_rest_carry_over() {
+    for (label, m, n) in [("2-of-3", 2usize, 3u8), ("3-of-5", 3, 5)] {
+        let mut s = scene();
+        let keys = hybrid_devices(n);
+        let new = hybrid_policy(m, &keys);
+        propose(&mut s, 0, &new).unwrap();
+        propose(&mut s, 1, &new).unwrap();
+        s.chain.idle_to(s.chain.height + DELAY);
+        finish(&mut s).expect("recovered");
+
+        let base = s.chain.nonce(&s.address);
+        let probe = hybrid_frame(s.address, &new, &keys, base);
+        let size = probe.to_bytes().len();
+        let room = MAX_BLOCK_BYTES - block_wire_len([]);
+        let fit = usize::try_from(room / transaction_wire_len(size)).unwrap();
+        let frames: Vec<Transaction> = (0..=fit as u64)
+            .map(|i| hybrid_frame(s.address, &new, &keys, base + i))
+            .collect();
+        let lens: Vec<usize> = frames.iter().map(|t| t.to_bytes().len()).collect();
+        println!(
+            "v9 {label}: measured {size} bytes per frame; first_fit room {room} bytes admits {fit}; \
+             block of {fit} = {} bytes; block of {} = {} bytes (cap {MAX_BLOCK_BYTES})",
+            block_wire_len(lens[..fit].iter().copied()),
+            fit + 1,
+            block_wire_len(lens.iter().copied()),
+        );
+
+        assert_eq!(
+            first_fit(&lens, MAX_BLOCK_BYTES),
+            (0..fit).collect::<Vec<_>>()
+        );
+        assert!(block_wire_len(lens[..fit].iter().copied()) <= MAX_BLOCK_BYTES);
+        assert!(block_wire_len(lens.iter().copied()) > MAX_BLOCK_BYTES);
+
+        let height = s.chain.height + 1;
+        let kept = s
+            .chain
+            .db
+            .select_applicable_within(
+                frames.clone(),
+                s.chain.context(height),
+                target_from_leading_zero_bits(0),
+                MAX_BLOCK_BYTES,
+            )
+            .unwrap();
+        assert_eq!(kept.len(), fit, "{label}: selection admits the floor count");
+        let first = s.chain.block(kept);
+        assert_eq!(
+            first.to_bytes().len() as u64,
+            block_wire_len(lens[..fit].iter().copied())
+        );
+        s.chain.height = height;
+        s.chain
+            .db
+            .apply_block(&first, s.chain.context(height))
+            .expect("the full block imports");
+
+        let carried = s.chain.block(vec![frames[fit].clone()]);
+        s.chain.height += 1;
+        s.chain
+            .db
+            .apply_block(&carried, s.chain.context(s.chain.height))
+            .expect("the carried frame imports in the next block");
+        assert_eq!(s.chain.nonce(&s.address), base + fit as u64 + 1);
+        assert_eq!(s.chain.balance(&PAYEE), U256::from(fit as u64 + 1));
     }
 }
 
