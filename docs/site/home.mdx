@@ -10,7 +10,9 @@ head:
 ---
 
 import StackDiagram from "../../components/StackDiagram.astro";
-import EcosystemMap from "../../components/EcosystemMap.astro";
+import EcosystemExplorer from "../../components/EcosystemExplorer.astro";
+import LiveProgress from "../../components/LiveProgress.astro";
+import QuestTrail from "../../components/QuestTrail.astro";
 import Hero3D from "../../components/Hero3D.astro";
 import OrbRow from "../../components/OrbRow.astro";
 import MainnetDial from "../../components/MainnetDial.astro";
@@ -26,8 +28,13 @@ import TxJourney from "../../components/TxJourney.astro";
 
 <StatBand />
 
+<p class="maya-eyebrow" id="journey">Your journey</p>
+<h2 class="maya-section-title">Explore, learn, earn your badge</h2>
+
+<QuestTrail />
+
 <p class="maya-eyebrow">In plain words</p>
-<h2 class="maya-section-title">From two signatures to a final block</h2>
+<h2 class="maya-section-title" id="tx-journey">From two signatures to a final block</h2>
 
 <p>A shared notebook everyone copies: a payment is written only when both of its
 signatures check out, and a sealed page never changes. Step through it.</p>
@@ -52,9 +59,11 @@ signatures check out, and a sealed page never changes. Step through it.</p>
 <StackDiagram />
 
 <p class="maya-eyebrow">Ecosystem</p>
-<h2 class="maya-section-title">Many apps, one identity</h2>
+<h2 class="maya-section-title" id="ecosystem">Many apps, one identity</h2>
 
-<EcosystemMap />
+<p>Every app talks to the same chain. Tap one to see what it does, whether it exists today, and what you can do with it now.</p>
+
+<EcosystemExplorer />
 
 <p class="maya-eyebrow">Try it</p>
 <h2 class="maya-section-title">Use it, build on it, break it</h2>
@@ -77,7 +86,9 @@ signatures check out, and a sealed page never changes. Step through it.</p>
 <MainnetDial />
 
 <p class="maya-eyebrow">Progress</p>
-<h2 class="maya-section-title">Live from the repository</h2>
+<h2 class="maya-section-title" id="progress">Live from the repository</h2>
+
+<LiveProgress />
 
 <ProgressPulse />
 
