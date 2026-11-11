@@ -54,7 +54,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1 |
 | pos-terminal | Point of sale on an Android phone: QR request, wait for finality, receipt | merchant-checkout, light client | none | M | W2 |
-| recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys | consensus review if a new state prefix is needed | M | W2 |
+| recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys; protocol execution at a height: ADR-109 (proposed, `sp:` prefix) | consensus review (ADR-109) | M | W2 |
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
 | flash-payments | Instant off-chain payment channels for small, frequent payments | `crates/l2-flash` | ADR (watchtower model) | L | W2 |
 | exchange-ui | Swap and order-book GUI; must pass the B38 ship gate (`min_out` from a quote, 1% default) | `crates/dex`, `compose_swap` | B38 gate, slippage tests | M | W2 |
@@ -71,7 +71,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
-| names | Human-readable names for addresses | VM contract or a new state prefix | consensus review (prefix) or VM-only design ADR | M | W2 |
+| names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed) | consensus review (ADR-105) | M | W2 |
 | notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 
