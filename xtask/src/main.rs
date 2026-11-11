@@ -14,6 +14,7 @@
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
 mod attacknet;
+mod bench_finality;
 mod bench_gate;
 mod bench_report;
 mod bench_tps;
@@ -88,6 +89,7 @@ fn main() -> ExitCode {
         "pgo" => pgo::run(rest),
         "hub-bundle" => hub_bundle::run(rest),
         "bench-tps" => bench_tps::bench_tps(rest),
+        "bench-finality" => bench_finality::bench_finality(rest),
         "bft-devnet" => bft_devnet::run(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
@@ -218,6 +220,7 @@ cargo xtask <command>
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
   bench-tps [--senders N] [--txs N]  Finalized transfers/s on the 4-validator localnet
+  bench-finality [--txs N] [--rate R]  Submit-to-finalized latency p50/p90/p99/max, localnet
   bft-devnet [--workdir DIR] [--seconds N] [--transfers N] [--release]
                         Four validators and an observer as processes over
                         DAG-BFT on localhost: transfers, heights, agreement.
