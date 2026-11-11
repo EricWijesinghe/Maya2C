@@ -41,3 +41,9 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
 - [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
 - [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [Succinct chain-state proofs (succinct-chain-proof)](succinct-chain-proof.md) — searched 2026-11-12
+- [Bitcoin anchoring of checkpoints (bitcoin-anchoring)](bitcoin-anchoring.md) — searched 2026-11-12
+- [Randomness and VRF verification for contracts (contract-randomness)](contract-randomness.md) — searched 2026-11-12
+- [Threshold decryption as a contract primitive (threshold-decryption)](threshold-decryption.md) — searched 2026-11-12
+- [Verifiable-compute markets and inference receipts (verifiable-inference)](verifiable-inference.md) — searched 2026-11-12
+- [Agent registries and agent-to-agent payments (agent-registry)](agent-registry.md) — searched 2026-11-12
