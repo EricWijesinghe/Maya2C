@@ -13,6 +13,8 @@ fn obs(height: u64, id: &str, txs: usize) -> NodeObs {
         peers: Some(5),
         supply: None,
         pending: None,
+        finalized: None,
+        bft: None,
     }
 }
 
