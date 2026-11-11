@@ -24,7 +24,10 @@ pub enum UndoError {
     NothingHeld,
     /// The window is still open.
     #[error("the send is held for {remaining_secs} more seconds")]
-    NotDue { remaining_secs: u64 },
+    NotDue {
+        /// Whole seconds left before the hold may be released.
+        remaining_secs: u64,
+    },
 }
 
 /// One signed transfer held before broadcast.
