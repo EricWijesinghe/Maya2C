@@ -1073,20 +1073,14 @@ impl StateDB {
     /// difficulty target, which admission does not know; `check_mining_share`
     /// judges them instead.
     ///
-    /// shortcut: the context takes the compiled shielded activation, not the
-    /// chain's genesis value, because the mempool holds no `ChainConfig`. The
-    /// compiled value is the lowest, so a shielded payload is admitted at least
-    /// as readily as the executor allows it. Upgrade by passing the chain config
-    /// into `Mempool`.
+    /// `context` is the executor's own context for the block the transaction
+    /// would land in, built by the caller from the chain's resolved shielded
+    /// activation and the committed schedule, so admission and execution agree.
     ///
     /// # Errors
     ///
     /// The executor's refusal, or a storage failure.
-    pub fn admit_payload(&self, tx: &Transaction, height: u64) -> Result<()> {
-        let schedule = self.effective_schedule()?;
-        let context = BlockContext::at_height(height)
-            .with_features(schedule.features())
-            .with_suite_sunsets(schedule.sunsets);
+    pub fn admit_payload(&self, tx: &Transaction, context: BlockContext) -> Result<()> {
         let policy = crate::crypto::suites::verification_policy(&context.suite_sunsets)?;
         let sender = tx.sender();
         let mut overlay = Overlay::new();

@@ -284,6 +284,31 @@ fn a_stamp_before_setup_is_refused_at_admission_for_the_missing_did() {
 }
 
 #[test]
+fn a_stamp_behind_a_pooled_registration_is_refused_and_says_to_wait() {
+    // ADR-099 trade-off: a nonce ahead of the account is pooled, but a payload
+    // whose document is only pooled (not committed) is refused at admission.
+    // The refusal must tell the user what to do: wait for the predecessor.
+    let dir = TempDir::new().unwrap();
+    let c = chain(&dir, true);
+    let key = wallet();
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let setup = cli_tx(&key, cli_register(&key), 0);
+    assert!(
+        matches!(pool.insert(setup.clone()), Ok(true)),
+        "setup pooled"
+    );
+
+    let stamp = cli_tx(&key, stamp_kind(VALID_SCHEMA), 1);
+    let reason = refused_at_admission(&pool, &stamp);
+    assert!(
+        matches!(&reason, NodeError::Decode(m) if m.contains("has no document") && m.contains("wait")),
+        "{reason:?}"
+    );
+    assert!(pool.contains(&setup.txid()), "the predecessor stays pooled");
+    assert_eq!(nonce(&c), 0);
+}
+
+#[test]
 fn a_second_registration_is_refused_at_admission() {
     // Re-registration is refused at execution only (`register_did`).
     let dir = TempDir::new().unwrap();

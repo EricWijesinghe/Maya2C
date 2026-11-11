@@ -209,7 +209,11 @@ impl StateDB {
     /// The sender's document, or a refusal.
     fn require_document(&self, overlay: &Overlay, did: &Did) -> Result<DidDocument> {
         self.did_document(overlay, did)?
-            .ok_or_else(|| NodeError::Decode(format!("identity: {did} has no document")))
+            .ok_or_else(|| {
+                NodeError::Decode(format!(
+                    "identity: {did} has no document; if its registration is still pooled, wait for it to be included"
+                ))
+            })
     }
 }
 
