@@ -31,7 +31,7 @@ Queue abbreviations: P-1..P-16 = `.claude/plans/q1-90day-roadmap.plan.md`; V3-*,
 
 | Facility | Who | Source | Maya2C | Queue |
 |---|---|---|---|---|
-| User-issued fungible tokens | ERC-20, SPL/Token-2022, Cosmos bank, Hedera HTS, Algorand ASA | https://www.hedera.com/roadmap | **none** | P-1 |
+| User-issued fungible tokens | ERC-20, SPL/Token-2022, Cosmos bank, Hedera HTS, Algorand ASA | https://www.hedera.com/roadmap | `RegisterAsset`/`TransferAsset` exist (`crates/node/src/core/payload.rs:457-460`) with no mint after registration (`crates/node/src/state/asset.rs:17-25`); corrected 2026-11-12 by ADR-103 | P-1 (mint policy) |
 | NFTs / collectibles | ERC-721/1155, Metaplex, Sui objects | https://www.coingabbar.com/en/crypto-blogs-details/aptos-blockchain-guide-2026-move-defi-development (T) | **none** | P-2 |
 | Confidential token transfers | Solana Token-2022 confidential (T, thin); Zcash NU7 shielded assets planned (S) | https://whale-alert.io/stories/93b80134a9ee8a/ | `features.toml:1837` shielded pool is native coin only | gap P-20 |
 | State compression (cNFT, ZK compression) | Solana (T, thin) | https://solanastaking-seven.vercel.app/blog/solana-2026-roadmap-breakdown | **none** | gap P-21 |
@@ -175,7 +175,7 @@ Each gap: no code in the tree, and no P-1..P-16, V3-*, W1-* or W3-* job covers i
 | Job | Gap | Size | Consensus | Invariants | Note |
 |---|---|---|---|---|---|
 | P-17 | Passkey / device-authenticator login that unlocks a local PQ key (wallet-side; no on-chain P-256 suite) | M | n | none in wallet-only form; 29, 30 if a suite were added | the passkey never signs a transaction, it unlocks the ML-DSA key |
-| P-18 | Mixed-suite multisig signers (hybrid + SLH-DSA in one m-of-n) | S | y | 29, 30, 31 | extends v8 |
+| P-18 | ~~Mixed-suite multisig signers~~ already shipped: `crates/crypto-pq/src/multisig.rs:101-105` (per-member suite), tests `multisig_tests.rs:38-45`; ADR-117 adds only a per-family approval floor | S | y | 29, 30, 31 | v12 (floor only) |
 | P-19 | Chain signatures: MPC signing for foreign chains from a Maya2C account | L | n (service) | 11, 18, 19 | disclosed operator set; ADR first |
 | P-20 | Shielded transfers for P-1 tokens | L | y | 25, 31, 32 | after P-1 and the C1 decision |
 | P-21 | State compression for mass NFT/account issuance | L | y | 24, 25 | after P-2 |
