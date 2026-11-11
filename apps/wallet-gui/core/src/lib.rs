@@ -46,7 +46,9 @@ pub mod error;
 pub mod hd;
 pub mod networks;
 pub mod node_url;
+pub mod payee;
 pub mod payment;
+pub mod undo;
 pub mod vault;
 pub mod wallet;
 

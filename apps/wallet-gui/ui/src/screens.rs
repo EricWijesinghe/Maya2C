@@ -693,6 +693,69 @@ pub mod scan {
 pub mod send {
     use super::*;
 
+    /// The undo window. The core enforces the real one (`UNDO_WINDOW_SECS`);
+    /// this only paces the countdown the person watches.
+    const UNDO_SECS: u64 = 10;
+
+    /// What one undo countdown needs. `id` is the run it belongs to.
+    #[derive(Clone, Copy)]
+    struct Undo {
+        state: AppState,
+        left: RwSignal<Option<u64>>,
+        run: StoredValue<u64>,
+        id: u64,
+    }
+
+    /// One second of the countdown; at zero, releases and broadcasts.
+    fn count_down(undo: Undo, left: u64) {
+        if undo.run.get_value() != undo.id {
+            return;
+        }
+        if left == 0 {
+            spawn_local(release(undo));
+            return;
+        }
+        undo.left.set(Some(left));
+        set_timeout(
+            move || count_down(undo, left - 1),
+            std::time::Duration::from_secs(1),
+        );
+    }
+
+    /// Takes the held transfer from the core and broadcasts it once.
+    async fn release(undo: Undo) {
+        if undo.run.get_value() != undo.id {
+            return;
+        }
+        undo.left.set(None);
+        let transfer = match bridge::release_held().await {
+            Ok(transfer) => transfer,
+            Err(error) => {
+                undo.state.fail(error);
+                return;
+            }
+        };
+        let node_url = undo.state.node_url.get_untracked();
+        match bridge::broadcast(&node_url, &transfer.raw_hex).await {
+            Ok(txid) => {
+                let _ = bridge::record_outcome(&transfer.txid, true, None).await;
+                if let Ok(history) = bridge::history().await {
+                    undo.state.history.set(history);
+                }
+                undo.state.clear();
+                undo.state.screen.set(Screen::Sent(crate::receive::SentTransfer {
+                    txid,
+                    amount: transfer.amount.clone(),
+                    recipient: transfer.recipient.clone(),
+                }));
+            }
+            Err(error) => {
+                let _ = bridge::record_outcome(&transfer.txid, false, Some(error.clone())).await;
+                undo.state.fail(error);
+            }
+        }
+    }
+
     /// Send screen.
     #[component]
     pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
@@ -839,34 +902,52 @@ pub mod send {
             });
         };
 
+        // Undo-send: the signed transfer waits out the window before it is
+        // broadcast, and Undo inside the window discards it. `undo_run` numbers
+        // each run; a newer run, an Undo, or leaving this screen moves it on,
+        // which stops the countdown.
+        let undo_run = StoredValue::new(0u64);
+        let undo_left = RwSignal::new(None::<u64>);
+        on_cleanup(move || {
+            undo_run.update_value(|n| *n += 1);
+            spawn_local(async {
+                let _ = bridge::cancel_held().await;
+            });
+        });
         let send_now = move |_| {
             let Some(transfer) = signed.get() else {
                 return;
             };
+            let id = undo_run.get_value() + 1;
+            undo_run.set_value(id);
+            let undo = Undo {
+                state,
+                left: undo_left,
+                run: undo_run,
+                id,
+            };
             busy.set(true);
             spawn_local(async move {
-                let outcome =
-                    bridge::broadcast(&state.node_url.get_untracked(), &transfer.raw_hex).await;
-                match outcome {
-                    Ok(txid) => {
-                        let _ = bridge::record_outcome(&transfer.txid, true, None).await;
-                        if let Ok(history) = bridge::history().await {
-                            state.history.set(history);
-                        }
-                        state.clear();
-                        state.screen.set(Screen::Sent(crate::receive::SentTransfer {
-                            txid,
-                            amount: transfer.amount.clone(),
-                            recipient: transfer.recipient.clone(),
-                        }));
+                match bridge::hold_transfer(&transfer.txid).await {
+                    // Undo pressed while the hold was being set: drop it.
+                    Ok(_) if undo_run.get_value() != id => {
+                        let _ = bridge::cancel_held().await;
                     }
-                    Err(error) => {
-                        let _ = bridge::record_outcome(&transfer.txid, false, Some(error.clone()))
-                            .await;
-                        state.fail(error);
-                    }
+                    Ok(_) => count_down(undo, UNDO_SECS),
+                    Err(error) => state.fail(error),
                 }
                 busy.set(false);
+            });
+        };
+        let undo_send = move |_| {
+            undo_run.update_value(|n| *n += 1);
+            undo_left.set(None);
+            spawn_local(async move {
+                match bridge::cancel_held().await {
+                    Ok(true) => state.inform("Undone. Nothing was broadcast."),
+                    Ok(false) => state.inform("Nothing to undo: the transaction was already sent."),
+                    Err(error) => state.fail(error),
+                }
             });
         };
 
@@ -1032,13 +1113,26 @@ pub mod send {
                                          never needs a network connection."
                                     </p>
                                 </div>
-                                <button
-                                    class="primary wide"
-                                    disabled=move || busy.get()
-                                    on:click=send_now
+                                <Show
+                                    when=move || undo_left.get().is_some()
+                                    fallback=move || view! {
+                                        <button
+                                            class="primary wide"
+                                            disabled=move || busy.get()
+                                            on:click=send_now
+                                        >
+                                            "Send"
+                                        </button>
+                                    }
                                 >
-                                    "Broadcast now"
-                                </button>
+                                    <p class="hint">
+                                        {move || format!(
+                                            "Sending in {} s. Undo before then and nothing is broadcast.",
+                                            undo_left.get().unwrap_or(0)
+                                        )}
+                                    </p>
+                                    <button class="ghost wide" on:click=undo_send>"Undo"</button>
+                                </Show>
                             </Show>
                         }
                     }}
