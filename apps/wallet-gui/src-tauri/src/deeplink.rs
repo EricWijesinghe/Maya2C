@@ -145,6 +145,7 @@ pub fn handle<R: Runtime, U: std::fmt::Display>(app: &AppHandle<R>, urls: &[U]) 
                     recipient,
                     amount,
                     label: None,
+                    ..Default::default()
                 };
                 let pending: State<'_, PendingPay> = app.state();
                 *pending.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(request);
