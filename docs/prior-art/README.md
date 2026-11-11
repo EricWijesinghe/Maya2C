@@ -41,3 +41,9 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
 - [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
 - [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [Shielded transfers of user-issued tokens (ADR-110)](shielded-tokens.md) — searched 2026-11-12
+- [Treasury spend path and grants (ADR-111)](treasury-grants.md) — partially searched 2026-11-12
+- [Pull oracle with on-chain report verification (ADR-112)](pull-oracle.md) — searched 2026-11-12
+- [Vote delegation and conviction voting (ADR-113)](vote-delegation.md) — searched 2026-11-12
+- [Contract timers and scheduled execution (ADR-114)](contract-timers.md) — partially searched 2026-11-12
+- [Post-quantum verifiable random functions (ADR-115)](post-quantum-vrf.md) — searched 2026-11-12

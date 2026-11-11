@@ -100,3 +100,9 @@ The observation that would make this worth reopening.
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
+| [110](ADR-110-shielded-user-tokens.md) | Shielded user tokens: asset id in the note and as a public input, one tree, clear per-asset pool balance; inherits the ADR-067 note cap | Proposed |
+| [111](ADR-111-treasury-spend-and-grants.md) | Treasury spend path: keyless derived account, governed fee share in, spends and vested grants through the proposal lifecycle under a compiled epoch cap | Proposed |
+| [112](ADR-112-pull-oracle-on-chain-reports.md) | Pull oracle: batch reports signed once over a Merkle root, carried by `WithReports` and applied before the inner kind; a lost race is a no-op | Proposed |
+| [113](ADR-113-vote-delegation.md) | Vote delegation: one hop, running delegated sum, undelegation lead derived from the compiled floors; conviction as a shift on locked stake | Proposed |
+| [114](ADR-114-contract-timers.md) | Contract timers under `ct:`: scheduled by a host function, run at the end of the block in key order, bounded, failure a no-op, flat fee from a contract escrow | Proposed |
+| [115](ADR-115-post-quantum-vrf.md) | Post-quantum beacon randomness: hash-chain scheme 2 mixed with ECVRF; lattice scheme 3 reserved behind a written research gate | Proposed |
