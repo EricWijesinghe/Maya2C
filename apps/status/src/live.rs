@@ -282,8 +282,15 @@ fn seat_claims(polls: &[NodePoll], stakes: &StakeSet) -> Option<Vec<SeatClaim>> 
 }
 
 /// The next scheduled upgrade any watched node reported.
+/// A lagging node can still report an entry the tip has passed, so the
+/// one kept is the lowest activation height above the highest tip seen.
 fn next_upgrade(polls: &[NodePoll]) -> Option<NextUpgrade> {
-    polls.iter().find_map(|p| p.next_upgrade)
+    let tip = polls.iter().filter_map(|p| p.height).max().unwrap_or(0);
+    polls
+        .iter()
+        .filter_map(|p| p.next_upgrade)
+        .filter(|u| u.activation_height > tip)
+        .min_by_key(|u| u.activation_height)
 }
 
 /// Readiness for the next scheduled upgrade, from the committee and the
@@ -789,6 +796,27 @@ mod tests {
         let r = live.view().readiness.clone().unwrap();
         assert_eq!((r.observed_seats, r.observed_bps), (2, 6_666));
         assert_eq!((r.ready_seats, r.ready_bps), (2, 6_666));
+    }
+
+    #[test]
+    fn the_next_upgrade_is_the_lowest_one_above_the_highest_tip() {
+        let at = |name: &str, height, version, activation_height| NodePoll {
+            name: name.into(),
+            height: Some(height),
+            next_upgrade: Some(NextUpgrade {
+                version,
+                activation_height,
+            }),
+            ..NodePoll::default()
+        };
+        // `a` lags: the 300 it reports is already behind the tip at 350.
+        let polls = vec![
+            at("a", 100, 3, 300),
+            at("b", 350, 5, 900),
+            at("c", 350, 4, 600),
+        ];
+        let next = next_upgrade(&polls).expect("an upgrade is pending");
+        assert_eq!((next.version, next.activation_height), (4, 600));
     }
 
     #[test]

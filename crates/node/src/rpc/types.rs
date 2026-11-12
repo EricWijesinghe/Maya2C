@@ -126,7 +126,8 @@ pub struct BftStatus {
     /// building its own.
     pub follower: bool,
     /// This node's committee seat id, hex (the staking validator id), or
-    /// `None` for an observer or a node that predates the field. Self-reported.
+    /// `None` for an observer, a node that predates the field, or an RPC
+    /// whose operator did not pass `--rpc-expose-validator-id`. Self-reported.
     #[serde(default)]
     pub validator_id: Option<String>,
 }

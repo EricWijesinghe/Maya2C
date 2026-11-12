@@ -36,6 +36,7 @@ pub mod market_http;
 pub mod metered;
 pub mod peers;
 pub mod server;
+pub mod tip_cache;
 pub mod types;
 pub mod validators;
 

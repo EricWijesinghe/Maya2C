@@ -278,6 +278,47 @@ async fn get_node_version_reports_this_build() {
     );
 }
 
+/// `get_bft_status` from a node whose engine slot knows its seat id.
+async fn seated_bft_status(configure: fn(RpcContext) -> RpcContext) -> serde_json::Value {
+    let dir = TempDir::new().expect("tempdir");
+    let state = Arc::new(StateDB::open(dir.path()).expect("open state"));
+    let chain = Arc::new(Mutex::new(
+        common::open_chain(
+            Arc::clone(&state),
+            genesis(TEST_DIFFICULTY_BITS),
+            ChainConfig::without_pow_verification(),
+        )
+        .expect("open chain"),
+    ));
+    let slot = Arc::new(Mutex::new(custom_l1_node::rpc::types::BftStatus {
+        validator_id: Some("ab".repeat(32)),
+        committee: 4,
+        ..Default::default()
+    }));
+    let context = configure(RpcContext::new(chain, Mempool::new(state)).with_bft_status(slot));
+    let server = serve("127.0.0.1:0".parse().expect("addr"), context)
+        .await
+        .expect("start rpc server");
+    let client = HttpClientBuilder::default()
+        .build(format!("http://{}", server.address))
+        .expect("build client");
+    client
+        .request("get_bft_status", rpc_params![])
+        .await
+        .expect("get_bft_status")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_bft_status_hides_the_seat_id_unless_the_operator_opts_in() {
+    // W3-4b: a public gateway forwards get_bft_status, so the staking id of
+    // the seat this node holds must not be served by default.
+    let public = seated_bft_status(|c| c).await;
+    assert_eq!(public["committee"], 4);
+    assert!(public["validator_id"].is_null(), "{public}");
+    let opted_in = seated_bft_status(RpcContext::with_validator_id).await;
+    assert_eq!(opted_in["validator_id"], "ab".repeat(32));
+}
+
 // ---------------------------------------------------------------------------
 // send_raw_transaction — key generation, signing, broadcast
 // ---------------------------------------------------------------------------

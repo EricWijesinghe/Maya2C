@@ -23,9 +23,16 @@ peer supports, so the question cannot be answered from the network.
    per open link and shown in `get_peers` as `claimed_protocol`.
 3. A node reports its own staking seat id in `get_bft_status`
    (`validator_id`, hex). This is self-reported and is used to join a
-   seat to a peer.
+   seat to a peer. It is served only when the operator starts the node with
+   `--rpc-expose-validator-id` (`RpcContext::with_validator_id`), because a
+   public gateway forwards `get_bft_status` and the id ties the node's
+   address to a staking record. The status page needs that flag on the
+   nodes it watches.
 4. `get_next_upgrade` returns the next schedule entry activating after the
-   chain height, read from committed state.
+   chain height, read from committed state. The answer is cached per tip
+   (height and block id) and recomputed only when the tip moves. When the
+   watched nodes disagree, the status page takes the lowest activation
+   height above the highest tip any of them reports.
 5. The status page joins these: for the next upgrade's version it shows the
    share of committee stake whose seat's peer is claimed at that version or
    later, in basis points (integer arithmetic, floored). For each seat, the
