@@ -146,8 +146,8 @@ export default defineConfig({
       // Self-hosted variable fonts: no third-party request, no layout shift
       // from a late swap, and the same letterforms on every OS.
       customCss: [
-        "@fontsource-variable/manrope",
-        "@fontsource-variable/inter",
+        // Inter with its optical-size axis: one family for display and body (ADR-136).
+        "@fontsource-variable/inter/opsz.css",
         "@fontsource-variable/jetbrains-mono",
         // KaTeX glyph styles, self-hosted from node_modules (fonts are same-origin).
         "katex/dist/katex.min.css",

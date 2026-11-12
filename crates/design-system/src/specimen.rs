@@ -15,21 +15,23 @@ const THEMES: [&str; 2] = ["dark", "light"];
 
 const COMPONENT_CSS: &str = r"
 body { margin:0; font:var(--type-body-size)/1.5 'DejaVu Sans',sans-serif; }
-section { background:var(--bg); color:var(--text); padding:var(--space-5); width:720px; }
-h1 { font-size:var(--type-title-1-size); margin:0 0 var(--space-4); }
-.muted { color:var(--muted); }
-.panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-1);
-         padding:var(--space-4); margin:var(--space-4) 0; }
-.btn { background:var(--accent); color:var(--on-accent); border:0; border-radius:var(--r-2);
-       min-height:44px; padding:0 var(--space-5); font:inherit; font-weight:600; }
-.btn.secondary { background:transparent; color:var(--accent-text); border:1px solid var(--accent); }
+section { background:var(--bg); color:var(--text); padding:var(--space-6); width:720px; }
+h1 { font-size:var(--type-title-2-size); font-weight:600; letter-spacing:-0.01em; margin:0 0 var(--space-4); }
+.muted { color:var(--text-2); }
+.panel { background:var(--surface-1); border:1px solid var(--border); border-radius:var(--r-lg);
+         box-shadow:var(--shadow-inset); padding:var(--space-4); margin:var(--space-4) 0; }
+.btn { background:linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color:var(--on-accent);
+       border:0; border-radius:var(--r-md); box-shadow:inset 0 1px 0 var(--accent-highlight), var(--shadow-sm);
+       height:var(--control-h); padding:0 var(--space-4); font:inherit; font-weight:500; }
+.btn.secondary { background:var(--surface-2); color:var(--text); border:1px solid var(--border-strong); box-shadow:none; }
 .focus { outline:2px solid var(--accent); outline-offset:2px; }
-.warn { border-inline-start:4px solid var(--danger); color:var(--danger); }
-.caution { border-inline-start:4px solid var(--warning); color:var(--warning); }
+.warn { border-inline-start:2px solid var(--danger); color:var(--danger); }
+.caution { border-inline-start:2px solid var(--warn); color:var(--warn); }
 .ok { color:var(--success); }
-table { width:100%; border-collapse:collapse; }
-td,th { text-align:start; padding:var(--space-2); border-bottom:1px solid var(--line); }
-th { color:var(--muted); font-weight:500; }
+table { width:100%; border-collapse:collapse; font-size:var(--type-body-sm-size); }
+td,th { text-align:start; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); }
+td { font-variant-numeric:var(--font-numeric); }
+th { color:var(--text-2); font-weight:500; }
 ";
 
 fn section(theme: &str, locale: &str) -> String {
