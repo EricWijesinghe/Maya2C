@@ -27,7 +27,7 @@ use custom_l1_node::state::scheduled::{
 };
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_governance::limits::MAX_SCHEDULE_HORIZON_BLOCKS as HORIZON;
-use maya_governance::params::ParameterKey;
+use maya_governance::params::{ParameterKey, SCHEDULE_RUN_FEE_DEFAULT};
 use primitive_types::U256;
 use tempfile::TempDir;
 
@@ -58,10 +58,14 @@ fn fixture(funded: &[Address]) -> Fixture {
         )
         .expect("fund");
     }
-    Fixture {
+    let f = Fixture {
         db: Arc::new(db),
         _dir: dir,
-    }
+    };
+    // These tests price runs explicitly from zero; the non-zero activation
+    // default is pinned by `the_activation_run_fee_is_the_nonzero_default`.
+    set_run_fee(&f, 0);
+    f
 }
 
 fn block_of(transactions: Vec<Transaction>) -> Block {
@@ -759,4 +763,36 @@ fn schedules_are_refused_below_activation_and_never_by_default() {
     g.db.apply_block(&block_of(vec![]), BlockContext::at_height(V4 - 1))
         .expect("dark step");
     assert!(!ran(&g, &[0x33; 32]));
+}
+
+// Eric, 2026-11-12: RUN_FEE starts small and non-zero at activation (about one
+// minimal transfer's byte fee), still governed. With no proposal in the table
+// a creation prepays `(amount + default) * runs` and a run pays the default to
+// the collector. Fails if the default goes back to zero.
+#[test]
+fn the_activation_run_fee_is_the_nonzero_default() {
+    let fee = U256::from(SCHEDULE_RUN_FEE_DEFAULT);
+    assert!(!fee.is_zero());
+    let key = generate_signing_key().expect("key");
+    let payer = key.address();
+    let f = fixture(&[]);
+    f.db.raw_put_for_test(b"g:params", &ParameterTable::new().encode())
+        .expect("default table");
+    let funds = (U256::from(AMOUNT) + fee) * 2;
+    f.db.put_account(
+        &payer,
+        &Account {
+            balance: funds,
+            nonce: 0,
+        },
+    )
+    .expect("fund");
+    let first_due = V4 + 5;
+    let tx = signed(create(PAYEE, U256::from(AMOUNT), first_due, 2), 0, &key);
+    apply(&f, vec![tx], V4).expect("create");
+    assert_eq!(balance(&f, &payer), U256::zero(), "escrow includes the fee");
+    let collector_before = balance(&f, &FEE_COLLECTOR);
+    apply(&f, vec![], first_due).expect("due block");
+    assert_eq!(balance(&f, &PAYEE), U256::from(AMOUNT));
+    assert_eq!(balance(&f, &FEE_COLLECTOR) - collector_before, fee);
 }

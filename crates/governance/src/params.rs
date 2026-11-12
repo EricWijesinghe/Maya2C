@@ -60,6 +60,16 @@ const SURCHARGE_CEILING: Amount = {
     Amount::from_le_bytes(bytes)
 };
 
+/// `ScheduleRunFee` at activation, in base units per run: the byte fee of one
+/// minimal transfer, so a due row is never free to queue (the S-2 backlog
+/// residual of ADR-135 P-7). Eric's decision, 2026-11-12: a small non-zero
+/// governed value, lowerable by proposal. Derived, not measured here: the
+/// launch base-fee floor `LAUNCH_MIN_BASE_FEE` (10^6 per byte,
+/// `bins/genesis-ceremony/src/committee.rs`) times 13,215 bytes, the measured
+/// v5 transfer (`reports/13-pq-weight.md`). The base fee floats above its floor
+/// and this does not; governance re-prices it.
+pub const SCHEDULE_RUN_FEE_DEFAULT: u64 = 1_000_000 * 13_215;
+
 /// A rule that governance may change.
 ///
 /// The tags are consensus and must never be renumbered. A key this build does
@@ -159,7 +169,7 @@ impl ParameterKey {
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
             Self::AssetRegistrationFee => 11,
-            Self::ScheduleRunFee => 12,
+            Self::ScheduleRunFee => 16,
         }
     }
 
@@ -189,7 +199,7 @@ impl ParameterKey {
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
             11 => Ok(Self::AssetRegistrationFee),
-            12 => Ok(Self::ScheduleRunFee),
+            16 => Ok(Self::ScheduleRunFee),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -300,13 +310,14 @@ impl ParameterKey {
                 max: SURCHARGE_CEILING,
                 default: Amount::from_u64(0),
             },
-            // Eric O-6: zero at activation, governed and raisable. The
-            // ceiling keeps `amount + RUN_FEE` one `checked_add` from the top
-            // of U256; the 2^249 creation bound refuses it before that.
+            // Eric, 2026-11-12 (replaces O-6's zero): small and non-zero at
+            // activation, governed, lowerable to zero. The ceiling keeps
+            // `amount + RUN_FEE` one `checked_add` from the top of U256; the
+            // 2^249 creation bound refuses it before that.
             Self::ScheduleRunFee => Bounds {
                 min: Amount::from_u64(0),
                 max: SURCHARGE_CEILING,
-                default: Amount::from_u64(0),
+                default: Amount::from_u64(SCHEDULE_RUN_FEE_DEFAULT),
             },
         }
     }
@@ -404,6 +415,8 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
+        // 11 (`AssetRegistrationFee`) plus `ScheduleRunFee` (16; 12-15 are
+        // the names keys of #493, unassigned here). ADR-135 allocation table.
         assert_eq!(count, 12);
     }
 
@@ -412,7 +425,9 @@ mod tests {
         // A node that skipped an unknown key would execute a proposal it did
         // not understand and then build on a state every upgraded node
         // disagrees with. Refusing turns a silent fork into a stopped node.
-        for tag in [0u16, 13, 999, u16::MAX] {
+        // 12-15 are reserved for the names keys (#493) and 17 is the first
+        // tag past `ScheduleRunFee` (16, ADR-135 allocation table).
+        for tag in [0u16, 12, 15, 17, 999, u16::MAX] {
             assert_eq!(
                 ParameterKey::from_tag(tag),
                 Err(GovernanceError::UnknownParameter { tag })

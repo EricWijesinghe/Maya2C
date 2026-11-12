@@ -290,9 +290,13 @@ mod tests {
         }
         // Not `MODULES.len()`: a variant left out of `MODULES` would make that
         // comparison agree with itself. 14 is the count this wire format has
-        // since `Vault` took tag 12 (ADR-030) and `Scheduled` 13 (ADR-135).
+        // since `Vault` took tag 12 (ADR-030), plus `Scheduled` 16 (ADR-135
+        // allocation table). 13 (#447 `Account`), 14 and 15 (#493 `Nft`,
+        // `Names`) are reserved and unassigned on this branch.
         assert_eq!(seen.len(), 14);
-        assert_eq!(Module::from_tag(14), None);
+        for reserved in [13, 14, 15, 17] {
+            assert_eq!(Module::from_tag(reserved), None, "tag {reserved}");
+        }
     }
 
     #[test]

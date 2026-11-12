@@ -24,15 +24,16 @@
 //! The step reads committed state, the overlay and the height only: no clock,
 //! no float, and a `BTreeMap`/key-ordered scan, never a hash-map order.
 //!
-//! **Accepted residual, stated (S-2, both reviews 2026-11-12, open for Eric).**
+//! **Residual, priced (S-2, both reviews 2026-11-12; Eric decided 2026-11-12).**
 //! The step sustains `256 × MIN_INTERVAL = 921,600` minimum-interval
 //! schedules. Above that the backlog grows, and because a run reschedules at
 //! `next_due + interval`, an older backlog keeps sorting first: honest
-//! schedules wait behind it. At `RUN_FEE = 0` (Eric O-6) a schedule costs its
-//! byte fee plus `amount × runs` with `amount >= 1` base unit, so the price of
-//! the delay is close to nothing. Transactions are never delayed. Raising
-//! `ScheduleRunFee` (a proposal, no binary change) or a compiled minimum
-//! amount closes it; both are economics, so neither is chosen here.
+//! schedules wait behind it. Transactions are never delayed. `RUN_FEE` now
+//! starts non-zero (`SCHEDULE_RUN_FEE_DEFAULT`, one minimal transfer's byte
+//! fee per run, prepaid), so stuffing the queue costs a transfer's fee per
+//! queued run instead of one base unit. It is still governed: a proposal can
+//! raise it if a backlog appears, or lower it, back to zero, which reopens
+//! this residual.
 //!
 //! **Catch-up after a breaker.** A hold longer than `interval` leaves
 //! `next_due + interval <= height`, so such a schedule runs again on the next
@@ -46,8 +47,8 @@
 //!   the product is below `2^256` whenever the check above passed;
 //! - a run: `escrow >= unit` first, then `checked_sub` (S-3).
 //!
-//! `RUN_FEE` is the governed parameter `ScheduleRunFee` (invariant 17, zero at
-//! activation, below `2^252` by its bounds), read from state per block, never
+//! `RUN_FEE` is the governed parameter `ScheduleRunFee` (invariant 17, tag
+//! 16, `SCHEDULE_RUN_FEE_DEFAULT` at activation, below `2^252` by its bounds), read from state per block, never
 //! a `const`. It is paid to `FEE_COLLECTOR`, so it joins the tips.
 //!
 //! ## Vaults (invariant 32)

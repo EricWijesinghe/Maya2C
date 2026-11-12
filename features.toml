@@ -2660,7 +2660,7 @@ tier = "core"
 class = "RESEARCH"
 status = "stub"
 tests = ["crates/node/tests/scheduled_payment_tests.rs", "crates/node/tests/schedule_conformance.rs"]
-note = "ADR-135 P-7 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 46, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 67-68, layer sp: (StateLayer 18), breaker module 13, ScheduleRunFee governance tag 12 (zero, Eric O-6). End-of-block step capped at MAX_DUE_PER_BLOCK = 256 with carry-over. CI-first: not compiled locally, so stub until CI and a fix wave run the tests. Tag and layer numbers collide with V4-I2/I3's on their branch; the coordinator renumbers on stacking."
+note = "ADR-135 P-7 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 46, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 67-68, layer sp: (StateLayer 21), breaker module 16, ScheduleRunFee governance tag 16 (ADR-135 allocation table); RUN_FEE defaults to a small non-zero governed value, one minimal transfer's byte fee (Eric 2026-11-12). End-of-block step capped at MAX_DUE_PER_BLOCK = 256 with carry-over. CI-first: not compiled locally, so stub until CI and a fix wave run the tests."
 
 [[subsystem]]
 id = "jurisdictional-transfer-rules"

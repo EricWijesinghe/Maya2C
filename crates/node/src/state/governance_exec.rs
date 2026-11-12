@@ -436,7 +436,7 @@ impl StateDB {
                     activation: context.asset_mint_activation,
                 });
             }
-            // Tag 12 likewise until bit 46 (ADR-135 P-7).
+            // Tag 16 likewise until bit 46 (ADR-135 P-7).
             if key == ParameterKey::ScheduleRunFee && !context.scheduled_active() {
                 return Err(NodeError::ScheduleInactive {
                     height: context.height,

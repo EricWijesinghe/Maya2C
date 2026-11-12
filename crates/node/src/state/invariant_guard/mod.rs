@@ -157,7 +157,7 @@ impl Module {
             Self::ThreatIntel => 10,
             Self::Iot => 11,
             Self::Vault => 12,
-            Self::Scheduled => 13,
+            Self::Scheduled => 16,
         }
     }
 
@@ -178,7 +178,7 @@ impl Module {
             10 => Some(Self::ThreatIntel),
             11 => Some(Self::Iot),
             12 => Some(Self::Vault),
-            13 => Some(Self::Scheduled),
+            16 => Some(Self::Scheduled),
             _ => None,
         }
     }
