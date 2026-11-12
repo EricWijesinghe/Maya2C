@@ -3526,5 +3526,5 @@ paths = "`apps/explorer/src/api/`, `crates/web-security/src/rate_limit.rs`, `app
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["apps/explorer/tests/api_v1_tests.rs", "apps/explorer/src/api/query.rs", "apps/explorer/src/api/address.rs", "apps/explorer/src/api/cache.rs"]
+tests = ["apps/explorer/tests/api_v1_tests.rs", "crate:maya-explorer"]
 note = "ADR-092. Read-only GET under /api/v1. History from the index (tx_outputs added, index generation 3); live values from the node through a TTL single-flight cache (supply 30 s). Bech32m addresses, cursor pages, RFC 9457 problem codes, per-client 10 rps / burst 30 limit, finality-aware Cache-Control. Postgres SQL for the new queries is NOT VERIFIED against a server (no Postgres harness in the repo); MemoryStore proves the logic. The golden spec is JSON in a .yaml file."

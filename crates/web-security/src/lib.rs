@@ -11,7 +11,9 @@ use axum::routing::get;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 
-/// Per-client rate limiting (`rate-limit` feature).
+// Per-client rate limiting (`rate-limit` feature). A `///` line here would make
+// rustdoc resolve the module's own `//!` links from this scope, where
+// `ClientIp` is not visible.
 #[cfg(feature = "rate-limit")]
 pub mod rate_limit;
 

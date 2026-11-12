@@ -108,7 +108,7 @@ fn header_ip<T>(
         .headers()
         .get_all(name)
         .iter()
-        .last()?
+        .next_back()?
         .to_str()
         .ok()?;
     pick(value)?.trim().parse().ok()
