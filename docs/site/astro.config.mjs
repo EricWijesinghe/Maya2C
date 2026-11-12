@@ -190,6 +190,7 @@ export default defineConfig({
             { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
+            { label: "Passkey unlock", link: "/guides/passkey-unlock" },
             { label: "Compiling a contract", link: "/guides/contracts" },
             { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
             { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },
