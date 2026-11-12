@@ -10,10 +10,13 @@
 //! maya2c-trust canary sign  --key SEED --rpc URL --statement-file TEXT --out CANARY
 //! maya2c-trust canary check --pubkey PK --rpc URL --canary CANARY --max-age-blocks N [ANCHOR]
 //!
-//! ANCHOR = --rpc URL --anchor-height H --anchor-txid TXID
+//! ANCHOR = --rpc URL --anchor-height H --anchor-txid TXID | --skip-anchor
 //! ```
 //!
-//! Every check exits 1 on a mismatch and prints why; nothing is installed,
+//! The anchor is checked unless `--skip-anchor` is given, so a script gating
+//! on the exit code never passes on a signature alone by accident. Take the
+//! anchor's location from the chain or your own records, never from the host
+//! that served the files. Every check exits 1 on a mismatch and prints why; nothing is installed,
 //! deleted or stopped. Seeds are read from files, never flags, and never
 //! printed.
 
@@ -97,6 +100,9 @@ enum IncidentCmd {
         pubkey: PathBuf,
         #[arg(long)]
         dir: PathBuf,
+        /// The last sequence number you saw; a shorter log fails.
+        #[arg(long, default_value_t = 0)]
+        min_seq: u64,
         #[command(flatten)]
         anchor: AnchorArgs,
     },
@@ -127,10 +133,12 @@ enum CanaryCmd {
         anchor_height: Option<u64>,
         #[arg(long)]
         anchor_txid: Option<String>,
+        #[arg(long)]
+        skip_anchor: bool,
     },
 }
 
-/// Where the record's anchor landed. All three or none.
+/// Where the record's anchor landed: all three, or `--skip-anchor`.
 #[derive(Args)]
 struct AnchorArgs {
     #[arg(long)]
@@ -139,6 +147,9 @@ struct AnchorArgs {
     anchor_height: Option<u64>,
     #[arg(long)]
     anchor_txid: Option<String>,
+    /// Check the signature only, and say so.
+    #[arg(long)]
+    skip_anchor: bool,
 }
 
 fn main() -> ExitCode {
@@ -208,16 +219,19 @@ fn run_incident(cmd: IncidentCmd) -> Result<()> {
         IncidentCmd::Verify {
             pubkey,
             dir,
+            min_seq,
             anchor,
         } => {
             let pinned = read_pubkey(&pubkey)?;
             let records = incident::load(&dir)?;
             let head = incident::verify_chain(&records, &pinned)?;
-            check_anchor(
-                &anchor,
-                &Anchor::new(incident::SCHEMA.to_owned(), head)?,
-                &pinned,
-            )?;
+            let seq = records.last().map_or(0, |r| r.body.seq);
+            if seq < min_seq {
+                return Err(Error::Chain(format!(
+                    "log ends at record {seq}, you last saw {min_seq}: records were removed"
+                )));
+            }
+            check_anchor(&anchor, &incident::anchor_for(seq, head)?, &pinned)?;
             println!(
                 "incident log: {} records, head {}",
                 records.len(),
@@ -250,6 +264,7 @@ fn run_canary(cmd: CanaryCmd) -> Result<()> {
             max_age_blocks,
             anchor_height,
             anchor_txid,
+            skip_anchor,
         } => {
             let pinned = read_pubkey(&pubkey)?;
             let c: maya_trust_log::signed::Signed<canary::Canary> = read_json(&path)?;
@@ -258,6 +273,7 @@ fn run_canary(cmd: CanaryCmd) -> Result<()> {
                 rpc: Some(rpc),
                 anchor_height,
                 anchor_txid,
+                skip_anchor,
             };
             check_anchor(&args, &found, &pinned)?;
             println!(
@@ -281,14 +297,12 @@ fn check_anchor(args: &AnchorArgs, expected: &Anchor, pinned: &[u8]) -> Result<(
             println!("anchored at height {height} in tx {txid}");
             Ok(())
         }
-        (_, None, None) => {
-            println!(
-                "NOT CHECKED: no --anchor-height/--anchor-txid, so the on-chain anchor was not verified"
-            );
+        (_, None, None) if args.skip_anchor => {
+            println!("NOT CHECKED: --skip-anchor given, so the on-chain anchor was not verified");
             Ok(())
         }
         _ => Err(Error::Malformed(
-            "--rpc, --anchor-height and --anchor-txid go together".into(),
+            "give --rpc, --anchor-height and --anchor-txid together, or --skip-anchor".into(),
         )),
     }
 }

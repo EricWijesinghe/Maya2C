@@ -11,13 +11,14 @@ use maya_crypto_pq::suite::{MlDsa87, SignatureSuite};
 use serde::{Deserialize, Serialize};
 
 use crate::key::SignerKey;
-use crate::{Error, Result, hex_array};
+use crate::{Error, Result};
 
 /// The suite label every envelope carries.
 pub const SUITE: &str = "ml-dsa-87";
 
 /// A body with its digest and signature.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Signed<T> {
     /// What is being stated.
     pub body: T,
@@ -83,7 +84,8 @@ impl<T: Serialize> Signed<T> {
             ));
         }
         let d = digest(domain, &self.body)?;
-        if hex_array::<32>("digest", &self.digest)? != d {
+        // Exact lowercase match: one digest, one spelling, so `prev` links compare as strings.
+        if self.digest != hex::encode(d) {
             return Err(Error::Signature("digest does not match the body".into()));
         }
         let signature = hex::decode(&self.signature)

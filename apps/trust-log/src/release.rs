@@ -21,6 +21,7 @@ pub const SCHEMA_PREFIX: &str = "maya2c/release/";
 
 /// What the foundation states about one release.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleaseStatement {
     /// The release tag, e.g. `v1.0.0`.
     pub tag: String,

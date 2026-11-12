@@ -19,11 +19,22 @@ use crate::{Error, Result};
 
 /// Digest domain of a canary.
 pub const DOMAIN: &str = "maya2c 2026-11-12 foundation-canary v1";
-/// The schema each canary is anchored under.
-pub const SCHEMA: &str = "maya2c/canary/v1";
+/// Schema prefix of a canary anchor; the named block height follows, so each
+/// anchor names one canary (see [`crate::anchor`]).
+pub const SCHEMA_PREFIX: &str = "maya2c/canary/v1/";
+
+/// The anchor for a canary naming `block_height`.
+///
+/// # Errors
+///
+/// As [`Anchor::new`] (never for a prefix this short).
+pub fn anchor_for(block_height: u64, digest: [u8; 32]) -> Result<Anchor> {
+    Anchor::new(format!("{SCHEMA_PREFIX}{block_height}"), digest)
+}
 
 /// One canary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Canary {
     /// The statement, verbatim.
     pub statement: String,
@@ -54,10 +65,7 @@ pub fn sign(
         block_id: chain::block_id(chain, block_height)?,
     };
     let canary = signed::seal(key, DOMAIN, body)?;
-    let anchor = Anchor::new(
-        SCHEMA.to_owned(),
-        crate::hex_array("digest", &canary.digest)?,
-    )?;
+    let anchor = anchor_for(block_height, crate::hex_array("digest", &canary.digest)?)?;
     Ok((canary, anchor))
 }
 
@@ -91,7 +99,7 @@ pub fn check(
             "{age} blocks old, limit {max_age_blocks}"
         )));
     }
-    Anchor::new(SCHEMA.to_owned(), digest)
+    anchor_for(body.block_height, digest)
 }
 
 #[cfg(test)]

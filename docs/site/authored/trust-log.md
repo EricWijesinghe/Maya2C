@@ -17,6 +17,7 @@ maya2c-trust release verify --pubkey foundation.pub --tag v1.0.0 \
   --rpc http://127.0.0.1:8545 --anchor-height H --anchor-txid TXID
 ```
 
+Every check also needs the anchor location, or an explicit `--skip-anchor`.
 Fails with a warning if `SHA256SUMS` was swapped, if the statement is for
 another tag, or if the anchor is not on chain. It never installs or deletes
 anything.
@@ -28,7 +29,8 @@ maya2c-trust incident verify --pubkey foundation.pub --dir reports/incidents/log
 ```
 
 Every record names the one before it. An edited, removed or reordered record
-fails. Removing the newest records is caught against the anchored head.
+fails. Removing the newest records is caught against the newest anchored head, or
+with `--min-seq` set to the last record number you saw.
 Each record lists `maya2c replay` lines for the heights involved.
 
 ## Canary

@@ -4,8 +4,10 @@
 //! Each record names its sequence number and the digest of the one before
 //! it, so editing, removing or reordering any record breaks every later link
 //! or signature. Dropping the *newest* records leaves a valid shorter chain;
-//! that is what anchoring the head digest under [`SCHEMA`] catches — a head
-//! the chain once showed that the log no longer reaches.
+//! that is caught only against the newest anchor (schema
+//! `maya2c/incidents/v1/<seq>`, one per head), whose location the verifier
+//! must learn from the chain or its own records — never from the log host —
+//! or by passing the last sequence number it saw (`--min-seq`).
 //!
 //! Records point at heights, so anyone can re-execute the blocks involved
 //! with `maya2c replay` (filled in when the draft names none).
@@ -21,8 +23,9 @@ use crate::{Error, Result};
 
 /// Digest domain of an incident record.
 pub const DOMAIN: &str = "maya2c 2026-11-12 signed-incident v1";
-/// The schema the log head is anchored under.
-pub const SCHEMA: &str = "maya2c/incidents/v1";
+/// Schema prefix of a head anchor; the head's seq follows, so each anchor
+/// names one record (see [`crate::anchor`]).
+pub const SCHEMA_PREFIX: &str = "maya2c/incidents/v1/";
 /// `prev` of the first record.
 pub const GENESIS_PREV: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -54,6 +57,7 @@ pub struct Draft {
 
 /// One link of the log.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Incident {
     /// 1 for the first record, then +1.
     pub seq: u64,
@@ -167,11 +171,17 @@ pub fn append(dir: &Path, key: &SignerKey, draft: Draft) -> Result<(PathBuf, Anc
         .open(&path)
         .and_then(|mut f| std::io::Write::write_all(&mut f, text.as_bytes()))
         .map_err(|e| Error::Io(format!("{}: {e}", path.display())))?;
-    let anchor = Anchor::new(
-        SCHEMA.to_owned(),
-        crate::hex_array("digest", &record.digest)?,
-    )?;
+    let anchor = anchor_for(record.body.seq, crate::hex_array("digest", &record.digest)?)?;
     Ok((path, anchor))
+}
+
+/// The anchor for a head of sequence number `seq`.
+///
+/// # Errors
+///
+/// As [`Anchor::new`] (never for a prefix this short).
+pub fn anchor_for(seq: u64, head: [u8; 32]) -> Result<Anchor> {
+    Anchor::new(format!("{SCHEMA_PREFIX}{seq}"), head)
 }
 
 #[cfg(test)]
@@ -266,6 +276,6 @@ mod tests {
         assert!(path.ends_with("000002.json"));
         let head = verify_chain(&load(dir.path()).unwrap(), k.public_key()).unwrap();
         assert_eq!(anchor.root, head);
-        assert_eq!(anchor.schema, SCHEMA);
+        assert_eq!(anchor.schema, "maya2c/incidents/v1/2");
     }
 }

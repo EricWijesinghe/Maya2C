@@ -3552,7 +3552,7 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = ["crate:maya-trust-log"]
-note = "CATALOG §J. `maya2c-trust incident append|verify`: one ML-DSA-87 signed JSON record per incident, each naming seq and the previous digest; edits, removals and reorders fail verify. Truncating the newest records is caught only against an anchored head (schema maya2c/incidents/v1), which this tool checks but does not submit. Replay lines default to `maya2c replay` per height. Not yet fed by apps/sentinel."
+note = "CATALOG §J. `maya2c-trust incident append|verify`: one ML-DSA-87 signed JSON record per incident, each naming seq and the previous digest; edits, removals and reorders fail verify. Truncating the newest records is caught only against an anchored head (schema maya2c/incidents/v1/<seq>, one per head) or --min-seq, which this tool checks but does not submit. Replay lines default to `maya2c replay` per height. Not yet fed by apps/sentinel."
 
 [[subsystem]]
 id = "foundation-canary"

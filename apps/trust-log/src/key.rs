@@ -104,12 +104,18 @@ pub fn address_of(public_key: &[u8]) -> [u8; 32] {
 /// # Errors
 ///
 /// [`Error::Io`] if the file exists or cannot be written.
+///
+/// On Unix the file is created owner-only (0600). On Windows it inherits the
+/// directory's ACL: keep it in a folder only the operator can read
+/// (shortcut: no explicit ACL is set; add one if the tool is run on a shared host).
 pub fn write_seed(path: &Path, seed: &Zeroizing<[u8; SEED_LEN]>) -> Result<()> {
     use std::io::Write;
     let text = Zeroizing::new(hex::encode(seed.as_ref()));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options
         .open(path)
         .map_err(|e| Error::Io(format!("{}: {e}", path.display())))?;
     file.write_all(text.as_bytes())
