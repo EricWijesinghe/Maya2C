@@ -690,7 +690,7 @@ const STYLES: &str = r#"
 /* The explorer's rules still use its pre-token names; U6 moves them onto the
    token roles. Until then the names alias the roles, and the dark overrides
    below keep the explorer's current look. */
-:root { --fg:var(--text); --panel:var(--surface); --border:var(--line); --focus:var(--accent);
+:root { --fg:var(--text); --panel:var(--surface-1); --muted:var(--text-2); --focus:var(--accent);
   --touch-target:44px; }
 /* Living quantum ledger: deep-sea cyan and indigo. Blocks are cubes on a
    slow 3D ribbon and the finality pulse beats once per block. Every motion is

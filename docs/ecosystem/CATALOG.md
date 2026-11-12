@@ -54,7 +54,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1 |
 | pos-terminal | Point of sale on an Android phone: QR request, wait for finality, receipt | merchant-checkout, light client | none | M | W2 |
-| recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys | consensus review if a new state prefix is needed | M | W2 |
+| recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys; protocol execution at a height: ADR-109 (proposed, `sp:` prefix) | consensus review (ADR-109) | M | W2 |
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
 | flash-payments | Instant off-chain payment channels for small, frequent payments | `crates/l2-flash` | ADR (watchtower model) | L | W2 |
 | exchange-ui | Swap and order-book GUI; must pass the B38 ship gate (`min_out` from a quote, 1% default) | `crates/dex`, `compose_swap` | B38 gate, slippage tests | M | W2 |
@@ -71,7 +71,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
-| names | Human-readable names for addresses | VM contract or a new state prefix | consensus review (prefix) or VM-only design ADR | M | W2 |
+| names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed) | consensus review (ADR-105) | M | W2 |
 | notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 
@@ -82,16 +82,16 @@ L is more. *Wave* is when, defined at the end of the file.
 | sdks-1.0 | Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`) | `sdks/`, `bins/l1-wallet` | publishing approval (Eric) | M | W1 |
 | dev-portal | Docs, tutorials, playground and contract templates | `apps/dev-hub`, `apps/portal`, `docs/ecosystem/COURSE.md` | none | M | W1 |
 | public-api | Indexer API (REST, later GraphQL) for wallets and dashboards | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
-| mcp-server | AI assistants can read the chain and draft (never sign) transactions | `bins/maya2c-mcp` | key-safety review | S | W1 |
+| mcp-server | AI assistants can read the chain and draft (never sign) transactions | `bins/maya2c-mcp` | key-safety review (pending, Eric); built per ADR-084 | S | W1 |
 | node-in-a-box | One-click validator and node installer with health checks | one-line-node-join, `apps/status` | none | M | W1 |
 | validator-console | Validator dashboard: uptime, rewards, slashing risk, alerts | `apps/sentinel`, staking RPC | none | M | W2 |
 | pool-dashboard | Pool operators' and miners' web view | `bins/pool-service` dashboard | B34 to B37 pool items | M | W2 |
 | contract-studio | Write, test and formally check WASM contracts | `crates/vm`, `crates/contract-safety`, `crates/multivm` | none | L | W3 |
 | testnet-kit | Faucet, local devnet and attack lab for developers | `apps/faucet`, `cargo xtask localnet`, attacknet | none | S | W1 |
-| finality-latency-bench | Per-transaction submit-to-finalized latency, with the mix, hardware and command stated; closes the measured-finality gap ([COMPETITORS.md](COMPETITORS.md) section 4) | `cargo xtask bench-tps`, `reports/bench/` | none (non-consensus) | S | W0 |
+| finality-latency-bench | Per-transaction submit-to-finalized latency, with the mix, hardware and command stated; closes the measured-finality gap ([COMPETITORS.md](COMPETITORS.md) section 4) | `cargo xtask bench-finality` (localhost, one machine, measured 2026-11-11; stagenet NOT RUN), `cargo xtask bench-tps`, `reports/bench/` | none (non-consensus) | S | W0 |
 | validator-recruitment | Public validator onboarding and operator guide, so the validator count can grow beyond the disclosed launch set | `apps/status`, `apps/sentinel`, one-line-node-join | owner decision: no third-party validators before mainnet (2026-10-28 directive) | M | W1 |
 | independent-audit-program | Scoped external audit of the consensus, crypto and ledger crates, with a public report | `features.toml` `kani-model-checking`, `crates/build-guard` | Eric approval and budget | L | W1 |
-| succinct-state-proofs | Constant-size proofs of chain state for light clients, beyond today's SPV | `crates/stateless-core`, `crates/light-client` | research and an ADR before code | L | W4 |
+| succinct-state-proofs | Phone-sized proofs that a Maya2C state or epoch hand-off is final. Phase 0 (M0) is built as a native finality light client in `crates/light-client` (ADR-089): quorum checkpoints and committee handoffs, no proof system. Later phases: phone benchmarks, an off-chain epoch-chain proof, then a committee commitment that needs consensus review | `crates/light-client/src/finality.rs`, `crates/zk-stark`, research note `docs/research/succinct-light-client-2026-11-10.md` | phase 0 built; phases 1-2 none; phase 3 consensus ADR and activation height | M | W3 |
 
 Status of the two rows above: **testnet-kit** and **node-in-a-box** are
 stubs (tool code in `xtask/src/kit.rs` and `xtask/src/node_box/`, unit-tested,
@@ -107,7 +107,7 @@ ledger entries `stub`). Guides: [testnet-kit.md](testnet-kit.md),
 | confidential-ai | Inference on private data with attestation | `crates/confidential-ai` | TEE invariant must be numbered first (CLAUDE.md) | L | W4 |
 | agent-wallets | AI agents with spending limits and human approval for large payments | smart-account sessions, mcp-server | ADR (limits and kill switch) | M | W3 |
 | ai-marketplace | Market for models, data sets and jobs | verified-inference | legal (data licences) | L | W4 |
-| sentinel-ai | Watchdog AI that proposes and never acts (ADR-077) | `apps/sentinel` | ADR-077 phases | L | W3 |
+| sentinel-ai | Watchdog AI that proposes and never acts (ADR-077) | `apps/sentinel` | ADR-077 phases; P1 detectors built (ADR-101), P2-P5 wait for Eric (local vs API model, quorum sentinel hosts) | L | W3 |
 | on-device-assistant | Wallet and chat helpers that run locally; nothing leaves the device by default | ECOSYSTEM.md section 4 | data-leaves-device statement | M | W3 |
 
 ## F. Fields (detached apps on the shared identity)

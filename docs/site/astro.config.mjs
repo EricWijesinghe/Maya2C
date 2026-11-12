@@ -146,8 +146,8 @@ export default defineConfig({
       // Self-hosted variable fonts: no third-party request, no layout shift
       // from a late swap, and the same letterforms on every OS.
       customCss: [
-        "@fontsource-variable/manrope",
-        "@fontsource-variable/inter",
+        // Inter with its optical-size axis: one family for display and body (ADR-136).
+        "@fontsource-variable/inter/opsz.css",
         "@fontsource-variable/jetbrains-mono",
         // KaTeX glyph styles, self-hosted from node_modules (fonts are same-origin).
         "katex/dist/katex.min.css",
@@ -180,6 +180,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
+            { label: "Live statistics", link: "/stats/" },
             { label: "FAQ", link: "/guides/faq" },
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
@@ -194,6 +195,7 @@ export default defineConfig({
             { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
+            { label: "Passkey unlock", link: "/guides/passkey-unlock" },
             { label: "Compiling a contract", link: "/guides/contracts" },
             { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
             { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },

@@ -51,9 +51,9 @@
   /* Shadows: two layers, a tight contact and a long soft fall */
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 28px 70px -28px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
 
-  /* Typography: Manrope for display, Inter for reading, JetBrains Mono for
-     code — all self-hosted variable fonts (astro.config.mjs). */
-  --display: "Manrope Variable", "Manrope", system-ui, sans-serif;
+  /* Typography: Inter (optical sizes) for display and reading, JetBrains Mono
+     for code — self-hosted variable fonts (astro.config.mjs, ADR-136). */
+  --display: var(--font-sans);
   --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Consolas, monospace;
 
@@ -217,7 +217,7 @@ a {
 
 /* ---------------------------------------------------------------------------
    Reading: every documentation page. Large, quiet type; generous rhythm;
-   soft surfaces with a clear edge. Display headings in Manrope, body in Inter.
+   soft surfaces with a clear edge. Headings and body in Inter.
    ------------------------------------------------------------------------ */
 ::selection { background: rgba(31, 181, 194, 0.32); color: var(--text); }
 html { scrollbar-color: rgba(126, 234, 240, 0.22) transparent; scrollbar-width: thin; }
