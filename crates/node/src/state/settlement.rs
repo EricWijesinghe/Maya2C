@@ -157,7 +157,13 @@ impl StateDB {
                 self.finalize_dispute(overlay, channel_id, context)
             }
             TxKind::RegisterAsset(registration) => {
+                // ADR-135: the governed surcharge covers both registration
+                // forms once bit 41 is active, and nothing before.
+                self.charge_asset_registration_fee(overlay, &sender, context)?;
                 self.register_asset(overlay, &sender, nonce, registration)
+            }
+            TxKind::AssetMint(action) => {
+                self.apply_asset_mint(overlay, &sender, nonce, action, context)
             }
             TxKind::TransferAsset(transfer) => self.transfer_asset(overlay, &sender, transfer),
             TxKind::CreatePool(creation) => self.create_pool(overlay, &sender, creation),

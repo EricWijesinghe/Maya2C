@@ -476,6 +476,57 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             format!("Submit a mining share for epoch {}.", m.epoch),
             Routine,
         ),
+        TxKind::AssetMint(action) => describe_asset_mint(action),
+    }
+}
+
+fn describe_asset_mint(action: &crate::core::asset_mint_payload::AssetMintAction) -> Description {
+    use crate::core::asset_mint_payload::AssetMintAction as A;
+    use Review::Careful;
+    match action {
+        A::RegisterCapped {
+            symbol,
+            total_supply,
+            cap,
+            authority,
+        } => Description::new(
+            format!(
+                "Register an asset with {} units now, all credited to you, and at most {} ever.",
+                group_digits(*total_supply),
+                group_digits(*cap)
+            ),
+            Careful,
+        )
+        .with(
+            "symbol",
+            String::from_utf8_lossy(symbol)
+                .trim_end_matches('\0')
+                .to_owned(),
+        )
+        .with("mint authority", full(authority)),
+        A::Mint { asset, to, amount } => Description::new(
+            format!(
+                "Create {} new units of an asset for {}.",
+                group_digits(*amount),
+                short(to)
+            ),
+            Careful,
+        )
+        .with("asset", full(asset))
+        .with("pay to", full(to)),
+        A::Burn { asset, amount } => Description::new(
+            format!(
+                "Destroy {} of your units of an asset. This cannot be undone.",
+                group_digits(*amount)
+            ),
+            Careful,
+        )
+        .with("asset", full(asset)),
+        A::Renounce { asset } => Description::new(
+            "Give up minting this asset for good. Its cap falls to the current supply.",
+            Careful,
+        )
+        .with("asset", full(asset)),
     }
 }
 

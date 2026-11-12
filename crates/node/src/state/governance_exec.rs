@@ -427,6 +427,15 @@ impl StateDB {
                 .validate()
                 .map_err(governance_error)?;
             crate::crypto::suites::check_parameter(key, *value, &sunsets)?;
+            // A pre-v4 binary refuses tag 11 as unknown; refusing it here
+            // until bit 41 activates keeps both agreeing on every earlier
+            // block (ADR-135).
+            if key == ParameterKey::AssetRegistrationFee && !context.asset_mint_active() {
+                return Err(NodeError::AssetMintInactive {
+                    height: context.height,
+                    activation: context.asset_mint_activation,
+                });
+            }
         }
 
         let proposal = Proposal::open(
@@ -700,7 +709,12 @@ impl StateDB {
     /// deposits rather than in an escrow account, so there is no counterparty
     /// to credit — the supply is unchanged and the coin is simply not spendable
     /// while a record accounts for it.
-    fn debit_native(&self, overlay: &mut Overlay, address: &Address, amount: U256) -> Result<()> {
+    pub(crate) fn debit_native(
+        &self,
+        overlay: &mut Overlay,
+        address: &Address,
+        amount: U256,
+    ) -> Result<()> {
         if amount.is_zero() {
             return Ok(());
         }
@@ -723,7 +737,12 @@ impl StateDB {
     }
 
     /// Returns native coin to an account's spendable balance.
-    fn credit_native(&self, overlay: &mut Overlay, address: &Address, amount: U256) -> Result<()> {
+    pub(crate) fn credit_native(
+        &self,
+        overlay: &mut Overlay,
+        address: &Address,
+        amount: U256,
+    ) -> Result<()> {
         if amount.is_zero() {
             return Ok(());
         }

@@ -1,5 +1,6 @@
 //! Core chain data structures.
 
+pub mod asset_mint_payload;
 pub mod batch;
 pub mod block;
 pub mod codec;

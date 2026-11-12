@@ -15,14 +15,15 @@
 //! Nothing derived can collide with the native identifier: it would take a
 //! BLAKE3 output of thirty-two zero bytes.
 //!
-//! ## Supply is fixed at registration
+//! ## Supply is fixed at registration, unless a cap says otherwise
 //!
-//! An asset is created once, with its whole supply credited to its creator, and
-//! there is no mint operation. That is a deliberate limitation rather than a
-//! stub: a mint authority is an account that can dilute every holder, and
-//! introducing one is a governance decision, not a data-model one. An asset
-//! that needs elastic supply belongs in a contract, where its rules are code
-//! that holders can read.
+//! `RegisterAsset` creates an asset once, with its whole supply credited to its
+//! creator, and nothing can mint more of it. A mint authority is an account
+//! that can dilute every holder, so introducing one was a governance decision,
+//! not a data-model one: ADR-135 P-1 made it, behind feature bit 41. A capped
+//! asset ([`AssetRecordV2`]) names its ceiling and its authority in the
+//! record, so a holder reads the most dilution possible from state, and a
+//! renounce makes the ceiling the supply forever.
 //!
 //! ## No decimals field
 //!
@@ -46,6 +47,16 @@ pub const SYMBOL_LEN: usize = 8;
 
 /// Serialized length of an [`AssetRecord`].
 pub const ASSET_RECORD_LEN: usize = 32 + BALANCE_LEN + SYMBOL_LEN;
+
+/// Serialized length of an [`AssetRecordV2`]: version byte, the v1 fields, cap
+/// and authority (136).
+pub const ASSET_RECORD_V2_LEN: usize = 1 + ASSET_RECORD_LEN + BALANCE_LEN + 32;
+
+/// Leading byte of a v2 record.
+pub const ASSET_RECORD_V2: u8 = 0x02;
+
+/// The authority of an asset nobody can mint: no key hashes to all zeros.
+pub const NO_AUTHORITY: Address = [0; 32];
 
 /// Stored width of a balance or supply: a little-endian `U256` (ADR-046).
 pub const BALANCE_LEN: usize = 32;
@@ -80,9 +91,14 @@ impl AssetRecord {
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::InvalidLength`] if `bytes` is not exactly
-    /// [`ASSET_RECORD_LEN`] bytes, which means a corrupt or foreign record.
+    /// Returns [`NodeError::InvalidLength`] if `bytes` is neither a v1 record
+    /// nor a v2 one ([`AssetRecordV2::decode`]), which means a corrupt or
+    /// foreign record. A v2 record decodes to its v1 fields, so every reader
+    /// of supply (the conservation guard, RPC) needs no second path.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() == ASSET_RECORD_V2_LEN {
+            return AssetRecordV2::decode(bytes).map(|v2| v2.base);
+        }
         if bytes.len() != ASSET_RECORD_LEN {
             return Err(NodeError::InvalidLength {
                 what: "asset record",
@@ -112,6 +128,83 @@ impl AssetRecord {
         hasher.update(asset);
         hasher.update(&self.encode());
         *hasher.finalize().as_bytes()
+    }
+}
+
+/// A capped asset's record: the v1 facts, a ceiling, and who may mint.
+///
+/// Stored as `0x02 ‖ creator ‖ total_supply ‖ symbol ‖ cap ‖ authority`
+/// (136 bytes) under the same `d:asset:` key as a v1 record (ADR-135). A v1
+/// record is rewritten as v2 only when a burn touches it, so a chain that never
+/// uses bit 41 keeps every byte, and so its root.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AssetRecordV2 {
+    /// Creator, supply and symbol, as a v1 record holds them.
+    pub base: AssetRecord,
+    /// The most units that may ever exist. `base.total_supply <= cap` always.
+    pub cap: U256,
+    /// Who may mint, or [`NO_AUTHORITY`].
+    pub authority: Address,
+}
+
+impl AssetRecordV2 {
+    /// Encodes the record (136 bytes).
+    #[must_use]
+    pub fn encode(&self) -> [u8; ASSET_RECORD_V2_LEN] {
+        let mut buf = [0u8; ASSET_RECORD_V2_LEN];
+        buf[0] = ASSET_RECORD_V2;
+        let base_end = 1 + ASSET_RECORD_LEN;
+        buf[1..base_end].copy_from_slice(&self.base.encode());
+        self.cap
+            .to_little_endian(&mut buf[base_end..base_end + BALANCE_LEN]);
+        buf[base_end + BALANCE_LEN..].copy_from_slice(&self.authority);
+        buf
+    }
+
+    /// Decodes either version. A v1 record (72 bytes) is a v2 record capped at
+    /// its supply with no authority, which is exactly what it always was.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::InvalidLength`] for any other length, and
+    /// [`NodeError::Decode`] for a 136-byte record not led by `0x02`.
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() == ASSET_RECORD_LEN {
+            let base = AssetRecord::decode(bytes)?;
+            return Ok(Self {
+                base,
+                cap: base.total_supply,
+                authority: NO_AUTHORITY,
+            });
+        }
+        if bytes.len() != ASSET_RECORD_V2_LEN {
+            return Err(NodeError::InvalidLength {
+                what: "asset record v2",
+                expected: ASSET_RECORD_V2_LEN,
+                actual: bytes.len(),
+            });
+        }
+        if bytes[0] != ASSET_RECORD_V2 {
+            return Err(NodeError::Decode(format!(
+                "asset record of {ASSET_RECORD_V2_LEN} bytes led by {:#04x}, not {ASSET_RECORD_V2:#04x}",
+                bytes[0]
+            )));
+        }
+        let base_end = 1 + ASSET_RECORD_LEN;
+        let base = AssetRecord::decode(&bytes[1..base_end])?;
+        let cap = U256::from_little_endian(&bytes[base_end..base_end + BALANCE_LEN]);
+        let mut authority = [0u8; 32];
+        authority.copy_from_slice(&bytes[base_end + BALANCE_LEN..]);
+        if base.total_supply > cap {
+            return Err(NodeError::Decode(
+                "asset record v2 holds a supply above its cap".to_string(),
+            ));
+        }
+        Ok(Self {
+            base,
+            cap,
+            authority,
+        })
     }
 }
 

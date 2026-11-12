@@ -52,6 +52,14 @@ use maya_amount::Amount;
 /// One coin in base units: 24 decimals (ADR-068), from `maya_amount`.
 const COIN: u128 = maya_amount::ONE_COIN;
 
+/// `2^252 - 1`: the largest value a governed v4 surcharge may hold (ADR-135,
+/// "Fee and gas per form").
+const SURCHARGE_CEILING: Amount = {
+    let mut bytes = [0xFF; maya_amount::BYTES];
+    bytes[maya_amount::BYTES - 1] = 0x0F;
+    Amount::from_le_bytes(bytes)
+};
+
 /// A rule that governance may change.
 ///
 /// The tags are consensus and must never be renumbered. A key this build does
@@ -84,6 +92,12 @@ pub enum ParameterKey {
     /// The signature suite new accounts are created under (ADR-007), as its
     /// registry byte. Read only once suite-tagged transactions activate.
     DefaultSignatureSuite,
+    /// Native units burned (paid to `FEE_SINK`) on top of the byte fee by
+    /// `RegisterAsset` and `RegisterCappedAsset` once ADR-135 bit 41 is
+    /// active: anti-spam on a permanent asset record. Refused in a proposal
+    /// before that height, so a pre-v4 binary and a v4 binary agree on every
+    /// pre-activation block.
+    AssetRegistrationFee,
 }
 
 /// Every key, in tag order.
@@ -101,6 +115,7 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::VmDefaultGasLimit,
     ParameterKey::GovernanceProposalDeposit,
     ParameterKey::DefaultSignatureSuite,
+    ParameterKey::AssetRegistrationFee,
 ];
 
 /// The permitted range and starting value of one parameter.
@@ -137,6 +152,7 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => 8,
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
+            Self::AssetRegistrationFee => 11,
         }
     }
 
@@ -165,6 +181,7 @@ impl ParameterKey {
             8 => Ok(Self::VmDefaultGasLimit),
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
+            11 => Ok(Self::AssetRegistrationFee),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -265,6 +282,16 @@ impl ParameterKey {
                 max: Amount::from_u64(0x30),
                 default: Amount::from_u64(0x11),
             },
+            // Pending Eric O-2 (ADR-135): the amount, and burn versus treasury.
+            // The default is the ADR's placeholder, zero: bytes only. The
+            // ceiling is the ADR's admission bound for every governed v4
+            // surcharge, below 2^252, so one `checked_add` to the sender's
+            // debit cannot reach the top of U256.
+            Self::AssetRegistrationFee => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(0),
+            },
         }
     }
 
@@ -282,6 +309,7 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => "vm.default_gas_limit",
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
+            Self::AssetRegistrationFee => "asset.registration_fee",
         }
     }
 

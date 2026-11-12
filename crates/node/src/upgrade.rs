@@ -29,6 +29,7 @@ use crate::state::context::{
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
     ZKML_ACTIVATION_HEIGHT,
 };
+use crate::state::upgrades::ASSET_MINT_ACTIVATION_HEIGHT;
 
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
@@ -56,8 +57,11 @@ impl FeatureSet {
     pub const ZKML: u64 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
     pub const RWA_STRICT: u64 = 1 << 7;
+    /// Capped-asset mint and burn, tags 55-58 (ADR-135 P-1). Bits 8-40 are
+    /// claimed by other open ADRs (`adr-claims.txt`), not defined here.
+    pub const ASSET_MINT: u64 = 1 << 41;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -95,6 +99,8 @@ pub struct FeatureActivations {
     pub zkml: u64,
     /// Strictly ascending RWA issuer lists.
     pub rwa_strict: u64,
+    /// Capped-asset mint and burn (bit 41).
+    pub asset_mint: u64,
 }
 
 impl Default for FeatureActivations {
@@ -109,6 +115,7 @@ impl Default for FeatureActivations {
             htlc_lattice: HTLC_L_ACTIVATION_HEIGHT,
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            asset_mint: ASSET_MINT_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -218,6 +225,7 @@ impl UpgradeSchedule {
             htlc_lattice: at(FeatureSet::HTLC_LATTICE, never.htlc_lattice),
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
+            asset_mint: at(FeatureSet::ASSET_MINT, never.asset_mint),
         }
     }
 
@@ -341,6 +349,21 @@ mod tests {
         let f = s.features();
         assert_eq!((f.dvp, f.iot), (10, 10));
         assert_eq!(f.rwa_strict, u64::MAX);
+    }
+
+    #[test]
+    fn asset_mint_is_dark_until_an_entry_names_bit_41() {
+        assert_eq!(FeatureActivations::default().asset_mint, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 77, FeatureSet::ASSET_MINT)]).unwrap();
+        assert_eq!(s.features().asset_mint, 77);
+        assert_eq!(
+            s.features().dvp,
+            u64::MAX,
+            "bit 41 switches on nothing else"
+        );
+        // The neighbours of bit 41 are other ADRs' claims, not features here.
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 40)]).is_err());
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 42)]).is_err());
     }
 
     #[test]

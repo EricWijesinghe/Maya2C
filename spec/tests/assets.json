@@ -1,0 +1,483 @@
+{
+ "cases": [
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "37434150000000000005000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000003333333333333333333333333333333333333333333333333333333333333333",
+   "id": "AS-enc-register",
+   "rules": [
+    "AS-1"
+   ],
+   "size": "105",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "3811111111111111111111111111111111111111111111111111111111111111112222222222222222222222222222222222222222222222222222222222222222ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "id": "AS-enc-mint",
+   "rules": [
+    "AS-1"
+   ],
+   "size": "97",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "3911111111111111111111111111111111111111111111111111111111111111110100000000000000000000000000000000000000000000000000000000000000",
+   "id": "AS-enc-burn",
+   "rules": [
+    "AS-1"
+   ],
+   "size": "65",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "3a1111111111111111111111111111111111111111111111111111111111111111",
+   "id": "AS-enc-renounce",
+   "rules": [
+    "AS-1"
+   ],
+   "size": "33",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "3a11111111111111111111111111111111111111111111111111111111111111",
+   "id": "AS-enc-renounce-truncated",
+   "rules": [
+    "AS-1"
+   ],
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "authority": "0000000000000000000000000000000000000000000000000000000000000000",
+    "cap": "7",
+    "result": "ok",
+    "supply": "7"
+   },
+   "hex": "444444444444444444444444444444444444444444444444444444444444444407000000000000000000000000000000000000000000000000000000000000004341500000000000",
+   "id": "AS-rec-v1",
+   "rules": [
+    "AS-2"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "authority": "3333333333333333333333333333333333333333333333333333333333333333",
+    "cap": "9",
+    "result": "ok",
+    "supply": "7"
+   },
+   "hex": "0244444444444444444444444444444444444444444444444444444444444444440700000000000000000000000000000000000000000000000000000000000000434150000000000009000000000000000000000000000000000000000000000000000000000000003333333333333333333333333333333333333333333333333333333333333333",
+   "id": "AS-rec-v2",
+   "rules": [
+    "AS-2"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "0344444444444444444444444444444444444444444444444444444444444444440700000000000000000000000000000000000000000000000000000000000000434150000000000009000000000000000000000000000000000000000000000000000000000000003333333333333333333333333333333333333333333333333333333333333333",
+   "id": "AS-rec-v2-bad-lead",
+   "rules": [
+    "AS-2"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "0244444444444444444444444444444444444444444444444444444444444444440a00000000000000000000000000000000000000000000000000000000000000434150000000000009000000000000000000000000000000000000000000000000000000000000003333333333333333333333333333333333333333333333333333333333333333",
+   "id": "AS-rec-v2-supply-over-cap",
+   "rules": [
+    "AS-2"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "44444444444444444444444444444444444444444444444444444444444444440700000000000000000000000000000000000000000000000000000000000000434150000000000000",
+   "id": "AS-rec-73-bytes",
+   "rules": [
+    "AS-2"
+   ],
+   "type": "record"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "10",
+    "result": "ok",
+    "supply": "10"
+   },
+   "height": "10",
+   "id": "AS-reg-supply-eq-cap",
+   "rules": [
+    "AS-3"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "10"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-reg-supply-over-cap",
+   "rules": [
+    "AS-3"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "11"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-reg-third-party-authority",
+   "rules": [
+    "AS-3"
+   ],
+   "steps": [
+    {
+     "authority": "k1",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-reg-zero-cap",
+   "rules": [
+    "AS-3"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "0",
+     "from": "k0",
+     "kind": "register",
+     "supply": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "10",
+    "result": "ok",
+    "supply": "10"
+   },
+   "height": "10",
+   "id": "AS-mint-to-cap",
+   "rules": [
+    "AS-4"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "5",
+     "from": "k0",
+     "kind": "mint",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-mint-over-cap",
+   "rules": [
+    "AS-4"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "6",
+     "from": "k0",
+     "kind": "mint",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-mint-zero",
+   "rules": [
+    "AS-4"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "0",
+     "from": "k0",
+     "kind": "mint",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-mint-non-authority",
+   "rules": [
+    "AS-4"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "1",
+     "from": "k1",
+     "kind": "mint",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "10",
+    "result": "ok",
+    "supply": "0"
+   },
+   "height": "10",
+   "id": "AS-burn-balance",
+   "rules": [
+    "AS-5"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "5",
+     "from": "k0",
+     "kind": "burn"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-burn-over-balance",
+   "rules": [
+    "AS-5"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "6",
+     "from": "k0",
+     "kind": "burn"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "none",
+    "cap": "5",
+    "result": "ok",
+    "supply": "5"
+   },
+   "height": "10",
+   "id": "AS-renounce",
+   "rules": [
+    "AS-6"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "from": "k0",
+     "kind": "renounce"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-renounce-twice",
+   "rules": [
+    "AS-6"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "from": "k0",
+     "kind": "renounce"
+    },
+    {
+     "from": "k0",
+     "kind": "renounce"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "9",
+   "id": "AS-before-activation",
+   "rules": [
+    "AS-7"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "10",
+    "result": "ok",
+    "supply": "5"
+   },
+   "height": "10",
+   "id": "AS-at-activation",
+   "rules": [
+    "AS-7"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    }
+   ],
+   "type": "apply"
+  }
+ ],
+ "format": 1,
+ "generator": "hand layout from ADR-135 P-1, not node code",
+ "spec": "spec/03-state.md",
+ "u64": "decimal strings"
+}

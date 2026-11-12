@@ -497,6 +497,25 @@ pub enum NodeError {
     #[error("unknown asset {0}")]
     UnknownAsset(String),
 
+    /// A capped-asset form (tags 55-58) before feature bit 41 activates
+    /// (ADR-135). Refused on admission and on apply by the same check.
+    #[error("asset mint and burn are not active at height {height} (from {activation})")]
+    AssetMintInactive {
+        /// Height the transaction was judged at.
+        height: u64,
+        /// First height at which the forms execute; `u64::MAX` means never.
+        activation: u64,
+    },
+
+    /// A capped-asset form broke one of its rules (ADR-135 P-1). A refusal,
+    /// never a no-op: the sender's own transaction, so it cannot be used to
+    /// void someone else's block.
+    #[error("asset mint refused: {reason}")]
+    AssetMintRefused {
+        /// The rule that failed.
+        reason: &'static str,
+    },
+
     /// A registration landed on an identifier that already exists.
     ///
     /// Requires the same sender, nonce, and symbol, so it is unreachable while
