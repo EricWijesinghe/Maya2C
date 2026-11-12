@@ -2,11 +2,11 @@
 // The architecture as layers, bottom up. Every line names something in the
 // tree; nothing here is planned work presented as built.
 const layers = [
-  { name: "Applications", items: "Maya Chat · desktop wallet · SDKs (TypeScript, Python, Go)", hue: 330 },
+  { name: "Applications", items: "Maya2C Chat · Maya2C Wallet · SDKs (TypeScript, Python, Go)", hue: 330 },
   { name: "Gateway", items: "REST and GraphQL, default-deny allowlist, rate limits", hue: 290 },
   { name: "Execution", items: "WASM contract VM, metered · fee market with a burned base fee", hue: 255 },
   { name: "Consensus", items: "DAG-BFT (Narwhal + Bullshark) · staking and slashing", hue: 220 },
-  { name: "Network", items: "libp2p · Noise with an ML-KEM-768 layer", hue: 200 },
+  { name: "Network", items: "libp2p · Noise with ML-KEM-1024, ML-KEM-768 as fallback", hue: 200 },
   { name: "Cryptography", items: "ML-DSA · ML-KEM · SLH-DSA (FIPS 204/203/205) · X-Wing hybrid", hue: 185 },
 ];
 ---

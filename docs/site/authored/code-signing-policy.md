@@ -47,7 +47,7 @@ team member.
 ## What is signed
 
 Only binaries built by the release workflow from a tagged commit
-(`node-v*`): the node and command-line tools, Maya Wallet, Maya Chat and
+(`node-v*`): the node and command-line tools, Maya2C Wallet, Maya2C Chat and
 Maya2C Hub (with the GPU miner inside). The product name and version in each
 binary match the release.
 
@@ -59,9 +59,9 @@ job needs:
 - **Maya2C Hub:** the network's JSON-RPC endpoint (the public testnet RPC by
   default, changeable in Settings) to show network status, and to submit the
   miner's shares.
-- **Maya Wallet:** the JSON-RPC endpoint set in its settings, to read balances
+- **Maya2C Wallet:** the JSON-RPC endpoint set in its settings, to read balances
   and send transactions you sign.
-- **Maya Chat:** the relays it needs to deliver your messages, encrypted
+- **Maya2C Chat:** the relays it needs to deliver your messages, encrypted
   between the two ends with a post-quantum key exchange. Chat is research
   software that has not had an external review yet.
 - **Node:** other nodes of the network it joins.
