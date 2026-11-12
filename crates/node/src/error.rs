@@ -142,10 +142,11 @@ pub enum NodeError {
     #[error("balance arithmetic overflowed")]
     BalanceOverflow,
 
-    /// The upgrade schedule puts a protocol version this binary does not
-    /// implement in force at the height being validated (`crate::upgrade`).
+    /// The upgrade schedule puts a protocol version or a feature this binary
+    /// does not implement in force at the height being validated (`crate::upgrade`).
     #[error(
-        "upgrade required before height {height}: protocol version {version} activates there and this binary supports up to version {supported}"
+        "upgrade required before height {height}: {}",
+        upgrade_reason(*.version, *.supported, *.unimplemented_features)
     )]
     UpgradeRequired {
         /// The version that activates.
@@ -154,6 +155,10 @@ pub enum NodeError {
         height: u64,
         /// The newest version this binary implements.
         supported: u32,
+        /// Feature bits the entry carries that this binary cannot execute:
+        /// undefined ones, and zkML until it has a verifier. Zero when the
+        /// version alone is what this binary lacks.
+        unimplemented_features: u64,
     },
 
     /// The computed post-state root did not match the value committed in the
@@ -891,3 +896,19 @@ impl From<std::io::Error> for NodeError {
 ///
 /// Leading `::` disambiguates the `core` crate from this crate's `core` module.
 pub type Result<T> = ::core::result::Result<T, NodeError>;
+
+/// The cause half of [`NodeError::UpgradeRequired`]'s message: the version, the
+/// feature bits, or both, whichever this binary lacks.
+fn upgrade_reason(version: u32, supported: u32, unimplemented: u64) -> String {
+    match (version > supported, unimplemented) {
+        (true, 0) => format!(
+            "protocol version {version} activates there and this binary supports up to version {supported}"
+        ),
+        (false, bits) => format!(
+            "protocol version {version} activates there with feature bits {bits:#x} this binary does not implement (unknown: upgrade required)"
+        ),
+        (true, bits) => format!(
+            "protocol version {version} activates there with feature bits {bits:#x}; this binary supports up to version {supported} and does not implement those bits (unknown: upgrade required)"
+        ),
+    }
+}

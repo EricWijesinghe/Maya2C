@@ -415,7 +415,7 @@ fn explain(kind: &str) -> Result<Value, String> {
             "TX-1",
         ),
         "UpgradeRequired" => (
-            "The node reached a protocol version it does not implement. Install a newer binary; it resumes where it stopped.",
+            "The node reached a protocol version or feature bits it does not implement. Install a newer binary; it resumes where it stopped.",
             "spec §4, ADR-020",
         ),
         "Decode" => (
