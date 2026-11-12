@@ -272,7 +272,9 @@ impl FinalityClient {
         next: u64,
     ) -> Result<(Vec<VerifyingKey>, Option<Vec<u64>>)> {
         if handoff.committee.key != committee_record(next) {
-            return Err(rotation(format!("the committee record is not epoch {next}'s")));
+            return Err(rotation(format!(
+                "the committee record is not epoch {next}'s"
+            )));
         }
         if handoff.weights.is_some() != self.weights.is_some() {
             return Err(rotation("weighting differs from the genesis committee"));

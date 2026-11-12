@@ -58,9 +58,9 @@ pub fn verify_records(
         .find(|digest| digest.layer == StateLayer::Staking)
         .ok_or_else(|| rejected("the state has no staking layer".to_string()))?;
 
-    let folded = layers
-        .iter()
-        .fold(*accounts_root, |root, digest| digest.layer.fold(&root, &digest.root));
+    let folded = layers.iter().fold(*accounts_root, |root, digest| {
+        digest.layer.fold(&root, &digest.root)
+    });
     if folded != *state_root {
         return Err(rejected(
             "the layers do not fold to the header's state root".to_string(),

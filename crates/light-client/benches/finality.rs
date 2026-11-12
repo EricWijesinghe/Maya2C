@@ -52,8 +52,8 @@ fn bench_accept(c: &mut Criterion) {
         let signatures: BTreeMap<u16, Vec<u8>> = (0..quorum(n))
             .map(|v| {
                 let v = u16::try_from(v).unwrap();
-                let att = Attestation::sign(&signing[usize::from(v)], v, &CHAIN, 0, 10, block)
-                    .unwrap();
+                let att =
+                    Attestation::sign(&signing[usize::from(v)], v, &CHAIN, 0, 10, block).unwrap();
                 (v, att.signature)
             })
             .collect();

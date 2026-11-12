@@ -18,9 +18,9 @@ use custom_l1_node::state::staking::{
     encode_weights, key_record, validator_id,
 };
 use custom_l1_node::state::{Account, Address, StateDB};
+use maya_light_client::LightClientError;
 use maya_light_client::finality::{EpochHandoff, FinalityClient, TrustAnchor, TrustPolicy};
 use maya_light_client::record::{RecordProof, record_leaf};
-use maya_light_client::LightClientError;
 use tempfile::TempDir;
 
 const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
@@ -75,9 +75,8 @@ fn checkpoint(
     let signatures = signers
         .iter()
         .map(|&v| {
-            let att =
-                Attestation::sign(&signing[usize::from(v)], v, chain, epoch, height, block)
-                    .unwrap();
+            let att = Attestation::sign(&signing[usize::from(v)], v, chain, epoch, height, block)
+                .unwrap();
             (v, att.signature)
         })
         .collect();
@@ -114,7 +113,11 @@ fn a_checkpoint_short_of_quorum_is_refused_and_moves_nothing() {
         client.accept_checkpoint(&cp, &h, 10),
         Err(LightClientError::CheckpointRejected(_))
     ));
-    assert_eq!(client.height(), 0, "a refused checkpoint must not move the client");
+    assert_eq!(
+        client.height(),
+        0,
+        "a refused checkpoint must not move the client"
+    );
 }
 
 #[test]
@@ -231,7 +234,11 @@ fn a_checkpoint_below_one_already_accepted_is_refused() {
     let mut client = FinalityClient::new(CHAIN, policy(), anchor(verifying, None)).unwrap();
     let h10 = header([1; 32], 10);
     client
-        .accept_checkpoint(&checkpoint(&signing, &CHAIN, 0, 10, h10.id(), &[0, 1, 2]), &h10, 10)
+        .accept_checkpoint(
+            &checkpoint(&signing, &CHAIN, 0, 10, h10.id(), &[0, 1, 2]),
+            &h10,
+            10,
+        )
         .unwrap();
     let h9 = header([3; 32], 9);
     let rollback = checkpoint(&signing, &CHAIN, 0, 9, h9.id(), &[0, 1, 2]);
@@ -294,10 +301,7 @@ impl Node {
     /// What the node writes when `epoch` begins: its committee, its keys and,
     /// on a weighted chain, its weights (`staking_exec.rs`, epoch boundary).
     fn commit_epoch(&mut self, epoch: u64, keys: &[VerifyingKey], weights: Option<&[u64]>) {
-        let ids: Vec<[u8; 32]> = keys
-            .iter()
-            .map(|k| validator_id(&k.to_bytes()))
-            .collect();
+        let ids: Vec<[u8; 32]> = keys.iter().map(|k| validator_id(&k.to_bytes())).collect();
         self.put(committee_record(epoch), encode_committee(&ids));
         for (id, key) in ids.iter().zip(keys) {
             self.put(key_record(id), key.to_bytes().to_vec());
@@ -318,7 +322,11 @@ impl Node {
             .keys()
             .position(|k| k == key)
             .expect("record exists");
-        let leaves: Vec<[u8; 32]> = self.records.iter().map(|(k, v)| record_leaf(k, v)).collect();
+        let leaves: Vec<[u8; 32]> = self
+            .records
+            .iter()
+            .map(|(k, v)| record_leaf(k, v))
+            .collect();
         RecordProof {
             key: key.to_vec(),
             value: self.records[key].clone(),
@@ -328,7 +336,11 @@ impl Node {
 
     /// The handoff to `next`, proven against the state as it stands now.
     fn handoff(&self, header: BlockHeader, checkpoint: Checkpoint, next: u64) -> EpochHandoff {
-        let proof = self.db.account_proof(&ACCOUNT).expect("proof").expect("account");
+        let proof = self
+            .db
+            .account_proof(&ACCOUNT)
+            .expect("proof")
+            .expect("account");
         let accounts_root = verify_path(&account_leaf(&ACCOUNT, &proof.account), &proof.path);
         let ids = decode_committee(&self.records[&committee_record(next)]).expect("ids");
         let weights_key = committee_weights_record(next);
@@ -360,7 +372,11 @@ fn the_ported_leaf_reproduces_the_node_staking_root() {
         .iter()
         .find(|d| d.layer == StateLayer::Staking)
         .expect("staking layer present");
-    let leaves: Vec<[u8; 32]> = node.records.iter().map(|(k, v)| record_leaf(k, v)).collect();
+    let leaves: Vec<[u8; 32]> = node
+        .records
+        .iter()
+        .map(|(k, v)| record_leaf(k, v))
+        .collect();
     assert_eq!(merkle_root(&leaves), staking.root);
 }
 
