@@ -6807,6 +6807,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-trust-log"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "clap 4.6.7",
+ "getrandom 0.4.3",
+ "hex",
+ "jsonrpsee",
+ "maya-crypto-pq",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "maya-vm"
 version = "0.1.0"
 dependencies = [
