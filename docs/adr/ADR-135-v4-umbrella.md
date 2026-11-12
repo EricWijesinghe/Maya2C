@@ -232,7 +232,7 @@ commitment = blake3("maya2c name commit v1" ‖ label ‖ sender ‖ salt(32))
 | Tag | Form | Layout | Size |
 |---|---|---|---|
 | 63 | `CommitName` | `commitment(32)` | 33 |
-| 64 | `RegisterName` | `len(1) ‖ label(len) ‖ salt(32) ‖ periods(1) ‖ target(32)` | 67-127 |
+| 64 | `RegisterName` | `len(1) ‖ label(len) ‖ salt(32) ‖ periods(1) ‖ target(32)` | 70-130 |
 | 65 | `RenewName` | `len(1) ‖ label(len) ‖ periods(1)` | 6-66 |
 | 66 | `UpdateName` | `len(1) ‖ label(len) ‖ op(1) ‖ arg` with `op`: `0x01 SetTarget(address 32)`, `0x02 SetStealth(flag 1 [‖ meta-address])`, `0x03 SetReverse(none; sender's address)`, `0x04 Transfer(new_owner 32)`, `0x05 ClearStealth(none)` | 6-~1,700 |
 
