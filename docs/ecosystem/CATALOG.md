@@ -43,16 +43,16 @@ L is more. *Wave* is when, defined at the end of the file.
 | wallet-extension | Browser extension wallet for web apps | wallet core, `crates/web-security` | ADR (dApp connection protocol) | M | W2 |
 | hardware-wallet | Ledger app for ML-DSA signing | `apps/ledger-maya2c` | device memory for PQ signatures, Ledger review | L | W3 |
 | chat-v2 | Group chats, attachments, multi-device | `apps/chat`, ADR-074 | gate: [ADR-085](../adr/ADR-085-chat-v2-groups-on-mls.md)/[ADR-086](../adr/ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) Proposed, decisions for Eric listed | L | W1 |
-| chat-pay | Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3) | chat + wallet hand-off | hand-off protocol ADR | M | W1 |
+| chat-pay | Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3). **Status:** in progress, [PR #441](https://github.com/EricWijesinghe/Maya2C/pull/441) | chat + wallet hand-off | hand-off protocol ADR | M | W1 |
 | explorer-v2 | Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending | `apps/explorer` | none | M | W1 |
-| status-v2 | Public network status with a history of incidents and gate progress | `apps/status`, `apps/sentinel` | none | S | W1 |
+| status-v2 | Public network status with a history of incidents and gate progress. **Status:** in progress, [PR #444](https://github.com/EricWijesinghe/Maya2C/pull/444) | `apps/status`, `apps/sentinel` | none | S | W1 |
 | notifications | Opt-in alerts (payment received, validator down) without a central server | `apps/hub` `notify.rs`, sentinel ntfy | privacy statement | M | W2 |
 
 ## B. Money and commerce
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
 |---|---|---|---|---|---|
-| merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1 |
+| merchant-checkout | Payment links, QR invoices and a webhook for shops. **Status:** in progress, [PR #418](https://github.com/EricWijesinghe/Maya2C/pull/418) | wallet core `payment.rs`, SDKs | none | M | W1 |
 | pos-terminal | Point of sale on an Android phone: QR request, wait for finality, receipt | merchant-checkout, light client | none | M | W2 |
 | recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys; protocol execution at a height: ADR-109 (proposed, `sp:` prefix) | consensus review (ADR-109) | M | W2 |
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
@@ -72,7 +72,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
 | names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed) | consensus review (ADR-105) | M | W2 |
-| notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
+| notary | Timestamp and prove that a document existed (hash only, never the file). **Status:** in progress, [PR #449](https://github.com/EricWijesinghe/Maya2C/pull/449) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 
 ## D. Builders and operators
@@ -81,8 +81,8 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | sdks-1.0 | Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`) | `sdks/`, `bins/l1-wallet` | publishing approval (Eric) | M | W1 |
 | dev-portal | Docs, tutorials, playground and contract templates | `apps/dev-hub`, `apps/portal`, `docs/ecosystem/COURSE.md` | none | M | W1 |
-| public-api | Indexer API (REST, later GraphQL) for wallets and dashboards | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
-| mcp-server | AI assistants can read the chain and draft (never sign) transactions | `bins/maya2c-mcp` | key-safety review (pending, Eric); built per ADR-084 | S | W1 |
+| public-api | Indexer API (REST, later GraphQL) for wallets and dashboards. **Status:** in progress, [PR #414](https://github.com/EricWijesinghe/Maya2C/pull/414) | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
+| mcp-server | AI assistants can read the chain and draft (never sign) transactions. **Status:** built, features.toml `mcp-server` working; read-only debugging tools in progress, [PR #482](https://github.com/EricWijesinghe/Maya2C/pull/482) | `bins/maya2c-mcp` | key-safety review (pending, Eric); built per ADR-084 | S | W1 |
 | node-in-a-box | One-click validator and node installer with health checks | one-line-node-join, `apps/status` | none | M | W1 |
 | validator-console | Validator dashboard: uptime, rewards, slashing risk, alerts | `apps/sentinel`, staking RPC | none | M | W2 |
 | pool-dashboard | Pool operators' and miners' web view | `bins/pool-service` dashboard | B34 to B37 pool items | M | W2 |
