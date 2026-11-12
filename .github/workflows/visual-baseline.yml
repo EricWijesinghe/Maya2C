@@ -1,0 +1,30 @@
+# Regenerates the visual-regression baselines (design/visual/regress.mjs) in the
+# same pinned Playwright container the `visual regression` job in ci.yml uses,
+# because baselines drawn by any other Chromium or font set are not comparable.
+# Run it from the Actions tab, download the `visual-baseline` artifact, review
+# the images, and commit them under design/visual/baseline/.
+name: visual-baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["fix/ci-master-reds"]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install the matching Playwright package
+        run: npm install --no-save --prefix design/visual playwright@1.56.1
+      - name: Write baselines
+        run: UPDATE_BASELINE=1 node design/visual/regress.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: visual-baseline
+          path: design/visual/baseline/
