@@ -257,7 +257,11 @@ fn seat_peers(polls: &[NodePoll]) -> BTreeMap<String, String> {
 /// One seat per committee member. `None` (MISSING) when the listing is
 /// short of the committee or a stake cannot be read.
 fn seat_claims(polls: &[NodePoll], stakes: &StakeSet) -> Option<Vec<SeatClaim>> {
-    let members: Vec<&Seat> = stakes.validators.iter().filter(|s| s.in_committee).collect();
+    let members: Vec<&Seat> = stakes
+        .validators
+        .iter()
+        .filter(|s| s.in_committee)
+        .collect();
     if members.len() != stakes.committee {
         return None;
     }
@@ -490,14 +494,21 @@ impl Live {
                     _ => None,
                 },
                 peers: p.view.as_ref().map_or(0, |v| v.peers.len()),
-                voting: p.bft.as_ref().is_some_and(|b| b.validator.is_some() && !b.follower),
+                voting: p
+                    .bft
+                    .as_ref()
+                    .is_some_and(|b| b.validator.is_some() && !b.follower),
             });
         }
         out
     }
 
     fn note_epoch(&mut self, at_ms: u64, polls: &[NodePoll]) {
-        let Some(epoch) = polls.iter().filter_map(|p| p.bft.as_ref().map(|b| b.epoch)).max() else {
+        let Some(epoch) = polls
+            .iter()
+            .filter_map(|p| p.bft.as_ref().map(|b| b.epoch))
+            .max()
+        else {
             return;
         };
         if self.epoch.is_some_and(|e| e < epoch) {
@@ -730,7 +741,10 @@ mod tests {
             }),
             ..seated(poll("a", "PA", a_peers, Some(0), 1), "aa")
         };
-        let b = seated(poll("b", "PB", vec![claimed("PA", Some(3))], Some(1), 1), "bb");
+        let b = seated(
+            poll("b", "PB", vec![claimed("PA", Some(3))], Some(1), 1),
+            "bb",
+        );
         let mut polls = vec![with_seats(a, &[("aa", 5), ("bb", 5), ("cc", 5)]), b];
         if with_c {
             let c = poll("c", "PC", vec![claimed("PB", c_claim_of_b)], Some(2), 1);

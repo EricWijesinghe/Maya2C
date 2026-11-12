@@ -430,8 +430,13 @@ mod tests {
         assert_eq!(claimed_protocol("maya2c/proto/+2"), None);
         assert_eq!(claimed_protocol("maya2c/proto/2x"), None);
         assert_eq!(claimed_protocol("maya2c/proto/99999999999"), None);
-        assert_eq!(claimed_protocol("maya2c/proto/2
-"), None);
+        assert_eq!(
+            claimed_protocol(
+                "maya2c/proto/2
+"
+            ),
+            None
+        );
     }
 
     #[test]
