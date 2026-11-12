@@ -159,6 +159,10 @@ members = [
     # Live watchdog (ADR-077 watcher): read-only, pages on-call by ntfy. A member
     # so its detectors are built and tested with the rest of the workspace.
     "apps/sentinel",
+    # Public invariant monitor and validator ledger (CATALOG W1): read-only,
+    # built only from what the public gateway serves; they reuse the sentinel.
+    "apps/invariant-monitor",
+    "apps/validator-ledger",
     # Threshold custody of a chain key. A member so its sharing arithmetic and
     # its quorum rules cannot rot, and because the one thing it must never do —
     # let a sub-threshold set of shares reconstruct anything — is a property a

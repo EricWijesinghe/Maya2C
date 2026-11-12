@@ -1,0 +1,25 @@
+[package]
+name = "maya-validator-ledger"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Public validator ledger: per-epoch checkpoint signers from public RPC, with what is not public named"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "maya2c-validator-ledger"
+path = "src/main.rs"
+
+[dependencies]
+# Transport and HTTP client from the sentinel, checkpoint parsing from the
+# monitor: this crate only arranges what they read.
+maya-sentinel = { path = "../sentinel" }
+maya-invariant-monitor = { path = "../invariant-monitor" }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

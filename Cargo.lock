@@ -6358,6 +6358,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-invariant-monitor"
+version = "0.1.0"
+dependencies = [
+ "maya-fee-market",
+ "maya-sentinel",
+ "reqwest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "maya-iot-anchor"
 version = "0.1.0"
 dependencies = [
@@ -6804,6 +6815,16 @@ name = "maya-treasury"
 version = "0.1.0"
 dependencies = [
  "maya-amount",
+]
+
+[[package]]
+name = "maya-validator-ledger"
+version = "0.1.0"
+dependencies = [
+ "maya-invariant-monitor",
+ "maya-sentinel",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
