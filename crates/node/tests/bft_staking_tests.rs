@@ -750,7 +750,10 @@ fn get_supply_excludes_the_unissued_mining_reserve() {
 
     let total = config.total_supply().unwrap();
     assert_eq!(report.total, total);
-    assert_eq!(report.burned, primitive_types::U256::from(reserve));
+    // 026c7699 moved the reserve out of `burned` (which only grows) into
+    // `unissued` (which falls as rewards pay out).
+    assert_eq!(report.unissued, primitive_types::U256::from(reserve));
+    assert_eq!(report.burned, primitive_types::U256::zero());
     assert_eq!(
         report.circulating,
         total - primitive_types::U256::from(reserve)
