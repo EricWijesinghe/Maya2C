@@ -68,6 +68,8 @@ const preview = (() => {
       balance: (BigInt(i + 1) * 1234567n * 10n ** 21n).toString(), nonce: i, error: null })),
     gpu_telemetry: () => ({ devices: [{ index: 0, uuid: "GPU-preview", name: "Preview GPU", temp_c: 58 + Math.random() * 4, power_w: 170 + Math.random() * 15,
       power_limit_w: 250, util_pct: 97, fan_pct: 54, mem_used_mib: 4300, mem_total_mib: 12227, clock_mhz: 2610 }], note: null }),
+    // Preview runs no miner, so there is no driver tool to check.
+    driver_tool_set: () => null,
     // Preview does not tune: the card says so instead of pretending.
     tune_report: () => ({ devices: [], notice: "preview mode: guided tuning runs only in the desktop Hub" }),
   };
@@ -704,9 +706,17 @@ async function saveSettingsForm() {
     cpu_threads: Number($("s-threads").value),
     devices,
     thermal_ceiling_c: ceiling,
+    driver_tool: $("s-driver-tool").value.trim(),
     notify: $("s-notify").checked,
   };
   const saved = saveSettings(state.settings) ? "Saved." : "Saved for this session only.";
+  try {
+    await call("driver_tool_set", { path: state.settings.driver_tool || null });
+  } catch (e) {
+    // Saved anyway: a refused tool keeps GPU mining refused, and says why here.
+    setText("s-msg", `${saved} ${e}`);
+    return;
+  }
   try {
     await call("notify_set", { on: state.settings.notify });
     setText("s-msg", saved);
@@ -738,8 +748,11 @@ function wireSettings(defaults, gpus) {
   $("s-threads").addEventListener("input", (e) => setText("s-threads-v", e.target.value));
   $("s-ceiling").value = String(s.thermal_ceiling_c ?? DEFAULT_CEILING_C);
   $("s-notify").checked = Boolean(s.notify);
+  $("s-driver-tool").value = s.driver_tool || "";
   // The Rust side starts with notifications off; send the saved choice once.
   if (!isPreview) call("notify_set", { on: Boolean(s.notify) }).catch((e) => setText("s-msg", `Notifications: ${e}`));
+  // Likewise the driver-tool override: the Rust side starts with none.
+  if (!isPreview) call("driver_tool_set", { path: s.driver_tool || null }).catch((e) => setText("s-msg", String(e)));
   renderDevicePicks(gpus.devices);
   $("s-save").addEventListener("click", saveSettingsForm);
 }

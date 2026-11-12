@@ -480,6 +480,11 @@ impl Miner {
         if config.device.is_some_and(|i| i > MAX_DEVICE) {
             return Err(format!("GPU index above {MAX_DEVICE} is not supported"));
         }
+        // No trusted temperature source means no thermal stop: refuse a GPU
+        // start rather than mine blind (ADR-137 S-8). CPU mining needs none.
+        if config.device.is_some() {
+            crate::driver_tool::require_telemetry()?;
+        }
         miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
             .map_err(|e| e.to_string())?;
         let key_file =
@@ -743,6 +748,24 @@ mod tests {
         let temp = std::env::temp_dir();
         let err = miner.start(&config(None), &temp, &temp).unwrap_err();
         assert!(err.contains("not found"), "{err}");
+        assert!(miner.report().workers.is_empty());
+    }
+
+    #[test]
+    fn a_gpu_start_without_trusted_telemetry_is_refused_and_cpu_is_not() {
+        // A bare name never passes, so this holds on a machine with a GPU too.
+        let refused = crate::driver_tool::set_override(Some(PathBuf::from("nvidia-smi")));
+        assert!(refused.is_err());
+        let miner = Miner::default();
+        let temp = std::env::temp_dir();
+        let gpu = miner.start(&config(Some(0)), &temp, &temp).unwrap_err();
+        let cpu = miner.start(&config(None), &temp, &temp).unwrap_err();
+        crate::driver_tool::set_override(None).expect("clearing always succeeds");
+        assert!(gpu.starts_with("GPU mining not started"), "{gpu}");
+        assert!(
+            cpu.contains("not found"),
+            "CPU reaches the binary check: {cpu}"
+        );
         assert!(miner.report().workers.is_empty());
     }
 

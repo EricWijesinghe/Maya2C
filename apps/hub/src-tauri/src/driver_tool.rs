@@ -4,8 +4,24 @@
 //! bare program name is looked up in the Hub's own folder first, so a file
 //! planted beside the Hub would run. A candidate that is missing or fails its
 //! check is not run, and there is no fallback to the bare name.
+//!
+//! GPU mining fails closed on it: with no trusted tool there is no
+//! temperature reading and so no thermal stop, and [`require_telemetry`]
+//! refuses the start. A per-machine override (Settings → Driver tool) must
+//! pass checks as strict as the system path's, and replaces it: a refused
+//! override refuses mining rather than falling back to anything.
 
 use std::path::{Path, PathBuf};
+use std::sync::{PoisonError, RwLock};
+
+/// The override the webview sent with `driver_tool_set`. Kept as set and
+/// checked again on every use, so a file swapped after it was set is caught.
+static OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+#[cfg(windows)]
+const OVERRIDE_RULE: &str = "It must be a file under Program Files or System32.";
+#[cfg(not(windows))]
+const OVERRIDE_RULE: &str = "It must be owned by root, and neither it nor any folder above it may be writable by group or others.";
 
 /// The candidate paths, all absolute and all in folders only an
 /// administrator or root can write.
@@ -77,15 +93,125 @@ fn trusted(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// The Windows Program Files folder, from the known-folder API rather than
+/// `%ProgramFiles%`, for the same reason as [`system_dir`].
+#[cfg(windows)]
+fn program_files_dir() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+    // SAFETY: the GUID is a static the call only reads; on success it returns
+    // a NUL-terminated string the shell allocated, read once into an owned
+    // `OsString` and then freed with `CoTaskMemFree`, as the API requires.
+    unsafe {
+        let raw = SHGetKnownFolderPath(&FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, None).ok()?;
+        let path = PathBuf::from(std::ffi::OsString::from_wide(raw.as_wide()));
+        CoTaskMemFree(Some(raw.0.cast_const().cast()));
+        Some(path)
+    }
+}
+
+/// The path to run for an override, or `None` when it fails its check.
+#[cfg(unix)]
+fn trusted_override(path: &Path) -> Option<PathBuf> {
+    trusted(path)
+}
+
+/// The path to run for an override, or `None` when it fails its check: an
+/// existing file whose resolved path lies under Program Files or System32,
+/// both folders found through the Windows API.
+// shortcut: the folder is trusted, not each subfolder's ACL; an installer
+// that loosens a subfolder's ACL would pass. Check the ACL (GetNamedSecurityInfoW)
+// if a supported driver ships the tool in such a folder.
+#[cfg(windows)]
+fn trusted_override(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let real = std::fs::canonicalize(path).ok()?;
+    let is_file = std::fs::symlink_metadata(&real).is_ok_and(|m| m.is_file());
+    let under = |root: Option<PathBuf>| {
+        root.and_then(|r| std::fs::canonicalize(r).ok())
+            .is_some_and(|r| real.starts_with(r))
+    };
+    (is_file && (under(system_dir()) || under(program_files_dir()))).then_some(real)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn trusted_override(_path: &Path) -> Option<PathBuf> {
+    None
+}
+
 /// The first candidate that passes its check.
 fn resolve_from(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find_map(|p| trusted(p))
 }
 
+/// The override when one is set, and only it; otherwise the system paths.
+fn resolve(over: Option<&Path>, system: &[PathBuf]) -> Option<PathBuf> {
+    over.map_or_else(|| resolve_from(system), trusted_override)
+}
+
+fn current_override() -> Option<PathBuf> {
+    OVERRIDE
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+/// Sets or clears (`None`) the per-machine override. It is stored even when
+/// it fails its check, so mining stays refused instead of quietly using
+/// another tool.
+///
+/// # Errors
+///
+/// The override fails its check; the message says what the rule is.
+pub fn set_override(path: Option<PathBuf>) -> Result<(), String> {
+    let refused = path
+        .as_deref()
+        .filter(|p| trusted_override(p).is_none())
+        .map(refused_override);
+    *OVERRIDE.write().unwrap_or_else(PoisonError::into_inner) = path;
+    refused.map_or(Ok(()), Err)
+}
+
 /// `nvidia-smi` by absolute path, or `None`. Never the bare name.
 #[must_use]
 pub fn nvidia_smi() -> Option<PathBuf> {
-    resolve_from(&candidates())
+    resolve(current_override().as_deref(), &candidates())
+}
+
+/// The trusted tool GPU mining needs, or why mining may not start.
+///
+/// # Errors
+///
+/// No tool passes its check: a message with the fix, for the status line.
+pub fn require_telemetry() -> Result<PathBuf, String> {
+    require_from(current_override().as_deref(), &candidates())
+}
+
+fn require_from(over: Option<&Path>, system: &[PathBuf]) -> Result<PathBuf, String> {
+    resolve(over, system).ok_or_else(|| match over {
+        Some(p) => refused_override(p),
+        None => no_tool(system),
+    })
+}
+
+fn refused_override(path: &Path) -> String {
+    format!(
+        "GPU mining not started: the driver tool set in Settings ({}) failed its check. {OVERRIDE_RULE} Fix the path, or clear it to use the system one.",
+        path.display()
+    )
+}
+
+fn no_tool(system: &[PathBuf]) -> String {
+    let expected = system.first().map_or_else(
+        || "its system folder".to_string(),
+        |p| p.display().to_string(),
+    );
+    format!(
+        "GPU mining not started: the Hub found no trusted GPU temperature source, so it could not stop an overheating card. Install or update the NVIDIA driver, which puts nvidia-smi at {expected}, or set Settings → Driver tool to where your driver put it. CPU mining still works."
+    )
 }
 
 #[cfg(test)]
@@ -149,6 +275,73 @@ mod tests {
             "a temp-folder file is never a candidate"
         );
         let _ = std::fs::remove_dir_all(&planted_dir);
+    }
+
+    fn missing_system_tool() -> Vec<PathBuf> {
+        vec![
+            std::env::temp_dir()
+                .join("hub-no-such-dir")
+                .join("nvidia-smi"),
+        ]
+    }
+
+    /// A real file that passes the override check on this OS, without a GPU.
+    fn trusted_stand_in() -> PathBuf {
+        #[cfg(windows)]
+        {
+            system_dir().expect("system folder").join("cmd.exe")
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from("/bin/sh")
+        }
+    }
+
+    #[test]
+    fn no_trusted_tool_refuses_gpu_mining_with_the_fix() {
+        let system = missing_system_tool();
+        let err = require_from(None, &system).expect_err("no tool, no mining");
+        assert!(err.starts_with("GPU mining not started"), "{err}");
+        assert!(
+            err.contains(&system[0].display().to_string()),
+            "names where the tool belongs: {err}"
+        );
+        assert!(err.contains("Settings"), "names the override: {err}");
+    }
+
+    #[test]
+    fn an_override_that_passes_the_checks_allows_gpu_mining() {
+        let found = require_from(Some(&trusted_stand_in()), &missing_system_tool())
+            .expect("a root-owned / system-folder override is trusted");
+        assert!(found.is_absolute());
+    }
+
+    #[test]
+    fn an_override_that_fails_the_checks_refuses_gpu_mining() {
+        let dir = std::env::temp_dir().join(format!("hub-override-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let planted = dir.join("nvidia-smi");
+        std::fs::write(&planted, "#!/bin/sh\n").expect("plant");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o777))
+                .expect("chmod");
+        }
+        // A refused override never falls back, even to a system tool that passes.
+        let system = vec![trusted_stand_in()];
+        for bad in [planted.clone(), PathBuf::from("nvidia-smi")] {
+            let err = require_from(Some(&bad), &system).expect_err("refused override");
+            assert!(err.contains("failed its check"), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn program_files_comes_from_the_known_folder_api() {
+        let dir = program_files_dir().expect("Program Files");
+        assert!(dir.is_absolute() && dir.is_dir(), "{}", dir.display());
     }
 
     #[cfg(unix)]

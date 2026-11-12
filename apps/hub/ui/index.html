@@ -189,6 +189,8 @@
               <label>CPU threads <span id="s-threads-v"></span><input id="s-threads" type="range" min="1" max="64" /></label>
               <label>Stop a GPU above (°C) <input id="s-ceiling" type="number" min="50" max="95" step="1" /></label>
               <p class="fine">80 °C is the Hub's own default, not the driver's limit. A GPU above it is stopped, then restarted once it is 5 °C lower.</p>
+              <label>Driver tool (nvidia-smi) <input id="s-driver-tool" spellcheck="false" placeholder="leave empty to use the system one" /></label>
+              <p class="fine">The Hub reads GPU temperatures with nvidia-smi and will not start a GPU without them. It looks only in the system folder (System32 on Windows, /usr/bin on Linux). If your driver put it elsewhere, enter its full path. On Windows the path must be under Program Files or System32. On Linux the file must be owned by root and not writable by group or others. The Hub never searches PATH.</p>
               <label class="check"><input id="s-notify" type="checkbox" /> Show a system notification when a miner gives up or a GPU is stopped for heat</label>
               <p class="fine">Off by default. A notification names the device only, never an address or a key, and at most one per kind every ten minutes.</p>
             </div>

@@ -168,6 +168,18 @@ fn miner_start(
     state.start(&config, &install, &data)
 }
 
+/// Sets the per-machine `nvidia-smi` override from Settings, or clears it
+/// when empty. The webview sends the saved value on start and on save. The
+/// path is checked on every use; a refused one keeps GPU mining refused.
+#[tauri::command]
+fn driver_tool_set(path: Option<String>) -> Result<(), String> {
+    let path = path
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from);
+    driver_tool::set_override(path)
+}
+
 /// Turns OS toasts for alerts on or off. Off by default; the webview sends the
 /// saved choice on start. Turning them on asks the OS for permission first
 /// (Android needs it; desktop grants it without asking).
@@ -257,7 +269,8 @@ pub fn run() {
             miner_start,
             miner_stop,
             miner_state,
-            notify_set
+            notify_set,
+            driver_tool_set
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner

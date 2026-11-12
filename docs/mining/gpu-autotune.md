@@ -92,7 +92,26 @@ variable) and `/usr/bin/nvidia-smi` on Linux (root-owned, not writable by
 group or others, checked before each run). It is never looked up by name, so
 a file planted beside the Hub or on `PATH` is never run (ADR-137 S-8). Older
 pre-DCH Windows drivers that install it only under `Program Files` are not
-found yet.
+found automatically.
+
+**No tool, no GPU mining.** Without a trusted `nvidia-smi` the Hub has no
+temperature reading and so no thermal stop. It therefore refuses to start a
+GPU and says why in the status line: install or update the NVIDIA driver, or
+set the override below. CPU mining is not affected.
+
+**Override (Settings → Driver tool).** It is set per machine, because it is
+kept in this Hub's own settings. Enter the full path to `nvidia-smi`. Leave it
+empty to use the system path. A path that is set replaces the system path. It
+is checked when saved and again before every run, and if it fails the check,
+GPU mining stays refused: the Hub never falls back to the system path, a bare
+name or `PATH`. The check:
+
+- Windows: an existing file, not a reparse point once resolved, under
+  `Program Files` or `System32`. Both folders come from the Windows API
+  (`SHGetKnownFolderPath`, `GetSystemDirectoryW`), never from
+  `%ProgramFiles%`. For example: `C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe`.
+- Linux: the resolved file and every folder above it are owned by root and
+  not writable by group or others. This is the same check as `/usr/bin/nvidia-smi`.
 
 ## Limits
 
@@ -119,9 +138,9 @@ No step goes above the driver default or below its minimum.
 - A lock against two Hub windows tuning one card.
 - A cap on wrong hashes outside tuning: a card that keeps sending
   `hw_error` keeps mining (each one is refused, never submitted).
-- A start refusal when `nvidia-smi` is not at its system path: the miner
-  then runs without the thermal stop, and the Rigs card says the tool was
-  not found.
+- An ACL check on the Windows override's own folder. The folder is trusted
+  because it sits under `Program Files` or `System32`. An installer that
+  loosened a subfolder's ACL would pass.
 
 ## Not verified
 
