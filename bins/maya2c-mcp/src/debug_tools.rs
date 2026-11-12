@@ -7,10 +7,8 @@
 //! none takes a key, and none reads a file an assistant names: the genesis a
 //! replay needs is fixed by whoever started the server (`--genesis`).
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use custom_l1_node::core::Transaction;
-use custom_l1_node::core::payload::TxKind;
+use custom_l1_node::core::payload::{MAX_CONTRACT_CODE, TxKind};
 use maya2c_cli::fork::{Source, replay};
 use maya2c_cli::{CallSpec, parse_caller, parse_hex, record_spec};
 use primitive_types::U256;
@@ -27,6 +25,11 @@ pub struct Config<'a> {
 
 /// The `maya2c debug` default.
 const DEFAULT_GAS: u64 = 10_000_000;
+/// Ten times the default: a trace runs in this process, so an assistant's
+/// `u64::MAX` must not become an unbounded run.
+const MAX_TRACE_GAS: u64 = 100_000_000;
+/// Steps returned; a longer recording is cut and says so.
+const MAX_STEPS: usize = 10_000;
 
 /// `replay_block {height, txid?}`: a fresh local copy up to `height - 1`, then
 /// that block executed here. Success *is* the proof the state root reproduced.
@@ -43,18 +46,21 @@ pub fn replay_block(config: Config<'_>, args: &Value) -> Result<Value, String> {
         .genesis
         .ok_or("replay needs the network's genesis: start with --genesis FILE")?;
     let height = args["height"].as_u64().ok_or("height is required")?;
-    let dir = scratch_dir();
+    // A fresh, unpredictable directory: `fork::copy` wipes whatever is at
+    // `dir`, so it is never a path an assistant chose. Removed on drop, panic
+    // included.
+    let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
     let source = Source {
         url: format!("http://{rpc}"),
         genesis: genesis.into(),
-        dir: dir.clone(),
+        dir: scratch.path().join("copy"),
         snapshot_depth: None,
     };
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     let result = replay(&source, height, runtime.handle().clone());
     // Dropped before the copy is removed: RocksDB holds its files open.
     drop(runtime);
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(scratch);
     let r = result.map_err(|e| format!("{e:#}"))?;
     let txid = args["txid"].as_str();
     if let Some(txid) = txid
@@ -76,17 +82,6 @@ pub fn replay_block(config: Config<'_>, args: &Value) -> Result<Value, String> {
     Ok(out)
 }
 
-/// A fresh directory for one replay's copy; `fork::copy` wipes whatever is
-/// there, so it is never a path an assistant chose.
-fn scratch_dir() -> std::path::PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    std::env::temp_dir().join(format!(
-        "maya2c-mcp-replay-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ))
-}
-
 /// `trace_transaction {wasm, tx? | input?, caller?, height?, gas?}`: the call
 /// run once under the time-travel debugger's recorder, every step returned.
 ///
@@ -102,6 +97,12 @@ pub fn trace_transaction(args: &Value) -> Result<Value, String> {
         args["wasm"].as_str().ok_or("wasm (hex) is required")?,
     )
     .map_err(|e| e.to_string())?;
+    if wasm.len() > MAX_CONTRACT_CODE {
+        return Err(format!(
+            "wasm is {} bytes; the chain stores at most {MAX_CONTRACT_CODE}",
+            wasm.len()
+        ));
+    }
     let height = args["height"].as_u64().unwrap_or(0);
     let spec = match args["tx"].as_str() {
         Some(tx_hex) => {
@@ -133,19 +134,22 @@ pub fn trace_transaction(args: &Value) -> Result<Value, String> {
     };
     // shortcut: storage starts empty, not as the chain held it at `height`; the
     // RPC serves no contract storage to seed it from.
+    let spec = CallSpec {
+        gas: spec.gas.min(MAX_TRACE_GAS),
+        ..spec
+    };
     let mut session = record_spec(&spec).map_err(|e| format!("{e:#}"))?;
-    let steps: Vec<String> = session
-        .listing()
-        .lines()
-        .skip(1)
-        .map(str::to_string)
-        .collect();
+    let listing = session.listing();
+    let steps: Vec<&str> = listing.lines().skip(1).take(MAX_STEPS).collect();
+    let truncated = session.total() > MAX_STEPS;
     session.goto(session.total());
     let (gas_used, outcome) = session.summary();
     Ok(json!({
         "outcome": outcome,
         "gas_used": gas_used,
+        "gas_limit": spec.gas,
         "steps": steps,
+        "steps_truncated": truncated,
         "storage_after": session.storage_pairs(),
         "events": session.event_pairs(),
         "initial_storage": "empty",

@@ -38,12 +38,12 @@ pub fn variants() -> Vec<Variant> {
         }
         let Some(item) = line.strip_prefix("    ").filter(|l| !l.starts_with(' ')) else {
             if in_error {
-                template.push_str(line.trim());
+                push_piece(&mut template, line);
             }
             continue;
         };
         if in_error || item.starts_with("#[error(") {
-            template.push_str(item.trim());
+            push_piece(&mut template, item);
             in_error = !template.ends_with(")]");
         } else if let Some(text) = item.strip_prefix("///") {
             doc.push(text.trim());
@@ -58,6 +58,17 @@ pub fn variants() -> Vec<Variant> {
         }
     }
     out
+}
+
+/// Appends one line of an `#[error(...)]` attribute. A line ending in `\`
+/// is a string continuation: Rust drops the next line's leading whitespace.
+fn push_piece(template: &mut String, line: &str) {
+    if template.ends_with('\\') {
+        template.pop();
+        template.push_str(line.trim_start().trim_end());
+    } else {
+        template.push_str(line.trim());
+    }
 }
 
 fn variant_name(item: &str) -> Option<String> {
@@ -218,6 +229,16 @@ mod tests {
         }
         assert!(all.iter().any(|v| v.name == "UpgradeRequired"
             && v.template.starts_with("upgrade required before height")));
+    }
+
+    #[test]
+    fn a_continued_template_matches_its_message() {
+        let e = NodeError::UnauditedShieldedCircuit {
+            network: "mainnet".into(),
+        };
+        let out = explained(&e);
+        assert_eq!(out["kind"], "UnauditedShieldedCircuit", "{out}");
+        assert_eq!(out["fields"], json!(["mainnet"]));
     }
 
     #[test]

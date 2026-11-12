@@ -17,11 +17,12 @@ hex.workspace = true
 maya2c-cli = { path = "../maya2c-cli" }
 primitive-types.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+# The replay's scratch copy: unpredictable, removed on drop.
+tempfile.workspace = true
 
 [dev-dependencies]
 custom-l1-node = { path = "../../crates/node" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tempfile.workspace = true
 
 [lints]
 workspace = true
