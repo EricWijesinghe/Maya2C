@@ -3,8 +3,7 @@
 use custom_l1_node::core::identity_payload::AnchorAttestation;
 use custom_l1_node::core::{Transaction, TxKind};
 use maya2c_cli::notary::{
-    Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match, finality,
-    hash_reader,
+    Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match, finality, hash_reader,
 };
 
 /// A transaction carrying a notary anchor for `root` under `schema`.
@@ -37,7 +36,9 @@ fn hash_of_empty_input_matches_blake3_reference_vector() {
 #[test]
 fn streamed_hash_equals_one_shot_hash_across_read_chunks() {
     // Longer than one read buffer, so the loop runs more than once.
-    let data: Vec<u8> = (0..(3 * 64 * 1024 + 17)).map(|i: usize| u8::try_from(i % 251).expect("below 251")).collect();
+    let data: Vec<u8> = (0..(3 * 64 * 1024 + 17))
+        .map(|i: usize| u8::try_from(i % 251).expect("below 251"))
+        .collect();
     let streamed = hash_reader(&data[..]).expect("in-memory read");
     assert_eq!(streamed, *blake3::hash(&data).as_bytes());
 }

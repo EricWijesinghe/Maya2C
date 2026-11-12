@@ -130,7 +130,9 @@ pub fn check_match(file_hash: &[u8; 32], anchored: &[u8; 32]) -> Result<()> {
     if file_hash == anchored {
         Ok(())
     } else {
-        bail!("the file does not match the stamped hash: it changed after stamping, or it is a different file")
+        bail!(
+            "the file does not match the stamped hash: it changed after stamping, or it is a different file"
+        )
     }
 }
 
@@ -200,7 +202,12 @@ pub async fn stamp(
 /// # Errors
 ///
 /// As for [`stamp`].
-pub async fn setup(keystore: &Path, password: &str, rpc: &str, genesis: Option<&str>) -> Result<String> {
+pub async fn setup(
+    keystore: &Path,
+    password: &str,
+    rpc: &str,
+    genesis: Option<&str>,
+) -> Result<String> {
     let key = open_key(keystore, password)?;
     let mut public_key = Vec::new();
     key.public_key().encode_into(&mut public_key);
@@ -243,7 +250,10 @@ pub async fn verify(file: &Path, txid_hex: &str, rpc: &str, from: u64) -> Result
         }
         next = info_next(&infos, next);
     }
-    bail!("transaction {txid_hex} is not in blocks {from}..={}", tip.height)
+    bail!(
+        "transaction {txid_hex} is not in blocks {from}..={}",
+        tip.height
+    )
 }
 
 /// The height after the last block in a batch.
@@ -254,9 +264,13 @@ fn info_next(infos: &[BlockInfo], fallback: u64) -> u64 {
 /// Decodes a served block and checks its transactions against its header.
 fn decode_block(info: &BlockInfo) -> Result<Block> {
     let bytes = hex::decode(&info.raw).context("the node sent a block that is not hex")?;
-    let block = Block::from_bytes(&bytes).map_err(|e| anyhow!("decoding block {}: {e}", info.height))?;
+    let block =
+        Block::from_bytes(&bytes).map_err(|e| anyhow!("decoding block {}: {e}", info.height))?;
     if hex::encode(block.tx_root()) != info.header.tx_root {
-        bail!("block {} bytes do not match its header's tx root", info.height);
+        bail!(
+            "block {} bytes do not match its header's tx root",
+            info.height
+        );
     }
     Ok(block)
 }
@@ -268,7 +282,8 @@ async fn finish(
     block: &Block,
     height: u64,
 ) -> Result<Receipt> {
-    let checkpoint: Option<CheckpointHeight> = client.request("get_checkpoint", rpc_params![]).await?;
+    let checkpoint: Option<CheckpointHeight> =
+        client.request("get_checkpoint", rpc_params![]).await?;
     let place = Placement {
         height,
         block_hash: block.header.id(),
@@ -284,12 +299,18 @@ struct CheckpointHeight {
 }
 
 fn open_key(keystore: &Path, password: &str) -> Result<HybridSigningKey> {
-    let bytes = std::fs::read(keystore).with_context(|| format!("reading {}", keystore.display()))?;
+    let bytes =
+        std::fs::read(keystore).with_context(|| format!("reading {}", keystore.display()))?;
     l1_wallet::keystore::decrypt(&bytes, password).context("opening the keystore")
 }
 
 /// Signs `kind` with the wallet key and broadcasts it. Returns the txid.
-async fn submit(key: &HybridSigningKey, rpc: &str, genesis: Option<&str>, kind: TxKind) -> Result<String> {
+async fn submit(
+    key: &HybridSigningKey,
+    rpc: &str,
+    genesis: Option<&str>,
+    kind: TxKind,
+) -> Result<String> {
     let client = NodeClient::connect(rpc)?;
     let sender = hex::encode(key.address());
     let nonce = client.get_balance(&sender).await?.nonce;

@@ -281,7 +281,13 @@ async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
             genesis,
         } => {
             let password = notary_password()?;
-            let txid = Box::pin(notary::setup(&keystore, &password, &rpc, genesis.as_deref())).await?;
+            let txid = Box::pin(notary::setup(
+                &keystore,
+                &password,
+                &rpc,
+                genesis.as_deref(),
+            ))
+            .await?;
             println!("did txid: {txid}");
         }
         NotaryCommand::Stamp {
@@ -291,7 +297,14 @@ async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
             genesis,
         } => {
             let password = notary_password()?;
-            let txid = Box::pin(notary::stamp(&keystore, &password, &rpc, genesis.as_deref(), &file)).await?;
+            let txid = Box::pin(notary::stamp(
+                &keystore,
+                &password,
+                &rpc,
+                genesis.as_deref(),
+                &file,
+            ))
+            .await?;
             println!("txid: {txid}");
         }
         NotaryCommand::Verify {
