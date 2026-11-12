@@ -112,13 +112,20 @@ for (const file of files) {
   }
 
   // JSON-LD must parse; a malformed block is ignored by search engines without any error.
+  const ld = [];
   for (const [, body] of html.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
-      JSON.parse(body);
+      ld.push(JSON.parse(body));
     } catch (e) {
       fail(`JSON-LD does not parse: ${e.message}`);
     }
   }
+  // Audit W-13: every docs article carries dateModified, and the FAQ carries FAQPage.
+  const nodes = ld.flatMap((d) => d["@graph"] ?? [d]);
+  for (const a of nodes.filter((n) => n["@type"] === "TechArticle")) {
+    if (!a.dateModified || Number.isNaN(Date.parse(a.dateModified))) fail("TechArticle without a valid dateModified");
+  }
+  if (rel === "guides/faq/index.html" && !nodes.some((n) => n["@type"] === "FAQPage" && n.mainEntity?.length)) fail("FAQ without FAQPage structured data");
 
   // Internal links and images. External URLs and in-page fragments are skipped.
   for (const [tag] of html.matchAll(/<(a|link|img|script)\b[^>]*>/gi)) {
@@ -141,4 +148,4 @@ if (problems.length) {
   for (const p of problems.slice(0, 40)) console.error(`  ${p}`);
   process.exit(1);
 }
-console.log(`check-seo: ${files.length} pages, no duplicate titles, descriptions and canonicals present, JSON-LD parses, internal links resolve`);
+console.log(`check-seo: ${files.length} pages, no duplicate titles, descriptions and canonicals present, JSON-LD parses (dateModified on articles, FAQPage on the FAQ), internal links resolve`);

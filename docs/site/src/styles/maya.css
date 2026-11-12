@@ -135,34 +135,23 @@ a {
   html { scroll-behavior: auto; }
 }
 
-/* Homepage section heads: one small pill label, one short light title. */
-.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(31, 181, 194, 0.12); color: var(--accent-text); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
-.maya-section-title { margin: 14px 0 0 !important; font: 300 clamp(30px, 4vw, 54px)/1.06 var(--display) !important; letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
-.maya-footnote { margin: 64px 0 24px !important; text-align: center; color: var(--muted); font-size: 14px; }
+/* Homepage (U3): sections on the 4 px scale, one heading style, no pill
+   eyebrows, no scroll-in motion. The hero (Hero.astro) is the page's h1. */
+.home-h2 { margin: var(--space-20) 0 var(--space-6) !important; font: var(--type-display-2-weight) clamp(var(--type-display-2-size-phone), 3vw, var(--type-display-2-size))/1.15 var(--font-sans) !important; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
+.home-lede { margin: 0 0 var(--space-6) !important; max-width: 64ch; color: var(--text-2); font-size: var(--type-body-size); }
+.home-code .home-h2 { margin-bottom: var(--space-3) !important; }
+.home-code starlight-tabs { margin-top: var(--space-4); }
+.home-faq .home-lede { margin-top: var(--space-4) !important; }
+.maya-footnote { margin: var(--space-16) 0 var(--space-6) !important; max-width: 72ch; color: var(--text-2); font-size: var(--type-body-sm-size); }
 
 /* Homepage: the hero starts right under the nav. Starlight's title panel is
-   kept for screen readers (it holds the page's h1) but takes no space, and the
-   hero's panel loses its top padding and hairline. */
-.content-panel:has(+ .content-panel .stage) {
+   kept for screen readers but takes no space, and the hero's panel loses its
+   top padding and hairline. */
+.content-panel:has(+ .content-panel .hero) {
   position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
   clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
 }
-.content-panel:has(.stage) { padding-top: 0; border-top: 0; }
-
-/* Motion: sections rise into view as they scroll in, driven by the scroll
-   position itself (no script), and the orbs breathe. Browsers without scroll
-   timelines simply show everything; reduced motion turns all of it off. */
-/* A short fade-and-lift; no scale and no bob (2026-11-13: no bounce). */
-@keyframes maya-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: no-preference) {
-  @supports (animation-timeline: view()) {
-    .maya-eyebrow, .maya-section-title, .stack .layer, .eco, .ladder > li, .orb-row > * {
-      animation: maya-rise linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 28%;
-    }
-  }
-}
+.content-panel:has(.hero) { padding-top: 0; border-top: 0; }
 
 /* ---------------------------------------------------------------------------
    Reading: every documentation page. Quiet type on the token scale, flat
@@ -177,20 +166,20 @@ h1#_top {
 }
 
 .sl-markdown-content { font-size: var(--type-body-lg-size); line-height: 1.6; }
-.sl-markdown-content :is(h2, h3, h4) { font-family: var(--display); font-weight: var(--weight-semibold); line-height: var(--line-heading); color: var(--text); text-wrap: balance; scroll-margin-top: calc(var(--sl-nav-height) + var(--space-6)); }
-.sl-markdown-content h2 { font-size: var(--type-title-2-size); letter-spacing: var(--tracking-display); margin-top: 2em; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.sl-markdown-content :is(h2, h3, h4):not(:where(.not-content *)) { font-family: var(--display); font-weight: var(--weight-semibold); line-height: var(--line-heading); color: var(--text); text-wrap: balance; scroll-margin-top: calc(var(--sl-nav-height) + var(--space-6)); }
+.sl-markdown-content h2:not(:where(.not-content *, .home-h2)) { font-size: var(--type-title-2-size); letter-spacing: var(--tracking-display); margin-top: 2em; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
 .sl-markdown-content h3 { font-size: var(--type-title-3-size); letter-spacing: -0.01em; margin-top: 1.75em; }
 .sl-markdown-content h4 { font-size: var(--type-body-lg-size); }
 .sl-markdown-content :is(p, li) { color: var(--lede); }
 .sl-markdown-content strong { color: var(--text); font-weight: var(--weight-semibold); }
 
-.sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)) {
+.sl-markdown-content a:not(:where(.not-content *, .card, .sl-link-button, .sl-link-card, .anchor-link)) {
   color: var(--accent-text); font-weight: var(--weight-medium);
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
   transition: text-decoration-color var(--dur-1) var(--ease);
 }
-.sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)):hover { text-decoration-color: currentColor; }
+.sl-markdown-content a:not(:where(.not-content *, .card, .sl-link-button, .sl-link-card, .anchor-link)):hover { text-decoration-color: currentColor; }
 
 .sl-markdown-content code {
   font-family: var(--mono); font-size: .875em; padding: .12em .4em;
@@ -200,28 +189,35 @@ h1#_top {
 .sl-markdown-content .expressive-code pre { border: 0 !important; }
 
 /* Tables: dense, hairline rules, tabular figures, a quiet hover row. */
-.sl-markdown-content table {
+.sl-markdown-content table:not(:where(.not-content *)) {
   display: block; max-width: 100%; overflow-x: auto; border-collapse: separate; border-spacing: 0;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1);
   font-size: var(--type-body-size); font-variant-numeric: var(--font-numeric);
 }
-.sl-markdown-content :is(th, td) { padding: var(--space-2) var(--space-3); border: 0; border-bottom: 1px solid var(--border); }
-.sl-markdown-content th { font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--sans); color: var(--text-2); background: var(--surface-2); text-align: left; }
-.sl-markdown-content tr:last-child td { border-bottom: 0; }
-.sl-markdown-content tbody tr { transition: background-color var(--dur-1) var(--ease); }
-.sl-markdown-content tbody tr:hover { background: var(--surface-2); }
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) { padding: var(--space-2) var(--space-3); border: 0; border-bottom: 1px solid var(--border); }
+.sl-markdown-content th:not(:where(.not-content *)) { font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--sans); color: var(--text-2); background: var(--surface-2); text-align: left; }
+.sl-markdown-content tr:last-child td:not(:where(.not-content *)) { border-bottom: 0; }
+.sl-markdown-content tbody tr:not(:where(.not-content *)) { transition: background-color var(--dur-1) var(--ease); }
+.sl-markdown-content tbody tr:hover:not(:where(.not-content *)) { background: var(--surface-2); }
 
-/* Callouts, quotes, images, rules. */
-.starlight-aside { border-radius: var(--r-md); border: 1px solid var(--border); border-inline-start: 2px solid var(--border-strong); background: var(--surface-1); color: var(--text); }
-.starlight-aside--note { border-inline-start-color: var(--steel); }
-.starlight-aside--tip { border-inline-start-color: var(--accent); }
-.starlight-aside--caution { border-inline-start-color: var(--warn); }
-.starlight-aside--danger { border-inline-start-color: var(--danger); }
-.starlight-aside__title, .starlight-aside__icon { color: var(--text); }
-/* Tabs (OS and audience switches): 44px targets, and a gap wider than the 8px rule. */
-[role="tab"] { min-height: 44px; display: inline-flex; align-items: center; }
-[role="tablist"] { gap: 0.5rem; }
-.starlight-aside__title { font-family: var(--display); font-weight: var(--weight-semibold); }
+/* Callouts: a tinted surface and a 2 px rule in the role colour; the title
+   takes the role's text colour, the body stays on text-2 for contrast. */
+.starlight-aside { --aside: var(--steel); border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--aside) 28%, var(--border)); border-inline-start: 2px solid var(--aside); background: color-mix(in srgb, var(--aside) 7%, var(--surface-1)); color: var(--text-2); padding: var(--space-3) var(--space-4); }
+.starlight-aside--note { --aside: var(--steel); }
+.starlight-aside--tip { --aside: var(--accent); }
+.starlight-aside--caution { --aside: var(--warn); }
+.starlight-aside--danger { --aside: var(--danger); }
+.starlight-aside__title { font: var(--weight-semibold) var(--type-body-size)/1.4 var(--font-sans); color: var(--text); gap: var(--space-2); }
+.starlight-aside__icon { color: var(--aside); width: 16px; height: 16px; }
+.starlight-aside__content { font-size: var(--type-body-size); }
+.starlight-aside__content :is(p, li) { color: var(--text-2); }
+/* Tabs (OS, audience and language switches): text tabs on a hairline, the
+   selected one in text colour with a 2 px accent rule, 44 px targets. */
+starlight-tabs .tablist-wrapper ul[role="tablist"] { gap: var(--space-1); border-bottom: 1px solid var(--border); }
+starlight-tabs [role="tab"] { min-height: 44px; display: inline-flex; align-items: center; padding: 0 var(--space-3); border: 0; color: var(--text-2); font: var(--weight-medium) var(--type-body-size)/1 var(--font-sans); text-decoration: none; margin-bottom: -1px; border-bottom: 2px solid transparent; transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); }
+starlight-tabs [role="tab"]:hover { color: var(--text); }
+starlight-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--weight-semibold); }
+starlight-tabs [role="tabpanel"] { margin-top: var(--space-4); }
 .sl-markdown-content blockquote { border-inline-start: 2px solid var(--border-strong); padding: .3em 0 .3em 1.2em; color: var(--lede); font-style: normal; }
 .sl-markdown-content img { border-radius: var(--r-md); }
 .sl-markdown-content hr { border: 0; height: 1px; background: var(--border); margin-block: 2.5em; }
@@ -248,3 +244,20 @@ starlight-toc a[aria-current="true"] { color: var(--text) !important; font-weigh
 /* Solid-enough glass: no backdrop-filter on the header, because it would make
    the header the containing block of the fixed back-to-top button. */
 header.header { border-bottom: 1px solid var(--sl-color-hairline); }
+
+/* Docs reading width: prose lines stop near 72 characters (Stripe and
+   Next.js docs sit there); code, tables and kit components keep the column. */
+.sl-markdown-content > :is(p, ul, ol, blockquote, dl) { max-width: 72ch; }
+/* Heading anchors: quiet until the heading is hovered or the link focused. */
+.sl-markdown-content .sl-anchor-link { color: var(--text-3); transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+.sl-markdown-content .sl-anchor-link:hover { color: var(--accent-text); }
+/* On this page: a hairline rail, the section in view marked on it (Starlight's
+   scroll-spy sets aria-current). Sticky with the right sidebar. */
+.right-sidebar-panel h2 { font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); color: var(--text); text-transform: none; letter-spacing: 0; }
+starlight-toc ul { border-inline-start: 1px solid var(--border); }
+starlight-toc ul ul { border: 0; }
+starlight-toc a { margin-inline-start: -1px; padding-block: var(--space-1) !important; border-inline-start: 1px solid transparent; font-size: var(--type-body-sm-size); line-height: 1.45; transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); }
+starlight-toc a[aria-current="true"] { border-inline-start-color: var(--accent); }
+/* Code frames from expressive-code: the kit radius and hairline; the copy
+   button and the language tab come from the theme (src/lib/code-theme.mjs). */
+.expressive-code .frame { border-radius: var(--r-md); }

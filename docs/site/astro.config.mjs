@@ -46,8 +46,6 @@ export default defineConfig({
         // scripts/check-csp.mjs fails the build if one changes.
         hashes: [
           "sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=",
-          // Head.astro: sets data-section and data-motif before first paint. Reviewed 2026-10-18.
-          "sha256-6ZINGwbBwZAoVmAasCd7cTtRBKBuDMifxtzCpxtsf9c=",
           "sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=",
           "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
           "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
@@ -160,6 +158,10 @@ export default defineConfig({
         "./src/styles/components.css",
         "./src/styles/maya.css",
         "./src/styles/maya-living.css",
+        // Layout helpers for kit components inside pages.
+        "./src/styles/depth.css",
+        // App-like pages: sub-nav, stat grids, tables, skeletons (U3).
+        "./src/styles/app.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.
@@ -212,7 +214,8 @@ export default defineConfig({
           ],
         },
         // The whole of docs/, in the order ingest found it.
-        { label: "Reference", items: reference },
+        // Collapsed: 80+ entries open by default buried the guides (critique, U3).
+        { label: "Reference", collapsed: true, items: reference },
       ],
     }),
   ],

@@ -26,6 +26,7 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOCS = join(here, "..", "..");
@@ -311,7 +312,7 @@ for (const name of (await readdir(DOCS)).sort()) {
     frontmatter + rewriteImages(rewriteLinks(body, name), name),
     "utf8",
   );
-  generated.push({ slug, title });
+  generated.push({ slug, title, file: name });
 }
 
 if (dead.length > 0) {
@@ -336,6 +337,31 @@ await writeFile(
   "utf8",
 );
 
+// Structured data the pages cannot know themselves (audit W-13): each page's
+// last commit date for TechArticle.dateModified, and the FAQ's questions and
+// answers for FAQPage. Head.astro reads this; check-seo.mjs requires both.
+// In a shallow CI clone every date is the newest commit's: still a real date.
+const lastCommit = (file) => {
+  try { return execFileSync("git", ["log", "-1", "--format=%cI", "--", file], { encoding: "utf8" }).trim() || null; }
+  catch { return null; }
+};
+const modified = {};
+for (const name of await readdir(AUTHORED_SRC)) {
+  if (/\.mdx?$/.test(name)) modified[`/${AUTHORED_OUT}/${name.replace(/\.mdx?$/, "").toLowerCase()}/`] = lastCommit(join(AUTHORED_SRC, name));
+}
+for (const { slug, file } of generated) modified[`/${REFERENCE_OUT}/${slug}/`] = lastCommit(join(DOCS, file));
+// Hand-built pages under src/pages/ (design-system, stats, roadmap, ...).
+const PAGES = join(here, "..", "src", "pages");
+for (const rel of await readdir(PAGES, { recursive: true })) {
+  if (rel.endsWith(".astro")) modified[`/${rel.replace(/\.astro$/, "").split(sep).join("/")}/`] = lastCommit(join(PAGES, rel));
+}
+// FAQ: every "## question" in authored/faq.md, answered by the text up to the next heading, markdown stripped.
+const faqSrc = await readFile(join(AUTHORED_SRC, "faq.md"), "utf8");
+const plain = (md) => md.replace(/```[\s\S]*?```/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[*_`>#]/g, "").replace(/\s+/g, " ").trim();
+const faq = [...faqSrc.matchAll(/^## (.+)\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)].map(([, q, a]) => ({ q: q.trim(), a: plain(a) })).filter((x) => x.a);
+if (!faq.length) throw new Error("ingest: authored/faq.md has no '## question' sections for FAQPage");
+await writeFile(join(here, "..", "src", "seo.generated.json"), JSON.stringify({ modified, faq }, null, 2) + "\n", "utf8");
+
 console.log(
-  `ingest: ${generated.length} from docs/, ${authored} authored from authored/`,
+  `ingest: ${generated.length} from docs/, ${authored} authored from authored/, ${faq.length} FAQ entries`,
 );

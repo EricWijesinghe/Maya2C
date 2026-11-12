@@ -1,0 +1,90 @@
+---
+// The homepage proof row: four figures, each with where it comes from. Two
+// are the network as its public services report it (read in the visitor's
+// browser; while the testnet is paused, the last reading from the stop report,
+// dated), two are the repository as this build counted it. Nothing is
+// estimated and nothing is simulated (Standing Orders 1-2).
+import SourceTip from "./SourceTip.astro";
+import health from "../../public/health.json";
+import progress from "../../public/progress.json";
+import { testnet } from "../data/network-state";
+
+const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality ?? null;
+const s = health.ledger.by_status as Record<string, number>;
+const paused = testnet.paused;
+const stats = [
+  {
+    id: "height", label: paused ? "Last block" : "Block height",
+    value: paused ? testnet.last.height.toLocaleString("en-US") : null,
+    note: paused ? `${testnet.last.at}, then paused` : "maya-testnet-1, live",
+    src: paused ? "status.maya2c.dev /api/status, last reading before the stop, quoted in the stop report" : "Explorer /api/stats",
+    href: paused ? testnet.report : undefined,
+  },
+  {
+    id: "uptime", label: paused ? "Uptime, last run" : "Uptime since genesis",
+    value: paused ? `${(testnet.last.uptime * 100).toFixed(2)}%` : null,
+    note: paused ? `${testnet.last.run}, ${testnet.last.halts} halts` : "status.maya2c.dev",
+    src: paused ? "status.maya2c.dev /api/status before the stop, in the stop report" : "status.maya2c.dev /api/status",
+    href: paused ? testnet.report : undefined,
+  },
+  {
+    id: "finality", label: "Finality p50",
+    value: finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : null,
+    note: finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed",
+    src: finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed",
+    href: "/stats/#finality",
+  },
+  {
+    id: "verified", label: "Verified subsystems",
+    value: `${s.verified ?? 0} / ${health.ledger.total}`,
+    note: "each names a test CI runs",
+    src: "features.toml, status = verified, counted at build by scripts/gen-health.mjs",
+    href: "/health/",
+  },
+];
+---
+
+<section class="not-content proof" aria-label="Proof numbers" data-proof data-paused={paused ? "" : undefined}>
+  <dl>
+    {stats.map((t) => (
+      <div class="cell">
+        <dt>{t.label}</dt>
+        <dd data-live={t.value === null ? t.id : undefined}>{t.value ?? "—"}</dd>
+        <p class="note">{t.note} <SourceTip text={t.src} href={t.href} /></p>
+      </div>
+    ))}
+  </dl>
+</section>
+
+<script>
+  import { explorerStats, fmt, uptime } from "../scripts/live";
+  const root = document.querySelector<HTMLElement>("[data-proof]");
+  // Paused: every figure is already the dated last reading; nothing to fetch.
+  if (root && !root.hasAttribute("data-paused")) {
+    const set = (id: string, v: string) => { const el = root.querySelector(`[data-live="${id}"]`); if (el) el.textContent = v; };
+    const poll = async () => {
+      const [st, u] = await Promise.all([explorerStats(), uptime()]);
+      if (st) set("height", fmt(st.height));
+      if (u && typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`);
+    };
+    poll();
+    setInterval(() => { if (!document.hidden) poll(); }, 15000);
+  }
+</script>
+
+<style>
+  .proof { margin: var(--space-12) 0 0; }
+  dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); overflow: visible; }
+  .cell { display: grid; gap: var(--space-1); align-content: start; padding: var(--space-5); min-width: 0; }
+  .cell + .cell { border-inline-start: 1px solid var(--border); }
+  dt { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
+  dd { margin: 0; text-align: start; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
+  .note { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  @media (max-width: 760px) {
+    dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cell:nth-child(3) { border-inline-start: 0; }
+    .cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
+    .cell { padding: var(--space-4); }
+    dd { font-size: var(--type-title-3-size); }
+  }
+</style>

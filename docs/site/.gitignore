@@ -5,6 +5,7 @@ src/content/docs/**/*.md
 src/content/docs/index.mdx
 src/content/docs/guides/*.mdx
 src/sidebar.generated.json
+src/seo.generated.json
 
 node_modules/
 dist/

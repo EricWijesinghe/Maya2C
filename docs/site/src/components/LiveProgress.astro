@@ -6,6 +6,10 @@
 import p from "../../public/progress.json";
 import h from "../../public/health.json";
 import { mainnetGates } from "../data/mainnet-gates";
+// The CI pass-rate bar is developer transparency: /stats/ passes `ci`, the
+// homepage does not (U3: build and deploy status is not a visitor's concern).
+interface Props { ci?: boolean }
+const { ci: showCi = false } = Astro.props;
 const ledgerTotal = h.ledger.total;
 const ledgerVerified = h.ledger.by_status.verified;
 const bars = [
@@ -14,13 +18,13 @@ const bars = [
   { key: "backlog", label: "Backlog items finished", done: p.backlog.done, of: p.backlog.items, src: "BACKLOG.md" },
 ];
 const ci = (p as { ci_pass_rate?: { passed: number; of: number } }).ci_pass_rate;
-if (ci) bars.splice(1, 0, { key: "ci", label: "Master CI runs passing", done: ci.passed, of: ci.of, src: "newest finished master CI runs" });
+if (ci && showCi) bars.splice(1, 0, { key: "ci", label: "Master CI runs passing", done: ci.passed, of: ci.of, src: "newest finished master CI runs" });
 const pct = (d: number, o: number) => (o ? Math.round((d / o) * 100) : 0);
 const met = mainnetGates.filter((g) => g.state === "met").length;
 ---
 
 <section class="not-content lp" data-lp aria-label="Live project progress">
-  <p class="lp-live"><i class="pulse" aria-hidden="true"></i> Live · counted <span data-gen>{new Date(p.generated).toISOString().slice(0, 16).replace("T", " ")} UTC</span></p>
+  <p class="lp-live"><i class="pulse" aria-hidden="true"></i> Counted at build, <span data-gen>{new Date(p.generated).toISOString().slice(0, 16).replace("T", " ")} UTC</span></p>
 
   <div class="gates">
     <div class="gates-head">
@@ -105,46 +109,36 @@ const met = mainnetGates.filter((g) => g.state === "met").length;
 </script>
 
 <style>
-  .lp { margin: 1.5rem auto 2rem; max-width: 46rem; display: grid; gap: 1.25rem; }
-  .lp-live { margin: 0; font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.45rem; }
-  .pulse { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--verified); box-shadow: 0 0 0 0 rgba(69, 224, 160, 0.6); animation: ping 2s infinite; }
-  .gates, .bars li { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 1rem; padding: 1rem 1.1rem; }
+  /* U3 (2026-11-13, design critique): on the kit. Flat surfaces, hairlines,
+     no sweeps, pings or gradients; left-aligned with the page. */
+  .lp { margin: var(--space-6) 0 0; display: grid; gap: var(--space-4); }
+  .lp-live { margin: 0; display: flex; align-items: center; gap: var(--space-2); font: var(--type-body-sm-size)/1.4 var(--font-mono); color: var(--text-2); }
+  .pulse { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-3); }
+  .gates, .bars li { padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); }
   .gates-head { display: flex; justify-content: space-between; align-items: baseline; }
-  .gates h3 { margin: 0; font-size: 1.05rem; }
-  .big { margin: 0; font-size: 2.2rem; font-weight: 800; color: var(--cherenkov-hi); font-variant-numeric: tabular-nums; }
-  .big small { font-size: 1rem; color: var(--muted); margin-left: 0.2rem; }
-  .cells { list-style: none; padding: 0; margin: 0.75rem 0 0; display: grid; grid-template-columns: repeat(10, 1fr); gap: 0.35rem; }
+  .gates h3 { margin: 0; font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  .big { margin: 0; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); color: var(--text); font-variant-numeric: tabular-nums; }
+  .big small { margin-left: var(--space-1); font-size: var(--type-body-size); color: var(--text-2); }
+  .cells { list-style: none; padding: 0; margin: var(--space-3) 0 0; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: var(--space-1); }
   .cells li { margin: 0; }
-  .cell { width: 100%; aspect-ratio: 1 / 1.4; min-height: 44px; border-radius: 0.5rem; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.04); color: var(--text); font: inherit; font-weight: 700; font-size: 0.8rem; cursor: pointer; position: relative; overflow: hidden;
-    transition: opacity 0.4s calc(var(--i) * 70ms), transform 0.4s calc(var(--i) * 70ms), box-shadow 0.2s; }
-  /* Hidden only once the script has armed the section, so no-JS shows the final state. */
-  .armed .cell { opacity: 0; transform: translateY(8px); }
-  .armed.go .cell { opacity: 1; transform: none; }
-  .cell.met { background: linear-gradient(180deg, #45e0a0, #1fb5c2); color: #02161a; border-color: transparent; }
-  .cell.running { background: linear-gradient(180deg, rgba(230, 178, 96, 0.35), rgba(230, 178, 96, 0.1)); border-color: var(--signal); }
-  .cell.running::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35), transparent 70%); animation: sweep 2.2s infinite; }
-  .cell.sel, .cell:focus-visible { box-shadow: 0 0 0 2px var(--cherenkov-hi); }
-  .gate-detail { margin: 0.75rem 0 0; font-size: 0.9rem; color: var(--lede); min-height: 2.6em; }
-  .legend { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--muted); display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-  .sw { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 0.2rem; margin-right: -0.4rem; }
-  .sw.met { background: #45e0a0; } .sw.running { background: var(--signal); } .sw.waiting { background: rgba(255, 255, 255, 0.12); }
+  .cell { width: 100%; height: 44px; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-2); font: var(--weight-semibold) var(--type-body-sm-size)/1 var(--font-mono); cursor: pointer; transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease); }
+  .cell.met { background: color-mix(in srgb, var(--success) 18%, var(--surface-2)); border-color: color-mix(in srgb, var(--success) 50%, transparent); color: var(--text); }
+  .cell.running { background: color-mix(in srgb, var(--warn) 14%, var(--surface-2)); border-color: color-mix(in srgb, var(--warn) 50%, transparent); color: var(--text); }
+  .cell.sel, .cell:focus-visible { box-shadow: 0 0 0 2px var(--accent); outline: none; }
+  .gate-detail { margin: var(--space-3) 0 0; min-height: 2.6em; font-size: var(--type-body-sm-size); color: var(--text-2); }
+  .legend { margin: var(--space-1) 0 0; display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; font-size: var(--type-body-sm-size); color: var(--text-2); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: var(--r-xs); margin-right: calc(var(--space-1) * -1); }
+  .sw.met { background: var(--success); } .sw.running { background: var(--warn); } .sw.waiting { background: var(--surface-3); }
 
-  .bars { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; }
+  .bars { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--space-3); }
   .bars li { margin: 0; }
-  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
-  .lbl { font-weight: 600; }
-  .val b { font-size: 1.5rem; color: var(--cherenkov-hi); font-variant-numeric: tabular-nums; }
-  .val small, .src { color: var(--muted); font-size: 0.75rem; }
-  .track { margin: 0.5rem 0 0.3rem; height: 0.85rem; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
-  .fill { height: 100%; width: var(--p); border-radius: inherit; background: linear-gradient(90deg, #0e8f9c, #1fb5c2, #7eeaf0); position: relative; transition: width 1.4s cubic-bezier(.22,1,.36,1); }
-  .fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.45), transparent 65%); animation: sweep 2.6s infinite; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+  .lbl { font-weight: var(--weight-medium); font-size: var(--type-body-size); color: var(--text); }
+  .val b { font: var(--weight-semibold) var(--type-title-3-size)/1.2 var(--font-sans); color: var(--text); font-variant-numeric: tabular-nums; }
+  .val small, .src { color: var(--text-2); font-size: var(--type-body-sm-size); }
+  .track { margin: var(--space-2) 0 var(--space-1); height: 4px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+  .fill { height: 100%; width: var(--p); border-radius: inherit; background: var(--accent); transition: width var(--dur-3) var(--ease); }
   .armed .fill { width: 0; }
   .armed.go .fill { width: var(--p); }
-  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-  @keyframes ping { 70% { box-shadow: 0 0 0 0.5rem rgba(69, 224, 160, 0); } 100% { box-shadow: 0 0 0 0 rgba(69, 224, 160, 0); } }
-  @media (max-width: 520px) { .cells { grid-template-columns: repeat(5, 1fr); } }
-  @media (prefers-reduced-motion: reduce) {
-    .cell, .fill { transition: none; } .armed .cell { opacity: 1; transform: none; } .armed .fill { width: var(--p); }
-    .fill::after, .cell.running::after, .pulse { animation: none; }
-  }
+  @media (max-width: 520px) { .cells { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 </style>

@@ -9,89 +9,74 @@ head:
     content: "Maya2C: Post-Quantum Layer-1 Blockchain, DAG-BFT Finality"
 ---
 
-import StackDiagram from "../../components/StackDiagram.astro";
-import EcosystemExplorer from "../../components/EcosystemExplorer.astro";
-import LiveProgress from "../../components/LiveProgress.astro";
-import QuestTrail from "../../components/QuestTrail.astro";
-import Hero3D from "../../components/Hero3D.astro";
-import OrbRow from "../../components/OrbRow.astro";
-import MainnetDial from "../../components/MainnetDial.astro";
-import ProgressPulse from "../../components/ProgressPulse.astro";
-import QuantumFacts from "../../components/QuantumFacts.astro";
-import HealthConstellation from "../../components/HealthConstellation.astro";
-import StatBand from "../../components/StatBand.astro";
-import TxJourney from "../../components/TxJourney.astro";
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+import Hero from "../../components/Hero.astro";
+import LiveStats from "../../components/LiveStats.astro";
+import FeatureGrid from "../../components/FeatureGrid.astro";
+import TrustStrip from "../../components/TrustStrip.astro";
+import FearsFaq from "../../components/FearsFaq.astro";
 
 {/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
 
-<Hero3D />
+{/* U3 (2026-11-13): hero, proof row, feature grid, code, trust, FAQ. The
+    3D scenes, mining calculators and roadmap widgets that were here moved
+    out: their numbers are on /stats/ and /health/, the roadmap on /ecosystem/roadmap/. */}
 
-<StatBand />
+<Hero />
 
-<p class="maya-eyebrow" id="journey">Your journey</p>
-<h2 class="maya-section-title">Explore, learn, earn your badge</h2>
+<LiveStats />
 
-<QuestTrail />
+<FeatureGrid />
 
-<p class="maya-eyebrow">In plain words</p>
-<h2 class="maya-section-title" id="tx-journey">From two signatures to a final block</h2>
+<section class="home-code" aria-labelledby="code-title">
+<h2 id="code-title" class="home-h2">Read the chain in a few lines</h2>
+<p class="home-lede">The snippets are copied from each SDK's own README or doc comment. Signing happens client-side; the gateway holds no keys. <a href="/guides/api/">API reference</a></p>
 
-<p>A shared notebook everyone copies: a payment is written only when both of its
-signatures check out, and a sealed page never changes. Step through it.</p>
+<Tabs>
+<TabItem label="Rust">
 
-<TxJourney />
+```rust title="sdks/rust/src/lib.rs"
+let client = maya2c_sdk::Client::new("https://api.example.invalid")?;
+let balance = client.balance("maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f")?;
+println!("{} units, next nonce {}", balance.balance, balance.nonce);
+```
 
-<p class="maya-eyebrow">Why it is built this way</p>
-<h2 class="maya-section-title">Security you can check</h2>
+</TabItem>
+<TabItem label="TypeScript">
 
-<OrbRow items={[
-  { title: "Two signatures", line: "ML-DSA-65 and SLH-DSA on every transaction", href: "/guides/signatures/" },
-  { title: "Final in seconds", line: "DAG-BFT: a block never reorganises", href: "/reference/blockgraph/" },
-  { title: "Post-quantum links", line: "ML-KEM-768 on every peer connection", href: "/reference/hybrid-signatures/" },
-  { title: "Proven claims", line: "A claim without a test fails CI", href: "/reference/invariants/" },
-]} />
+```ts title="sdks/sdk-js/README.md"
+import { MayaClient } from "maya2c.js";
 
-<QuantumFacts />
+const client = new MayaClient({ baseUrl: "https://gateway.example.com" });
 
-<p class="maya-eyebrow">Architecture</p>
-<h2 class="maya-section-title">Post-quantum at every layer</h2>
+const balance = await client.getBalance("a71cf0…");
+const supply  = await client.getSupply();
+const block   = await client.getBlock(4200);
+```
 
-<StackDiagram />
+</TabItem>
+<TabItem label="Python">
 
-<p class="maya-eyebrow">Ecosystem</p>
-<h2 class="maya-section-title" id="ecosystem">Many apps, one identity</h2>
+```python title="sdks/python/README.md"
+from maya2c_sdk import Client, Wallet
 
-<p>Every app talks to the same chain. Tap one to see what it does, whether it exists today, and what you can do with it now.</p>
+client = Client("http://127.0.0.1:8545")
+wallet = Wallet("l1-wallet", "wallet.key", password, client)
+txid = wallet.transfer(recipient, 1_000)
+```
 
-<EcosystemExplorer />
+</TabItem>
+</Tabs>
+</section>
 
-<p class="maya-eyebrow">Try it</p>
-<h2 class="maya-section-title">Use it, build on it, break it</h2>
+<TrustStrip />
 
-<OrbRow items={[
-  { title: "Experience", line: "Back with the next genesis", href: "/experience/" },
-  { title: "Test coins", line: "Back with the next genesis", href: "/guides/testnet/" },
-  { title: "Uptime", line: "Every halt, on the record", href: "/health/" },
-  { title: "Wallet, chat, miner", line: "Windows, macOS, Linux", href: "https://github.com/EricWijesinghe/Maya2C/releases" },
-  { title: "Mine", line: "GPU mining from mainnet launch", href: "/guides/mining/" },
-  { title: "Build on it", line: "SDKs and a public API", href: "/guides/api/" },
-  { title: "Break it", line: "Attack it, earn credit", href: "/guides/break-it/" },
-]} />
+<section class="home-faq" aria-labelledby="faq-title">
+<h2 id="faq-title" class="home-h2">Before you start</h2>
 
-<HealthConstellation />
+<FearsFaq />
 
-<p class="maya-eyebrow">Mainnet gates</p>
-<h2 class="maya-section-title">Ten checks before mainnet</h2>
+<p class="home-lede">More answers: <a href="/guides/faq/">FAQ</a>. Uptime and every halt: <a href="/health/">status</a>. Build and CI: <a href="/stats/#developers">developer transparency</a>.</p>
+</section>
 
-<MainnetDial />
-
-<p class="maya-eyebrow">Progress</p>
-<h2 class="maya-section-title" id="progress">Live from the repository</h2>
-
-<LiveProgress />
-
-<ProgressPulse />
-
-<p class="maya-footnote">No token is for sale, and nothing here is an offer of one.</p>
-
-<p class="maya-footnote">Every download is built from this source by CI and carries verifiable provenance: <a href="/guides/code-signing-policy/">Code signing policy</a>.</p>
+<p class="maya-footnote">No token is for sale, and nothing here is an offer of one. Every download is built from this source by CI and carries verifiable provenance: <a href="/guides/code-signing-policy/">code signing policy</a>.</p>

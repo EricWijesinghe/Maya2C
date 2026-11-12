@@ -1,5 +1,5 @@
 ---
-// What the sender of a Maya Chat message sees, from the outbox (ADR-074).
+// What the sender of a Maya2C Chat message sees, from the outbox (ADR-074).
 // Each stage is a state the app really shows; nothing is simulated.
 const stages = [
   { name: "Sending", line: "held in your outbox", tone: "wait" },
@@ -8,7 +8,7 @@ const stages = [
 ];
 ---
 
-<figure class="delivery" aria-label="Delivery states of a sent Maya Chat message">
+<figure class="delivery" aria-label="Delivery states of a sent Maya2C Chat message">
   <ol class="track">
     {stages.map((s, i) => (
       <li class={`stage tone-${s.tone}`}>

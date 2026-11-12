@@ -1,0 +1,13 @@
+/* Small layout helpers shared by kit components inside pages. The U3 card
+   tilt and the scroll-in depth animation were removed on 2026-11-13: both
+   read as toy motion next to the developer-tool look (ADR-136). */
+
+/* Two live widgets side by side on the homepage, stacked on phones. */
+.maya-duo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-5); align-items: center; margin: var(--space-5) 0; }
+
+/* Kit components inside a docs page: the prose link rule (maya-living.css,
+   `.sl-markdown-content a`) paints an underline gradient and the link colour
+   on every <a>, which turns a button or a card link into prose. */
+.sl-markdown-content :is(.ui-btn, .ui-card, .ui-pill, .src-tip__mark) { background-image: none; }
+.sl-markdown-content .ui-btn--primary { background-color: var(--accent); color: var(--on-accent); }
+.sl-markdown-content a.ui-card { color: var(--text-2); font-weight: inherit; }

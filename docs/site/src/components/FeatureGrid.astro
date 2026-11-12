@@ -1,0 +1,66 @@
+---
+// Six things the chain does, one line each, each linking to where it is
+// explained. The finality figure is the newest committed bench, labelled as a
+// single-machine run (public/progress.json, scripts/gen-progress.mjs).
+import progress from "../../public/progress.json";
+
+const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality ?? null;
+const repo = "https://github.com/EricWijesinghe/Maya2C";
+// 24 px stroke icons, drawn for this grid.
+const icon = {
+  sig: "M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5zM12 15v2",
+  kem: "M4 12h4m8 0h4M8 8l4 4-4 4m8-8-4 4 4 4",
+  dag: "M6 5a1.5 1.5 0 1 0 0 .01M18 5a1.5 1.5 0 1 0 0 .01M12 19a1.5 1.5 0 1 0 0 .01M6 6.5l5 11M18 6.5l-5 11M7.5 5h9",
+  num: "M5 9h14M5 15h14M10 4 8 20M16 4l-2 16",
+  rust: "M8 6 2 12l6 6m8-12 6 6-6 6M14 4l-4 16",
+  agent: "M12 3v3m-6 3h12v10H6zM9 13h.01M15 13h.01M9 16h6M3 13v2m18-2v2",
+};
+const features = [
+  { icon: icon.sig, title: "Hybrid PQ signatures", line: "ML-DSA-65 and SLH-DSA on every transaction; both must verify.", href: "/guides/signatures/" },
+  { icon: icon.kem, title: "ML-KEM-1024 transport", line: "Every peer link is post-quantum encrypted, ML-KEM-768 as fallback.", href: "/reference/pq-transport/" },
+  {
+    icon: icon.dag, title: "DAG-BFT finality",
+    line: finality
+      ? `Final, never reorganised. p50 ${(finality.p50_ms / 1000).toFixed(2)} s in a ${finality.validators}-validator single-machine bench.`
+      : "Final, never reorganised. No finality bench committed yet.",
+    href: "/guides/consensus/",
+  },
+  { icon: icon.num, title: "256-bit amounts", line: "Balances and supply are u256 with checked arithmetic, 24 decimals.", href: `${repo}/blob/master/docs/adr/ADR-046-universe-scale-supply.md` },
+  { icon: icon.rust, title: "Rust, open source", line: "Apache-2.0. A feature claimed working must name a test CI runs.", href: repo },
+  { icon: icon.agent, title: "SDKs and MCP for agents", line: "Rust, TypeScript and Python SDKs, and an MCP server for AI agents.", href: "/reference/mcp-server/" },
+];
+---
+
+<section class="not-content fg" aria-labelledby="fg-title">
+  <h2 id="fg-title" class="home-h2">What it is built on</h2>
+  <ul>
+    {features.map((f) => (
+      <li>
+        <a href={f.href}>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={f.icon} /></svg>
+          <span class="t">{f.title}</span>
+          <span class="l">{f.line}</span>
+          <span class="more" aria-hidden="true">Learn more →</span>
+        </a>
+      </li>
+    ))}
+  </ul>
+</section>
+
+<style>
+  ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; background: var(--border); }
+  li { margin: 0; display: flex; }
+  a { flex: 1; display: grid; align-content: start; gap: var(--space-2); padding: var(--space-6); background: var(--surface-1); color: inherit; text-decoration: none; transition: background-color var(--dur-2) var(--ease); }
+  a:hover { background: var(--surface-2); }
+  svg { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: var(--space-2); }
+  .t { font: var(--weight-semibold) var(--type-body-lg-size)/1.3 var(--font-sans); color: var(--text); }
+  .l { font-size: var(--type-body-size); line-height: 1.5; color: var(--text-2); }
+  /* Out of flow where it only shows on hover, so it leaves no blank band. */
+  a { position: relative; }
+  @media (hover: hover) { .more { position: absolute; left: var(--space-6); bottom: var(--space-4); } a { padding-bottom: var(--space-10); } }
+  .more { margin-top: var(--space-2); font-size: var(--type-body-sm-size); font-weight: var(--weight-medium); color: var(--accent-text); opacity: 0; transition: opacity var(--dur-2) var(--ease); }
+  a:hover .more, a:focus-visible .more { opacity: 1; }
+  @media (hover: none) { .more { opacity: 1; } }
+  @media (max-width: 900px) { ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { ul { grid-template-columns: minmax(0, 1fr); } a { padding: var(--space-5); } }
+</style>

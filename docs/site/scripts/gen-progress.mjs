@@ -47,6 +47,10 @@ const finality = (() => {
     return { report: `reports/bench/${f.replace(/\.json$/, ".md")}`, commit: b.commit, validators: b.validators, finalized: b.finalized, attempted: b.attempted, p50_ms: Math.round(b.latency_ms.p50), p90_ms: Math.round(b.latency_ms.p90), p99_ms: Math.round(b.latency_ms.p99), machine: b.machine, stamp: b.stamp };
   } catch (e) { console.warn("finality: report unreadable:", e.message); return null; }
 })();
+// The proof ratchet baseline (ADR-078 O3): `key = count` lines that CI never lets fall.
+const proofs = Object.fromEntries(
+  [...read("proof-ratchet.txt").matchAll(/^([a-z_]+)\s*=\s*(\d+)\s*$/gm)].map((m) => [m[1], Number(m[2])]),
+);
 const run = ci?.workflow_runs?.[0];
 const progress = {
   generated: new Date().toISOString(),
@@ -65,6 +69,7 @@ const progress = {
   commits_last_30_days: Array.isArray(commits) ? commits.length : null,
   median_hours_to_merge: mergeHours.length ? Math.round(median(mergeHours) * 10) / 10 : null,
   finality,
+  proofs: Object.keys(proofs).length ? proofs : null,
   latest_release: release?.[0] ? { tag: release[0].tag_name, at: release[0].published_at } : null,
 };
 writeFileSync(new URL("../public/progress.json", import.meta.url), JSON.stringify(progress) + "\n");

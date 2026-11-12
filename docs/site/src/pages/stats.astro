@@ -4,207 +4,246 @@
 // figure is read or computed from a source on this page; one that cannot be
 // read shows a dash and says why, never a guess (Standing Order 1).
 // Chain figures: client-side, from explorer.maya2c.dev and rpc.maya2c.dev
-// (both already in the CSP connect-src). Project figures: public/progress.json,
-// written at build time by scripts/gen-progress.mjs.
+// (both already in the CSP connect-src), and only while the testnet runs: while
+// it is paused (data/network-state.ts) nothing is fetched and the page says so.
+// Project figures: public/progress.json, written at build time by
+// scripts/gen-progress.mjs, rendered here so they need no script.
+//
+// U3 (2026-11-13): an app-like page. A slim sub-nav, dense hairline grids,
+// tables for the project rows, skeletons while the first reading loads.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import SupplyRing from "../components/SupplyRing.astro";
+import BlockStream from "../components/BlockStream.astro";
+import LiveProgress from "../components/LiveProgress.astro";
+import SourceTip from "../components/SourceTip.astro";
+import progress from "../../public/progress.json";
+import { testnet } from "../data/network-state";
+
+type P = typeof progress & {
+  proofs?: Record<string, number> | null;
+  finality?: { report: string; commit: string; validators: number; finalized: number; attempted: number; p50_ms: number; p90_ms: number; p99_ms: number; machine: string } | null;
+  ci_pass_rate?: { passed: number; of: number } | null;
+};
+const p = progress as P;
+const repo = "https://github.com/EricWijesinghe/Maya2C";
+const fmt = (n: number) => n.toLocaleString("en-US");
+const when = (iso?: string) => (iso ? new Date(iso).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "—");
+const paused = testnet.paused;
+const chain = [
+  ["height", "Height"], ["bt50", "Block time p50"], ["bt90", "Block time p90"], ["tps", "Throughput"],
+  ["txb", "Tx per block"], ["hash", "Hashrate"], ["committee", "Committee"], ["rpm", "Rounds / min"],
+  ["txall", "Transactions indexed"], ["peers", "Peers online"], ["uptime", "Uptime since genesis"],
+] as const;
+// While paused, the last reading from the stop report fills the two tiles it covers.
+const pausedValue: Record<string, string> = { height: fmt(testnet.last.height), uptime: `${(testnet.last.uptime * 100).toFixed(2)}%` };
+const proofRows = [
+  ["Kani harnesses", "kani_harnesses"], ["Fuzz targets", "fuzz_targets"], ["Conformance vectors", "conformance_vectors"],
+  ["Exploit replays", "exploit_replays"], ["ACVP vector files", "acvp_vector_files"],
+] as const;
+const f = p.finality ?? null;
+const dev = [
+  ["Master CI pass rate", p.ci_pass_rate ? `${Math.round((p.ci_pass_rate.passed / p.ci_pass_rate.of) * 100)}% (${p.ci_pass_rate.passed}/${p.ci_pass_rate.of})` : "—", "Newest 50 finished master runs, cancelled ones left out"],
+  ["Newest master CI", p.master_ci ? `${p.master_ci.conclusion}, ${when(p.master_ci.at)}` : "—", "GitHub Actions, newest finished run on master"],
+  ["Commits, 30 days", p.commits_last_30_days == null ? "—" : p.commits_last_30_days >= 100 ? "100+" : String(p.commits_last_30_days), "GitHub API, first page of commits"],
+  ["PRs merged, 7 days", p.merged_last_7_days == null ? "—" : fmt(p.merged_last_7_days), "GitHub API"],
+  ["Median time to merge", p.median_hours_to_merge == null ? "—" : `${p.median_hours_to_merge} h`, "GitHub API, PRs merged in the last 7 days"],
+  ["Open PRs", p.open_prs == null ? "—" : String(p.open_prs), "GitHub API"],
+  ["Latest release", p.latest_release?.tag ?? "—", p.latest_release ? `Published ${when(p.latest_release.at)}` : "No release"],
+] as const;
+const nav = [["chain", "Chain"], ["supply", "Supply"], ["proofs", "Proofs"], ["finality", "Finality"], ["developers", "Developers"]];
 ---
 
-<StarlightPage frontmatter={{ title: "Live statistics", description: "Block times, throughput, hashrate, consensus rounds and development activity for Maya2C, measured live from public endpoints.", template: "splash" }}>
-  <section class="st" aria-label="Live statistics">
-    <p class="st-state"><span id="dot" class="dot"></span><span id="state">connecting…</span> · tip <span id="age">—</span> ago</p>
+<StarlightPage frontmatter={{ title: "Live statistics", description: "Block height, block times, throughput, hashrate, supply, proofs, consensus rounds and development activity for Maya2C, measured live from public endpoints.", template: "splash" }}>
+  <div class="not-content app" data-stats data-paused={paused ? "" : undefined}>
+    <nav class="app-subnav" aria-label="Sections">
+      {nav.map(([id, label]) => <a href={`#${id}`}>{label}</a>)}
+      <p class="app-status"><span class={`app-dot${paused ? " warn" : ""}`} data-dot></span><span data-state>{paused ? `Testnet paused since ${testnet.since}` : "connecting…"}</span>{!paused && <span> · tip <span data-age>—</span> ago</span>}</p>
+    </nav>
 
-    <h2>Chain, live</h2>
-    <dl class="tiles">
-      <div><dt>Height</dt><dd id="height">—</dd></div>
-      <div><dt>Block time p50</dt><dd id="bt50">—</dd></div>
-      <div><dt>Block time p90</dt><dd id="bt90">—</dd></div>
-      <div><dt>Throughput</dt><dd id="tps">—</dd></div>
-      <div><dt>Tx per block</dt><dd id="txb">—</dd></div>
-      <div><dt>Hashrate</dt><dd id="hash">—</dd></div>
-      <div><dt>Committee</dt><dd id="committee">—</dd></div>
-      <div><dt>Rounds / min</dt><dd id="rpm">—</dd></div>
-      <div><dt>Transactions indexed</dt><dd id="txall">—</dd></div>
-    </dl>
-    <figure class="chart">
-      <figcaption>Seconds between blocks, newest on the right (<span id="nblocks">0</span> blocks)</figcaption>
-      <svg id="btChart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Block interval per block"></svg>
-    </figure>
-    <figure class="chart">
-      <figcaption>Hashrate over the explorer's window</figcaption>
-      <svg id="hashChart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Hashrate over time"></svg>
-    </figure>
-    <p class="note">Block times come from block header timestamps, not your clock. Throughput is transactions in the window divided by the window's span. Rounds per minute is two <code>get_bft_status</code> samples apart. When the testnet is paused these show dashes.</p>
+    <section class="app-section" id="chain" aria-labelledby="h-chain">
+      <h2 id="h-chain">Chain</h2>
+      {paused && (
+        <p class="ui-state app-banner"><span class="ui-state__title">Paused on purpose</span>The public testnet stopped on {testnet.since} after {testnet.last.run} with {testnet.last.halts} halts. Live figures return with the next genesis; until then the tiles show the last reading or a dash. <a href={testnet.report}>Stop report</a></p>
+      )}
+      <dl class="app-grid">
+        {chain.map(([id, label]) => (
+          <div><dt>{label}</dt><dd data-k={id}>{paused ? (pausedValue[id] ?? "—") : <span class="ui-skeleton app-skel" aria-label="loading"></span>}</dd></div>
+        ))}
+      </dl>
+      <BlockStream />
+      {paused ? <p class="app-note">No blocks since {testnet.since}, so the block-interval and hashrate charts are empty until the next genesis.</p> : (
+      <div class="app-charts">
+        <figure class="app-chart">
+          <figcaption>Seconds between blocks, newest on the right (<span data-n>0</span> blocks)</figcaption>
+          <svg data-chart="bt" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Block interval per block"></svg>
+        </figure>
+        <figure class="app-chart">
+          <figcaption>Hashrate over the explorer's window</figcaption>
+          <svg data-chart="hash" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Hashrate over time"></svg>
+        </figure>
+      </div>
+      )}
+      <p class="app-note">Block times come from block header timestamps, not your clock. Throughput is transactions in the window divided by the window's span. Rounds per minute is two <code>get_bft_status</code> samples apart.</p>
+    </section>
 
-    <h2>Finality, measured</h2>
-    <dl class="tiles" id="fin">
-      <div><dt>p50</dt><dd id="f50">—</dd></div>
-      <div><dt>p90</dt><dd id="f90">—</dd></div>
-      <div><dt>p99</dt><dd id="f99">—</dd></div>
-      <div><dt>Finalized</dt><dd id="fok">—</dd></div>
-    </dl>
-    <p class="note" id="finNote">No finality bench report is committed yet.</p>
+    <section class="app-section" id="supply" aria-labelledby="h-supply">
+      <h2 id="h-supply">Supply</h2>
+      <div class="ui-card"><SupplyRing /></div>
+    </section>
 
-    <h2>Development, live</h2>
-    <dl class="tiles">
-      <div><dt>Master CI pass rate</dt><dd id="ci">—</dd></div>
-      <div><dt>Commits, 30 days</dt><dd id="commits">—</dd></div>
-      <div><dt>PRs merged, 7 days</dt><dd id="merged">—</dd></div>
-      <div><dt>Median time to merge</dt><dd id="ttm">—</dd></div>
-      <div><dt>Open PRs</dt><dd id="open">—</dd></div>
-      <div><dt>Latest release</dt><dd id="rel">—</dd></div>
-    </dl>
-    <p class="note">From the GitHub API when this site was last built (<span id="gen">—</span>); the site rebuilds every 6 hours. CI pass rate is over the newest 50 finished master runs, cancelled ones left out.</p>
-  </section>
+    <section class="app-section" id="proofs" aria-labelledby="h-proofs">
+      <h2 id="h-proofs">Proofs that never fall <SourceTip text="proof-ratchet.txt at build time; cargo xtask proof-ratchet --check fails CI if any count falls (ADR-078 O3)" href={`${repo}/blob/master/proof-ratchet.txt`} /></h2>
+      <div class="ui-table-wrap app-table">
+        <table class="ui-table">
+          <thead><tr><th scope="col">Kind</th><th scope="col" class="ui-num">Count</th></tr></thead>
+          <tbody>{proofRows.map(([label, key]) => <tr><td>{label}</td><td class="ui-num">{p.proofs?.[key] ?? "—"}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="app-section" id="finality" aria-labelledby="h-finality">
+      <h2 id="h-finality">Finality, measured</h2>
+      {f ? (
+        <>
+          <div class="ui-table-wrap app-table">
+            <table class="ui-table">
+              <thead><tr><th scope="col">Submit to finalized</th><th scope="col" class="ui-num">p50</th><th scope="col" class="ui-num">p90</th><th scope="col" class="ui-num">p99</th><th scope="col" class="ui-num">Finalized</th></tr></thead>
+              <tbody><tr><td>{f.validators} validators, one machine</td><td class="ui-num">{fmt(f.p50_ms)} ms</td><td class="ui-num">{fmt(f.p90_ms)} ms</td><td class="ui-num">{fmt(f.p99_ms)} ms</td><td class="ui-num">{f.finalized}/{f.attempted}</td></tr></tbody>
+            </table>
+          </div>
+          <p class="app-note">{f.validators} validators on {f.machine}, commit <code>{f.commit}</code>. Not a network figure. <a href={`${repo}/blob/master/${f.report}`}>Full report</a></p>
+        </>
+      ) : <p class="app-note">No finality bench report is committed yet.</p>}
+    </section>
+
+    <section class="app-section" id="developers" aria-labelledby="h-dev">
+      <h2 id="h-dev">Developer transparency</h2>
+      <p class="app-note">How the project itself is doing: CI, merges and releases. Honest, including when CI is red. From the GitHub API at build time ({when(p.generated)}); the site rebuilds every 6 hours.</p>
+      <div class="app-gap"></div>
+      <div class="ui-table-wrap app-table">
+        <table class="ui-table">
+          <thead><tr><th scope="col">Measure</th><th scope="col" class="ui-num">Value</th><th scope="col">Source</th></tr></thead>
+          <tbody>{dev.map(([k, v, src]) => <tr><td>{k}</td><td class="ui-num">{v}</td><td class="app-src">{src}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <LiveProgress ci />
+      {p.recent?.length > 0 && (
+        <>
+          <h3 class="app-h3">Recently merged</h3>
+          <div class="ui-table-wrap app-table">
+            <table class="ui-table">
+              <thead><tr><th scope="col">Pull request</th><th scope="col" class="ui-num">Merged</th></tr></thead>
+              <tbody>{p.recent.map((r) => <tr><td class="app-wrap"><a href={r.url}>{r.title}</a></td><td class="ui-num">{when(r.at).slice(0, 10)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  </div>
 
   <script>
-    const EXPLORER = "https://explorer.maya2c.dev";
-    const RPC = "https://rpc.maya2c.dev/rpc";
-    const POLL_MS = 15000;
-    const WINDOW = 120; // blocks kept for the charts
-    const $ = (id: string) => document.getElementById(id) as HTMLElement;
-    const fmt = (n: number) => n.toLocaleString("en-US");
-    type Block = { height: number; timestamp: number; tx_count: number };
-    let blocks: Block[] = [];
-    let tip = 0;
-    let lastBft: { round: number; at: number } | null = null;
+    import { EXPLORER, RPC, STATUS, fmt, hashFmt } from "../scripts/live";
+    const root = document.querySelector<HTMLElement>("[data-stats]");
+    // Paused: the hosts are down on purpose; nothing to fetch.
+    if (root && !root.hasAttribute("data-paused")) {
+      const POLL_MS = 15000;
+      const WINDOW = 120; // blocks kept for the charts
+      const set = (k: string, v: string) => { const el = root.querySelector(`[data-k="${k}"]`); if (el) el.textContent = v; };
+      type Block = { height: number; timestamp: number; tx_count: number };
+      let blocks: Block[] = [];
+      let tip = 0;
+      let lastBft: { round: number; at: number } | null = null;
 
-    const json = async (url: string, init?: RequestInit) => {
-      const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(8000), ...init });
-      if (!r.ok) throw new Error(String(r.status));
-      return r.json();
-    };
-    // Nearest-rank percentile.
-    const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.max(0, Math.ceil(s.length * p) - 1)]; };
-    const hashFmt = (h: number) => { const u = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s"]; let i = 0; while (h >= 1000 && i < u.length - 1) { h /= 1000; i++; } return `${h.toFixed(2)} ${u[i]}`; };
-
-    function bars(svg: string, ys: number[]) {
-      const el = $(svg); const max = Math.max(...ys, 1); const w = 600 / Math.max(ys.length, 1);
-      el.innerHTML = ys.map((y, i) => `<rect x="${(i * w).toFixed(1)}" y="${(118 - (y / max) * 110).toFixed(1)}" width="${Math.max(w - 1, 1).toFixed(1)}" height="${((y / max) * 110).toFixed(1)}" rx="1"><title>${y.toFixed(1)}</title></rect>`).join("");
-    }
-    function line(svg: string, ys: number[]) {
-      const el = $(svg); if (ys.length < 2) { el.innerHTML = ""; return; }
-      const max = Math.max(...ys), min = Math.min(...ys), span = max - min || 1;
-      const pts = ys.map((y, i) => `${((i / (ys.length - 1)) * 600).toFixed(1)},${(115 - ((y - min) / span) * 105).toFixed(1)}`).join(" ");
-      el.innerHTML = `<polyline points="${pts}" fill="none" vector-effect="non-scaling-stroke" />`;
-    }
-
-    function addBlocks(list: Block[]) {
-      const byHeight = new Map(blocks.map((b) => [b.height, b]));
-      for (const b of list) if (Number.isFinite(b.height) && Number.isFinite(b.timestamp)) byHeight.set(b.height, { ...b, tx_count: Number.isFinite(b.tx_count) ? b.tx_count : 0 });
-      blocks = [...byHeight.values()].sort((a, b) => a.height - b.height).slice(-WINDOW);
-      render();
-    }
-
-    function render() {
-      if (!blocks.length) return;
-      const last = blocks[blocks.length - 1];
-      tip = last.timestamp;
-      $("height").textContent = fmt(last.height);
-      const gaps = blocks.slice(1).map((b, i) => Math.max(0, b.timestamp - blocks[i].timestamp));
-      $("nblocks").textContent = String(blocks.length);
-      if (gaps.length) {
-        $("bt50").textContent = `${pct(gaps, 0.5).toFixed(1)} s`;
-        $("bt90").textContent = `${pct(gaps, 0.9).toFixed(1)} s`;
-        bars("btChart", gaps);
-      }
-      const all = blocks.reduce((s, b) => s + b.tx_count, 0);
-      // The first block's transactions belong to the interval before the window.
-      const inSpan = all - blocks[0].tx_count;
-      const span = last.timestamp - blocks[0].timestamp;
-      $("txb").textContent = (all / blocks.length).toFixed(2);
-      $("tps").textContent = span > 0 ? `${(inSpan / span).toFixed(3)} tx/s` : "—";
-    }
-
-    function state(text: string, ok: boolean) { $("state").textContent = text; $("dot").classList.toggle("on", ok); }
-
-    let polling = false;
-    async function poll() {
-      if (polling) return;
-      polling = true;
-      try {
-        const [stats, recent] = await Promise.all([json(`${EXPLORER}/api/stats`), json(`${EXPLORER}/api/blocks`)]);
-        $("txall").textContent = fmt(stats.transactions_indexed);
-        $("hash").textContent = hashFmt(stats.hashrate);
-        addBlocks(recent);
-        state("live", true);
-      } catch { state("explorer unreachable right now", false); }
-      try { const h: { hashrate: number }[] = await json(`${EXPLORER}/api/hashrate`); line("hashChart", h.map((p) => p.hashrate)); } catch { /* chart stays empty */ }
-      try {
-        const { result } = await json(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }) });
-        if (result) {
-          $("committee").textContent = fmt(result.committee);
-          const now = Date.now();
-          // A restarted node can report a lower round: skip that sample.
-          if (lastBft && now > lastBft.at && result.committed_round >= lastBft.round) $("rpm").textContent = (((result.committed_round - lastBft.round) * 60000) / (now - lastBft.at)).toFixed(1);
-          lastBft = { round: result.committed_round, at: now };
-        }
-      } catch { /* gateway without DAG-BFT: dashes stay */ }
-      polling = false;
-    }
-
-    function stream() {
-      let ws: WebSocket;
-      try { ws = new WebSocket(`${EXPLORER.replace(/^http/, "ws")}/ws/blocks`); } catch { return; }
-      ws.onmessage = (ev) => {
-        try {
-          const b = JSON.parse(ev.data);
-          // A rollback drops the abandoned blocks rather than charting them.
-          if (b.rollback) { blocks = blocks.filter((x) => x.height < b.rollback.from_height); render(); return; }
-          if (typeof b.height !== "number" || typeof b.timestamp !== "number") return;
-          addBlocks([{ height: b.height, timestamp: b.timestamp, tx_count: b.tx_count ?? 0 }]);
-          state("live", true);
-        } catch { /* malformed frame skipped */ }
+      const json = async (url: string, init?: RequestInit) => {
+        const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(8000), ...init });
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
       };
-      ws.onclose = () => setTimeout(stream, 5000);
-    }
-
-    async function project() {
-      let p;
-      try { p = await json("/progress.json"); } catch { return; }
-      $("gen").textContent = new Date(p.generated).toUTCString();
-      if (p.ci_pass_rate) $("ci").textContent = `${Math.round((p.ci_pass_rate.passed / p.ci_pass_rate.of) * 100)}% (${p.ci_pass_rate.passed}/${p.ci_pass_rate.of})`;
-      if (p.commits_last_30_days != null) $("commits").textContent = p.commits_last_30_days >= 100 ? "100+" : String(p.commits_last_30_days);
-      if (p.merged_last_7_days != null) $("merged").textContent = fmt(p.merged_last_7_days);
-      if (p.median_hours_to_merge != null) $("ttm").textContent = `${p.median_hours_to_merge} h`;
-      if (p.open_prs != null) $("open").textContent = String(p.open_prs);
-      if (p.latest_release) $("rel").textContent = p.latest_release.tag;
-      const f = p.finality;
-      if (f) {
-        $("f50").textContent = `${fmt(f.p50_ms)} ms`; $("f90").textContent = `${fmt(f.p90_ms)} ms`; $("f99").textContent = `${fmt(f.p99_ms)} ms`;
-        $("fok").textContent = `${f.finalized}/${f.attempted}`;
-        // Built from nodes, not HTML: these strings come from committed files.
-        const note = $("finNote"); note.textContent = `Submit to finalized, ${f.validators} validators on ${f.machine}, commit `;
-        const code = document.createElement("code"); code.textContent = f.commit;
-        const link = document.createElement("a"); link.href = `https://github.com/EricWijesinghe/Maya2C/blob/master/${f.report}`; link.textContent = "Full report";
-        note.append(code, ". Not a network figure. ", link, ".");
+      // Nearest-rank percentile.
+      const pct = (xs: number[], q: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.max(0, Math.ceil(s.length * q) - 1)]; };
+      const svg = (name: string) => root.querySelector(`[data-chart="${name}"]`)!;
+      function bars(name: string, ys: number[]) {
+        const max = Math.max(...ys, 1), w = 600 / Math.max(ys.length, 1);
+        svg(name).innerHTML = ys.map((y, i) => `<rect x="${(i * w).toFixed(1)}" y="${(118 - (y / max) * 110).toFixed(1)}" width="${Math.max(w - 1, 1).toFixed(1)}" height="${((y / max) * 110).toFixed(1)}"><title>${y.toFixed(1)}</title></rect>`).join("");
       }
-    }
+      function line(name: string, ys: number[]) {
+        if (ys.length < 2) { svg(name).innerHTML = ""; return; }
+        const max = Math.max(...ys), min = Math.min(...ys), span = max - min || 1;
+        const pts = ys.map((y, i) => `${((i / (ys.length - 1)) * 600).toFixed(1)},${(115 - ((y - min) / span) * 105).toFixed(1)}`).join(" ");
+        svg(name).innerHTML = `<polyline points="${pts}" fill="none" vector-effect="non-scaling-stroke" />`;
+      }
 
-    project();
-    poll();
-    stream();
-    setInterval(poll, POLL_MS);
-    setInterval(() => { if (tip) $("age").textContent = `${Math.max(0, Math.round(Date.now() / 1000 - tip))} s`; }, 1000);
+      function addBlocks(list: Block[]) {
+        const byHeight = new Map(blocks.map((b) => [b.height, b]));
+        for (const b of list) if (Number.isFinite(b.height) && Number.isFinite(b.timestamp)) byHeight.set(b.height, { ...b, tx_count: Number.isFinite(b.tx_count) ? b.tx_count : 0 });
+        blocks = [...byHeight.values()].sort((a, b) => a.height - b.height).slice(-WINDOW);
+        render();
+      }
+      function render() {
+        if (!blocks.length) return;
+        const last = blocks[blocks.length - 1];
+        tip = last.timestamp;
+        set("height", fmt(last.height));
+        const gaps = blocks.slice(1).map((b, i) => Math.max(0, b.timestamp - blocks[i].timestamp));
+        root!.querySelector("[data-n]")!.textContent = String(blocks.length);
+        if (gaps.length) { set("bt50", `${pct(gaps, 0.5).toFixed(1)} s`); set("bt90", `${pct(gaps, 0.9).toFixed(1)} s`); bars("bt", gaps); }
+        const all = blocks.reduce((s, b) => s + b.tx_count, 0);
+        // The first block's transactions belong to the interval before the window.
+        const inSpan = all - blocks[0].tx_count;
+        const span = last.timestamp - blocks[0].timestamp;
+        set("txb", (all / blocks.length).toFixed(2));
+        set("tps", span > 0 ? `${(inSpan / span).toFixed(3)} tx/s` : "—");
+      }
+      function state(text: string, ok: boolean) { root!.querySelector("[data-state]")!.textContent = text; root!.querySelector("[data-dot]")!.classList.toggle("ok", ok); }
+      // After the first round, a tile nobody could fill shows a dash, not a skeleton.
+      const settle = () => root.querySelectorAll("[data-k] .app-skel").forEach((s) => { s.parentElement!.textContent = "—"; });
+
+      let polling = false;
+      async function poll() {
+        if (polling) return;
+        polling = true;
+        try {
+          const [stats, recent] = await Promise.all([json(`${EXPLORER}/api/stats`), json(`${EXPLORER}/api/blocks`)]);
+          set("txall", fmt(stats.transactions_indexed));
+          set("hash", hashFmt(stats.hashrate));
+          addBlocks(recent);
+          state("live", true);
+        } catch { state("explorer not answering", false); }
+        try { const l = await json(`${STATUS}/api/live`); if (Array.isArray(l.peers)) set("peers", fmt(l.peers.length)); } catch { /* status service down: dash stays */ }
+        try { const u = await json(`${STATUS}/api/status`); if (typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`); } catch { /* dash stays */ }
+        try { const h: { hashrate: number }[] = await json(`${EXPLORER}/api/hashrate`); line("hash", h.map((x) => x.hashrate)); } catch { /* chart stays empty */ }
+        try {
+          const { result } = await json(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }) });
+          if (result) {
+            set("committee", fmt(result.committee));
+            const now = Date.now();
+            // A restarted node can report a lower round: skip that sample.
+            if (lastBft && now > lastBft.at && result.committed_round >= lastBft.round) set("rpm", (((result.committed_round - lastBft.round) * 60000) / (now - lastBft.at)).toFixed(1));
+            lastBft = { round: result.committed_round, at: now };
+          }
+        } catch { /* gateway without DAG-BFT: dashes stay */ }
+        settle();
+        polling = false;
+      }
+      function stream() {
+        let ws: WebSocket;
+        try { ws = new WebSocket(`${EXPLORER.replace(/^http/, "ws")}/ws/blocks`); } catch { return; }
+        ws.onmessage = (ev) => {
+          try {
+            const b = JSON.parse(ev.data);
+            // A rollback drops the abandoned blocks rather than charting them.
+            if (b.rollback) { blocks = blocks.filter((x) => x.height < b.rollback.from_height); render(); return; }
+            if (typeof b.height !== "number" || typeof b.timestamp !== "number") return;
+            addBlocks([{ height: b.height, timestamp: b.timestamp, tx_count: b.tx_count ?? 0 }]);
+            state("live", true);
+          } catch { /* malformed frame skipped */ }
+        };
+        ws.onclose = () => setTimeout(stream, 5000);
+      }
+      poll();
+      stream();
+      setInterval(() => { if (!document.hidden) poll(); }, POLL_MS);
+      setInterval(() => { const a = root.querySelector("[data-age]"); if (a && tip) a.textContent = `${Math.max(0, Math.round(Date.now() / 1000 - tip))} s`; }, 1000);
+    }
   </script>
 </StarlightPage>
-
-<style>
-  .st { max-width: 60rem; margin: 0 auto; }
-  .st h2 { margin-top: 2rem; }
-  .st-state { font-size: 0.9rem; color: var(--sl-color-gray-3); display: flex; align-items: center; gap: 0.4rem; }
-  .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--sl-color-gray-4); }
-  .dot.on { background: #45e0a0; box-shadow: 0 0 0.5rem #45e0a0; animation: pulse 2s infinite; }
-  @keyframes pulse { 50% { opacity: 0.4; } }
-  @media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.75rem; margin: 1rem 0; }
-  .tiles div { border: 1px solid var(--sl-color-gray-5); border-radius: 0.5rem; padding: 0.75rem; }
-  .tiles dt { font-size: 0.8rem; color: var(--sl-color-gray-3); }
-  .tiles dd { margin: 0.25rem 0 0; font-size: 1.35rem; font-variant-numeric: tabular-nums; font-weight: 600; }
-  #rel { font-size: 1rem; overflow-wrap: anywhere; }
-  .chart { margin: 1rem 0; }
-  .chart figcaption { font-size: 0.85rem; color: var(--sl-color-gray-3); }
-  .chart svg { width: 100%; height: 120px; border-bottom: 1px solid var(--sl-color-gray-5); }
-  .chart :global(rect) { fill: var(--sl-color-accent); opacity: 0.8; }
-  .chart :global(polyline) { stroke: var(--sl-color-accent); stroke-width: 2; }
-  .note { font-size: 0.85rem; color: var(--sl-color-gray-3); }
-</style>

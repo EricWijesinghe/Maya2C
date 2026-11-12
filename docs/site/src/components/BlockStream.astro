@@ -1,0 +1,81 @@
+---
+import { testnet } from "../data/network-state";
+// Blocks as the network produces them: the explorer's last blocks, then each
+// new one from its WebSocket, entering on the right. Nothing is generated in
+// the browser; when the stream is silent the strip says so and stays empty.
+import SourceTip from "./SourceTip.astro";
+---
+
+<section class="not-content bs" aria-label="Live block stream" data-bs>
+  <div class="bs-head">
+    <p class="bs-title">Blocks, as they are made <SourceTip text="explorer.maya2c.dev: /api/blocks for the last 16, then /ws/blocks for each new one" /></p>
+    <p class="bs-meta"><b data-bs-minute>{testnet.paused ? 0 : "—"}</b> in the last minute</p>
+  </div>
+  <ol class="bs-strip" data-bs-strip aria-live="polite" aria-relevant="additions"></ol>
+  <p class="ui-state bs-empty" data-bs-empty>
+    <span class="ui-state__title">No blocks streaming right now</span>
+    The testnet is paused on purpose since {testnet.since}, after {testnet.last.run} with {testnet.last.halts} halts, last block {testnet.last.height.toLocaleString("en-US")}. Blocks appear here the moment the next genesis produces them. <a href={testnet.report}>The stop report</a>
+  </p>
+</section>
+
+<script>
+  import { blocksWithin, fmt, onBlocks, recentBlocks, type Block } from "../scripts/live";
+  import { whenNear } from "../scripts/near";
+  const KEEP = 16;
+  for (const root of document.querySelectorAll<HTMLElement>("[data-bs]")) {
+    const strip = root.querySelector<HTMLElement>("[data-bs-strip]")!;
+    const empty = root.querySelector<HTMLElement>("[data-bs-empty]")!;
+    let blocks: Block[] = [];
+    const card = (b: Block, fresh: boolean) => {
+      const li = document.createElement("li");
+      li.className = fresh ? "bs-block fresh" : "bs-block";
+      const a = document.createElement("a");
+      a.href = `https://explorer.maya2c.dev/blocks/${b.height}`;
+      a.innerHTML = `<span class="h"></span><span class="t"></span>`;
+      a.querySelector(".h")!.textContent = `#${fmt(b.height)}`;
+      a.querySelector(".t")!.textContent = `${fmt(b.tx_count)} tx`;
+      a.setAttribute("aria-label", `Block ${fmt(b.height)}, ${b.tx_count} transactions`);
+      if (b.tx_count > 0) li.classList.add("busy");
+      li.append(a);
+      return li;
+    };
+    const add = (list: Block[], fresh: boolean) => {
+      for (const b of list) {
+        if (blocks.some((x) => x.height === b.height)) continue;
+        blocks.push(b);
+        strip.append(card(b, fresh));
+      }
+      blocks.sort((x, y) => x.height - y.height);
+      while (blocks.length > KEEP) { blocks.shift(); strip.firstElementChild?.remove(); }
+      empty.hidden = blocks.length > 0;
+      if (blocks.length) root.querySelector("[data-bs-minute]")!.textContent = String(blocksWithin(blocks, 60));
+    };
+    whenNear(root, async () => {
+      const recent = await recentBlocks(KEEP);
+      if (recent) add(recent.slice().reverse(), false);
+      onBlocks((b) => add([b], true));
+    });
+  }
+</script>
+
+<style>
+  .bs { margin: var(--space-5) 0; padding: var(--space-4); border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); overflow: hidden; }
+  .bs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .bs-title { margin: 0; font-weight: 600; color: var(--text); display: flex; gap: 10px; align-items: baseline; }
+  .bs-meta { margin: 0; font-size: 14px; color: var(--text-2); }
+  .bs-meta b { font-variant-numeric: tabular-nums; color: var(--accent-text); font-size: 18px; }
+  .bs-strip { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; gap: 8px; justify-content: flex-end; min-height: 76px; perspective: 600px; overflow: hidden; }
+  .bs-strip:empty { display: none; }
+  .bs-strip :global(.bs-block) { margin: 0; flex: 0 0 auto; }
+  .bs-strip :global(.bs-block a) { display: grid; gap: 4px; width: 92px; padding: 12px 10px; border-radius: 10px; text-decoration: none; background: var(--raised); border: 1px solid var(--line); color: var(--text); }
+  .bs-strip :global(.bs-block.busy a) { border-color: var(--bronze); }
+  .bs-strip :global(.bs-block a:hover), .bs-strip :global(.bs-block a:focus-visible) { border-color: var(--accent); }
+  .bs-strip :global(.bs-block .h) { font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .bs-strip :global(.bs-block .t) { font-size: 12px; color: var(--muted); }
+  /* A new block arrives from depth: it starts behind the strip and comes forward. */
+  .bs-strip :global(.bs-block.fresh) { animation: arrive .7s cubic-bezier(.22,1,.36,1); }
+  @keyframes arrive { from { transform: translateZ(-160px) translateX(40px) rotateY(-30deg); opacity: 0; } }
+  .bs-empty { margin: var(--space-3) 0 0; }
+  .bs-empty[hidden] { display: none; }
+  @media (prefers-reduced-motion: reduce) { .bs-strip :global(.bs-block.fresh) { animation: none; } }
+</style>

@@ -1,0 +1,72 @@
+---
+// The supply as the chain reports it (get_supply): units in circulation out of
+// every unit genesis issued, and the burned part. Mining rewards are paid from
+// a genesis reserve, never minted (ADR-068), so "total" does not grow and the
+// ring is circulating / total, computed with BigInt from the 256-bit strings.
+// An SVG ring (the three.js coin went in U3, 2026-11-13); dashes when the
+// network does not answer.
+import SourceTip from "./SourceTip.astro";
+import { testnet } from "../data/network-state";
+const R = 54, C = 2 * Math.PI * R;
+---
+
+<figure class="not-content sr" data-sr data-paused={testnet.paused ? "" : undefined} style={`--c:${C}`}>
+  <div class="sr-view" hidden={testnet.paused}>
+    <svg class="sr-poster" viewBox="0 0 140 140" aria-hidden="true">
+      <circle class="track" cx="70" cy="70" r={R} />
+      <circle class="arc" cx="70" cy="70" r={R} data-sr-arc />
+    </svg>
+  </div>
+  <figcaption>
+    {testnet.paused
+      ? <p class="sr-big">Paused since {testnet.since}: <code>get_supply</code> answers again with the next genesis.</p>
+      : <p class="sr-big"><b data-sr-pct>—</b> in circulation</p>}
+    <dl class="sr-rows">
+      <div><dt>Circulating</dt><dd data-sr-circ>—</dd></div>
+      <div><dt>Issued at genesis</dt><dd data-sr-total>—</dd></div>
+      <div><dt>Burned</dt><dd data-sr-burn>—</dd></div>
+    </dl>
+    <SourceTip text="get_supply on rpc.maya2c.dev: total, circulating and burned base units; whole coins rounded down. Rewards come from a genesis reserve (ADR-068)." href="/guides/api/" />
+  </figcaption>
+</figure>
+
+<script>
+  import { whenNear } from "../scripts/near";
+  import { coins, shareBp, supply } from "../scripts/live";
+  // Paused: the RPC host is down on purpose; nothing to fetch.
+  for (const root of document.querySelectorAll<HTMLElement>("[data-sr]:not([data-paused])")) {
+    whenNear(root, async () => {
+      const s = await supply();
+      const circ = s ? shareBp(s.circulating, s.total) : null;
+      if (!s || circ === null) return;
+      root.querySelector("[data-sr-pct]")!.classList.remove("idle");
+      root.querySelector("[data-sr-pct]")!.textContent = `${(circ / 100).toFixed(2)}%`;
+      root.querySelector("[data-sr-circ]")!.textContent = coins(s.circulating) ?? "—";
+      root.querySelector("[data-sr-total]")!.textContent = coins(s.total) ?? "—";
+      root.querySelector("[data-sr-burn]")!.textContent = coins(s.burned) ?? "—";
+      root.style.setProperty("--p", String(circ / 10000));
+      root.classList.add("go");
+    });
+  }
+</script>
+
+<style>
+  .sr { margin: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-5); align-items: center; }
+  .sr[data-paused] { grid-template-columns: minmax(0, 1fr); }
+  .sr-view[hidden] { display: none; }
+  .sr-view { position: relative; aspect-ratio: 1; width: 100%; }
+  .sr-poster { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .track, .arc { fill: none; stroke-width: 7; }
+  .track { stroke: var(--surface-3); }
+  .arc { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: var(--c); stroke-dashoffset: var(--c); transform: rotate(-90deg); transform-origin: 70px 70px; transition: stroke-dashoffset var(--dur-3) var(--ease); }
+  .sr.go .arc { stroke-dashoffset: calc(var(--c) * (1 - var(--p, 0))); }
+  .sr-big { margin: 0 0 var(--space-3); font-size: var(--type-body-size); color: var(--text-2); }
+  .sr-big b { display: block; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); color: var(--text); font-variant-numeric: tabular-nums; }
+  .sr-big b.idle { font-size: var(--type-body-lg-size); }
+  .sr-rows { margin: 0 0 var(--space-3); display: grid; gap: 6px; }
+  .sr-rows div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .sr-rows dt { color: var(--text-2); font-size: var(--type-body-sm-size); }
+  .sr-rows dd { margin: 0; font: 500 13px/1.3 var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; text-align: end; }
+  @media (max-width: 560px) { .sr { grid-template-columns: 88px minmax(0, 1fr); } }
+  @media (prefers-reduced-motion: reduce) { .arc { transition: none; } }
+</style>

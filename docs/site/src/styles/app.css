@@ -1,0 +1,60 @@
+/* App-like pages (/stats/, /health/, /ecosystem/; U3, 2026-11-13): a slim
+   sticky sub-nav, dense hairline grids with tabular figures, kit tables,
+   skeletons while the first reading loads. Global rather than scoped: Astro's
+   scoped styles carry no class weight, and these must beat Starlight's prose
+   rules. Tokens only. */
+.app { max-width: var(--content-max); margin: 0 auto; color: var(--text); }
+.app-subnav {
+  position: sticky; top: var(--sl-nav-height); z-index: 5;
+  display: flex; align-items: center; gap: var(--space-1); overflow-x: auto; scrollbar-width: none;
+  margin: 0 0 var(--space-6); padding: var(--space-2) 0;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.app .app-subnav a { flex: none; display: inline-flex; align-items: center; height: var(--control-h-sm); padding: 0 var(--space-3); border-radius: var(--r-sm); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--font-sans); color: var(--text-2); text-decoration: none; transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+.app .app-subnav a:hover { background: var(--surface-2); color: var(--text); }
+.app-status { margin: 0 0 0 auto; flex: none; display: inline-flex; align-items: center; gap: var(--space-2); padding-inline-start: var(--space-3); font: var(--type-body-sm-size)/1 var(--font-mono); color: var(--text-2); white-space: nowrap; }
+.app-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-3); }
+.app-dot.warn { background: var(--warn); }
+.app-dot.ok { background: var(--success); }
+
+.app-section { margin-top: var(--space-12); scroll-margin-top: calc(var(--sl-nav-height) + 64px); }
+.app-section:first-of-type { margin-top: 0; }
+.app-section > h2 { display: flex; align-items: baseline; gap: var(--space-3); margin: 0 0 var(--space-4); font: var(--type-title-3-weight) var(--type-title-3-size)/var(--type-title-3-line) var(--font-sans); letter-spacing: var(--type-title-3-tracking); color: var(--text); }
+.app-h3 { margin: var(--space-8) 0 var(--space-3); font: var(--weight-semibold) var(--type-body-size)/1.4 var(--font-sans); color: var(--text); }
+.app-note { margin: var(--space-3) 0 0; max-width: 72ch; font-size: var(--type-body-sm-size); line-height: 1.55; color: var(--text-2); }
+.app-note code, .app code { font: .9em var(--font-mono); padding: .05em .35em; border-radius: var(--r-xs); background: var(--surface-2); border: 1px solid var(--border); }
+.app :where(a:not(.ui-btn, .ui-card)) { color: var(--accent-text); }
+.app-banner { display: block; margin: 0 0 var(--space-4); text-align: left; }
+.app-banner .ui-state__title { display: block; }
+
+/* Stat grid: one bordered block, cells divided by 1 px hairlines. */
+/* Hairlines are each cell's right and bottom shadow; the outer edge clips the
+   last ones, and a part-filled last row leaves plain surface, not a grey gap. */
+.app-grid { margin: 0 0 var(--space-4); display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
+.app-grid > div { display: grid; gap: var(--space-1); align-content: start; min-height: 72px; padding: var(--space-3) var(--space-4); box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
+.app-grid dt { font-size: var(--type-body-sm-size); color: var(--text-2); }
+.app-grid dd { margin: 0; font: var(--weight-semibold) var(--type-title-3-size)/1.3 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+/* Same height as the figure it stands in for: no shift when it lands. */
+.app-skel { display: inline-block; width: 5rem; height: 1.3em; vertical-align: middle; }
+
+.app-table { max-height: none; margin: 0; }
+.app-table .ui-table td { white-space: normal; }
+.app-table .ui-table td.ui-num { white-space: nowrap; }
+.app-src { color: var(--text-2) !important; font-size: var(--type-body-sm-size); }
+.app-wrap { min-width: 16rem; }
+
+.app-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.app-chart { margin: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); }
+.app-chart figcaption { margin-bottom: var(--space-2); font-size: var(--type-body-sm-size); color: var(--text-2); }
+.app-chart svg { display: block; width: 100%; height: 120px; border-bottom: 1px solid var(--border); }
+.app-chart rect { fill: var(--accent); opacity: .8; }
+.app-chart polyline { stroke: var(--accent); stroke-width: 1.5; }
+.app-mono { font: var(--type-mono-size) var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* "working" in the ledger: the kit has ok, warn, bad and neutral; PageTitle and
+   /ecosystem/ also use info, which had no colour and read as plain text. */
+.ui-pill--info { color: var(--accent-text); }
+.app-gap { height: var(--space-4); }
+.app .ui-pill { white-space: nowrap; }
+/* Phones: the links scroll in one row and the state chip goes; each page
+   states the paused network in its own banner or first section. */
+@media (max-width: 560px) { .app-status { display: none; } }

@@ -76,12 +76,13 @@
 </style>
 
 <script>
+  import { testnet } from "../data/network-state";
   // True while the testnet is stopped on purpose (2026-10-28, after the
   // 7-day soak: reports/sessions/2026-10-28-testnet-stopped.md). A stopped
   // chain is not an outage, and covering every page would hide the site,
   // the proof and the downloads behind "down for maintenance". The home page
   // says the testnet is paused. Set it back to false with the next genesis.
-  const TESTNET_PAUSED = true;
+  const TESTNET_PAUSED = testnet.paused;
   const STATUS_URL = "https://status.maya2c.dev/api/status";
   const POLL_SECONDS = 20;
   const TIMEOUT_MS = 8000;
