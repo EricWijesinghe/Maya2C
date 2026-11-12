@@ -795,6 +795,9 @@ impl StateDB {
                 actual: tx.nonce,
             });
         }
+        // A v13 frame before bit 44 is refused before either signature is
+        // checked; the mempool calls the same function (ADR-135 P-4).
+        crate::state::sponsor::require_active(tx, context)?;
 
         // Authorization — an unsigned or forged transaction must never reach
         // the balance rules.
@@ -815,7 +818,10 @@ impl StateDB {
         // ADR-013. Chain tag is required for signature verification (ADR-036).
         self.verified
             .verify(tx, context.height, policy, self.get_chain_tag()?)?;
-        self.charge_fee(overlay, tx)?;
+        // A sponsor's fee moves here, before the inner touches anything: if
+        // the inner then fails, the caller discards this transaction's whole
+        // overlay (a block fails; the builder rolls back its trial copy).
+        self.charge_fee(overlay, tx, context.height)?;
 
         // The sender above is derived from the keys the signatures were just
         // checked against, never read from a wire field. A transaction able to
@@ -1132,7 +1138,11 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
+            // A sponsored transfer also writes its sponsor's account, which
+            // the fast path does not save, so it takes the full copy: a
+            // failed inner must not leave the sponsor's debit behind.
+            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) && tx.sponsor.is_none()
+            {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the

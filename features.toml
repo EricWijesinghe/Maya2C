@@ -2652,6 +2652,17 @@ tests = ["crates/node/tests/asset_mint_tests.rs", "crates/node/tests/asset_confo
 note = "ADR-135 P-1 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 41, ASSET_MINT_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 55-58, record v2 (136 B) under d:asset:. AssetRegistrationFee (governance tag 11) defaults to zero pending Eric O-2. V4_VERSION and the SUPPORTED_PROTOCOL_VERSION rise are not assigned in this change."
 
 [[subsystem]]
+id = "sponsored-fees"
+name = "Sponsored fees / paymaster (v4 P-4)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/core/sponsor_tx.rs`, `crates/node/src/state/sponsor.rs`, `crates/node/src/network/mempool.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/sponsored_fee_tests.rs", "crates/node/tests/sponsored_conformance.rs"]
+note = "ADR-135 P-4 (PROPOSED), post-genesis. Off: feature bit 44, SPONSORED_FEES_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Wire v13 (0x0D) wraps one v5-v8 frame; the sponsor pays required(outer_len) <= max_fee, no protocol surcharge (Eric O-4). No state prefix: the debit is an account move. Mempool defaults 64 pending per sponsor and an 86,400-block window are node policy. CI-first: not compiled locally when added."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

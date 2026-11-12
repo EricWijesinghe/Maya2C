@@ -22,12 +22,21 @@
 //! pooled must be affordable together, not one transaction at a time. Without
 //! these, one account holding a single coin filled the pool with
 //! future-nonce spends of that coin, none of which ever paid a fee.
+//!
+//! ## One sponsor's share (ADR-135 P-4)
+//!
+//! A v13 frame's validity depends on a third party's balance, so a sponsor
+//! holds at most [`MAX_SPONSORED_PENDING_PER_SPONSOR`] pooled frames, their
+//! `max_fee`s together within its balance, one frame per inner txid, and a
+//! sponsored frame is evicted before an unsponsored one at an equal rate.
+//! All of it is admission policy: none of it decides whether a block is valid.
 
 use primitive_types::U256;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
+use crate::core::sponsor_tx::MAX_SPONSORED_PENDING_PER_SPONSOR;
 use crate::core::{MAX_TX_BYTES, Transaction};
 use crate::error::{NodeError, Result};
 use crate::state::{Address, Module, StateDB};
@@ -50,10 +59,27 @@ pub struct Mempool {
     /// Entries and summed outputs pooled per sender, changed only under the
     /// pool's write lock (always taken first).
     senders: Arc<std::sync::Mutex<HashMap<Address, Pending>>>,
-    /// Fee and encoded size of every pooled entry, so a full pool can evict
-    /// its cheapest per byte without re-encoding everything it holds. Changed
+    /// Fee, encoded size and whether it is sponsored, for every pooled entry,
+    /// so a full pool can evict its cheapest per byte without re-encoding
+    /// everything it holds. Changed only under the pool's write lock.
+    fees: Arc<std::sync::Mutex<HashMap<TxHash, Ranked>>>,
+    /// Entries and summed `max_fee` pooled per sponsor (ADR-135 P-4), changed
     /// only under the pool's write lock.
-    fees: Arc<std::sync::Mutex<HashMap<TxHash, (U256, usize)>>>,
+    sponsors: Arc<std::sync::Mutex<HashMap<Address, Pending>>>,
+    /// The pooled sponsored frame for each inner txid: one per inner, so two
+    /// sponsors of one transaction never both wait here (threat model P-12).
+    inners: Arc<std::sync::Mutex<HashMap<TxHash, TxHash>>>,
+    /// Whether this node admits and relays v13 sponsored frames at all: the
+    /// node-local kill switch ADR-135 names, never a validity rule.
+    accept_sponsored: bool,
+}
+
+/// What eviction ranks a pooled entry by.
+#[derive(Clone, Copy, Debug)]
+struct Ranked {
+    fee: U256,
+    size: usize,
+    sponsored: bool,
 }
 
 /// What one sender has pooled.
@@ -94,6 +120,9 @@ impl Mempool {
             max_bytes: DEFAULT_MAX_BYTES,
             senders: Arc::default(),
             fees: Arc::default(),
+            sponsors: Arc::default(),
+            inners: Arc::default(),
+            accept_sponsored: true,
         }
     }
 
@@ -101,6 +130,14 @@ impl Mempool {
     #[must_use]
     pub fn with_max_bytes(mut self, max_bytes: usize) -> Self {
         self.max_bytes = max_bytes;
+        self
+    }
+
+    /// The same pool admitting v13 sponsored frames or not (`accept_sponsored`,
+    /// ADR-135): how an operator stops relaying them without a fork.
+    #[must_use]
+    pub fn with_accept_sponsored(mut self, accept: bool) -> Self {
+        self.accept_sponsored = accept;
         self
     }
 
@@ -160,10 +197,93 @@ impl Mempool {
         Ok(())
     }
 
-    fn lock_fees(&self) -> std::sync::MutexGuard<'_, HashMap<TxHash, (U256, usize)>> {
+    fn lock_fees(&self) -> std::sync::MutexGuard<'_, HashMap<TxHash, Ranked>> {
         self.fees
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn lock_sponsors(&self) -> std::sync::MutexGuard<'_, HashMap<Address, Pending>> {
+        self.sponsors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn lock_inners(&self) -> std::sync::MutexGuard<'_, HashMap<TxHash, TxHash>> {
+        self.inners
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Refuses a sponsored `tx` when its sponsor already has
+    /// [`MAX_SPONSORED_PENDING_PER_SPONSOR`] frames pooled, or when their
+    /// `max_fee`s plus this one's would pass `sponsor_balance` (ADR-135 P-4,
+    /// threat model P-6). Admission policy only: the newest is the one
+    /// dropped, and a block holding more is still valid if every frame applies.
+    fn check_sponsor_room(&self, tx: &Transaction, sponsor_balance: U256) -> Result<()> {
+        let Some(sponsorship) = &tx.sponsor else {
+            return Ok(());
+        };
+        let payer = sponsorship.address();
+        let pending = self
+            .lock_sponsors()
+            .get(&payer)
+            .copied()
+            .unwrap_or_default();
+        if pending.count >= MAX_SPONSORED_PENDING_PER_SPONSOR {
+            return Err(NodeError::MempoolRejected(format!(
+                "sponsor already holds {MAX_SPONSORED_PENDING_PER_SPONSOR} pooled sponsored frames"
+            )));
+        }
+        // Checked, not saturating: a sum past 2^256 is "cannot cover".
+        match pending.outputs.checked_add(sponsorship.max_fee) {
+            Some(total) if total <= sponsor_balance => Ok(()),
+            total => Err(NodeError::InsufficientBalance {
+                address: hex::encode(payer),
+                required: total.unwrap_or(U256::MAX),
+                available: sponsor_balance,
+            }),
+        }
+    }
+
+    /// The sponsor's committed balance, or zero for an unsponsored frame.
+    fn sponsor_balance(&self, tx: &Transaction) -> Result<U256> {
+        match &tx.sponsor {
+            Some(sponsorship) => Ok(self.state.get_account(&sponsorship.address())?.balance),
+            None => Ok(U256::zero()),
+        }
+    }
+
+    /// What eviction ranks `tx` by. A sponsored frame pays exactly the base
+    /// fee on its bytes and no tip, so it ranks at that and, at an equal
+    /// rate, is evicted before an unsponsored one (ADR-135 P-4).
+    fn ranking_of(&self, tx: &Transaction, size: usize) -> Result<Ranked> {
+        let fee = match &tx.sponsor {
+            Some(_) => match self.state.committed_fees()? {
+                Some(fees) => maya_stateless_core::amount::to_u256(fees.required(size)),
+                None => U256::zero(),
+            },
+            None => fee_of(tx),
+        };
+        Ok(Ranked {
+            fee,
+            size,
+            sponsored: tx.sponsor.is_some(),
+        })
+    }
+
+    /// Whether a sponsored frame for the same inner as `tx`, no larger than
+    /// `size` bytes, is already pooled (threat model P-12).
+    fn holds_smaller_sponsorship(&self, tx: &Transaction, size: usize) -> bool {
+        if tx.sponsor.is_none() {
+            return false;
+        }
+        let Some(pooled) = self.lock_inners().get(&tx.inner_txid()).copied() else {
+            return false;
+        };
+        self.lock_fees()
+            .get(&pooled)
+            .is_some_and(|ranked| ranked.size <= size)
     }
 
     /// What must leave a pool holding `len` entries and `bytes` for one more
@@ -179,19 +299,24 @@ impl Mempool {
             return Ok(Vec::new());
         }
         let per_byte = |f: U256, s: usize| f.saturating_mul(U256::from(s));
-        let mut ranked: Vec<(TxHash, U256, usize)> = self
-            .lock_fees()
-            .iter()
-            .map(|(h, &(f, s))| (*h, f, s))
-            .collect();
-        // Ascending fee per byte (a/b < c/d as a·d < c·b), ties by hash.
-        ranked.sort_by(|a, b| {
-            per_byte(a.1, b.2)
-                .cmp(&per_byte(b.1, a.2))
-                .then(a.0.cmp(&b.0))
+        let mut ranked: Vec<(TxHash, Ranked)> =
+            self.lock_fees().iter().map(|(h, r)| (*h, *r)).collect();
+        // Ascending fee per byte (a/b < c/d as a·d < c·b), then sponsored
+        // before unsponsored (ADR-135 P-4), then by hash.
+        ranked.sort_by(|(ha, a), (hb, b)| {
+            per_byte(a.fee, b.size)
+                .cmp(&per_byte(b.fee, a.size))
+                .then(b.sponsored.cmp(&a.sponsored))
+                .then(ha.cmp(hb))
         });
         let mut out = Vec::new();
-        for (hash, f, s) in ranked {
+        for (
+            hash,
+            Ranked {
+                fee: f, size: s, ..
+            },
+        ) in ranked
+        {
             if count == 0 && over == 0 {
                 break;
             }
@@ -267,11 +392,57 @@ impl Mempool {
         // the empty-sender rule below applies. It is admitted only if it would
         // pay right now: right epoch, not yet spent, work meeting the target.
         // Those run first because they are cheaper than the signature.
+        // Sponsored first: a sponsored share is paid for, not fee-free.
+        if tx.sponsor.is_some() {
+            return self.validate_sponsored(tx);
+        }
         if let crate::core::TxKind::MiningShare(share) = &tx.kind
             && tx.outputs.is_empty()
         {
             return self.validate_share(tx, share);
         }
+        self.validate_unsponsored(tx)
+    }
+
+    /// Admission for a v13 sponsored frame (ADR-135 P-4): the node's switch,
+    /// the activation height, the consensus fee rules and the admission
+    /// window against committed state, the sponsor able to pay this frame,
+    /// then the inner frame's own checks with the empty-sender rule lifted —
+    /// a sponsored user may hold nothing, which is what sponsorship is for.
+    fn validate_sponsored(&self, tx: &Transaction) -> Result<()> {
+        let Some(sponsorship) = &tx.sponsor else {
+            return self.validate_unsponsored(tx);
+        };
+        if !self.accept_sponsored {
+            return Err(NodeError::MempoolRejected(
+                "this node does not relay sponsored (v13) frames".into(),
+            ));
+        }
+        let height = self.admission_height()?;
+        crate::state::sponsor::require_active(
+            tx,
+            crate::state::BlockContext::at_height(height)
+                .with_features(self.state.effective_schedule()?.features()),
+        )?;
+        let fees = self.state.committed_fees()?;
+        let required =
+            crate::state::sponsor::sponsored_fee(tx, sponsorship, fees.as_ref(), height)?;
+        crate::state::sponsor::check_window(sponsorship, height)?;
+        let payer = sponsorship.address();
+        let available = self.state.get_account(&payer)?.balance;
+        if available < required || available.is_zero() {
+            return Err(NodeError::InsufficientBalance {
+                address: hex::encode(payer),
+                required,
+                available,
+            });
+        }
+        self.validate_inner(tx, false)
+    }
+
+    /// Admission for every frame that is neither a fee-free share nor
+    /// sponsored: the base fee, then the inner checks.
+    fn validate_unsponsored(&self, tx: &Transaction) -> Result<()> {
         if let Some(fees) = self.state.committed_fees()? {
             let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
             let offered = tx
@@ -283,10 +454,18 @@ impl Mempool {
                 return Err(NodeError::FeeTooLow { required, offered });
             }
         }
+        self.validate_inner(tx, true)
+    }
 
+    /// The checks every non-share frame shares: nonce, balance, vault, the
+    /// signature(s), evidence, activation and the breaker. `empty_sender`
+    /// refuses an account that has never held or sent anything, before its
+    /// signature costs anything; a sponsored frame lifts it, because its
+    /// sponsor was checked instead.
+    fn validate_inner(&self, tx: &Transaction, empty_sender: bool) -> Result<()> {
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
-        if sender.balance.is_zero() && sender.nonce == 0 {
+        if empty_sender && sender.balance.is_zero() && sender.nonce == 0 {
             return Err(NodeError::EmptySender {
                 address: hex::encode(sender_address),
             });
@@ -455,13 +634,19 @@ impl Mempool {
         // at its share must not cost a signature check. Re-checked under the
         // write lock below, since another insert may land in between.
         let balance = self.state.get_account(&tx.sender())?.balance;
-        let (fee, size) = (fee_of(&tx), tx.to_bytes().len());
+        let sponsor_balance = self.sponsor_balance(&tx)?;
+        let size = tx.to_bytes().len();
         // The decoder refuses a frame this large, but a local submission never
         // is decoded. A transaction over the maximum could never fit a block.
         if size > MAX_TX_BYTES {
             return Err(NodeError::MempoolRejected(format!(
                 "transaction of {size} bytes exceeds the maximum {MAX_TX_BYTES}"
             )));
+        }
+        let ranked = self.ranking_of(&tx, size)?;
+        let fee = ranked.fee;
+        if self.holds_smaller_sponsorship(&tx, size) {
+            return Ok(false);
         }
         self.victims(
             self.len(),
@@ -470,15 +655,31 @@ impl Mempool {
             size,
         )?;
         self.check_sender_room(&tx, balance)?;
+        self.check_sponsor_room(&tx, sponsor_balance)?;
 
         // Validation performs RocksDB reads; deliberately outside any lock.
         self.validate(&tx)?;
 
         let mut pool = self.write_pool();
-        if pool.contains_key(&hash) {
+        if pool.contains_key(&hash) || self.holds_smaller_sponsorship(&tx, size) {
             return Ok(false);
         }
         self.check_sender_room(&tx, balance)?;
+        self.check_sponsor_room(&tx, sponsor_balance)?;
+        // One sponsored frame per inner (P-12): a smaller outer frame for the
+        // same inner replaces the pooled one, so the sponsor that asks less
+        // of the block is the one kept. After the room checks, so a refused
+        // newcomer never costs the pooled frame its place. Read into a local
+        // first: `forget` takes the inners lock itself.
+        let replaced = match &tx.sponsor {
+            Some(_) => self.lock_inners().get(&tx.inner_txid()).copied(),
+            None => None,
+        };
+        if let Some(old_hash) = replaced
+            && let Some(old) = pool.remove(&old_hash)
+        {
+            self.forget(&old_hash, &old);
+        }
         // Every mutation holds the write lock, so this read cannot race an add.
         let bytes = self.pooled_bytes.load(Ordering::Relaxed);
         for victim in self.victims(pool.len(), bytes, fee, size)? {
@@ -488,7 +689,7 @@ impl Mempool {
         }
 
         self.track(&tx, true);
-        self.lock_fees().insert(hash, (fee, size));
+        self.lock_fees().insert(hash, ranked);
         pool.insert(hash, tx);
         self.pooled_bytes.fetch_add(size, Ordering::Relaxed);
         Ok(true)
@@ -587,17 +788,20 @@ impl Mempool {
         }
         // Admitted transactions passed `total_out`, so this cannot overflow.
         let outputs = total_out(tx).unwrap_or_default();
-        let sender = tx.sender();
-        let mut senders = self.lock_senders();
-        let entry = senders.entry(sender).or_default();
-        if added {
-            entry.count += 1;
-            entry.outputs = entry.outputs.saturating_add(outputs);
-        } else {
-            entry.count = entry.count.saturating_sub(1);
-            entry.outputs = entry.outputs.saturating_sub(outputs);
-            if entry.count == 0 {
-                senders.remove(&sender);
+        tally(&mut self.lock_senders(), tx.sender(), outputs, added);
+        if let Some(sponsorship) = &tx.sponsor {
+            // The sponsor's tally is in `max_fee`s: what it signed to cover.
+            tally(
+                &mut self.lock_sponsors(),
+                sponsorship.address(),
+                sponsorship.max_fee,
+                added,
+            );
+            let mut inners = self.lock_inners();
+            if added {
+                inners.insert(tx.inner_txid(), tx.txid());
+            } else if inners.get(&tx.inner_txid()) == Some(&tx.txid()) {
+                inners.remove(&tx.inner_txid());
             }
         }
     }
@@ -636,9 +840,28 @@ fn fee_of(tx: &Transaction) -> U256 {
         .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount))
 }
 
-/// A fee-free mining share (ADR-044), which moves nothing.
+/// A fee-free mining share (ADR-044), which moves nothing. A sponsored one
+/// is not fee-free: its sponsor pays, so it takes the sponsored path.
 fn is_share(tx: &Transaction) -> bool {
-    matches!(tx.kind, crate::core::TxKind::MiningShare(_)) && tx.outputs.is_empty()
+    matches!(tx.kind, crate::core::TxKind::MiningShare(_))
+        && tx.outputs.is_empty()
+        && tx.sponsor.is_none()
+}
+
+/// Adds `amount` to `key`'s [`Pending`] in `map`, or takes it away and
+/// drops the entry at zero.
+fn tally(map: &mut HashMap<Address, Pending>, key: Address, amount: U256, added: bool) {
+    let entry = map.entry(key).or_default();
+    if added {
+        entry.count += 1;
+        entry.outputs = entry.outputs.saturating_add(amount);
+    } else {
+        entry.count = entry.count.saturating_sub(1);
+        entry.outputs = entry.outputs.saturating_sub(amount);
+        if entry.count == 0 {
+            map.remove(&key);
+        }
+    }
 }
 
 /// The sum of `tx`'s outputs.

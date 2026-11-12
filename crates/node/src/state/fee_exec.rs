@@ -35,10 +35,22 @@ impl StateDB {
     /// Checks `tx` pays the base fee on its size and books the burn. The
     /// payment itself moves as an ordinary output to the collector.
     ///
+    /// A v13 sponsored frame's fee is paid by its sponsor instead, under the
+    /// rules in [`crate::state::sponsor`], judged at `height`.
+    ///
     /// # Errors
     ///
-    /// [`NodeError::FeeTooLow`] if the collector outputs fall short.
-    pub(crate) fn charge_fee(&self, overlay: &mut Overlay, tx: &Transaction) -> Result<()> {
+    /// [`NodeError::FeeTooLow`] if the collector outputs fall short; for a
+    /// sponsored frame, what `charge_sponsor` returns.
+    pub(crate) fn charge_fee(
+        &self,
+        overlay: &mut Overlay,
+        tx: &Transaction,
+        height: u64,
+    ) -> Result<()> {
+        if let Some(sponsorship) = &tx.sponsor {
+            return self.charge_sponsor(overlay, tx, sponsorship, height);
+        }
         let Some(fees) = self.fee_record(overlay)? else {
             return Ok(());
         };
