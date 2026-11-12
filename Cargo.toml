@@ -342,6 +342,9 @@ members = [
     "crates/clear-sign",
     "crates/contract-safety",
     "crates/interop",
+    # P-30 intent solver market: off chain, settles over the hash-lock HTLC
+    # forms; nothing the node links depends on it (ADR-139).
+    "crates/intent-solver",
     "crates/lanes",
     "crates/privacy",
     "crates/quantum-harbor",

@@ -219,7 +219,7 @@ fn real_signed_size() -> usize {
 }
 
 #[test]
-fn starts_and_lists_eleven_tools_none_of_which_signs_or_submits() {
+fn starts_and_lists_fifteen_tools_none_of_which_signs_or_submits() {
     let replies = session(
         None,
         &[
@@ -229,7 +229,7 @@ fn starts_and_lists_eleven_tools_none_of_which_signs_or_submits() {
     );
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "maya2c-mcp");
     let names = tool_names();
-    assert_eq!(names.len(), 11, "{names:?}");
+    assert_eq!(names.len(), 15, "{names:?}");
     for name in &names {
         for banned in ["sign", "submit", "send", "broadcast", "rpc"] {
             assert!(!name.contains(banned), "tool {name} looks like a write");
@@ -555,4 +555,70 @@ fn explain_error_gives_the_spec_rule() {
         )[0],
     );
     assert!(!err && t.contains("STF-1"), "{t}");
+}
+
+/// A maker's wallet signs; the server posts, refuses the replay and the quote
+/// past the limit, breaks a tie by solver id, and plans the settlement
+/// (P-30, ADR-139).
+#[test]
+fn intent_tools_post_quote_and_plan_a_settlement() {
+    use maya_crypto_pq::suite::{HybridMlDsa65SlhDsa128s, MasterSeed, SignatureSuite};
+    use maya_intent_solver::{AssetId, Intent, SignedIntent};
+
+    let key = HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([7; 32]));
+    let public_key = HybridMlDsa65SlhDsa128s::public_key(&key);
+    let intent = Intent {
+        network: GENESIS,
+        maker: Intent::maker_of(&public_key),
+        sell_asset: AssetId::NATIVE,
+        max_sell: U256::from(500u64),
+        buy_asset: AssetId([0xb7; 32]),
+        buy_amount: U256::from(7u64),
+        buy_recipient: b"bc1q-maker".to_vec(),
+        deadline_height: 1_000,
+        nonce: 1,
+    };
+    let signed = SignedIntent::sign(intent.clone(), &key).unwrap();
+    let id = hex::encode(intent.id());
+    let post = json!({
+        "intent": {"network": hex::encode(GENESIS), "maker": hex::encode(intent.maker),
+                   "sell_asset": hex::encode([0u8; 32]), "max_sell": "500",
+                   "buy_asset": hex::encode([0xb7u8; 32]), "buy_amount": "7",
+                   "buy_recipient": hex::encode(b"bc1q-maker"), "deadline_height": 1_000, "nonce": 1},
+        "public_key": hex::encode(&signed.public_key),
+        "signature": hex::encode(&signed.signature)
+    });
+    let offer = |solver: u8, price: &str| {
+        json!({"intent_id": id, "solver": hex::encode([solver; 32]),
+               "pay_to": hex::encode([solver; 32]), "price": price, "fee": "0"})
+    };
+    let plan_args =
+        json!({"intent_id": id, "digest": hex::encode([0xaa; 32]), "hash": "sha256", "margin": 50});
+    let (addr, _) = mock_node(None);
+    let replies = session(
+        Some(&addr),
+        &[
+            tool(1, "intent_post", &post),
+            tool(2, "intent_post", &post),
+            tool(3, "intent_offer", &offer(9, "300")),
+            tool(4, "intent_offer", &offer(4, "300")),
+            tool(5, "intent_offer", &offer(5, "501")),
+            tool(6, "intent_quotes", &json!({"intent_id": id})),
+            tool(7, "intent_settle_plan", &plan_args),
+        ],
+    );
+    assert_eq!(ok_json(&replies[0])["intent_id"], id);
+    let (t, err) = text(&replies[1]);
+    assert!(err && t.contains("replayed"), "{t}");
+    let (t, err) = text(&replies[4]);
+    assert!(err && t.contains("limit"), "{t}");
+    let quotes = ok_json(&replies[5]);
+    assert_eq!(quotes["best"]["solver"], hex::encode([4u8; 32]));
+    assert_eq!(quotes["quotes"].as_array().unwrap().len(), 2);
+    let plan = ok_json(&replies[6]);
+    assert_eq!(plan["solver"], hex::encode([4u8; 32]));
+    assert_eq!(plan["maker_leg"]["expiry_height"], 1_000);
+    assert_eq!(plan["solver_leg"]["expiry_height"], 950);
+    assert_eq!(plan["maker_leg"]["settles_on"], "maya2c HtlcLock");
+    assert_eq!(plan["steps"].as_array().unwrap().len(), 6);
 }

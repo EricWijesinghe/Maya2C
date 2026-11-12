@@ -187,7 +187,7 @@ Each gap: no code in the tree, and no P-1..P-16, V3-*, W1-* or W3-* job covers i
 | P-27 | Vote delegation (DRep-style) and conviction voting | M | y | 12, 13, 17 | stake-weighted only until PoP |
 | P-28 | Treasury spend path + public-goods grants round | M | y | 12, 13, 17, 32 | Eric: money |
 | P-29 | (reserved; merged into P-30) | - | - | - | |
-| P-30 | Intent solver market with HTLC settlement; optional confidential intents | M | n | 11, 31 | off-chain solvers, on-chain HTLC |
+| P-30 | Intent solver market with HTLC settlement; optional confidential intents | M | n | 11, 31 | off-chain solvers, on-chain HTLC. **stub** (ADR-139): `crates/intent-solver` + MCP `intent_*` tools; confidential intents not built |
 | P-31 | Succinct chain-state proof (recursive STARK over checkpoints) for light clients and bridges | L | n, then y | 24, 26 | prover off-chain first |
 | P-32 | PQ VRF (hash- or lattice-based) replacing ECVRF in committee selection | L | y | 10, 12, 29, 30 | new cryptography; peer review first |
 | P-33 | Bitcoin anchoring of Maya2C checkpoints (publisher + verifier) | M | n | 11, 26 | publisher is a disclosed party |
