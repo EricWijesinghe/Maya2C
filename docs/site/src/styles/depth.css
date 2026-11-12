@@ -1,33 +1,6 @@
-/* Depth (U3): tilted cards and sections that come forward as they scroll in.
-   Transform and opacity only, so nothing reflows. Content is never hidden at
-   rest: the scroll animation ends at full opacity, browsers without
-   scroll-driven animations show everything as is, and reduced motion turns
-   all of it off. A [data-tilt] element is never animated here: a finished
-   animation would hold its transform and freeze the tilt. */
-[data-tilt] {
-  transform: perspective(800px) rotateX(var(--tx, 0deg)) rotateY(var(--ty, 0deg));
-  transition: transform .25s cubic-bezier(.22, 1, .36, 1), box-shadow .25s, border-color .25s;
-  transform-style: preserve-3d;
-}
-[data-tilt]:hover { box-shadow: var(--elevation-raised, var(--shadow-2)); }
-
-@supports (animation-timeline: view()) {
-  @media (prefers-reduced-motion: no-preference) {
-    .maya-section-title,
-    .ls, .bs, .nc, .sr, .mp, .ff, .lp, .wc {
-      animation: depth-in linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 28%;
-    }
-  }
-}
-@keyframes depth-in {
-  from { opacity: .35; transform: perspective(900px) translateZ(-90px) translateY(24px); }
-  to { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-tilt] { transform: none; transition: none; }
-}
+/* Small layout helpers shared by kit components inside pages. The U3 card
+   tilt and the scroll-in depth animation were removed on 2026-11-13: both
+   read as toy motion next to the developer-tool look (ADR-136). */
 
 /* Two live widgets side by side on the homepage, stacked on phones. */
 .maya-duo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-5); align-items: center; margin: var(--space-5) 0; }

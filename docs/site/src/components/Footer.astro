@@ -4,7 +4,6 @@
 // GitHub, chosen in U0), copyright and licence. Overridden in
 // astro.config.mjs (`components.Footer`), so it appears on every page.
 import Default from "@astrojs/starlight/components/Footer.astro";
-import Ambient from "./Ambient.astro";
 import SourceTip from "./SourceTip.astro";
 import { testnet, pausedLabel } from "../data/network-state";
 import progress from "../../public/progress.json";
@@ -14,13 +13,12 @@ const finality = (progress as { finality?: { p50_ms: number } | null }).finality
 const year = new Date().getFullYear();
 ---
 
-<Ambient />
 <Default><slot /></Default>
 
 <footer class="maya-footer" aria-label="About Maya2C">
   <!-- The network, live: what a visitor cares about at the bottom of a page.
        CI and deploy status live on /stats/ (developer transparency), not here. -->
-  <div class="maya-footer__pulse" data-fp aria-label="The network, live">
+  <div class="maya-footer__pulse" data-fp data-paused={testnet.paused ? "" : undefined} aria-label="The network, live">
     <p class="maya-footer__title">Network, live <SourceTip text="Height: explorer /api/stats. Finality: the newest committed bench (one machine, not a network figure). Peers: status.maya2c.dev /api/live." href="/stats/" /></p>
     <dl>
       <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
@@ -51,13 +49,12 @@ const year = new Date().getFullYear();
 </footer>
 
 <script>
-  import { enableTilt } from "../scripts/tilt";
-  import { whenNear } from "../scripts/gate3d";
+  import { whenNear } from "../scripts/near";
   import { explorerStats, fmt, peers } from "../scripts/live";
-  enableTilt();
   // Fetched only when the footer nears the screen: most visits never get here.
   const fp = document.querySelector<HTMLElement>("[data-fp]");
-  if (fp) whenNear(fp, async () => {
+  // Paused: the hosts are down on purpose, so the dated last reading stays.
+  if (fp && !fp.hasAttribute("data-paused")) whenNear(fp, async () => {
     const [s, p] = await Promise.all([explorerStats(), peers()]);
     if (s) fp.querySelector("[data-fp-height]")!.textContent = fmt(s.height);
     if (p && Array.isArray(p.peers)) fp.querySelector("[data-fp-peers]")!.textContent = fmt(p.peers.length);

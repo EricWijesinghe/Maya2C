@@ -20,7 +20,7 @@ import SourceTip from "./SourceTip.astro";
 
 <script>
   import { blocksWithin, fmt, onBlocks, recentBlocks, type Block } from "../scripts/live";
-  import { whenNear } from "../scripts/gate3d";
+  import { whenNear } from "../scripts/near";
   const KEEP = 16;
   for (const root of document.querySelectorAll<HTMLElement>("[data-bs]")) {
     const strip = root.querySelector<HTMLElement>("[data-bs-strip]")!;
