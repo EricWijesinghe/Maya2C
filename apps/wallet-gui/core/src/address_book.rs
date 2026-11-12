@@ -345,7 +345,14 @@ impl AddressBook {
             let network = Network::from_hrp(&c.network).ok_or_else(|| {
                 WalletError::Format(format!("unknown address prefix '{}'", c.network))
             })?;
-            book.add(c.address, network, &c.name, &c.note, c.source, c.added_at_height)?;
+            book.add(
+                c.address,
+                network,
+                &c.name,
+                &c.note,
+                c.source,
+                c.added_at_height,
+            )?;
         }
         Ok(book)
     }
@@ -365,7 +372,14 @@ impl AddressBook {
             }
             let network = Network::from_hrp(&c.network)
                 .ok_or_else(|| WalletError::Format("unknown address prefix".to_string()))?;
-            self.add(c.address, network, &c.name, &c.note, c.source, c.added_at_height)?;
+            self.add(
+                c.address,
+                network,
+                &c.name,
+                &c.note,
+                c.source,
+                c.added_at_height,
+            )?;
             added += 1;
         }
         Ok(added)
@@ -381,7 +395,9 @@ impl AddressBook {
         match std::fs::read(path) {
             Ok(sealed) => Self::open(&sealed, key),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(e) => Err(WalletError::Contact(format!("cannot read the address book: {e}"))),
+            Err(e) => Err(WalletError::Contact(format!(
+                "cannot read the address book: {e}"
+            ))),
         }
     }
 
@@ -394,7 +410,8 @@ impl AddressBook {
     pub fn save_file(&self, path: &std::path::Path, key: &BookKey) -> Result<()> {
         let sealed = self.seal(key)?;
         let tmp = path.with_extension(TMP_SUFFIX);
-        let io = |e: std::io::Error| WalletError::Contact(format!("cannot write the address book: {e}"));
+        let io =
+            |e: std::io::Error| WalletError::Contact(format!("cannot write the address book: {e}"));
         std::fs::write(&tmp, &sealed).map_err(io)?;
         std::fs::rename(&tmp, path).map_err(io)
     }

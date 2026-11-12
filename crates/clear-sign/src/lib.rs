@@ -18,8 +18,8 @@
 
 use std::collections::BTreeSet;
 
-use maya_amount::Amount;
 pub use maya_address::Network;
+use maya_amount::Amount;
 
 /// A 32-byte address.
 pub type Address = [u8; 32];

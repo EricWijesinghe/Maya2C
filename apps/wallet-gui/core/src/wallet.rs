@@ -193,7 +193,13 @@ impl Wallet {
         amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<Confirmation> {
-        self.confirm_with(index, recipient, amount, terms, &maya_clear_sign::Context::default())
+        self.confirm_with(
+            index,
+            recipient,
+            amount,
+            terms,
+            &maya_clear_sign::Context::default(),
+        )
     }
 
     /// [`Wallet::confirm`], reviewed against `ctx`: the address book's

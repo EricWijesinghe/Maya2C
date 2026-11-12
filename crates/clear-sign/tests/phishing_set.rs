@@ -320,11 +320,18 @@ fn bech32m_poison(of: &Address, at: usize) -> Address {
     let text = maya_address::encode(Network::Mainnet, of);
     let (hrp, mut data) = maya_address::bech32m::split(&text).unwrap();
     // data[0] is the version symbol; the payload starts at 1.
-    for (d, g) in data[1 + at..1 + at + GENERATOR.len()].iter_mut().zip(GENERATOR) {
+    for (d, g) in data[1 + at..1 + at + GENERATOR.len()]
+        .iter_mut()
+        .zip(GENERATOR)
+    {
         *d ^= g;
     }
     let forged = maya_address::bech32m::join(&hrp, &data);
-    assert_eq!(forged[forged.len() - 6..], text[text.len() - 6..], "checksum kept");
+    assert_eq!(
+        forged[forged.len() - 6..],
+        text[text.len() - 6..],
+        "checksum kept"
+    );
     maya_address::decode(Network::Mainnet, &forged).unwrap()
 }
 
@@ -357,7 +364,10 @@ fn every_bech32m_look_alike_of_a_contact_is_flagged() {
         missed.len()
     );
     assert!(missed.is_empty(), "{missed:#?}");
-    assert!(bytes_rule_would_miss > 0, "the family must exercise the text rule");
+    assert!(
+        bytes_rule_would_miss > 0,
+        "the family must exercise the text rule"
+    );
 }
 
 #[test]

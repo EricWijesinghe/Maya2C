@@ -743,11 +743,13 @@ pub mod send {
                     undo.state.history.set(history);
                 }
                 undo.state.clear();
-                undo.state.screen.set(Screen::Sent(crate::receive::SentTransfer {
-                    txid,
-                    amount: transfer.amount.clone(),
-                    recipient: transfer.recipient.clone(),
-                }));
+                undo.state
+                    .screen
+                    .set(Screen::Sent(crate::receive::SentTransfer {
+                        txid,
+                        amount: transfer.amount.clone(),
+                        recipient: transfer.recipient.clone(),
+                    }));
             }
             Err(error) => {
                 let _ = bridge::record_outcome(&transfer.txid, false, Some(error.clone())).await;

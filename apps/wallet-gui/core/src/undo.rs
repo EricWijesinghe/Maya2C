@@ -140,7 +140,10 @@ mod tests {
         }
         // Assert
         assert!(cancelled);
-        assert!(broadcast.is_empty(), "a cancelled send must never be released");
+        assert!(
+            broadcast.is_empty(),
+            "a cancelled send must never be released"
+        );
         assert!(!hold.is_held());
     }
 

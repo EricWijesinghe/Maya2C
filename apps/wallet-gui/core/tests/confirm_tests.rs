@@ -11,8 +11,8 @@ use custom_l1_node::core::governance_payload::StakeLock;
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::vault_payload::VaultAction;
 use custom_l1_node::core::{ChainTag, Transaction};
-use maya_wallet_core::amount::{format_display, parse_display};
 use maya_clear_sign::{Context, Network, grouped};
+use maya_wallet_core::amount::{format_display, parse_display};
 use maya_wallet_core::confirm::{approval_message, confirmation, confirmation_with};
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::wallet::{SignTerms, Wallet};
@@ -90,8 +90,11 @@ fn a_transfer_confirmation_shows_recipient_amount_fee_and_chain() {
     );
     // describe's own detail line carries the recipient in full Bech32m, not hex.
     assert!(
-        shown.details.iter().any(|(label, value)| *label == "pay to"
-            && *value == grouped(Network::Devnet, &[0x22; 32])),
+        shown
+            .details
+            .iter()
+            .any(|(label, value)| *label == "pay to"
+                && *value == grouped(Network::Devnet, &[0x22; 32])),
         "{:?}",
         shown.details
     );
@@ -401,7 +404,10 @@ fn every_address_on_a_confirm_screen_is_full_bech32m_and_never_hex() {
         let screen = format!("{text}\n{:?}", shown.details);
         for address in &addresses {
             let full = grouped(Network::Devnet, address);
-            assert!(screen.contains(&full), "{name}: {full} missing from\n{screen}");
+            assert!(
+                screen.contains(&full),
+                "{name}: {full} missing from\n{screen}"
+            );
             assert!(
                 !screen.contains(&hex::encode(address)),
                 "{name}: hex address on the screen\n{screen}"
@@ -418,7 +424,11 @@ fn every_address_on_a_confirm_screen_is_full_bech32m_and_never_hex() {
         );
         // The approval text carries no hex address: the only hex is the
         // chain's two-ended fingerprint (8 + 8 digits, below 16 in a run).
-        assert!(hex_runs(&text).is_empty(), "{name}: {:?}\n{text}", hex_runs(&text));
+        assert!(
+            hex_runs(&text).is_empty(),
+            "{name}: {:?}\n{text}",
+            hex_runs(&text)
+        );
         assert!(text.contains("Address prefix: dmaya"), "{name}\n{text}");
     }
 }
@@ -433,7 +443,10 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
     let ctx = Context {
         contacts: [contact].into_iter().collect(),
         verified: std::collections::BTreeSet::default(),
-        balances: vec![([0; 32], maya_amount::Amount::from_u128(1_000_000_000_000_000_000_000_000))],
+        balances: vec![(
+            [0; 32],
+            maya_amount::Amount::from_u128(1_000_000_000_000_000_000_000_000),
+        )],
     };
     let shown = wallet
         .confirm_with(
@@ -454,20 +467,24 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
         ]
     );
     let text = approval_message(&shown);
-    assert!(text.starts_with("Warning: This recipient looks like"), "{text}");
+    assert!(
+        text.starts_with("Warning: This recipient looks like"),
+        "{text}"
+    );
     // The warnings do not change what is signed.
     let plain = test_wallet()
-        .confirm(0, &hex::encode(look_alike), coins("1"), &terms(coins("0.001"), 4))
+        .confirm(
+            0,
+            &hex::encode(look_alike),
+            coins("1"),
+            &terms(coins("0.001"), 4),
+        )
         .unwrap();
     assert_eq!(plain.signing_hash, shown.signing_hash);
     assert!(plain.warnings.is_empty());
 
     // A transfer with no outputs moves nothing and warns about nothing.
-    let quiet = confirmation_with(
-        &Transaction::with_kind(TxKind::Transfer, 1),
-        &CHAIN,
-        &ctx,
-    );
+    let quiet = confirmation_with(&Transaction::with_kind(TxKind::Transfer, 1), &CHAIN, &ctx);
     assert!(quiet.warnings.is_empty(), "{:?}", quiet.warnings);
 }
 
@@ -476,7 +493,10 @@ fn a_mainnet_address_is_refused_on_a_chain_that_is_not_pinned_mainnet() {
     let mut wallet = test_wallet();
     let mainnet = maya_address::encode(Network::Mainnet, &[0x22; 32]);
     let refused = wallet.confirm(0, &mainnet, coins("1"), &terms(coins("0.001"), 4));
-    assert!(matches!(refused, Err(WalletError::Address(_))), "{refused:?}");
+    assert!(
+        matches!(refused, Err(WalletError::Address(_))),
+        "{refused:?}"
+    );
     // The same account as a testnet address is accepted on an unpinned chain.
     let testnet = maya_address::encode(Network::Testnet, &[0x22; 32]);
     wallet
