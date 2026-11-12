@@ -28,6 +28,8 @@ const field = (block, key) => {
   return m ? m[1] : null;
 };
 const subsystems = blocks.map((b) => ({
+  // The stable key docs pages cite for their status chips (src/data/doc-status.ts).
+  id: field(b, "id"),
   name: field(b, "name"),
   domain: field(b, "domain"),
   tier: field(b, "tier"),
