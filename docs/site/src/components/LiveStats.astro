@@ -1,0 +1,118 @@
+---
+// Live proof numbers. Two kinds, each tile saying which: the network as its
+// public services report it (read in the visitor's browser, a dash when a
+// service does not answer), and the repository as the build counted it
+// (features.toml, the proof ratchet, the test count with its date). Nothing is
+// estimated and nothing is simulated (Standing Orders 1-2). Height and
+// validators are in the hero tiles above, so they are not repeated here.
+import SourceTip from "./SourceTip.astro";
+import health from "../../public/health.json";
+import progress from "../../public/progress.json";
+
+const repo = "https://github.com/EricWijesinghe/Maya2C/blob/master";
+const s = health.ledger.by_status as Record<string, number>;
+const proofs = (progress as { proofs?: Record<string, number> | null }).proofs ?? null;
+const live = [
+  { id: "blocktime", label: "Average block time", src: "Explorer /api/stats, mean gap over its window" },
+  { id: "peers", label: "Peers online", src: "status.maya2c.dev /api/live, peers connected now" },
+  { id: "hashrate", label: "Network hashrate", src: "Explorer /api/stats, estimated from indexed blocks" },
+  { id: "txs", label: "Transactions", src: "Explorer /api/stats, transactions indexed" },
+  { id: "uptime", label: "Uptime since genesis", src: "status.maya2c.dev /api/status" },
+];
+const built = [
+  { value: s.verified ?? 0, label: "Subsystems verified", src: "features.toml, status = verified", href: `${repo}/features.toml` },
+  { value: s.working ?? 0, label: "Subsystems working", src: "features.toml, status = working", href: `${repo}/features.toml` },
+  { value: health.tests.passed, label: "Tests passing", src: `Full workspace count of ${health.tests.as_of}: ${health.tests.source}`, href: `${repo}/.github/workflows/ci.yml` },
+  { value: proofs?.kani_harnesses ?? null, label: "Kani proofs", src: "proof-ratchet.txt (ADR-078 O3): CI fails if it falls", href: `${repo}/proof-ratchet.txt` },
+  { value: proofs?.fuzz_targets ?? null, label: "Fuzz targets", src: "proof-ratchet.txt (ADR-078 O3)", href: `${repo}/proof-ratchet.txt` },
+  { value: proofs?.conformance_vectors ?? null, label: "Conformance vectors", src: "proof-ratchet.txt (ADR-078 O3)", href: `${repo}/proof-ratchet.txt` },
+];
+const order = ["verified", "working", "stub", "planned"] as const;
+const total = health.ledger.total;
+---
+
+<section class="not-content ls" aria-label="Live proof numbers" data-ls>
+  <p class="ls-live"><span class="ls-dot" data-ls-dot aria-hidden="true"></span><span data-ls-state>Network: connecting…</span></p>
+  <dl class="ls-grid">
+    {live.map((t) => (
+      <div class="ui-card ls-tile" data-tilt>
+        <dt class="ui-stat__label">{t.label}</dt>
+        <dd class="ui-stat__value" data-live={t.id}>—</dd>
+        <SourceTip text={t.src} />
+      </div>
+    ))}
+    {built.map((t) => (
+      <div class="ui-card ls-tile" data-tilt>
+        <dt class="ui-stat__label">{t.label}</dt>
+        <dd class="ui-stat__value" data-count={t.value ?? undefined}>{t.value === null ? "—" : t.value.toLocaleString("en-US")}</dd>
+        <SourceTip text={t.src} href={t.href} />
+      </div>
+    ))}
+  </dl>
+
+  <figure class="ls-ledger">
+    <figcaption>The reality ledger: {total} subsystems by status <SourceTip text="features.toml, counted at build by scripts/gen-health.mjs" href="/health/" /></figcaption>
+    <div class="ls-stack" role="img" aria-label={order.map((k) => `${s[k] ?? 0} ${k}`).join(", ")}>
+      {order.map((k) => <span class={`seg ${k}`} style={`--w:${((s[k] ?? 0) / total) * 100}%`}></span>)}
+    </div>
+    <p class="ls-legend">{order.map((k) => <span><i class={`sw ${k}`}></i>{s[k] ?? 0} {k}</span>)}</p>
+  </figure>
+</section>
+
+<script>
+  import { bft, explorerStats, fmt, hashFmt, peers, uptime } from "../scripts/live";
+  for (const root of document.querySelectorAll<HTMLElement>("[data-ls]")) {
+    const set = (id: string, v: string | null) => { const el = root.querySelector(`[data-live="${id}"]`); if (el && v !== null) el.textContent = v; };
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduce) root.classList.add("armed");
+    // Count up from 0 to the build's own figure once the band is on screen.
+    const countUp = () => root.querySelectorAll<HTMLElement>("[data-count]").forEach((el) => {
+      const to = Number(el.dataset.count);
+      if (reduce || !Number.isFinite(to)) return;
+      const t0 = performance.now(), dur = 1100;
+      const step = (t: number) => { const k = Math.min(1, (t - t0) / dur); el.textContent = fmt(Math.round(to * (1 - (1 - k) ** 3))); if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    });
+    new IntersectionObserver((es, io) => { if (es.some((e) => e.isIntersecting)) { root.classList.add("go"); countUp(); io.disconnect(); } }, { threshold: 0.25 }).observe(root);
+
+    const poll = async () => {
+      const [st, b, p, u] = await Promise.all([explorerStats(), bft(), peers(), uptime()]);
+      if (st) {
+        set("blocktime", st.average_block_time > 0 ? `${st.average_block_time.toFixed(1)} s` : null);
+        set("hashrate", st.hashrate > 0 ? hashFmt(st.hashrate) : null);
+        set("txs", fmt(st.transactions_indexed));
+      }
+      if (p && Array.isArray(p.peers)) set("peers", fmt(p.peers.length));
+      if (u && typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`);
+      const up = Boolean(st || b);
+      root.querySelector("[data-ls-state]")!.textContent = up ? "Network: live" : "Network: not answering (the testnet is paused for the next genesis)";
+      root.querySelector("[data-ls-dot]")!.classList.toggle("on", up);
+    };
+    poll();
+    setInterval(() => { if (!document.hidden) poll(); }, 15000);
+  }
+</script>
+
+<style>
+  .ls { margin: 28px 0 8px; display: grid; gap: var(--space-4); }
+  .ls-live { margin: 0; display: flex; align-items: center; gap: 8px; font: 500 13px/1.3 var(--mono); color: var(--muted); }
+  .ls-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .ls-dot.on { background: var(--success); }
+  .ls-grid { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--space-3); }
+  .ls-tile { display: grid; gap: 6px; align-content: start; padding: var(--space-4); }
+  .ls-tile dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .ls-ledger { margin: 0; padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); }
+  .ls-ledger figcaption { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-weight: 600; color: var(--text); }
+  .ls-stack { display: flex; height: 14px; margin: 12px 0 8px; border-radius: 999px; overflow: hidden; background: var(--raised); }
+  /* Final width without JS; the script arms the bar so it grows from 0 on view. */
+  .seg { width: var(--w); transition: width 1.3s cubic-bezier(.22,1,.36,1); }
+  .armed .seg { width: 0; }
+  .armed.go .seg { width: var(--w); }
+  .seg.verified, .sw.verified { background: var(--success); }
+  .seg.working, .sw.working { background: var(--accent); }
+  .seg.stub, .sw.stub { background: var(--bronze); }
+  .seg.planned, .sw.planned { background: var(--muted); }
+  .ls-legend { margin: 0; display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-2); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+  @media (prefers-reduced-motion: reduce) { .seg { transition: none; } }
+</style>

@@ -1,0 +1,30 @@
+---
+// The questions people ask before they mine, answered plainly. No script:
+// <details> opens and closes on its own. Every answer links to its proof.
+const faq = [
+  { q: "Will it harm my computer?", a: "It is a normal program using your GPU, like a game. It runs only while you run it, shows every setting, and stops when you close it. Your card gets warm, so watch temperatures as you would in a game.", href: "/guides/start-mining/#safety" },
+  { q: "Does anything run hidden?", a: "No. Mining is opt-in and visible: nothing starts on its own, nothing runs in the background after you stop it, and the source is public to check.", href: "/guides/start-mining/#safety" },
+  { q: "Will I make money?", a: "Nobody can promise that, and we do not. Testnet coins have no value, and no token is for sale. Mining costs electricity, which costs real money.", href: "/guides/start-mining/#what-to-expect" },
+  { q: "Are there hidden fees?", a: "The miner is free and open source, with no built-in fee. A mining pool, if you join one, sets its own fee. Transactions on the chain pay a network fee, which the wallet adds for you.", href: "/guides/api/" },
+  { q: "Has it been audited?", a: "Not externally yet, and the site says so wherever it matters. The project's own reviews, fuzzing and model checks are published, and mainnet launches labelled \"external audit pending\".", href: "/guides/faq/#is-the-code-open-source-and-is-it-audited" },
+  { q: "Is \"post-quantum\" real or marketing?", a: "Real standards: ML-DSA (FIPS 204) and SLH-DSA (FIPS 205), published by NIST in 2024. Every transaction carries both, so forging one means breaking both.", href: "/guides/signatures/" },
+  { q: "Is my key safe?", a: "Your payout key is a file on your own disk; it never leaves your machine. Keep it out of shared folders and backups other people can read.", href: "/guides/start-mining/#safety" },
+];
+---
+
+<div class="not-content ff">
+  {faq.map((f) => (
+    <details class="ff-item">
+      <summary>{f.q}</summary>
+      <p>{f.a} <a href={f.href}>Read more</a></p>
+    </details>
+  ))}
+</div>
+
+<style>
+  .ff { display: grid; gap: 8px; margin: var(--space-4) 0; }
+  .ff-item { border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); }
+  .ff-item summary { cursor: pointer; padding: 14px 18px; min-height: 44px; font: 600 16px/1.35 var(--display); color: var(--text); list-style-position: inside; }
+  .ff-item[open] summary { color: var(--accent-text); }
+  .ff-item p { margin: 0; padding: 0 18px 16px; color: var(--text-2); font-size: 15px; }
+</style>

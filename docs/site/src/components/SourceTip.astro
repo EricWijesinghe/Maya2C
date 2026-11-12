@@ -1,0 +1,22 @@
+---
+// "Where does this number come from?": a small focusable mark with the source
+// in a tooltip. The text is in the DOM, so screen readers and search see it too.
+interface Props { text: string; href?: string }
+const { text, href } = Astro.props;
+---
+
+<span class="src-tip">
+  {href
+    ? <a class="src-tip__mark" href={href} aria-label={`Source: ${text}`}>source</a>
+    : <span class="src-tip__mark" tabindex="0" aria-label={`Source: ${text}`}>source</span>}
+  <span class="src-tip__body" role="tooltip">{text}</span>
+</span>
+
+<style>
+  .src-tip { position: relative; display: inline-flex; }
+  .src-tip__mark { font: 500 10.5px/1 var(--mono); letter-spacing: .04em; color: var(--muted); text-decoration: none; border-bottom: 1px dotted currentColor; cursor: help; padding: 2px 0; }
+  .src-tip__mark:hover, .src-tip__mark:focus-visible { color: var(--accent-text); }
+  .src-tip__body { position: absolute; z-index: 20; bottom: calc(100% + 6px); left: 0; width: max-content; max-width: min(16rem, 70vw); padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-2); font: 400 12px/1.4 var(--sans); color: var(--text-2); display: none; pointer-events: none; }
+  /* display, not opacity: a hidden tooltip must not widen the page on a phone. */
+  .src-tip:hover .src-tip__body, .src-tip:focus-within .src-tip__body { display: block; }
+</style>

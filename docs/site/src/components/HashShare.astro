@@ -1,0 +1,70 @@
+---
+// "What share of the network's hashrate would my GPU be?" The visitor types
+// the figure their own card printed (`maya2c-gpu-miner --benchmark`); the page
+// divides by the live network hashrate. No GPU presets: no card has been
+// measured in this repository yet (guides/start-mining), and a preset would be
+// an invented number. No coin value, no income, no profit: a share of
+// hashrate is all this says.
+import SourceTip from "./SourceTip.astro";
+---
+
+<form class="not-content ui-card hs" data-hs aria-label="Your share of the network hashrate" data-tilt>
+  <p class="hs-title">Your GPU on the network</p>
+  <p class="hs-lede">Run <code>maya2c-gpu-miner --benchmark</code>, then enter the hashrate it prints.</p>
+  <div class="hs-row">
+    <label class="ui-sr" for="hs-rate">Your hashrate</label>
+    <input class="ui-field hs-in" id="hs-rate" type="number" inputmode="decimal" min="0" step="any" placeholder="your benchmark figure" data-hs-rate />
+    <label class="ui-sr" for="hs-unit">Unit</label>
+    <select class="ui-field hs-unit" id="hs-unit" data-hs-unit>
+      <option value="1">H/s</option>
+      <option value="1000">kH/s</option>
+      <option value="1000000" selected>MH/s</option>
+      <option value="1000000000">GH/s</option>
+    </select>
+  </div>
+  <div class="hs-out" aria-live="polite">
+    <p class="hs-share"><b data-hs-share>—</b> of the network's hashrate</p>
+    <div class="hs-bar"><span data-hs-bar></span></div>
+    <p class="hs-net">Network now: <b data-hs-net>—</b> <SourceTip text="Explorer /api/stats: an estimate from indexed blocks, not a measurement the network reports" /></p>
+  </div>
+  <p class="hs-fine">A share of hashrate only. This card shows no coin value and no earnings, and promises none. Mining uses electricity, which costs money. Testnet coins have no value.</p>
+</form>
+
+<script>
+  import { explorerStats, hashFmt, hashShare } from "../scripts/live";
+  for (const root of document.querySelectorAll<HTMLElement>("[data-hs]")) {
+    const rate = root.querySelector<HTMLInputElement>("[data-hs-rate]")!;
+    const unit = root.querySelector<HTMLSelectElement>("[data-hs-unit]")!;
+    let network: number | null = null;
+    const render = () => {
+      const mine = Number(rate.value) * Number(unit.value);
+      const share = network === null ? null : hashShare(mine, network);
+      root.querySelector("[data-hs-share]")!.textContent = share === null ? "—" : `${(share * 100).toPrecision(3)}%`;
+      root.querySelector<HTMLElement>("[data-hs-bar]")!.style.width = share === null ? "0" : `${Math.max(0.5, share * 100)}%`;
+    };
+    root.addEventListener("submit", (e) => e.preventDefault());
+    rate.addEventListener("input", render);
+    unit.addEventListener("change", render);
+    explorerStats().then((s) => {
+      network = s && s.hashrate > 0 ? s.hashrate : null;
+      root.querySelector("[data-hs-net]")!.textContent = network === null ? "— (not answering; the testnet is paused)" : hashFmt(network);
+      render();
+    });
+  }
+</script>
+
+<style>
+  .hs { display: grid; gap: var(--space-3); padding: var(--space-5); margin: 0; }
+  .hs-title { margin: 0; font: 600 18px/1.2 var(--display); color: var(--text); }
+  .hs-lede, .hs-fine { margin: 0; font-size: 14px; color: var(--text-2); }
+  .hs-fine { font-size: 12.5px; color: var(--muted); }
+  .hs-row { display: flex; gap: 8px; }
+  .hs-in { flex: 1 1 auto; width: auto; min-width: 0; }
+  .hs-unit { flex: 0 0 auto; width: auto; }
+  .hs-share { margin: 0; color: var(--text-2); }
+  .hs-share b { font: 300 32px/1.1 var(--display); color: var(--text); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .hs-bar { height: 10px; border-radius: 999px; background: var(--raised); overflow: hidden; margin: 8px 0; }
+  .hs-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .6s cubic-bezier(.22,1,.36,1); }
+  .hs-net { margin: 0; font-size: 13px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  @media (prefers-reduced-motion: reduce) { .hs-bar span { transition: none; } }
+</style>
