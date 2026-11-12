@@ -300,6 +300,10 @@ pub(crate) async fn receive(
                 ..line(text)
             }))
         }
+        Content::Profile { card } => {
+            crate::profile_cmds::receive(app, s, &peer, card, &decoded.file);
+            None
+        }
         Content::PackRequest { pack } => {
             if incoming.answered.insert((peer.clone(), pack.clone())) {
                 answer_request(app, s, &peer, &pack).await;

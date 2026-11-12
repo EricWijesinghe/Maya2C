@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use maya_chat::frame::{self, Mark, Quote};
+use maya_chat::{profile, theme};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -181,6 +182,30 @@ pub struct Profile {
     /// first use, so each is sent to each peer once.
     #[serde(default)]
     pub emoji_shared: BTreeSet<String>,
+    /// This user's profile cards and who is shown which (ADR-140 build PR 4).
+    #[serde(default)]
+    pub cards: profile::Sharing,
+    /// Each contact's latest verified card, by peer address.
+    #[serde(default)]
+    pub peer_cards: BTreeMap<String, profile::Card>,
+    /// Themes and wallpapers: local only, never sent.
+    #[serde(default)]
+    pub looks: theme::Looks,
+}
+
+impl Profile {
+    /// Whether a cached file is an avatar, frame or wallpaper something here
+    /// still uses, so the expiry sweep keeps it.
+    #[must_use]
+    pub fn uses_file(&self, id: &str) -> bool {
+        let draft = |d: &profile::Draft| d.avatar.as_deref() == Some(id) || d.frame.as_deref() == Some(id);
+        let card = |c: &profile::Card| [&c.avatar, &c.frame].into_iter().flatten().any(|a| a.id == id);
+        let wall = |l: &theme::Look| l.wallpaper == theme::Wallpaper::Image { id: id.to_owned() };
+        self.cards.cards.values().any(draft)
+            || self.peer_cards.values().any(card)
+            || wall(&self.looks.global)
+            || self.looks.per_chat.values().any(wall)
+    }
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -293,7 +318,11 @@ impl Files {
                 .decrypt(Nonce::from_slice(nonce), body)
                 .map_err(|_| "the profile file does not belong to this identity".to_string())?,
         );
-        serde_json::from_slice(&plain).map_err(|e| format!("the profile file is damaged: {e}"))
+        let mut profile: Profile =
+            serde_json::from_slice(&plain).map_err(|e| format!("the profile file is damaged: {e}"))?;
+        // Looks become CSS in the window: re-check them however the file was written.
+        profile.looks = profile.looks.cleaned();
+        Ok(profile)
     }
 
     /// A cached sticker file, if this computer holds it and it still hashes
@@ -375,6 +404,30 @@ mod tests {
         assert_eq!(files.sticker(&[1; 32], "../profile"), None, "an id is never a path");
         let raw = std::fs::read(dir.join("stickers").join(format!("{id}.bin"))).unwrap();
         assert!(!raw.windows(6).any(|w| w == b"GIF89a"), "not in the clear");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_theme_and_a_card_survive_a_restart_and_bad_looks_are_cleaned() {
+        let dir = std::env::temp_dir().join(format!("maya-chat-gui-look-{}", std::process::id()));
+        let files = Files::new(dir.clone()).unwrap();
+        let mut profile = Profile::default();
+        profile.cards.cards.insert("main".into(), profile::Draft { name: "Ann".into(), ..profile::Draft::default() });
+        profile.cards.default = Some("main".into());
+        profile.cards.per_contact.insert("bb".into(), profile::Show::Nothing);
+        profile.looks.global.theme = "ember".into();
+        profile.looks.per_chat.insert(
+            "cc".into(),
+            theme::Look { wallpaper: theme::Wallpaper::Image { id: "ab".repeat(32) }, ..theme::Look::default() },
+        );
+        files.save_profile(&[1; 32], &profile).unwrap();
+        let back = files.profile(&[1; 32]).unwrap();
+        assert_eq!(back, profile, "cards, visibility and looks round-trip");
+        assert!(back.uses_file(&"ab".repeat(32)), "a wallpaper's file is kept by the sweep");
+
+        profile.looks.global.tokens.insert("--evil".into(), "url(x)".into());
+        files.save_profile(&[1; 32], &profile).unwrap();
+        assert!(files.profile(&[1; 32]).unwrap().looks.global.tokens.is_empty(), "cleaned on load");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

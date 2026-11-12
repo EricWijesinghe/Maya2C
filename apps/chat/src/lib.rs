@@ -24,8 +24,10 @@ pub mod frame;
 pub mod identity;
 pub mod media;
 pub mod net;
+pub mod profile;
 pub mod relay;
 pub mod session;
+pub mod theme;
 
 pub mod outbox;
 pub mod receipt;
