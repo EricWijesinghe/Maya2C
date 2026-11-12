@@ -3411,6 +3411,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-address"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya-amount"
 version = "0.1.0"
 
@@ -3438,6 +3445,8 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "libp2p",
+ "maya-address",
+ "maya-amount",
  "maya-crypto-pq",
  "serde",
  "serde_bytes",
