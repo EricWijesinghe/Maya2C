@@ -181,9 +181,8 @@ fn whole_to_base(text: &str) -> Result<String, ChatError> {
         return Err(refuse);
     }
     let (int, frac) = text.split_once('.').unwrap_or((text, "0"));
-    let frac_ok = !frac.is_empty()
-        && frac.len() <= COIN_DECIMALS
-        && frac.bytes().all(|b| b.is_ascii_digit());
+    let frac_ok =
+        !frac.is_empty() && frac.len() <= COIN_DECIMALS && frac.bytes().all(|b| b.is_ascii_digit());
     if int.is_empty() || !frac_ok {
         return Err(refuse);
     }
@@ -260,10 +259,16 @@ mod tests {
         let (req, payer) = sample();
         let link = pay_uri(Network::Testnet, &req, &payer);
         assert!(parse_pay_uri(&format!("{link}&memo=x"), Network::Testnet).is_err());
-        assert!(parse_pay_uri(&format!("{link}&amount=1"), Network::Testnet).is_err(), "repeated");
+        assert!(
+            parse_pay_uri(&format!("{link}&amount=1"), Network::Testnet).is_err(),
+            "repeated"
+        );
         assert!(parse_paid_uri(&format!("{}&x=1", paid_uri(&[1; 32], &[2; 32]))).is_err());
         let no_request = link.replace(&format!("&request={}", hex::encode(req.id(&payer))), "");
-        assert!(parse_pay_uri(&no_request, Network::Testnet).is_err(), "missing request");
+        assert!(
+            parse_pay_uri(&no_request, Network::Testnet).is_err(),
+            "missing request"
+        );
     }
 
     #[test]
@@ -272,8 +277,16 @@ mod tests {
         assert!(parse_pay_uri("https://evil.example/pay?x=1", Network::Testnet).is_err());
         let (req, payer) = sample();
         let link = pay_uri(Network::Testnet, &req, &payer);
-        assert!(parse_pay_uri(&link.replace("to=", "to= "), Network::Testnet).is_err(), "space");
-        let long = format!("{PAID_PREFIX}request={}&tx={}&pad={}", "a".repeat(64), "b".repeat(64), "p".repeat(MAX_LINK_BYTES));
+        assert!(
+            parse_pay_uri(&link.replace("to=", "to= "), Network::Testnet).is_err(),
+            "space"
+        );
+        let long = format!(
+            "{PAID_PREFIX}request={}&tx={}&pad={}",
+            "a".repeat(64),
+            "b".repeat(64),
+            "p".repeat(MAX_LINK_BYTES)
+        );
         assert!(parse_paid_uri(&long).is_err(), "over the length bound");
     }
 

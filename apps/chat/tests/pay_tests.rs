@@ -44,7 +44,15 @@ fn deliver(from: &mut Client, id: [u8; 32], to: &mut Client, now: u64) -> Result
 }
 
 fn request(amount: &str, memo: &str) -> Request {
-    Request::sign(&payee_id(), &payer_id().address(), amount, memo, NOW + 600, NOW).unwrap()
+    Request::sign(
+        &payee_id(),
+        &payer_id().address(),
+        amount,
+        memo,
+        NOW + 600,
+        NOW,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -59,7 +67,11 @@ fn a_request_reaches_the_payer_with_the_id_the_payee_issued() {
         panic!("expected a payment request, got {frame:?}");
     };
     assert_eq!(from, payee_id().address());
-    assert_eq!(id, req.id(&payer_id().address()), "both sides compute the same request id");
+    assert_eq!(
+        id,
+        req.id(&payer_id().address()),
+        "both sides compute the same request id"
+    );
     assert_eq!(request.amount, "2500");
     assert_eq!(request.memo, "lunch");
     let pending = payer.take_pay_frames();
@@ -132,7 +144,10 @@ fn a_replayed_envelope_is_refused_and_not_shown_twice() {
         .unwrap();
     let envelope = payee.envelope_for_send(&issued, ONE_BIT).unwrap();
     assert!(payer.open_frame(&envelope, NOW).is_ok());
-    assert!(payer.open_frame(&envelope, NOW).is_err(), "the same bytes again");
+    assert!(
+        payer.open_frame(&envelope, NOW).is_err(),
+        "the same bytes again"
+    );
     assert_eq!(payer.take_pay_frames().len(), 1);
 }
 
@@ -171,7 +186,12 @@ fn a_full_payment_settles_once_on_chain_and_not_twice() {
         id: tx,
         outputs: vec![(payee_id().address(), "2500".to_owned())],
     }];
-    assert!(pay::settles_on_chain(&block, &tx_id, &payee_id().address(), "2500"));
+    assert!(pay::settles_on_chain(
+        &block,
+        &tx_id,
+        &payee_id().address(),
+        "2500"
+    ));
     payee.settle(request_id, tx_id, NOW).unwrap();
 
     assert_eq!(
@@ -192,7 +212,13 @@ fn a_receipt_from_someone_other_than_the_payer_is_not_a_payment() {
     payer.take_pay_frames();
 
     // Signed by carol, sent from the payer's session: the signature fails.
-    let forged = Paid::sign(&carol_id(), &payee_id().address(), req.id(&payer_id().address()), [9; 32]).unwrap();
+    let forged = Paid::sign(
+        &carol_id(),
+        &payee_id().address(),
+        req.id(&payer_id().address()),
+        [9; 32],
+    )
+    .unwrap();
     let id = payer
         .queue_paid(payee_id().address(), &forged, NOW, 1)
         .unwrap();

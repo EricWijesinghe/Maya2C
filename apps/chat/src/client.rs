@@ -305,7 +305,9 @@ impl Client {
     pub fn open(&mut self, envelope: &Envelope, now: u64) -> Result<Received, ChatError> {
         match self.open_frame(envelope, now)? {
             Frame::Text(received) => Ok(received),
-            Frame::Receipt { .. } | Frame::Pay { .. } | Frame::Paid { .. } => Err(ChatError::NotText),
+            Frame::Receipt { .. } | Frame::Pay { .. } | Frame::Paid { .. } => {
+                Err(ChatError::NotText)
+            }
         }
     }
 

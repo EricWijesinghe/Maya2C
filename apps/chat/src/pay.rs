@@ -124,7 +124,12 @@ fn request_digest(
     *h.finalize().as_bytes()
 }
 
-fn paid_digest(payer: &Address, payee: &Address, request_id: &[u8; 32], tx_id: &[u8; 32]) -> [u8; 32] {
+fn paid_digest(
+    payer: &Address,
+    payee: &Address,
+    request_id: &[u8; 32],
+    tx_id: &[u8; 32],
+) -> [u8; 32] {
     let mut h = blake3::Hasher::new_derive_key(PAID_DOMAIN);
     put(&mut h, payer);
     put(&mut h, payee);
@@ -417,14 +422,19 @@ pub struct ChainTx {
 /// Whether `block` holds transaction `tx_id` paying `payee` at least `amount`
 /// (ADR-088 decision 4). Anything not canonical is not a payment.
 #[must_use]
-pub fn settles_on_chain(block: &[ChainTx], tx_id: &[u8; 32], payee: &Address, amount: &str) -> bool {
+pub fn settles_on_chain(
+    block: &[ChainTx],
+    tx_id: &[u8; 32],
+    payee: &Address,
+    amount: &str,
+) -> bool {
     if check_amount(amount).is_err() {
         return false;
     }
     block.iter().filter(|t| t.id == *tx_id).any(|t| {
-        t.outputs.iter().any(|(to, paid)| {
-            to == payee && check_amount(paid).is_ok() && at_least(paid, amount)
-        })
+        t.outputs
+            .iter()
+            .any(|(to, paid)| to == payee && check_amount(paid).is_ok() && at_least(paid, amount))
     })
 }
 
@@ -550,7 +560,15 @@ mod tests {
     }
 
     fn request() -> Request {
-        Request::sign(&payee(), &payer().address(), "1000", "coffee", NOW + 60, NOW).unwrap()
+        Request::sign(
+            &payee(),
+            &payer().address(),
+            "1000",
+            "coffee",
+            NOW + 60,
+            NOW,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -639,7 +657,13 @@ mod tests {
 
     #[test]
     fn memo_with_controls_or_direction_marks_is_refused() {
-        for bad in ["a\nb", "x\u{202E}evil", "x\u{200B}", "tab\there", "\u{2066}"] {
+        for bad in [
+            "a\nb",
+            "x\u{202E}evil",
+            "x\u{200B}",
+            "tab\there",
+            "\u{2066}",
+        ] {
             assert!(check_memo(bad).is_err(), "{bad:?}");
         }
         assert!(check_memo(&"m".repeat(MAX_MEMO_BYTES + 1)).is_err());
@@ -655,7 +679,15 @@ mod tests {
             Err(ChatError::Expired)
         );
         assert!(
-            Request::sign(&payee(), &payer().address(), "5", "", NOW + MAX_TTL + 1, NOW).is_err()
+            Request::sign(
+                &payee(),
+                &payer().address(),
+                "5",
+                "",
+                NOW + MAX_TTL + 1,
+                NOW
+            )
+            .is_err()
         );
         let req = request();
         assert_eq!(
@@ -733,16 +765,34 @@ mod tests {
             outputs: vec![(me, amount.to_owned())],
         };
         assert!(settles_on_chain(&[to_me("1000")], &tx, &me, "1000"));
-        assert!(settles_on_chain(&[to_me("1001")], &tx, &me, "1000"), "overpayment");
-        assert!(!settles_on_chain(&[to_me("999")], &tx, &me, "1000"), "short");
-        assert!(settles_on_chain(&[to_me("10000")], &tx, &me, "999"), "a longer number is larger");
-        assert!(!settles_on_chain(&[to_me("1000")], &[1; 32], &me, "1000"), "another tx");
+        assert!(
+            settles_on_chain(&[to_me("1001")], &tx, &me, "1000"),
+            "overpayment"
+        );
+        assert!(
+            !settles_on_chain(&[to_me("999")], &tx, &me, "1000"),
+            "short"
+        );
+        assert!(
+            settles_on_chain(&[to_me("10000")], &tx, &me, "999"),
+            "a longer number is larger"
+        );
+        assert!(
+            !settles_on_chain(&[to_me("1000")], &[1; 32], &me, "1000"),
+            "another tx"
+        );
         let to_other = ChainTx {
             id: tx,
             outputs: vec![(payer().address(), "1000".to_owned())],
         };
-        assert!(!settles_on_chain(&[to_other], &tx, &me, "1000"), "paid someone else");
-        assert!(!settles_on_chain(&[to_me("1000")], &tx, &me, "0"), "invalid amount");
+        assert!(
+            !settles_on_chain(&[to_other], &tx, &me, "1000"),
+            "paid someone else"
+        );
+        assert!(
+            !settles_on_chain(&[to_me("1000")], &tx, &me, "0"),
+            "invalid amount"
+        );
     }
 
     #[test]
