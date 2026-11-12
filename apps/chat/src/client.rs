@@ -216,7 +216,7 @@ impl Client {
         text: &[u8],
         now: u64,
     ) -> Result<Envelope, ChatError> {
-        self.seal_as(to, bundle, text, now, self.send_version)
+        self.seal_as(to, bundle, text, now, self.send_version, ENVELOPE_TTL)
     }
 
     /// [`Client::seal`] at an explicit envelope version.
@@ -227,6 +227,7 @@ impl Client {
         text: &[u8],
         now: u64,
         version: u8,
+        ttl: u64,
     ) -> Result<Envelope, ChatError> {
         // Refused before any state moves: receipts share the session's chain.
         if receipt::is_receipt(text) {
@@ -245,7 +246,7 @@ impl Client {
         };
         Ok(Envelope {
             to,
-            expires_at: now + ENVELOPE_TTL,
+            expires_at: now + ttl,
             payload,
             stamp: 0,
             version,
@@ -445,9 +446,33 @@ impl Client {
         now: u64,
         version: u8,
     ) -> Result<[u8; 32], ChatError> {
+        self.queue_for(to, bundle, text, now, version, 0)
+    }
+
+    /// [`Client::queue`] for a message with a disappearing timer of `timer`
+    /// seconds (0 for none): relays are asked to keep it at most that long,
+    /// and never longer than [`ENVELOPE_TTL`], so an unfetched message does
+    /// not outlive its timer at the relay (ADR-140 section 5).
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::queue`].
+    pub fn queue_for(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+        timer: u64,
+    ) -> Result<[u8; 32], ChatError> {
         self.sweep(now);
         let had_session = self.sessions.contains_key(&to);
-        let envelope = self.seal_as(to, bundle, text, now, version)?;
+        let ttl = match timer {
+            0 => ENVELOPE_TTL,
+            t => t.min(ENVELOPE_TTL),
+        };
+        let envelope = self.seal_as(to, bundle, text, now, version, ttl)?;
         let size = envelope.encode()?.len();
         let id = envelope.id()?;
         if let Err(e) = outbox::check_room(self.outbox.len(), self.outbox_bytes(), size) {
@@ -482,7 +507,7 @@ impl Client {
     pub fn due(&self, now: u64) -> Vec<[u8; 32]> {
         self.outbox
             .iter()
-            .filter(|(_, p)| p.next_at <= now && now < p.first_at + ENVELOPE_TTL)
+            .filter(|(_, p)| p.next_at <= now && now < p.envelope.expires_at)
             .map(|(id, _)| *id)
             .collect()
     }
@@ -553,13 +578,11 @@ impl Client {
 
     /// Where `id` stands at `now`. `None` once it has left both the outbox and
     /// the expired record: a receipt removed it, or the record dropped it.
-    /// Telling those apart takes the send time (see [`ENVELOPE_TTL`]).
+    /// Telling those apart takes the send time (see each envelope's `expires_at`).
     #[must_use]
     pub fn standing(&self, id: &[u8; 32], now: u64) -> Option<Standing> {
         match self.outbox.get(id) {
-            Some(p) if now < p.first_at + ENVELOPE_TTL => {
-                Some(Standing::Queued { relayed: p.relayed })
-            }
+            Some(p) if now < p.envelope.expires_at => Some(Standing::Queued { relayed: p.relayed }),
             Some(_) => Some(Standing::Expired),
             None => self
                 .expired
@@ -577,7 +600,7 @@ impl Client {
         let mut stale: Vec<[u8; 32]> = self
             .outbox
             .iter()
-            .filter(|(_, p)| now >= p.first_at + ENVELOPE_TTL)
+            .filter(|(_, p)| now >= p.envelope.expires_at)
             .map(|(id, _)| *id)
             .collect();
         // Oldest first, so the record keeps the newest when it overflows.

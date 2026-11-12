@@ -53,6 +53,23 @@ pub async fn prepare(
     text: &[u8],
     now: u64,
 ) -> Result<[u8; 32], ChatError> {
+    prepare_for(client, relay, to, text, now, 0).await
+}
+
+/// [`prepare`] for a message with a disappearing timer of `timer` seconds (0
+/// for none); see [`Client::queue_for`].
+///
+/// # Errors
+///
+/// As [`prepare`].
+pub async fn prepare_for(
+    client: &mut Client,
+    relay: &Multiaddr,
+    to: Address,
+    text: &[u8],
+    now: u64,
+    timer: u64,
+) -> Result<[u8; 32], ChatError> {
     let bundle = if client.has_session(&to) {
         None
     } else {
@@ -63,7 +80,7 @@ pub async fn prepare(
         }
     };
     let version = version_for(client, relay).await;
-    client.queue(to, bundle.as_ref(), text, now, version)
+    client.queue_for(to, bundle.as_ref(), text, now, version, timer)
 }
 
 /// Attempts every due outbox entry once: the relay's postage, then a deposit

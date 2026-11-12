@@ -22,6 +22,8 @@ const REACTIONS = [
   ["🎉", "celebrate"],
 ];
 const LONG_PRESS_MS = 500;
+// How often lines past their disappearing deadline are removed.
+const EXPIRE_MS = 1000;
 
 function short(addr) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
@@ -116,6 +118,12 @@ function chipsOf(line) {
 function renderLine(line) {
   const li = document.createElement("li");
   li.className = line.mine ? "mine" : "theirs";
+  // The app's own words (a timer change): never a bubble, never reactable.
+  if (line.notice) {
+    li.className = "notice";
+    li.textContent = line.text;
+    return li;
+  }
   const quote = quoteOf(line);
   if (quote) li.append(quote);
   let text;
@@ -129,7 +137,7 @@ function renderLine(line) {
   const at = document.createElement("time");
   const clock = new Date(line.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   // What happened to the words: sealed here, or opened here after the trip.
-  at.textContent = `${line.mine ? "sealed" : "opened"} · ${clock}`;
+  at.textContent = `${line.mine ? "sealed" : "opened"} · ${clock}${line.timer ? " · disappears" : ""}`;
   li.append(text, at);
   const chips = chipsOf(line);
   if (chips) li.append(chips);
@@ -317,6 +325,58 @@ async function refreshDeliveries() {
   }
 }
 
+// The chat's disappearing-message setting, the plain limit while it is on,
+// the old-app warning and the one-time suggestion.
+async function drawTimer() {
+  if (!state.peer) return;
+  const view = await invoke("chat_timer", { peer: state.peer });
+  const select = $("timer");
+  select.replaceChildren(
+    ...view.options.map(([secs, label]) => {
+      const o = document.createElement("option");
+      o.value = String(secs);
+      o.textContent = label;
+      o.selected = secs === view.secs;
+      return o;
+    }),
+  );
+  $("timer-limit").textContent = view.limit;
+  $("timer-limit").hidden = view.secs === 0;
+  $("timer-warn").textContent = view.may_not_support || "";
+  $("timer-warn").hidden = !view.may_not_support;
+  $("timer-prompt-text").textContent = view.prompt || "";
+  $("timer-prompt").hidden = !view.prompt;
+  $("timer-bar").hidden = false;
+}
+
+$("timer").onchange = async () => {
+  if (!state.peer) return;
+  say("chat-error", "");
+  try {
+    drawLine(await invoke("set_timer", { peer: state.peer, secs: Number($("timer").value) }));
+  } catch (e) {
+    say("chat-error", e);
+  }
+  await drawTimer().catch((e) => say("chat-error", e));
+};
+
+$("timer-prompt-no").onclick = async () => {
+  await invoke("dismiss_timer_prompt").catch((e) => say("chat-error", e));
+  $("timer-prompt").hidden = true;
+};
+
+// Removes lines whose deadline has passed, from the screen and the store.
+async function expire() {
+  try {
+    for (const id of await invoke("expire")) {
+      $("lines").querySelector(`li[data-id="${id}"]`)?.remove();
+      if (state.replyTo && state.replyTo.id === id) cancelReply();
+    }
+  } catch (e) {
+    say("side-status", e);
+  }
+}
+
 async function openPeer(addr) {
   state.peer = addr;
   cancelReply();
@@ -329,6 +389,7 @@ async function openPeer(addr) {
   try {
     for (const line of await invoke("history", { peer: addr })) drawLine(line);
     await refreshDeliveries();
+    await drawTimer();
   } catch (e) {
     say("chat-error", e);
   }
@@ -337,7 +398,7 @@ async function openPeer(addr) {
 
 async function poll() {
   try {
-    const fresh = await invoke("poll");
+    const fresh = await invoke("poll", { open: state.peer });
     say("side-status", `Connected · checked ${new Date().toLocaleTimeString()}`);
     for (const line of fresh) {
       if (!state.contacts.some((c) => c.address === line.peer)) {
@@ -348,6 +409,7 @@ async function poll() {
       if (line.text.startsWith("Sticker pack ") && !line.sticker) Stickers.refresh().catch(() => {});
       if (line.peer === state.peer) upsertLine(line);
       else say("side-status", `New message from ${nameOf(line.peer)}`);
+      if (line.notice && line.peer === state.peer) await drawTimer();
     }
     await refreshDeliveries();
   } catch (e) {
@@ -360,6 +422,10 @@ function startPolling() {
   poll();
   state.polling = setInterval(poll, POLL_MS);
 }
+
+setInterval(() => {
+  if (!$("app").hidden) expire();
+}, EXPIRE_MS);
 
 async function enter(status, open) {
   state.address = status.address;

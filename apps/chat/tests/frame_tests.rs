@@ -291,7 +291,8 @@ fn a_reply_body_is_text_and_a_reaction_has_none() {
 fn an_unknown_kind_is_refused_cleanly_as_needing_a_newer_app() {
     // What an older app sees from a newer one: a kind it has never heard of.
     for header in [
-        r#"{"k":"timer","secs":30}"#,
+        // `timer` was the example here until build PR 2 made it known.
+        r#"{"k":"delete","targets":[]}"#,
         r#"{"k":"story"}"#,
         r#"{"k":""}"#,
     ] {

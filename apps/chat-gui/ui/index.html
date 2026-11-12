@@ -45,6 +45,17 @@
 
       <section class="chat">
         <header id="peer" class="peer">Choose a contact</header>
+        <div id="timer-bar" class="timer-bar" hidden>
+          <label for="timer">Disappearing messages</label>
+          <select id="timer"></select>
+          <span class="hint">New messages only; earlier ones keep their timer.</span>
+          <p id="timer-limit" class="hint" hidden></p>
+          <p id="timer-warn" class="timer-warn" role="status" hidden></p>
+          <p id="timer-prompt" class="timer-prompt" hidden>
+            <span id="timer-prompt-text"></span>
+            <button id="timer-prompt-no" type="button" class="secondary">Not now</button>
+          </p>
+        </div>
         <ol id="lines" class="lines" aria-live="polite"></ol>
         <div id="sticker-suggest" class="suggest" aria-label="Stickers for this emoji" hidden></div>
         <section id="sticker-panel" class="sticker-panel" aria-label="Stickers" hidden>

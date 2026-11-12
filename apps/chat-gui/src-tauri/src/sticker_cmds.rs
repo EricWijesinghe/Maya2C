@@ -14,8 +14,8 @@ use tauri::ipc::{InvokeBody, Request, Response};
 
 use crate::stickers::{self, Content, Pack, PackItem};
 use crate::store::{self, Line, RECENT_LIMIT, ReplyRef, StickerRef};
-use maya_chat::frame::Mark;
-use crate::{App, Session, address, relay_addr, remember, why};
+use maya_chat::frame::{self, Mark};
+use crate::{App, Session, address, expiry, relay_addr, remember, why};
 
 /// The picker's contents.
 #[derive(Serialize)]
@@ -132,18 +132,23 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
         title: title.clone(),
     };
     let at = now();
-    let sent = deliver(&app, s, &peer, &stickers::encode(&content, &file)?, at).await?;
+    let peer_hex = hex::encode(address(&peer)?);
+    let timer = expiry::timer_of(&s.profile, &peer_hex);
+    let sent = deliver_for(&app, s, &peer, &frame::encode_timed(&content, &file, timer)?, at, timer).await?;
+    let ends = expiry::deadline(timer, s.clock.tick(&mut s.profile));
     s.profile.recent.retain(|r| r != &id);
     s.profile.recent.insert(0, id.clone());
     s.profile.recent.truncate(RECENT_LIMIT);
     let line = Line {
         id: hex::encode(sent),
-        peer: hex::encode(address(&peer)?),
+        peer: peer_hex,
         mine: true,
         text: item.emoji,
         at,
         sticker: Some(StickerRef { id, format: item.format, pack, title }),
         outbox: Some(hex::encode(sent)),
+        timer,
+        deadline: ends,
         ..Line::default()
     };
     remember(&mut s.profile, line.clone());
@@ -165,9 +170,22 @@ pub async fn request_pack(app: State<'_, Arc<App>>, peer: String, pack: String) 
 /// it. The session is never rewound (ADR-074, decision 0). Returns the
 /// outbox id, which the caller keeps to show the message's delivery state.
 pub(crate) async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8], at: u64) -> Result<[u8; 32], String> {
+    deliver_for(app, s, peer, plain, at, 0).await
+}
+
+/// [`deliver`] for a message with a disappearing timer: relays keep it at
+/// most `timer` seconds (0: the usual TTL).
+pub(crate) async fn deliver_for(
+    app: &App,
+    s: &mut Session,
+    peer: &str,
+    plain: &[u8],
+    at: u64,
+    timer: u64,
+) -> Result<[u8; 32], String> {
     let relay = relay_addr(&s.profile)?;
     let to = address(peer)?;
-    let sent = courier::prepare(&mut s.client, &relay, to, plain, at)
+    let sent = courier::prepare_for(&mut s.client, &relay, to, plain, at, timer)
         .await
         .map_err(|e| why(&e))?;
     app.save(s)?;
@@ -219,14 +237,33 @@ pub(crate) async fn receive(
         Err(e @ maya_chat::frame::FrameError::UnknownKind) => return Some(Got::Line(line(e.to_string()))),
         Err(_) => return None,
     };
+    let timer = decoded.timer;
+    if timer != 0 {
+        // Only an app that reads timers sends a timed message.
+        s.profile.timer_peers.insert(peer.clone());
+    }
     match decoded.content {
         Content::Sticker { id: sticker, emoji, pack, title } => {
             let (_, format) = stickers::check_file(&decoded.file).ok()?;
             app.files.save_sticker(&s.seed, &decoded.file).ok()?;
             Some(Got::Line(Line {
                 sticker: Some(StickerRef { id: sticker, format, pack, title }),
+                timer,
                 ..line(emoji)
             }))
+        }
+        Content::Text => {
+            // `decode` checked the body is text.
+            let text = String::from_utf8(decoded.file).ok()?;
+            Some(Got::Line(Line { timer, ..line(text) }))
+        }
+        Content::Timer { secs } => {
+            // `decode` refused a value outside TIMER_OPTIONS. Applies to
+            // messages sent after it; every stored line keeps its own timer.
+            s.profile.timers.insert(peer.clone(), secs);
+            s.profile.timer_peers.insert(peer.clone());
+            let by = expiry::name_of(&s.profile, &peer);
+            Some(Got::Line(Line { id: String::new(), notice: true, ..line(expiry::notice(secs, &by)) }))
         }
         Content::Reaction { target, emoji, on, at } => {
             let mark = Mark { mine: false, emoji, on, at };
@@ -237,6 +274,7 @@ pub(crate) async fn receive(
             let text = String::from_utf8(decoded.file).ok()?;
             Some(Got::Line(Line {
                 reply: Some(ReplyRef { target, quote }),
+                timer,
                 ..line(text)
             }))
         }
