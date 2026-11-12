@@ -947,6 +947,7 @@ mod validators_page_tests {
         ValidatorInfo {
             id: hex::encode([id; 32]),
             operator: hex::encode([0xAA; 32]),
+            operator_text: None,
             self_bond: "100000000".into(),
             delegated: "0".into(),
             commission_bps: 500,

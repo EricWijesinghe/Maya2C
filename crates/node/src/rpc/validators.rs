@@ -20,6 +20,9 @@ pub struct ValidatorInfo {
     pub id: String,
     /// The bonding account, hex.
     pub operator: String,
+    /// The bonding account as Bech32m text (ADR-081). Additive: `operator` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_text: Option<String>,
     /// The operator's own stake.
     pub self_bond: String,
     /// Sum of delegations.
@@ -51,7 +54,10 @@ pub struct ValidatorsInfo {
 
 /// Builds the answer from the committed record.
 #[must_use]
-pub fn validators_info(record: &StakingRecord) -> ValidatorsInfo {
+pub fn validators_info(
+    record: &StakingRecord,
+    network: Option<maya_address::Network>,
+) -> ValidatorsInfo {
     let s = &record.staking;
     let mut rows: Vec<(bool, ValidatorInfo)> = s
         .validators
@@ -68,6 +74,7 @@ pub fn validators_info(record: &StakingRecord) -> ValidatorsInfo {
                 ValidatorInfo {
                     id: hex::encode(id),
                     operator: hex::encode(v.operator),
+                    operator_text: crate::rpc::types::address_text(network, &v.operator),
                     self_bond: v.self_bond.to_string(),
                     delegated: v.delegated.to_string(),
                     commission_bps: v.commission_bps,
@@ -141,7 +148,7 @@ mod tests {
         }
         s.end_epoch(&p, Amount::ZERO).unwrap();
 
-        let info = validators_info(&record(s));
+        let info = validators_info(&record(s), None);
         assert_eq!(info.total, 5);
         assert_eq!(info.committee, 4, "the jailed validator left the committee");
         let healthy = info
@@ -159,6 +166,25 @@ mod tests {
         assert!(jailed.jailed_until.is_some() && !jailed.in_committee);
     }
 
+    /// The operator's text form appears beside its hex on a text-capable chain
+    /// and is absent (not empty) on one without a registered prefix.
+    #[test]
+    fn operator_has_a_text_form_only_where_the_chain_has_one() {
+        let mut s = Staking::new(Params::DEVNET).unwrap();
+        s.register([0xA1; 32], [1; 32], Amount::from_u64(99_999), 0)
+            .unwrap();
+        let r = record(s);
+        let with = validators_info(&r, Some(maya_address::Network::Testnet));
+        let text = maya_address::encode(maya_address::Network::Testnet, &[0xA1; 32]);
+        assert_eq!(
+            with.validators[0].operator_text.as_deref(),
+            Some(text.as_str())
+        );
+        assert_eq!(with.validators[0].operator, hex::encode([0xA1u8; 32]));
+        let without = validators_info(&r, None);
+        assert_eq!(without.validators[0].operator_text, None);
+    }
+
     #[test]
     fn stake_orders_numerically_not_as_text() {
         let mut s = Staking::new(Params::DEVNET).unwrap();
@@ -168,7 +194,7 @@ mod tests {
             .unwrap();
         let mut r = record(s);
         r.staking.active.clear(); // neither in committee: ordering falls to stake
-        let info = validators_info(&r);
+        let info = validators_info(&r, None);
         assert_eq!(info.validators[0].id, hex::encode([2u8; 32]));
     }
 }

@@ -74,7 +74,7 @@ fn block_info_at(ctx: &RpcContext, height: u64) -> Result<BlockInfo, ErrorObject
             })?,
     };
 
-    Ok(BlockInfo::new(height, &block))
+    Ok(BlockInfo::new(height, &block, text_network(ctx)))
 }
 
 /// Most blocks `get_blocks_by_height_range` returns in one answer.
@@ -644,6 +644,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let (balance, id) = balance_at_height(ctx, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
                 "address": hex::encode(address),
+                "address_text": crate::rpc::types::address_text(text_network(ctx), &address),
                 "balance": balance.to_string(),
                 "height": height,
                 "block_id": hex::encode(id),
@@ -662,13 +663,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             };
             let height = chain.height();
             let config = vault.effective(height);
+            // Text forms are null on a chain with no registered prefix.
+            let network = text_network(ctx);
             let requests: Vec<serde_json::Value> = state
                 .committed_withdrawals(&address)
                 .map_err(internal)?
                 .iter()
                 .map(|(id, w)| {
                     serde_json::json!({
-                        "id": id, "to": hex::encode(w.to), "amount": w.amount.to_string(),
+                        "id": id, "to": hex::encode(w.to),
+                        "to_text": crate::rpc::types::address_text(network, &w.to),
+                        "amount": w.amount.to_string(),
                         "ready_height": w.ready_height,
                     })
                 })
@@ -677,6 +682,9 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 "delay_blocks": config.delay_blocks,
                 "limit": config.limit.to_string(),
                 "guardians": config.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
+                "guardians_text": network.map(|n| {
+                    config.guardians.iter().map(|g| maya_address::encode(n, g)).collect::<Vec<_>>()
+                }),
                 "pending_reconfiguration_height": vault.pending.as_ref().map(|(_, ready)| *ready),
                 "open_requests": vault.open,
                 "requests": requests,
@@ -716,6 +724,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                         "no balance changes kept for height {height} (genesis or pruned)"
                     ))
                 })?;
+            let network = text_network(ctx);
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::BalanceChangesInfo {
                 height,
                 block_id: hex::encode(id),
@@ -723,6 +732,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                     .iter()
                     .map(|c| crate::rpc::types::BalanceChangeInfo {
                         address: hex::encode(c.address),
+                        address_text: crate::rpc::types::address_text(network, &c.address),
                         before: c.before,
                         after: c.after,
                     })
@@ -742,6 +752,10 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 active: fees.is_some(),
                 base_fee: fees.map_or_else(|| "0".to_string(), |f| f.base_fee.to_string()),
                 collector: hex::encode(crate::state::fees::FEE_COLLECTOR),
+                collector_text: crate::rpc::types::address_text(
+                    text_network(ctx),
+                    &crate::state::fees::FEE_COLLECTOR,
+                ),
             })
         })
         .map_err(|e| rejected(e.to_string()))?;
@@ -815,7 +829,12 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .state()
                 .committed_staking()
                 .map_err(|e| rejected(e.to_string()))?;
-            Ok::<_, ErrorObjectOwned>(record.as_ref().map(super::validators::validators_info))
+            let network = text_network(ctx);
+            Ok::<_, ErrorObjectOwned>(
+                record
+                    .as_ref()
+                    .map(|record| super::validators::validators_info(record, network)),
+            )
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -935,9 +954,9 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .state()
                 .stored_htlc_lock(&lock_id)
                 .map_err(|e| rejected(e.to_string()))?;
-            Ok::<_, ErrorObjectOwned>(
-                record.map(|record| crate::rpc::types::HtlcLockInfo::new(&lock_id, &record)),
-            )
+            Ok::<_, ErrorObjectOwned>(record.map(|record| {
+                crate::rpc::types::HtlcLockInfo::new(&lock_id, &record, text_network(ctx))
+            }))
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -1014,7 +1033,8 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .stored_iot_device(&device)
                 .map_err(|e| rejected(e.to_string()))?;
             Ok::<_, ErrorObjectOwned>(
-                record.map(|record| IotDeviceInfo::new(&device, &record, height)),
+                record
+                    .map(|record| IotDeviceInfo::new(&device, &record, height, text_network(ctx))),
             )
         })
         .map_err(|e| rejected(e.to_string()))?;

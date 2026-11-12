@@ -560,12 +560,12 @@ impl OracleGenesis {
     /// [`NodeError::InvalidOracleRegistry`] if the set does not satisfy the
     /// registry's own rules — which are checked here rather than trusted,
     /// because a genesis file is a text file somebody edited.
-    pub fn registry(&self) -> Result<OracleRegistry> {
+    pub fn registry(&self, network: Option<maya_address::Network>) -> Result<OracleRegistry> {
         let authorities = self
             .authorities
             .iter()
             .map(|authority| {
-                let address = decode_address(&authority.address)?;
+                let address = decode_address(&authority.address, network)?;
                 let raw = hex::decode(&authority.vrf_key)
                     .map_err(|e| NodeError::Decode(format!("invalid genesis VRF key hex: {e}")))?;
                 let vrf_key = VrfPublicKey::decode(&raw)
@@ -620,6 +620,47 @@ fn decode_point(what: &str, encoded: &str) -> Result<[u8; 32]> {
 }
 
 impl GenesisConfig {
+    /// The network this chain's text addresses belong to (ADR-081). `None`
+    /// for a chain id with no registered prefix: such a chain takes hex only.
+    fn network(&self) -> Option<maya_address::Network> {
+        maya_address::Network::for_chain_id(&self.chain_id)
+    }
+
+    /// The staking section's limits, and every bond operator decoded. Checked in
+    /// `validate` so the committee commitment, which hashes operators without a
+    /// `Result`, never has to hash a value that cannot decode.
+    fn check_staking(&self) -> Result<()> {
+        let Some(staking) = self.bft.as_ref().and_then(|bft| bft.staking.as_ref()) else {
+            return Ok(());
+        };
+        if usize::from(staking.max_validators) > crate::consensus::bft::store::MAX_COMMITTEE {
+            return Err(NodeError::Decode(format!(
+                "bft.staking.max_validators must be at most {}",
+                crate::consensus::bft::store::MAX_COMMITTEE
+            )));
+        }
+        for bond in &staking.bonds {
+            decode_address(&bond.operator, self.network())?;
+        }
+        Ok(())
+    }
+
+    /// The bond operator as the committee commitment hashes it. Hex keeps the
+    /// lower-cased string it always had, so every genesis id written before
+    /// text addresses is unchanged. Text hashes its hex form, so one account
+    /// gives one id whichever form the file uses. A value that decodes to
+    /// nothing is hashed as written; `validate()` refuses it before any id is
+    /// used.
+    fn operator_commitment_key(&self, operator: &str) -> String {
+        if is_hex_address(operator) {
+            return operator.to_ascii_lowercase();
+        }
+        match decode_address(operator, self.network()) {
+            Ok(bytes) => hex::encode(bytes),
+            Err(_) => operator.to_ascii_lowercase(),
+        }
+    }
+
     /// The validated upgrade schedule.
     ///
     /// # Errors
@@ -714,14 +755,7 @@ impl GenesisConfig {
                     "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
                 )));
             }
-            if bft.staking.as_ref().is_some_and(|staking| {
-                usize::from(staking.max_validators) > crate::consensus::bft::store::MAX_COMMITTEE
-            }) {
-                return Err(NodeError::Decode(format!(
-                    "bft.staking.max_validators must be at most {}",
-                    crate::consensus::bft::store::MAX_COMMITTEE
-                )));
-            }
+            self.check_staking()?;
         }
         self.upgrade_schedule()?;
         self.suite_sunsets()?;
@@ -755,7 +789,7 @@ impl GenesisConfig {
         let mut seen = std::collections::BTreeSet::new();
         let mut total = U256::zero();
         for allocation in &self.allocations {
-            let address = decode_address(&allocation.address)?;
+            let address = decode_address(&allocation.address, self.network())?;
             if !seen.insert(address) {
                 // Two entries for one address would make the resulting balance
                 // depend on iteration order.
@@ -770,7 +804,7 @@ impl GenesisConfig {
         }
 
         if let Some(treasury) = &self.treasury {
-            let address = decode_address(&treasury.address)?;
+            let address = decode_address(&treasury.address, self.network())?;
 
             // Checked against the same `seen` set the allocations built, so a
             // treasury that duplicates an allocation is caught here rather
@@ -861,7 +895,7 @@ impl GenesisConfig {
             .iter()
             .map(|allocation| {
                 Ok((
-                    decode_address(&allocation.address)?,
+                    decode_address(&allocation.address, self.network())?,
                     Account {
                         balance: allocation.balance,
                         nonce: 0,
@@ -876,7 +910,7 @@ impl GenesisConfig {
         // must not depend on where in the file the treasury was declared.
         if let Some(treasury) = &self.treasury {
             accounts.push((
-                decode_address(&treasury.address)?,
+                decode_address(&treasury.address, self.network())?,
                 Account {
                     balance: treasury.balance,
                     nonce: 0,
@@ -998,7 +1032,9 @@ impl GenesisConfig {
             // Decoded, so a `0x`-prefixed reserve entry is counted too.
             let mut funded = U256::zero();
             for allocation in &self.allocations {
-                if decode_address(&allocation.address)? == crate::state::mining::MINING_RESERVE {
+                if decode_address(&allocation.address, self.network())?
+                    == crate::state::mining::MINING_RESERVE
+                {
                     funded = funded.saturating_add(allocation.balance);
                 }
             }
@@ -1039,7 +1075,7 @@ impl GenesisConfig {
         for (key, bond) in bft.verifying_keys()?.iter().zip(&staking.bonds) {
             let encoded = key.to_bytes();
             let id = validator_id(&encoded);
-            let operator = decode_address(&bond.operator)?;
+            let operator = decode_address(&bond.operator, self.network())?;
             state
                 .register(operator, id, to_amount(bond.bond), bond.commission_bps)
                 .map_err(|e| NodeError::Decode(format!("genesis bond refused: {e:?}")))?;
@@ -1238,7 +1274,7 @@ impl GenesisConfig {
             h.update(&amount_bytes(staking.min_self_bond));
             h.update(&staking.max_validators.to_le_bytes());
             for bond in &staking.bonds {
-                h.update(bond.operator.to_ascii_lowercase().as_bytes());
+                h.update(self.operator_commitment_key(&bond.operator).as_bytes());
                 h.update(&amount_bytes(bond.bond));
                 h.update(&bond.commission_bps.to_le_bytes());
             }
@@ -1292,7 +1328,7 @@ impl GenesisConfig {
         // subsystem existed. A network that does not want a trusted party does
         // not get one by upgrading.
         if let Some(oracle) = &self.oracle {
-            state.seed_oracle(&oracle.registry()?, &self.chain_id)?;
+            state.seed_oracle(&oracle.registry(self.network())?, &self.chain_id)?;
         }
 
         // Likewise optional, and likewise a decision rather than a default: a
@@ -1344,12 +1380,43 @@ impl GenesisConfig {
     }
 }
 
+/// True when the value is hex, with or without `0x`. Bech32m text always
+/// carries the letters `m` and `y` in its prefix, so the two never overlap.
+fn is_hex_address(value: &str) -> bool {
+    value
+        .trim_start_matches("0x")
+        .bytes()
+        .all(|b| b.is_ascii_hexdigit())
+}
+
+/// Decodes an account address written as hex (optionally `0x`) or as Bech32m
+/// text (ADR-081). Text must name `network`, the chain's own network; `None`
+/// means the chain id has no text form, so only hex is accepted. Both forms
+/// decode to the same 32 bytes, so a genesis written either way has one id.
+///
+/// # Errors
+///
+/// Returns [`NodeError::Decode`] for a malformed value, a text address for
+/// another network, or text on a chain with no text form.
+pub fn decode_address(value: &str, network: Option<maya_address::Network>) -> Result<Address> {
+    if is_hex_address(value) {
+        return decode_hex_address(value);
+    }
+    let network = network.ok_or_else(|| {
+        NodeError::Decode(format!(
+            "address {value} is not hex, and this chain id has no text address form"
+        ))
+    })?;
+    maya_address::decode(network, value)
+        .map_err(|e| NodeError::Decode(format!("address {value}: {e}")))
+}
+
 /// Decodes a hex address, tolerating an optional `0x` prefix.
 ///
 /// # Errors
 ///
 /// Returns [`NodeError::Decode`] if the value is not 32 bytes of hex.
-pub fn decode_address(value: &str) -> Result<Address> {
+fn decode_hex_address(value: &str) -> Result<Address> {
     let bytes = hex::decode(value.trim_start_matches("0x"))
         .map_err(|e| NodeError::Decode(format!("address {value} is not valid hex: {e}")))?;
     <Address>::try_from(bytes.as_slice()).map_err(|_| {
@@ -1503,5 +1570,129 @@ mod tests {
         );
         let new = config(stated);
         assert_ne!(new.chain_id_commitment(), old.chain_id_commitment());
+    }
+
+    /// One allocation and one bonded operator on `chain_id`, written as given.
+    fn fixture(chain_id: &str, account: String, operator: String) -> GenesisConfig {
+        let validator = crate::crypto::validator_keys::signing_key_from_seed(&[0x61; 32]).unwrap();
+        GenesisConfig {
+            chain_id: chain_id.to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: vec![Allocation {
+                address: account,
+                balance: U256::from(5_000),
+            }],
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            suite_deprecations: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec![hex::encode(validator.verifying_key().to_bytes())],
+                anchor_timeout_ms: 1_000,
+                batch_size: 100,
+                round_interval_ms: 500,
+                staking: Some(StakingGenesis::with_bonds(
+                    600,
+                    vec![GenesisBond {
+                        operator,
+                        bond: U256::from(10_000),
+                        commission_bps: 0,
+                    }],
+                )),
+                fees: None,
+                mining: None,
+            }),
+        }
+    }
+
+    fn hex_fixture() -> GenesisConfig {
+        fixture(
+            "maya-testnet-1",
+            hex::encode([0x11; 32]),
+            hex::encode([0x0a; 32]),
+        )
+    }
+
+    /// Pinned on master before text addresses existed. A change to any of
+    /// these means every existing genesis has a new identity.
+    const PINNED_CHAIN_ID_COMMITMENT: &str =
+        "ee21524e5bb3252523659b14d8b24e5aeeabe33bad391145846988d4ff120025";
+    const PINNED_GENESIS_ID: &str =
+        "d05c6e2cc5198332ac51f54afc549555216c0e0cd14f4cdaf04e6b695b0df960";
+    const PINNED_STATE_ROOT: &str =
+        "ce8961822dbecafeeb8c997e304d2a8e7bfe415e5fb3b19c20431a479a5395b2";
+
+    #[test]
+    fn hex_genesis_keeps_its_pinned_identity() {
+        let config = hex_fixture();
+        assert_eq!(
+            hex::encode(config.chain_id_commitment()),
+            PINNED_CHAIN_ID_COMMITMENT
+        );
+        assert_eq!(
+            hex::encode(config.genesis_block().unwrap().header.id()),
+            PINNED_GENESIS_ID
+        );
+        assert_eq!(hex::encode(config.state_root().unwrap()), PINNED_STATE_ROOT);
+    }
+
+    #[test]
+    fn text_genesis_has_the_same_identity_as_its_hex_twin() {
+        let text = fixture(
+            "maya-testnet-1",
+            maya_address::encode(maya_address::Network::Testnet, &[0x11; 32]),
+            maya_address::encode(maya_address::Network::Testnet, &[0x0a; 32]),
+        );
+        let hex = hex_fixture();
+        assert_eq!(text.chain_id_commitment(), hex.chain_id_commitment());
+        assert_eq!(
+            text.genesis_block().unwrap().header.id(),
+            hex.genesis_block().unwrap().header.id()
+        );
+        assert_eq!(text.state_root().unwrap(), hex.state_root().unwrap());
+    }
+
+    #[test]
+    fn decode_address_accepts_text_for_its_network_only() {
+        let text = maya_address::encode(maya_address::Network::Testnet, &[0x11; 32]);
+        assert_eq!(
+            decode_address(&text, Some(maya_address::Network::Testnet)).unwrap(),
+            [0x11; 32]
+        );
+        assert_eq!(
+            decode_address(&hex::encode([0x11; 32]), None).unwrap(),
+            [0x11; 32]
+        );
+    }
+
+    #[test]
+    fn wrong_network_text_is_refused_by_validate() {
+        let mainnet = maya_address::encode(maya_address::Network::Mainnet, &[0x11; 32]);
+        let config = fixture("maya-testnet-1", mainnet, hex::encode([0x0a; 32]));
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("expects 'tmaya'"), "{err}");
+    }
+
+    #[test]
+    fn text_on_a_chain_without_a_text_form_is_refused() {
+        let text = maya_address::encode(maya_address::Network::Testnet, &[0x11; 32]);
+        let config = fixture("genesis-earn", text, hex::encode([0x0a; 32]));
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("no text address form"), "{err}");
+    }
+
+    #[test]
+    fn an_undecodable_bond_operator_is_refused_by_validate() {
+        let config = fixture(
+            "maya-testnet-1",
+            hex::encode([0x11; 32]),
+            "maya1notanaddress".to_string(),
+        );
+        assert!(config.validate().is_err());
     }
 }

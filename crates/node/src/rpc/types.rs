@@ -27,6 +27,9 @@ pub struct FeeInfo {
     pub base_fee: String,
     /// Hex address a transaction pays its fee to, as an ordinary output.
     pub collector: String,
+    /// The collector as Bech32m text (ADR-081). Additive: `collector` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collector_text: Option<String>,
 }
 
 /// One miner's work for the current mining epoch (ADR-044).
@@ -231,11 +234,22 @@ pub struct AccountAtTip {
     pub block_id: String,
 }
 
+/// The Bech32m text of an account id on `network` (ADR-081), when the chain
+/// has a text form. Every response that returns an account address pairs its
+/// hex field with this, so a client can show the form people paste.
+#[must_use]
+pub fn address_text(network: Option<maya_address::Network>, address: &[u8; 32]) -> Option<String> {
+    network.map(|n| maya_address::encode(n, address))
+}
+
 /// One account's balance across one block.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BalanceChangeInfo {
     /// Hex-encoded address.
     pub address: String,
+    /// The same account as Bech32m text (ADR-081). Additive: `address` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_text: Option<String>,
     /// Balance before the block.
     #[serde(with = "crate::state::amount_serde")]
     pub before: U256,
@@ -260,6 +274,9 @@ pub struct BalanceChangesInfo {
 pub struct OutputInfo {
     /// Hex-encoded recipient address.
     pub recipient: String,
+    /// The same account as Bech32m text (ADR-081). Additive: `recipient` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_text: Option<String>,
     /// Amount transferred, as a decimal string (ADR-046: 256-bit).
     #[serde(with = "crate::state::amount_serde")]
     pub amount: U256,
@@ -278,6 +295,9 @@ pub struct TransactionInfo {
     /// who sent a transaction would be a needless way to spread a consensus
     /// rule into userland.
     pub sender: String,
+    /// The sender as Bech32m text (ADR-081). Additive: `sender` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_text: Option<String>,
     /// Hex-encoded ML-DSA-65 (FIPS 204) public key.
     pub lattice_public_key: String,
     /// Hex-encoded SLH-DSA-SHA2-128s (FIPS 205) public key.
@@ -334,12 +354,16 @@ pub struct SuiteKeyInfo {
     pub public_key: String,
 }
 
-impl From<&Transaction> for TransactionInfo {
-    fn from(tx: &Transaction) -> Self {
+impl TransactionInfo {
+    /// Builds a response for `tx`, with its addresses as text on `network`
+    /// when the chain has a text form.
+    #[must_use]
+    pub fn new(tx: &Transaction, network: Option<maya_address::Network>) -> Self {
         let described = crate::core::describe::describe(tx);
         Self {
             txid: hex::encode(tx.txid()),
             sender: hex::encode(tx.sender()),
+            sender_text: address_text(network, &tx.sender()),
             lattice_public_key: if tx.suite_auth.is_some() || tx.multisig.is_some() {
                 String::new()
             } else {
@@ -356,6 +380,7 @@ impl From<&Transaction> for TransactionInfo {
                 .iter()
                 .map(|output| OutputInfo {
                     recipient: hex::encode(output.recipient),
+                    recipient_text: address_text(network, &output.recipient),
                     amount: output.amount,
                 })
                 .collect(),
@@ -437,14 +462,14 @@ pub struct BlockInfo {
 impl BlockInfo {
     /// Builds a response for a block at `height`.
     #[must_use]
-    pub fn new(height: u64, block: &Block) -> Self {
+    pub fn new(height: u64, block: &Block, network: Option<maya_address::Network>) -> Self {
         Self {
             height,
             header: HeaderInfo::from(&block.header),
             transactions: block
                 .transactions
                 .iter()
-                .map(TransactionInfo::from)
+                .map(|tx| TransactionInfo::new(tx, network))
                 .collect(),
             raw: hex::encode(block.to_bytes()),
         }
@@ -501,6 +526,12 @@ pub struct HtlcLockInfo {
     pub sender: String,
     /// Hex-encoded recipient, whom a claim pays.
     pub recipient: String,
+    /// The sender as Bech32m text (ADR-081). Additive: `sender` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_text: Option<String>,
+    /// The recipient as Bech32m text (ADR-081). Additive: `recipient` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_text: Option<String>,
     /// Escrowed base units, as a decimal string (ADR-046: 256-bit).
     #[serde(with = "crate::state::amount_serde")]
     pub amount: U256,
@@ -528,7 +559,11 @@ pub struct HtlcLockInfo {
 impl HtlcLockInfo {
     /// Builds a response for one lock.
     #[must_use]
-    pub fn new(lock_id: &[u8; 32], record: &maya_htlc_lattice::LockRecord) -> Self {
+    pub fn new(
+        lock_id: &[u8; 32],
+        record: &maya_htlc_lattice::LockRecord,
+        network: Option<maya_address::Network>,
+    ) -> Self {
         use maya_htlc_lattice::{HashFunction, Lock, Settlement};
         let (status, settled_height, unlock) = match &record.settlement {
             Settlement::Open => ("locked", None, None),
@@ -542,7 +577,9 @@ impl HtlcLockInfo {
         Self {
             lock_id: hex::encode(lock_id),
             sender: hex::encode(record.sender),
+            sender_text: address_text(network, &record.sender),
             recipient: hex::encode(record.recipient),
+            recipient_text: address_text(network, &record.recipient),
             amount: maya_stateless_core::amount::to_u256(record.amount),
             created_height: record.created_height,
             expiry_height: record.expiry_height,
@@ -636,6 +673,9 @@ pub struct IotDeviceInfo {
     pub device: String,
     /// Hex-encoded owner address.
     pub owner: String,
+    /// The owner as Bech32m text (ADR-081). Additive: `owner` stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_text: Option<String>,
     /// `energy_meter` or `cold_chain_temperature`.
     pub class: String,
     /// `active`, `tampered`, `compromised` or `revoked`.
@@ -667,6 +707,7 @@ impl IotDeviceInfo {
         device: &maya_iot_anchor::DeviceId,
         record: &maya_iot_anchor::DeviceRecord,
         height: u64,
+        network: Option<maya_address::Network>,
     ) -> Self {
         use maya_iot_anchor::SensorClass;
         let progress = &record.progress;
@@ -674,6 +715,7 @@ impl IotDeviceInfo {
         Self {
             device: hex::encode(device),
             owner: hex::encode(record.owner),
+            owner_text: address_text(network, &record.owner),
             class: match record.class {
                 SensorClass::EnergyMeter => "energy_meter",
                 SensorClass::ColdChainTemperature => "cold_chain_temperature",

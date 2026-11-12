@@ -207,6 +207,52 @@ async fn get_balance_reads_text_addresses_for_its_own_network_only() {
     assert!(typoed.is_err(), "a mistyped address was accepted");
 }
 
+/// ADR-081: every RPC that returns an account address pairs the hex with its
+/// text form on the node's network. Hex stays, and an unregistered chain id
+/// gets null rather than a guessed prefix.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn account_responses_carry_the_text_form_beside_the_hex() {
+    use maya_address::{Network, encode};
+
+    let alice = generate_signing_key().expect("keygen");
+    let alice_addr = address_of(&alice);
+    let node = start_node_on(&[(alice_addr, 7)], false, Some("maya-testnet-1")).await;
+    let text = encode(Network::Testnet, &alice_addr);
+
+    let at_height: serde_json::Value = node
+        .client
+        .request(
+            "get_balance_at_height",
+            rpc_params![hex::encode(alice_addr), 0u64],
+        )
+        .await
+        .expect("get_balance_at_height");
+    assert_eq!(at_height["address"], hex::encode(alice_addr));
+    assert_eq!(at_height["address_text"], text.as_str());
+
+    let fee: serde_json::Value = node
+        .client
+        .request("get_fee_info", rpc_params![])
+        .await
+        .expect("get_fee_info");
+    let collector = encode(
+        Network::Testnet,
+        &custom_l1_node::state::fees::FEE_COLLECTOR,
+    );
+    assert_eq!(fee["collector_text"], collector.as_str());
+
+    let unregistered = start_node_on(&[(alice_addr, 7)], false, Some("genesis-earn")).await;
+    let plain: serde_json::Value = unregistered
+        .client
+        .request(
+            "get_balance_at_height",
+            rpc_params![hex::encode(alice_addr), 0u64],
+        )
+        .await
+        .expect("hex on an unregistered chain");
+    assert!(plain["address_text"].is_null(), "{plain}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn get_balance_reports_zero_for_an_unknown_account() {
     let node = start_node(&[], false).await;

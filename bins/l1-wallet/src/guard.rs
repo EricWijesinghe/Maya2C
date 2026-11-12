@@ -224,6 +224,7 @@ mod tests {
             active: true,
             base_fee: base_fee.to_string(),
             collector: collector.to_string(),
+            collector_text: None,
         }
     }
 

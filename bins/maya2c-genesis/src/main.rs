@@ -91,7 +91,9 @@ fn parse_allocation(spec: &str) -> Result<Allocation, Box<dyn Error>> {
 
     // Validate the address here so a typo fails at generation rather than at
     // every node's startup.
-    custom_l1_node::genesis::decode_address(address)?;
+    // Hex only: `--alloc` is written as hex, and the chain id that would name
+    // a text network is not known until all flags are read.
+    custom_l1_node::genesis::decode_address(address, None)?;
 
     Ok(Allocation {
         address: address.trim_start_matches("0x").to_lowercase(),
