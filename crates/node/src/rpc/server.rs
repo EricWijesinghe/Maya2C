@@ -244,6 +244,9 @@ pub struct RpcContext {
     pub cert_bytes: Arc<crate::rpc::limit::RateLimiter>,
     /// The clients with a certificate page in flight: one at a time each.
     pub cert_gate: Arc<CertGate>,
+    /// What hardware tuning chose, for `get_node_tuning` (HW-2). `None`, the
+    /// default, leaves the method unregistered (ADR-137 N-5).
+    pub tuning: Option<Arc<crate::tuning::TuningReport>>,
 }
 
 /// Bytes of certificate pages one client may take per second, sustained.
@@ -261,6 +264,20 @@ const UNKNOWN_CLIENT: IpAddr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
 /// extensions.
 #[derive(Debug, Clone, Copy)]
 pub struct ClientAddr(pub IpAddr);
+
+/// Whether the TCP peer is loopback *and* the request carries no forwarding
+/// header. Loopback alone is not access control here: the public tunnel runs
+/// on this host, so a tunnelled call also arrives from loopback (ADR-137 S-9).
+#[derive(Debug, Clone, Copy)]
+pub struct DirectLocal(pub bool);
+
+/// Headers a proxy adds; any one of them means the caller is not on this host.
+const FORWARDING_HEADERS: [&str; 4] = [
+    "cf-connecting-ip",
+    "x-forwarded-for",
+    "forwarded",
+    "x-real-ip",
+];
 
 /// Clients with a certificate page in flight. A client may hold one at a time,
 /// so one caller cannot tie up every blocking thread with reads.
@@ -374,6 +391,16 @@ impl RpcContext {
                 CERT_BYTE_BURST,
             )),
             cert_gate: Arc::new(CertGate::default()),
+            tuning: None,
+        }
+    }
+
+    /// The same context, serving `report` from `get_node_tuning` (HW-2).
+    #[must_use]
+    pub fn with_tuning(self, report: Arc<crate::tuning::TuningReport>) -> Self {
+        Self {
+            tuning: Some(report),
+            ..self
         }
     }
 
@@ -499,7 +526,23 @@ impl RpcContext {
 ///
 /// Returns an error if two methods are registered under the same name.
 pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorObjectOwned> {
+    let serves_tuning = context.tuning.is_some();
     let mut module = RpcModule::new(context);
+
+    if serves_tuning {
+        module
+            .register_method("get_node_tuning", |_params, ctx, extensions| {
+                // A missing marker (an in-process call) is refused too.
+                if !extensions.get::<DirectLocal>().is_some_and(|d| d.0) {
+                    return Err(rejected(
+                        "get_node_tuning answers only loopback callers without forwarding headers"
+                            .to_string(),
+                    ));
+                }
+                Ok::<_, ErrorObjectOwned>(ctx.tuning.as_deref().cloned())
+            })
+            .map_err(|e| rejected(e.to_string()))?;
+    }
 
     module
         .register_method("get_balance", |params, ctx, _| {
@@ -1150,9 +1193,12 @@ pub async fn serve_metered(
                         header("x-forwarded-for"),
                     );
                     let allowed = limiter.check(client);
+                    let forwarded = FORWARDING_HEADERS.iter().any(|h| headers.contains_key(*h));
+                    let direct = remote.ip().to_canonical().is_loopback() && !forwarded;
                     // Methods that weigh their cost by client (`get_certificates`)
                     // read the address from the request's extensions.
                     request.extensions_mut().insert(ClientAddr(client));
+                    request.extensions_mut().insert(DirectLocal(direct));
                     let mut inner = builder.clone().build(methods.clone(), stop2.clone());
                     async move {
                         if !allowed {

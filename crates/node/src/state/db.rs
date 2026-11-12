@@ -253,6 +253,10 @@ pub struct StateDB {
     /// DAG caches for mining shares (ADR-044), built on the first share so a
     /// chain that does not mine never pays for one.
     pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
+    /// Builder prewarm threads (0 = every core) and transactions per thread,
+    /// from [`StorageConfig`] (HW-2). Speed only; see `prewarm_verification`.
+    verify_threads: usize,
+    verify_batch: usize,
 }
 
 impl StateDB {
@@ -301,6 +305,10 @@ impl StateDB {
 
         opts.set_write_buffer_size(storage.write_buffer_mib * 1024 * 1024);
         opts.set_max_open_files(storage.max_open_files);
+        // Zero leaves RocksDB's own default in place, as before HW-2.
+        if storage.background_jobs > 0 {
+            opts.set_max_background_jobs(storage.background_jobs);
+        }
 
         let db = DB::open(&opts, path).map_err(storage_err)?;
         Ok(Self {
@@ -309,6 +317,8 @@ impl StateDB {
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
             mining_dag: OnceLock::new(),
+            verify_threads: storage.verify_threads,
+            verify_batch: storage.verify_batch.max(1),
         })
     }
 
@@ -1172,11 +1182,13 @@ impl StateDB {
         height: u64,
         policy: &SuitePolicy,
     ) -> Result<()> {
-        const MIN_PER_THREAD: usize = 32;
-        let threads = std::thread::available_parallelism()
-            .map_or(1, usize::from)
-            .min(transactions.len() / MIN_PER_THREAD)
-            .max(1);
+        // Zero threads is every core and 32 per thread, as before HW-2; a
+        // tuning profile changes only how many threads warm the cache.
+        let cores = match self.verify_threads {
+            0 => std::thread::available_parallelism().map_or(1, usize::from),
+            n => n,
+        };
+        let threads = cores.min(transactions.len() / self.verify_batch).max(1);
         if threads == 1 {
             return Ok(());
         }

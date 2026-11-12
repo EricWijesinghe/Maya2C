@@ -60,6 +60,32 @@ pub struct NodeConfig {
     pub rpc: RpcConfig,
     /// Storage engine tuning.
     pub storage: StorageConfig,
+    /// Hardware self-tuning (HW-2, ADR-137).
+    pub tuning: TuningConfig,
+}
+
+/// Hardware self-tuning. Speed only: see [`crate::tuning`].
+///
+/// Optional: an older binary refuses a config carrying this section (unknown
+/// fields are an error), so add it only after upgrading (ADR-137 N-8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct TuningConfig {
+    /// `off` (today's defaults), `auto`, `manual`, or a profile file path.
+    /// `--tuning` beats it.
+    pub mode: String,
+    /// Serve `get_node_tuning`. Off by default: a public hardware description
+    /// tells an attacker which validator to exhaust first (ADR-137 N-5).
+    pub rpc: bool,
+}
+
+impl Default for TuningConfig {
+    fn default() -> Self {
+        Self {
+            mode: "off".to_string(),
+            rpc: false,
+        }
+    }
 }
 
 /// Networking settings.
@@ -126,6 +152,15 @@ pub struct StorageConfig {
     /// `-1` lets `RocksDB` keep every file open, which is fastest and needs
     /// `LimitNOFILE` raised to match — the systemd units set it.
     pub max_open_files: i32,
+    /// Threads the block builder uses to prewarm signature checks; 0 means
+    /// every logical core. Speed only: the sequential pass still decides every
+    /// transaction, in order (`StateDB::prewarm_verification`).
+    pub verify_threads: usize,
+    /// Transactions each prewarm thread needs before another is started.
+    pub verify_batch: usize,
+    /// `RocksDB` background flush and compaction jobs; 0 leaves the library's
+    /// default in place.
+    pub background_jobs: i32,
 }
 
 impl Default for NetworkConfig {
@@ -169,6 +204,9 @@ impl Default for StorageConfig {
             block_cache_mib: 512,
             write_buffer_mib: 64,
             max_open_files: -1,
+            verify_threads: 0,
+            verify_batch: crate::tuning::DEFAULT_VERIFY_BATCH,
+            background_jobs: 0,
         }
     }
 }
@@ -249,6 +287,13 @@ impl NodeConfig {
             ));
         }
 
+        if self.storage.verify_batch == 0 {
+            return Err(NodeError::Decode(
+                "storage.verify_batch must not be 0".to_string(),
+            ));
+        }
+        self.tuning.mode.parse::<crate::tuning::TuningMode>()?;
+
         crate::network::pq::dual::DualKemPolicy::from_str_checked(&self.network.dual_kem)?;
 
         Ok(())
@@ -302,7 +347,19 @@ impl NodeConfig {
              block_cache_mib = {}\n\
              write_buffer_mib = {}\n\
              # -1 keeps every file open; raise LimitNOFILE to match.\n\
-             max_open_files = {}\n",
+             max_open_files = {}\n\
+             # Block-builder signature prewarm threads (0 = every core) and transactions per thread.\n\
+             verify_threads = {}\n\
+             verify_batch = {}\n\
+             # RocksDB background jobs (0 = the library default).\n\
+             background_jobs = {}\n\
+             \n\
+             [tuning]\n\
+             # off (the values above) | auto (sized from the host) | manual | a profile file.\n\
+             # Speed only. An explicit [storage] value beats the profile.\n\
+             mode = \"{}\"\n\
+             # Serve get_node_tuning to loopback callers without forwarding headers.\n\
+             rpc = {}\n",
             defaults.network.p2p_port,
             defaults.network.dual_kem,
             defaults.rpc.listen,
@@ -311,6 +368,11 @@ impl NodeConfig {
             defaults.storage.block_cache_mib,
             defaults.storage.write_buffer_mib,
             defaults.storage.max_open_files,
+            defaults.storage.verify_threads,
+            defaults.storage.verify_batch,
+            defaults.storage.background_jobs,
+            defaults.tuning.mode,
+            defaults.tuning.rpc,
         )
     }
 }

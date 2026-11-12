@@ -199,6 +199,8 @@ struct Args {
     ipfs_api: Option<String>,
     /// Arweave gateway to fetch archived batches from. Read-only.
     arweave_gateway: Option<String>,
+    /// `--tuning off|auto|manual|<file>`; beats `[tuning] mode` (HW-2).
+    tuning: Option<custom_l1_node::tuning::TuningMode>,
     /// Take a state snapshot every this many blocks, to serve to pruned nodes.
     snapshot_interval: Option<u64>,
     /// Bootstrap a pruned node from this peer's JSON-RPC endpoint.
@@ -256,6 +258,7 @@ impl Default for Args {
             // expensive read the node offers. Turn it on where it is wanted.
             market_addr: None,
             market_feed: None,
+            tuning: None,
             p2p_port: 30333,
             ws_listen: Vec::new(),
             bootnodes: Vec::new(),
@@ -366,6 +369,8 @@ fn print_usage() {
          --validator-pubkey <HEX>  the validator public key the signer holds\n  \
          --signer-identity <PATH>  this node's channel identity\n  \
          --generate-signer-identity <PATH>  write one, print the public key to pin\n  \
+         --tuning <MODE>      off (default), auto, manual, or a profile file: sizes the\n                           \
+         builder's signature prewarm and RocksDB caches. Speed only (ADR-137)\n  \
          --mine               mine blocks on this node (proof-of-work devnets only)\n  \
          --threads <N>        mining threads (default: available parallelism, max 8)\n  \
          -h, --help           show this message"
@@ -467,6 +472,11 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
                 args.key_command = Some(validator_key::KeyCommand::Seal(input, output));
             }
             "--threads" => args.threads = value()?.parse()?,
+            "--tuning" => args.tuning = Some(value()?.parse()?),
+            other if other.starts_with("--tuning=") => {
+                let mode = other.strip_prefix("--tuning=").unwrap_or_default();
+                args.tuning = Some(mode.parse()?);
+            }
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -860,9 +870,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Tuned from the configuration rather than `Options::default()`, whose
     // 8 MiB block cache makes almost every account read reach the disk.
+    // Hardware tuning (HW-2, ADR-137): speed only, `off` unless asked for.
+    let tuning_mode = match &args.tuning {
+        Some(mode) => mode.clone(),
+        None => node_config.tuning.mode.parse()?,
+    };
+    let hardware = custom_l1_node::tuning::HardwareProbe::detect(&args.data_dir);
+    let profile = custom_l1_node::tuning::TuningProfile::resolve(&tuning_mode, &hardware)?;
+    let storage = profile.storage(&node_config.storage);
+    let tuning_report = Arc::new(custom_l1_node::tuning::TuningReport {
+        mode: tuning_mode.to_string(),
+        hardware,
+        profile: custom_l1_node::tuning::TuningProfile::from_storage(&storage),
+    });
+    println!("{tuning_report}");
     let state = Arc::new(StateDB::open_tuned(
         args.data_dir.join(STATE_DIR),
-        &node_config.storage,
+        &storage,
     )?);
 
     let genesis_block = config.genesis_block()?;
@@ -911,6 +935,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_pool = Mempool::new(Arc::clone(&state));
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
+    // Opt-in: a public hardware description says which validator to exhaust first.
+    let rpc_context = if node_config.tuning.rpc {
+        rpc_context.with_tuning(Arc::clone(&tuning_report))
+    } else {
+        rpc_context
+    };
     let checkpoint_slot = Arc::new(Mutex::new(Default::default()));
     let status_slot = Arc::new(Mutex::new(custom_l1_node::rpc::types::BftStatus::default()));
     let rpc_context = if mode == "dag-bft" {
@@ -1295,6 +1325,24 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::{check_shielded_guard, parse_trusted_block};
     use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
+    use custom_l1_node::tuning::TuningMode;
+
+    #[test]
+    fn the_tuning_flag_takes_both_spellings_and_defaults_to_none() {
+        let parse = |v: &[&str]| super::parse_args_from(v.iter().map(ToString::to_string)).unwrap();
+        assert_eq!(
+            parse(&[]).tuning,
+            None,
+            "absent: [tuning] mode decides, default off"
+        );
+        assert_eq!(parse(&["--tuning=auto"]).tuning, Some(TuningMode::Auto));
+        assert_eq!(parse(&["--tuning", "off"]).tuning, Some(TuningMode::Off));
+        assert_eq!(
+            parse(&["--tuning=p.toml"]).tuning,
+            Some(TuningMode::File("p.toml".into()))
+        );
+        assert!(super::parse_args_from(["--tuning="].iter().map(ToString::to_string)).is_err());
+    }
 
     #[test]
     fn a_trusted_block_without_a_bootstrap_is_refused_not_ignored() {
