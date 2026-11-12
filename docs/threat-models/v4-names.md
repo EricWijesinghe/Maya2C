@@ -31,7 +31,7 @@ wallet user reading a name.
 | M-8 | **Expiry sniping**: register a lapsed name the block after grace ends, before the owner notices. | Grace of 90 days, owner-only renewal in grace; after that it is free by design. |
 | M-9 | **Century lock**: renew for 100 periods. | `periods <= 10`, cap at `height + 10 years`. |
 | M-10 | **Stealth meta-address poisoning**: `SetStealth` with an ML-KEM key the owner does not control, so a payer sends to a stealth address the attacker can scan. | Owner-only; the owner can only hurt itself. |
-| M-11 | **Stale `nm:c:` growth** as a free permanent write. | Pruned by the registering transaction of the same label; a `CommitName` fee is O-3. |
+| M-11 | **Stale `nm:c:` growth** as a free permanent write. | *Amended 2026-11-12 (ADR-135 amendment; built in #493).* Commitments are keyed by sender (`nm:c: ‖ committer ‖ commitment`) with an expiry index `nm:x:`; an end-of-block step prunes at most 1,024 expired commitments per block and carries the rest over, so the growth is bounded by the byte fee and the prune rate. No `CommitName` fee (Eric, O-3). The earlier "pruned by the registering transaction of the same label" could not be built: a registration cannot find another sender's commitment to the same label. |
 | M-12 | **Label decode**: a label with `\0` padding, uppercase, or 64 bytes slips through a lenient decoder. | Refused at decode; vector set of refused labels. |
 
 **M-2 mitigation, stated precisely.** The window between a commitment

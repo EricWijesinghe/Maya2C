@@ -83,6 +83,52 @@ Tags 55-68 are assigned here after `TAG_ACCOUNT = 54` (#447). A collision
 with a tag another branch lands first is renumbered by the coordinator, as
 ADR numbers are.
 
+### Number allocation (binding)
+
+Added 2026-11-12 by the v4 integrator, after the four build PRs (#487,
+#493, #501, #502), written in parallel, were found to reuse module 13,
+state layer 18 and governance tag 12. Every consensus number a v4 feature
+uses is fixed here, in ADR order I1 → I6, after the numbers PR #447
+(account authority, `postgen/v2`, upstream of v4) already claims. I5
+(smart-account policy) is not built; its numbers are reserved so the gap
+stays. A branch that needs a number not in this table adds a row here
+first. On a branch that lacks a lower row's feature, that number is simply
+unassigned; tests assert it decodes as unknown, never reuse it.
+
+| Item | `TxKind` tags | Breaker `Module` tag | State layer tag | `LAYER_ORDER` / `RECORD_LAYERS` position | Prefix | Governance `ParameterKey` tags | Feature bit | Wire version / txid kind |
+|---|---|---|---|---|---|---|---|---|
+| (#447, v2) account authority | 54 `Account` | 13 `Account` | 18 `AccountAuthority` | 1st after `Vault` | `ka:` | none | 9 | v9 / 9 |
+| I1 tokens (#487) | 55-58 | none (`Dex`, 1) | none (`d:asset:` v2 record) | n/a | none new | 11 `AssetRegistrationFee` | 41 | none (v6-v9 payload) |
+| I2 NFTs (#493) | 59-62 | 14 `Nft` | 19 `Nft` | 2nd after `Vault` | `n:` (`n:c:` `n:i:` `n:o:`) | none | 42 | none |
+| I3 names (#493) | 63-66 | 15 `Names` | 20 `Names` | 3rd after `Vault` | `nm:` (`nm:n:` `nm:r:` `nm:c:` `nm:x:`) | 12 `NameBaseFee3`, 13 `NameBaseFee4`, 14 `NameBaseFee5`, 15 `NameReservedLabels` | 43 | none |
+| I4 sponsored fees (#501) | none | none | none | n/a | none | none (O-4: no surcharge) | 44 | **v13 `0x0D`** / txid kind 13 |
+| I5 smart-account policy (reserved, not built) | none (sub-ops of 54) | none (`Account`, 13) | none (`ka:s:` `ka:w:` under 18) | n/a | under `ka:` | none (O-5) | 45 | none (rides v9) |
+| I6 scheduled payments (#502) | 67-68 | 16 `Scheduled` | 21 `Scheduled` | 4th after `Vault` | `sp:` (`sp:s:` `sp:d:`) | 16 `ScheduleRunFee` | 46 | none |
+
+Resulting fold order, the same list in `RECORD_LAYERS` and `LAYER_ORDER`:
+`Channels, Trading, Oracle, Governance, Sealed, Identity, Rwa, Htlc,
+ThreatIntel, Iot, Staking, Vault, AccountAuthority, Nft, Names, Scheduled,
+Stateless, UpgradeSchedule, Shielded, Contracts, Nullifiers`. `Stateless`
+before `UpgradeSchedule` is a fix, not a v4 choice: `state_layers` already
+folds `sl:` first, and `LAYER_ORDER` listed `up:` first, so a proof from a
+state holding both was refused (found on #493, moved into #487, pinned by
+`an_account_proof_verifies_from_a_state_holding_stateless_and_schedule_rows`).
+No genesis seeds `sl:`, so no root moves. Master carries the same mismatch,
+latent until `sl:` rows exist.
+
+Next free after v4: `TxKind` 69, module 17, layer 22, `ParameterKey` 17,
+feature bit 47 (bits 8-40 are other ADRs' claims in `adr-claims.txt`), wire
+v14. `V4_VERSION` (the rules epoch) is not assigned by these PRs: #447
+takes `SUPPORTED_PROTOCOL_VERSION` 2 → 3 for v2, so v4 is expected to be 5
+once v3 takes 4; the v3 and v4 umbrella binaries set it.
+
+Shared code: `StateDB::scan_prefix_limit` (bounded prefix scan for the
+name-commit prune and the scheduled-payment step) lives once, in #487;
+`scan_prefix` is `scan_prefix_limit(usize::MAX)`.
+
+When the branches are stacked, every conflict is textual (the same enum
+arms, lists and test counts): resolve it to this table, never by renumbering.
+
 ### Activation and kill switches
 
 - **One entry.** `ScheduleRequest { activation: V4_ACTIVATION, version:
@@ -243,8 +289,9 @@ invariant-34 rate; O-1 applies):
 - `CommitName`: writes `nm:c:` with the height and sender. Re-committing
   the same commitment is refused (the age must not reset). A commitment
   older than `MAX_COMMIT_AGE` is garbage: `RegisterName` deletes the one
-  it consumes; stale ones are pruned by the registering transaction of the
-  same label only (no sweep; bounded work).
+  it consumes; stale ones are pruned by a bounded per-block step (1,024 a
+  block, carry-over), not by the registering transaction (amended
+  2026-11-12, below).
 - `RegisterName`: `commitment` recomputed from `(label, sender, salt)` must
   exist, with `committer == sender` and `MIN_COMMIT_AGE <= height - h_c <=
   MAX_COMMIT_AGE`; the label is free (no record, or `height > expires_at +
@@ -445,9 +492,10 @@ Context (2026-11-12):
 Each of `n:`, `nm:`, `sp:` is added to `RECORD_LAYERS` with its layer, so
 `uncovered_keys()` and `a_new_top_level_prefix_is_caught_until_it_gets_a_layer`
 cover it, and every write is an overlay record under `capture_undo`. Three
-new `StateLayer` variants are appended after the existing seventeen (and
-after #447's `AccountAuthority`); the state-proof layer tag is the variant's
-position, appended never reordered. A node that never sees a v4 record keeps
+new `StateLayer` variants take tags 19-21 after the existing seventeen and
+#447's `AccountAuthority` (18), and fold after `Vault` in the order the
+"Number allocation (binding)" table gives; a tag is never reused or
+reordered. A node that never sees a v4 record keeps
 its pre-v4 root: no layer contributes to the fold when it has no records
 (the property `the_root_is_unchanged_when_no_*_exists` tests pin for every
 existing layer).
@@ -520,7 +568,7 @@ Holes found in the first draft and the fix applied in the text above:
 | S-1 | A session key could sign `AddSessionKey` for itself with a wider scope (privilege escalation). | Account sub-ops are owner-threshold actions, never signable by a session key; vector "session-key-signed sub-op refused". |
 | S-2 | `SetReverse` by the address owner could point an address at a name whose `target` is someone else, so a wallet showing "reverse name" would attribute a name the owner does not control. | `SetReverse` requires `target == sender`; `Transfer` clears the old reverse. |
 | S-3 | `CommitName` re-submission reset the age, letting a committer keep a commitment perpetually fresh and grind it against reveals. | Duplicate commitment refused; age never resets. |
-| S-4 | Stale `nm:c:` rows accumulate forever (a free permanent write per commit). | Pruned by the registering transaction of the same label; the `CommitName` byte fee is the storage price; O-3 may add a commit fee. |
+| S-4 | Stale `nm:c:` rows accumulate forever (a free permanent write per commit). | *Amended 2026-11-12 (the build found the original fix unbuildable: `nm:c:` was keyed by commitment, so a registration cannot find other commitments for its label).* Commitments are keyed by sender (`nm:c: ‖ committer ‖ commitment`), indexed by expiry under `nm:x:`, and an end-of-block step prunes at most `MAX_COMMIT_PRUNE_PER_BLOCK = 1,024` expired rows per block, carrying the rest over. The `CommitName` byte fee is the storage price; no commit fee (O-3). |
 | S-5 | Mempool rules for sponsors (64 pending, Σ max_fee) were written as if consensus; a block carrying a 65th frame would be refused by some nodes. | Stated as admission policy only; validity is per-frame apply. |
 | S-6 | Mint `amount = 0` was accepted: a free way to rewrite the record to v2 and churn the root. | Refused. |
 | S-7 | `BurnItem` then re-mint could reuse an index and resurrect a burned item's owner row. | `minted` never falls; indices are never reused. |
@@ -573,5 +621,78 @@ vector that contains a period.
 | O-3 | **Changed from the default.** `NameBaseFee` is non-zero for 3- and 4-character labels and near zero for 5+, per year, burned; values are governed parameters proposed in the I3 PR, not fixed here. No fee on `CommitName`. One reserved label, `maya2c`, held by a governance proposal, not by a key. Reason: a zero fee lets one account register every short label at activation. |
 | O-4 | Sponsor-only, zero surcharge; 64 pending / 86,400-block window as node defaults. |
 | O-5 | Bytes only. |
-| O-6 | `RUN_FEE` zero at activation (governed, raisable), joins tips; `MAX_RUNS` and `MIN_INTERVAL` compiled. |
+| O-6 | `RUN_FEE` zero at activation (governed, raisable), joins tips; `MAX_RUNS` and `MIN_INTERVAL` compiled. *Superseded 2026-11-12, below: non-zero at activation.* |
 | O-7 | All six features as written; if the window slips, P-7 (schedules) moves to v5 first. |
+
+### Eric's economics decisions (2026-11-12, second round)
+
+| Item | Decision | Where |
+|---|---|---|
+| Scheduled payments `RUN_FEE` | Starts at a small **non-zero** governed value at activation, about the base fee of one minimal transfer per run, still governed and lowerable. Default `SCHEDULE_RUN_FEE_DEFAULT = 13,215,000,000` base units: the launch base-fee floor (10^6 per byte, `LAUNCH_MIN_BASE_FEE`) times the measured 13,215-byte v5 transfer (`reports/13-pq-weight.md`). A derivation, not a measurement of a v4 run. It prices the queue-stuffing residual (S-2 of #502) at a transfer's fee per queued run instead of one base unit. | #502, `crates/governance/src/params.rs` |
+| Names `NameBaseFee5` (5+ characters) | A small **non-zero** yearly fee, burned: 1/100 of the 4-character default, `10^15` base units. The 3- and 4-character defaults (`10^18`, `10^17`) stay as the I3 PR proposed, labelled "proposed default, governed". | #493, `crates/governance/src/params.rs` |
+
+## Amendment (2026-11-12): what the builds changed
+
+The four build PRs found places where this ADR could not be built as
+written, or where a stricter rule was safer. Each change below is in the
+named PR; this section is the record (Standing Order 9).
+
+**Names (P-3, #493).**
+- Commitments are **keyed by sender**: `nm:c: ‖ committer(32) ‖
+  commitment(32)`, with an expiry index under `nm:x:`. As drafted, `nm:c:`
+  was keyed by the commitment alone, so a registering transaction could not
+  find other stale commitments for its label and the "pruned by the
+  registering transaction" rule could not be implemented.
+- **Per-block prune, replacing "no sweep".** An end-of-block step deletes at
+  most `MAX_COMMIT_PRUNE_PER_BLOCK = 1,024` expired commitments per block,
+  in key order, and carries the rest over. Work per block is bounded
+  (invariant 33); stale growth is bounded by the byte fee and the prune
+  rate. S-4 above and threat-model M-11 (`v4-names.md`) are updated.
+- **`maya2c` is held by a governance parameter**, `NameReservedLabels`
+  (tag 15): a bit set over the compiled `RESERVED_LABELS`, default "all
+  held", released only by a passed proposal clearing a bit. This is Eric's
+  O-3 "held by a governance proposal, not by a key", made concrete.
+
+**Scheduled payments (P-7, #502).**
+- **Escrow is prepaid** at creation, `(amount + RUN_FEE) × runs`, as drafted;
+  a run moves escrow the chain already holds.
+- **At most `MAX_DUE_PER_BLOCK = 256` runs per block**, carry-over in
+  `(next_due, id)` order, as drafted, with a const assert tying the step's
+  writes to `MAX_BLOCK_BYTES`.
+- **Vaults may not create (or cancel) schedules.** Stricter than drafted:
+  the ADR let the escrow debit count against the vault window; invariant 32
+  already refuses every form but a transfer or a vault action from a vault
+  (`vault_check`), so the build refuses it. Side effect: an account that
+  becomes a vault after creating a schedule cannot cancel it; its runs and
+  the final refund still happen. Runs are never vault outflow.
+- **A one-year horizon**: `first_due − height` and `interval` are each at
+  most `MAX_SCHEDULE_HORIZON_BLOCKS` (31,536,000). Not in the draft; added by
+  the security review so a schedule cannot pin a row for decades.
+
+**Sponsored fees (P-4, #501).**
+- **No `sp:` prefix.** P-4 writes no state (a sponsorship is an account
+  move under the undo journal). `sp:` stays with scheduled payments.
+- **v5 inners are allowed.** The encoder writes a hybrid
+  `TxKind::Transfer` as v5, so the inner may be v5-v8 (v9 once #447 is on
+  the base); an inner v13 is still refused (depth 1).
+- **The 86,400-block `valid_until` window is admission-only** (node policy,
+  per O-4's "node defaults"); a block may carry a longer `valid_until`, and
+  validity is `height <= valid_until` alone. Decode has no height, so a v13
+  frame before bit 44 decodes and is refused at admission and apply by one
+  check, not "at decode".
+- **Open, not fixed in #501:** **M1 multisig padding** (a multisig inner's
+  txid excludes its approvals, so spare approvals can pad the inner and
+  raise `required(outer_len)` up to the signed `max_fee`; bounded griefing;
+  the fix is adding `inner_len` to the sponsor signing bytes, a change to
+  this ADR's signed bytes); **M2 rug relay** (a sponsor can invalidate 64
+  relayed frames with one spend of its own; mitigations are mempool policy);
+  **M3 builder quadratic** (sponsored transfers take a full overlay copy,
+  quadratic in their count per block; a fast path is the fix). Each needs a
+  decision before activation.
+
+**Activation.** A v4 schedule proposal names bits 41-46, which a genesis
+binary does not know. That would fork old nodes at the *proposal*, not at
+activation. It is being fixed in the genesis binary (re-freeze PR "fix:
+admit unknown upgrade bits", branch `fix/upgrade-admit-unknown-bits`), so a
+v4 proposal is admissible on pre-v4 nodes and only activation needs the new
+binary.
