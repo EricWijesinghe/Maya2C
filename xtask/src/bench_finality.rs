@@ -277,11 +277,11 @@ fn post_scheduled(
     Some((txid, sent))
 }
 
-fn run_load(
-    o: &Options,
-    signed: &[Vec<String>],
-    from_height: u64,
-) -> (usize, Vec<(String, Instant)>, HashMap<String, Seen>, f64) {
+/// What `run_load` returns: txs offered, accepted posts with their send time,
+/// what the observer saw, and the submit window in seconds.
+type LoadOutcome = (usize, Vec<(String, Instant)>, HashMap<String, Seen>, f64);
+
+fn run_load(o: &Options, signed: &[Vec<String>], from_height: u64) -> LoadOutcome {
     let submitting = AtomicBool::new(true);
     let accepted = AtomicU64::new(0);
     let posts: Mutex<Vec<(String, Instant)>> = Mutex::new(Vec::new());
