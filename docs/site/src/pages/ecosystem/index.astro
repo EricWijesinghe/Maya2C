@@ -15,65 +15,58 @@ const tones = [
   { id: "warn", label: "Stub, planned or in progress" },
 ] as const;
 const count = (tone: string) => hubItems.filter((i) => i.tone === tone).length;
-const angle = (i: number) => (i / groups.length) * Math.PI * 2 - Math.PI / 2;
-const node = (i: number) => ({ x: 50 + 36 * Math.cos(angle(i)), y: 50 + 36 * Math.sin(angle(i)) });
 ---
 
 <StarlightPage frontmatter={{ title: "Ecosystem", description: "Apps, SDKs, tools, the MCP server and agent tools around Maya2C, each with its reality-ledger status; where to start building; partners and funding as they stand today.", template: "splash" }}>
-  <div class="not-content hub" data-hub>
+  {/* U3 (2026-11-13): an app page. The orbit map and emoji cards became a
+      sub-nav and one dense table per group (src/styles/app.css). */}
+  <div class="not-content app hub" data-hub>
+    <nav class="app-subnav" aria-label="Ecosystem groups">
+      {groups.map((g) => <a href={`#g-${g.id}`}>{g.label} <span class="n">{g.items.length}</span></a>)}
+      <a href="#h-build">Build</a>
+      <a href="#h-partners">Partners</a>
+      <a href="#h-funding">Funding</a>
+    </nav>
+
     <p class="lede">
       Everything around the chain, with the status the reality ledger (<code>features.toml</code>) gives it at build time.
       The testnet is paused, so live services are offline until it restarts.
     </p>
 
-    <!-- The map: the chain in the centre, one bubble per group; a bubble jumps to its cards. -->
-    <nav class="map" aria-label="Ecosystem groups">
-      <svg class="spokes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <circle cx="50" cy="50" r="36" class="orbit" />
-        {groups.map((_, i) => <line x1="50" y1="50" x2={node(i).x} y2={node(i).y} />)}
-      </svg>
-      <div class="core" aria-hidden="true"><strong>Maya2C</strong><span>{hubItems.length} items</span></div>
-      <ul>
-        {groups.map((g, i) => (
-          <li style={`--x:${node(i).x.toFixed(2)}%;--y:${node(i).y.toFixed(2)}%`}>
-            <a href={`#g-${g.id}`} class="bubble"><b>{g.items.length}</b><span>{g.label}</span></a>
-          </li>
-        ))}
-      </ul>
-    </nav>
-
     <div class="filters" role="group" aria-label="Show items by status">
-      <button type="button" class="ui-btn ui-btn--secondary" data-filter="all" aria-pressed="true">All {hubItems.length}</button>
+      <button type="button" class="ui-btn ui-btn--sm ui-btn--secondary" data-filter="all" aria-pressed="true">All {hubItems.length}</button>
       {tones.map((t) => (
-        <button type="button" class="ui-btn ui-btn--ghost" data-filter={t.id} aria-pressed="false"><span class={`ui-pill ui-pill--${t.id}`}>{t.label} {count(t.id)}</span></button>
+        <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" data-filter={t.id} aria-pressed="false"><span class={`ui-pill ui-pill--${t.id}`}>{t.label} {count(t.id)}</span></button>
       ))}
     </div>
 
     {groups.map((g) => (
-      <section id={`g-${g.id}`} class="group" aria-labelledby={`h-${g.id}`}>
-        <h2 id={`h-${g.id}`}>{g.label}</h2>
-        <ul class="cards">
-          {g.items.map((i) => (
-            <li data-tone={i.tone}>
-              <a class="ui-card ui-card--raised card" href={i.href}>
-                <span class="ic" aria-hidden="true">{i.icon}</span>
-                <strong>{i.name}</strong>
-                <span class={`ui-pill ui-pill--${i.tone}`}>{i.chip}</span>
-                <span class="what">{i.what}</span>
-                <code class="where">{i.pr ? `PR #${i.pr}` : i.path}</code>
-              </a>
-            </li>
-          ))}
-        </ul>
+      <section id={`g-${g.id}`} class="app-section group" aria-labelledby={`h-${g.id}`}>
+        <h2 id={`h-${g.id}`}>{g.label} <span class="n">{g.items.length}</span></h2>
+        <div class="ui-table-wrap app-table">
+          <table class="ui-table">
+            <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">What it does</th><th scope="col">Where</th></tr></thead>
+            <tbody>
+              {g.items.map((i) => (
+                <tr data-tone={i.tone}>
+                  <td class="name"><a href={i.href}>{i.name}</a></td>
+                  <td><span class={`ui-pill ui-pill--${i.tone}`}>{i.chip}</span></td>
+                  <td class="app-wrap what">{i.what}</td>
+                  <td class="app-mono where">{i.pr ? `PR #${i.pr}` : i.path}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     ))}
 
-    <section class="group" aria-labelledby="h-build">
+    <section class="app-section group" aria-labelledby="h-build">
       <h2 id="h-build">Build on Maya2C</h2>
       <ul class="entries">
         {entryPoints.map((e) => (
           <li class="ui-card entry">
-            <h3><span aria-hidden="true">{e.icon}</span> {e.title}</h3>
+            <h3>{e.title}</h3>
             <p class="row"><span class="tag">Today</span>
               {e.exists.map((id) => { const i = byId.get(id)!; return <a class={`ui-pill ui-pill--${i.tone}`} href={i.href}>{i.name}</a>; })}
             </p>
@@ -85,7 +78,7 @@ const node = (i: number) => ({ x: 50 + 36 * Math.cos(angle(i)), y: 50 + 36 * Mat
       <p class="muted small">Planned names are rows in the <a href={`${REPO}/blob/master/docs/ecosystem/CATALOG.md`}>ecosystem catalog</a>, a staging list rather than a status claim. The order is on the <a href="/ecosystem/roadmap/">roadmap</a>.</p>
     </section>
 
-    <section class="group" aria-labelledby="h-partners">
+    <section class="app-section group" aria-labelledby="h-partners">
       <h2 id="h-partners">Partners</h2>
       {partners.length === 0 ? (
         <div class="ui-card empty">
@@ -108,7 +101,7 @@ const node = (i: number) => ({ x: 50 + 36 * Math.cos(angle(i)), y: 50 + 36 * Mat
       </ol>
     </section>
 
-    <section class="group" aria-labelledby="h-funding">
+    <section class="app-section group" aria-labelledby="h-funding">
       <h2 id="h-funding">Funding</h2>
       <div class="facts">
         <div class="ui-card fact"><span class="ui-pill ui-pill--bad">None</span><strong>Grants programme</strong><span class="muted">There is no grants programme today.</span></div>
@@ -116,9 +109,9 @@ const node = (i: number) => ({ x: 50 + 36 * Math.cos(angle(i)), y: 50 + 36 * Mat
       </div>
       <p>What a builder does get:</p>
       <ul class="gets">
-        <li><span aria-hidden="true">🏷️</span> <strong>Credit</strong>: a checked entry in the contributors list, and security reporters on the <a href="/guides/security-hall-of-fame/">Hall of Fame</a>.</li>
-        <li><span aria-hidden="true">🎖️</span> A <a href="/guides/contributors/">contributor badge</a>: a record, with no token and no money.</li>
-        <li><span aria-hidden="true">🔍</span> <strong>Review</strong>: every suggestion read in full and every pull request inspected line by line; the maintainer decides.</li>
+        <li><strong>Credit</strong>: a checked entry in the contributors list, and security reporters on the <a href="/guides/security-hall-of-fame/">Hall of Fame</a>.</li>
+        <li>A <a href="/guides/contributors/">contributor badge</a>: a record, with no token and no money.</li>
+        <li><strong>Review</strong>: every suggestion read in full and every pull request inspected line by line; the maintainer decides.</li>
       </ul>
       <p><a class="ui-btn ui-btn--primary" href={`${REPO}/issues/new?template=suggestion.yml`}>Propose work</a></p>
     </section>
@@ -138,59 +131,35 @@ const node = (i: number) => ({ x: 50 + 36 * Math.cos(angle(i)), y: 50 + 36 * Mat
 </script>
 
 <style>
-  .hub { max-width: 64rem; margin: 1rem auto 3rem; }
-  .lede { max-width: 46rem; color: var(--lede); font-size: 1.02rem; }
-  .muted { color: var(--muted); }
-  .small { font-size: 0.85rem; }
+  .lede { margin: 0 0 var(--space-4); max-width: 72ch; font-size: var(--type-body-size); line-height: 1.55; color: var(--text-2); }
+  .muted { color: var(--text-2); }
+  .small { font-size: var(--type-body-sm-size); }
+  .n { margin-inline-start: var(--space-1); font: var(--type-body-sm-size) var(--font-mono); color: var(--text-3); }
+  .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-8); }
+  .filters button[aria-pressed="true"] { border-color: var(--accent); }
+  .group tr[hidden] { display: none; }
+  .name a { font-weight: var(--weight-medium); color: var(--text); text-decoration: none; white-space: nowrap; }
+  .name a:hover { color: var(--accent-text); }
+  .what { color: var(--text-2) !important; }
+  .where { color: var(--text-2); font-size: var(--type-body-sm-size); }
+  .group > h3 { margin: var(--space-6) 0 var(--space-3); font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  .group > p { margin: var(--space-3) 0; color: var(--text-2); }
 
-  /* Map: a grid on phones, an orbit from 760 px. */
-  .map { position: relative; margin: 1.5rem auto; }
-  .spokes { display: none; }
-  .core { margin: 0 auto 1rem; width: 7.5rem; height: 7.5rem; border-radius: 50%; display: grid; place-content: center; text-align: center;
-    background: radial-gradient(circle, #9ff3f6 0%, #1fb5c2 58%, rgba(201, 168, 106, 0.25) 72%, transparent 73%); }
-  .core strong { color: #02161a; font-size: 1.15rem; }
-  .core span { color: #053139; font-size: 0.7rem; }
-  .map ul { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; }
-  .map li { margin: 0; }
-  .bubble { display: grid; justify-items: center; gap: 0.1rem; padding: 0.75rem 0.5rem; min-height: 44px; border-radius: 1rem; text-align: center;
-    background: var(--glass); border: 2px solid var(--glass-edge); color: var(--text); text-decoration: none; }
-  .bubble:hover, .bubble:focus-visible { border-color: var(--cherenkov); }
-  .bubble b { font-size: 1.5rem; color: var(--cherenkov-hi); }
-  .bubble span { font-size: 0.8rem; }
-  @media (min-width: 760px) {
-    .map { aspect-ratio: 1; max-width: 32rem; }
-    .spokes { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
-    .spokes line { stroke: var(--cherenkov); stroke-width: 0.3; stroke-dasharray: 1 1.8; }
-    .orbit { fill: none; stroke: var(--sl-color-hairline); stroke-width: 0.15; }
-    .core { position: absolute; left: 50%; top: 50%; translate: -50% -50%; margin: 0; width: 24%; height: 24%; }
-    .map ul { display: block; }
-    .map li { position: absolute; left: var(--x); top: var(--y); translate: -50% -50%; width: 24%; }
-    .bubble { aspect-ratio: 1; border-radius: 50%; align-content: center; }
-  }
-
-  .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin: 1rem 0 0.5rem; }
-  .filters button[aria-pressed="true"] { outline: 2px solid var(--cherenkov); }
-  .group { margin-top: 2.5rem; scroll-margin-top: 5rem; }
-  .group h2 { margin: 0 0 1rem; }
-  .cards, .entries { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }
+  .cards, .entries { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-3); }
   .cards li, .entries li { margin: 0; }
-  .card { display: grid; gap: 0.35rem; height: 100%; text-decoration: none; color: var(--text); box-sizing: border-box; }
-  .card .ic { font-size: 1.5rem; line-height: 1; }
-  .card .ui-pill { justify-self: start; }
-  .what { font-size: 0.9rem; color: var(--lede); }
-  .where { font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
-
-  .entry h3 { margin: 0 0 0.5rem; font-size: 1.1rem; }
-  .row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.4rem 0; font-size: 0.9rem; }
+  .card { display: grid; gap: var(--space-1); height: 100%; text-decoration: none; color: var(--text); }
+  .entry h3 { margin: 0 0 var(--space-2); font-size: var(--type-body-lg-size); }
+  .row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin: var(--space-2) 0 !important; font-size: var(--type-body-sm-size); }
   .row a.ui-pill { text-decoration: none; }
-  .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); min-width: 4.5rem; }
+  .tag { min-width: 4.5rem; font-size: var(--type-body-sm-size); color: var(--text-3); }
 
-  .empty { border-style: dashed; text-align: center; }
-  .empty .big { font-size: 1.3rem; font-weight: 700; margin: 0 0 0.25rem; }
-  .steps { padding-left: 1.4rem; }
-  .steps li { margin: 0.35rem 0; }
-  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem; }
-  .fact { display: grid; gap: 0.3rem; justify-items: start; }
-  .gets { list-style: none; padding: 0; }
-  .gets li { margin: 0.35rem 0; }
+  .empty { border-style: dashed; }
+  .empty .big { margin: 0 0 var(--space-1) !important; font-weight: var(--weight-semibold); color: var(--text) !important; }
+  .steps { padding-left: var(--space-6); color: var(--text-2); }
+  .steps li { margin: var(--space-2) 0; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-3); }
+  .fact { display: grid; gap: var(--space-1); justify-items: start; }
+  .gets { list-style: none; padding: 0; color: var(--text-2); }
+  .gets li { margin: var(--space-2) 0; }
+  .gets strong { color: var(--text); }
 </style>
