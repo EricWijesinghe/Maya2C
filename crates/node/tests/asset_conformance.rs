@@ -7,9 +7,9 @@
 
 use std::path::PathBuf;
 
+use custom_l1_node::core::asset_mint_payload::AssetMintAction;
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
-use custom_l1_node::core::asset_mint_payload::AssetMintAction;
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::asset::{AssetRecordV2, NO_AUTHORITY};
@@ -52,7 +52,11 @@ fn encoding_case(case: &Value) {
     let mut again = Vec::new();
     kind.encode_into(&mut again);
     assert_eq!(again, bytes, "{id}: re-encoding differs");
-    assert_eq!(bytes.len(), usize::try_from(num(&case["size"])).unwrap(), "{id}");
+    assert_eq!(
+        bytes.len(),
+        usize::try_from(num(&case["size"])).unwrap(),
+        "{id}"
+    );
 }
 
 fn record_case(case: &Value) {
@@ -67,7 +71,11 @@ fn record_case(case: &Value) {
     let e = &case["expect"];
     assert_eq!(r.base.total_supply, amount(&e["supply"]), "{id}");
     assert_eq!(r.cap, amount(&e["cap"]), "{id}");
-    assert_eq!(hex::encode(r.authority), e["authority"].as_str().unwrap(), "{id}");
+    assert_eq!(
+        hex::encode(r.authority),
+        e["authority"].as_str().unwrap(),
+        "{id}"
+    );
 }
 
 struct Actors {
