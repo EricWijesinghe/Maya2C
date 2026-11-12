@@ -20,7 +20,7 @@ const counts = [
   <a class="item" href={repo}><span class="k">Open source</span><span class="v">Apache-2.0, on GitHub</span></a>
   <a class="item" href="/guides/faq/#is-the-code-open-source-and-is-it-audited"><span class="k">External audit</span><span class="v"><span class="ui-pill ui-pill--warn">pending</span></span></a>
   {counts.map((c) => (
-    <a class="item" href={ratchet}><span class="k">{c.label}</span><span class="v ui-num">{c.n!.toLocaleString("en-US")}</span></a>
+    <a class="item" href={ratchet}><span class="k">{c.label}</span><span class="v">{c.n!.toLocaleString("en-US")}</span></a>
   ))}
   <p class="src">Counts: <code>proof-ratchet.txt</code> at build time <SourceTip text="cargo xtask proof-ratchet --check fails CI if any count falls (ADR-078 O3)" href={ratchet} /></p>
 </section>

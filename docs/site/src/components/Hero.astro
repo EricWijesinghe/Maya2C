@@ -27,8 +27,8 @@ import { testnet } from "../data/network-state";
         <span>maya-testnet-1 · <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
       )}
     </p>
-    <h1 id="hero-title">Post-quantum layer-1, built in Rust.</h1>
-    <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by DAG-BFT. Open source, and every number on this page links to its source.</p>
+    <h1 id="hero-title">Post-quantum <span class="nw">layer-1</span>, built in Rust.</h1>
+    <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by <span class="nw">DAG-BFT</span>. Open source, and every number on this page links to its source.</p>
     <div class="cta">
       <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
       <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
@@ -132,6 +132,7 @@ import { testnet } from "../data/network-state";
   .dot { flex: none; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--warn); }
   .hero.live .dot { background: var(--success); }
   h1 { margin: var(--space-6) 0 var(--space-4); font: var(--type-display-1-weight) clamp(var(--type-display-1-size-phone), 5.4vw, 64px)/1.08 var(--type-display-1-font); letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
+  .nw { white-space: nowrap; }
   .sub { margin: 0 auto; max-width: 40rem; font-size: var(--type-body-lg-size); line-height: var(--line-body); color: var(--text-2); text-wrap: pretty; }
   .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); margin-top: var(--space-8); }
   .cta .ui-btn { height: 40px; padding: 0 var(--space-5); text-decoration: none; }
