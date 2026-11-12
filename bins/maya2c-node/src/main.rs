@@ -909,6 +909,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let rpc_pool = Mempool::new(Arc::clone(&state));
+    rpc_pool.set_shielded_activation(config.shielded_activation());
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
     let checkpoint_slot = Arc::new(Mutex::new(Default::default()));
@@ -928,6 +929,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let identity = load_or_create_identity(&args.data_dir)?;
     let pq = PqUpgrade::with_policy(args.dual_kem).with_mlkem1024(args.mlkem1024);
     let mut p2p = Node::new_tcp_with_identity_and_pq(Arc::clone(&state), identity, pq)?;
+    p2p.mempool()
+        .set_shielded_activation(config.shielded_activation());
     if args.allow_private_peers {
         p2p.allow_private_peer_addresses();
     }

@@ -25,12 +25,15 @@
 
 use primitive_types::U256;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::core::{MAX_TX_BYTES, Transaction};
+use crate::crypto::suites::SuiteSunsets;
 use crate::error::{NodeError, Result};
+use crate::state::context::{BlockContext, SHIELDED_ACTIVATION_HEIGHT};
 use crate::state::{Address, Module, StateDB};
+use maya_crypto_pq::agility::SuitePolicy;
 
 /// Identifier of a pooled transaction.
 pub type TxHash = [u8; 32];
@@ -54,6 +57,9 @@ pub struct Mempool {
     /// its cheapest per byte without re-encoding everything it holds. Changed
     /// only under the pool's write lock.
     fees: Arc<std::sync::Mutex<HashMap<TxHash, (U256, usize)>>>,
+    /// The chain's shielded activation height, shared by every clone. Starts
+    /// at the compiled default until the node sets the genesis value.
+    shielded_activation: Arc<AtomicU64>,
 }
 
 /// What one sender has pooled.
@@ -94,7 +100,15 @@ impl Mempool {
             max_bytes: DEFAULT_MAX_BYTES,
             senders: Arc::default(),
             fees: Arc::default(),
+            shielded_activation: Arc::new(AtomicU64::new(SHIELDED_ACTIVATION_HEIGHT)),
         }
+    }
+
+    /// Sets the shielded activation admission judges against. The node calls
+    /// this once, with the genesis's value, before it accepts transactions;
+    /// every clone of the pool sees it.
+    pub fn set_shielded_activation(&self, height: u64) {
+        self.shielded_activation.store(height, Ordering::Relaxed);
     }
 
     /// The same pool with a byte budget of `max_bytes` instead of the default.
@@ -239,6 +253,12 @@ impl Mempool {
     /// [`NodeError::InsufficientBalance`] when the sender cannot cover the
     /// outputs, or [`NodeError::BalanceOverflow`] on arithmetic overflow.
     pub fn validate(&self, tx: &Transaction) -> Result<()> {
+        let admission = self.admission()?;
+        self.validate_with(tx, &admission)
+    }
+
+    /// [`Self::validate`] against an admission snapshot the caller read once.
+    fn validate_with(&self, tx: &Transaction, adm: &Admission) -> Result<()> {
         // The state checks run *before* the signature, and that is a reversal
         // of what this function used to do, for a cost reason (ADR-013):
         //
@@ -270,7 +290,7 @@ impl Mempool {
         if let crate::core::TxKind::MiningShare(share) = &tx.kind
             && tx.outputs.is_empty()
         {
-            return self.validate_share(tx, share);
+            return self.validate_share(tx, share, adm);
         }
         if let Some(fees) = self.state.committed_fees()? {
             let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
@@ -346,10 +366,16 @@ impl Mempool {
         //   suite that blocks still accept would strand valid transactions
         //   without changing any block's validity, so the admissibility test
         //   here is the one consensus applies.
-        let height = self.admission_height()?;
-        let sunsets = self.state.effective_schedule()?.sunsets;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
-        self.state.verify_cached(tx, height, &policy)?;
+        let height = adm.height;
+        let sunsets = &adm.sunsets;
+        let policy = &adm.policy;
+        self.state.verify_cached(tx, height, policy)?;
+        // The executor's payload rules at the same height. Refused here with the
+        // reason, not dropped silently at build (ADR-099). A share that carries
+        // outputs is not fee-free, so it is judged here too.
+        if !is_share(tx) {
+            self.state.admit_payload(tx, adm.context)?;
+        }
 
         // Evidence is stateless to check, so garbage never reaches a block
         // template — the executor checks it again regardless. Chain tag is required
@@ -378,6 +404,7 @@ impl Mempool {
         &self,
         tx: &Transaction,
         share: &crate::core::mining_payload::MiningShare,
+        adm: &Admission,
     ) -> Result<()> {
         let miner = tx.sender();
         let account = self.state.get_account(&miner)?;
@@ -389,10 +416,7 @@ impl Mempool {
             });
         }
         self.state.check_mining_share(&miner, share)?;
-        let height = self.admission_height()?;
-        let sunsets = self.state.effective_schedule()?.sunsets;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
-        self.state.verify_cached(tx, height, &policy)?;
+        self.state.verify_cached(tx, adm.height, &adm.policy)?;
         self.check_breaker(&tx.kind)
     }
 
@@ -610,14 +634,90 @@ impl Mempool {
             .map(|(hash, tx)| (*hash, tx.clone()))
             .collect();
 
-        // Validate outside the lock, then apply the evictions in one pass.
-        let stale: Vec<TxHash> = candidates
-            .into_iter()
-            .filter(|(_, tx)| self.validate(tx).is_err())
-            .map(|(hash, _)| hash)
+        // The schedule and context are read once for the whole pass, not once
+        // per pooled entry. Evictions are logged as one bounded summary, so a
+        // transaction that stopped executing is never pooled silently (ADR-099).
+        let admission = self.admission()?;
+        let mut evicted = Vec::new();
+        for (hash, tx) in candidates {
+            if let Err(reason) = self.validate_with(&tx, &admission) {
+                evicted.push((hash, reason));
+            }
+        }
+        if let Some(line) = eviction_summary(&evicted) {
+            eprintln!("{line}");
+        }
+        let stale: Vec<TxHash> = evicted.iter().map(|(hash, _)| *hash).collect();
+        Ok(self.remove_all(&stale))
+    }
+
+    /// What admission judges against, read once per pass.
+    fn admission(&self) -> Result<Admission> {
+        let height = self.admission_height()?;
+        let schedule = self.state.effective_schedule()?;
+        let sunsets = schedule.sunsets;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
+        let context = BlockContext::at_height(height)
+            .with_shielded_activation(self.shielded_activation.load(Ordering::Relaxed))
+            .with_features(schedule.features())
+            .with_suite_sunsets(sunsets);
+        Ok(Admission {
+            height,
+            sunsets,
+            policy,
+            context,
+        })
+    }
+}
+
+/// The admission inputs one validation pass shares.
+struct Admission {
+    height: u64,
+    sunsets: SuiteSunsets,
+    policy: SuitePolicy,
+    context: BlockContext,
+}
+
+/// How many evicted hashes a commit's log line names.
+const EVICTION_SAMPLE: usize = 3;
+
+/// One log line for a commit's evictions: the count, the first reason and the
+/// first few hashes. A commit can evict thousands, so one line per entry is
+/// unbounded.
+fn eviction_summary(evicted: &[(TxHash, NodeError)]) -> Option<String> {
+    let (_, first_reason) = evicted.first()?;
+    let sample: Vec<String> = evicted
+        .iter()
+        .take(EVICTION_SAMPLE)
+        .map(|(hash, _)| hex::encode(hash))
+        .collect();
+    Some(format!(
+        "mempool: evicted {} transactions after commit (first reason: {first_reason}; first hashes: {})",
+        evicted.len(),
+        sample.join(" ")
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_eviction_log_line_stays_bounded_however_many_entries_go() {
+        let evicted: Vec<(TxHash, NodeError)> = (0..5_000u32)
+            .map(|i| {
+                let mut hash = [0u8; 32];
+                hash[..4].copy_from_slice(&i.to_be_bytes());
+                (hash, NodeError::MempoolRejected("stale".to_string()))
+            })
             .collect();
 
-        Ok(self.remove_all(&stale))
+        let line = eviction_summary(&evicted).expect("some evictions");
+        assert!(line.contains("evicted 5000 transactions"), "{line}");
+        assert!(line.contains(&hex::encode(evicted[2].0)), "{line}");
+        assert!(!line.contains(&hex::encode(evicted[3].0)), "{line}");
+        assert!(line.len() < 400, "{} bytes", line.len());
+        assert!(eviction_summary(&[]).is_none());
     }
 }
 
