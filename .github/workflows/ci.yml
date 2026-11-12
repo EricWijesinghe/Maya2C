@@ -331,6 +331,14 @@ jobs:
       - name: Test (research features)
         run: cargo nextest run --cargo-profile ci -p maya-custody-mpc --features threshold-lattice --no-fail-fast
 
+      # HW-3 G0 (ADR-137): the shader compiled and run on a software Vulkan
+      # adapter (Mesa lavapipe), which ADR-137's exit test asks for in CI. A
+      # mismatch against the CPU fails here; speed on lavapipe means nothing.
+      - name: Test (wgpu-verify on a software adapter)
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers
+          cargo nextest run --cargo-profile ci -p maya-wgpu-verify --features gpu --no-fail-fast --no-capture
+
       # Now that the suite has run green, check that every test `features.toml`
       # names is a target that run would have executed. Cheap — it lists, it
       # does not build.

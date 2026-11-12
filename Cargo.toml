@@ -150,6 +150,10 @@ members = [
     # feature is off by default for the same reason `cuda-miner`'s `cuda`
     # feature is: the workspace must build on a runner with no adapter.
     "hal/wgpu-miner",
+    # HW-3 stage G0 (ADR-137): ML-DSA-65's NTT step on the GPU, checked item by
+    # item against the CPU. A harness, not a verifier: linked by nothing in
+    # the node, and its `gpu` feature is off by default like the miner's.
+    "hal/wgpu-verify",
     # Testnet faucet. A member so its rate limiting cannot rot, and because it
     # is the one service in the workspace that holds a funded key behind a
     # public endpoint — the code that decides who gets funds should be reviewed
@@ -498,6 +502,12 @@ tower-http = "0.6"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 wat = "1"
+# The GPU stack of `wgpu-miner` and `wgpu-verify`, one version for both: two
+# wgpu majors in one lockfile would be two shader compilers, and the
+# differential harness exists to compare one shader against the CPU.
+bytemuck = "1"
+pollster = "0.4"
+wgpu = "27"
 zeroize = "1"
 
 # --- Deliberate exceptions, kept literal in the member that needs them -------
