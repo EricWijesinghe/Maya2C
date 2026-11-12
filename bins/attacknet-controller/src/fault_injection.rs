@@ -705,10 +705,22 @@ mod tests {
         let t = || "validator-1".to_string();
         let fi = injector();
         for f in [
-            ProcessFault::Restart { target: t(), catch_up_from: None },
-            ProcessFault::Pause { target: t(), duration: Duration::from_secs(1) },
-            ProcessFault::CpuLimit { target: t(), percent: 50 },
-            ProcessFault::MemoryLimit { target: t(), limit_mb: 512 },
+            ProcessFault::Restart {
+                target: t(),
+                catch_up_from: None,
+            },
+            ProcessFault::Pause {
+                target: t(),
+                duration: Duration::from_secs(1),
+            },
+            ProcessFault::CpuLimit {
+                target: t(),
+                percent: 50,
+            },
+            ProcessFault::MemoryLimit {
+                target: t(),
+                limit_mb: 512,
+            },
         ] {
             assert_not_implemented(fi.inject_process_fault(f).await);
         }
@@ -719,14 +731,40 @@ mod tests {
         let s = || "S1".to_string();
         let fi = injector();
         for f in [
-            NetworkFault::Latency { segment: s(), ms: 10, jitter_ms: 1 },
-            NetworkFault::PacketLoss { segment: s(), percent: 0.1 },
-            NetworkFault::BandwidthLimit { segment: s(), kbps: 100 },
-            NetworkFault::ConnectionReset { segment: s(), after_bytes: None },
-            NetworkFault::Duplicate { segment: s(), percent: 0.1 },
-            NetworkFault::Reorder { segment: s(), percent: 0.1, gap: 2 },
-            NetworkFault::Corruption { segment: s(), percent: 0.1 },
-            NetworkFault::SlowSend { segment: s(), bytes_per_sec: 10 },
+            NetworkFault::Latency {
+                segment: s(),
+                ms: 10,
+                jitter_ms: 1,
+            },
+            NetworkFault::PacketLoss {
+                segment: s(),
+                percent: 0.1,
+            },
+            NetworkFault::BandwidthLimit {
+                segment: s(),
+                kbps: 100,
+            },
+            NetworkFault::ConnectionReset {
+                segment: s(),
+                after_bytes: None,
+            },
+            NetworkFault::Duplicate {
+                segment: s(),
+                percent: 0.1,
+            },
+            NetworkFault::Reorder {
+                segment: s(),
+                percent: 0.1,
+                gap: 2,
+            },
+            NetworkFault::Corruption {
+                segment: s(),
+                percent: 0.1,
+            },
+            NetworkFault::SlowSend {
+                segment: s(),
+                bytes_per_sec: 10,
+            },
         ] {
             assert_not_implemented(fi.inject_network_fault(f).await);
         }
@@ -737,10 +775,22 @@ mod tests {
         let t = || "validator-1".to_string();
         let fi = injector();
         for f in [
-            ProtocolFault::MalformedFrames { target: t(), rate: 1 },
-            ProtocolFault::InvalidHandshakes { target: t(), rate: 1 },
-            ProtocolFault::OversizedMessages { target: t(), size_mb: 1 },
-            ProtocolFault::PeerChurn { target: t(), rate_per_sec: 1 },
+            ProtocolFault::MalformedFrames {
+                target: t(),
+                rate: 1,
+            },
+            ProtocolFault::InvalidHandshakes {
+                target: t(),
+                rate: 1,
+            },
+            ProtocolFault::OversizedMessages {
+                target: t(),
+                size_mb: 1,
+            },
+            ProtocolFault::PeerChurn {
+                target: t(),
+                rate_per_sec: 1,
+            },
             ProtocolFault::InvalidPeerAnnouncements { target: t() },
         ] {
             assert_not_implemented(fi.inject_protocol_fault(f).await);
@@ -780,14 +830,21 @@ mod tests {
         let mut config = LabConfig::default();
         config.validators.truncate(1);
         config.validators[0].data_dir = format!("maya2c-no-such-dir-{}", uuid::Uuid::new_v4());
-        let f = ProcessFault::Kill { target: config.validators[0].name.clone() };
-        let e = FaultInjector::new(config).inject_process_fault(f).await.unwrap_err();
+        let f = ProcessFault::Kill {
+            target: config.validators[0].name.clone(),
+        };
+        let e = FaultInjector::new(config)
+            .inject_process_fault(f)
+            .await
+            .unwrap_err();
         assert!(e.to_string().contains("no process matched"), "{e}");
     }
 
     #[tokio::test]
     async fn kill_unknown_target_fails() {
-        let f = ProcessFault::Kill { target: "nobody".to_string() };
+        let f = ProcessFault::Kill {
+            target: "nobody".to_string(),
+        };
         assert!(injector().inject_process_fault(f).await.is_err());
     }
 }
