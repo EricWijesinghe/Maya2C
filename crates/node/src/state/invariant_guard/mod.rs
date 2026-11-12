@@ -115,6 +115,8 @@ pub enum Module {
     /// Vault configuration, requests and execution (ADR-030). A cancel belongs
     /// to no module — see [`Module::of`].
     Vault,
+    /// Unique assets: collection create, mint, transfer and burn (ADR-135 P-2).
+    Nft,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -133,6 +135,7 @@ pub const MODULES: &[Module] = &[
     Module::ThreatIntel,
     Module::Iot,
     Module::Vault,
+    Module::Nft,
 ];
 
 impl Module {
@@ -153,6 +156,7 @@ impl Module {
             Self::ThreatIntel => 10,
             Self::Iot => 11,
             Self::Vault => 12,
+            Self::Nft => 13,
         }
     }
 
@@ -173,6 +177,7 @@ impl Module {
             10 => Some(Self::ThreatIntel),
             11 => Some(Self::Iot),
             12 => Some(Self::Vault),
+            13 => Some(Self::Nft),
             _ => None,
         }
     }
@@ -194,6 +199,7 @@ impl Module {
             Self::ThreatIntel => "threat intel",
             Self::Iot => "iot anchor",
             Self::Vault => "vault",
+            Self::Nft => "unique assets",
         }
     }
 
@@ -229,6 +235,9 @@ impl Module {
             // ADR-135: a mint bug and a pool bug both need trading stopped,
             // so capped-asset forms share the DEX breaker.
             | TxKind::AssetMint(_) => Some(Self::Dex),
+
+            // ADR-135 P-2: its own breaker, so a unique-asset bug halts only itself.
+            TxKind::Nft(_) => Some(Self::Nft),
 
             TxKind::Shielded(_) => Some(Self::Shielded),
 

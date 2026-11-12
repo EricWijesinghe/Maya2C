@@ -2652,6 +2652,17 @@ tests = ["crates/node/tests/asset_mint_tests.rs", "crates/node/tests/asset_confo
 note = "ADR-135 P-1 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 41, ASSET_MINT_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 55-58, record v2 (136 B) under d:asset:. AssetRegistrationFee (governance tag 11) defaults to zero pending Eric O-2. V4_VERSION and the SUPPORTED_PROTOCOL_VERSION rise are not assigned in this change."
 
 [[subsystem]]
+id = "unique-assets"
+name = "Unique assets: collections and items (v4 P-2)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/state/nft.rs`, `crates/node/src/core/nft_payload.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/nft_tests.rs", "crates/node/tests/nft_conformance.rs"]
+note = "ADR-135 P-2 (PROPOSED), post-genesis. Off: feature bit 42, NFT_ACTIVATION_HEIGHT = u64::MAX until a schedule entry names it. Tags 59-62, prefix n: (StateLayer::Nft, appended). Hash-only metadata (ADR-104). Replay tests written before the code; not compiled locally (CI-first). Fuzz target over the decoders not yet written. No royalty, no sale (cut to v5)."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

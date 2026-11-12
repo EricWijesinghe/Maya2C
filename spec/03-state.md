@@ -36,6 +36,18 @@ Vectors: `spec/tests/assets.json`, written by hand from these layouts rather tha
 - **AS-6** `RenounceMint` needs a sender equal to an authority that is not none; afterwards the authority is none and the cap equals the supply, so a second renounce and every later mint are refused.
 - **AS-7** Below the activation height of feature bit 41 every form is refused, on mempool admission and on apply, by the same check. The compiled height is `u64::MAX`.
 
+## Unique assets (ADR-135 P-2, dark until feature bit 42)
+
+Vectors: `spec/tests/nfts.json`, hand-laid from these layouts. Integers are little-endian unless marked BE.
+
+- **NF-1** The forms are `59 ‖ max_items(8) ‖ metadata_hash(32)` (41 bytes, `CreateCollection`), `60 ‖ collection(32) ‖ metadata_hash(32)` (65, `MintItem`), `61 ‖ collection(32) ‖ index(8) ‖ to(32)` (73, `TransferItem`) and `62 ‖ collection(32) ‖ index(8)` (41, `BurnItem`). A truncated form is a decode error. *(positive and negative vectors: `NF-enc-*`)*
+- **NF-2** The collection id is `blake3::derive_key("maya2c nft collection v1", creator ‖ nonce(8))`, 32 bytes. *(positive only: defines a value; no vector yet)*
+- **NF-3** Records under `n:` (one committed layer): `n:c: ‖ collection` holds `0x01 ‖ creator ‖ max_items(8) ‖ minted(8) ‖ metadata_hash` (81 bytes); `n:i: ‖ collection ‖ index(8 BE)` holds `0x01 ‖ owner ‖ metadata_hash` (65 bytes); `n:o: ‖ owner ‖ collection ‖ index(8 BE)` is empty and mirrors the item's owner. *(positive only: no record vector yet)*
+- **NF-4** `CreateCollection` needs `1 <= max_items <= 2^32`; the sender is the creator. `MintItem` needs the sender to be the creator and `minted < max_items`; the index is `minted`, which then rises by one. Item and owner rows are written together.
+- **NF-5** `TransferItem` needs the sender to own `(collection, index)` and the recipient to differ from the sender; it rewrites the item row and moves the owner row in one write. `BurnItem` needs ownership; it deletes both rows and leaves `minted`, so an index is never reused.
+- **NF-6** Only a hash is stored per item and per collection. No URI, no royalty, no sale (ADR-104; ADR-135 cut list).
+- **NF-7** Below the activation height of feature bit 42 every form is refused, on mempool admission and on apply, by the same check. The compiled height is `u64::MAX`. A vault account may not send these forms (ADR-030).
+
 ## Gaps
 
 - ROOT-5 is pinned by the accounts-only vectors: the node folds every layer it has and must still reproduce the reference's accounts-only root. No vector yet populates a layer.

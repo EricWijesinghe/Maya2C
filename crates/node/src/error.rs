@@ -516,6 +516,24 @@ pub enum NodeError {
         reason: &'static str,
     },
 
+    /// A unique-asset form (tags 59-62) before feature bit 42 activates
+    /// (ADR-135 P-2). Refused on admission and on apply by the same check.
+    #[error("unique assets are not active at height {height} (from {activation})")]
+    NftInactive {
+        /// Height the transaction was judged at.
+        height: u64,
+        /// First height at which the forms execute; `u64::MAX` means never.
+        activation: u64,
+    },
+
+    /// A unique-asset form broke one of its rules (ADR-135 P-2). A refusal,
+    /// never a no-op.
+    #[error("unique asset refused: {reason}")]
+    NftRefused {
+        /// The rule that failed.
+        reason: &'static str,
+    },
+
     /// A registration landed on an identifier that already exists.
     ///
     /// Requires the same sender, nonce, and symbol, so it is unreachable while

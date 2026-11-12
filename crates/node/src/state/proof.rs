@@ -109,6 +109,10 @@ pub enum StateLayer {
     /// Outside the root until 2026-09-11. A snapshot that left a nullifier out
     /// would have produced a node that accepts the second spend of that note.
     Nullifiers,
+    /// Unique assets: collections and items under the `n:` prefix (ADR-135
+    /// P-2). Appended, never reordered; absent on a chain that never opens a
+    /// collection, so it moves no existing root.
+    Nft,
 }
 
 /// Every layer, in fold order.
@@ -130,6 +134,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Shielded,
     StateLayer::Contracts,
     StateLayer::Nullifiers,
+    StateLayer::Nft,
 ];
 
 impl StateLayer {
@@ -158,6 +163,7 @@ impl StateLayer {
             Self::Stateless => "maya stateless state root v1",
             Self::Vault => "maya vault state root v1",
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
+            Self::Nft => "maya nft state root v1",
         }
     }
 
@@ -182,6 +188,7 @@ impl StateLayer {
             Self::Staking => 15,
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
+            Self::Nft => 18,
         }
     }
 
@@ -206,6 +213,7 @@ impl StateLayer {
             15 => Some(Self::Staking),
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
+            18 => Some(Self::Nft),
             _ => None,
         }
     }
@@ -240,6 +248,7 @@ impl StateLayer {
             Self::Staking => "staking",
             Self::Vault => "vault",
             Self::UpgradeSchedule => "upgrade-schedule",
+            Self::Nft => "nft",
         }
     }
 }

@@ -477,6 +477,38 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             Routine,
         ),
         TxKind::AssetMint(action) => describe_asset_mint(action),
+        TxKind::Nft(action) => describe_nft(action),
+    }
+}
+
+fn describe_nft(action: &crate::core::nft_payload::NftAction) -> Description {
+    use crate::core::nft_payload::NftAction as N;
+    use Review::{Careful, Routine};
+    match action {
+        N::CreateCollection { max_items, .. } => Description::new(
+            format!(
+                "Open a collection of up to {} unique items that only you can mint.",
+                group_digits(primitive_types::U256::from(*max_items))
+            ),
+            Careful,
+        ),
+        N::MintItem { collection, .. } => Description::new(
+            "Mint the next unique item in a collection you created.",
+            Routine,
+        )
+        .with("collection", full(collection)),
+        N::TransferItem {
+            collection,
+            index,
+            to,
+        } => Description::new(format!("Send item {index} to {}.", short(to)), Careful)
+            .with("collection", full(collection))
+            .with("pay to", full(to)),
+        N::BurnItem { collection, index } => Description::new(
+            format!("Destroy item {index}. This cannot be undone."),
+            Careful,
+        )
+        .with("collection", full(collection)),
     }
 }
 

@@ -29,7 +29,7 @@ use crate::state::context::{
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
     ZKML_ACTIVATION_HEIGHT,
 };
-use crate::state::upgrades::ASSET_MINT_ACTIVATION_HEIGHT;
+use crate::state::upgrades::{ASSET_MINT_ACTIVATION_HEIGHT, NFT_ACTIVATION_HEIGHT};
 
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
@@ -60,8 +60,10 @@ impl FeatureSet {
     /// Capped-asset mint and burn, tags 55-58 (ADR-135 P-1). Bits 8-40 are
     /// claimed by other open ADRs (`adr-claims.txt`), not defined here.
     pub const ASSET_MINT: u64 = 1 << 41;
+    /// Unique assets: collections and items, tags 59-62 (ADR-135 P-2).
+    pub const NFT: u64 = 1 << 42;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT | Self::NFT;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -101,6 +103,8 @@ pub struct FeatureActivations {
     pub rwa_strict: u64,
     /// Capped-asset mint and burn (bit 41).
     pub asset_mint: u64,
+    /// Unique assets (bit 42).
+    pub nft: u64,
 }
 
 impl Default for FeatureActivations {
@@ -116,6 +120,7 @@ impl Default for FeatureActivations {
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             asset_mint: ASSET_MINT_ACTIVATION_HEIGHT,
+            nft: NFT_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -226,6 +231,7 @@ impl UpgradeSchedule {
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
             asset_mint: at(FeatureSet::ASSET_MINT, never.asset_mint),
+            nft: at(FeatureSet::NFT, never.nft),
         }
     }
 
@@ -363,7 +369,11 @@ mod tests {
         );
         // The neighbours of bit 41 are other ADRs' claims, not features here.
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 40)]).is_err());
-        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 42)]).is_err());
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 43)]).is_err());
+        // Bit 42 (NFT) is defined now; it switches on nothing else.
+        let n = UpgradeSchedule::new(vec![with(2, 88, FeatureSet::NFT)]).unwrap();
+        assert_eq!(n.features().nft, 88);
+        assert_eq!(n.features().asset_mint, u64::MAX);
     }
 
     #[test]
