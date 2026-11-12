@@ -6,7 +6,6 @@ use maya_design_system::guard::{
     DomainVerdict, Token, TokenVerdict, domain, poisoning, skeleton, token,
 };
 use maya_design_system::i18n::{CATALOG, Dir, Key, dir, t};
-use maya_design_system::tokens::{REQUIRED_PAIRS, Role, Theme, color, css};
 
 #[test]
 fn the_contrast_formula_matches_the_wcag_reference_points() {
@@ -19,24 +18,8 @@ fn the_contrast_formula_matches_the_wcag_reference_points() {
     assert!(ratio(Rgb::hex("#777777").unwrap(), w) < 4.5);
 }
 
-#[test]
-fn every_required_pair_meets_wcag_aa_in_both_themes() {
-    let mut failures = Vec::new();
-    for theme in Theme::ALL {
-        for &(fg, bg, usage) in REQUIRED_PAIRS {
-            let r = ratio(color(theme, fg), color(theme, bg));
-            println!(
-                "{:>7} {fg:?} on {bg:?}: {r:.2} (min {})",
-                theme.name(),
-                usage.minimum()
-            );
-            if r < usage.minimum() {
-                failures.push(format!("{} {fg:?}/{bg:?} {r:.2}", theme.name()));
-            }
-        }
-    }
-    assert!(failures.is_empty(), "below AA: {failures:?}");
-}
+// The token pairs themselves are checked by `xtask/src/design_tokens.rs`
+// (ADR-136), against design/tokens.json, with this crate's formula.
 
 /// Finding, not a gate: the explorer's pre-design-system palette, measured.
 #[test]
@@ -61,36 +44,8 @@ fn the_old_explorer_palette_is_measured() {
     }
 }
 
-#[test]
-fn the_stylesheet_emits_every_role_for_both_themes_and_honours_reduced_motion() {
-    let s = css();
-    for theme in Theme::ALL {
-        for role in Role::ALL {
-            let decl = format!("--{}: {};", role.var(), color(theme, role).to_hex());
-            assert!(s.contains(&decl), "{} missing {decl}", theme.name());
-        }
-    }
-    assert!(s.contains("prefers-reduced-motion: reduce"));
-    assert!(s.contains("--motion-2: 0ms;"));
-}
-
-/// The committed `design/tokens.css` is what the apps link; it must be the
+/// The specimen page the visual regression job screenshots must be the
 /// generator's output. `UPDATE_GOLDEN=1` rewrites it.
-#[test]
-fn the_committed_stylesheet_is_current() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/tokens.css");
-    if std::env::var_os("UPDATE_GOLDEN").is_some() {
-        std::fs::write(path, css()).unwrap();
-    }
-    let committed = std::fs::read_to_string(path).unwrap();
-    assert_eq!(
-        committed,
-        css(),
-        "run with UPDATE_GOLDEN=1 and commit design/tokens.css"
-    );
-}
-
-/// Same rule for the specimen page the visual regression job screenshots.
 #[test]
 fn the_committed_specimen_is_current() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../design/specimen.html");

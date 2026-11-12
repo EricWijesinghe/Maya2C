@@ -96,7 +96,7 @@ fn first_paint_needs_no_request_beyond_the_document() {
     let page = transaction_page(Some(tx(1)), "01".into());
     assert_eq!(render_blocking_requests(&page), 0);
     assert!(
-        page.contains("data-theme=\"command\""),
+        page.contains("data-theme=\"dark\""),
         "the shared tokens are in use"
     );
     assert!(

@@ -29,6 +29,9 @@ sha2.workspace = true
 # bench-report and bench-gate stamp the run date in local time. chrono is already
 # in the lock through other crates; only its `clock` feature is needed here.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# design-tokens checks every listed pair with the design system's WCAG formula:
+# one implementation, in a crate with no dependencies of its own.
+maya-design-system = { path = "../crates/design-system" }
 
 [lints]
 workspace = true

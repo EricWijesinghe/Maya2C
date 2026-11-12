@@ -24,6 +24,7 @@ mod ceremony_rehearsal;
 mod check_brand_refs;
 mod claims_check;
 mod coverage;
+mod design_tokens;
 mod devnet;
 mod disk;
 mod eco_metrics;
@@ -116,6 +117,7 @@ fn main() -> ExitCode {
         "hybrid-genesis" => hybrid_genesis::run(rest),
         "starter-stickers" => starter_stickers::run(rest),
         "brand-assets" => brand_assets::run(rest),
+        "design-tokens" => design_tokens::run(rest),
         "og-card" => og_card::run(rest),
         "kheavyhash" => kheavyhash::run(rest),
         "help" | "--help" | "-h" => {
@@ -160,6 +162,9 @@ cargo xtask <command>
   starter-stickers      Draw the 12 starter stickers into apps/chat-gui/src-tauri/stickers/starter/.
   brand-assets [--check]
                         Copy the logo pack favicons and wordmarks into each app.
+  design-tokens [--check]
+                        Generate tokens.css from design/tokens.json into every
+                        surface; `--check` fails if a copy drifted.
   og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
   kheavyhash [--fetch]  Regenerate the kHeavyHash reference module and fixture from upstream.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
