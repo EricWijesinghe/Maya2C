@@ -3,8 +3,35 @@
 // is the page's one h1. Starlight's own "Maya2C" h1 would make a second one:
 // visually hidden, but still a duplicate, keyword-less heading to every
 // crawler. Only the homepage: other splash pages (Experience) need it.
+//
+// Under the title of a page that describes shipped subsystems: one status
+// chip each, from features.toml as this build counted it (src/data/doc-status.ts).
 import Default from "@astrojs/starlight/components/PageTitle.astro";
-const isHome = Astro.url.pathname === "/" || Astro.url.pathname === "";
+import health from "../../public/health.json";
+import { DOC_STATUS } from "../data/doc-status";
+const path = Astro.url.pathname.replace(/\/?$/, "/");
+const isHome = path === "/";
+const ids = DOC_STATUS[path] ?? [];
+const chips = ids.map((id) => {
+  const s = (health.subsystems as { id?: string; name: string; status: string; class: string }[]).find((x) => x.id === id);
+  if (!s) throw new Error(`doc-status: ${path} names ${id}, which features.toml does not have`);
+  return s;
+});
+const tone: Record<string, string> = { verified: "ok", working: "info", stub: "warn", planned: "warn" };
 ---
 
 {!isHome && <Default />}
+{chips.length > 0 && (
+  <p class="doc-status" aria-label="Status in the reality ledger">
+    {chips.map((c) => (
+      <a class={`ui-pill ui-pill--${tone[c.status] ?? "info"}`} href="/health/" title={`${c.name}: ${c.status}, ${c.class} (features.toml)`}>
+        {c.name.length > 38 ? `${c.name.slice(0, 36)}…` : c.name} · {c.status}
+      </a>
+    ))}
+  </p>
+)}
+
+<style>
+  .doc-status { display: flex; flex-wrap: wrap; gap: 6px; margin: 0.5rem 0 0; }
+  .doc-status a { text-decoration: none; font-size: 12.5px; }
+</style>

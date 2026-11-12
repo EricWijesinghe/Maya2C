@@ -1,0 +1,39 @@
+---
+// "What's coming": open work, each with its stage chip and pull request.
+// Nothing here is shipped; what is built is in features.toml (src/data/whats-coming.ts).
+import { asOf, coming, type Stage } from "../data/whats-coming";
+const PR = "https://github.com/EricWijesinghe/Maya2C/pull/";
+const label: Record<Stage, string> = { draft: "In progress · draft", review: "In progress · in review", proposed: "Proposed" };
+const tone: Record<Stage, string> = { draft: "warn", review: "info", proposed: "warn" };
+---
+
+<section class="not-content wc" aria-labelledby="wc-title">
+  <h2 id="wc-title">What's coming</h2>
+  <p class="wc-lede">Work in progress today, as of {asOf}. None of it is shipped; each links to its open pull request.</p>
+  <ul class="wc-grid">
+    {coming.map((c) => (
+      <li class="ui-card wc-card" data-tilt>
+        <span class={`ui-pill ui-pill--${tone[c.stage]}`}>{label[c.stage]}</span>
+        <p class="wc-name">{c.name}</p>
+        <p class="wc-line">{c.line}</p>
+        <p class="wc-prs">
+          {c.prs.map((n) => <a href={`${PR}${n}`}>PR #{n}</a>)}
+          {c.postGenesis && <span class="wc-note">after genesis, by upgrade</span>}
+        </p>
+      </li>
+    ))}
+  </ul>
+</section>
+
+<style>
+  .wc { margin: 1.5rem 0 2rem; }
+  .wc h2 { margin: 0 0 .25rem; }
+  .wc-lede { color: var(--text-2); margin: 0 0 1rem; }
+  .wc-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+  .wc-card { margin: 0; display: grid; gap: 6px; align-content: start; padding: 16px; }
+  .wc-card .ui-pill { justify-self: start; }
+  .wc-name { margin: 0; font: 600 16px/1.3 var(--display); color: var(--text); }
+  .wc-line { margin: 0; font-size: 14px; color: var(--text-2); }
+  .wc-prs { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; }
+  .wc-note { color: var(--muted); }
+</style>
