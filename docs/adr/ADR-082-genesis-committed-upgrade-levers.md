@@ -83,20 +83,24 @@ would stop the chain over a vote that passed.
 `announced_at` and suite sunsets. It has no version and no features, so the
 council can retire a suite and schedule nothing else. Its own 2-of-3 approvals
 (ADR-050) and nonce apply unchanged. It has **no emergency window** (H3), and
-its lead is `COUNCIL_SUNSET_LEAD_BLOCKS`, about 13.6 days at one block per
-second (1,000,000 + 172,800 blocks).
+its lead is `COUNCIL_SUNSET_LEAD_BLOCKS`, about 41.6 days at one block per
+second (1,000,000 + 2,592,000 = 3,592,000 blocks).
 
 **Why the council lead is what it is (H3).** A vault delay is at most
 `vault::MAX_DELAY_BLOCKS` (1,000,000 blocks, about 11.6 days). A council sunset
 announced just before a withdrawal could freeze the funds past the sunset height
 unless the lead covers the delay. The migration window is the time users have to
 move to another suite. The lead is the sum, derived from the constants. The
-reviewer's figure of about 18.6 days assumes a 7-day migration window. The code's
-`MIN_MIGRATION_WINDOW` is 172,800 blocks (2 days). The figure is recorded in
-DECISIONS.md, and the decision on the window is open before mainnet.
+reviewer's figure of about 18.6 days assumed a 7-day migration window. The code's
+`MIN_MIGRATION_WINDOW` is 2,592,000 blocks (30 days at 1 block/s). The figure is
+recorded in DECISIONS.md, and the decision on the window is open before mainnet.
 
-**Update 2026-11-12 (block-time fix A).** The figures above assumed 15 s blocks. At
-the canonical 1 block/s, `MIN_MIGRATION_WINDOW` is 2,592,000 blocks (30 days) and
+**Update 2026-11-12 (block-time fix A).** These are new value decisions at the
+canonical 1 block/s, not a unit fix: the earlier figures were already stated at
+1 block/s, so the numbers themselves changed. The floors are now
+`MIN_VOTING_BLOCKS` 7,200 (2 hours, was 480), `MIN_TIMELOCK_BLOCKS` 14,400
+(4 hours, was 960), `MIN_MIGRATION_WINDOW` 2,592,000 (30 days, was 172,800) and
+`MIN_EMERGENCY_WINDOW` 259,200 (3 days, was 17,280), so
 `COUNCIL_SUNSET_LEAD_BLOCKS` is 3,592,000 blocks (about 41.6 days). The lead is
 derived, so it moves with the window.
 
@@ -191,7 +195,7 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   `pow_limit_bits` is folded in. The tree pins no PoW id. A pinned BFT id with
   empty levers is recorded in `genesis_tests.rs` (see below).
 - **Leads are long.** A governance upgrade takes at least 30 days from
-  execution to activation. A council sunset takes about 13.6 days (H3). A chain cannot be tested
+  execution to activation. A council sunset takes about 41.6 days (H3). A chain cannot be tested
   across those heights, so the on-chain halt is checked at the state level and
   the chain-level halt on genesis-seeded entries.
 - **Mempool admission** and the stateless verifier use the effective schedule

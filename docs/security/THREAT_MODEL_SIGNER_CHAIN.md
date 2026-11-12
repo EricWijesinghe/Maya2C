@@ -386,7 +386,7 @@ to add, and the test that would prove the control. Ranks are in section 4.
   social-engineered into a pause that a rogue group relies on.
 - **Existing control.**
   - Floors compiled into the binary, not governable: quorum 1000 bps, approval 5001 bps,
-    voting 480 blocks, timelock 960 blocks (`crates/governance/src/limits.rs:33-71`, invariant 12).
+    voting 7,200 blocks, timelock 14,400 blocks (2 h and 4 h at 1 block/s) (`crates/governance/src/limits.rs:33-71`, invariant 12).
   - No program in chain state; a rule change moves a number or chooses a shipped implementation (invariant 13).
   - Council pause exists and is tested: `crates/node/tests/council_pause_tests.rs`;
     the pause never transfers and expires (`docs/security/INCIDENT_RESPONSE.md`).
