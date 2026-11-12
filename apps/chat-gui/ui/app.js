@@ -406,6 +406,7 @@ async function openPeer(addr) {
     for (const line of await invoke("history", { peer: addr })) drawLine(line);
     await refreshDeliveries();
     await drawTimer();
+    await Profiles.open(addr);
   } catch (e) {
     say("chat-error", e);
   }
@@ -428,6 +429,8 @@ async function poll() {
       if (line.notice && line.peer === state.peer) await drawTimer();
     }
     await refreshDeliveries();
+    // A card arrives without a line; redraw the open chat's.
+    await Profiles.refresh();
   } catch (e) {
     say("side-status", e);
   }
@@ -463,6 +466,7 @@ async function enter(status, open) {
     }
   }).catch((e) => say("side-status", e));
   $("text").oninput = () => Stickers.suggest($("text").value);
+  Profiles.init((e) => say("chat-error", e)).catch((e) => say("side-status", e));
   if (open) openPeer(open);
   if (status.relay) {
     try {

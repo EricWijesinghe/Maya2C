@@ -363,3 +363,16 @@ input:focus { border-color: rgb(31 181 194 / 0.6); }
 .draft input { width: 3.2rem !important; text-align: center; font-size: 1.1rem; }
 .maker-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 @media (prefers-reduced-motion: reduce) { .pick:hover { transform: none; } }
+
+/* ---- profile cards and looks (ADR-140 build PR 4) ------------------------ */
+.lines { background-size: cover; background-position: center; }
+.card-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.4rem 1rem; border-bottom: 1px solid var(--line); }
+.peer-card { display: flex; align-items: center; gap: 0.5rem; margin-right: auto; min-width: 0; }
+.card-bio { white-space: pre-line; overflow: hidden; text-overflow: ellipsis; max-width: 22rem; }
+.card-avatar { position: relative; width: 2.4rem; height: 2.4rem; flex: none; }
+.card-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.card-frame { position: absolute; inset: -0.35rem; pointer-events: none; }
+.card-frame svg { width: 100%; height: 100%; }
+.settings textarea { width: 100%; font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 0.5rem; }
+.grad { display: inline-flex; gap: 0.4rem; }
+.chat-look { font-size: 0.85rem; }

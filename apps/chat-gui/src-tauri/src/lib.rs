@@ -9,6 +9,7 @@
 mod deeplink;
 mod delivery;
 mod expiry;
+mod profile_cmds;
 mod starter;
 mod sticker_cmds;
 mod stickers;
@@ -506,7 +507,17 @@ pub fn run() {
             sticker_cmds::create_pack,
             sticker_cmds::remove_pack,
             sticker_cmds::send_sticker,
-            sticker_cmds::request_pack
+            sticker_cmds::request_pack,
+            profile_cmds::my_cards,
+            profile_cmds::save_card,
+            profile_cmds::remove_card,
+            profile_cmds::set_default_card,
+            profile_cmds::set_card_visibility,
+            profile_cmds::send_card,
+            profile_cmds::peer_card,
+            profile_cmds::looks,
+            profile_cmds::chat_look,
+            profile_cmds::set_look
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maya Chat");

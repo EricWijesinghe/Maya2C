@@ -133,7 +133,7 @@ pub fn check_pack(pack: &Pack) -> Result<(), FrameError> {
     Ok(())
 }
 
-fn on_big_stack<T: Send + 'static>(
+pub(crate) fn on_big_stack<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
     err: FrameError,
 ) -> Result<T, FrameError> {

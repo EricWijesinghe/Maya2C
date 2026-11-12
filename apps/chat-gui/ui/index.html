@@ -40,11 +40,69 @@
           <input id="relay" placeholder="/dns4/chat.maya2c.dev/tcp/443/wss/p2p/…" />
           <button id="save-relay" class="secondary">Save relay</button>
         </details>
+        <details class="settings">
+          <summary>My profile card</summary>
+          <p class="hint">Sent only inside the encrypted chat, to a contact you choose. There is no public profile.</p>
+          <input id="card-key" type="hidden" value="main" />
+          <label for="card-name">Name</label>
+          <input id="card-name" maxlength="48" autocomplete="off" />
+          <label for="card-bio">Bio</label>
+          <textarea id="card-bio" maxlength="280" rows="3"></textarea>
+          <label class="files">Picture: PNG, WebP, GIF or SVG, at most 512 × 512 px and 120 KB
+            <input id="card-avatar" type="file" accept=".png,.webp,.gif,.svg" />
+          </label>
+          <input id="card-avatar-id" type="hidden" />
+          <label class="files">Animated frame: Lottie (.json, .tgs), up to 64 KB and 3 s; still when the system asks for reduced motion
+            <input id="card-frame" type="file" accept=".json,.tgs" />
+          </label>
+          <input id="card-frame-id" type="hidden" />
+          <button id="card-save" type="button" class="secondary">Save card</button>
+          <p id="card-error" class="hint" role="status"></p>
+        </details>
+        <details class="settings">
+          <summary>Theme and wallpaper</summary>
+          <p class="hint">Only on this computer; never sent.</p>
+          <label for="look-theme">Theme</label>
+          <select id="look-theme"></select>
+          <label for="look-wall">Wallpaper</label>
+          <select id="look-wall">
+            <option value="none">None</option>
+            <option value="gradient">Gradient</option>
+            <option value="image">Picture</option>
+          </select>
+          <span id="look-grad" class="grad" hidden>
+            <input id="look-from" type="color" value="#050b0f" aria-label="Gradient start" />
+            <input id="look-to" type="color" value="#0b2a30" aria-label="Gradient end" />
+          </span>
+          <input id="look-file" type="file" accept=".png,.webp" aria-label="Wallpaper picture: PNG or WebP, at most 512 × 512 px" hidden />
+          <input id="look-wall-id" type="hidden" />
+        </details>
         <p id="side-status" class="status" role="status"></p>
       </aside>
 
       <section class="chat">
         <header id="peer" class="peer">Choose a contact</header>
+        <div id="card-bar" class="card-bar" hidden>
+          <span id="peer-card" class="peer-card"></span>
+          <label for="card-show">They see</label>
+          <select id="card-show"></select>
+          <button id="card-send" type="button" class="secondary">Send my card</button>
+          <details class="chat-look">
+            <summary>This chat's look</summary>
+            <select id="chat-theme" aria-label="This chat's theme"></select>
+            <select id="chat-wall" aria-label="This chat's wallpaper">
+              <option value="none">As everywhere</option>
+              <option value="gradient">Gradient</option>
+              <option value="image">Picture</option>
+            </select>
+            <span id="chat-grad" class="grad" hidden>
+              <input id="chat-from" type="color" value="#050b0f" aria-label="Gradient start" />
+              <input id="chat-to" type="color" value="#2a1a0b" aria-label="Gradient end" />
+            </span>
+            <input id="chat-file" type="file" accept=".png,.webp" aria-label="Wallpaper picture" hidden />
+            <input id="chat-wall-id" type="hidden" />
+          </details>
+        </div>
         <div id="timer-bar" class="timer-bar" hidden>
           <label for="timer">Disappearing messages</label>
           <select id="timer"></select>
@@ -95,6 +153,7 @@
 
     <script src="vendor/lottie_light.min.js"></script>
     <script src="stickers.js"></script>
+    <script src="profile.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

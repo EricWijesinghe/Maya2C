@@ -2882,6 +2882,18 @@ gate = "cargo test -p maya-chat --test sticker_caps_tests --test custom_emoji_te
 note = "ADR-140 section 2, build PR 3 (CI-first: not compiled locally when written, so stub). check_file now applies per-format caps read from the bytes (never a file name): Lottie JSON and TGS at most 64 KB, 3 s and 60 fps; TGS inflated through a reader that stops past 1 MiB (chosen bound), trailing bytes refused; Lottie nesting at most 64 (chosen bound), counted before parsing; WebM at most 120 KB, 3 s, 90 frames and 30 fps, one video track, no audio track, no laced video; every raster or animation at most 512 px a side. A refusal names the cap. Custom emoji: a pack with kind = emoji, 1 to 24 items (bounded by the 4 KB frame header), each at most 100 px a side with a shortcode; its manifest is signed with the hybrid ML-DSA-65 + SLH-DSA-128s suite under a key derived from the author's chat identity seed, sent as an EmojiPack frame before the items, and the receiving app takes no item of an emoji pack whose manifest it has not verified. Text carries :<64-hex id>:, typed as :shortcode:; reactions use the same id; an id with no installed pack draws a fallback glyph. A pack goes to a peer once, on first use in that chat, inside the E2E path; nothing is fetched remotely. Moving stickers pause under prefers-reduced-motion (first frame) and while the window is unfocused. Not built: incognito-only starter pack (threat model T7)."
 
 [[subsystem]]
+id = "chat-profile-themes"
+name = "Maya2C Chat profile cards, animated frames, themes and wallpapers"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/profile.rs`, `apps/chat/src/theme.rs`, `apps/chat/src/frame.rs`, `apps/chat-gui/src-tauri/src/profile_cmds.rs`, `apps/chat-gui/src-tauri/src/store.rs`, `apps/chat-gui/ui/profile.js`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["apps/chat/tests/profile_tests.rs", "apps/chat/tests/theme_tests.rs"]
+gate = "cargo test -p maya-chat --test profile_tests --test theme_tests"
+note = "ADR-140 section 2, build PR 4 (CI-first: not compiled locally when written, so stub). A Profile frame carries a card (version, name, bio, optional avatar and Lottie frame by hash and length, optional built-in theme id) signed with the hybrid ML-DSA-65 + SLH-DSA-128s suite under a key derived from the identity seed in its own domain; the body is public key, signature, then the files, all within one envelope. The receiver keeps the highest version from the first signer it saw and ignores equal, older or replayed versions; it takes cards only from contacts. Names and bios drop control, zero-width and text-direction characters (U+202A-202E, U+2066-2069, U+200E/F, U+061C); over 48 or 280 characters is refused, not cut. Avatars (PNG, WebP, GIF, SVG) and frames (Lottie, TGS) go through check_file and the media.rs caps. Per-contact visibility: a default card, a named card or nothing per contact; a card is sent only by an explicit Send for one contact (GUI unit test no_card_leaves_without_a_contact_and_a_chosen_card). Themes: four built-in dark themes over the chat app's CSS variables (Forged Light 2 tokens are not in the app yet), a gradient or still PNG/WebP wallpaper, per-chat overrides, all local and re-cleaned on load so no stored value becomes arbitrary CSS. The frame plays only without reduced motion. Not built: Share-this-theme frame, withdrawing a card already sent, homoglyph checks (the ADR does not ask for them)."
+
+[[subsystem]]
 id = "mining-rewards-lane"
 name = "Mining rewards lane (DAG-PoW shares paid from a genesis reserve)"
 domain = "Consensus and execution"

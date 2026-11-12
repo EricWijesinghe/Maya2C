@@ -102,6 +102,7 @@ fn sticker_in_use(profile: &Profile, id: &str) -> bool {
     profile.history.iter().any(|l| l.sticker.as_ref().is_some_and(|s| s.id == id))
         || profile.packs.iter().any(|p| p.items.iter().any(|i| i.id == id))
         || profile.recent.iter().any(|r| r == id)
+        || profile.uses_file(id)
 }
 
 /// Overwrites what a removed line said before its memory is freed.

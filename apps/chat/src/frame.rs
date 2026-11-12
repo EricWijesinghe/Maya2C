@@ -34,6 +34,11 @@
 //! pack of [`PackKind::Emoji`] is introduced by one [`Content::EmojiPack`]
 //! whose body is its signed manifest proof ([`crate::emoji`]); its items then
 //! travel as ordinary [`Content::PackItem`]s.
+//!
+//! Profile cards (ADR-140 build PR 4): [`Content::Profile`] carries a signed
+//! card, its body the proof and the avatar and frame files
+//! ([`crate::profile`]). It is sent to one contact at a time and never shown
+//! as a line.
 
 use serde::{Deserialize, Serialize};
 
@@ -66,7 +71,8 @@ pub const MAX_EMOJI_BYTES: usize = 64;
 pub const MAX_MARKS: usize = 32;
 const QUOTE_DOMAIN: &str = "maya-chat 2026-11-13 reply quote v1";
 /// The kinds this build reads; any other is [`FrameError::UnknownKind`].
-const KNOWN_KINDS: [&str; 8] = [
+const KNOWN_KINDS: [&str; 9] = [
+    "profile",
     "sticker",
     "emoji_pack",
     "pack_request",
@@ -139,8 +145,15 @@ pub enum FrameError {
     EmojiPackSize,
     #[error("the custom emoji pack's signature does not verify")]
     BadProof,
-    #[error("signing the custom emoji pack failed")]
+    #[error("signing failed")]
     Signing,
+    #[error("a name is 1 to {max} characters, without control or text-direction characters", max = crate::profile::MAX_NAME_CHARS)]
+    BadName,
+    #[error("a bio is at most {max} characters", max = crate::profile::MAX_BIO_CHARS)]
+    BadBio,
+    /// A profile card, avatar, frame, theme or wallpaper this app cannot use.
+    #[error("this profile or theme cannot be used")]
+    BadCard,
 }
 
 /// The desktop app's commands report errors as strings.
@@ -339,6 +352,9 @@ pub enum Content {
     /// "Disappearing messages are now `secs` (0: off) in this chat", for
     /// messages sent after it; earlier ones keep their own timer.
     Timer { secs: u64 },
+    /// The sender's profile card for this contact; the body is its proof
+    /// and files ([`crate::profile::verify_card`]).
+    Profile { card: crate::profile::Card },
 }
 
 /// Only the tag and the per-message timer, read before the rest so an
@@ -463,6 +479,7 @@ fn check(content: &Content, body: &[u8]) -> Result<(), FrameError> {
             Some(&item.id)
         }
         Content::EmojiPack { pack } => return crate::emoji::verify_manifest(pack, body),
+        Content::Profile { card } => return crate::profile::verify_card(card, body).map(|_| ()),
         Content::PackRequest { .. } => None,
         Content::Timer { secs } => {
             check_timer(*secs)?;
@@ -612,6 +629,7 @@ pub fn describe(plain: &[u8]) -> String {
                 )
             }
             Content::Text => String::from_utf8_lossy(&file).into_owned(),
+            Content::Profile { card } => format!("[profile card: {}]", card.name),
             Content::Timer { secs: 0 } => "[disappearing messages turned off]".into(),
             Content::Timer { secs } => format!(
                 "[disappearing messages set to {}]",
