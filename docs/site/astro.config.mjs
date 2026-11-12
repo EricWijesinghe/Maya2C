@@ -200,6 +200,7 @@ export default defineConfig({
             { label: "Passkey unlock", link: "/guides/passkey-unlock" },
             { label: "Compiling a contract", link: "/guides/contracts" },
             { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
+            { label: "Ecosystem", link: "/ecosystem/" },
             { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },
           ],
         },
