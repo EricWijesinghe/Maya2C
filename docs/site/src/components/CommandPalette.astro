@@ -39,11 +39,11 @@ const quick = [
       <kbd class="cmdk__esc">Esc</kbd>
     </div>
     <ul class="cmdk__list" id="cmdk-list" role="listbox" aria-label="Results"></ul>
-    <p class="cmdk__status" role="status" aria-live="polite"></p>
-    <div class="cmdk__foot" aria-hidden="true">
-      <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
-      <span><kbd>↵</kbd> open</span>
-      <span><kbd>Esc</kbd> close</span>
+    <div class="cmdk__foot">
+      <span aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> move</span>
+      <span aria-hidden="true"><kbd>↵</kbd> open</span>
+      <span aria-hidden="true"><kbd>Esc</kbd> close</span>
+      <span class="cmdk__status" role="status" aria-live="polite"></span>
     </div>
   </dialog>
 </maya-palette>
@@ -246,14 +246,14 @@ const quick = [
     display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3);
     padding: var(--space-2) var(--space-3); border-radius: var(--r-md); cursor: pointer;
   }
-  .cmdk__option[aria-selected="true"] { background: var(--accent-subtle); }
-  .cmdk__option[aria-selected="true"] .cmdk__title { color: var(--accent-text); }
+  .cmdk__option[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
   .cmdk__title { font: var(--weight-medium) var(--type-body-size)/1.4 var(--font-sans); color: var(--text); }
   .cmdk__hint { font-size: var(--type-label-size); color: var(--text-2); align-self: center; }
-  .cmdk__excerpt { grid-column: 1 / -1; font-size: var(--type-body-sm-size); color: var(--text-2); line-height: var(--line-body); }
+  .cmdk__excerpt { grid-column: 1 / -1; font-size: var(--type-body-sm-size); color: var(--text-2); line-height: var(--line-body);
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   .cmdk__excerpt mark { background: none; color: var(--text); font-weight: var(--weight-semibold); }
 
-  .cmdk__status { margin: 0; padding: 0 var(--space-5) var(--space-2); font-size: var(--type-label-size); color: var(--text-2); }
+  .cmdk__status { margin-left: auto; }
   .cmdk__foot { display: flex; gap: var(--space-4); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); font-size: var(--type-label-size); color: var(--text-2); }
   .cmdk__foot kbd { margin-inline-end: 2px; }
 </style>

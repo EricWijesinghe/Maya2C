@@ -74,25 +74,25 @@ const showSearch =
 <style>
   .bar { display: flex; align-items: center; gap: clamp(12px, 2vw, 28px); height: 100%; }
   .title { flex: none; min-width: 0; }
-  .primary { display: none; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: var(--nav-pill); border: 1px solid var(--glass-edge); }
-  .primary a { position: relative; padding: 8px 14px; border-radius: 999px; font: 600 14px/1 var(--sans); color: var(--muted); text-decoration: none; white-space: nowrap; transition: color .25s, background-color .25s; }
+  .primary { display: none; align-items: center; gap: 2px; }
+  .primary a { position: relative; padding: 8px 10px; border-radius: var(--r-sm); font: var(--weight-medium) var(--type-body-size)/1 var(--sans); color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease); }
   .primary a:hover { color: var(--text); background: var(--nav-hover); }
-  .primary a[aria-current="page"] { color: var(--on-accent); background: var(--accent-fill); box-shadow: 0 6px 18px -8px var(--brand-glow); }
+  .primary a[aria-current="page"] { color: var(--text); background: var(--surface-2); }
   .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
   .search { flex: 1 1 auto; display: flex; justify-content: flex-end; min-width: 0; }
   .right { flex: none; align-items: center; gap: 1rem; }
   @media (min-width: 72rem) { .primary { display: flex; } .search { flex: 0 1 240px; margin-left: auto; } }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
-  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--brand-line); }
+  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); opacity: .6; }
 
   .to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 90;
-    width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
-    color: var(--text); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px) saturate(1.4);
-    box-shadow: var(--shadow); opacity: 0; transform: translateY(16px) scale(.9); pointer-events: none;
-    transition: opacity .35s var(--glide), transform .5s var(--spring), border-color .25s; }
+    width: 40px; height: 40px; border-radius: var(--r-md); display: grid; place-items: center; cursor: pointer;
+    color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-md); opacity: 0; transform: translateY(4px); pointer-events: none;
+    transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), border-color var(--dur-1) var(--ease); }
   .to-top.on { opacity: 1; transform: none; pointer-events: auto; }
-  .to-top:hover { border-color: var(--accent); transform: translateY(-3px); }
+  .to-top:hover { border-color: var(--text-3); }
   .to-top:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { .to-top, .primary a { transition: none; } }
 </style>

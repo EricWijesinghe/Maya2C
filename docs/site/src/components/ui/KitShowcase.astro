@@ -299,6 +299,13 @@ const rows = [
 </section>
 
 <script>
+  // Expressive Code themes its blocks from the nearest [data-theme] ancestor
+  // only for light; a block that itself carries data-theme opts out of the
+  // page theme, so each kit copy shows its own theme whatever the page is.
+  for (const block of document.querySelectorAll<HTMLElement>(".ui-kit[data-theme] .expressive-code")) {
+    block.dataset.theme = block.closest<HTMLElement>(".ui-kit")!.dataset.theme;
+  }
+
   // Roving-tabindex tabs (WAI-ARIA tabs pattern) for every kit tablist.
   for (const list of document.querySelectorAll<HTMLElement>("[data-ui-tabs]")) {
     const tabs = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')];

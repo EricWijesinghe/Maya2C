@@ -83,6 +83,10 @@ html[data-motif="sunrise"] .ambient > .fallback {
   background-size: 40px 40px, auto;
 }
 
+/* Docs pages are flat: the animated field stays on the home and status
+   routes (motif lattice) until the hero phase decides its future. */
+html:not([data-motif="lattice"]) .ambient { display: none; }
+
 /* Section dividers are a plain hairline. The animated per-motif header bars,
    the sweeping rule and the glow were removed on 2026-11-13 (ADR-136
    revision: no decorative loops, no glow). */

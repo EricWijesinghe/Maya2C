@@ -212,7 +212,12 @@ h1#_top {
 .sl-markdown-content tbody tr:hover { background: var(--surface-2); }
 
 /* Callouts, quotes, images, rules. */
-.starlight-aside { border-radius: var(--r-md); border-inline-start-width: 2px; background: var(--surface-1); }
+.starlight-aside { border-radius: var(--r-md); border: 1px solid var(--border); border-inline-start: 2px solid var(--border-strong); background: var(--surface-1); color: var(--text); }
+.starlight-aside--note { border-inline-start-color: var(--steel); }
+.starlight-aside--tip { border-inline-start-color: var(--accent); }
+.starlight-aside--caution { border-inline-start-color: var(--warn); }
+.starlight-aside--danger { border-inline-start-color: var(--danger); }
+.starlight-aside__title, .starlight-aside__icon { color: var(--text); }
 /* Tabs (OS and audience switches): 44px targets, and a gap wider than the 8px rule. */
 [role="tab"] { min-height: 44px; display: inline-flex; align-items: center; }
 [role="tablist"] { gap: 0.5rem; }
@@ -223,10 +228,13 @@ h1#_top {
 
 /* Sidebar and on-this-page: the current page is a subtle accent row. */
 .sidebar-content a { border-radius: var(--r-sm); font-size: var(--type-body-size); transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
-.sidebar-content a:hover { background: var(--nav-hover); }
-.sidebar-content a[aria-current="page"] { color: var(--accent-text) !important; background: var(--accent-subtle) !important; font-weight: var(--weight-medium); }
+.sidebar-content a { color: var(--text-2); }
+.sidebar-content a:hover { background: var(--nav-hover); color: var(--text); }
+starlight-toc a { color: var(--text-2); }
+starlight-toc a:hover { color: var(--text); }
+.sidebar-content a[aria-current="page"] { color: var(--text) !important; background: var(--surface-2) !important; font-weight: var(--weight-medium); box-shadow: inset 2px 0 0 var(--accent); }
 .sidebar-content .group-label .large { font: var(--weight-semibold) var(--type-label-size)/var(--line-body) var(--display); color: var(--text); }
-starlight-toc a[aria-current="true"] { color: var(--accent-text) !important; font-weight: var(--weight-medium); }
+starlight-toc a[aria-current="true"] { color: var(--text) !important; font-weight: var(--weight-medium); }
 
 /* Previous / next: two flat cards; the border answers the hover. */
 .pagination-links a {

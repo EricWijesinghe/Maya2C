@@ -186,7 +186,7 @@ select.ui-field {
 /* Data table: dense rows, a sticky header inside its own scroll box, tabular
    figures, a quiet hover row. Numbers align right with .ui-num. */
 .ui-table-wrap { max-height: 18rem; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1); }
-.ui-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--type-body-sm-size); font-variant-numeric: var(--font-numeric); }
+.ui-table { display: table; width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--type-body-sm-size); font-variant-numeric: var(--font-numeric); }
 .ui-table th {
   position: sticky;
   top: 0;
