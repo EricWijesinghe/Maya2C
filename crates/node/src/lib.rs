@@ -70,6 +70,7 @@ pub mod rpc;
 pub mod sealed;
 pub mod state;
 pub mod state_pruner;
+pub mod tuning;
 pub mod upgrade;
 
 pub use crate::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};

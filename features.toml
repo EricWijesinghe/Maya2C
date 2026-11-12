@@ -2340,6 +2340,17 @@ tests = []
 note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim kind 1 is unassigned, no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
 
 [[subsystem]]
+id = "node-hardware-self-tuning"
+name = "Node hardware self-tuning (probe, tuning profile, manual override)"
+domain = "AI and hardware integration"
+paths = "`crates/node/src/tuning/`, `crates/node/src/state/db.rs` (open_tuned, prewarm_verification), `crates/node/src/rpc/server.rs` (get_node_tuning), `bins/maya2c-node/src/main.rs` (--tuning)"
+tier = "core"
+class = "REAL"
+status = "stub"
+tests = ["crates/node/tests/tuning_profile_tests.rs", "crates/node/src/tuning/mod.rs", "crates/node/src/tuning/detect.rs"]
+note = "ADR-137 HW-2, post-genesis (node binary). Default mode off = today's constants; auto is opt-in (O-4). Std-only probes: Linux /proc, /sys and cgroup; Windows and macOS memory and storage are Unknown (O-5). GPU not probed. get_node_tuning is absent unless [tuning] rpc = true and refuses forwarded or non-loopback callers. CI-first: not compiled locally when written. No speed-up measured: MISSING until bench-tps runs before and after."
+
+[[subsystem]]
 id = "confidential-federated-training"
 name = "Confidential federated training"
 domain = "AI and hardware integration"
