@@ -189,16 +189,16 @@ h1#_top {
 .sl-markdown-content .expressive-code pre { border: 0 !important; }
 
 /* Tables: dense, hairline rules, tabular figures, a quiet hover row. */
-.sl-markdown-content table {
+.sl-markdown-content table:not(:where(.not-content *)) {
   display: block; max-width: 100%; overflow-x: auto; border-collapse: separate; border-spacing: 0;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1);
   font-size: var(--type-body-size); font-variant-numeric: var(--font-numeric);
 }
-.sl-markdown-content :is(th, td) { padding: var(--space-2) var(--space-3); border: 0; border-bottom: 1px solid var(--border); }
-.sl-markdown-content th { font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--sans); color: var(--text-2); background: var(--surface-2); text-align: left; }
-.sl-markdown-content tr:last-child td { border-bottom: 0; }
-.sl-markdown-content tbody tr { transition: background-color var(--dur-1) var(--ease); }
-.sl-markdown-content tbody tr:hover { background: var(--surface-2); }
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) { padding: var(--space-2) var(--space-3); border: 0; border-bottom: 1px solid var(--border); }
+.sl-markdown-content th:not(:where(.not-content *)) { font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--sans); color: var(--text-2); background: var(--surface-2); text-align: left; }
+.sl-markdown-content tr:last-child td:not(:where(.not-content *)) { border-bottom: 0; }
+.sl-markdown-content tbody tr:not(:where(.not-content *)) { transition: background-color var(--dur-1) var(--ease); }
+.sl-markdown-content tbody tr:hover:not(:where(.not-content *)) { background: var(--surface-2); }
 
 /* Callouts: a tinted surface and a 2 px rule in the role colour; the title
    takes the role's text colour, the body stays on text-2 for contrast. */

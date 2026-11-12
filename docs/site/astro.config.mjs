@@ -160,6 +160,8 @@ export default defineConfig({
         "./src/styles/maya-living.css",
         // Layout helpers for kit components inside pages.
         "./src/styles/depth.css",
+        // App-like pages: sub-nav, stat grids, tables, skeletons (U3).
+        "./src/styles/app.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.

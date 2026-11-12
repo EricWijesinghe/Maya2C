@@ -30,7 +30,7 @@
   max-width: 100%;
   overflow-x: auto;
 }
-.sl-markdown-content table {
+.sl-markdown-content table:not(:where(.not-content *)) {
   display: block;
   max-width: 100%;
   overflow-x: auto;

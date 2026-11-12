@@ -5,7 +5,7 @@
 // astro.config.mjs (`components.Footer`), so it appears on every page.
 import Default from "@astrojs/starlight/components/Footer.astro";
 import SourceTip from "./SourceTip.astro";
-import { testnet, pausedLabel } from "../data/network-state";
+import { testnet } from "../data/network-state";
 import progress from "../../public/progress.json";
 
 const finality = (progress as { finality?: { p50_ms: number } | null }).finality;
@@ -23,7 +23,7 @@ const year = new Date().getFullYear();
     <dl>
       <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
       <div><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
-      <div><dt>Peers online</dt><dd data-fp-peers>{testnet.paused ? pausedLabel : "—"}</dd></div>
+      <div><dt>Peers online</dt><dd data-fp-peers>{testnet.paused ? "paused" : "—"}</dd></div>
     </dl>
   </div>
   <div class="maya-footer__about">
