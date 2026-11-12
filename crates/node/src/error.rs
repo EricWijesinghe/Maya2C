@@ -458,6 +458,17 @@ pub enum NodeError {
     #[error("vault: {0}")]
     Vault(String),
 
+    /// An account-authority action refused, or account authority used before
+    /// it is active (ADR-086).
+    #[error("account authority: {0}")]
+    Account(String),
+
+    /// A transaction acting for an account whose authority record does not
+    /// admit it (ADR-086 Rule A): a v5–v8 frame for a bound account, or a v9
+    /// frame presenting any policy but the recorded one.
+    #[error("account authority moved: {0}")]
+    AuthorityMoved(String),
+
     /// A mining share refused (ADR-044).
     #[error("mining share: {0}")]
     Mining(String),

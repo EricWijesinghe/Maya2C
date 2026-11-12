@@ -3441,6 +3441,17 @@ tests = ["crates/node/tests/vault_tests.rs", "bins/maya2c-cli/tests/vault_devnet
 note = "ADR-030, invariant 32. #273: VAULT_FEE_HEADROOM is removed; the required fee alone is exempt from the window limit, and a fee above it counts (vault_tests.rs a_fee_above_the_required_fee_counts_against_a_zero_limit). Consensus-visible: a note for the genesis build.Master Prompts 22 and 28. `maya2c custody-report`: reconciled per-account statements over a height range, anchored to block ids, SHA-256 digested; tested against the devnet. No outside-asset bridge route exists, so vaults hold the native coin."
 
 [[subsystem]]
+id = "account-authority"
+name = "Account authority: an address signed for by a stored, replaceable policy, with guardian recovery (wire v9, TxKind::Account)"
+domain = "Accounts"
+paths = "`crates/node/src/state/account_authority.rs`, `crates/node/src/core/account_tx.rs`, `crates/node/src/core/account_payload.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/node/tests/account_authority_tests.rs"]
+note = "ADR-086 §3, phase P3 (dark): ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT = u64::MAX, FeatureSet bit 9. Rule A/B in stage_transaction and the mempool; ka: state layer (tag 18) folded only when non-empty; guardian bounds, F1/F3/F4/F6 semantics; cancel and withdraw never halted. Proposed invariant 35. Not active anywhere: needs a testnet schedule entry, two human reviewers and a governance ScheduleUpgrade. Vectors: spec/account-authority-vectors.json. Invariant 33 for v9 frames: `v9_frames_fill_the_block_cap_and_the_rest_carry_over` fills MAX_BLOCK_BYTES with recovered-account frames (184 2-of-3, 120 3-of-5), carries the next one over, and imports both blocks."
+
+[[subsystem]]
 id = "private-contract-state"
 name = "Private contract state: STARK-proved updates to a committed field, checked by the VM through opt-in maya_priv imports"
 domain = "Privacy"

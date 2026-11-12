@@ -796,6 +796,20 @@ impl StateDB {
             });
         }
 
+        // Account authority (ADR-086), before the signature and the fee: one
+        // record read, no write. Rule A refuses a v5–v8 frame for an address
+        // whose authority moved to a stored policy, and a v9 frame presenting
+        // anything but that policy; Rule B leaves an unbound address exactly
+        // as before. Below activation it refuses every v9 frame and every
+        // account action and reads nothing.
+        self.authority_check(
+            overlay,
+            tx,
+            &sender_address,
+            context.height,
+            context.account_authority_activation,
+        )?;
+
         // Authorization — an unsigned or forged transaction must never reach
         // the balance rules.
         //
@@ -818,11 +832,14 @@ impl StateDB {
         self.charge_fee(overlay, tx)?;
 
         // The sender above is derived from the keys the signatures were just
-        // checked against, never read from a wire field. A transaction able to
-        // name a sender independently of the keys that signed it would authorize
-        // spending from an account it does not control. The address hashes both
-        // keys, so a forged half paired with an attacker-chosen partner key
-        // resolves to an account that holds nothing.
+        // checked against for every v5–v8 frame: the address hashes both keys
+        // (or the whole policy), so a forged half paired with an attacker-chosen
+        // partner key resolves to an account that holds nothing. A v9 frame is
+        // the one exception — it names its account on the wire — and it got
+        // here only because `authority_check` found that account's stored
+        // authority record equal to the policy whose quorum just verified.
+        // Without that record the frame was refused, so no wire field can name
+        // an account its signers do not control (ADR-086 Rule A).
         // A vault account may send only in-limit transfers and vault actions
         // (ADR-030), checked before a unit moves.
         if let Some(vault) = self.vault_check(overlay, tx, &sender_address, context.height)? {

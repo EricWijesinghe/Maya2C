@@ -685,6 +685,47 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("account_authority", |params, ctx, _| {
+            let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let address = decode_address_param(ctx, &address_hex, "address")?;
+            let chain = ctx.chain();
+            let (authority, guardians, recovery) = chain
+                .state()
+                .committed_account_authority(&address)
+                .map_err(internal)?;
+            let Some(authority) = authority else {
+                return Ok::<_, ErrorObjectOwned>(serde_json::Value::Null);
+            };
+            let height = chain.height();
+            let guardians = guardians.map(|g| {
+                let set = g.effective(height);
+                serde_json::json!({
+                    "guardians": set.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
+                    "threshold": set.threshold,
+                    "delay_blocks": set.delay_blocks,
+                    "queued_height": g.queued.as_ref().map(|(_, h)| *h).filter(|h| *h > height),
+                })
+            });
+            let recovery = recovery.map(|r| {
+                serde_json::json!({
+                    "opened_at": r.opened_at,
+                    "approvals": r.approvals.iter()
+                        .map(|(g, d)| serde_json::json!({"guardian": hex::encode(g), "policy_digest": hex::encode(d)}))
+                        .collect::<Vec<_>>(),
+                    "quorum": r.quorum.map(|(d, since)| serde_json::json!({"policy_digest": hex::encode(d), "since": since})),
+                })
+            });
+            Ok(serde_json::json!({
+                "policy_digest": hex::encode(authority.effective(height)),
+                "queued": authority.queued.filter(|(_, h)| *h > height)
+                    .map(|(d, h)| serde_json::json!({"policy_digest": hex::encode(d), "height": h})),
+                "guardians": guardians,
+                "recovery": recovery,
+            }))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("get_account_at_tip", |params, ctx, _| {
             let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let address = decode_address_param(ctx, &address_hex, "address")?;

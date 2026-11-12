@@ -18,20 +18,22 @@
 //!
 //! Version 1 is the protocol as specified in `spec/` v0.1.0. Version 2 is the
 //! first epoch whose binaries implement the dark-feature gates and the
-//! on-chain schedule.
+//! on-chain schedule. Version 3 is the first whose binaries implement account
+//! authority (ADR-086); an entry switching on [`FeatureSet::ACCOUNT_AUTHORITY`]
+//! names version 3 so that every older binary halts at its height.
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::error::{NodeError, Result};
 use crate::state::context::{
-    DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT,
-    STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
-    ZKML_ACTIVATION_HEIGHT,
+    ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT, DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT,
+    IOT_ACTIVATION_HEIGHT, STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT,
+    WORK_CLAIM_ACTIVATION_HEIGHT, ZKML_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
-pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
+pub const SUPPORTED_PROTOCOL_VERSION: u32 = 3;
 
 /// The dark features an upgrade entry can switch on, as a bitmask. The bit
 /// positions are consensus: never renumber, only append.
@@ -56,8 +58,12 @@ impl FeatureSet {
     pub const ZKML: u64 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
     pub const RWA_STRICT: u64 = 1 << 7;
+    // Bit 8 is SHIELDED (ADR-087), defined on its own branch. Not defined here,
+    // so KNOWN skips it until that branch merges and makes KNOWN contiguous.
+    /// Account authority, wire version 9 and guardian recovery (ADR-086).
+    pub const ACCOUNT_AUTHORITY: u64 = 1 << 9;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ACCOUNT_AUTHORITY;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -95,6 +101,8 @@ pub struct FeatureActivations {
     pub zkml: u64,
     /// Strictly ascending RWA issuer lists.
     pub rwa_strict: u64,
+    /// Account authority (ADR-086).
+    pub account_authority: u64,
 }
 
 impl Default for FeatureActivations {
@@ -109,6 +117,7 @@ impl Default for FeatureActivations {
             htlc_lattice: HTLC_L_ACTIVATION_HEIGHT,
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            account_authority: ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -218,6 +227,7 @@ impl UpgradeSchedule {
             htlc_lattice: at(FeatureSet::HTLC_LATTICE, never.htlc_lattice),
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
+            account_authority: at(FeatureSet::ACCOUNT_AUTHORITY, never.account_authority),
         }
     }
 
@@ -327,6 +337,18 @@ mod tests {
     fn unknown_feature_bits_are_rejected() {
         let bad = with(2, 10, FeatureSet::KNOWN + 1);
         assert!(UpgradeSchedule::new(vec![bad]).is_err());
+        // Bit 8 (SHIELDED) is not defined on this branch.
+        assert!(UpgradeSchedule::new(vec![with(2, 10, 1 << 8)]).is_err());
+    }
+
+    #[test]
+    fn account_authority_resolves_from_its_entry() {
+        let s = UpgradeSchedule::new(vec![with(3, 40, FeatureSet::ACCOUNT_AUTHORITY)]).unwrap();
+        assert_eq!(s.features().account_authority, 40);
+        assert_eq!(
+            UpgradeSchedule::default().features().account_authority,
+            u64::MAX
+        );
     }
 
     #[test]

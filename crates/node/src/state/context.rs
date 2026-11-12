@@ -73,6 +73,12 @@ pub struct BlockContext {
     /// [`RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT`] everywhere the node builds a
     /// context. Set from the upgrade schedule by [`Self::with_features`].
     pub rwa_strict_activation: u64,
+    /// First height at which account authority (wire version 9 and
+    /// `TxKind::Account`, ADR-086) is in force.
+    ///
+    /// [`ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT`] everywhere the node builds a
+    /// context. Set from the upgrade schedule by [`Self::with_features`].
+    pub account_authority_activation: u64,
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
@@ -93,6 +99,14 @@ pub const SHIELDED_NEVER: u64 = u64::MAX;
 /// What has to be decided first is written in ADR-061: the swap needs the
 /// seller's consent, carried as a seller-signed offer the swap consumes once.
 pub const DVP_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which account authority executes: none.
+///
+/// The research-branch pattern. ADR-086 §3.5: a testnet schedule entry first,
+/// then a governance `ScheduleUpgrade` with the full ADR-082 lead. Until then
+/// every v9 frame and every `TxKind::Account` is refused, no `ka:` record can
+/// exist, and no state root moves.
+pub const ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which `IoT` anchor transactions execute: none.
 ///
@@ -202,6 +216,7 @@ impl BlockContext {
             work_claim_activation: WORK_CLAIM_ACTIVATION_HEIGHT,
             dvp_activation: DVP_ACTIVATION_HEIGHT,
             rwa_strict_activation: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            account_authority_activation: ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
@@ -220,6 +235,7 @@ impl BlockContext {
             work_claim_activation: features.work_claim,
             dvp_activation: features.dvp,
             rwa_strict_activation: features.rwa_strict,
+            account_authority_activation: features.account_authority,
             ..self
         }
     }
@@ -231,6 +247,21 @@ impl BlockContext {
             suite_sunsets,
             ..self
         }
+    }
+
+    /// The same context with account authority active from `height` on.
+    #[must_use]
+    pub const fn with_account_authority_activation(self, height: u64) -> Self {
+        Self {
+            account_authority_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether account authority (v9 frames, `TxKind::Account`) is in force.
+    #[must_use]
+    pub const fn account_authority_active(self) -> bool {
+        self.height >= self.account_authority_activation
     }
 
     /// The same context with RWA swaps active from `height` on.

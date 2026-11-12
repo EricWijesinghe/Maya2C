@@ -83,6 +83,10 @@ pub enum StateLayer {
     /// Never present on a chain where no account configured a vault, so it
     /// moves no existing root.
     Vault,
+    /// Account authority, guardian and recovery records, under the `ka:`
+    /// prefix (ADR-086). Never present on a chain where no account opted in,
+    /// so it moves no existing root.
+    AccountAuthority,
     /// The upgrade schedule, under the `up:` prefix (ADR-082). Present only on
     /// a chain whose genesis or governance scheduled a version or a sunset.
     UpgradeSchedule,
@@ -125,6 +129,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Iot,
     StateLayer::Staking,
     StateLayer::Vault,
+    StateLayer::AccountAuthority,
     StateLayer::UpgradeSchedule,
     StateLayer::Stateless,
     StateLayer::Shielded,
@@ -157,6 +162,7 @@ impl StateLayer {
             Self::Staking => "maya staking state root v1",
             Self::Stateless => "maya stateless state root v1",
             Self::Vault => "maya vault state root v1",
+            Self::AccountAuthority => "maya account-authority state root v1",
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
         }
     }
@@ -182,6 +188,7 @@ impl StateLayer {
             Self::Staking => 15,
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
+            Self::AccountAuthority => 18,
         }
     }
 
@@ -206,6 +213,7 @@ impl StateLayer {
             15 => Some(Self::Staking),
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
+            18 => Some(Self::AccountAuthority),
             _ => None,
         }
     }
@@ -239,6 +247,7 @@ impl StateLayer {
             Self::Iot => "iot",
             Self::Staking => "staking",
             Self::Vault => "vault",
+            Self::AccountAuthority => "account-authority",
             Self::UpgradeSchedule => "upgrade-schedule",
         }
     }

@@ -264,7 +264,12 @@ impl StateDB {
         let Some(vault) = self.vault_record(overlay, sender)? else {
             return Ok(None);
         };
-        if !matches!(tx.kind, TxKind::Transfer | TxKind::Vault(_)) {
+        // Account actions move no value (ADR-086), so recovery and policy
+        // changes stay open to a vault account (invariant 32).
+        if !matches!(
+            tx.kind,
+            TxKind::Transfer | TxKind::Vault(_) | TxKind::Account(_)
+        ) {
             return refuse(format!(
                 "a vault account may not send `{}`",
                 tx.kind.label()
