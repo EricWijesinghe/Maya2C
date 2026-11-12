@@ -280,6 +280,7 @@ mod tests {
                 .iter()
                 .map(|&(a, before, after)| BalanceChangeInfo {
                     address: a.into(),
+                    address_text: None,
                     before: before.into(),
                     after: after.into(),
                 })

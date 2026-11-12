@@ -60,11 +60,13 @@ impl StubChain {
                 .map(|index| custom_l1_node::rpc::TransactionInfo {
                     txid: format!("{height:08x}{index:08x}{}", "0".repeat(48)),
                     sender: "aa".repeat(32),
+                    sender_text: None,
                     lattice_public_key: "cc".repeat(1952),
                     hash_public_key: "dd".repeat(32),
                     nonce: index as u64,
                     outputs: vec![custom_l1_node::rpc::OutputInfo {
                         recipient: "bb".repeat(32),
+                        recipient_text: None,
                         amount: primitive_types::U256::from(100),
                     }],
                     signed: true,
@@ -97,6 +99,7 @@ impl StubChain {
                 |(index, (kind, summary, careful))| custom_l1_node::rpc::TransactionInfo {
                     txid: format!("{height:08x}{index:08x}{}", "0".repeat(48)),
                     sender: "aa".repeat(32),
+                    sender_text: None,
                     lattice_public_key: "cc".repeat(1952),
                     hash_public_key: "dd".repeat(32),
                     nonce: index as u64,
