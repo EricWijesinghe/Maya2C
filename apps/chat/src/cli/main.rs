@@ -163,7 +163,7 @@ fn show(results: &[Result<Received, ChatError>]) -> usize {
             Ok(r) => println!(
                 "from {}: {}",
                 hex::encode(r.from),
-                String::from_utf8_lossy(&r.text)
+                maya_chat::frame::describe(&r.text)
             ),
             Err(ChatError::NoSession) => {
                 eprintln!("skipped a message for a session this identity does not hold");

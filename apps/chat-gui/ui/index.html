@@ -51,6 +51,12 @@
           <nav id="sticker-tabs" class="sticker-tabs"></nav>
           <div id="sticker-grid" class="sticker-grid"></div>
         </section>
+        <div id="react-picker" class="react-picker" role="menu" aria-label="React or reply" hidden></div>
+        <div id="reply-bar" class="reply-bar" hidden>
+          <span class="reply-label">Replying to</span>
+          <span id="reply-text" class="reply-text"></span>
+          <button id="reply-cancel" type="button" class="icon" aria-label="Cancel reply">✕</button>
+        </div>
         <form id="compose" class="compose">
           <button id="sticker-toggle" type="button" class="icon" title="Stickers" disabled>😊</button>
           <input id="text" placeholder="Write a message, or one emoji for stickers" autocomplete="off" disabled />

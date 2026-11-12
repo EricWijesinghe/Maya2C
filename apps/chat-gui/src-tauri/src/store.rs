@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use maya_chat::frame::{self, Mark, Quote};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -35,8 +36,13 @@ pub struct Contact {
 }
 
 /// One message in a conversation.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Line {
+    /// The envelope id (hex) both sides name this message by; reactions and
+    /// replies point at it (ADR-140). Empty on lines saved before it existed,
+    /// which therefore cannot be reacted or replied to.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     /// The other party's address.
     pub peer: String,
     /// Sent by this user, rather than received.
@@ -51,6 +57,65 @@ pub struct Line {
     /// tracked. Cleared once the user dismisses an expired one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbox: Option<String>,
+    /// Reaction toggles on this line, from either side ([`frame::apply_mark`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<Mark>,
+    /// Set when the line is a reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<ReplyRef>,
+}
+
+/// What a reply points at.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplyRef {
+    /// The envelope id (hex) of the message replied to.
+    pub target: String,
+    /// [`frame::quote_hash`] of its text, as the sender saw it.
+    pub quote: String,
+}
+
+/// A line as the window draws it: the stored line plus, for a reply, the
+/// quote resolved against this device's own copy of the original.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct Shown {
+    #[serde(flatten)]
+    pub line: Line,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote: Option<Quote>,
+}
+
+/// `line` resolved for display against `history` (the same chat only).
+#[must_use]
+pub fn show(history: &[Line], line: &Line) -> Shown {
+    let quote = line.reply.as_ref().map(|r| {
+        let target = find(history, &line.peer, &r.target).map(|t| t.text.as_str());
+        frame::resolve_quote(target, &r.quote)
+    });
+    Shown {
+        line: line.clone(),
+        quote,
+    }
+}
+
+fn is_line(l: &Line, peer: &str, id: &str) -> bool {
+    !l.id.is_empty() && l.id == id && l.peer == peer
+}
+
+/// The line `id` in the chat with `peer`. A line from another chat is never
+/// found, so a frame cannot reach across conversations.
+#[must_use]
+pub fn find<'a>(history: &'a [Line], peer: &str, id: &str) -> Option<&'a Line> {
+    history.iter().find(|l| is_line(l, peer, id))
+}
+
+/// Applies a reaction toggle to the line `target` in the chat with `peer`,
+/// returning that line's index. A reaction to a line this device does not
+/// hold is dropped (`None`).
+pub fn react(history: &mut [Line], peer: &str, target: &str, mark: Mark) -> Option<usize> {
+    let i = history.iter().position(|l| is_line(l, peer, target))?;
+    let line = history.get_mut(i)?;
+    line.reactions = frame::apply_mark(&line.reactions, mark);
+    Some(i)
 }
 
 /// The sticker a line shows.
@@ -232,7 +297,7 @@ mod tests {
         let profile = Profile {
             relay: "/dns4/seed1.maya2c.dev/tcp/4001/p2p/x".into(),
             contacts: vec![Contact { name: "Ann".into(), address: "ab".repeat(32) }],
-            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None, outbox: None }],
+            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, ..Line::default() }],
             ..Profile::default()
         };
         files.save_profile(&[1; 32], &profile).unwrap();
@@ -263,5 +328,75 @@ mod tests {
         let profile: Profile = serde_json::from_str(old).unwrap();
         assert!(profile.packs.is_empty() && profile.recent.is_empty());
         assert_eq!(profile.history[0].sticker, None);
+        assert!(profile.history[0].id.is_empty() && profile.history[0].reactions.is_empty());
+        assert_eq!(profile.history[0].reply, None);
+    }
+
+    const PEER: &str = "aa";
+    const OTHER: &str = "bb";
+
+    fn line(peer: &str, id: u8, text: &str) -> Line {
+        Line { id: hex::encode([id; 32]), peer: peer.into(), text: text.into(), ..Line::default() }
+    }
+
+    fn thumbs(on: bool, at: u64) -> Mark {
+        Mark { mine: false, emoji: "\u{1f44d}".into(), on, at }
+    }
+
+    fn reply_to(id: u8, quoted: &str) -> Line {
+        Line {
+            peer: PEER.into(),
+            text: "ok".into(),
+            reply: Some(ReplyRef { target: hex::encode([id; 32]), quote: frame::quote_hash(quoted) }),
+            ..Line::default()
+        }
+    }
+
+    #[test]
+    fn a_reaction_to_an_unknown_id_is_dropped() {
+        let mut history = vec![line(PEER, 1, "hi")];
+        assert_eq!(react(&mut history, PEER, &hex::encode([2; 32]), thumbs(true, 1)), None);
+        assert!(history[0].reactions.is_empty());
+        let mut old = vec![Line { peer: PEER.into(), ..Line::default() }];
+        assert_eq!(react(&mut old, PEER, "", thumbs(true, 1)), None, "a line without an id cannot be targeted");
+    }
+
+    #[test]
+    fn a_reaction_or_reply_naming_a_line_from_another_chat_finds_nothing() {
+        let mut history = vec![line(OTHER, 1, "secret")];
+        assert_eq!(react(&mut history, PEER, &hex::encode([1; 32]), thumbs(true, 1)), None);
+        assert!(history[0].reactions.is_empty());
+        assert_eq!(show(&history, &reply_to(1, "secret")).quote, Some(Quote::Missing), "no quote across chats");
+    }
+
+    #[test]
+    fn a_second_reaction_from_one_sender_replaces_the_first() {
+        let mut history = vec![line(PEER, 1, "hi")];
+        let target = hex::encode([1; 32]);
+        assert_eq!(react(&mut history, PEER, &target, thumbs(true, 1)), Some(0));
+        assert_eq!(react(&mut history, PEER, &target, thumbs(false, 2)), Some(0));
+        assert_eq!(history[0].reactions, vec![thumbs(false, 2)]);
+    }
+
+    #[test]
+    fn a_reply_whose_quote_hash_mismatches_shows_no_quote() {
+        let history = vec![line(PEER, 1, "see you at 5")];
+        assert_eq!(show(&history, &reply_to(1, "see you at 5")).quote, Some(Quote::Shown("see you at 5".into())));
+        assert_eq!(show(&history, &reply_to(1, "see you at 6")).quote, Some(Quote::Mismatch));
+        assert_eq!(show(&[], &reply_to(1, "see you at 5")).quote, Some(Quote::Missing), "original not available");
+        assert_eq!(show(&history, &history[0]).quote, None, "not a reply");
+    }
+
+    #[test]
+    fn reactions_and_replies_survive_a_save() {
+        let dir = std::env::temp_dir().join(format!("maya-chat-gui-react-{}", std::process::id()));
+        let files = Files::new(dir.clone()).unwrap();
+        let mut target = line(PEER, 1, "hi");
+        target.reactions = vec![thumbs(true, 3)];
+        let answer = Line { id: hex::encode([2; 32]), ..reply_to(1, "hi") };
+        let profile = Profile { history: vec![target, answer], ..Profile::default() };
+        files.save_profile(&[1; 32], &profile).unwrap();
+        assert_eq!(files.profile(&[1; 32]).unwrap(), profile);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

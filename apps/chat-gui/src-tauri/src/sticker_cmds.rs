@@ -13,7 +13,8 @@ use tauri::State;
 use tauri::ipc::{InvokeBody, Request, Response};
 
 use crate::stickers::{self, Content, Pack, PackItem};
-use crate::store::{Line, RECENT_LIMIT, StickerRef};
+use crate::store::{self, Line, RECENT_LIMIT, ReplyRef, StickerRef};
+use maya_chat::frame::Mark;
 use crate::{App, Session, address, relay_addr, remember, why};
 
 /// The picker's contents.
@@ -136,12 +137,14 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
     s.profile.recent.insert(0, id.clone());
     s.profile.recent.truncate(RECENT_LIMIT);
     let line = Line {
+        id: hex::encode(sent),
         peer: hex::encode(address(&peer)?),
         mine: true,
         text: item.emoji,
         at,
         sticker: Some(StickerRef { id, format: item.format, pack, title }),
         outbox: Some(hex::encode(sent)),
+        ..Line::default()
     };
     remember(&mut s.profile, line.clone());
     app.save(s)?;
@@ -184,29 +187,58 @@ pub(crate) struct Incoming {
     answered: HashSet<(String, String)>,
 }
 
-/// Handles one structured message from `from`. Returns the line to show, if
-/// any. A malformed one is dropped: a peer can send anything.
+/// What one structured message did.
+pub(crate) enum Got {
+    /// A new line to show and keep.
+    Line(Line),
+    /// A reaction changed the line at this index of the history.
+    Touched(usize),
+}
+
+/// Handles one structured message from `from`, whose envelope id is `id`.
+/// Returns what to show, if anything. A malformed one is dropped: a peer can
+/// send anything. A kind this build does not know becomes a plain notice.
 pub(crate) async fn receive(
     app: &App,
     s: &mut Session,
     incoming: &mut Incoming,
     from: [u8; 32],
+    id: [u8; 32],
     plain: &[u8],
-) -> Option<Line> {
-    let decoded = stickers::decode(plain).ok()?;
+) -> Option<Got> {
     let peer = hex::encode(from);
+    let line = |text: String| Line {
+        id: hex::encode(id),
+        peer: peer.clone(),
+        text,
+        at: now(),
+        ..Line::default()
+    };
+    let decoded = match stickers::decode(plain) {
+        Ok(decoded) => decoded,
+        Err(e @ maya_chat::frame::FrameError::UnknownKind) => return Some(Got::Line(line(e.to_string()))),
+        Err(_) => return None,
+    };
     match decoded.content {
-        Content::Sticker { id, emoji, pack, title } => {
+        Content::Sticker { id: sticker, emoji, pack, title } => {
             let (_, format) = stickers::check_file(&decoded.file).ok()?;
             app.files.save_sticker(&s.seed, &decoded.file).ok()?;
-            Some(Line {
-                peer,
-                mine: false,
-                text: emoji,
-                at: now(),
-                sticker: Some(StickerRef { id, format, pack, title }),
-                outbox: None,
-            })
+            Some(Got::Line(Line {
+                sticker: Some(StickerRef { id: sticker, format, pack, title }),
+                ..line(emoji)
+            }))
+        }
+        Content::Reaction { target, emoji, on, at } => {
+            let mark = Mark { mine: false, emoji, on, at };
+            store::react(&mut s.profile.history, &peer, &target, mark).map(Got::Touched)
+        }
+        Content::Reply { target, quote } => {
+            // `decode` checked the body is text.
+            let text = String::from_utf8(decoded.file).ok()?;
+            Some(Got::Line(Line {
+                reply: Some(ReplyRef { target, quote }),
+                ..line(text)
+            }))
         }
         Content::PackRequest { pack } => {
             if incoming.answered.insert((peer.clone(), pack.clone())) {
@@ -222,14 +254,8 @@ pub(crate) async fn receive(
                 .entry(pack.id.clone())
                 .or_insert_with(|| (pack.clone(), vec![false; pack.items.len()]));
             *entry.1.get_mut(usize::from(index))? = true;
-            install_if_complete(app, s, incoming, &pack.id).then(|| Line {
-                peer,
-                mine: false,
-                text: format!("Sticker pack \u{201c}{title}\u{201d} added"),
-                at: now(),
-                sticker: None,
-                outbox: None,
-            })
+            install_if_complete(app, s, incoming, &pack.id)
+                .then(|| Got::Line(line(format!("Sticker pack \u{201c}{title}\u{201d} added"))))
         }
     }
 }

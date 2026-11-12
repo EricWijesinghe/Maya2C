@@ -8,7 +8,20 @@ const FIRST_RUN_WAIT_MS = 45000;
 const BOT_NAME = "Maya (welcome bot)";
 const $ = (id) => document.getElementById(id);
 
-const state = { address: null, contacts: [], peer: null, polling: null };
+const state = { address: null, contacts: [], peer: null, polling: null, replyTo: null };
+// The reactions offered (maya_chat::frame::REACTION_EMOJI), with the names a
+// screen reader says.
+const REACTIONS = [
+  ["👍", "thumbs up"],
+  ["❤️", "heart"],
+  ["😂", "laughing"],
+  ["😮", "surprised"],
+  ["😢", "sad"],
+  ["🙏", "thanks"],
+  ["🔥", "fire"],
+  ["🎉", "celebrate"],
+];
+const LONG_PRESS_MS = 500;
 
 function short(addr) {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
@@ -53,9 +66,58 @@ function drawContacts() {
   }
 }
 
-function drawLine(line) {
+function reactionName(emoji) {
+  const known = REACTIONS.find(([e]) => e === emoji);
+  return known ? known[1] : "custom emoji";
+}
+
+// The quote above a reply: this device's own copy of the original, a plain
+// notice when it does not hold one, and nothing when the hash did not match.
+function quoteOf(line) {
+  if (!line.quote || line.quote.state === "mismatch") return null;
+  const q = document.createElement("div");
+  q.className = "quote";
+  if (line.quote.state === "shown") {
+    q.textContent = line.quote.text;
+  } else {
+    q.classList.add("missing");
+    q.textContent = "original not available";
+  }
+  return q;
+}
+
+// One chip per emoji that is on, counted over both sides; pressing a chip
+// toggles this user's own reaction.
+function chipsOf(line) {
+  const counts = new Map();
+  for (const m of line.reactions || []) {
+    if (!m.on) continue;
+    const c = counts.get(m.emoji) || { n: 0, mine: false };
+    counts.set(m.emoji, { n: c.n + 1, mine: c.mine || m.mine });
+  }
+  if (counts.size === 0) return null;
+  const row = document.createElement("div");
+  row.className = "reactions";
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", "Reactions");
+  for (const [emoji, c] of counts) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (c.mine ? " is-mine" : "");
+    chip.textContent = `${/^[0-9a-f]{64}$/.test(emoji) ? "◆" : emoji} ${c.n}`;
+    chip.setAttribute("aria-pressed", String(c.mine));
+    chip.setAttribute("aria-label", `${reactionName(emoji)}, ${c.n}${c.mine ? ", including yours" : ""}. Press to ${c.mine ? "remove" : "add"} yours`);
+    chip.onclick = () => react(line, emoji, !c.mine);
+    row.append(chip);
+  }
+  return row;
+}
+
+function renderLine(line) {
   const li = document.createElement("li");
   li.className = line.mine ? "mine" : "theirs";
+  const quote = quoteOf(line);
+  if (quote) li.append(quote);
   let text;
   if (line.sticker) {
     li.classList.add("is-sticker");
@@ -69,10 +131,139 @@ function drawLine(line) {
   // What happened to the words: sealed here, or opened here after the trip.
   at.textContent = `${line.mine ? "sealed" : "opened"} · ${clock}`;
   li.append(text, at);
+  const chips = chipsOf(line);
+  if (chips) li.append(chips);
   if (line.outbox) li.dataset.outbox = line.outbox;
-  $("lines").append(li);
+  // Lines saved before message ids existed cannot be reacted or replied to.
+  if (line.id) {
+    li.dataset.id = line.id;
+    li.tabIndex = 0;
+    li.setAttribute("aria-haspopup", "menu");
+    li.title = "Right-click, long-press or press Enter to react or reply";
+    li._line = line;
+    li.oncontextmenu = (ev) => {
+      ev.preventDefault();
+      openPicker(li);
+    };
+    li.onkeydown = (ev) => {
+      if (ev.target !== li) return;
+      if (ev.key === "Enter" || ev.key === "ContextMenu" || (ev.key === "F10" && ev.shiftKey)) {
+        ev.preventDefault();
+        openPicker(li);
+      }
+    };
+    let press = null;
+    const cancel = () => clearTimeout(press);
+    li.onpointerdown = (ev) => {
+      if (ev.pointerType === "mouse") return;
+      press = setTimeout(() => openPicker(li), LONG_PRESS_MS);
+    };
+    li.onpointerup = cancel;
+    li.onpointerleave = cancel;
+    li.onpointermove = cancel;
+  }
+  return li;
+}
+
+function drawLine(line) {
+  $("lines").append(renderLine(line));
   $("lines").scrollTop = $("lines").scrollHeight;
 }
+
+// Redraws a line already on screen (a reaction changed it), or adds it.
+function upsertLine(line) {
+  const old = line.id && $("lines").querySelector(`li[data-id="${line.id}"]`);
+  if (!old) return drawLine(line);
+  const fresh = renderLine(line);
+  const hadFocus = old.contains(document.activeElement);
+  old.replaceWith(fresh);
+  if (hadFocus) fresh.focus();
+  refreshDeliveries();
+}
+
+// The picker: the reactions plus Reply, for one line.
+function openPicker(li) {
+  const picker = $("react-picker");
+  const line = li._line;
+  const mineOn = new Set((line.reactions || []).filter((m) => m.mine && m.on).map((m) => m.emoji));
+  picker.replaceChildren();
+  for (const [emoji, name] of REACTIONS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitemcheckbox");
+    b.setAttribute("aria-checked", String(mineOn.has(emoji)));
+    b.setAttribute("aria-label", `React with ${name}`);
+    b.textContent = emoji;
+    b.onclick = () => {
+      closePicker();
+      react(line, emoji, !mineOn.has(emoji));
+    };
+    picker.append(b);
+  }
+  const reply = document.createElement("button");
+  reply.type = "button";
+  reply.className = "reply-action";
+  reply.setAttribute("role", "menuitem");
+  reply.textContent = "Reply";
+  reply.onclick = () => {
+    closePicker();
+    startReply(line);
+  };
+  picker.append(reply);
+  picker._from = li;
+  picker.hidden = false;
+  const box = li.getBoundingClientRect();
+  const room = $("lines").getBoundingClientRect();
+  picker.style.top = `${Math.max(room.top, box.top - picker.offsetHeight - 6)}px`;
+  picker.style.left = `${Math.min(Math.max(8, box.left), window.innerWidth - picker.offsetWidth - 8)}px`;
+  picker.querySelector("button").focus();
+}
+
+function closePicker() {
+  const picker = $("react-picker");
+  if (picker.hidden) return;
+  picker.hidden = true;
+  picker._from?.focus();
+}
+
+$("react-picker").onkeydown = (ev) => {
+  const items = [...$("react-picker").querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  if (ev.key === "Escape") closePicker();
+  else if (ev.key === "ArrowRight" || ev.key === "ArrowDown") items[(i + 1) % items.length].focus();
+  else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") items[(i - 1 + items.length) % items.length].focus();
+  else return;
+  ev.preventDefault();
+};
+document.addEventListener("pointerdown", (ev) => {
+  if (!$("react-picker").contains(ev.target)) closePicker();
+});
+
+async function react(line, emoji, on) {
+  say("chat-error", "");
+  try {
+    upsertLine(await invoke("react", { peer: line.peer, target: line.id, emoji, on }));
+  } catch (e) {
+    say("chat-error", e);
+  }
+}
+
+function startReply(line) {
+  state.replyTo = line;
+  $("reply-text").textContent = line.text;
+  $("reply-bar").hidden = false;
+  $("text").focus();
+}
+
+function cancelReply() {
+  state.replyTo = null;
+  $("reply-bar").hidden = true;
+}
+
+$("reply-cancel").onclick = () => {
+  cancelReply();
+  $("text").focus();
+};
 
 const DELIVERY_LABEL = {
   sending: "Sending",
@@ -128,6 +319,7 @@ async function refreshDeliveries() {
 
 async function openPeer(addr) {
   state.peer = addr;
+  cancelReply();
   $("peer").replaceChildren(avatar(addr), document.createTextNode(nameOf(addr)));
   $("text").disabled = false;
   $("send").disabled = false;
@@ -154,7 +346,7 @@ async function poll() {
       }
       // A pack someone sent finished arriving: the picker shows it now.
       if (line.text.startsWith("Sticker pack ") && !line.sticker) Stickers.refresh().catch(() => {});
-      if (line.peer === state.peer) drawLine(line);
+      if (line.peer === state.peer) upsertLine(line);
       else say("side-status", `New message from ${nameOf(line.peer)}`);
     }
     await refreshDeliveries();
@@ -322,7 +514,13 @@ $("compose").onsubmit = async (ev) => {
   $("send").disabled = true;
   say("chat-error", "");
   try {
-    drawLine(await invoke("send", { peer: state.peer, text }));
+    const target = state.replyTo;
+    drawLine(
+      target
+        ? await invoke("reply", { peer: state.peer, target: target.id, text })
+        : await invoke("send", { peer: state.peer, text }),
+    );
+    cancelReply();
     await refreshDeliveries();
     $("text").value = "";
     Stickers.suggest("");

@@ -182,6 +182,43 @@ input:focus { border-color: rgb(31 181 194 / 0.6); }
 .compose { display: flex; gap: 0.6rem; padding: 0.9rem 1.25rem; border-top: 1px solid var(--line); }
 .chat .error { padding: 0 1.25rem; }
 
+/* Reactions and replies (ADR-140 PR 1). `.mine` styles a bubble, so a chip
+   of this user's own reaction is `.is-mine`. */
+.lines li[data-id]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.quote {
+  border-left: 3px solid var(--violet); padding: 0.15rem 0.55rem; margin-bottom: 0.15rem;
+  font-size: 0.82rem; color: var(--dim); background: rgb(255 255 255 / 0.04); border-radius: 0.35rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.quote.missing { font-style: italic; }
+.reactions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.15rem; }
+.chip {
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text);
+  padding: 0.1rem 0.5rem; font-size: 0.8rem; cursor: pointer;
+}
+.chip.is-mine { border-color: var(--cyan); background: rgb(31 181 194 / 0.16); }
+.chip:focus-visible, .react-picker button:focus-visible, .reply-bar button:focus-visible {
+  outline: 2px solid var(--cyan); outline-offset: 1px;
+}
+.react-picker {
+  position: fixed; z-index: 10; display: flex; gap: 0.2rem; padding: 0.3rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.45);
+}
+.react-picker button {
+  border: none; background: none; color: var(--text); font-size: 1.25rem; width: 2.3rem; height: 2.3rem;
+  border-radius: 50%; cursor: pointer;
+}
+.react-picker button:hover, .react-picker button[aria-checked="true"] { background: rgb(31 181 194 / 0.16); }
+.react-picker .reply-action { width: auto; padding: 0 0.8rem; font-size: 0.85rem; border-radius: 999px; }
+.reply-bar {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 1.25rem;
+  border-top: 1px solid var(--line); background: var(--panel); font-size: 0.85rem;
+}
+.reply-label { color: var(--violet); flex: none; }
+.reply-text { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.reply-bar button { border: none; background: none; color: var(--dim); cursor: pointer; font-size: 1rem; }
+
 /* First run: an orbit behind the title, then a list of real steps, each
    ticked when the command it waits on returns. */
 .welcome { position: relative; }
