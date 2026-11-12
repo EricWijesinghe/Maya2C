@@ -156,7 +156,10 @@ fn a_mining_share_that_carries_outputs_is_judged_by_the_payload_rules_at_admissi
 
     let refused = pool.insert(tx.clone());
     assert!(
-        matches!(&refused, Err(NodeError::MixedTransactionKind("mining_share"))),
+        matches!(
+            &refused,
+            Err(NodeError::MixedTransactionKind("mining_share"))
+        ),
         "{refused:?}"
     );
     assert!(!pool.contains(&tx.txid()), "pooled despite refusal");
