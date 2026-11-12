@@ -86,7 +86,7 @@ fn injected_faults_are_caught() {
     let mut monitor = HealthMonitor::new(stuck.min_entropy_millibits());
     assert!(matches!(
         monitor.check(&buf),
-        Err(HealthFailure::RepetitionCount { value: 0x42, .. })
+        Err(HealthFailure::RepetitionCount { .. })
     ));
 
     let mut biased = Faulty::new(

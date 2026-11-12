@@ -2992,7 +2992,18 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-entropy", "hal/entropy/tests/drbg_cavp_tests.rs"]
-note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No wallet or node caller yet."
+note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No node caller; wallet key generation calls it through entropy-keygen-health."
+
+[[subsystem]]
+id = "entropy-keygen-health"
+name = "Entropy health monitoring in key generation (SP 800-90B start-up and continuous tests)"
+domain = "Cryptography and key management"
+paths = "`hal/entropy/src/keygen.rs`, `hal/entropy/src/health.rs`, `apps/wallet-gui/core/src/hd.rs`, `bins/l1-wallet/src/main.rs`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["crate:maya-entropy", "crate:maya-wallet-core"]
+note = "ADR-137 HW-5 (O-9 A). KeygenEntropy runs a 4,096-sample start-up test and the RCT/APT on every key byte, cutoffs in integer math at alpha = 2^-20; failure is a typed error, latched, output zeroed, no fallback. Wired into the wallet core's mnemonic and l1-wallet generate. Not wired: crates/node key commands (frozen binary, post-genesis follow-up), chat identity keys; the Hub generates no keys. Stub: CI-first, not compiled locally."
 
 [[subsystem]]
 id = "transparent-stark-plonky3"
