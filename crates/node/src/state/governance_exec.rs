@@ -445,6 +445,7 @@ impl StateDB {
                 proposal.schedule.expires_after,
                 maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
                 self.default_after(overlay, &submission.changes)?,
+                context.shielded_activation,
             )?;
         }
 
@@ -615,6 +616,7 @@ impl StateDB {
                                 context.height,
                                 maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
                                 default,
+                                context.shielded_activation,
                             )
                             .is_ok()
                     }

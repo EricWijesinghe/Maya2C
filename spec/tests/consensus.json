@@ -1355,6 +1355,145 @@
       "rules": [
         "CON-13"
       ]
+    },
+    {
+      "expect": {
+        "activation": "0",
+        "active": true,
+        "result": "ok"
+      },
+      "fn": "shielded_activation",
+      "genesis": "0",
+      "height": "0",
+      "id": "shielded-genesis-height-wins",
+      "rules": [
+        "CON-14"
+      ],
+      "scheduled": "18446744073709551615"
+    },
+    {
+      "expect": {
+        "activation": "40",
+        "active": false,
+        "result": "ok"
+      },
+      "fn": "shielded_activation",
+      "genesis": "18446744073709551615",
+      "height": "39",
+      "id": "shielded-scheduled-before-height",
+      "rules": [
+        "CON-14"
+      ],
+      "scheduled": "40"
+    },
+    {
+      "expect": {
+        "activation": "40",
+        "active": true,
+        "result": "ok"
+      },
+      "fn": "shielded_activation",
+      "genesis": "18446744073709551615",
+      "height": "40",
+      "id": "shielded-scheduled-at-height",
+      "rules": [
+        "CON-14"
+      ],
+      "scheduled": "40"
+    },
+    {
+      "expect": {
+        "activation": "18446744073709551615",
+        "active": false,
+        "result": "ok"
+      },
+      "fn": "shielded_activation",
+      "genesis": "18446744073709551615",
+      "height": "18446744073709551614",
+      "id": "shielded-never-anywhere",
+      "rules": [
+        "CON-14"
+      ],
+      "scheduled": "18446744073709551615"
+    },
+    {
+      "expect": {
+        "error": "ShieldedActivationConflict",
+        "result": "error"
+      },
+      "fn": "shielded_activation",
+      "genesis": "0",
+      "height": "40",
+      "id": "shielded-both-sources-refused",
+      "rules": [
+        "CON-14"
+      ],
+      "scheduled": "40"
+    },
+    {
+      "expect": {
+        "error": "ShieldedActivationConflict",
+        "result": "error"
+      },
+      "fn": "shielded_activation",
+      "genesis": "10",
+      "height": "40",
+      "id": "shielded-both-sources-refused-late-genesis",
+      "rules": [
+        "CON-14"
+      ],
+      "scheduled": "40"
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "shielded_entry",
+      "id": "shielded-entry-v3-idle-pool",
+      "pool_activation": "18446744073709551615",
+      "rules": [
+        "CON-15"
+      ],
+      "version": 3
+    },
+    {
+      "expect": {
+        "error": "Governance",
+        "result": "error"
+      },
+      "fn": "shielded_entry",
+      "id": "shielded-entry-v2-refused",
+      "pool_activation": "18446744073709551615",
+      "rules": [
+        "CON-15"
+      ],
+      "version": 2
+    },
+    {
+      "expect": {
+        "error": "Governance",
+        "result": "error"
+      },
+      "fn": "shielded_entry",
+      "id": "shielded-entry-pool-already-on-refused",
+      "pool_activation": "0",
+      "rules": [
+        "CON-15"
+      ],
+      "version": 3
+    },
+    {
+      "expect": {
+        "error": "Governance",
+        "result": "error"
+      },
+      "fn": "shielded_entry",
+      "id": "shielded-entry-pool-already-scheduled-refused",
+      "pool_activation": "40",
+      "rules": [
+        "CON-15"
+      ],
+      "version": 3
     }
   ],
   "format": 1,

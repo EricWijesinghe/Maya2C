@@ -15,6 +15,7 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::crypto::suites::{SuiteSunsets, verification_policy};
 use custom_l1_node::error::NodeError;
 use custom_l1_node::governance::derive_proposal_id;
+use custom_l1_node::state::context::SHIELDED_NEVER;
 use custom_l1_node::state::upgrades::{ScheduleRequest, SunsetSpec};
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use custom_l1_node::upgrade::{FeatureSet, SUPPORTED_PROTOCOL_VERSION};
@@ -256,6 +257,7 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
             now,
             MIN_UPGRADE_LEAD_BLOCKS,
             SuiteId::MlDsa87,
+            SHIELDED_NEVER,
         )
         .expect("a later height and version is admitted");
 
@@ -265,7 +267,13 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
     };
     assert!(
         schedule
-            .admit(&not_later, now, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87)
+            .admit(
+                &not_later,
+                now,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                SuiteId::MlDsa87,
+                SHIELDED_NEVER
+            )
             .is_err()
     );
     let same_version = ScheduleRequest {
@@ -278,7 +286,8 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
                 &same_version,
                 now,
                 MIN_UPGRADE_LEAD_BLOCKS,
-                SuiteId::MlDsa87
+                SuiteId::MlDsa87,
+                SHIELDED_NEVER,
             )
             .is_err()
     );
@@ -295,7 +304,13 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
     };
     assert!(
         schedule
-            .admit(&nothing, 1, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87)
+            .admit(
+                &nothing,
+                1,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                SuiteId::MlDsa87,
+                SHIELDED_NEVER
+            )
             .is_err()
     );
     let feature_without_version = ScheduleRequest {
@@ -313,7 +328,8 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
                 &feature_without_version,
                 1,
                 MIN_UPGRADE_LEAD_BLOCKS,
-                SuiteId::MlDsa87
+                SuiteId::MlDsa87,
+                SHIELDED_NEVER,
             )
             .is_err()
     );

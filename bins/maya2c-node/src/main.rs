@@ -113,7 +113,9 @@ fn is_value_bearing(chain_id: &str) -> bool {
 /// notice later. A genesis that keeps the pool off for good
 /// (`shielded_activation_height` = `u64::MAX`, ADR-037) cannot mint through
 /// it, so that one configuration is allowed; turning the pool on later is a
-/// scheduled upgrade, after an audit.
+/// scheduled upgrade, after an audit (ADR-093). Callers pass the height
+/// resolved from the genesis and the schedule together, never the genesis
+/// field alone: a schedule entry is a second way for the pool to run.
 fn check_shielded_guard(
     chain_id: &str,
     shielded_activation: u64,
@@ -852,9 +854,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("--mine is a proof-of-work flag; this genesis runs dag-bft".into());
     }
 
+    // The genesis's own schedule counts here; the committed one is checked
+    // again once the chain is open, below.
     check_shielded_guard(
         &config.chain_id,
-        config.shielded_activation(),
+        config.resolved_shielded_activation()?,
         maya_zk_stark::pool::circuit_is_audited(),
     )?;
 
@@ -885,6 +889,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let chain = lock_chain(&chain);
         let schedule = chain.state().effective_schedule()?;
         custom_l1_node::state::zkml::check_setup(&config.chain_id, schedule.features().zkml)?;
+        check_shielded_guard(
+            &config.chain_id,
+            chain.shielded_activation()?,
+            maya_zk_stark::pool::circuit_is_audited(),
+        )?;
         // A tip already at or past an unsupported upgrade: say so at start-up
         // rather than on the first block that arrives.
         schedule.check_halt(chain.height() + 1)?;
@@ -1341,6 +1350,16 @@ mod tests {
             assert!(check_shielded_guard("mainnet", activation, false).is_err());
         }
         assert!(check_shielded_guard("maya-mainnet", SHIELDED_ACTIVATION_HEIGHT, true).is_ok());
+    }
+
+    #[test]
+    fn mainnet_with_the_pool_scheduled_is_refused_until_the_audit() {
+        // ADR-093: the genesis keeps the pool off, but a schedule entry turns it
+        // on. The guard sees the resolved height, so it refuses.
+        let scheduled =
+            custom_l1_node::upgrade::resolve_shielded_activation(SHIELDED_NEVER, 40).unwrap();
+        assert!(check_shielded_guard("maya-mainnet", scheduled, false).is_err());
+        assert!(check_shielded_guard("maya-mainnet", scheduled, true).is_ok());
     }
 
     #[test]

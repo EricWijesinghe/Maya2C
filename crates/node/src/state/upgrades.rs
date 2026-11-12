@@ -20,10 +20,12 @@
 
 use crate::crypto::suites::{SuiteSunset, SuiteSunsets};
 use crate::error::{NodeError, Result};
+use crate::state::context::SHIELDED_NEVER;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::vault::MAX_DELAY_BLOCKS;
 use crate::upgrade::{
-    FeatureActivations, FeatureSet, ProtocolUpgrade, UpgradeSchedule, refuse_unsupported,
+    FeatureActivations, FeatureSet, ProtocolUpgrade, SHIELDED_MIN_PROTOCOL_VERSION,
+    UpgradeSchedule, refuse_unsupported,
 };
 use maya_crypto_pq::agility::{Network, SuitePolicy};
 use maya_crypto_pq::suite::SuiteId;
@@ -65,6 +67,45 @@ pub fn sunset_key(suite: u8) -> Vec<u8> {
     key.push(SUNSET_KIND);
     key.push(suite);
     key
+}
+
+/// Refuses a schedule entry carrying [`FeatureSet::SHIELDED`] (ADR-093,
+/// CON-15) when the pool already has an activation height (`pool_activation`
+/// is not [`SHIELDED_NEVER`]), or when it names a version below
+/// [`SHIELDED_MIN_PROTOCOL_VERSION`]. The first rule keeps an on-chain vote
+/// from producing the two-source conflict that
+/// [`crate::upgrade::resolve_shielded_activation`] refuses, which would stop
+/// every later block context.
+///
+/// Admission runs inside block execution, so it reads nothing compiled into
+/// the binary: not the circuit audit flag (amendment 2026-11-12). The audit
+/// gates execution instead, through the halt
+/// ([`UpgradeSchedule::first_unsupported`]).
+///
+/// # Errors
+///
+/// [`NodeError::Governance`] naming the rule.
+pub fn check_shielded_entry(
+    features: FeatureSet,
+    version: Option<u32>,
+    pool_activation: u64,
+) -> Result<()> {
+    if !features.contains(FeatureSet::SHIELDED) {
+        return Ok(());
+    }
+    if pool_activation != SHIELDED_NEVER {
+        return Err(NodeError::Governance {
+            reason: format!("the shielded pool already activates at height {pool_activation}"),
+        });
+    }
+    if version.is_none_or(|v| v < SHIELDED_MIN_PROTOCOL_VERSION) {
+        return Err(NodeError::Governance {
+            reason: format!(
+                "the shielded pool must be scheduled at protocol version {SHIELDED_MIN_PROTOCOL_VERSION} or later"
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// A suite sunset as a governance or council proposal names it. The
@@ -129,8 +170,10 @@ impl EffectiveSchedule {
     /// Refuses an entry that schedules nothing, a version or a height that does
     /// not lie after every existing one, an activation fewer than `min_lead`
     /// blocks after `now`, unknown feature bits, features on a sunset-only entry,
-    /// and any sunset the genesis policy would refuse (a duplicate, the default
-    /// suite, or a window shorter than the minimum).
+    /// any sunset the genesis policy would refuse (a duplicate, the default
+    /// suite, or a window shorter than the minimum), and a shielded entry
+    /// [`check_shielded_entry`] refuses. `pool_activation` is the shielded
+    /// height the block runs under (`BlockContext::shielded_activation`).
     ///
     /// # Errors
     ///
@@ -141,6 +184,7 @@ impl EffectiveSchedule {
         now: u64,
         min_lead: u64,
         default_suite: SuiteId,
+        pool_activation: u64,
     ) -> Result<()> {
         let refuse = |reason: String| Err(NodeError::Governance { reason });
         if request.version.is_none() && request.sunsets.is_empty() {
@@ -152,6 +196,21 @@ impl EffectiveSchedule {
         if request.version.is_none() && request.features.0 != 0 {
             return refuse("a sunset-only entry cannot switch features on".into());
         }
+        // An entry staged earlier in this block is in `self` but not yet in
+        // the context's height, so either source counts. Every entry counts,
+        // whatever its version: `features()` skips versions this binary does
+        // not implement, which would make the answer binary-dependent.
+        let scheduled = self
+            .upgrades
+            .entries()
+            .iter()
+            .find(|u| u.features.contains(FeatureSet::SHIELDED))
+            .map_or(SHIELDED_NEVER, |u| u.activation_height);
+        check_shielded_entry(
+            request.features,
+            request.version,
+            pool_activation.min(scheduled),
+        )?;
         // Heights are bounded above as well as below. Without a horizon one far
         // entry would fix the floor for every later entry of its kind.
         let horizon = now.saturating_add(MAX_SCHEDULE_HORIZON_BLOCKS);
@@ -452,6 +511,7 @@ mod tests {
                 NOW,
                 MIN_UPGRADE_LEAD_BLOCKS,
                 DEFAULT,
+                SHIELDED_NEVER,
             )
             .expect("a version after a far sunset is admitted");
     }
@@ -476,7 +536,13 @@ mod tests {
             ..version_at(between)
         };
         schedule
-            .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+            .admit(
+                &request,
+                NOW,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                DEFAULT,
+                SHIELDED_NEVER,
+            )
             .expect("a version between a version and a later sunset is admitted");
     }
 
@@ -485,7 +551,13 @@ mod tests {
         let beyond = NOW + MAX_SCHEDULE_HORIZON_BLOCKS + 1;
         assert!(
             empty()
-                .admit(&version_at(beyond), NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+                .admit(
+                    &version_at(beyond),
+                    NOW,
+                    MIN_UPGRADE_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
         // A sunset whose sunset height passes the horizon is refused too.
@@ -496,7 +568,8 @@ mod tests {
                     &council_sunset(late_sunset, SuiteId::MlDsa65),
                     NOW,
                     COUNCIL_SUNSET_LEAD_BLOCKS,
-                    DEFAULT
+                    DEFAULT,
+                    SHIELDED_NEVER,
                 )
                 .is_err()
         );
@@ -509,13 +582,25 @@ mod tests {
         let sunset = council_sunset(NOW + COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65);
         assert!(
             empty()
-                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::MlDsa65)
+                .admit(
+                    &sunset,
+                    NOW,
+                    COUNCIL_SUNSET_LEAD_BLOCKS,
+                    SuiteId::MlDsa65,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
         // Once governance has moved the default to ML-DSA-87, it is admitted.
         assert!(
             empty()
-                .admit(&sunset, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT)
+                .admit(
+                    &sunset,
+                    NOW,
+                    COUNCIL_SUNSET_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_ok()
         );
     }
@@ -549,8 +634,123 @@ mod tests {
         let request = council_sunset(NOW + COUNCIL_SUNSET_LEAD_BLOCKS, SuiteId::Ed25519);
         assert!(
             empty()
-                .admit(&request, NOW, COUNCIL_SUNSET_LEAD_BLOCKS, DEFAULT)
+                .admit(
+                    &request,
+                    NOW,
+                    COUNCIL_SUNSET_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_err()
+        );
+    }
+
+    fn shielded_at(activation: u64) -> ScheduleRequest {
+        ScheduleRequest {
+            features: FeatureSet(FeatureSet::SHIELDED),
+            version: Some(SHIELDED_MIN_PROTOCOL_VERSION),
+            ..version_at(activation)
+        }
+    }
+
+    #[test]
+    fn a_shielded_entry_must_name_a_version_above_every_older_binary() {
+        // Amendment 2026-11-12: admitted on this unaudited binary too, because
+        // admission no longer reads the flag.
+        assert!(!maya_zk_stark::pool::circuit_is_audited());
+        empty()
+            .admit(
+                &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
+                NOW,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                DEFAULT,
+                SHIELDED_NEVER,
+            )
+            .expect("a version-3 shielded entry is admitted");
+        let old = ScheduleRequest {
+            version: Some(SHIELDED_MIN_PROTOCOL_VERSION - 1),
+            ..shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS)
+        };
+        let refused = empty().admit(&old, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER);
+        assert!(
+            matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("version")),
+            "{refused:?}"
+        );
+        let dvp = FeatureSet(FeatureSet::DVP);
+        assert!(check_shielded_entry(dvp, Some(2), SHIELDED_NEVER).is_ok());
+    }
+
+    #[test]
+    fn audited_and_unaudited_binaries_agree_on_a_shielded_entry() {
+        // W3-4b: a vote block must not split binaries built with and without
+        // the audit flag. Admission has no audit input; the two configurations
+        // differ only in the halt at the activation height.
+        let shielded = FeatureSet(FeatureSet::SHIELDED);
+        let min = SHIELDED_MIN_PROTOCOL_VERSION;
+        for (version, pool) in [
+            (min, SHIELDED_NEVER),
+            (min, 0),
+            (min, 40),
+            (min - 1, SHIELDED_NEVER),
+        ] {
+            let admitted = check_shielded_entry(shielded, Some(version), pool).is_ok();
+            assert_eq!(
+                admitted,
+                version >= min && pool == SHIELDED_NEVER,
+                "v{version} pool {pool}"
+            );
+        }
+        let entry = UpgradeSchedule::new(vec![ProtocolUpgrade {
+            version: min,
+            activation_height: 40,
+            features: shielded,
+        }])
+        .unwrap();
+        let halts = |audited| entry.first_unsupported_by(min, audited).is_some();
+        assert!(halts(false), "an unaudited binary halts at the entry");
+        assert!(!halts(true), "an audited one runs it");
+    }
+
+    #[test]
+    fn a_shielded_entry_is_refused_when_the_pool_already_has_a_height() {
+        // From the genesis (the context's height) ...
+        for pool in [0, 1, NOW + MIN_UPGRADE_LEAD_BLOCKS] {
+            assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), Some(3), pool).is_err());
+            let refused = empty().admit(
+                &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
+                NOW,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                DEFAULT,
+                pool,
+            );
+            assert!(
+                matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("already")),
+                "pool {pool}: {refused:?}"
+            );
+        }
+        // ... or from an entry already in the schedule.
+        let mut scheduled = empty();
+        scheduled.upgrades = UpgradeSchedule::new(vec![ProtocolUpgrade {
+            version: 2,
+            activation_height: NOW + MIN_UPGRADE_LEAD_BLOCKS,
+            features: FeatureSet(FeatureSet::SHIELDED),
+        }])
+        .unwrap();
+        scheduled.last_version_height = NOW + MIN_UPGRADE_LEAD_BLOCKS;
+        let later = ScheduleRequest {
+            version: Some(3),
+            ..shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS + 1)
+        };
+        let refused = scheduled.admit(
+            &later,
+            NOW,
+            MIN_UPGRADE_LEAD_BLOCKS,
+            DEFAULT,
+            SHIELDED_NEVER,
+        );
+        assert!(
+            matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("already")),
+            "{refused:?}"
         );
     }
 
@@ -563,7 +763,13 @@ mod tests {
         };
         assert!(
             empty()
-                .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+                .admit(
+                    &request,
+                    NOW,
+                    MIN_UPGRADE_LEAD_BLOCKS,
+                    DEFAULT,
+                    SHIELDED_NEVER
+                )
                 .is_err()
         );
     }

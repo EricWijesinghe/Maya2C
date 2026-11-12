@@ -348,10 +348,27 @@ impl Chain {
     /// Storage failure, or a schedule record the rules refuse.
     pub fn context_at(&self, height: u64) -> Result<BlockContext> {
         let schedule = self.state.effective_schedule()?;
+        let features = schedule.features();
+        // ADR-093: the genesis height or the schedule's, never both.
+        let shielded = crate::upgrade::resolve_shielded_activation(
+            self.config.shielded_activation,
+            features.shielded,
+        )?;
         Ok(BlockContext::at_height(height)
-            .with_shielded_activation(self.config.shielded_activation)
-            .with_features(schedule.features())
+            .with_shielded_activation(shielded)
+            .with_features(features)
             .with_suite_sunsets(schedule.sunsets))
+    }
+
+    /// The shielded activation height every block context carries: the
+    /// genesis's or the committed schedule's (ADR-093).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::context_at`], including
+    /// [`crate::error::NodeError::ShieldedActivationConflict`].
+    pub fn shielded_activation(&self) -> Result<u64> {
+        Ok(self.context_at(0)?.shielded_activation)
     }
 
     /// Looks up an indexed block.

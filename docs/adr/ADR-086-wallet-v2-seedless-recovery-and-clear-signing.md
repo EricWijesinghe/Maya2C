@@ -112,7 +112,7 @@ written into invariant 32's text.
 `account_authority(address)`.
 
 ### 3.5 Activation (ADR-082)
-`FeatureSet::ACCOUNT_AUTHORITY = 1 << 9` (bit 8 is SHIELDED, ADR-087); KNOWN
+`FeatureSet::ACCOUNT_AUTHORITY = 1 << 9` (bit 8 is SHIELDED, ADR-093); KNOWN
 updated; protocol version bump. Testnet schedule entry first (≤24 h run), then a
 governance `ScheduleUpgrade` with ≥ `MIN_UPGRADE_LEAD_BLOCKS` (30 days). Nothing
 at genesis.

@@ -412,6 +412,19 @@ pub enum NodeError {
         activation: u64,
     },
 
+    /// Both the genesis and the upgrade schedule name a shielded activation
+    /// height (ADR-093). Exactly one may: two sources for one rule is a
+    /// configuration nodes could resolve differently.
+    #[error(
+        "the shielded pool is activated twice: genesis height {genesis} and schedule height {scheduled}"
+    )]
+    ShieldedActivationConflict {
+        /// The genesis's `shielded_activation_height` (0 when absent).
+        genesis: u64,
+        /// The schedule's `SHIELDED` entry height.
+        scheduled: u64,
+    },
+
     /// A work claim before the chain's work-claim activation height. Work
     /// credit is voting weight, and at launch it is stake-only: a claim has no
     /// share proof behind it, so it is refused rather than credited.

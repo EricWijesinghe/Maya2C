@@ -245,6 +245,33 @@ pub fn cumulative_work(targets: &[[u8; 32]]) -> [u8; 32] {
     to_be(&total)
 }
 
+/// CON-14/15: the shielded height meaning "never".
+pub const SHIELDED_NEVER: u64 = u64::MAX;
+
+/// CON-14: the shielded activation height from the genesis height and the
+/// schedule's height. `None` when both name one (`ShieldedActivationConflict`).
+#[must_use]
+pub fn shielded_activation(genesis: u64, scheduled: u64) -> Option<u64> {
+    if genesis == SHIELDED_NEVER {
+        Some(scheduled)
+    } else if scheduled == SHIELDED_NEVER {
+        Some(genesis)
+    } else {
+        None
+    }
+}
+
+/// CON-15: the lowest protocol version an on-chain `SHIELDED` entry may name.
+pub const SHIELDED_MIN_PROTOCOL_VERSION: u32 = 3;
+
+/// CON-15: whether an on-chain entry carrying `SHIELDED` at `version` may be
+/// written. No audit input: admission must not depend on how a binary was
+/// built (ADR-093 amendment 2026-11-12).
+#[must_use]
+pub fn shielded_entry_admitted(pool_activation: u64, version: u32) -> bool {
+    pool_activation == SHIELDED_NEVER && version >= SHIELDED_MIN_PROTOCOL_VERSION
+}
+
 /// CON-8: a block at or below the prune horizon is refused.
 #[must_use]
 pub fn below_prune_horizon(height: u64, horizon: u64) -> bool {

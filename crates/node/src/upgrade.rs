@@ -25,13 +25,20 @@ use serde::{Deserialize, Serialize};
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::error::{NodeError, Result};
 use crate::state::context::{
-    DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT,
+    DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT, SHIELDED_NEVER,
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
     ZKML_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
+
+/// The lowest protocol version an on-chain [`FeatureSet::SHIELDED`] entry may
+/// name (ADR-093 amendment 2026-11-12): above every binary shipped so far, so
+/// each of them halts at the entry instead of disagreeing about it. A literal,
+/// not `SUPPORTED_PROTOCOL_VERSION + 1`: it is consensus and must not move when
+/// a later release raises the supported version.
+pub const SHIELDED_MIN_PROTOCOL_VERSION: u32 = 3;
 
 /// The dark features an upgrade entry can switch on, as a bitmask. The bit
 /// positions are consensus: never renumber, only append.
@@ -56,8 +63,12 @@ impl FeatureSet {
     pub const ZKML: u64 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
     pub const RWA_STRICT: u64 = 1 << 7;
+    /// The shielded pool, for a genesis that keeps it off
+    /// ([`SHIELDED_NEVER`]). Admitted on chain only once the circuit is
+    /// audited (ADR-093).
+    pub const SHIELDED: u64 = 1 << 8;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u64 = (1 << 9) - 1;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -95,6 +106,9 @@ pub struct FeatureActivations {
     pub zkml: u64,
     /// Strictly ascending RWA issuer lists.
     pub rwa_strict: u64,
+    /// The shielded pool. [`SHIELDED_NEVER`] unless an entry schedules it; the
+    /// height a block runs under is [`resolve_shielded_activation`]'s.
+    pub shielded: u64,
 }
 
 impl Default for FeatureActivations {
@@ -109,6 +123,7 @@ impl Default for FeatureActivations {
             htlc_lattice: HTLC_L_ACTIVATION_HEIGHT,
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            shielded: SHIELDED_NEVER,
         }
     }
 }
@@ -218,23 +233,37 @@ impl UpgradeSchedule {
             htlc_lattice: at(FeatureSet::HTLC_LATTICE, never.htlc_lattice),
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
+            shielded: at(FeatureSet::SHIELDED, never.shielded),
         }
     }
 
     /// The first scheduled upgrade this binary does not implement, if any.
     #[must_use]
     pub fn first_unsupported(&self) -> Option<ProtocolUpgrade> {
-        self.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION)
+        self.first_unsupported_by(
+            SUPPORTED_PROTOCOL_VERSION,
+            maya_zk_stark::pool::circuit_is_audited(),
+        )
     }
 
-    /// [`Self::first_unsupported`] for a binary implementing up to `supported`.
-    /// Lets a test model an older binary.
+    /// [`Self::first_unsupported`] for a binary implementing up to `supported`
+    /// whose shielded circuit is `audited` or not. Lets a test model an older
+    /// or unaudited binary.
+    ///
+    /// The audit flag is read here, on the execution side only: an entry at or
+    /// above [`SHIELDED_MIN_PROTOCOL_VERSION`] carrying
+    /// [`FeatureSet::SHIELDED`] is unsupported without it, so such a binary
+    /// halts at the activation height rather than diverging (ADR-093
+    /// amendment 2026-11-12). Genesis entries below that version are not
+    /// affected; the startup guard covers them.
     #[must_use]
-    pub fn first_unsupported_by(&self, supported: u32) -> Option<ProtocolUpgrade> {
-        self.upgrades
-            .iter()
-            .copied()
-            .find(|u| u.version > supported)
+    pub fn first_unsupported_by(&self, supported: u32, audited: bool) -> Option<ProtocolUpgrade> {
+        self.upgrades.iter().copied().find(|u| {
+            u.version > supported
+                || (!audited
+                    && u.version >= SHIELDED_MIN_PROTOCOL_VERSION
+                    && u.features.contains(FeatureSet::SHIELDED))
+        })
     }
 
     /// Refuses `height` if the version in force there is newer than this
@@ -246,6 +275,23 @@ impl UpgradeSchedule {
     /// activated at, so the message reads "upgrade required before height H".
     pub fn check(&self, height: u64) -> Result<()> {
         refuse_unsupported(self.first_unsupported(), height)
+    }
+}
+
+/// The shielded pool's activation height from its two sources (ADR-093): the
+/// genesis's `shielded_activation_height` and the schedule's
+/// [`FeatureSet::SHIELDED`] entry. Whichever is not [`SHIELDED_NEVER`] wins.
+///
+/// # Errors
+///
+/// [`NodeError::ShieldedActivationConflict`] when both name a height: two
+/// sources for one rule would let nodes that read them in a different order
+/// disagree about which blocks may carry a join-split.
+pub fn resolve_shielded_activation(genesis: u64, scheduled: u64) -> Result<u64> {
+    match (genesis, scheduled) {
+        (genesis, SHIELDED_NEVER) => Ok(genesis),
+        (SHIELDED_NEVER, scheduled) => Ok(scheduled),
+        (genesis, scheduled) => Err(NodeError::ShieldedActivationConflict { genesis, scheduled }),
     }
 }
 
@@ -350,6 +396,38 @@ mod tests {
     }
 
     #[test]
+    fn the_shielded_bit_is_known_and_resolves_from_its_entry() {
+        assert!(FeatureSet(FeatureSet::SHIELDED).is_known());
+        assert!(
+            !FeatureSet(1 << 9).is_known(),
+            "bit 9 is not this branch's to define"
+        );
+        assert_eq!(
+            UpgradeSchedule::default().features().shielded,
+            SHIELDED_NEVER
+        );
+        let s = UpgradeSchedule::new(vec![with(2, 40, FeatureSet::SHIELDED)]).unwrap();
+        assert_eq!(s.features().shielded, 40);
+    }
+
+    #[test]
+    fn the_shielded_height_comes_from_exactly_one_source() {
+        assert_eq!(resolve_shielded_activation(0, SHIELDED_NEVER), Ok(0));
+        assert_eq!(resolve_shielded_activation(SHIELDED_NEVER, 40), Ok(40));
+        assert_eq!(
+            resolve_shielded_activation(SHIELDED_NEVER, SHIELDED_NEVER),
+            Ok(SHIELDED_NEVER)
+        );
+        assert_eq!(
+            resolve_shielded_activation(0, 40),
+            Err(NodeError::ShieldedActivationConflict {
+                genesis: 0,
+                scheduled: 40
+            })
+        );
+    }
+
+    #[test]
     fn an_entry_above_this_binary_contributes_no_features() {
         let future = UpgradeSchedule::new(vec![with(
             SUPPORTED_PROTOCOL_VERSION + 1,
@@ -363,7 +441,39 @@ mod tests {
     #[test]
     fn an_older_binary_halts_on_a_version_it_does_not_implement() {
         let s = UpgradeSchedule::new(vec![up(SUPPORTED_PROTOCOL_VERSION + 1, 10)]).unwrap();
-        assert!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION).is_some());
-        assert_eq!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION + 1), None);
+        assert!(
+            s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION, true)
+                .is_some()
+        );
+        assert_eq!(
+            s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION + 1, true),
+            None
+        );
+    }
+
+    #[test]
+    fn an_unaudited_binary_halts_at_a_shielded_entry() {
+        let s = UpgradeSchedule::new(vec![with(
+            SHIELDED_MIN_PROTOCOL_VERSION,
+            40,
+            FeatureSet::SHIELDED,
+        )])
+        .unwrap();
+        let min = SHIELDED_MIN_PROTOCOL_VERSION;
+        assert_eq!(
+            s.first_unsupported_by(min, false)
+                .map(|u| u.activation_height),
+            Some(40)
+        );
+        assert_eq!(s.first_unsupported_by(min, true), None);
+        // A version-3 entry without the bit does not depend on the audit.
+        let dvp = UpgradeSchedule::new(vec![with(min, 40, FeatureSet::DVP)]).unwrap();
+        assert_eq!(dvp.first_unsupported_by(min, false), None);
+        // This binary (version 2, unaudited) halts at 40, not before.
+        assert!(s.check(39).is_ok());
+        assert!(matches!(
+            s.check(40),
+            Err(NodeError::UpgradeRequired { height: 40, .. })
+        ));
     }
 }

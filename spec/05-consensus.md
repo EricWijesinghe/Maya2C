@@ -30,12 +30,14 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
+- **CON-14** The shielded pool's activation height has two sources: the genesis's `shielded_activation_height` (absent means 0) and the earliest upgrade-schedule entry, at or below the binary's supported version, carrying feature bit 8 (`SHIELDED`). `u64::MAX` means "never". Exactly one source may name a height: genesis not `u64::MAX` and no entry → the genesis height; genesis `u64::MAX` and an entry at `H` → `H`; neither → never; both → the genesis is refused (`ShieldedActivationConflict`). A join-split executes in a block at height `h` iff `h` ≥ the resolved height; otherwise the block is invalid (`ShieldedInactive`) (ADR-093, post-genesis).
+- **CON-15** An on-chain schedule entry carrying `SHIELDED` is refused when the pool already has an activation height (CON-14's resolved height is not `u64::MAX`, or any schedule entry of any version carries `SHIELDED`), and refused unless it names protocol version 3 or higher (`SHIELDED_MIN_PROTOCOL_VERSION`). Admission never reads the circuit audit flag. A binary whose circuit is not audited treats such an entry as an unsupported version and halts at its activation height (`UpgradeRequired`). A genesis entry below version 3 is not subject to either version clause (ADR-093 amendment 2026-11-12, post-genesis).
 
 ## Vectors and gaps
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
-not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
+not) and CON-5 to CON-8, CON-10 to CON-12, CON-14 and CON-15 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
 (`argonblake-pow`) has no language-neutral vector.
 
