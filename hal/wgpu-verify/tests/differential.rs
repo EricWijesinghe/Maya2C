@@ -430,21 +430,32 @@ fn the_ntt_multiplies_like_schoolbook_negacyclic_multiplication() {
     assert_eq!(inv_ntt(&ntt(&top)), top);
 }
 
+/// FIPS 204's zeta table derived independently of `params::zetas_mont`:
+/// walk the powers of `zeta` once and scatter each to its bit-reversed slot,
+/// the way `fips204::helpers::gen_zeta_table_mont` builds `ZETA_TABLE_MONT`
+/// (that table is `pub(crate)`, and `crypto-pq` has no NTT of its own, so
+/// the test cannot read it). Montgomery factor `2^32`, as in the CPU code.
+const fn reference_zetas_mont() -> [u32; N] {
+    let mut table = [0u32; N];
+    let mut power: u64 = 1;
+    let mut i = 0;
+    while i < N {
+        table[(i as u8).reverse_bits() as usize] = ((power << 32) % Q as u64) as u32;
+        power = power * ZETA as u64 % Q as u64;
+        i += 1;
+    }
+    table
+}
+
 #[test]
 fn the_zeta_table_matches_the_fips_204_reference_values() {
-    // The Dilithium/FIPS 204 reference `zetas[]` (Montgomery form, centred),
-    // entries 1..8; entry 0 is unused by both transforms.
-    let reference: [i64; 7] = [
-        25_847, -2_608_894, -518_909, 237_124, -777_960, -876_248, 466_468,
-    ];
-    for (i, &z) in reference.iter().enumerate() {
-        assert_eq!(
-            i64::from(ZETAS_MONT[i + 1]),
-            z.rem_euclid(i64::from(Q)),
-            "zeta {}",
-            i + 1
-        );
+    let reference = reference_zetas_mont();
+    for (i, (&shader, &expected)) in ZETAS_MONT.iter().zip(reference.iter()).enumerate() {
+        assert_eq!(shader, expected, "zeta {i}");
     }
+    // Anchors from fips204 0.4.6's own `helpers::tests::check_zeta`, so a
+    // mistake shared by both derivations above still fails.
+    assert_eq!(&reference[..3], &[4_193_792, 25_847, 5_771_523]);
     let mut power = 1u64;
     for _ in 0..256 {
         power = power * u64::from(ZETA) % u64::from(Q);
