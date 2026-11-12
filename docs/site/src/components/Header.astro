@@ -10,14 +10,18 @@ import Search from "virtual:starlight/components/Search";
 import SiteTitle from "virtual:starlight/components/SiteTitle";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+import { testnet } from "../data/network-state";
 
 const path = Astro.url.pathname;
 const nav = [
   { label: "Experience", href: "/experience/", match: ["/experience"] },
   { label: "Build", href: "/guides/quickstart/", match: ["/guides/quickstart", "/guides/api", "/guides/wallet", "/guides/contracts"] },
   { label: "Run a node", href: "/guides/help-run/", match: ["/guides/help-run", "/guides/testnet", "/guides/validators", "/guides/mining", "/guides/start-mining"] },
-  { label: "Explorer", href: "https://explorer.maya2c.dev/", external: true },
-  { label: "Status", href: "https://status.maya2c.dev/", external: true },
+  // While the testnet is paused the explorer and status hosts are down (HTTP
+  // 530): point at the site's own pages instead of a Cloudflare error (W-03).
+  ...(testnet.paused
+    ? [{ label: "Stats", href: "/stats/", match: ["/stats"] }, { label: "Status", href: "/health/", match: ["/health"] }]
+    : [{ label: "Explorer", href: "https://explorer.maya2c.dev/", external: true }, { label: "Status", href: "https://status.maya2c.dev/", external: true }]),
   { label: "Built by Eric", href: "https://eric.maya2c.dev/", external: true },
 ];
 const showSearch =

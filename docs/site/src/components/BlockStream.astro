@@ -1,4 +1,5 @@
 ---
+import { testnet } from "../data/network-state";
 // Blocks as the network produces them: the explorer's last blocks, then each
 // new one from its WebSocket, entering on the right. Nothing is generated in
 // the browser; when the stream is silent the strip says so and stays empty.
@@ -8,12 +9,12 @@ import SourceTip from "./SourceTip.astro";
 <section class="not-content bs" aria-label="Live block stream" data-bs>
   <div class="bs-head">
     <p class="bs-title">Blocks, as they are made <SourceTip text="explorer.maya2c.dev: /api/blocks for the last 16, then /ws/blocks for each new one" /></p>
-    <p class="bs-meta"><b data-bs-minute>—</b> in the last minute</p>
+    <p class="bs-meta"><b data-bs-minute>{testnet.paused ? 0 : "—"}</b> in the last minute</p>
   </div>
   <ol class="bs-strip" data-bs-strip aria-live="polite" aria-relevant="additions"></ol>
   <p class="ui-state bs-empty" data-bs-empty>
     <span class="ui-state__title">No blocks streaming right now</span>
-    The testnet is paused for the next genesis. Blocks appear here the moment the network produces them.
+    The testnet is paused on purpose since {testnet.since}, after {testnet.last.run} with {testnet.last.halts} halts, last block {testnet.last.height.toLocaleString("en-US")}. Blocks appear here the moment the next genesis produces them. <a href={testnet.report}>The stop report</a>
   </p>
 </section>
 
@@ -47,7 +48,7 @@ import SourceTip from "./SourceTip.astro";
       blocks.sort((x, y) => x.height - y.height);
       while (blocks.length > KEEP) { blocks.shift(); strip.firstElementChild?.remove(); }
       empty.hidden = blocks.length > 0;
-      root.querySelector("[data-bs-minute]")!.textContent = blocks.length ? String(blocksWithin(blocks, 60)) : "—";
+      if (blocks.length) root.querySelector("[data-bs-minute]")!.textContent = String(blocksWithin(blocks, 60));
     };
     whenNear(root, async () => {
       const recent = await recentBlocks(KEEP);

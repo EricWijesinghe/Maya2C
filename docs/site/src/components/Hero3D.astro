@@ -8,6 +8,7 @@
 import { getImage } from "astro:assets";
 import emblem from "../assets/emblem.png";
 import SourceTip from "./SourceTip.astro";
+import { testnet } from "../data/network-state";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
 
@@ -23,7 +24,7 @@ const verified = health.ledger.by_status.verified ?? 0;
   <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
-      <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b><span id="chip-tip" hidden> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</span></p>
+      <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">{testnet.paused ? `paused on purpose since ${testnet.since}` : "connecting…"}</b>{testnet.paused && <a class="chip-why" id="chip-why" href={testnet.report}>ran {testnet.last.run}, {testnet.last.halts} halts</a>}<span id="chip-tip" hidden> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</span></p>
       <h1>Mine the <span>post-quantum</span> chain with your GPU.</h1>
       <p class="lede">Every transaction carries two NIST post-quantum signatures. Every number on this page links to where it comes from.</p>
       <!-- One message, one call to action (U3). The other doors are in the header. -->
@@ -33,10 +34,10 @@ const verified = health.ledger.by_status.verified ?? 0;
       <p class="hint">Visible and opt-in: it runs only while you run it. Drag the scene to orbit.</p>
     </div>
     <dl class="tiles">
-      <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd><SourceTip text="Explorer block stream (explorer.maya2c.dev/ws/blocks)" /></div>
-      <div class="tile"><dt>Blocks, last minute</dt><dd id="tMinute">—</dd><SourceTip text="Explorer /api/blocks, counted by block header time" /></div>
+      <div class="tile"><dt>Height</dt><dd id="tHeight">{testnet.paused ? testnet.last.height.toLocaleString("en-US") : "—"}</dd>{testnet.paused && <small class="tile-note" id="tHeightNote">last block, {testnet.last.at}</small>}<SourceTip text={testnet.paused ? "Last reading before the stop: status.maya2c.dev /api/status, in the stop report" : "Explorer block stream (explorer.maya2c.dev/ws/blocks)"} /></div>
+      <div class="tile"><dt>Blocks, last minute</dt><dd id="tMinute">{testnet.paused ? "paused" : "—"}</dd>{testnet.paused && <small class="tile-note">since {testnet.since}</small>}<SourceTip text="Explorer /api/blocks, counted by block header time" /></div>
       <div class="tile"><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd><SourceTip text={finality ? `cargo xtask bench-finality, ${finality.validators} validators on one machine: not a network figure` : "No finality bench report committed"} href="/stats/" /></div>
-      <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd><SourceTip text="get_bft_status on rpc.maya2c.dev: committee size" /></div>
+      <div class="tile"><dt>Validators</dt><dd><span id="tValidators">{testnet.paused ? "paused" : "—"}</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd>{testnet.paused && <small class="tile-note">since {testnet.since}</small>}<SourceTip text="get_bft_status on rpc.maya2c.dev: committee size" /></div>
       <div class="tile"><dt>Verified subsystems</dt><dd>{verified} <small>/ {health.ledger.total}</small></dd><SourceTip text="features.toml, status = verified, each named test checked in CI" href="/health/" /></div>
     </dl>
   </div>
@@ -61,9 +62,9 @@ const verified = health.ledger.by_status.verified ?? 0;
   const gaps: number[] = [];
   // Header timestamps of the blocks seen, for "blocks in the last minute".
   const seen: Block[] = [];
-  const minute = () => { $("tMinute")!.textContent = seen.length ? String(blocksWithin(seen, 60)) : "—"; };
+  const minute = () => { if (seen.length) $("tMinute")!.textContent = String(blocksWithin(seen, 60)); };
 
-  function show(h: number) { $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h); }
+  function show(h: number) { $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h); $("tHeightNote")?.remove(); }
 
   function onBlock(h: number, txs = 0, animate = true, ts?: number) {
     if (typeof ts === "number") { seen.push({ height: h, timestamp: ts, tx_count: txs }); if (seen.length > 240) seen.shift(); minute(); }
@@ -99,11 +100,11 @@ const verified = health.ledger.by_status.verified ?? 0;
   let retry = 1000, everLive = false;
   function stream() {
     const ws = new WebSocket("wss://explorer.maya2c.dev/ws/blocks");
-    ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; $("chip-tip")!.hidden = false; stage.classList.add("live"); };
+    ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; $("chip-why")?.remove(); $("chip-tip")!.hidden = false; stage.classList.add("live"); };
     ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0, true, b.timestamp); } catch { /* skip */ } };
     ws.onclose = () => {
       // Never reached this visit: say offline, not an endless "reconnecting".
-      live = false; stage.classList.remove("live"); $("chip-state")!.textContent = everLive ? "reconnecting…" : "paused for the next genesis";
+      live = false; stage.classList.remove("live"); if (everLive) $("chip-state")!.textContent = "reconnecting…";
       setTimeout(stream, retry); retry = Math.min(retry * 2, 30000);
     };
     ws.onerror = () => ws.close();
@@ -205,6 +206,8 @@ const verified = health.ledger.by_status.verified ?? 0;
   .tile { flex: 1 1 150px; min-width: 0; padding: 16px 20px; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px); }
   .tile dt { font: 500 11.5px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .tile dd small { font-size: 15px; color: var(--muted); }
+  .tile-note { display: block; margin: -2px 0 4px; font: 500 11.5px/1.3 var(--mono); color: var(--muted); }
+  .chip-why { margin-left: 8px; color: var(--accent-text); pointer-events: auto; }
   .tile dd { margin: 10px 0 6px; font: 300 26px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--text); }
   .tile .note { font: 500 12px var(--sans); color: var(--signal); margin-left: 8px; text-decoration: none; }
   .card-pop { position: absolute; z-index: 3; min-width: 230px; padding: 16px 18px; border-radius: var(--r-m); background: var(--pop-bg); border: 1px solid var(--glass-edge); backdrop-filter: blur(18px); box-shadow: var(--shadow); font: 400 13px/1.55 var(--mono); color: var(--muted); transition: opacity .35s var(--glide), transform .5s var(--spring); }

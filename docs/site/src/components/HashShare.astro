@@ -1,4 +1,5 @@
 ---
+import { testnet } from "../data/network-state";
 // "What share of the network's hashrate would my GPU be?" The visitor types
 // the figure their own card printed (`maya2c-gpu-miner --benchmark`); the page
 // divides by the live network hashrate. No GPU presets: no card has been
@@ -25,7 +26,7 @@ import SourceTip from "./SourceTip.astro";
   <div class="hs-out" aria-live="polite">
     <p class="hs-share"><b data-hs-share>—</b> of the network's hashrate</p>
     <div class="hs-bar"><span data-hs-bar></span></div>
-    <p class="hs-net">Network now: <b data-hs-net>—</b> <SourceTip text="Explorer /api/stats: an estimate from indexed blocks, not a measurement the network reports" /></p>
+    <p class="hs-net">Network now: <b data-hs-net>{testnet.paused ? `paused since ${testnet.since}` : "—"}</b> <SourceTip text="Explorer /api/stats: an estimate from indexed blocks, not a measurement the network reports" /></p>
   </div>
   <p class="hs-fine">A share of hashrate only. This card shows no coin value and no earnings, and promises none. Mining uses electricity, which costs money. Testnet coins have no value.</p>
 </form>
@@ -47,7 +48,7 @@ import SourceTip from "./SourceTip.astro";
     unit.addEventListener("change", render);
     explorerStats().then((s) => {
       network = s && s.hashrate > 0 ? s.hashrate : null;
-      root.querySelector("[data-hs-net]")!.textContent = network === null ? "— (paused for the next genesis)" : hashFmt(network);
+      if (network !== null) root.querySelector("[data-hs-net]")!.textContent = hashFmt(network);
       render();
     });
   }

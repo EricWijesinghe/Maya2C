@@ -6,6 +6,7 @@
 import Default from "@astrojs/starlight/components/Footer.astro";
 import Ambient from "./Ambient.astro";
 import SourceTip from "./SourceTip.astro";
+import { testnet, pausedLabel } from "../data/network-state";
 import progress from "../../public/progress.json";
 
 const finality = (progress as { finality?: { p50_ms: number } | null }).finality;
@@ -22,9 +23,9 @@ const year = new Date().getFullYear();
   <div class="maya-footer__pulse" data-fp aria-label="The network, live">
     <p class="maya-footer__title">Network, live <SourceTip text="Height: explorer /api/stats. Finality: the newest committed bench (one machine, not a network figure). Peers: status.maya2c.dev /api/live." href="/stats/" /></p>
     <dl>
-      <div><dt>Height</dt><dd data-fp-height>—</dd></div>
+      <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
       <div><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
-      <div><dt>Peers online</dt><dd data-fp-peers>—</dd></div>
+      <div><dt>Peers online</dt><dd data-fp-peers>{testnet.paused ? pausedLabel : "—"}</dd></div>
     </dl>
   </div>
   <div class="maya-footer__about">

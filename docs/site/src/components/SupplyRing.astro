@@ -8,6 +8,7 @@
 import { getImage } from "astro:assets";
 import emblem from "../assets/emblem.png";
 import SourceTip from "./SourceTip.astro";
+import { testnet, pausedLabel } from "../data/network-state";
 const face = await getImage({ src: emblem, width: 256, format: "png" });
 const R = 54, C = 2 * Math.PI * R;
 ---
@@ -22,11 +23,11 @@ const R = 54, C = 2 * Math.PI * R;
     <canvas data-sr-canvas aria-hidden="true"></canvas>
   </div>
   <figcaption>
-    <p class="sr-big"><b data-sr-pct>—</b> in circulation</p>
+    <p class="sr-big"><b data-sr-pct class={testnet.paused ? "idle" : undefined}>{testnet.paused ? pausedLabel : "—"}</b> in circulation</p>
     <dl class="sr-rows">
-      <div><dt>Circulating</dt><dd data-sr-circ>—</dd></div>
-      <div><dt>Issued at genesis</dt><dd data-sr-total>—</dd></div>
-      <div><dt>Burned</dt><dd data-sr-burn>—</dd></div>
+      <div><dt>Circulating</dt><dd data-sr-circ>{testnet.paused ? pausedLabel : "—"}</dd></div>
+      <div><dt>Issued at genesis</dt><dd data-sr-total>{testnet.paused ? pausedLabel : "—"}</dd></div>
+      <div><dt>Burned</dt><dd data-sr-burn>{testnet.paused ? pausedLabel : "—"}</dd></div>
     </dl>
     <SourceTip text="get_supply on rpc.maya2c.dev: total, circulating and burned base units; whole coins rounded down. Rewards come from a genesis reserve (ADR-068)." href="/guides/api/" />
   </figcaption>
@@ -48,6 +49,7 @@ const R = 54, C = 2 * Math.PI * R;
       const circ = s ? shareBp(s.circulating, s.total) : null;
       const burn = s ? shareBp(s.burned, s.total) : null;
       if (!s || circ === null) { coin?.setShare(null, null); return; }
+      root.querySelector("[data-sr-pct]")!.classList.remove("idle");
       root.querySelector("[data-sr-pct]")!.textContent = `${(circ / 100).toFixed(2)}%`;
       root.querySelector("[data-sr-circ]")!.textContent = coins(s.circulating) ?? "—";
       root.querySelector("[data-sr-total]")!.textContent = coins(s.total) ?? "—";
@@ -71,6 +73,7 @@ const R = 54, C = 2 * Math.PI * R;
   .sr.gl .sr-poster, .sr.gl .sr-face { display: none; }
   .sr-big { margin: 0 0 var(--space-3); font-size: 15px; color: var(--text-2); }
   .sr-big b { display: block; font: 300 clamp(30px, 4vw, 44px)/1.05 var(--display); color: var(--text); font-variant-numeric: tabular-nums; }
+  .sr-big b.idle { font-size: 20px; }
   .sr-rows { margin: 0 0 var(--space-3); display: grid; gap: 6px; }
   .sr-rows div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
   .sr-rows dt { color: var(--muted); font-size: 13px; }
