@@ -50,3 +50,6 @@
 .app-chart rect { fill: var(--accent); opacity: .8; }
 .app-chart polyline { stroke: var(--accent); stroke-width: 1.5; }
 .app-mono { font: var(--type-mono-size) var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* "working" in the ledger: the kit has ok, warn, bad and neutral; PageTitle and
+   /ecosystem/ also use info, which had no colour and read as plain text. */
+.ui-pill--info { color: var(--accent-text); }
