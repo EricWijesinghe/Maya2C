@@ -100,3 +100,4 @@ The observation that would make this worth reopening.
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
+| [135](ADR-135-v4-umbrella.md) | v4 umbrella: tokens mint/burn, NFTs, names, sponsored fees (wire v13), smart-account policy, scheduled payments as one fork; bits 41-46; threat models and cut list | Proposed |

@@ -41,3 +41,7 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
 - [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
 - [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [Post-quantum smart accounts with session keys (ADR-135 P-5)](pq-smart-accounts.md) — searched 2026-11-12
+- [Post-quantum name service with commit-reveal (ADR-135 P-3)](pq-name-service.md) — searched 2026-11-12
+- [Native tokens and NFTs on a post-quantum chain (ADR-135 P-1, P-2)](pq-native-ownership.md) — searched 2026-11-12
+- [Protocol-level scheduled payments (ADR-135 P-7)](native-scheduled-payments.md) — searched 2026-11-12
