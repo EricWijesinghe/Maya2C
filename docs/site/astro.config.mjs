@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { unified } from "@astrojs/markdown-remark";
+import { codeThemes, codeStyleOverrides } from "./src/lib/code-theme.mjs";
 
 // Emitted by scripts/ingest.mjs, which runs before every build. Generated
 // rather than hand-listed so a new file in docs/ reaches the site without a
@@ -84,7 +85,7 @@ export default defineConfig({
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
         // Link-preview images are per section, set in src/components/Head.astro.
-        { tag: "meta", attrs: { name: "theme-color", content: "#050b0f" } },
+        { tag: "meta", attrs: { name: "theme-color", content: "#08090b" } },
         // Structured data, so search engines know what the site is about:
         // the project, its source, and that the software is free.
         {
@@ -171,6 +172,15 @@ export default defineConfig({
         PageTitle: "./src/components/PageTitle.astro",
         // Per-page structured data: breadcrumbs and a TechArticle.
         Head: "./src/components/Head.astro",
+        // The command palette replaces the stock search button and its dialog;
+        // it reads the same Pagefind index.
+        Search: "./src/components/CommandPalette.astro",
+      },
+      // Code blocks: Shiki themes built from design/tokens.json; frames give
+      // the filename tab and the copy button with its "Copied!" feedback.
+      expressiveCode: {
+        themes: codeThemes,
+        styleOverrides: codeStyleOverrides,
       },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },

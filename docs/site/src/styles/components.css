@@ -1,24 +1,32 @@
-/* Forged Light 2 component kit (ADR-136, U2). Every value is a token from
-   design/tokens.json; a literal colour or size here is a bug. Classes are
-   `ui-*` so they cannot collide with the site's own maya.css rules.
-   Light and dark come from the theme attributes that tokens.css defines, so a
-   component needs no theme code. Reduced motion needs no code either: the
-   motion tokens become 1 ms and loops run once (tokens.json reduced-motion). */
+/* Forged Light 2 component kit (ADR-136, U2; revised 2026-11-13 to the
+   developer-tool look). Every value is a token from design/tokens.json; a
+   literal colour or size here is a bug. Classes are `ui-*` so they cannot
+   collide with the site's own maya.css rules. Light and dark come from the
+   theme attributes tokens.css defines, so a component needs no theme code.
+   Reduced motion needs none either: the duration tokens become 0 ms. */
 
 .ui-kit {
   background: var(--bg);
   color: var(--text);
   font: var(--type-body-weight) var(--type-body-size)/var(--type-body-line) var(--type-body-font);
-  padding: var(--space-5);
-  border-radius: var(--r-3);
+  padding: var(--space-8) var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 /* The kit sits in `.not-content`, so Starlight's prose styles are off; the
    headings take their size from the type tokens and their colour from the
    kit's own theme. */
-.ui-kit h2 { margin: 0 0 var(--space-4); font: var(--type-title-1-weight) var(--type-title-1-size)/var(--type-title-1-line) var(--type-title-1-font); color: var(--text); }
-.ui-kit :is(h3, h4) { margin: var(--space-5) 0 var(--space-3); font: var(--type-title-2-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--type-title-2-font); color: var(--text); }
-.ui-kit + .ui-kit { margin-top: var(--space-6); }
+.ui-kit h2 { margin: 0 0 var(--space-6); font: var(--type-title-2-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--type-title-2-font); letter-spacing: var(--type-title-2-tracking); color: var(--text); }
+.ui-kit h3 { margin: var(--space-10) 0 var(--space-3); font: var(--weight-semibold) var(--type-body-size)/var(--line-heading) var(--font-sans); color: var(--text); }
+.ui-kit h4 { margin: 0; font: var(--type-title-3-weight) var(--type-title-3-size)/var(--type-title-3-line) var(--type-title-3-font); color: var(--text); }
+.ui-kit section > h3:first-child { margin-top: 0; }
+.ui-kit section + section { margin-top: var(--space-10); padding-top: var(--space-8); border-top: 1px solid var(--border); }
+.ui-kit + .ui-kit { margin-top: var(--space-8); }
+.ui-kit p { margin: 0 0 var(--space-3); }
+.ui-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.ui-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.ui-text-2 { color: var(--text-2); }
 
 /* Visually hidden, still read by screen readers. */
 .ui-sr {
@@ -33,225 +41,278 @@
   border: 0;
 }
 
+/* One focus ring for every control: 2 px accent, 2 px off the edge. */
 .ui-kit :focus-visible,
-.ui-btn:focus-visible,
-.ui-tab:focus-visible,
-.ui-field:focus-visible {
+:is(.ui-btn, .ui-tab, .ui-field, .ui-copy):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Button: 44 px target (WCAG 2.5.5), one primary action per view. */
+/* Button. Primary is the gradient with a 1 px top highlight and dark text
+   (on-accent is measured on both gradient stops); secondary is surface-2 with
+   a hairline; ghost has no chrome until hover; danger is outlined in danger.
+   Height is the 34 px control height; .ui-btn--sm is 28 px. */
 .ui-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  min-height: 44px;
-  padding: 0 var(--space-5);
+  height: var(--control-h);
+  padding: 0 var(--space-3);
   border: 1px solid transparent;
-  border-radius: var(--r-2);
-  font: inherit;
-  font-weight: 600;
+  border-radius: var(--r-md);
+  font: var(--weight-medium) var(--type-body-size)/1 var(--font-sans);
+  white-space: nowrap;
   cursor: pointer;
-  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+  transition: background-color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease), filter var(--dur-1) var(--ease);
 }
-/* No hover colour change on primary: on-accent is listed only on accent, and
-   a hover fill would be an unmeasured pair. */
-.ui-btn--primary { background: var(--accent); color: var(--on-accent); }
-.ui-btn--secondary { background: transparent; color: var(--accent-text); border-color: var(--accent); }
-.ui-btn--secondary:hover { background: var(--raised); }
+.ui-btn--sm { height: var(--control-h-sm); padding: 0 var(--space-2); font-size: var(--type-body-sm-size); }
+.ui-btn--primary {
+  background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to));
+  color: var(--on-accent);
+  border-color: var(--accent-grad-to);
+  box-shadow: inset 0 1px 0 var(--accent-highlight), var(--shadow-sm);
+}
+/* Hover brightens the measured gradient a little rather than inventing a fill. */
+.ui-btn--primary:hover { filter: brightness(1.06); }
+.ui-btn--primary:active { filter: brightness(0.96); }
+.ui-btn--secondary { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); box-shadow: var(--shadow-inset); }
+.ui-btn--secondary:hover { background: var(--surface-3); }
 .ui-btn--ghost { background: transparent; color: var(--text-2); }
-.ui-btn--ghost:hover { color: var(--text); background: var(--raised); }
+.ui-btn--ghost:hover { background: var(--surface-2); color: var(--text); }
+.ui-btn--danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.ui-btn--danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: var(--danger); }
 .ui-btn:disabled,
-.ui-btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.ui-btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; filter: none; }
 
-/* Card: every card is flat (surface + line). Raised on hover or selection;
-   the hero is the one floating card per screen. */
+/* Card: hairline border and the inset top highlight; md shadow when raised. */
 .ui-card {
-  background: var(--surface);
+  background: var(--surface-1);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  padding: var(--space-5);
-  box-shadow: var(--elevation-flat);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-inset);
+  transition: box-shadow var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
 }
-.ui-card--raised:hover,
-.ui-card--selected { box-shadow: var(--elevation-raised); border-color: var(--accent); }
-.ui-card--hero { box-shadow: var(--elevation-floating); border-radius: var(--r-3); }
+.ui-card > :last-child { margin-bottom: 0; }
+.ui-card--interactive:hover,
+.ui-card--raised { box-shadow: var(--shadow-md), var(--shadow-inset); border-color: var(--border-strong); }
+.ui-card--selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-inset); }
 
 /* Stat tile: label, the figure, and a change line. A missing figure is a dash. */
 .ui-stat { display: grid; gap: var(--space-1); }
-.ui-stat__label {
-  color: var(--muted);
-  font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font);
-  letter-spacing: var(--type-label-tracking);
-  text-transform: uppercase;
-}
+.ui-stat__label { color: var(--text-2); font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); }
 .ui-stat__value {
-  font: var(--type-num-weight) var(--type-title-1-size)/var(--type-title-1-line) var(--type-num-font);
-  font-variant-numeric: tabular-nums;
+  font: var(--weight-semibold) var(--type-title-2-size)/var(--line-heading) var(--font-mono);
+  font-variant-numeric: var(--font-numeric);
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 .ui-stat__delta { font-size: var(--type-body-sm-size); color: var(--text-2); }
 .ui-stat__delta--up { color: var(--success); }
 .ui-stat__delta--down { color: var(--danger); }
 
-/* Status pill: the words carry the meaning; the dot repeats it in colour. */
+/* Fields: 34 px controls, the label above, hint and error below, wired by
+   aria-describedby. The error state is a danger border plus a message, never
+   colour alone. */
+.ui-form { display: grid; gap: var(--space-4); max-width: 26rem; }
+.ui-form-row { display: grid; gap: var(--space-1); }
+.ui-label { font: var(--weight-medium) var(--type-body-sm-size)/var(--line-body) var(--font-sans); color: var(--text); }
+.ui-hint { font-size: var(--type-label-size); color: var(--text-2); }
+.ui-error { display: flex; gap: var(--space-1); font-size: var(--type-label-size); color: var(--danger); }
+.ui-error:empty { display: none; }
+.ui-field {
+  width: 100%;
+  height: var(--control-h);
+  padding: 0 var(--space-3);
+  background: var(--surface-1);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  font: var(--type-body-weight) var(--type-body-size)/var(--line-body) var(--font-sans);
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.ui-field::placeholder { color: var(--text-3); }
+.ui-field:hover { border-color: var(--text-3); }
+.ui-field:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+.ui-field--mono { font-family: var(--font-mono); font-size: var(--type-mono-size); }
+textarea.ui-field { height: auto; min-height: 5.5rem; padding: var(--space-2) var(--space-3); resize: vertical; }
+select.ui-field {
+  appearance: none;
+  padding-inline-end: var(--space-8);
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%), linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.ui-field[aria-invalid="true"] { border-color: var(--danger); }
+.ui-field[aria-invalid="true"]:focus-visible { outline-color: var(--danger); }
+.ui-field:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Badge: a small square-cornered label. Status chip: a pill with a dot; the
+   pill radius is reserved for these. The word carries the meaning. */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: var(--weight-medium) var(--type-label-size)/1 var(--font-sans);
+}
+.ui-badge--accent { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
 .ui-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--line);
+  gap: 6px;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
   border-radius: var(--r-pill);
-  font-size: var(--type-body-sm-size);
-  font-weight: 600;
+  background: var(--surface-1);
   color: var(--text-2);
+  font: var(--weight-medium) var(--type-label-size)/1 var(--font-sans);
 }
-.ui-pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.ui-pill::before { content: ""; width: 6px; height: 6px; border-radius: var(--r-pill); background: currentColor; }
 .ui-pill--ok { color: var(--success); }
-.ui-pill--warn { color: var(--warning); }
+.ui-pill--warn { color: var(--warn); }
 .ui-pill--bad { color: var(--danger); }
-.ui-pill--info { color: var(--info); }
+.ui-pill--neutral { color: var(--steel); }
 
-/* Table: numbers right-aligned by the caller with .ui-num, tabular figures. */
-.ui-table { width: 100%; border-collapse: collapse; font-size: var(--type-body-sm-size); }
+/* Data table: dense rows, a sticky header inside its own scroll box, tabular
+   figures, a quiet hover row. Numbers align right with .ui-num. */
+.ui-table-wrap { max-height: 18rem; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1); }
+.ui-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--type-body-sm-size); font-variant-numeric: var(--font-numeric); }
 .ui-table th {
-  color: var(--muted);
-  font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font);
-  letter-spacing: var(--type-label-tracking);
-  text-transform: uppercase;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--font-sans);
   text-align: start;
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
-.ui-table td {
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--line);
-  color: var(--text);
-  text-align: start;
-}
-.ui-num { font-variant-numeric: tabular-nums; text-align: end; }
+.ui-table td { height: 36px; padding: 0 var(--space-3); border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
+.ui-table tbody tr:last-child td { border-bottom: 0; }
+.ui-table tbody tr { transition: background-color var(--dur-1) var(--ease); }
+.ui-table tbody tr:hover { background: var(--surface-2); }
+.ui-num { text-align: end !important; font-family: var(--font-mono); font-size: var(--type-mono-size); }
+.ui-mono { font-family: var(--font-mono); font-size: var(--type-mono-size); }
 
-/* Tabs: the selected tab is underlined in accent, its text in accent-text. */
-.ui-tabs { display: flex; gap: var(--space-4); border-bottom: 1px solid var(--line); }
+/* Tabs: text tabs on a hairline; the selected one has a 2 px accent rule. */
+.ui-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
 .ui-tab {
-  min-height: 44px;
-  padding: 0 var(--space-1);
+  position: relative;
+  height: var(--control-h);
+  padding: 0 var(--space-3);
   border: 0;
-  border-bottom: 2px solid transparent;
   background: none;
-  color: var(--muted);
-  font: inherit;
-  font-weight: 600;
+  color: var(--text-2);
+  font: var(--weight-medium) var(--type-body-size)/1 var(--font-sans);
   cursor: pointer;
+  transition: color var(--dur-1) var(--ease);
 }
-.ui-tab[aria-selected="true"] { color: var(--accent-text); border-bottom-color: var(--accent); }
+.ui-tab:hover { color: var(--text); }
+.ui-tab[aria-selected="true"] { color: var(--text); }
+.ui-tab[aria-selected="true"]::after { content: ""; position: absolute; inset: auto var(--space-3) -1px; height: 2px; background: var(--accent); }
+.ui-tabpanel { padding-top: var(--space-4); }
 
-/* Toast: a short message in a raised panel; the left rule is the status. */
+/* Toast: a raised surface-2 panel; a status dot, not a thick side bar. */
 .ui-toast {
   display: grid;
-  gap: var(--space-1);
-  max-width: 28rem;
-  padding: var(--space-4);
-  background: var(--raised);
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: var(--space-1) var(--space-3);
+  max-width: 24rem;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-inline-start: 4px solid var(--accent);
-  border-radius: var(--r-2);
-  box-shadow: var(--elevation-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg), var(--shadow-inset);
+  font-size: var(--type-body-size);
 }
-.ui-toast--ok { border-inline-start-color: var(--success); }
-.ui-toast--warn { border-inline-start-color: var(--warning); }
-.ui-toast--bad { border-inline-start-color: var(--danger); }
+.ui-toast::before { content: ""; width: 8px; height: 8px; margin-top: 6px; border-radius: var(--r-pill); background: var(--accent); }
+.ui-toast__body { display: grid; gap: 2px; }
+.ui-toast__title { font-weight: var(--weight-medium); }
+.ui-toast__text { color: var(--text-2); font-size: var(--type-body-sm-size); }
+.ui-toast--ok::before { background: var(--success); }
+.ui-toast--warn::before { background: var(--warn); }
+.ui-toast--bad::before { background: var(--danger); }
 
-/* Empty, loading and error states: each says what happened and what to do. */
+/* Empty, loading and error states: each says what happened and what to do.
+   Loading is a skeleton of the content's shape, never a spinner. */
 .ui-state {
   display: grid;
   justify-items: start;
   gap: var(--space-2);
-  padding: var(--space-6) var(--space-5);
-  border: 1px dashed var(--line);
-  border-radius: var(--r-2);
-  background: var(--surface);
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
   color: var(--text-2);
+  font-size: var(--type-body-sm-size);
 }
-.ui-state__title { color: var(--text); font: var(--type-title-2-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--type-title-2-font); }
-.ui-state--error { border-style: solid; color: var(--danger); }
+.ui-state--empty { border-style: dashed; justify-items: center; text-align: center; }
+.ui-state__title { color: var(--text); font: var(--weight-medium) var(--type-body-size)/var(--line-heading) var(--font-sans); }
+.ui-state--error { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .ui-state--error .ui-state__title { color: var(--danger); }
-
 .ui-skeleton {
   display: block;
-  height: 1em;
+  height: 12px;
   width: 100%;
-  border-radius: var(--r-1);
-  background: var(--raised);
-  animation: ui-pulse var(--dur-pulse) var(--ease-out) var(--loop) both;
+  border-radius: var(--r-xs);
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%) 0 0 / 200% 100%;
+  /* 6 x dur-3 (1.44 s); reduced motion makes dur-3 0 ms, which leaves it still. */
+  animation: ui-shimmer calc(var(--dur-3) * 6) linear infinite;
 }
-@keyframes ui-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .45; }
-}
+.ui-skeleton--short { width: 40%; }
+.ui-skeleton--title { height: 16px; width: 60%; }
+@keyframes ui-shimmer { to { background-position: -200% 0; } }
+
+/* Code block chrome for the kit's own samples. Expressive Code renders the
+   real blocks (filename tab, copy button) with the token themes in
+   src/lib/code-theme.mjs; this only spaces them inside the kit. */
+.ui-kit .expressive-code { margin: 0; }
+.ui-kit .expressive-code + .expressive-code { margin-top: var(--space-3); }
 
 /* Address: Bech32m text in groups of four, so a human can compare it. The
    chunks come from ui-kit.ts (chunkAddress); this only spaces them. */
-.ui-address {
-  position: relative;
-  font: var(--type-mono-weight) var(--type-mono-size)/var(--type-mono-line) var(--type-mono-font);
-  color: var(--text);
-}
-.ui-address__chunks {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
-}
+.ui-address { position: relative; font: var(--type-mono-weight) var(--type-mono-size)/var(--type-mono-line) var(--type-mono-font); color: var(--text); }
+.ui-address__chunks { display: inline-flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
 .ui-address__chunk { white-space: nowrap; }
 .ui-address__chunk--prefix { color: var(--accent-text); }
 
-/* Amount: integer large, fraction muted at full precision, unit as a label. */
-.ui-amount { display: inline-flex; align-items: baseline; gap: var(--space-1); font-variant-numeric: tabular-nums; }
-.ui-amount__int {
-  font: var(--type-num-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--type-num-font);
-  color: var(--text);
-}
-.ui-amount__frac {
-  font: var(--type-mono-weight) var(--type-mono-size)/var(--type-mono-line) var(--type-mono-font);
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-.ui-amount__unit {
-  color: var(--bronze-text);
-  font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font);
-  letter-spacing: var(--type-label-tracking);
-}
+/* Amount: integer in mono at full weight, fraction in text-2 at full
+   precision, unit as a label. */
+.ui-amount { display: inline-flex; align-items: baseline; gap: var(--space-1); font-variant-numeric: var(--font-numeric); }
+.ui-amount__int { font: var(--weight-semibold) var(--type-title-3-size)/var(--line-heading) var(--font-mono); color: var(--text); }
+.ui-amount__frac { font: var(--type-mono-weight) var(--type-mono-size)/var(--type-mono-line) var(--type-mono-font); color: var(--text-2); overflow-wrap: anywhere; }
+.ui-amount__unit { color: var(--bronze); font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--font-sans); }
 
 /* Money confirm: a native dialog opened with showModal() (focus is trapped,
    Escape closes). Send is never the default focus; Cancel carries autofocus.
    The address row shows every group, never a shortened form. */
 .ui-confirm {
-  width: min(34rem, calc(100vw - 2 * var(--space-5)));
-  padding: var(--space-5);
-  background: var(--surface);
+  width: min(32rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-6);
+  background: var(--surface-1);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--r-3);
-  box-shadow: var(--elevation-floating);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg), var(--shadow-inset);
 }
 /* A dialog opened with the `open` attribute (the kit page) is not modal, and
    the UA positions it absolutely over the content after it; keep it in flow. */
 .ui-confirm:not(:modal) { position: static; margin: 0; }
 .ui-confirm::backdrop { background: color-mix(in srgb, var(--bg) 70%, transparent); }
-.ui-confirm__rows { display: grid; gap: var(--space-3); margin: var(--space-4) 0; }
+.ui-confirm__rows { display: grid; gap: var(--space-4); margin: var(--space-5) 0; padding: var(--space-4) 0; border-block: 1px solid var(--border); }
 .ui-confirm__row { display: grid; gap: var(--space-1); }
-.ui-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: flex-end; }
-
-.ui-field {
-  min-height: 44px;
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  font: inherit;
-}
+.ui-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }

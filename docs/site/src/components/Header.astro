@@ -68,14 +68,7 @@ const showSearch =
     scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
     (document.querySelector("main") as HTMLElement | null)?.focus({ preventScroll: true });
   });
-  // "/" opens search, as on most documentation sites (Ctrl/Cmd+K still works).
-  addEventListener("keydown", (e) => {
-    const t = e.target as HTMLElement;
-    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (t.closest("input, textarea, select, [contenteditable=true]")) return;
-    const open = document.querySelector<HTMLButtonElement>("site-search button[data-open-modal]");
-    if (open) { e.preventDefault(); open.click(); }
-  });
+  // "/" and Ctrl/Cmd+K open the command palette (CommandPalette.astro, the Search override).
 </script>
 
 <style>

@@ -11,11 +11,13 @@ selfCheck();
 const themes = ["dark", "light"] as const;
 ---
 
-<StarlightPage frontmatter={{ title: "Design system", description: "The Maya2C component kit: buttons, cards, status, tables, money and address displays, in dark and light, with WCAG AA contrast." }}>
+<StarlightPage frontmatter={{ title: "Design system", description: "The Maya2C component kit: buttons, inputs, code blocks, data tables, status chips, tabs, toasts, states, money and address displays and the command palette, in dark and light, with WCAG AA contrast." }}>
   <p>
     Every component below is built from the tokens in <code>design/tokens.json</code>
-    (generated into <code>tokens.css</code>). Each theme is shown in full. Contrast for every
-    text and border pair is checked by <code>cargo xtask design-tokens</code> in CI.
+    (generated into <code>tokens.css</code>): neutral surfaces with hairline borders, one teal
+    accent, radii of 4 to 12 px, and 120 to 240 ms motion on one curve. Each theme is shown in
+    full. Every listed text and accent pair is checked against WCAG AA by
+    <code>cargo xtask design-tokens</code> in CI.
   </p>
   {/* not-content: Starlight's prose styles colour headings and table cells
       from the site theme, which would put dark-theme text on the light kit. */}

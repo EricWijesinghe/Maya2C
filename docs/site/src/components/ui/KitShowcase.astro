@@ -2,7 +2,9 @@
 // Every kit component in one block, rendered once per theme by the
 // /design-system/ page. Sample text only: no figure here is a chain number.
 // `id` prefixes every element id, so the two theme copies on one page do not
-// share ids (aria-labelledby and tab wiring would point at the first copy).
+// share ids (aria-labelledby, aria-describedby and tab wiring would point at
+// the first copy).
+import { Code } from "@astrojs/starlight/components";
 import { chunkAddress, formatAmount, MISSING } from "../../lib/ui-kit";
 
 interface Props {
@@ -16,94 +18,210 @@ const ref = (name: string) => `${id}-${name}`;
 const addressText = "maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f";
 const address = chunkAddress(addressText);
 const amount = formatAmount("1500000000000000000000000");
+
+// The real SDK (sdks/rust, crate maya2c-sdk) and the gateway path it calls.
+const rustSample = `use maya2c_sdk::Client;
+
+// Read the tip height from a local api-gateway (GET /v1/chain).
+fn main() -> Result<(), maya2c_sdk::Error> {
+    let client = Client::new("http://127.0.0.1:8080/")?;
+    let chain = client.chain_info()?;
+    println!("tip height {}", chain.height);
+    Ok(())
+}`;
+const shellSample = `curl -s http://127.0.0.1:8080/v1/chain`;
+const codeTabs = [
+  { key: "rust", label: "Rust", lang: "rust", title: "src/main.rs", code: rustSample },
+  { key: "shell", label: "curl", lang: "sh", title: "Terminal", code: shellSample },
+];
+// Sample rows: placeholder hashes, and the dash wherever a real figure would go.
+const rows = [
+  { tx: "7f3a09c1…e4d2", kind: "Transfer", status: "ok", label: "Finalized" },
+  { tx: "1b77c0de…90af", kind: "Contract call", status: "warn", label: "Pending" },
+  { tx: "c41e5a20…3b1c", kind: "Transfer", status: "bad", label: "Rejected" },
+  { tx: "e8d2f417…a6c9", kind: "Stake", status: "neutral", label: "Queued" },
+];
 ---
 
 <section aria-labelledby={ref("buttons")}>
   <h3 id={ref("buttons")}>Buttons</h3>
-  <p>
-    <button class="ui-btn ui-btn--primary" type="button">Send</button>
+  <div class="ui-row">
+    <button class="ui-btn ui-btn--primary" type="button">Deploy contract</button>
     <button class="ui-btn ui-btn--secondary" type="button">Review</button>
     <button class="ui-btn ui-btn--ghost" type="button">Cancel</button>
+    <button class="ui-btn ui-btn--danger" type="button">Revoke key</button>
     <button class="ui-btn ui-btn--primary" type="button" disabled>Sending</button>
-  </p>
+  </div>
+  <div class="ui-row" style="margin-top: var(--space-3)">
+    <button class="ui-btn ui-btn--primary ui-btn--sm" type="button">Small</button>
+    <button class="ui-btn ui-btn--secondary ui-btn--sm" type="button">Small secondary</button>
+    <button class="ui-btn ui-btn--ghost ui-btn--sm" type="button">Small ghost</button>
+  </div>
 </section>
 
 <section aria-labelledby={ref("cards")}>
   <h3 id={ref("cards")}>Cards and stat tiles</h3>
-  <div class="ui-card"><p>Flat card: surface and line, no shadow.</p></div>
-  <div class="ui-card ui-card--selected"><p>Raised card: selected.</p></div>
-  <div class="ui-card ui-card--hero"><p>Hero card: the one floating card per screen.</p></div>
-  <div class="ui-card">
-    <div class="ui-stat">
-      <span class="ui-stat__label">Block height</span>
-      <span class="ui-stat__value">{MISSING}</span>
-      <span class="ui-stat__delta">Waiting for the node: no figure yet</span>
+  <div class="ui-grid">
+    <div class="ui-card">
+      <div class="ui-stat">
+        <span class="ui-stat__label">Finalized height</span>
+        <span class="ui-stat__value">{MISSING}</span>
+        <span class="ui-stat__delta">Waiting for the node: no figure yet</span>
+      </div>
     </div>
-  </div>
-  <div class="ui-card">
-    <div class="ui-stat">
-      <span class="ui-stat__label">Change</span>
-      <span class="ui-stat__value">{MISSING}</span>
-      <span class="ui-stat__delta ui-stat__delta--up">Up</span>
-      <span class="ui-stat__delta ui-stat__delta--down">Down</span>
+    <div class="ui-card ui-card--interactive">
+      <div class="ui-stat">
+        <span class="ui-stat__label">Hover me</span>
+        <span class="ui-stat__value">{MISSING}</span>
+        <span class="ui-stat__delta ui-stat__delta--up">Raises to the md shadow</span>
+      </div>
+    </div>
+    <div class="ui-card ui-card--selected">
+      <div class="ui-stat">
+        <span class="ui-stat__label">Selected</span>
+        <span class="ui-stat__value">{MISSING}</span>
+        <span class="ui-stat__delta ui-stat__delta--down">Accent ring</span>
+      </div>
     </div>
   </div>
 </section>
 
-<section aria-labelledby={ref("status")}>
-  <h3 id={ref("status")}>Status pills</h3>
-  <p>
-    <span class="ui-pill ui-pill--ok">Confirmed</span>
-    <span class="ui-pill ui-pill--warn">Pending</span>
-    <span class="ui-pill ui-pill--bad">Failed</span>
-    <span class="ui-pill ui-pill--info">Draft</span>
-    <span class="ui-pill">Unknown</span>
-  </p>
+<section aria-labelledby={ref("fields")}>
+  <h3 id={ref("fields")}>Inputs</h3>
+  <form class="ui-form" novalidate>
+    <div class="ui-form-row">
+      <label class="ui-label" for={ref("name")}>Key name</label>
+      <input class="ui-field" id={ref("name")} type="text" placeholder="validator-01" aria-describedby={ref("name-hint")} />
+      <span class="ui-hint" id={ref("name-hint")}>Shown only on this device.</span>
+    </div>
+    <div class="ui-form-row">
+      <label class="ui-label" for={ref("to")}>Recipient</label>
+      <input class="ui-field ui-field--mono" id={ref("to")} type="text" value="maya1qq65" aria-invalid="true" aria-describedby={`${ref("to-hint")} ${ref("to-error")}`} />
+      <span class="ui-hint" id={ref("to-hint")}>A Bech32m address starting with maya1.</span>
+      <span class="ui-error" id={ref("to-error")}>The address is too short: check every group.</span>
+    </div>
+    <div class="ui-form-row">
+      <label class="ui-label" for={ref("net")}>Network</label>
+      <select class="ui-field" id={ref("net")}>
+        <option>Testnet</option>
+        <option>Local devnet</option>
+      </select>
+    </div>
+    <div class="ui-form-row">
+      <label class="ui-label" for={ref("memo")}>Memo</label>
+      <textarea class="ui-field" id={ref("memo")} placeholder="Optional, stored on chain"></textarea>
+    </div>
+  </form>
+</section>
+
+<section aria-labelledby={ref("code")}>
+  <h3 id={ref("code")}>Code block</h3>
+  <p class="ui-text-2">Shiki themes built from the tokens; the filename tab and the copy button come from Expressive Code.</p>
+  <div class="ui-tabs" role="tablist" aria-label="Language" data-ui-tabs>
+    {codeTabs.map((t, i) => (
+      <button role="tab" type="button" class="ui-tab" id={ref(`code-tab-${t.key}`)}
+        aria-selected={i === 0 ? "true" : "false"} aria-controls={ref(`code-panel-${t.key}`)} tabindex={i === 0 ? "0" : "-1"}>{t.label}</button>
+    ))}
+  </div>
+  {codeTabs.map((t, i) => (
+    <div class="ui-tabpanel" role="tabpanel" id={ref(`code-panel-${t.key}`)} aria-labelledby={ref(`code-tab-${t.key}`)} hidden={i !== 0}>
+      <Code code={t.code} lang={t.lang} title={t.title} frame={t.lang === "sh" ? "terminal" : "code"} />
+    </div>
+  ))}
 </section>
 
 <section aria-labelledby={ref("table")}>
-  <h3 id={ref("table")}>Table and tabs</h3>
-  <!-- Static specimen: one tab in the tab order (roving tabindex); a live tab
-       set adds arrow-key handling and swaps the panel. -->
-  <div role="tablist" class="ui-tabs" aria-label="Activity">
-    <button role="tab" type="button" class="ui-tab" id={ref("tab-transfers")}
-      aria-selected="true" aria-controls={ref("panel-transfers")} tabindex="0">Transfers</button>
-    <button role="tab" type="button" class="ui-tab" id={ref("tab-contracts")}
-      aria-selected="false" tabindex="-1">Contracts</button>
-  </div>
-  <div role="tabpanel" id={ref("panel-transfers")} aria-labelledby={ref("tab-transfers")}>
+  <h3 id={ref("table")}>Data table</h3>
+  <div class="ui-table-wrap" tabindex="0" role="region" aria-labelledby={ref("table")}>
     <table class="ui-table">
       <thead>
-        <tr><th scope="col">Transaction</th><th scope="col">Block</th><th scope="col">Status</th></tr>
+        <tr><th scope="col">Transaction</th><th scope="col">Kind</th><th scope="col" class="ui-num">Block</th><th scope="col" class="ui-num">Amount</th><th scope="col">Status</th></tr>
       </thead>
       <tbody>
-        <tr><td>7f3a09c1…e4d2</td><td class="ui-num">{MISSING}</td><td><span class="ui-pill ui-pill--ok">Confirmed</span></td></tr>
+        {rows.map((r) => (
+          <tr>
+            <td class="ui-mono">{r.tx}</td>
+            <td>{r.kind}</td>
+            <td class="ui-num">{MISSING}</td>
+            <td class="ui-num">{MISSING}</td>
+            <td><span class={`ui-pill ui-pill--${r.status}`}>{r.label}</span></td>
+          </tr>
+        ))}
       </tbody>
     </table>
   </div>
 </section>
 
+<section aria-labelledby={ref("status")}>
+  <h3 id={ref("status")}>Badges and status chips</h3>
+  <div class="ui-row">
+    <span class="ui-badge">v0.1.0</span>
+    <span class="ui-badge ui-badge--accent">Post-quantum</span>
+    <span class="ui-badge">RESEARCH</span>
+  </div>
+  <div class="ui-row" style="margin-top: var(--space-3)">
+    <span class="ui-pill ui-pill--ok">Finalized</span>
+    <span class="ui-pill ui-pill--warn">Pending</span>
+    <span class="ui-pill ui-pill--bad">Rejected</span>
+    <span class="ui-pill ui-pill--neutral">Queued</span>
+    <span class="ui-pill">Unknown</span>
+  </div>
+</section>
+
+<section aria-labelledby={ref("tabs")}>
+  <h3 id={ref("tabs")}>Tabs</h3>
+  <div role="tablist" class="ui-tabs" aria-label="Activity" data-ui-tabs>
+    <button role="tab" type="button" class="ui-tab" id={ref("tab-transfers")}
+      aria-selected="true" aria-controls={ref("panel-transfers")} tabindex="0">Transfers</button>
+    <button role="tab" type="button" class="ui-tab" id={ref("tab-contracts")}
+      aria-selected="false" aria-controls={ref("panel-contracts")} tabindex="-1">Contracts</button>
+    <button role="tab" type="button" class="ui-tab" id={ref("tab-keys")}
+      aria-selected="false" aria-controls={ref("panel-keys")} tabindex="-1">Keys</button>
+  </div>
+  <div class="ui-tabpanel ui-text-2" role="tabpanel" id={ref("panel-transfers")} aria-labelledby={ref("tab-transfers")}>Arrow keys move between tabs; Home and End jump to the ends.</div>
+  <div class="ui-tabpanel ui-text-2" role="tabpanel" id={ref("panel-contracts")} aria-labelledby={ref("tab-contracts")} hidden>No contracts deployed from this account.</div>
+  <div class="ui-tabpanel ui-text-2" role="tabpanel" id={ref("panel-keys")} aria-labelledby={ref("tab-keys")} hidden>Keys never leave the device.</div>
+</section>
+
 <section aria-labelledby={ref("toast")}>
   <h3 id={ref("toast")}>Toast</h3>
-  <div class="ui-toast ui-toast--ok" role="status">
-    <strong>Saved</strong>
-    <span>The change is in your address book.</span>
+  <div class="ui-row" style="align-items: start">
+    <div class="ui-toast ui-toast--ok" role="status">
+      <div class="ui-toast__body">
+        <span class="ui-toast__title">Saved</span>
+        <span class="ui-toast__text">The address is in your book.</span>
+      </div>
+      <button class="ui-btn ui-btn--ghost ui-btn--sm" type="button">Undo</button>
+    </div>
+    <div class="ui-toast ui-toast--bad" role="status">
+      <div class="ui-toast__body">
+        <span class="ui-toast__title">Transfer rejected</span>
+        <span class="ui-toast__text">The fee is below the current floor.</span>
+      </div>
+      <button class="ui-btn ui-btn--ghost ui-btn--sm" type="button">Details</button>
+    </div>
   </div>
 </section>
 
 <section aria-labelledby={ref("states")}>
   <h3 id={ref("states")}>Empty, loading and error</h3>
-  <div class="ui-state">
-    <span class="ui-state__title">No transfers yet</span>
-    <span>Transfers you send or receive appear here.</span>
-  </div>
-  <div class="ui-state" role="status" aria-live="polite">
-    <span class="ui-skeleton" aria-hidden="true"></span>
-    <span>Loading balance…</span>
-  </div>
-  <div class="ui-state ui-state--error" role="alert">
-    <span class="ui-state__title">Could not reach the node</span>
-    <span>Check the address and try again. Nothing was sent.</span>
+  <div class="ui-grid">
+    <div class="ui-state ui-state--empty">
+      <span class="ui-state__title">No transfers yet</span>
+      <span>Transfers you send or receive appear here.</span>
+      <button class="ui-btn ui-btn--secondary ui-btn--sm" type="button">Get test coins</button>
+    </div>
+    <div class="ui-state" role="status" aria-live="polite">
+      <span class="ui-sr">Loading balance…</span>
+      <span class="ui-skeleton ui-skeleton--title" aria-hidden="true"></span>
+      <span class="ui-skeleton" aria-hidden="true"></span>
+      <span class="ui-skeleton ui-skeleton--short" aria-hidden="true"></span>
+    </div>
+    <div class="ui-state ui-state--error" role="alert">
+      <span class="ui-state__title">Could not reach the node</span>
+      <span>Check the address and try again. Nothing was sent.</span>
+      <button class="ui-btn ui-btn--secondary ui-btn--sm" type="button">Retry</button>
+    </div>
   </div>
 </section>
 
@@ -171,3 +289,39 @@ const amount = formatAmount("1500000000000000000000000");
     </div>
   </dialog>
 </section>
+
+<section aria-labelledby={ref("palette")}>
+  <h3 id={ref("palette")}>Command palette</h3>
+  <p class="ui-text-2">
+    Press <kbd>Ctrl</kbd> <kbd>K</kbd> (<kbd>⌘</kbd> <kbd>K</kbd> on a Mac) or <kbd>/</kbd> on any page. It searches the
+    site's Pagefind index; arrows move, Enter opens, Esc closes.
+  </p>
+</section>
+
+<script>
+  // Roving-tabindex tabs (WAI-ARIA tabs pattern) for every kit tablist.
+  for (const list of document.querySelectorAll<HTMLElement>("[data-ui-tabs]")) {
+    const tabs = [...list.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const select = (next: HTMLButtonElement) => {
+      for (const tab of tabs) {
+        const on = tab === next;
+        tab.setAttribute("aria-selected", String(on));
+        tab.tabIndex = on ? 0 : -1;
+        const panel = document.getElementById(tab.getAttribute("aria-controls") ?? "");
+        if (panel) panel.hidden = !on;
+      }
+      next.focus();
+    };
+    list.addEventListener("click", (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLButtonElement>('[role="tab"]');
+      if (tab) select(tab);
+    });
+    list.addEventListener("keydown", (e) => {
+      const at = tabs.indexOf(document.activeElement as HTMLButtonElement);
+      const to: Record<string, number> = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 };
+      if (at < 0 || !(e.key in to)) return;
+      e.preventDefault();
+      select(tabs[(to[e.key] + tabs.length) % tabs.length]);
+    });
+  }
+</script>
