@@ -3421,6 +3421,17 @@ status = "working"
 tests = ["crate:maya-permissioned-finance", "crates/permissioned-finance/tests/vault_tests.rs"]
 
 [[subsystem]]
+id = "intent-solver-market"
+name = "Intent solver market with HTLC settlement (P-30)"
+domain = "Interoperability"
+paths = "`crates/intent-solver`, `bins/maya2c-mcp/src/intents.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/intent-solver/tests/intent_solver_tests.rs"]
+note = "ADR-139. Off chain: hybrid-signed intents, replay/expiry/limit refusals, deterministic best quote, a two-lock hash-lock settlement plan over the shipped HtlcLock/HtlcClaim/HtlcRefund forms. No consensus form. HtlcLock escrows the native coin only, so the other leg is an HTLC on another chain (htlc-watcher). Quotes are unsigned. CI-first PR: not compiled locally."
+
+[[subsystem]]
 id = "darkpool-and-tax"
 name = "Sealed-bid dark pool (commit-reveal, uniform-price clearing, auditor opening) and US/UK/DE capital-gains calculators"
 domain = "Finance"

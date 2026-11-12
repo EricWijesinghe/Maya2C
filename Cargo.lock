@@ -6347,6 +6347,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-intent-solver"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-crypto-pq",
+ "maya-htlc-lattice",
+ "primitive-types",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya-interop"
 version = "0.1.0"
 dependencies = [
@@ -6985,6 +6996,9 @@ dependencies = [
  "maya-address",
  "maya-amount",
  "maya-clear-sign",
+ "maya-crypto-pq",
+ "maya-htlc-lattice",
+ "maya-intent-solver",
  "primitive-types",
  "serde_json",
 ]
