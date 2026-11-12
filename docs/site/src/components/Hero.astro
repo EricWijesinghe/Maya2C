@@ -1,0 +1,142 @@
+---
+// The homepage hero (U3, 2026-11-13): one headline, one line, two doors. It
+// replaced the three.js committee scene and its leaning coin, which read as a
+// toy next to the developer-tool look (ADR-136).
+//
+// Background: a CSS dot grid and two slow gradient glows (transform only, so
+// the compositor moves them and nothing repaints). A pulse runs along a grid
+// line for each REAL finalized block from the explorer's WebSocket; nothing is
+// simulated. While the testnet is paused (data/network-state.ts) the socket is
+// never opened, so the grid stays still and the chip says why.
+import { testnet } from "../data/network-state";
+---
+
+<section class="hero not-content" aria-labelledby="hero-title" data-paused={testnet.paused ? "" : undefined}>
+  <div class="bg" aria-hidden="true">
+    <div class="glow glow-a"></div>
+    <div class="glow glow-b"></div>
+    <div class="dots"></div>
+    <canvas class="pulses"></canvas>
+  </div>
+  <div class="inner">
+    <p class="chip">
+      <span class="dot" aria-hidden="true"></span>
+      {testnet.paused ? (
+        <span>Testnet paused since {testnet.since} · last block {testnet.last.height.toLocaleString("en-US")} · <a href={testnet.report}>why</a></span>
+      ) : (
+        <span>maya-testnet-1 · <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
+      )}
+    </p>
+    <h1 id="hero-title">Post-quantum layer-1, built in Rust.</h1>
+    <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by DAG-BFT. Open source, and every number on this page links to its source.</p>
+    <div class="cta">
+      <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
+      <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { onBlocks, fmt } from "../scripts/live";
+  import { whenIdle } from "../scripts/idle";
+
+  const hero = document.querySelector<HTMLElement>(".hero");
+  // Paused on purpose: no socket, no pulses (the chip already says so).
+  if (hero && !hero.hasAttribute("data-paused")) {
+    const canvas = hero.querySelector<HTMLCanvasElement>(".pulses")!;
+    const ctx = canvas.getContext("2d");
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const GRID = 24; // px, matches .dots background-size
+    const LIFE_MS = 1600;
+    const pulses: { y: number; x0: number; dir: number; t0: number }[] = [];
+    let running = false;
+
+    const size = () => {
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    const frame = (now: number) => {
+      if (!ctx) return;
+      const w = canvas.clientWidth;
+      ctx.clearRect(0, 0, w, canvas.clientHeight);
+      const color = getComputedStyle(hero).getPropertyValue("--accent").trim() || "#3bc9b5";
+      for (let i = pulses.length - 1; i >= 0; i--) {
+        const p = pulses[i], k = (now - p.t0) / LIFE_MS;
+        if (k >= 1) { pulses.splice(i, 1); continue; }
+        const head = p.x0 + p.dir * k * w * 0.6, tail = head - p.dir * 96;
+        const g = ctx.createLinearGradient(tail, 0, head, 0);
+        g.addColorStop(0, "transparent");
+        g.addColorStop(1, color);
+        ctx.globalAlpha = Math.sin(Math.PI * k) * 0.9;
+        ctx.strokeStyle = g;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tail, p.y); ctx.lineTo(head, p.y); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      if (pulses.length) requestAnimationFrame(frame); else running = false;
+    };
+    // One pulse per real block, along a random grid row.
+    const pulse = () => {
+      if (still || !ctx || document.hidden) return;
+      const rows = Math.max(1, Math.floor(canvas.clientHeight / GRID));
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      pulses.push({ y: (1 + Math.floor(Math.random() * (rows - 1))) * GRID + 0.5, x0: dir > 0 ? 0 : canvas.clientWidth, dir, t0: performance.now() });
+      if (!running) { running = true; requestAnimationFrame(frame); }
+    };
+
+    const stateEl = hero.querySelector("[data-hero-state]")!;
+    const tipEl = hero.querySelector<HTMLElement>("[data-hero-tip]")!;
+    const heightEl = hero.querySelector("[data-hero-height]")!;
+    let seen = 0;
+    whenIdle(() => {
+      size();
+      new ResizeObserver(size).observe(canvas);
+      onBlocks((b) => {
+        if (b.height <= seen) return;
+        seen = b.height;
+        heightEl.textContent = fmt(b.height);
+        tipEl.hidden = false;
+        pulse();
+      }, (live) => {
+        stateEl.textContent = live ? "live" : "reconnecting…";
+        hero.classList.toggle("live", live);
+      });
+    });
+  }
+</script>
+
+<style>
+  /* Full-bleed band; the copy sits in the page column. */
+  .hero { position: relative; isolation: isolate; width: 100vw; margin: 0 0 0 calc(50% - 50vw); padding: var(--space-24) var(--gutter) var(--space-20); overflow: hidden; border-bottom: 1px solid var(--border); }
+  .bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+  .dots, .pulses { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .dots {
+    background-image: radial-gradient(circle at 1px 1px, var(--border-strong) 1px, transparent 0);
+    background-size: 24px 24px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 40%, #000 30%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 80% at 50% 40%, #000 30%, transparent 75%);
+  }
+  .glow { position: absolute; width: 56rem; height: 36rem; border-radius: 50%; opacity: .5; will-change: transform; }
+  .glow-a { top: -18rem; left: 50%; margin-left: -40rem; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent); animation: drift-a 26s var(--ease) infinite alternate; }
+  .glow-b { top: -10rem; left: 50%; margin-left: -12rem; background: radial-gradient(closest-side, color-mix(in srgb, var(--steel) 18%, transparent), transparent); animation: drift-b 32s var(--ease) infinite alternate; }
+  @keyframes drift-a { to { transform: translate3d(8rem, 3rem, 0); } }
+  @keyframes drift-b { to { transform: translate3d(-10rem, 4rem, 0); } }
+  :global([data-theme="light"]) .glow { opacity: .8; }
+
+  .inner { max-width: 48rem; margin: 0 auto; text-align: center; }
+  .chip { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-1); font: var(--type-mono-weight) var(--type-body-sm-size)/1.4 var(--font-mono); color: var(--text-2); }
+  .chip b { font-weight: var(--weight-medium); color: var(--text); }
+  .chip a { color: var(--accent-text); }
+  .dot { flex: none; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--warn); }
+  .hero.live .dot { background: var(--success); }
+  h1 { margin: var(--space-6) 0 var(--space-4); font: var(--type-display-1-weight) clamp(var(--type-display-1-size-phone), 5.4vw, 64px)/1.08 var(--type-display-1-font); letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
+  .sub { margin: 0 auto; max-width: 40rem; font-size: var(--type-body-lg-size); line-height: var(--line-body); color: var(--text-2); text-wrap: pretty; }
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); margin-top: var(--space-8); }
+  .cta .ui-btn { height: 40px; padding: 0 var(--space-5); text-decoration: none; }
+  .cta .ui-btn--primary { color: var(--on-accent); }
+  .cta .ui-btn--secondary { color: var(--text); }
+  @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
+  @media (max-width: 640px) { .hero { padding-block: var(--space-16) var(--space-12); } .chip { text-align: left; } }
+</style>

@@ -22,9 +22,14 @@ const faq = [
 </div>
 
 <style>
-  .ff { display: grid; gap: 8px; margin: var(--space-4) 0; }
-  .ff-item { border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); }
-  .ff-item summary { cursor: pointer; padding: 14px 18px; min-height: 44px; font: 600 16px/1.35 var(--display); color: var(--text); list-style-position: inside; }
-  .ff-item[open] summary { color: var(--accent-text); }
-  .ff-item p { margin: 0; padding: 0 18px 16px; color: var(--text-2); font-size: 15px; }
+  /* One bordered list, hairline between rows; the marker turns, nothing bounces. */
+  .ff { margin: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
+  .ff-item + .ff-item { border-top: 1px solid var(--border); }
+  .ff-item summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: 48px; padding: var(--space-3) var(--space-5); cursor: pointer; list-style: none; font: var(--weight-medium) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); transition: background-color var(--dur-1) var(--ease); }
+  .ff-item summary::-webkit-details-marker { display: none; }
+  .ff-item summary::after { content: ""; flex: none; width: 8px; height: 8px; border-right: 1.5px solid var(--text-2); border-bottom: 1.5px solid var(--text-2); transform: rotate(45deg); transition: transform var(--dur-2) var(--ease); }
+  .ff-item[open] summary::after { transform: rotate(225deg); }
+  .ff-item summary:hover { background: var(--surface-2); }
+  .ff-item p { margin: 0; padding: 0 var(--space-5) var(--space-5); max-width: 72ch; color: var(--text-2); font-size: var(--type-body-size); line-height: 1.6; }
+  .ff-item a { color: var(--accent-text); }
 </style>

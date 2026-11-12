@@ -1,0 +1,36 @@
+---
+// What a reviewer checks first: the licence, the audit state said plainly,
+// and the proof counts from proof-ratchet.txt (CI fails if one falls, ADR-078
+// O3), as this build read them (public/progress.json).
+import SourceTip from "./SourceTip.astro";
+import progress from "../../public/progress.json";
+
+const repo = "https://github.com/EricWijesinghe/Maya2C";
+const p = (progress as { proofs?: Record<string, number> | null }).proofs ?? {};
+const ratchet = `${repo}/blob/master/proof-ratchet.txt`;
+const counts = [
+  { n: p.kani_harnesses, label: "Kani proofs" },
+  { n: p.conformance_vectors, label: "Conformance vectors" },
+  { n: p.fuzz_targets, label: "Fuzz targets" },
+  { n: p.exploit_replays, label: "Exploit replays" },
+].filter((c) => typeof c.n === "number");
+---
+
+<section class="not-content trust" aria-label="Trust">
+  <a class="item" href={repo}><span class="k">Open source</span><span class="v">Apache-2.0, on GitHub</span></a>
+  <a class="item" href="/guides/faq/#is-the-code-open-source-and-is-it-audited"><span class="k">External audit</span><span class="v"><span class="ui-pill ui-pill--warn">pending</span></span></a>
+  {counts.map((c) => (
+    <a class="item" href={ratchet}><span class="k">{c.label}</span><span class="v ui-num">{c.n!.toLocaleString("en-US")}</span></a>
+  ))}
+  <p class="src">Counts: <code>proof-ratchet.txt</code> at build time <SourceTip text="cargo xtask proof-ratchet --check fails CI if any count falls (ADR-078 O3)" href={ratchet} /></p>
+</section>
+
+<style>
+  .trust { display: flex; flex-wrap: wrap; gap: 1px; margin: var(--space-16) 0 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--border); overflow: hidden; }
+  .item { flex: 1 1 9rem; display: grid; gap: var(--space-1); padding: var(--space-4) var(--space-5); background: var(--surface-1); color: inherit; text-decoration: none; transition: background-color var(--dur-2) var(--ease); }
+  .item:hover { background: var(--surface-2); }
+  .k { font-size: var(--type-body-sm-size); color: var(--text-2); }
+  .v { font: var(--weight-semibold) var(--type-body-lg-size)/1.3 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--text); }
+  .src { flex: 1 1 100%; margin: 0; padding: var(--space-2) var(--space-5); display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; background: var(--surface-1); font-size: var(--type-body-sm-size); color: var(--text-2); }
+  .src code { font: var(--type-body-sm-size) var(--font-mono); }
+</style>

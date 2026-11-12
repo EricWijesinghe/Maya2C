@@ -135,34 +135,23 @@ a {
   html { scroll-behavior: auto; }
 }
 
-/* Homepage section heads: one small pill label, one short light title. */
-.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(31, 181, 194, 0.12); color: var(--accent-text); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
-.maya-section-title { margin: 14px 0 0 !important; font: 300 clamp(30px, 4vw, 54px)/1.06 var(--display) !important; letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
-.maya-footnote { margin: 64px 0 24px !important; text-align: center; color: var(--muted); font-size: 14px; }
+/* Homepage (U3): sections on the 4 px scale, one heading style, no pill
+   eyebrows, no scroll-in motion. The hero (Hero.astro) is the page's h1. */
+.home-h2 { margin: var(--space-20) 0 var(--space-6) !important; font: var(--type-display-2-weight) clamp(var(--type-display-2-size-phone), 3vw, var(--type-display-2-size))/1.15 var(--font-sans) !important; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
+.home-lede { margin: 0 0 var(--space-6) !important; max-width: 64ch; color: var(--text-2); font-size: var(--type-body-size); }
+.home-code .home-h2 { margin-bottom: var(--space-3) !important; }
+.home-code starlight-tabs { margin-top: var(--space-4); }
+.home-faq .home-lede { margin-top: var(--space-4) !important; }
+.maya-footnote { margin: var(--space-16) 0 var(--space-6) !important; text-align: center; color: var(--text-2); font-size: var(--type-body-sm-size); }
 
 /* Homepage: the hero starts right under the nav. Starlight's title panel is
-   kept for screen readers (it holds the page's h1) but takes no space, and the
-   hero's panel loses its top padding and hairline. */
-.content-panel:has(+ .content-panel .stage) {
+   kept for screen readers but takes no space, and the hero's panel loses its
+   top padding and hairline. */
+.content-panel:has(+ .content-panel .hero) {
   position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
   clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
 }
-.content-panel:has(.stage) { padding-top: 0; border-top: 0; }
-
-/* Motion: sections rise into view as they scroll in, driven by the scroll
-   position itself (no script), and the orbs breathe. Browsers without scroll
-   timelines simply show everything; reduced motion turns all of it off. */
-/* A short fade-and-lift; no scale and no bob (2026-11-13: no bounce). */
-@keyframes maya-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: no-preference) {
-  @supports (animation-timeline: view()) {
-    .maya-eyebrow, .maya-section-title, .stack .layer, .eco, .ladder > li, .orb-row > * {
-      animation: maya-rise linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 28%;
-    }
-  }
-}
+.content-panel:has(.hero) { padding-top: 0; border-top: 0; }
 
 /* ---------------------------------------------------------------------------
    Reading: every documentation page. Quiet type on the token scale, flat
