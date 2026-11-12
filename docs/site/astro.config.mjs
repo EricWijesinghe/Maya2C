@@ -159,6 +159,8 @@ export default defineConfig({
         "./src/styles/components.css",
         "./src/styles/maya.css",
         "./src/styles/maya-living.css",
+        // U3 depth: card tilt and scroll-in sections (transform and opacity only).
+        "./src/styles/depth.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.

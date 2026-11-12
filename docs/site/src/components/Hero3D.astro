@@ -7,39 +7,45 @@
 // poster behind the canvas stays.
 import { getImage } from "astro:assets";
 import emblem from "../assets/emblem.png";
+import SourceTip from "./SourceTip.astro";
+import health from "../../public/health.json";
+import progress from "../../public/progress.json";
 
 const badge = await getImage({ src: emblem, width: 256, format: "png" });
+const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality;
+const verified = health.ledger.by_status.verified ?? 0;
 ---
 
 <section class="stage not-content" aria-label="Maya2C, live">
   <div class="poster" aria-hidden="true"></div>
-  <img id="core-emblem" src={badge.src} width="128" height="128" alt="" aria-hidden="true" />
+  <img id="core-emblem" src={badge.src} width="128" height="128" alt="" aria-hidden="true" data-emblem={badge.src} />
   <canvas id="field" aria-label="The validator committee and the live chain in 3D. Drag to orbit; tap a validator or a block for details."></canvas>
   <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
       <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</p>
-      <h1>The ledger for the <span>post-quantum</span> century.</h1>
-      <p class="lede">Every transaction carries two NIST post-quantum signatures. Every claim links to the test that proves it.</p>
-      <!-- One door per audience: use it, build on it, run it. -->
+      <h1>Mine the <span>post-quantum</span> chain with your GPU.</h1>
+      <p class="lede">Every transaction carries two NIST post-quantum signatures. Every number on this page links to where it comes from.</p>
+      <!-- One message, one call to action (U3). The other doors are in the header. -->
       <nav class="cta" aria-label="Start here">
-        <a class="btn primary" href="/experience/">Try it</a>
-        <a class="btn" href="/guides/quickstart/">Build on it</a>
-        <a class="btn" href="/guides/help-run/">Run a node</a>
+        <a class="btn primary" href="/guides/start-mining/">Start mining</a>
       </nav>
-      <p class="hint">Drag to orbit. Tap the core, a validator or a block for its numbers.</p>
+      <p class="hint">Visible and opt-in: it runs only while you run it. Drag the scene to orbit.</p>
     </div>
     <dl class="tiles">
-      <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd></div>
-      <div class="tile"><dt>Block time</dt><dd id="tBlock">—</dd></div>
-      <div class="tile"><dt>Signature</dt><dd>ML-DSA-65</dd></div>
-      <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd></div>
+      <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd><SourceTip text="Explorer block stream (explorer.maya2c.dev/ws/blocks)" /></div>
+      <div class="tile"><dt>Blocks, last minute</dt><dd id="tMinute">—</dd><SourceTip text="Explorer /api/blocks, counted by block header time" /></div>
+      <div class="tile"><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd><SourceTip text={finality ? `cargo xtask bench-finality, ${finality.validators} validators on one machine: not a network figure` : "No finality bench report committed"} href="/stats/" /></div>
+      <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd><SourceTip text="get_bft_status on rpc.maya2c.dev: committee size" /></div>
+      <div class="tile"><dt>Verified subsystems</dt><dd>{verified} <small>/ {health.ledger.total}</small></dd><SourceTip text="features.toml, status = verified, each named test checked in CI" href="/health/" /></div>
     </dl>
   </div>
 </section>
 
 <script>
   import { whenIdle } from "../scripts/idle";
+  import { canRun3D } from "../scripts/gate3d";
+  import { blocksWithin, type Block } from "../scripts/live";
   import type { Hero3D, Pick } from "../scripts/hero3d";
   const canvas = document.getElementById("field") as HTMLCanvasElement;
   const stage = canvas.parentElement as HTMLElement;
@@ -51,14 +57,19 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   let scene: Hero3D | null = null;
   const early: { h: number; txs: number }[] = [];
   let height = 0, lastBlockAt = 0, live = false, committee = 0;
+  let avgBlock = "—";
   const gaps: number[] = [];
+  // Header timestamps of the blocks seen, for "blocks in the last minute".
+  const seen: Block[] = [];
+  const minute = () => { $("tMinute")!.textContent = seen.length ? String(blocksWithin(seen, 60)) : "—"; };
 
   function show(h: number) { $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h); }
 
-  function onBlock(h: number, txs = 0, animate = true) {
+  function onBlock(h: number, txs = 0, animate = true, ts?: number) {
+    if (typeof ts === "number") { seen.push({ height: h, timestamp: ts, tx_count: txs }); if (seen.length > 240) seen.shift(); minute(); }
     if (!h || h <= height) return;
     // Measured, never quoted: the mean gap between the last live blocks.
-    if (animate && lastBlockAt) { gaps.push(performance.now() - lastBlockAt); if (gaps.length > 20) gaps.shift(); $("tBlock")!.textContent = (gaps.reduce((a, b) => a + b, 0) / gaps.length / 1000).toFixed(1) + " s"; }
+    if (animate && lastBlockAt) { gaps.push(performance.now() - lastBlockAt); if (gaps.length > 20) gaps.shift(); avgBlock = (gaps.reduce((a, b) => a + b, 0) / gaps.length / 1000).toFixed(1) + " s"; }
     height = h; lastBlockAt = performance.now(); show(h);
     if (scene) scene.addBlock(h, txs, animate); else early.push({ h, txs });
   }
@@ -89,7 +100,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   function stream() {
     const ws = new WebSocket("wss://explorer.maya2c.dev/ws/blocks");
     ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; stage.classList.add("live"); };
-    ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0); } catch { /* skip */ } };
+    ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0, true, b.timestamp); } catch { /* skip */ } };
     ws.onclose = () => {
       // Never reached this visit: say offline, not an endless "reconnecting".
       live = false; stage.classList.remove("live"); $("chip-state")!.textContent = everLive ? "reconnecting…" : "offline";
@@ -101,15 +112,17 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
 
   // Open on the last real blocks, so the chain is never empty and never
   // invented: the explorer lists them newest first.
-  fetch("https://explorer.maya2c.dev/api/blocks?limit=24")
+  fetch("https://explorer.maya2c.dev/api/blocks?limit=60")
     .then((r) => r.json())
-    .then((blocks: { height: number; tx_count?: number }[]) => {
+    .then((blocks: { height: number; tx_count?: number; timestamp?: number }[]) => {
       // Older than a live block that beat this reply: straight onto the chain.
       blocks.slice().reverse().forEach((b) => {
+        if (typeof b.timestamp === "number") seen.push({ height: b.height, timestamp: b.timestamp, tx_count: b.tx_count ?? 0 });
         if (b.height > height) onBlock(b.height, b.tx_count ?? 0, false);
         else if (scene) scene.addBlock(b.height, b.tx_count ?? 0, false);
         else early.push({ h: b.height, txs: b.tx_count ?? 0 });
       });
+      minute();
     })
     .catch(() => { /* empty chain until the first live block */ });
 
@@ -118,7 +131,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
     if (!p) { pop.hidden = true; return; }
     // Every card is the chain's own numbers; a quorum is n - f, f = floor((n - 1) / 3).
     const n = committee || 4, quorum = n - Math.floor((n - 1) / 3);
-    const avg = $("tBlock")!.textContent;
+    const avg = avgBlock;
     if (p.kind === "chain") {
       pop.innerHTML = `<b>maya-testnet-1</b>Height ${fmt(height)} · block every ${avg}<br>${n} validators · ${quorum} must sign to finalize<br>Signatures ML-DSA-65 + SLH-DSA<br><a href="https://status.maya2c.dev/">Uptime and halts →</a>`;
     } else if (p.kind === "validator") {
@@ -143,11 +156,12 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   }
 
   // three.js loads only once the page has painted and gone idle; until then,
-  // and without WebGL, the poster stays.
-  whenIdle(async () => {
+  // and without WebGL, under reduced motion or on a low-end device, the
+  // poster and the flat emblem stay.
+  if (canRun3D()) whenIdle(async () => {
     try {
       const { mountHero3D } = await import("../scripts/hero3d");
-      scene = mountHero3D(canvas, stage, card, document.getElementById("core-emblem") ?? undefined);
+      scene = mountHero3D(canvas, stage, card, document.getElementById("core-emblem")?.dataset.emblem);
       stage.classList.add("gl");
       if (committee) scene.setValidators(committee);
       early.splice(0).forEach((b) => scene!.addBlock(b.h, b.txs, false));
@@ -163,8 +177,11 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
     radial-gradient(14rem 14rem at 64% 60%, rgba(63,210,224,.22), transparent 70%), var(--void); }
   .stage.gl .poster { display: none; }
   /* Pinned over the 3D core by hero3d.ts each frame; shown once the scene runs. */
-  #core-emblem { position: absolute; left: 0; top: 0; z-index: 1; width: clamp(88px, 9vw, 128px); height: auto; pointer-events: none; opacity: 0; transition: opacity .8s var(--glide); filter: drop-shadow(0 0 18px rgba(63, 210, 224, .45)); }
-  .stage.gl #core-emblem { opacity: 1; }
+  /* The static fallback: the flat emblem where the 3D coin would turn. The
+     scene draws its own coin, so the image goes once WebGL runs. */
+  #core-emblem { position: absolute; left: 72%; top: 48%; z-index: 1; width: clamp(96px, 11vw, 150px); height: auto; transform: translate(-50%, -50%); pointer-events: none; filter: drop-shadow(0 0 22px rgba(63, 210, 224, .45)); }
+  .stage.gl #core-emblem { display: none; }
+  @media (max-width: 759px) { #core-emblem { left: 50%; top: 18svh; } }
   #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
   .ui { position: relative; z-index: 2; max-width: 1180px; margin-inline: auto; padding: clamp(40px, 8vh, 96px) max(16px, 4vw) 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; min-height: inherit; align-content: space-between; pointer-events: none; }
   .ui a, .ui button { pointer-events: auto; }
@@ -187,7 +204,8 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
   .tile { flex: 1 1 150px; min-width: 0; padding: 16px 20px; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px); }
   .tile dt { font: 500 11.5px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-  .tile dd { margin: 10px 0 0; font: 300 26px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--text); }
+  .tile dd small { font-size: 15px; color: var(--muted); }
+  .tile dd { margin: 10px 0 6px; font: 300 26px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--text); }
   .tile .note { font: 500 12px var(--sans); color: var(--signal); margin-left: 8px; text-decoration: none; }
   .card-pop { position: absolute; z-index: 3; min-width: 230px; padding: 16px 18px; border-radius: var(--r-m); background: var(--pop-bg); border: 1px solid var(--glass-edge); backdrop-filter: blur(18px); box-shadow: var(--shadow); font: 400 13px/1.55 var(--mono); color: var(--muted); transition: opacity .35s var(--glide), transform .5s var(--spring); }
   .card-pop[hidden] { display: block !important; opacity: 0; transform: scale(.6); pointer-events: none; }

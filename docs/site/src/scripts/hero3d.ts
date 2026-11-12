@@ -44,7 +44,7 @@ export function mountHero3D(
   canvas: HTMLCanvasElement,
   stage: HTMLElement,
   onPick: (p: Pick | null) => void,
-  emblem?: HTMLElement,
+  emblemUrl?: string,
 ): Hero3D {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -86,15 +86,36 @@ export function mountHero3D(
     return s;
   };
 
-  // The core: a breathing light. The emblem itself is an HTML image pinned
-  // over it (crisp at any size, never washed out by the glow).
+  // The core: the emblem as a lit bronze coin, turning slowly, over a
+  // breathing light. Two coloured lights give it depth; the glow is a sprite
+  // (and the bloom pass on desktops), never a second render.
   const core = new THREE.Group();
   const heart = halo(TEAL, 2.6, 0.5);
   const shell = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 16), new THREE.MeshBasicMaterial({ visible: false }));
   // Tapping the core opens the chain's own numbers.
   shell.userData = { kind: "chain" };
   core.add(heart, shell);
+  let coin: THREE.Mesh | null = null;
+  if (emblemUrl) {
+    const face = new THREE.TextureLoader().load(emblemUrl);
+    face.colorSpace = THREE.SRGBColorSpace;
+    const faceMat = new THREE.MeshStandardMaterial({ map: face, metalness: 0.35, roughness: 0.4, transparent: true });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xd9b97a, metalness: 0.9, roughness: 0.3 });
+    coin = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.1, 64), [rimMat, faceMat, faceMat]);
+    coin.rotation.x = Math.PI / 2;
+    core.add(coin);
+    const key = new THREE.PointLight(0xbff6fa, 26, 18); key.position.set(2.5, 2.5, 3.5);
+    const rim = new THREE.PointLight(0x2cc3cf, 16, 18); rim.position.set(-3, -1, 1.5);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3), key, rim);
+  }
   world.add(core);
+
+  // Parallax: the scene leans toward the pointer and sinks as the page scrolls.
+  const lean = { x: 0, y: 0 };
+  stage.addEventListener("pointermove", (e) => {
+    const r = stage.getBoundingClientRect();
+    lean.x = ((e.clientX - r.left) / r.width - 0.5) * 0.3; lean.y = ((e.clientY - r.top) / r.height - 0.5) * 0.2;
+  });
 
   // Validators and the links between them.
   const nodes: THREE.Mesh[] = [];
@@ -241,7 +262,7 @@ export function mountHero3D(
   const loop = (now: number) => {
     if (!visible) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    controls.update();
+    controls.target.x = -lean.x; controls.update();
     // Breathing: the whole scene rises and falls on one slow rhythm.
     const breath = 0.5 + 0.5 * Math.sin(now / 1900);
     (links.material as THREE.LineBasicMaterial).opacity = 0.1 + 0.14 * breath;
@@ -251,6 +272,9 @@ export function mountHero3D(
     starfield.rotation.y += dt * 0.004;
     flare = Math.max(0, flare - dt * 1.8);
     heart.scale.setScalar(2.6 * (1 + flare * 0.5 + breath * 0.08));
+    if (coin) { coin.rotation.z = Math.sin(now / 5200) * 0.9; coin.rotation.x = Math.PI / 2 + lean.y * 0.6; }
+    world.rotation.x += (lean.y * 0.4 - world.rotation.x) * 0.04;
+    world.position.y = Math.min(1.5, window.scrollY / 600);
     nodes.forEach((m) => (m.material as THREE.MeshBasicMaterial).color.lerp(TEAL, dt * 2.5));
     blocks.forEach((b) => {
       b.mesh.position.lerp(b.target, 1 - Math.pow(0.02, dt));
@@ -262,10 +286,6 @@ export function mountHero3D(
       p.mesh.visible = true;
       p.mesh.position.lerpVectors(p.from, p.to, Math.min(1, t)).y += Math.sin(Math.min(1, t) * Math.PI) * 0.35;
       if (t >= 1) { world.remove(p.mesh); (p.mesh.material as THREE.Material).dispose(); pulses.splice(i, 1); p.done?.(); }
-    }
-    if (emblem) {
-      v.set(0, 0, 0).applyMatrix4(world.matrixWorld).project(camera);
-      emblem.style.transform = `translate(${((v.x + 1) / 2) * canvas.clientWidth}px, ${((1 - v.y) / 2) * canvas.clientHeight}px) translate(-50%, -50%) scale(${world.scale.x * (1 + flare * 0.06)})`;
     }
     if (composer && !light()) composer.render(); else renderer.render(scene, camera);
     requestAnimationFrame(loop);
