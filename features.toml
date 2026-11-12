@@ -3265,7 +3265,7 @@ paths = "`bins/maya2c-mcp`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "bins/maya2c-mcp/src/node.rs"]
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "crate:maya2c-mcp"]
 note = "Master Prompt 24 §5, ADR-084. Read-only: 6 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending."
 
 [[subsystem]]
