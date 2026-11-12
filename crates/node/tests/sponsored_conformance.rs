@@ -146,7 +146,12 @@ fn inner(db: &StateDB, form: &str, fee_output: bool) -> Transaction {
                 })),
                 0,
             );
-            tx.outputs = outputs;
+            // A payload frame may carry fee outputs only (settlement's
+            // mixed-kind rule), so the payee output is dropped here.
+            tx.outputs = outputs
+                .into_iter()
+                .filter(|o| o.recipient == FEE_COLLECTOR)
+                .collect();
             tx.sign(&key, &chain).unwrap();
             tx
         }

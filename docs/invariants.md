@@ -236,7 +236,11 @@ phase that did it.
 32. **A vault account moves at most its `limit` per window of `delay_blocks`
     without a delayed, guardian-cancellable request, and by no door but a
     plain transfer or a vault action.** Outputs to the fee collector count
-    toward the limit above 4x the required fee. Before review closed that
+    toward the limit above 4x the required fee. A third door, dark until
+    feature bit 44 (ADR-135 P-4): a vault that sponsors another account's
+    v13 frame has the whole debit charged to its window
+    (`StateDB::charge_vault_window`; `sponsored_fee_tests.rs`
+    `a_sponsor_vault_counts_the_fee_toward_its_window`). Before review closed that
     door, one transaction could send a vault's whole balance to the
     collector. A settled request is deleted, so it cannot be settled twice,
     and open withdrawals are counted by the conservation guard. Pinned by

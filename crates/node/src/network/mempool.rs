@@ -437,6 +437,13 @@ impl Mempool {
                 available,
             });
         }
+        // A sponsored share is paid for, but still only worth relaying if it
+        // would pay its miner: the share rules apply would refuse it on.
+        if let crate::core::TxKind::MiningShare(share) = &tx.kind
+            && tx.outputs.is_empty()
+        {
+            self.state.check_mining_share(&tx.sender(), share)?;
+        }
         self.validate_inner(tx, false)
     }
 
@@ -668,21 +675,24 @@ impl Mempool {
         self.check_sponsor_room(&tx, sponsor_balance)?;
         // One sponsored frame per inner (P-12): a smaller outer frame for the
         // same inner replaces the pooled one, so the sponsor that asks less
-        // of the block is the one kept. After the room checks, so a refused
-        // newcomer never costs the pooled frame its place. Read into a local
-        // first: `forget` takes the inners lock itself.
+        // of the block is the one kept. Removed only after every check that
+        // can refuse the newcomer, the eviction plan included, so a refused
+        // newcomer never costs the pooled frame its place. The plan counts
+        // the old frame as still pooled: conservative, never over capacity.
+        // Read into a local first: `forget` takes the inners lock itself.
         let replaced = match &tx.sponsor {
             Some(_) => self.lock_inners().get(&tx.inner_txid()).copied(),
             None => None,
         };
+        // Every mutation holds the write lock, so this read cannot race an add.
+        let bytes = self.pooled_bytes.load(Ordering::Relaxed);
+        let victims = self.victims(pool.len(), bytes, fee, size)?;
         if let Some(old_hash) = replaced
             && let Some(old) = pool.remove(&old_hash)
         {
             self.forget(&old_hash, &old);
         }
-        // Every mutation holds the write lock, so this read cannot race an add.
-        let bytes = self.pooled_bytes.load(Ordering::Relaxed);
-        for victim in self.victims(pool.len(), bytes, fee, size)? {
+        for victim in victims {
             if let Some(old) = pool.remove(&victim) {
                 self.forget(&victim, &old);
             }
