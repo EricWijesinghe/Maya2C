@@ -41,6 +41,8 @@ is live. `gateway.example.com` below stands for whichever gateway you use.
 | `GET` | `/v1/fees` | Fee terms: `active`, `base_fee` per byte, and the `collector` the fee is paid to |
 | `POST` | `/v1/transactions` | Submit a signed transaction |
 | `POST` | `/v1/sealed` | Submit a sealed (encrypted-mempool) transaction |
+| `GET` | `/v1/subscribe` | WebSocket feed of blocks and transactions; see [event subscriptions](#event-subscriptions) |
+| `POST` | `/v1/webhooks` | Register a webhook; `GET`/`DELETE` `/v1/webhooks/{id}` with its secret |
 | `POST` | `/rpc` | JSON-RPC 2.0: `get_balance`, `get_block_by_height`, `get_fee_info`, `get_supply`, `send_raw_transaction`. Batches are refused. |
 
 The machine-readable document is served at **`/openapi.json`** by the gateway
@@ -129,3 +131,82 @@ testnet runs). Behind another reverse proxy, it is the **last**
 `X-Forwarded-For` entry (`x-forwarded-for-last`): a client can prepend entries
 to that header but cannot remove the one the proxy in front appends. Set
 `--rate-per-second` and `--rate-burst` to change the limits.
+
+## Event subscriptions
+
+New blocks and transactions, filtered by `address` (sender or recipient, 64
+hex characters) and/or `asset`. With no filter you get everything. A block event
+matches if any of its transactions does.
+
+```json
+{"id":"tx:9e6661…","kind":"tx","height":1204,"data":{"txid":"9e6661…","sender":"a71cf0…","outputs":[…]}}
+{"id":"block:1204","kind":"block","height":1204,"data":{"height":1204,"header":{…},"tx_count":3}}
+```
+
+`id` is what to deduplicate on. A transaction larger than 64 KiB arrives as
+`{"txid":…,"truncated":true}`; fetch the block for the rest. The node's JSON
+names no asset today, so no asset filter but `asset=native` (the chain's coin)
+matches anything yet.
+
+The feed starts at the tip the gateway sees when it starts: there is no replay
+of history, and subscriptions live in the gateway's memory, so a gateway
+restart drops them. Re-register on a `404`.
+
+### WebSocket
+
+```bash
+websocat 'wss://gateway.example.com/v1/subscribe?address=a71cf0…'
+```
+
+A slow client skips events rather than holding the feed back, the same rule as
+the explorer's `/ws/blocks`. At most 5 open streams per client.
+
+### Webhooks
+
+```bash
+curl -X POST https://gateway.example.com/v1/webhooks \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://hooks.example.com/maya","address":"a71cf0…"}'
+# 201 {"id":"3f2a…","secret":"<64 hex>"}
+```
+
+**The secret is shown once.** Keep it; it signs every delivery and is what lets
+you read or delete the subscription:
+
+```bash
+curl -H "authorization: Bearer $SECRET" https://gateway.example.com/v1/webhooks/3f2a…
+# {"state":"active","delivered":12,"failed_attempts":1,"skipped":0,"last_error":…,"dead_letter":null,…}
+curl -X DELETE -H "authorization: Bearer $SECRET" https://gateway.example.com/v1/webhooks/3f2a…
+```
+
+Each delivery is a `POST` of `{"subscription":id,"event":{…}}` with header
+`x-maya2c-signature: sha256=<hex HMAC-SHA256 of the raw body under the secret>`.
+Verify it over the exact bytes you received, in constant time, before trusting
+the body (`maya_api_gateway::webhooks::verify` does this in Rust). The
+signature covers the body only, with no timestamp: a replayed delivery repeats
+an event `id` you have already seen, so drop it.
+
+The gateway does not yet confirm that you own the URL you register, so a
+caller can point deliveries at a third party's public endpoint. The caps below
+bound how much; an ownership handshake is not built.
+
+Any status other than 2xx is a failure. A failed delivery is retried with
+exponential backoff (1 s, doubling, at most 60 s between tries; 5 attempts).
+After the last attempt the subscription is **dead-lettered**: `state` becomes
+`dead_letter`, `dead_letter.event` names the event that failed, and nothing more
+is sent. Delete it and register again once the receiver is fixed.
+
+Targets the gateway refuses:
+
+- anything but `https://` (operators can allow `http://` for development with
+  `--webhooks-allow-http`; the address rules below still apply);
+- URLs with a username or password, or longer than 2,048 bytes;
+- loopback, private, link-local, carrier-grade NAT, multicast, documentation
+  and reserved addresses, IPv4-mapped and NAT64 forms of them included;
+- a name that resolves to any such address. The name is resolved again before
+  every delivery and the connection goes to the address that was checked, so a
+  DNS record changed afterwards cannot point a delivery inside the operator's
+  network. Redirects are not followed.
+
+Limits: 5 webhooks per client (dead-lettered ones count until deleted), 1,000
+per gateway, a 4 KiB registration body; over a limit is `429`.

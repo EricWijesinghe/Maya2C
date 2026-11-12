@@ -2711,7 +2711,8 @@ paths = "`crates/api-gateway`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
+tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crates/api-gateway/tests/webhook_tests.rs", "crates/api-gateway/tests/event_stream_tests.rs", "crate:maya-api-gateway"]
+note = "Event subscriptions (P-44): /v1/subscribe WebSocket and /v1/webhooks with HMAC-SHA256-signed deliveries, SSRF refusal re-checked after DNS at every delivery, per-caller caps, retries with backoff and a dead-letter state. In-memory: subscriptions do not survive a restart; no history replay; no rollback events. The asset filter matches `native` only until the node's JSON names assets. Not externally reviewed."
 
 [[subsystem]]
 id = "multi-language-sdks"

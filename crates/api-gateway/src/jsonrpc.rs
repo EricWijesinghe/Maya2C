@@ -78,7 +78,10 @@ impl From<GatewayError> for RpcError {
         // Logged in full, returned in part, as for REST.
         let code = match &error {
             GatewayError::MethodNotAllowed(_) => METHOD_NOT_FOUND,
-            GatewayError::BadRequest(_) | GatewayError::PayloadTooLarge(_) => INVALID_PARAMS,
+            // Subscriptions are not reachable over JSON-RPC; listed for exhaustiveness.
+            GatewayError::BadRequest(_)
+            | GatewayError::PayloadTooLarge(_)
+            | GatewayError::TooManySubscriptions(_) => INVALID_PARAMS,
             GatewayError::Rejected(_) | GatewayError::NotFound => {
                 tracing::info!(error = %error, "request refused by the node");
                 REFUSED
