@@ -35,7 +35,9 @@ use maya_wallet_core::networks;
 
 use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::payee::{payee_check, with_payee, PayeeCheck};
-use maya_wallet_core::undo::{UndoHold, UNDO_WINDOW_SECS};
+use maya_wallet_core::cooling::CoolingOff;
+use maya_wallet_core::simulate::{precheck_transfer, Precheck};
+use maya_wallet_core::undo::UndoHold;
 use maya_wallet_core::hd::seed_from_mnemonic;
 use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
 use maya_wallet_core::vault::{OsKeychain, Vault};
@@ -57,6 +59,9 @@ pub struct Session {
     dialog_open: AtomicBool,
     /// A signed send waiting out its undo window. Dropped (and zeroized) by cancel or lock.
     hold: Mutex<Option<UndoHold>>,
+    /// The person's cooling-off choice; off until [`set_cooling_off`].
+    // shortcut: held in memory for this run only; persist it with the address book once the UI ships a setting.
+    cooling: Mutex<CoolingOff>,
 }
 
 /// Holds the single confirm-screen slot; releases it on every return path.
@@ -702,25 +707,37 @@ pub fn record_outcome(
     })
 }
 
-/// Holds a transfer this session signed for [`UNDO_WINDOW_SECS`] before it may
-/// be broadcast. Returns the Unix second it can be released. Nothing reaches a
-/// node until [`release_held`] is called after that second.
+/// Holds a transfer this session signed for the undo window, or for the
+/// cooling-off delay when that applies, before it may be broadcast. Returns
+/// the Unix second it can be released. Nothing reaches a node until
+/// [`release_held`] is called after that second.
 #[tauri::command]
-pub fn hold_transfer(txid: String, session: tauri::State<'_, Session>) -> Result<u64, String> {
+pub fn hold_transfer(
+    app: tauri::AppHandle,
+    txid: String,
+    session: tauri::State<'_, Session>,
+) -> Result<u64, String> {
     let now = unix_now()?;
-    let transfer = session.with(|wallet| {
-        wallet
-            .history()
-            .into_iter()
-            .find(|p| p.transfer.txid == txid && matches!(p.status, TransferStatus::Signed))
-            .map(|p| p.transfer)
-            .ok_or_else(|| "no signed transfer with that id in this session".to_string())
-    })?;
+    let history = session.with(|wallet| Ok(wallet.history()))?;
+    let transfer = history
+        .iter()
+        .find(|p| p.transfer.txid == txid && matches!(p.status, TransferStatus::Signed))
+        .map(|p| p.transfer.clone())
+        .ok_or_else(|| "no signed transfer with that id in this session".to_string())?;
+    let recipient = payment::decode_address(&transfer.recipient).map_err(|e| e.to_string())?;
+    // Only sends that left the wallet count: a signed-but-unsent decoy must not make a payee look known.
+    let paid_before = history.iter().any(|p| {
+        matches!(p.status, TransferStatus::Broadcast | TransferStatus::Confirmed)
+            && payment::decode_address(&p.transfer.recipient).is_ok_and(|a| a == recipient)
+    });
+    let saved = session.with_book(&app, false, |book, _| Ok(book.find(&recipient).is_some()))?;
+    let policy = *session.cooling.lock().unwrap_or_else(|p| p.into_inner());
+    let window = policy.window_secs(transfer.amount, !saved && !paid_before);
     let mut slot = session.hold.lock().unwrap_or_else(|p| p.into_inner());
     if slot.as_ref().is_some_and(UndoHold::is_held) {
         return Err("another send is still held; cancel it or let it go first".to_string());
     }
-    let hold = UndoHold::new(transfer, now, UNDO_WINDOW_SECS);
+    let hold = UndoHold::new(transfer, now, window);
     let release_at = hold.release_at();
     *slot = Some(hold);
     Ok(release_at)
@@ -741,6 +758,59 @@ pub fn release_held(session: tauri::State<'_, Session>) -> Result<SignedTransfer
 pub fn cancel_held(session: tauri::State<'_, Session>) -> Result<bool, String> {
     let mut slot = session.hold.lock().unwrap_or_else(|p| p.into_inner());
     Ok(slot.as_mut().is_some_and(UndoHold::cancel))
+}
+
+/// Sets cooling-off: sends of at least `threshold` base units, and first sends
+/// to a payee, wait `delay_secs` in the hold. A delay of 0 turns it off.
+/// Weakening it is asked on a native dialog, never decided by the webview.
+#[tauri::command]
+pub async fn set_cooling_off(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    threshold: String,
+    delay_secs: u64,
+    session: tauri::State<'_, Session>,
+) -> Result<(), String> {
+    let threshold = parse_amount_arg("threshold", &threshold)?;
+    let next = CoolingOff::new(threshold, delay_secs).map_err(|e| e.to_string())?;
+    let current = *session.cooling.lock().unwrap_or_else(|p| p.into_inner());
+    if current.weakened_by(&next) {
+        let message = format!(
+            "Cooling-off will be weaker: large or first-time sends wait {delay_secs} seconds, from {threshold} base units."
+        );
+        if !native_ok(&app, &window, "Weaken cooling-off", message, "Weaken").await? {
+            return Err("cancelled on the native dialog; cooling-off is unchanged".to_string());
+        }
+    }
+    *session.cooling.lock().unwrap_or_else(|p| p.into_inner()) = next;
+    Ok(())
+}
+
+/// Checks a transfer from account `index` against the account the node at
+/// `node_url` reports, before signing: balance, nonce and fee, and what would
+/// change. A pre-check, not a node simulation (see `simulate.rs`).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
+pub async fn simulate_transfer(
+    node_url: String,
+    index: u32,
+    recipient: String,
+    amount: String,
+    fee: String,
+    nonce: u64,
+    genesis: String,
+    session: tauri::State<'_, Session>,
+) -> Result<Precheck, String> {
+    let amount = parse_amount_arg("amount", &amount)?;
+    let fee = parse_amount_arg("fee", &fee)?;
+    let sender = session.with(|wallet| wallet.account(index).map_err(|e| e.to_string()))?;
+    let network = networks::address_network(&genesis);
+    let to = payment::decode_address_for(&recipient, network).map_err(|e| e.to_string())?;
+    let from = payment::decode_address(&sender.address).map_err(|e| e.to_string())?;
+    let (balance, account_nonce) = wallet::fetch_account(&node_url, &sender.address)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(precheck_transfer(balance, account_nonce, amount, fee, nonce, to == from))
 }
 
 /// Transfers signed this session, newest first.
