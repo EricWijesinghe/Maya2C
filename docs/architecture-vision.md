@@ -218,6 +218,7 @@ is a fork; §7 states the rule.
 | Mesh (Rosetta) Data API | **SHIPPED** (tool) | `mesh-api`, node `get_balance_changes` | One `BALANCE_CHANGE` per balance a block moved, from the undo journal's before/after pair, so fees, burns and rewards reconcile without modelling each. Checked by `mesh-cli check:data`. Construction API absent: Mesh has no post-quantum curve or signature type |
 | Multi-language SDKs | **SHIPPED** | `sdk-ffi`, `sdk-wasm`, `sdk-js` | Which bindings are generated but never compiled: [sdk.md](sdk.md) |
 | Rust gateway SDK | **SHIPPED** | `sdks/rust` (`maya2c-sdk`) | Typed blocking client for REST `/v1`; not published. Live-gateway run not yet recorded |
+| C++ SDK over sdk-ffi | **PLANNED** (stub) | `sdks/sdk-cpp` | P-43. Header-only C++20 wrapper of sdk-ffi's uniffi C ABI: RAII key handles, wiped seeds, typed errors, 24-decimal 256-bit amounts, Bech32m addresses. Keys and signing only — no transaction builder or RPC client yet. First compile is the `sdks` workflow's C++ job |
 | LaTeX technical reference generator | **SHIPPED** | `docgen` | Generated from module documentation |
 | Testnet faucet | **SHIPPED** | `faucet` | Two independent rate-limit buckets — invariant 16 |
 | Chain status and uptime | **SHIPPED** | `apps/status` | Uptime and halts recomputed from block timestamps, never self-reported; status.maya2c.dev; push alert on a halt when configured |

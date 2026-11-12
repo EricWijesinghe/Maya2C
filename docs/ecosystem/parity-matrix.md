@@ -200,7 +200,7 @@ Each gap: no code in the tree, and no P-1..P-16, V3-*, W1-* or W3-* job covers i
 | P-40 | VRF host function for contracts | S | y | 10, 21 | exposes `features.toml:1893` |
 | P-41 | Threshold-decryption host primitive over the sealed-mempool committee | M | y | 11, 21 | committee stays optional |
 | P-42 | Attested off-chain fetch (HTTPS-outcall class) design study | S (design) | y if built | 9, 11, 24 | likely rejected: non-determinism |
-| P-43 | C++ SDK wrapper over sdk-ffi | S | n | none | D1 |
+| P-43 | C++ SDK wrapper over sdk-ffi | S | n | none | D1; stub in `sdks/sdk-cpp` (keys, signing, Amount, Address; no tx builder or RPC) |
 | P-44 | Event subscriptions / webhooks on the gateway | S | n | none | |
 | P-45 | Chat mini-apps and in-chat wallet (TON-class) | M | n | none | on maya-chat |
 | P-46 | Pull oracle: signed report verified on chain; low-latency streams | M | y | 9, 11, 17 | after P-12 |
