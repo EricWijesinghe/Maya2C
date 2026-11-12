@@ -175,6 +175,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
+            { label: "Live statistics", link: "/stats/" },
             { label: "FAQ", link: "/guides/faq" },
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
