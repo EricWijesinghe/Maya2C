@@ -6246,6 +6246,8 @@ dependencies = [
  "jsonrpsee",
  "leptos",
  "maya-address",
+ "maya-amount",
+ "maya-clear-sign",
  "maya-design-system",
  "maya-web-security",
  "primitive-types",
