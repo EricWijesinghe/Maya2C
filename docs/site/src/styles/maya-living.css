@@ -1,6 +1,6 @@
-/* Living details shared by every page: animated section dividers, glow accents
-   and phone-safe text wrapping. Colours come from the Forged Light tokens in
-   maya.css. Decorative motion stops under prefers-reduced-motion. */
+/* Living details shared by every page: the per-route background motif,
+   plain section dividers and phone-safe text wrapping. Colours come from the
+   Forged Light 2 tokens (tokens.css, mapped in maya.css). */
 
 /* One background motif per route, set on <html> as data-motif by Head.astro.
    Each motif has its own accent family, pace (--speed) and field strength
@@ -83,56 +83,19 @@ html[data-motif="sunrise"] .ambient > .fallback {
   background-size: 40px 40px, auto;
 }
 
-/* Section headers: a bar in the section's own accent family, moving to the
-   rhythm of its motif (sweep for lattice and aurora, a quick run for circuit,
-   a breath for blueprint, a glow for sunrise). Static under reduced motion. */
-.sl-markdown-content h2::after,
-.maya-section-title::after {
-  content: "";
-  display: block;
-  width: 3.5rem;
-  height: 3px;
-  margin-top: 0.6em;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--acc), var(--acc-3), var(--acc-2), transparent);
-  background-size: 200% 100%;
-  animation: maya-sweep 9s linear infinite;
-}
-html[data-motif="aurora"] :is(.sl-markdown-content h2, .maya-section-title)::after { animation-duration: 14s; }
-html[data-motif="circuit"] :is(.sl-markdown-content h2, .maya-section-title)::after { animation-duration: 2.4s; }
-html[data-motif="blueprint"] :is(.sl-markdown-content h2, .maya-section-title)::after {
-  background: var(--acc);
-  animation: maya-breathe 5s ease-in-out infinite;
-}
-html[data-motif="sunrise"] :is(.sl-markdown-content h2, .maya-section-title)::after {
-  animation: maya-glow 6s ease-in-out infinite;
-}
+/* Docs pages are flat: the animated field stays on the home and status
+   routes (motif lattice) until the hero phase decides its future. */
+html:not([data-motif="lattice"]) .ambient { display: none; }
 
-@keyframes maya-breathe {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-@keyframes maya-glow {
-  0%, 100% { box-shadow: 0 0 0 rgb(var(--acc-rgb) / 0); }
-  50% { box-shadow: 0 0 16px rgb(var(--acc-rgb) / 0.55); }
-}
-
-.sl-markdown-content hr,
+/* Section dividers are a plain hairline. The animated per-motif header bars,
+   the sweeping rule and the glow were removed on 2026-11-13 (ADR-136
+   revision: no decorative loops, no glow). */
 .maya-divider {
   border: 0;
-  height: 2px;
-  margin: 3.5rem auto;
+  height: 1px;
+  margin: var(--space-12) auto;
   max-width: 100%;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--acc), var(--acc-3), var(--acc-2), transparent);
-  background-size: 200% 100%;
-  opacity: 0.85;
-  animation: maya-sweep 9s linear infinite;
-}
-
-@keyframes maya-sweep {
-  from { background-position: 0% 50%; }
-  to { background-position: 200% 50%; }
+  background: var(--border);
 }
 
 /* Long words and URLs wrap inside the column instead of pushing the page wide. */
@@ -155,17 +118,4 @@ html[data-motif="sunrise"] :is(.sl-markdown-content h2, .maya-section-title)::af
   display: block;
   max-width: 100%;
   overflow-x: auto;
-}
-
-/* Glow accent for headings that introduce a visual block. */
-.sl-markdown-content h2 {
-  text-shadow: 0 0 28px rgba(126, 234, 240, 0.18);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sl-markdown-content hr,
-  .maya-divider,
-  .sl-markdown-content h2::after,
-  .maya-section-title::after,
-  html[data-motif] :is(.sl-markdown-content h2, .maya-section-title)::after { animation: none; }
 }

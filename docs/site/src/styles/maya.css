@@ -1,126 +1,89 @@
-/* Maya2C design system — "Forged Light" (2026-10-05)
-   Every colour is taken from the emblem (logo-assets/): signal teal from its
-   glow, bronze-gold from its ring, brushed steel from its wings, abyss from
-   its ground. Soft geometry, glass with real depth, spring motion.
-   Token names predate the rebrand (--cherenkov was blue); components use the
-   names, so changing a value here re-skins the whole site. */
+/* Maya2C site layer over the Forged Light 2 tokens (ADR-136, revised
+   2026-11-13). Colours, radii, shadows, type and motion come from tokens.css
+   (generated from design/tokens.json); the names below are the site's older
+   vocabulary, kept because the homepage components still use them, and each
+   one now points at a token. Only the homepage's gradients and orb tints are
+   still literals here; the hero phase replaces them. Names that tokens.css
+   already defines (--text, --accent, --on-accent, --accent-text, --glass,
+   --steel, --r-pill) are not redefined. */
 
 :root {
-  /* Palette: dark is the brand's home theme */
-  --void: #050b0f;            /* abyss */
-  --deep: #0a161b;
-  --glass: rgba(14, 30, 36, 0.62);
-  --glass-edge: rgba(150, 226, 232, 0.13);
-  --text: #edf3f2;            /* brushed steel, lightest */
-  --muted: #93a4aa;           /* steel shadow */
-  --cherenkov: #1fb5c2;       /* signal teal */
-  --cherenkov-hi: #7eeaf0;    /* teal glow */
-  --iris-a: #2fb9c3;
-  --iris-b: #d9b97a;          /* bronze-gold, lit */
-  --iris-c: #c9a86a;
-  --gold: #c9a86a;
-  --steel: #bdc6c8;
-  --signal: #e6b260;
-  --verified: #45e0a0;
+  --void: var(--bg);
+  --deep: var(--surface-1);
+  --glass-edge: var(--border);
+  --muted: var(--text-2);
+  --cherenkov: var(--accent);
+  --cherenkov-hi: var(--accent-text);
+  --iris-a: var(--accent);
+  --iris-b: var(--bronze);
+  --iris-c: var(--bronze);
+  --gold: var(--bronze);
+  --signal: var(--warn);
+  --verified: var(--success);
+  --accent-fill: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to));
+  --lede: var(--text-2);
+  --pop-bg: var(--surface-2);
+  --well: var(--surface-1);
+  --nav-pill: var(--surface-1);
+  --nav-hover: var(--surface-2);
 
-  /* Semantic surfaces: components use these, never a raw colour, so light
-     mode never leaves a dark box behind. */
-  --accent: var(--cherenkov);
-  --accent-fill: linear-gradient(135deg, #22c3cf, #0e8f9c);
-  --on-accent: #02161a;
-  --accent-text: var(--cherenkov-hi);
-  --lede: #c3d0d2;
-  --pop-bg: rgba(8, 20, 25, 0.92);
+  /* Homepage-only tints (next phase). */
   --orb-hi: rgba(255, 255, 255, 0.13);
   --orb-lo: rgba(12, 34, 40, 0.66);
   --halo: rgba(31, 181, 194, 0.55);
-  --well: rgba(2, 8, 10, 0.72);
   --title-grad: linear-gradient(100deg, #e9f1f0 0%, #7eeaf0 42%, #d9b97a 100%);
   --brand-word: linear-gradient(100deg, #f4f8f7 0%, #b9dfe2 45%, #5fd8e2 100%);
   --brand-glow: rgba(31, 181, 194, 0.55);
   --brand-line: linear-gradient(90deg, #1fb5c2, #7eeaf0 60%, #d9b97a);
-  --nav-pill: rgba(14, 30, 36, 0.55);
-  --nav-hover: rgba(126, 234, 240, 0.08);
 
-  /* Radii: soft everywhere, min 12px */
-  --r-s: 12px;
-  --r-m: 22px;
-  --r-l: 34px;
-  --r-pill: 999px;
+  /* Radii: the old soft scale clamped to the 12 px ceiling. */
+  --r-s: var(--r-md);
+  --r-m: var(--r-lg);
+  --r-l: var(--r-lg);
 
-  /* Shadows: two layers, a tight contact and a long soft fall */
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 28px 70px -28px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  --shadow: var(--shadow-md), var(--shadow-inset);
 
-  /* Typography: Manrope for display, Inter for reading, JetBrains Mono for
-     code — all self-hosted variable fonts (astro.config.mjs). */
-  --display: "Manrope Variable", "Manrope", system-ui, sans-serif;
-  --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --display: var(--font-sans);
+  --sans: var(--font-sans);
+  --mono: var(--font-mono);
 
-  /* Motion */
-  --spring: cubic-bezier(.34, 1.56, .64, 1);
-  --glide: cubic-bezier(.22, 1, .36, 1);
+  /* Motion: one standard curve; the spring is retired. */
+  --spring: var(--ease);
+  --glide: var(--ease);
 
-  /* Starlight */
-  --sl-color-bg: var(--void);
-  --sl-color-bg-nav: rgba(5, 11, 15, 0.97);
-  --sl-color-bg-sidebar: #061015;
-  --sl-color-hairline: rgba(150, 226, 232, 0.10);
-  --sl-color-hairline-light: rgba(150, 226, 232, 0.16);
-  --sl-color-accent-low: rgba(31, 181, 194, 0.14);
-  --sl-color-accent: var(--cherenkov);
-  --sl-color-accent-high: var(--cherenkov-hi);
-  --sl-color-text-accent: var(--cherenkov-hi);
-  --sl-font: var(--sans);
-  --sl-font-mono: var(--mono);
-  --sl-nav-height: 4.25rem;
-}
-
-:root[data-theme="dark"] {
-  --sl-color-bg: #050b0f;
-  --sl-color-bg-nav: rgba(5, 11, 15, 0.97);
-  --sl-color-bg-sidebar: #061015;
-  --sl-color-accent: var(--cherenkov);
+  /* Starlight. Its grey ramp is semantic (white = strongest text, black =
+     page), so mapping it to the token roles works in both themes. */
+  --sl-color-bg: var(--bg);
+  --sl-color-bg-nav: var(--bg);
+  --sl-color-bg-sidebar: var(--bg);
+  --sl-color-bg-inline-code: var(--surface-2);
+  --sl-color-hairline: var(--border);
+  --sl-color-hairline-light: var(--border-strong);
+  --sl-color-hairline-shade: var(--border);
+  --sl-color-white: var(--text);
+  --sl-color-gray-1: var(--text);
+  --sl-color-gray-2: var(--text-2);
+  --sl-color-gray-3: var(--text-2);
+  --sl-color-gray-4: var(--text-3);
+  --sl-color-gray-5: var(--surface-3);
+  --sl-color-gray-6: var(--surface-2);
+  --sl-color-black: var(--bg);
+  --sl-color-accent-low: var(--accent-subtle);
+  --sl-color-accent: var(--accent);
+  --sl-color-accent-high: var(--accent-text);
+  --sl-color-text-accent: var(--accent-text);
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
+  --sl-nav-height: 3.75rem;
 }
 
 :root[data-theme="light"] {
-  --void: #f6f9f9;
-  --deep: #ecf2f2;
-  --glass: rgba(255, 255, 255, 0.78);
-  --glass-edge: rgba(14, 116, 128, 0.14);
-  --text: #08171c;
-  --muted: #53656b;
-  --cherenkov: #0b7d89;
-  --cherenkov-hi: #0b7d89;
-  /* Signal, gold and the accent fill were darkened 2026-11-10 to reach WCAG AA
-     (4.5:1) for small text on --void and --deep; the old values measured
-     3.94, 4.07 and 3.05 (white on #12a3b0). AUDIT-2026-11-10.md has the table. */
-  --signal: #96590a;
-  --verified: #0d8659;
-  --gold: #85622a;
-  --accent-text: #0a6f7a;
-  --on-accent: #ffffff;
-  --accent-fill: linear-gradient(135deg, #0b7d89, #0b7280);
-  --lede: #34474d;
-  --pop-bg: rgba(255, 255, 255, 0.95);
   --orb-hi: rgba(255, 255, 255, 0.98);
   --orb-lo: rgba(208, 236, 238, 0.8);
   --halo: rgba(14, 140, 152, 0.3);
-  --well: rgba(224, 238, 239, 0.9);
   --title-grad: linear-gradient(100deg, #0b2228 0%, #0b7d89 50%, #9a7330 100%);
   --brand-word: linear-gradient(100deg, #0b2228 0%, #0c5f69 55%, #0b8d9a 100%);
   --brand-glow: rgba(11, 125, 137, 0.35);
-  --nav-pill: rgba(255, 255, 255, 0.7);
-  --nav-hover: rgba(11, 125, 137, 0.08);
-  --shadow: 0 1px 2px rgba(10, 40, 46, 0.08), 0 26px 60px -30px rgba(10, 60, 70, 0.3), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
-
-  --sl-color-bg: var(--void);
-  --sl-color-bg-nav: rgba(246, 249, 249, 0.97);
-  --sl-color-bg-sidebar: #eef4f4;
-  --sl-color-hairline: rgba(14, 116, 128, 0.12);
-  --sl-color-accent: #0b7d89;
-  --sl-color-accent-high: #064e56;
-  --sl-color-text-accent: #0a6f7a;
 }
 
 * {
@@ -138,7 +101,7 @@ body {
   /* The fixed Ambient canvas paints behind every page; html carries the colour. */
   background: transparent;
   color: var(--text);
-  font: 400 17px/1.7 var(--sans);
+  font: var(--type-body-weight) var(--type-body-lg-size)/var(--line-body) var(--sans);
   font-feature-settings: "cv11", "ss01", "ss03";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -150,24 +113,17 @@ a {
 }
 
 :focus-visible {
-  outline: 2px solid var(--cherenkov);
-  outline-offset: 4px;
-  border-radius: var(--r-s);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
 
-/* Starlight overrides for soft system */
+/* Starlight cards: flat surface, hairline border, the inset highlight. */
 .sl-markdown-content .card {
-  background: var(--glass) !important;
-  border: 1px solid var(--glass-edge) !important;
-  border-radius: var(--r-m) !important;
-  backdrop-filter: blur(16px) !important;
-}
-
-.sl-markdown-content code {
-  font-family: var(--mono);
-  border-radius: var(--r-s);
-  background: rgba(31, 181, 194, 0.1);
-  border: 1px solid var(--glass-edge);
+  background: var(--surface-1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-lg) !important;
+  box-shadow: var(--shadow-inset);
 }
 
 /* Reduced motion */
@@ -196,8 +152,8 @@ a {
 /* Motion: sections rise into view as they scroll in, driven by the scroll
    position itself (no script), and the orbs breathe. Browsers without scroll
    timelines simply show everything; reduced motion turns all of it off. */
-@keyframes maya-rise { from { opacity: 0; transform: translateY(36px) scale(.97); } to { opacity: 1; transform: none; } }
-@keyframes maya-bob { from { translate: 0 -5px; } to { translate: 0 5px; } }
+/* A short fade-and-lift; no scale and no bob (2026-11-13: no bounce). */
+@keyframes maya-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
     .maya-eyebrow, .maya-section-title, .stack .layer, .eco, .ladder > li, .orb-row > * {
@@ -205,90 +161,88 @@ a {
       animation-timeline: view();
       animation-range: entry 0% cover 28%;
     }
-    .orb-row > .orb {
-      animation: maya-rise linear both, maya-bob 5.5s ease-in-out infinite alternate;
-      animation-timeline: view(), auto;
-      animation-range: entry 0% cover 28%, normal;
-    }
-    .orb-row > .orb:nth-child(2n) { animation-delay: 0s, -1.8s; }
-    .orb-row > .orb:nth-child(3n) { animation-delay: 0s, -3.1s; }
   }
 }
 
 /* ---------------------------------------------------------------------------
-   Reading: every documentation page. Large, quiet type; generous rhythm;
-   soft surfaces with a clear edge. Display headings in Manrope, body in Inter.
+   Reading: every documentation page. Quiet type on the token scale, flat
+   surfaces with a hairline edge, no glow. Headings and body in Inter.
    ------------------------------------------------------------------------ */
-::selection { background: rgba(31, 181, 194, 0.32); color: var(--text); }
-html { scrollbar-color: rgba(126, 234, 240, 0.22) transparent; scrollbar-width: thin; }
+::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--text); }
+html { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
 
 h1#_top {
-  font: 750 clamp(34px, 4.6vw, 56px)/1.05 var(--display);
-  letter-spacing: -0.035em; color: var(--text); text-wrap: balance;
-}
-.content-panel:has(h1#_top)::after {
-  content: ""; display: block; width: 72px; height: 3px; margin-top: 18px;
-  border-radius: 3px; background: var(--brand-line);
+  font: var(--type-title-1-weight) clamp(var(--type-title-1-size-phone), 3.4vw, var(--type-display-2-size))/var(--line-heading) var(--display);
+  letter-spacing: var(--tracking-display); color: var(--text); text-wrap: balance;
 }
 
-.sl-markdown-content { font-size: 17px; line-height: 1.75; }
-.sl-markdown-content :is(h2, h3, h4) { font-family: var(--display); color: var(--text); text-wrap: balance; scroll-margin-top: calc(var(--sl-nav-height) + 24px); }
-.sl-markdown-content h2 { font-size: clamp(26px, 2.6vw, 34px); font-weight: 720; letter-spacing: -0.025em; line-height: 1.15; margin-top: 2.4em; }
-.sl-markdown-content h3 { font-size: 21px; font-weight: 680; letter-spacing: -0.015em; margin-top: 1.9em; }
-.sl-markdown-content h4 { font-size: 17px; font-weight: 700; }
+.sl-markdown-content { font-size: var(--type-body-lg-size); line-height: 1.6; }
+.sl-markdown-content :is(h2, h3, h4) { font-family: var(--display); font-weight: var(--weight-semibold); line-height: var(--line-heading); color: var(--text); text-wrap: balance; scroll-margin-top: calc(var(--sl-nav-height) + var(--space-6)); }
+.sl-markdown-content h2 { font-size: var(--type-title-2-size); letter-spacing: var(--tracking-display); margin-top: 2em; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.sl-markdown-content h3 { font-size: var(--type-title-3-size); letter-spacing: -0.01em; margin-top: 1.75em; }
+.sl-markdown-content h4 { font-size: var(--type-body-lg-size); }
 .sl-markdown-content :is(p, li) { color: var(--lede); }
-.sl-markdown-content strong { color: var(--text); font-weight: 650; }
+.sl-markdown-content strong { color: var(--text); font-weight: var(--weight-semibold); }
 
 .sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)) {
-  color: var(--accent-text); text-decoration: none; font-weight: 550;
-  background: linear-gradient(currentColor, currentColor) 0 100% / 0 1.5px no-repeat;
-  transition: background-size .35s var(--glide);
+  color: var(--accent-text); font-weight: var(--weight-medium);
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  transition: text-decoration-color var(--dur-1) var(--ease);
 }
-.sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)):hover { background-size: 100% 1.5px; }
+.sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)):hover { text-decoration-color: currentColor; }
 
 .sl-markdown-content code {
-  font-family: var(--mono); font-size: .88em; padding: .14em .42em;
-  border-radius: 8px; background: rgba(31, 181, 194, 0.10); border: 1px solid var(--glass-edge);
+  font-family: var(--mono); font-size: .875em; padding: .12em .4em;
+  border-radius: var(--r-xs); background: var(--surface-2); border: 1px solid var(--border);
 }
-.sl-markdown-content .expressive-code { margin-block: 1.6em; }
-.sl-markdown-content .expressive-code .frame { border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--glass-edge); }
+.sl-markdown-content .expressive-code { margin-block: 1.5em; }
 .sl-markdown-content .expressive-code pre { border: 0 !important; }
 
-/* Tables: a soft card, a tinted head, quiet rows. */
+/* Tables: dense, hairline rules, tabular figures, a quiet hover row. */
 .sl-markdown-content table {
   display: block; max-width: 100%; overflow-x: auto; border-collapse: separate; border-spacing: 0;
-  border: 1px solid var(--glass-edge); border-radius: 18px; background: var(--glass); box-shadow: var(--shadow);
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1);
+  font-size: var(--type-body-size); font-variant-numeric: var(--font-numeric);
 }
-.sl-markdown-content :is(th, td) { padding: 12px 16px; border: 0; border-bottom: 1px solid var(--sl-color-hairline); }
-.sl-markdown-content th { font: 650 13px/1.3 var(--sans); letter-spacing: .02em; color: var(--text); background: rgba(31, 181, 194, 0.08); text-align: left; }
+.sl-markdown-content :is(th, td) { padding: var(--space-2) var(--space-3); border: 0; border-bottom: 1px solid var(--border); }
+.sl-markdown-content th { font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--sans); color: var(--text-2); background: var(--surface-2); text-align: left; }
 .sl-markdown-content tr:last-child td { border-bottom: 0; }
-.sl-markdown-content tbody tr { transition: background-color .2s; }
-.sl-markdown-content tbody tr:hover { background: rgba(126, 234, 240, 0.04); }
+.sl-markdown-content tbody tr { transition: background-color var(--dur-1) var(--ease); }
+.sl-markdown-content tbody tr:hover { background: var(--surface-2); }
 
 /* Callouts, quotes, images, rules. */
-.starlight-aside { border-radius: 18px; border-inline-start-width: 4px; background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+.starlight-aside { border-radius: var(--r-md); border: 1px solid var(--border); border-inline-start: 2px solid var(--border-strong); background: var(--surface-1); color: var(--text); }
+.starlight-aside--note { border-inline-start-color: var(--steel); }
+.starlight-aside--tip { border-inline-start-color: var(--accent); }
+.starlight-aside--caution { border-inline-start-color: var(--warn); }
+.starlight-aside--danger { border-inline-start-color: var(--danger); }
+.starlight-aside__title, .starlight-aside__icon { color: var(--text); }
 /* Tabs (OS and audience switches): 44px targets, and a gap wider than the 8px rule. */
 [role="tab"] { min-height: 44px; display: inline-flex; align-items: center; }
 [role="tablist"] { gap: 0.5rem; }
-.starlight-aside__title { font-family: var(--display); font-weight: 700; }
-.sl-markdown-content blockquote { border-inline-start: 3px solid var(--gold); padding: .3em 0 .3em 1.2em; color: var(--lede); font-style: normal; }
-.sl-markdown-content img { border-radius: 18px; }
-.sl-markdown-content hr { border: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--glass-edge), transparent); margin-block: 3em; }
+.starlight-aside__title { font-family: var(--display); font-weight: var(--weight-semibold); }
+.sl-markdown-content blockquote { border-inline-start: 2px solid var(--border-strong); padding: .3em 0 .3em 1.2em; color: var(--lede); font-style: normal; }
+.sl-markdown-content img { border-radius: var(--r-md); }
+.sl-markdown-content hr { border: 0; height: 1px; background: var(--border); margin-block: 2.5em; }
 
-/* Sidebar and on-this-page: the current page is a lit pill. */
-.sidebar-content a { border-radius: 10px; transition: background-color .2s, color .2s; }
-.sidebar-content a:hover { background: var(--nav-hover); }
-.sidebar-content a[aria-current="page"] { color: var(--on-accent) !important; background: var(--accent-fill) !important; font-weight: 650; box-shadow: 0 6px 18px -10px var(--brand-glow); }
-.sidebar-content .group-label .large { font: 700 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-starlight-toc a[aria-current="true"] { color: var(--accent-text) !important; font-weight: 650; }
+/* Sidebar and on-this-page: the current page is a subtle accent row. */
+.sidebar-content a { border-radius: var(--r-sm); font-size: var(--type-body-size); transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+.sidebar-content a { color: var(--text-2); }
+.sidebar-content a:hover { background: var(--nav-hover); color: var(--text); }
+starlight-toc a { color: var(--text-2); }
+starlight-toc a:hover { color: var(--text); }
+.sidebar-content a[aria-current="page"] { color: var(--text) !important; background: var(--surface-2) !important; font-weight: var(--weight-medium); box-shadow: inset 2px 0 0 var(--accent); }
+.sidebar-content .group-label .large { font: var(--weight-semibold) var(--type-label-size)/var(--line-body) var(--display); color: var(--text); }
+starlight-toc a[aria-current="true"] { color: var(--text) !important; font-weight: var(--weight-medium); }
 
-/* Previous / next: two soft cards that lift. */
+/* Previous / next: two flat cards; the border answers the hover. */
 .pagination-links a {
-  border-radius: 20px; border: 1px solid var(--glass-edge); background: var(--glass); box-shadow: var(--shadow);
-  transition: transform .45s var(--spring), border-color .25s;
+  border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface-1); box-shadow: var(--shadow-inset);
+  transition: border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease);
 }
-.pagination-links a:hover { transform: translateY(-3px); border-color: var(--accent); }
-.pagination-links .link-title { font-family: var(--display); font-weight: 700; color: var(--text); }
+.pagination-links a:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.pagination-links .link-title { font-family: var(--display); font-weight: var(--weight-semibold); color: var(--text); }
 
 /* Header: glass that keeps the emblem's colours behind it. */
 /* Solid-enough glass: no backdrop-filter on the header, because it would make

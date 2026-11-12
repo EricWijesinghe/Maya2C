@@ -24,9 +24,8 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 </a>
 
 <style>
-  .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; min-width: 0; border-radius: 14px; padding: 2px 8px 2px 2px; }
+  .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; min-width: 0; border-radius: var(--r-md); padding: 2px 8px 2px 2px; }
   .brand :global(.emblem) { width: 44px; height: 44px; flex: none; filter: drop-shadow(0 0 10px var(--brand-glow)); transition: transform .6s var(--spring), filter .4s var(--glide); }
-  .brand:hover :global(.emblem) { transform: rotate(-6deg) scale(1.08); filter: drop-shadow(0 0 16px var(--brand-glow)); }
   .word {
     font: 800 22px/1 var(--display); letter-spacing: -0.01em; white-space: nowrap;
     background: var(--brand-word); -webkit-background-clip: text; background-clip: text; color: transparent;
