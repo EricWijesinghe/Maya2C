@@ -80,7 +80,8 @@
     <dialog id="maker" class="maker">
       <h2>Make a sticker pack</h2>
       <input id="maker-title" placeholder="Pack name" maxlength="64" />
-      <label class="files">Add stickers: Lottie (.json, .tgs), video (.webm), WebP, PNG, GIF or SVG, up to 120 KB each
+      <label><input id="maker-emoji" type="checkbox" /> Custom emoji pack: up to 24, each at most 100 × 100 px and named, used in text as :name:</label>
+      <label class="files">Add stickers: Lottie (.json, .tgs: up to 64 KB, 3 s, 60 fps), video (.webm: 3 s, 30 fps, no sound), WebP, PNG, GIF or SVG; at most 512 × 512 px and 120 KB each
         <input id="maker-files" type="file" multiple />
       </label>
       <div id="maker-items" class="maker-items"></div>

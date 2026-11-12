@@ -22,6 +22,8 @@ const REACTIONS = [
   ["🎉", "celebrate"],
 ];
 const LONG_PRESS_MS = 500;
+// Installed custom emoji the reaction picker shows after the fixed eight.
+const CUSTOM_IN_PICKER = 8;
 // How often lines past their disappearing deadline are removed.
 const EXPIRE_MS = 1000;
 
@@ -106,7 +108,7 @@ function chipsOf(line) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "chip" + (c.mine ? " is-mine" : "");
-    chip.textContent = `${/^[0-9a-f]{64}$/.test(emoji) ? "◆" : emoji} ${c.n}`;
+    chip.append(Stickers.glyph(emoji, 18), ` ${c.n}`);
     chip.setAttribute("aria-pressed", String(c.mine));
     chip.setAttribute("aria-label", `${reactionName(emoji)}, ${c.n}${c.mine ? ", including yours" : ""}. Press to ${c.mine ? "remove" : "add"} yours`);
     chip.onclick = () => react(line, emoji, !c.mine);
@@ -132,7 +134,7 @@ function renderLine(line) {
     text = Stickers.line(line, line.peer);
   } else {
     text = document.createElement("span");
-    text.textContent = line.text;
+    text.append(Stickers.inline(line.text));
   }
   const at = document.createElement("time");
   const clock = new Date(line.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -205,6 +207,20 @@ function openPicker(li) {
     b.onclick = () => {
       closePicker();
       react(line, emoji, !mineOn.has(emoji));
+    };
+    picker.append(b);
+  }
+  // Installed custom emoji react by their 64-hex id (frame::check_emoji).
+  for (const item of Stickers.customEmoji().slice(0, CUSTOM_IN_PICKER)) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitemcheckbox");
+    b.setAttribute("aria-checked", String(mineOn.has(item.id)));
+    b.setAttribute("aria-label", `React with :${item.emoji}:`);
+    b.append(Stickers.glyph(item.id, 22));
+    b.onclick = () => {
+      closePicker();
+      react(line, item.id, !mineOn.has(item.id));
     };
     picker.append(b);
   }

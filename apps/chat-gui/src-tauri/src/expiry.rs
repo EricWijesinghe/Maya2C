@@ -297,6 +297,7 @@ mod tests {
             title: "t".into(),
             items: vec![PackItem { id: in_pack.clone(), emoji: "x".into(), format: crate::stickers::Format::Gif }],
             mine: true,
+            ..maya_chat::frame::Pack::default()
         };
         let mut profile = Profile {
             history: vec![timed, sticker_line, shared, reply, other_chat_reply],

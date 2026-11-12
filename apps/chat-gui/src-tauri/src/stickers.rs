@@ -11,9 +11,29 @@
 //! installed, and the asker's app checks every item against the pack's id.
 
 pub use maya_chat::frame::{
-    Content, Format, MAX_PACK_ITEMS, MAX_TITLE_CHARS, Pack, PackItem, check_file, decode, encode, is_structured,
-    pack_id, sticker_id,
+    Content, Format, MAX_PACK_ITEMS, MAX_TITLE_CHARS, Pack, PackItem, PackKind, check_file, decode, encode,
+    is_structured, pack_id, sticker_id,
 };
+
+/// Makes a custom emoji pack (ADR-140 build PR 3), signed with a key derived
+/// from the identity `seed`. Every file must pass the emoji cap
+/// ([`maya_chat::media::check_emoji`]); `files` holds them in item order.
+/// Returns the pack and the proof its manifest frame carries.
+///
+/// # Errors
+///
+/// No title, a file over a cap, a bad or repeated shortcode, a pack size
+/// outside 1 to [`maya_chat::emoji::MAX_EMOJI_PACK_ITEMS`], or a signing failure.
+pub fn make_emoji_pack(seed: &[u8; 32], title: &str, items: Vec<PackItem>, files: &[Vec<u8>]) -> Result<(Pack, Vec<u8>), String> {
+    if title.trim().is_empty() {
+        return Err("give the pack a name".into());
+    }
+    for (item, file) in items.iter().zip(files) {
+        maya_chat::emoji::check_code(&item.emoji)?;
+        maya_chat::media::check_emoji(item.format, file).map_err(|e| e.to_string())?;
+    }
+    Ok(maya_chat::emoji::make_emoji_pack(seed, title, items)?)
+}
 
 /// Builds a pack, refusing an empty, oversized or untitled one.
 ///
@@ -40,6 +60,7 @@ pub fn make_pack(title: &str, items: Vec<PackItem>, mine: bool) -> Result<Pack, 
         title: title.to_owned(),
         items,
         mine,
+        ..Pack::default()
     })
 }
 

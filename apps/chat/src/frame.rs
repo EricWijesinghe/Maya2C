@@ -28,6 +28,12 @@
 //! message; it shows a `Timer` or a timed [`Content::Text`] as "needs a newer
 //! Maya2C Chat". Enforcement is the receiving app's: no frame can make a
 //! modified app, a screenshot or a camera forget.
+//!
+//! Sticker caps and custom emoji (ADR-140 build PR 3): [`check_file`] also
+//! applies the per-format caps of [`crate::media`], read from the bytes. A
+//! pack of [`PackKind::Emoji`] is introduced by one [`Content::EmojiPack`]
+//! whose body is its signed manifest proof ([`crate::emoji`]); its items then
+//! travel as ordinary [`Content::PackItem`]s.
 
 use serde::{Deserialize, Serialize};
 
@@ -60,8 +66,9 @@ pub const MAX_EMOJI_BYTES: usize = 64;
 pub const MAX_MARKS: usize = 32;
 const QUOTE_DOMAIN: &str = "maya-chat 2026-11-13 reply quote v1";
 /// The kinds this build reads; any other is [`FrameError::UnknownKind`].
-const KNOWN_KINDS: [&str; 7] = [
+const KNOWN_KINDS: [&str; 8] = [
     "sticker",
+    "emoji_pack",
     "pack_request",
     "pack_item",
     "reaction",
@@ -123,6 +130,17 @@ pub enum FrameError {
     BadText,
     #[error("not a disappearing-message timer this app offers")]
     BadTimer,
+    /// A per-format cap ([`crate::media`]), with the reason a person can act on.
+    #[error(transparent)]
+    Media(#[from] crate::media::MediaError),
+    #[error("a custom emoji name is 2 to 32 of a-z, 0-9 and _")]
+    BadCode,
+    #[error("a custom emoji pack holds 1 to {max} emoji, each with its own name", max = crate::emoji::MAX_EMOJI_PACK_ITEMS)]
+    EmojiPackSize,
+    #[error("the custom emoji pack's signature does not verify")]
+    BadProof,
+    #[error("signing the custom emoji pack failed")]
+    Signing,
 }
 
 /// The desktop app's commands report errors as strings.
@@ -190,11 +208,14 @@ pub fn sticker_id(bytes: &[u8]) -> String {
     hex::encode(blake3::hash(bytes).as_bytes())
 }
 
-/// Checks a file can be a sticker, returning its id and format.
+/// Checks a file can be a sticker, returning its id and format. The format
+/// is read from the bytes, never from a file name, and its own caps apply
+/// ([`crate::media::check`]).
 ///
 /// # Errors
 ///
-/// Empty, too large, or not a format a sticker can be.
+/// Empty, too large, not a format a sticker can be, or over a per-format
+/// cap ([`FrameError::Media`]).
 pub fn check_file(bytes: &[u8]) -> Result<(String, Format), FrameError> {
     if bytes.is_empty() {
         return Err(FrameError::EmptyFile);
@@ -203,6 +224,7 @@ pub fn check_file(bytes: &[u8]) -> Result<(String, Format), FrameError> {
         return Err(FrameError::FileTooLarge(bytes.len().div_ceil(1024)));
     }
     let format = Format::sniff(bytes).ok_or(FrameError::UnknownFormat)?;
+    crate::media::check(format, bytes)?;
     Ok((sticker_id(bytes), format))
 }
 
@@ -214,16 +236,45 @@ pub struct PackItem {
     pub format: Format,
 }
 
+/// What a pack holds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PackKind {
+    /// Stickers, each sent as its own message.
+    #[default]
+    Stickers,
+    /// Custom emoji, drawn inline in text and reactions by id. An item's
+    /// `emoji` field is its shortcode ([`crate::emoji::check_code`]).
+    Emoji,
+}
+
+impl PackKind {
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if passes a reference
+    fn is_stickers(&self) -> bool {
+        *self == Self::Stickers
+    }
+}
+
 /// A pack: a title and its stickers, in order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `kind` and `signer` are left out of the JSON for a sticker pack, so a
+/// sticker pack's bytes and id are what build PR 1 wrote.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pack {
-    /// [`pack_id`] of the title and items.
+    /// [`expected_pack_id`] of the pack.
     pub id: String,
     pub title: String,
     pub items: Vec<PackItem>,
     /// Made on this computer (rather than added from someone).
     #[serde(default)]
     pub mine: bool,
+    #[serde(default, skip_serializing_if = "PackKind::is_stickers")]
+    pub kind: PackKind,
+    /// An emoji pack's author: hex BLAKE3 of the hybrid public key that
+    /// signed its manifest ([`crate::emoji::Author::signer`]). Empty for a
+    /// sticker pack.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub signer: String,
 }
 
 /// A pack's id: BLAKE3 over its title and its stickers' ids, in order. Two
@@ -237,6 +288,16 @@ pub fn pack_id(title: &str, items: &[PackItem]) -> String {
         hasher.update(item.id.as_bytes());
     }
     hex::encode(hasher.finalize().as_bytes())
+}
+
+/// The id `pack` must carry: [`pack_id`] for stickers,
+/// [`crate::emoji::emoji_pack_id`] for emoji.
+#[must_use]
+pub fn expected_pack_id(pack: &Pack) -> String {
+    match pack.kind {
+        PackKind::Stickers => pack_id(&pack.title, &pack.items),
+        PackKind::Emoji => crate::emoji::emoji_pack_id(&pack.title, &pack.signer, &pack.items),
+    }
 }
 
 /// What a structured message says.
@@ -254,6 +315,11 @@ pub enum Content {
     PackRequest { pack: String },
     /// One sticker of a pack being shared; the file is the body.
     PackItem { pack: Pack, index: u16 },
+    /// A custom emoji pack's manifest; the body is its proof, the author's
+    /// hybrid public key and signature ([`crate::emoji::verify_manifest`]).
+    /// Sent before the pack's items, which the receiving app accepts only
+    /// for a manifest it has verified.
+    EmojiPack { pack: Pack },
     /// Sets the sender's `emoji` on the message `target` (an envelope id, hex)
     /// on or off. `at` is the sender's clock and orders that sender's own
     /// toggles ([`apply_mark`]).
@@ -379,17 +445,24 @@ fn check(content: &Content, body: &[u8]) -> Result<(), FrameError> {
     let claimed = match content {
         Content::Sticker { id, .. } => Some(id),
         Content::PackItem { pack, index } => {
-            if pack.items.len() > MAX_PACK_ITEMS || pack.id != pack_id(&pack.title, &pack.items) {
+            if pack.items.len() > MAX_PACK_ITEMS || pack.id != expected_pack_id(pack) {
                 return Err(FrameError::PackMismatch);
             }
-            Some(
-                &pack
-                    .items
-                    .get(usize::from(*index))
-                    .ok_or(FrameError::NotInPack)?
-                    .id,
-            )
+            let item = pack
+                .items
+                .get(usize::from(*index))
+                .ok_or(FrameError::NotInPack)?;
+            if pack.kind == PackKind::Emoji {
+                crate::emoji::check_pack(pack)?;
+                let (actual, format) = check_file(body)?;
+                crate::media::check_emoji(format, body)?;
+                return (actual == item.id)
+                    .then_some(())
+                    .ok_or(FrameError::StickerMismatch);
+            }
+            Some(&item.id)
         }
+        Content::EmojiPack { pack } => return crate::emoji::verify_manifest(pack, body),
         Content::PackRequest { .. } => None,
         Content::Timer { secs } => {
             check_timer(*secs)?;
@@ -513,6 +586,9 @@ pub fn describe(plain: &[u8]) -> String {
             Content::PackRequest { .. } => "[asks for a sticker pack]".into(),
             Content::PackItem { pack, .. } => {
                 format!("[sticker from pack \u{201c}{}\u{201d}]", pack.title)
+            }
+            Content::EmojiPack { pack } => {
+                format!("[custom emoji pack \u{201c}{}\u{201d}]", pack.title)
             }
             Content::Reaction {
                 target,

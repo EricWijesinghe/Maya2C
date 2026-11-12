@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::{InvokeBody, Request, Response};
 
-use crate::stickers::{self, Content, Pack, PackItem};
+use crate::stickers::{self, Content, Pack, PackItem, PackKind};
+
+/// Emoji manifests held at once while their items arrive, so a peer cannot
+/// grow memory by sending manifests and never the files.
+const MAX_PENDING_MANIFESTS: usize = 16;
 use crate::store::{self, Line, RECENT_LIMIT, ReplyRef, StickerRef};
 use maya_chat::frame::{self, Mark};
 use crate::{App, Session, address, expiry, relay_addr, remember, why};
@@ -83,12 +87,19 @@ pub async fn import_sticker(app: State<'_, Arc<App>>, request: Request<'_>) -> R
     })
 }
 
-/// Makes a pack from imported stickers.
+/// Makes a pack from imported stickers. `emoji: true` makes a signed custom
+/// emoji pack, where each item's `emoji` is its shortcode.
 #[tauri::command]
-pub async fn create_pack(app: State<'_, Arc<App>>, title: String, items: Vec<NewItem>) -> Result<Pack, String> {
+pub async fn create_pack(
+    app: State<'_, Arc<App>>,
+    title: String,
+    items: Vec<NewItem>,
+    emoji: Option<bool>,
+) -> Result<Pack, String> {
     let mut guard = app.session.lock().await;
     let s = guard.as_mut().ok_or("create an identity first")?;
     let mut checked = Vec::with_capacity(items.len());
+    let mut files = Vec::with_capacity(items.len());
     for item in items {
         let bytes = file_of(&app, s, &item.id).ok_or("a sticker in the pack was not imported")?;
         let (_, format) = stickers::check_file(&bytes)?;
@@ -97,8 +108,15 @@ pub async fn create_pack(app: State<'_, Arc<App>>, title: String, items: Vec<New
             emoji: item.emoji.trim().to_owned(),
             format,
         });
+        files.push(bytes);
     }
-    let pack = stickers::make_pack(&title, checked, true)?;
+    let pack = if emoji.unwrap_or(false) {
+        let (pack, proof) = stickers::make_emoji_pack(&s.seed, &title, checked, &files)?;
+        s.profile.pack_proofs.insert(pack.id.clone(), hex::encode(proof));
+        pack
+    } else {
+        stickers::make_pack(&title, checked, true)?
+    };
     s.profile.packs.retain(|p| p.id != pack.id);
     s.profile.packs.push(pack.clone());
     app.save(s)?;
@@ -113,6 +131,7 @@ pub async fn remove_pack(app: State<'_, Arc<App>>, pack: String) -> Result<(), S
         return Err("the starter pack is built in".into());
     }
     s.profile.packs.retain(|p| p.id != pack);
+    s.profile.pack_proofs.remove(&pack);
     app.save(s)
 }
 
@@ -200,6 +219,9 @@ pub(crate) async fn deliver_for(
 pub(crate) struct Incoming {
     /// By pack id: the pack and which items have arrived.
     packs: HashMap<String, (Pack, Vec<bool>)>,
+    /// Verified custom emoji manifest proofs, by pack id. An emoji pack's
+    /// items are taken only after its manifest arrived and verified.
+    proofs: HashMap<String, Vec<u8>>,
     /// (peer, pack) pairs answered since the app started: a peer asking again
     /// and again gets the pack once, not once per request.
     answered: HashSet<(String, String)>,
@@ -284,8 +306,21 @@ pub(crate) async fn receive(
             }
             None
         }
+        Content::EmojiPack { pack } => {
+            // `decode` verified the manifest's hybrid signature and shape.
+            if !s.profile.packs.iter().any(|p| p.id == pack.id) && incoming.proofs.len() < MAX_PENDING_MANIFESTS {
+                incoming.proofs.insert(pack.id.clone(), decoded.file);
+                incoming.packs.insert(pack.id.clone(), (pack.clone(), vec![false; pack.items.len()]));
+            }
+            None
+        }
         Content::PackItem { pack, index } => {
+            if pack.kind == PackKind::Emoji && !incoming.proofs.contains_key(&pack.id) {
+                // No verified manifest: an unsigned or unknown emoji pack.
+                return None;
+            }
             app.files.save_sticker(&s.seed, &decoded.file).ok()?;
+            let what = if pack.kind == PackKind::Emoji { "Custom emoji pack" } else { "Sticker pack" };
             let title = pack.title.clone();
             let entry = incoming
                 .packs
@@ -293,7 +328,7 @@ pub(crate) async fn receive(
                 .or_insert_with(|| (pack.clone(), vec![false; pack.items.len()]));
             *entry.1.get_mut(usize::from(index))? = true;
             install_if_complete(app, s, incoming, &pack.id)
-                .then(|| Got::Line(line(format!("Sticker pack \u{201c}{title}\u{201d} added"))))
+                .then(|| Got::Line(line(format!("{what} \u{201c}{title}\u{201d} added"))))
         }
     }
 }
@@ -304,6 +339,16 @@ async fn answer_request(app: &App, s: &mut Session, peer: &str, pack: &str) {
     let Some(pack) = s.profile.packs.iter().find(|p| p.id == pack).cloned() else {
         return;
     };
+    if pack.kind == PackKind::Emoji {
+        // The signed manifest goes first; without it the peer takes no item.
+        let Some(proof) = s.profile.pack_proofs.get(&pack.id).and_then(|h| hex::decode(h).ok()) else {
+            return;
+        };
+        let Ok(plain) = stickers::encode(&Content::EmojiPack { pack: pack.clone() }, &proof) else { return };
+        if deliver(app, s, peer, &plain, now()).await.is_err() {
+            return;
+        }
+    }
     for (index, item) in pack.items.iter().enumerate() {
         let Some(file) = file_of(app, s, &item.id) else { continue };
         let Ok(index) = u16::try_from(index) else { break };
@@ -311,6 +356,17 @@ async fn answer_request(app: &App, s: &mut Session, peer: &str, pack: &str) {
         let Ok(plain) = stickers::encode(&content, &file) else { continue };
         if deliver(app, s, peer, &plain, now()).await.is_err() {
             return;
+        }
+    }
+}
+
+/// Shares each custom emoji pack in `packs` with `peer` the first time this
+/// user uses one of its emoji in that chat (ADR-140: the file on first use),
+/// through the same encrypted path as "Add pack". Once per peer and pack.
+pub(crate) async fn share_emoji(app: &App, s: &mut Session, peer: &str, packs: std::collections::BTreeSet<String>) {
+    for pack in packs {
+        if s.profile.emoji_shared.insert(format!("{peer}:{pack}")) {
+            answer_request(app, s, peer, &pack).await;
         }
     }
 }
@@ -329,6 +385,9 @@ fn install_if_complete(app: &App, s: &mut Session, incoming: &mut Incoming, pack
     let mut installed = full.clone();
     installed.mine = false;
     incoming.packs.remove(pack);
+    if let Some(proof) = incoming.proofs.remove(pack) {
+        s.profile.pack_proofs.insert(pack.to_owned(), hex::encode(proof));
+    }
     if s.profile.packs.iter().any(|p| p.id == installed.id) {
         return false;
     }

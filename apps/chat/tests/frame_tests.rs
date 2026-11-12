@@ -122,6 +122,7 @@ fn pack_items_must_belong_to_their_pack() {
         title: "Mine".into(),
         items,
         mine: true,
+        ..Pack::default()
     };
     assert!(
         decode(

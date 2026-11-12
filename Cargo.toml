@@ -440,6 +440,8 @@ curve25519-dalek = "4"
 # a chain should not be a function of which import somebody reached for.
 # Members add `default-rng` where they generate keys.
 fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
+# gzip: eo-fetch's COG tiles and the chat's Telegram `.tgs` stickers.
+flate2 = "1"
 futures = "0.3"
 futures-util = "0.3"
 # In-memory duplex streams for driving both halves of a handshake without a

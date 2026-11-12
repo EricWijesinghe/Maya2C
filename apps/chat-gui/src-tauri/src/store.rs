@@ -173,6 +173,14 @@ pub struct Profile {
     /// back, even across a restart, never lengthens a message's life.
     #[serde(default)]
     pub clock_floor: u64,
+    /// Each installed custom emoji pack's manifest proof (hex public key and
+    /// signature), by pack id, so the pack can be passed on verifiably.
+    #[serde(default)]
+    pub pack_proofs: BTreeMap<String, String>,
+    /// `peer:pack` pairs: custom emoji packs already shared with a peer on
+    /// first use, so each is sent to each peer once.
+    #[serde(default)]
+    pub emoji_shared: BTreeSet<String>,
 }
 
 fn keychain() -> Result<keyring::Entry, String> {

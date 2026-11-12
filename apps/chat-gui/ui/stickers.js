@@ -36,29 +36,82 @@ const Stickers = (() => {
     return urls.get(id);
   }
 
+  // ---- motion ------------------------------------------------------------
+  // Everything that moves stops under the OS reduced-motion setting (showing
+  // its first frame) and while the window is not focused (where it stands).
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const players = new Set(); // { box, play(), pause() }
+  const still = () => reduced.matches || !document.hasFocus();
+
+  function sync() {
+    for (const p of players) {
+      if (!p.box.isConnected && p.seen) { players.delete(p); continue; }
+      p.seen = p.seen || p.box.isConnected;
+      if (still()) p.pause(reduced.matches); else p.play();
+    }
+  }
+  reduced.addEventListener("change", sync);
+  window.addEventListener("blur", sync);
+  window.addEventListener("focus", sync);
+
+  function track(player) {
+    players.add(player);
+    if (still()) player.pause(reduced.matches); else player.play();
+  }
+
+  // An image format that may animate (GIF, APNG, WebP, SVG) cannot be paused,
+  // so a still copy of its first frame, drawn on load, stands in for it.
+  function imageOf(box, ref, url) {
+    const img = document.createElement("img");
+    const frozen = document.createElement("canvas");
+    img.alt = ref.emoji || "sticker";
+    frozen.hidden = true;
+    frozen.setAttribute("aria-hidden", "true");
+    img.onload = () => {
+      frozen.width = img.naturalWidth || box.clientWidth;
+      frozen.height = img.naturalHeight || box.clientHeight;
+      frozen.getContext("2d").drawImage(img, 0, 0, frozen.width, frozen.height);
+      track({
+        box,
+        play() { img.hidden = false; frozen.hidden = true; },
+        pause() { img.hidden = true; frozen.hidden = false; },
+      });
+    };
+    img.src = url;
+    box.append(img, frozen);
+  }
+
   // Draws one sticker into a new element of the given pixel size.
   function render(ref, size) {
     const box = document.createElement("div");
     box.className = "sticker";
     box.style.width = box.style.height = `${size}px`;
     box.setAttribute("role", "img");
+    box.setAttribute("aria-label", ref.emoji || "sticker");
     (async () => {
       try {
         if (ref.format === "lottie" || ref.format === "tgs") {
-          window.lottie.loadAnimation({
-            container: box, renderer: "svg", loop: true, autoplay: true,
+          const anim = window.lottie.loadAnimation({
+            container: box, renderer: "svg", loop: true, autoplay: false,
             animationData: await lottieOf(ref.id, ref.format),
+          });
+          track({
+            box,
+            play: () => anim.play(),
+            pause: (first) => (first ? anim.goToAndStop(0, true) : anim.pause()),
           });
         } else if (ref.format === "webm") {
           const v = document.createElement("video");
-          Object.assign(v, { autoplay: true, loop: true, muted: true, playsInline: true });
+          Object.assign(v, { autoplay: false, loop: true, muted: true, playsInline: true });
           v.src = await urlOf(ref.id, ref.format);
           box.append(v);
+          track({
+            box,
+            play: () => { v.play().catch(() => {}); },
+            pause: (first) => { v.pause(); if (first) v.currentTime = 0; },
+          });
         } else {
-          const img = document.createElement("img");
-          img.alt = ref.emoji || "sticker";
-          img.src = await urlOf(ref.id, ref.format);
-          box.append(img);
+          imageOf(box, ref, await urlOf(ref.id, ref.format));
         }
       } catch (e) {
         box.textContent = ref.emoji || "🖼️";
@@ -108,7 +161,7 @@ const Stickers = (() => {
     if (tab === "manage") return drawManage(grid);
     const items = tab === "recent"
       ? recent.map(findItem).filter(Boolean).map((f) => ({ ...f.item, pack: f.pack.id }))
-      : (packs.find((p) => p.id === tab)?.items || []).map((i) => ({ ...i, pack: tab }));
+      : (packs.find((p) => p.id === tab)?.items || []).map((i) => ({ ...i, pack: tab, kind: packs.find((p) => p.id === tab).kind }));
     if (items.length === 0) {
       const p = document.createElement("p");
       p.className = "hint";
@@ -124,8 +177,68 @@ const Stickers = (() => {
     b.className = "pick";
     b.title = item.emoji;
     b.append(render(item, size));
-    b.onclick = () => send(item.pack, item.id);
+    // A custom emoji goes into the text as its shortcode; sending turns it
+    // into `:<id>:` (maya_chat::emoji::expand_codes).
+    b.onclick = item.kind === "emoji" ? () => insertCode(item.emoji) : () => send(item.pack, item.id);
     return b;
+  }
+
+  function insertCode(code) {
+    const box = document.getElementById("text");
+    const at = box.selectionStart ?? box.value.length;
+    box.value = `${box.value.slice(0, at)}:${code}:${box.value.slice(box.selectionEnd ?? at)}`;
+    box.focus();
+  }
+
+  // ---- custom emoji ------------------------------------------------------
+  // Mirrors maya_chat::emoji::{resolve, segments}: a 64-hex id from an
+  // installed emoji pack draws its file, any other id draws FALLBACK.
+  const HEX_ID = /^[0-9a-f]{64}$/;
+  const INLINE = /:([0-9a-f]{64}):/g;
+  const FALLBACK = "◇";
+
+  function emojiItem(id) {
+    for (const p of packs) {
+      if (p.kind !== "emoji") continue;
+      const item = p.items.find((i) => i.id === id);
+      if (item) return item;
+    }
+    return null;
+  }
+
+  function customEmoji() {
+    return packs.filter((p) => p.kind === "emoji").flatMap((p) => p.items);
+  }
+
+  // One reaction value or inline id, as an element.
+  function glyph(value, size = 20) {
+    if (!HEX_ID.test(value)) return document.createTextNode(value);
+    const item = emojiItem(value);
+    if (!item) {
+      const s = document.createElement("span");
+      s.className = "emoji-fallback";
+      s.textContent = FALLBACK;
+      s.setAttribute("role", "img");
+      s.setAttribute("aria-label", "custom emoji not on this computer");
+      s.title = "A custom emoji this computer does not have";
+      return s;
+    }
+    const box = render({ ...item, emoji: `:${item.emoji}:` }, size);
+    box.classList.add("emoji-inline");
+    box.title = `:${item.emoji}:`;
+    return box;
+  }
+
+  // A line of text with its `:<id>:` custom emoji drawn inline.
+  function inline(text) {
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const m of text.matchAll(INLINE)) {
+      frag.append(text.slice(last, m.index), glyph(m[1]));
+      last = m.index + m[0].length;
+    }
+    frag.append(text.slice(last));
+    return frag;
   }
 
   async function send(pack, id) {
@@ -202,6 +315,7 @@ const Stickers = (() => {
 
   function openMaker() {
     draft = [];
+    document.getElementById("maker-emoji").checked = false;
     document.getElementById("maker-title").value = "";
     document.getElementById("maker-error").textContent = "";
     drawDraft();
@@ -216,9 +330,11 @@ const Stickers = (() => {
       row.className = "draft";
       const emoji = document.createElement("input");
       emoji.value = d.emoji;
-      emoji.placeholder = "😀";
-      emoji.maxLength = 8;
-      emoji.title = "The emoji this sticker answers to";
+      emoji.placeholder = emojiPack() ? "name" : "😀";
+      emoji.maxLength = emojiPack() ? 32 : 8;
+      emoji.title = emojiPack()
+        ? "The name typed as :name: (2 to 32 of a-z, 0-9 and _)"
+        : "The emoji this sticker answers to";
       emoji.oninput = () => { d.emoji = emoji.value; };
       const drop = document.createElement("button");
       drop.type = "button";
@@ -228,8 +344,11 @@ const Stickers = (() => {
       row.append(render(d, 72), emoji, drop);
       list.append(row);
     });
-    document.getElementById("maker-count").textContent = `${draft.length} / 120`;
+    // maya_chat::frame::MAX_PACK_ITEMS and maya_chat::emoji::MAX_EMOJI_PACK_ITEMS.
+    document.getElementById("maker-count").textContent = `${draft.length} / ${emojiPack() ? 24 : 120}`;
   }
+
+  const emojiPack = () => document.getElementById("maker-emoji").checked;
 
   async function addFiles(files) {
     const error = document.getElementById("maker-error");
@@ -237,7 +356,8 @@ const Stickers = (() => {
     for (const f of files) {
       try {
         const item = await invoke("import_sticker", new Uint8Array(await f.arrayBuffer()));
-        if (!draft.some((d) => d.id === item.id)) draft.push({ ...item, emoji: "🙂" });
+        const name = emojiPack() ? `emoji${draft.length + 1}` : "🙂";
+        if (!draft.some((d) => d.id === item.id)) draft.push({ ...item, emoji: name });
       } catch (e) {
         error.textContent = `${f.name}: ${e}`;
       }
@@ -251,6 +371,7 @@ const Stickers = (() => {
       await invoke("create_pack", {
         title: document.getElementById("maker-title").value,
         items: draft.map((d) => ({ id: d.id, emoji: d.emoji })),
+        emoji: emojiPack(),
       });
       document.getElementById("maker").close();
       await refresh();
@@ -269,6 +390,7 @@ const Stickers = (() => {
     files.accept = ACCEPT;
     files.onchange = () => { addFiles([...files.files]); files.value = ""; };
     document.getElementById("maker-save").onclick = savePack;
+    document.getElementById("maker-emoji").onchange = drawDraft;
     document.getElementById("maker-cancel").onclick = () => document.getElementById("maker").close();
     document.getElementById("sticker-toggle").onclick = () => {
       const panel = document.getElementById("sticker-panel");
@@ -278,5 +400,5 @@ const Stickers = (() => {
     return refresh();
   }
 
-  return { init, render, line, suggest, refresh };
+  return { init, render, line, suggest, refresh, glyph, inline, customEmoji };
 })();

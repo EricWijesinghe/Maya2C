@@ -9,6 +9,8 @@
 //! - [`courier`] — publishing, delivering and collecting through a relay.
 //! - [`frame`] — structured messages (stickers, reactions, replies) inside
 //!   the encryption, shared by the CLI and the desktop app.
+//! - [`media`] — per-format sticker caps, read from the file's bytes.
+//! - [`emoji`] — signed custom emoji packs and inline `:<id>:` emoji.
 //! - [`net`] — the `/maya-chat/1` libp2p protocol and a relay node.
 //!
 //! RESEARCH: unaudited. Do not rely on it for sensitive conversations until
@@ -17,8 +19,10 @@
 
 pub mod client;
 pub mod courier;
+pub mod emoji;
 pub mod frame;
 pub mod identity;
+pub mod media;
 pub mod net;
 pub mod relay;
 pub mod session;
