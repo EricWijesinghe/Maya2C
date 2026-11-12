@@ -6982,8 +6982,10 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "maya-address",
  "maya-amount",
  "maya-clear-sign",
+ "primitive-types",
  "serde_json",
 ]
 
