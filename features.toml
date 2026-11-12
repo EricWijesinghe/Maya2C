@@ -2666,12 +2666,12 @@ note = "ADR-135 P-2 (PROPOSED), post-genesis. Off: feature bit 42, NFT_ACTIVATIO
 id = "names-commit-reveal"
 name = "Names with commit-reveal (v4 P-3)"
 domain = "Security and macro engines"
-paths = "`crates/node/src/state/names.rs`, `crates/node/src/core/name_payload.rs`, `crates/governance/src/params.rs` (NameBaseFee3/4/5)"
+paths = "`crates/node/src/state/names.rs`, `crates/node/src/core/name_payload.rs`, `crates/governance/src/params.rs` (NameBaseFee3/4/5, NameReservedLabels)"
 tier = "core"
 class = "RESEARCH"
 status = "stub"
 tests = ["crates/node/tests/names_tests.rs", "crates/node/tests/names_conformance.rs"]
-note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed PROPOSED placeholders pending Eric (O-3). Not built: stealth meta-addresses (ADR-102 encoding), governance release of the reserved label (compiled refusal stands in), pruning of stale commitments (see PR), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
+note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed PROPOSED placeholders pending Eric (O-3). Stale commitments pruned at end of block through the nm:x: expiry index, at most 1,024 per block with carry-over (M-11). maya2c held by the governed NameReservedLabels bit set (tag 15), released only by a passed proposal. Own breaker module Names (14); renewals never halted. Not built: stealth meta-addresses (ADR-102 encoding), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
 
 [[subsystem]]
 id = "jurisdictional-transfer-rules"

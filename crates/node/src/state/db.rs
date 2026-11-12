@@ -414,6 +414,29 @@ impl StateDB {
         Ok(out)
     }
 
+    /// The first `limit` key/value pairs under `prefix`, in key order: a scan
+    /// whose work is bounded however many rows the prefix holds (invariant 33).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix_limit(
+        &self,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
+        let mut out = Vec::new();
+        for item in self.db.iterator(mode).take(limit) {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            out.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(out)
+    }
+
     /// Reads every channel record in identifier order.
     ///
     /// # Errors
@@ -936,6 +959,9 @@ impl StateDB {
         // After governance and before the invariants: the epoch boundary moves
         // bonds, rewards and slashes, which the conservation check must see.
         self.settle_staking(&mut overlay, &block.header, context)?;
+        // After every transaction, so a reveal in this block deletes its own
+        // commitment first; bounded per block (ADR-135 P-3, M-11). Moves no value.
+        self.settle_names(&mut overlay, context)?;
 
         // Last, over the finished overlay. Running it earlier would check
         // a half-built block: the trading pass moves reserves and the

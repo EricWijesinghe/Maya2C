@@ -66,6 +66,10 @@ const SURCHARGE_CEILING: Amount = {
 pub const PROPOSED_NAME_BASE_FEE_3: u64 = 1_000_000_000_000_000_000;
 /// PROPOSED, not decided (ADR-135 O-3): as [`PROPOSED_NAME_BASE_FEE_3`], for 4 bytes.
 pub const PROPOSED_NAME_BASE_FEE_4: u64 = 100_000_000_000_000_000;
+/// `NameReservedLabels` with every compiled reserved label held. One label
+/// today (`maya2c`, bit 0); must equal `(1 << RESERVED_LABELS.len()) - 1` in
+/// the node, which a node test pins.
+pub const RESERVED_LABELS_ALL_HELD: u64 = 0b1;
 
 /// A rule that governance may change.
 ///
@@ -113,6 +117,12 @@ pub enum ParameterKey {
     NameBaseFee4,
     /// As [`Self::NameBaseFee3`], for a name of 5 bytes or more.
     NameBaseFee5,
+    /// Which compiled reserved labels are held (ADR-135 O-3: "held by a
+    /// governance proposal, not a key"): bit `i` holds the node's
+    /// `RESERVED_LABELS[i]`, bit 0 being `maya2c`. The default holds them all,
+    /// so the hold is in force from bit 43's activation; only a passed proposal
+    /// clearing a bit releases a label. Refused in a proposal before bit 43.
+    NameReservedLabels,
 }
 
 /// Every key, in tag order.
@@ -134,6 +144,7 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::NameBaseFee3,
     ParameterKey::NameBaseFee4,
     ParameterKey::NameBaseFee5,
+    ParameterKey::NameReservedLabels,
 ];
 
 /// The permitted range and starting value of one parameter.
@@ -174,6 +185,7 @@ impl ParameterKey {
             Self::NameBaseFee3 => 12,
             Self::NameBaseFee4 => 13,
             Self::NameBaseFee5 => 14,
+            Self::NameReservedLabels => 15,
         }
     }
 
@@ -206,6 +218,7 @@ impl ParameterKey {
             12 => Ok(Self::NameBaseFee3),
             13 => Ok(Self::NameBaseFee4),
             14 => Ok(Self::NameBaseFee5),
+            15 => Ok(Self::NameReservedLabels),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -334,6 +347,13 @@ impl ParameterKey {
                 max: SURCHARGE_CEILING,
                 default: Amount::from_u64(0),
             },
+            // A bit set, not a quantity: one bit per compiled reserved label.
+            // The ceiling grows with the list, which is a binary upgrade anyway.
+            Self::NameReservedLabels => Bounds {
+                min: Amount::from_u64(0),
+                max: Amount::from_u64(RESERVED_LABELS_ALL_HELD),
+                default: Amount::from_u64(RESERVED_LABELS_ALL_HELD),
+            },
         }
     }
 
@@ -355,6 +375,7 @@ impl ParameterKey {
             Self::NameBaseFee3 => "name.base_fee_3",
             Self::NameBaseFee4 => "name.base_fee_4",
             Self::NameBaseFee5 => "name.base_fee_5",
+            Self::NameReservedLabels => "name.reserved_labels",
         }
     }
 

@@ -15,11 +15,15 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
+use custom_l1_node::governance::ParameterTable;
+use custom_l1_node::state::invariant_guard::{MODULES, Module};
 use custom_l1_node::state::names::{
-    GRACE_BLOCKS, MAX_COMMIT_AGE, MIN_COMMIT_AGE, YEAR_BLOCKS, name_commitment,
+    GRACE_BLOCKS, MAX_COMMIT_AGE, MAX_COMMIT_PRUNE_PER_BLOCK, MIN_COMMIT_AGE, RESERVED_LABELS,
+    YEAR_BLOCKS, name_commitment,
 };
 use custom_l1_node::state::shielded::FEE_SINK;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use maya_governance::params::ParameterKey;
 use primitive_types::U256;
 use tempfile::TempDir;
 
@@ -208,9 +212,119 @@ fn a_commitment_older_than_max_commit_age_is_refused_and_pruned() {
     )
     .unwrap_err();
     assert!(refusal(&err).contains("expired"), "{err}");
-    // A refused block writes nothing, so the stale commitment stays. Nothing
-    // prunes it: see the PR's finding on ADR-135 P-3 (M-11).
+    // A refused block writes nothing, so the stale commitment is still there
+    // until a block at that height commits; the end-of-block pass prunes it.
     assert_eq!(f.db.commitment_height(&c).expect("read"), Some(V4));
+    apply(&f, vec![], stale).expect("empty block");
+    assert_eq!(f.db.commitment_height(&c).expect("read"), None);
+    // And once pruned, the reveal is refused for want of any commitment.
+    let err = apply(
+        &f,
+        vec![signed(register(b"alice", 1, victim.address()), 1, &victim)],
+        stale + 1,
+    )
+    .unwrap_err();
+    assert!(refusal(&err).contains("no commitment"), "{err}");
+}
+
+// M-11: pruning is height-exact and every node computes the same root.
+#[test]
+fn an_expired_commitment_is_pruned_at_its_expiry_and_the_root_is_deterministic() {
+    let key = generate_signing_key().expect("key");
+    let one = fixture(&[key.address()]);
+    let two = fixture(&[key.address()]);
+    let expiry = V4 + MAX_COMMIT_AGE + 1;
+    let mut roots = Vec::new();
+    for f in [&one, &two] {
+        let c = commit_at(f, &key, b"alice", 0, V4);
+        // The last block at which a reveal is still accepted keeps it.
+        let kept = apply(f, vec![], expiry - 1).expect("before expiry");
+        assert_eq!(f.db.commitment_height(&c).expect("read"), Some(V4));
+        let pruned = apply(f, vec![], expiry).expect("at expiry");
+        assert_eq!(f.db.commitment_height(&c).expect("read"), None);
+        assert_ne!(
+            kept, pruned,
+            "the commitment and its index row left the root"
+        );
+        roots.push(pruned);
+    }
+    assert_eq!(roots[0], roots[1], "two nodes prune to the same root");
+}
+
+/// Writes a commitment and its expiry-index row straight to disk, in the
+/// layout `state/names.rs` documents, as if committed at height 0.
+fn seed_commitment(f: &Fixture, commitment: &[u8; 32], committer: &Address) {
+    let mut value = 0u64.to_le_bytes().to_vec();
+    value.extend_from_slice(committer);
+    f.db.raw_put_for_test(&[&b"nm:c:"[..], commitment].concat(), &value)
+        .expect("seed commitment");
+    let expiry = MAX_COMMIT_AGE + 1;
+    f.db.raw_put_for_test(
+        &[&b"nm:x:"[..], &expiry.to_be_bytes()[..], commitment].concat(),
+        &[],
+    )
+    .expect("seed index");
+}
+
+// M-11 / invariant 33: at most MAX_COMMIT_PRUNE_PER_BLOCK per block, in key
+// order, the remainder first in the next block.
+#[test]
+fn the_prune_cap_carries_the_remainder_to_the_next_block_in_key_order() {
+    const EXTRA: usize = 5;
+    let committer = [7u8; 32];
+    let seeded = fixture(&[]);
+    let clean = fixture(&[]);
+    let mut commitments: Vec<[u8; 32]> = (0..MAX_COMMIT_PRUNE_PER_BLOCK + EXTRA)
+        .map(|i| *blake3::hash(&(i as u64).to_le_bytes()).as_bytes())
+        .collect();
+    for c in &commitments {
+        seed_commitment(&seeded, c, &committer);
+    }
+    commitments.sort_unstable();
+
+    let h = V4 + MAX_COMMIT_AGE + 1;
+    apply(&seeded, vec![], h).expect("first prune");
+    for (i, c) in commitments.iter().enumerate() {
+        let left = seeded.db.commitment_height(c).expect("read");
+        if i < MAX_COMMIT_PRUNE_PER_BLOCK {
+            assert_eq!(left, None, "#{i} is within the cap, in key order");
+        } else {
+            assert_eq!(left, Some(0), "#{i} carries to the next block");
+        }
+    }
+
+    let root = apply(&seeded, vec![], h + 1).expect("second prune");
+    assert!(
+        commitments
+            .iter()
+            .all(|c| seeded.db.commitment_height(c).expect("read").is_none())
+    );
+    // Every seeded row, index rows included, is gone: the root is the root of
+    // a chain that never held a commitment.
+    apply(&clean, vec![], h).expect("clean");
+    assert_eq!(root, apply(&clean, vec![], h + 1).expect("clean"));
+}
+
+// M-11: a reveal deletes its index row too, so the pass never touches a
+// registered name's commitment and the block is not refused.
+#[test]
+fn a_reveal_removes_its_expiry_row_so_the_prune_pass_finds_nothing() {
+    let owner = generate_signing_key().expect("key");
+    let f = fixture(&[owner.address()]);
+    commit_at(&f, &owner, b"alice", 0, V4);
+    apply(
+        &f,
+        vec![signed(register(b"alice", 1, owner.address()), 1, &owner)],
+        V4 + MIN_COMMIT_AGE,
+    )
+    .expect("register");
+    // Two empty blocks either side of the commitment's expiry. Had the reveal
+    // left its index row, the second would delete it and move the root.
+    let expiry = V4 + MAX_COMMIT_AGE + 1;
+    let before = apply(&f, vec![], expiry - 1).expect("before");
+    let after = apply(&f, vec![], expiry).expect("at expiry");
+    assert_eq!(before, after);
+    assert!(f.db.get_name(b"alice").expect("read").is_some());
 }
 
 // M-6
@@ -340,6 +454,9 @@ fn renewal_cannot_push_expiry_past_ten_years() {
         (h + 1) + 10 * YEAR_BLOCKS,
         "capped at ten years from now"
     );
+    // A renewal that the cap would turn into nothing is refused, not charged.
+    let err = apply(&f, vec![signed(renew(b"alice", 1), 3, &owner)], h + 1).unwrap_err();
+    assert!(refusal(&err).contains("ten years"), "{err}");
 }
 
 // M-12
@@ -392,6 +509,107 @@ fn the_reserved_label_cannot_be_registered_by_anyone() {
     )
     .unwrap_err();
     assert!(refusal(&err).contains("reserved"), "{err}");
+}
+
+// O-3: the hold is a governed parameter, so clearing its bit releases the
+// label. The table is written directly, as a passed proposal's execution
+// writes it (`apply_changes`); the proposal path itself is governance's tests.
+#[test]
+fn a_governance_release_of_the_reserved_bit_lets_the_label_register() {
+    assert_eq!(
+        maya_governance::params::RESERVED_LABELS_ALL_HELD,
+        (1u64 << RESERVED_LABELS.len()) - 1,
+        "the governed default holds every compiled reserved label"
+    );
+    assert_eq!(RESERVED_LABELS[0], b"maya2c");
+    let owner = generate_signing_key().expect("key");
+    let f = fixture(&[owner.address()]);
+    let released = ParameterTable::new().with(
+        ParameterKey::NameReservedLabels,
+        maya_dex::Amount::from_u64(0),
+    );
+    f.db.raw_put_for_test(b"g:params", &released.encode())
+        .expect("released table");
+    commit_at(&f, &owner, b"maya2c", 0, V4);
+    apply(
+        &f,
+        vec![signed(register(b"maya2c", 1, owner.address()), 1, &owner)],
+        V4 + MIN_COMMIT_AGE,
+    )
+    .expect("released by governance");
+    assert_eq!(
+        f.db.get_name(b"maya2c").expect("read").expect("held").owner,
+        owner.address()
+    );
+}
+
+// Breaker (ADR-135 P-3): names have their own module; a renewal is never
+// halted, so a breaker cannot run a name out of its grace period.
+#[test]
+fn a_names_breaker_halts_register_and_update_but_never_renew() {
+    assert!(MODULES.contains(&Module::Names));
+    assert_eq!(Module::from_tag(Module::Names.tag()), Some(Module::Names));
+    for kind in [
+        commit([1; 32]),
+        register(b"alice", 1, [2; 32]),
+        update(b"alice", NameUpdate::SetReverse),
+    ] {
+        assert_eq!(Module::of(&kind), Some(Module::Names));
+    }
+    assert_eq!(Module::of(&renew(b"alice", 1)), None);
+
+    let owner = generate_signing_key().expect("key");
+    let f = fixture(&[owner.address()]);
+    let tripped = custom_l1_node::state::invariant_guard::BreakerRecord {
+        module: Module::Names,
+        invariant: custom_l1_node::state::invariant_guard::Invariant::PoolValuePerShare,
+        tripped_at: V4,
+        until: V4 + 100,
+    };
+    f.db.raw_put_for_test(
+        &custom_l1_node::state::invariant_guard::guard_key(Module::Names),
+        &tripped.encode(),
+    )
+    .expect("trip");
+    let halted = signed(commit([1; 32]), 0, &owner);
+    assert!(matches!(
+        apply(&f, vec![halted], V4 + 1).unwrap_err(),
+        NodeError::ModuleHalted { .. }
+    ));
+}
+
+// M-6/M-7: retargeting a name clears the reverse record of the address it
+// no longer resolves to.
+#[test]
+fn set_target_clears_the_old_targets_reverse_record() {
+    let owner = generate_signing_key().expect("key");
+    let elsewhere = [0x42; 32];
+    let f = fixture(&[owner.address()]);
+    commit_at(&f, &owner, b"alice", 0, V4);
+    let h = V4 + MIN_COMMIT_AGE;
+    apply(
+        &f,
+        vec![signed(register(b"alice", 1, owner.address()), 1, &owner)],
+        h,
+    )
+    .expect("register");
+    apply(
+        &f,
+        vec![signed(update(b"alice", NameUpdate::SetReverse), 2, &owner)],
+        h + 1,
+    )
+    .expect("reverse");
+    apply(
+        &f,
+        vec![signed(
+            update(b"alice", NameUpdate::SetTarget(elsewhere)),
+            3,
+            &owner,
+        )],
+        h + 2,
+    )
+    .expect("retarget");
+    assert!(f.db.reverse_name(&owner.address()).expect("read").is_none());
 }
 
 // O-3: short labels cost more than long ones; the fee burns to FEE_SINK and a
