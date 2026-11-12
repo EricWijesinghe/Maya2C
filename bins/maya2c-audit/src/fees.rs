@@ -82,7 +82,7 @@ fn add_flows(a: Flow, b: Flow) -> Option<Flow> {
 }
 
 fn is_boundary(height: u64, epoch_blocks: Option<u64>) -> bool {
-    matches!(epoch_blocks, Some(e) if height > 0 && height % e == 0)
+    matches!(epoch_blocks, Some(e) if height > 0 && height.is_multiple_of(e))
 }
 
 /// Judges one height. `Err` names the height and the rule it broke.

@@ -71,10 +71,7 @@ pub fn check(rpc: &dyn Rpc, plan: &Plan, observed: &Observed) -> Result<Finding,
 fn epochs_in(observed: &Observed, epoch_blocks: u64) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut epoch = 0u64;
-    loop {
-        let Some(span) = span_of(epoch, epoch_blocks) else {
-            break;
-        };
+    while let Some(span) = span_of(epoch, epoch_blocks) {
         if span.hi > observed.to() {
             break;
         }
