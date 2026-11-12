@@ -7,7 +7,9 @@
 //! `gpu_share`. Only the hashing differs, never the work, target or payout.
 //!
 //! With `--json` every line on stdout is one event, for the Hub GUI:
-//! `{"event":"work"|"hashrate"|"share"|"idle"|"error", ...}`.
+//! `{"event":"work"|"hashrate"|"share"|"hw_error"|"idle"|"error", ...}`.
+//! `hw_error` is a nonce the device called a share and the CPU reference did
+//! not: an unstable card. It is never submitted (ADR-137, HW-1 step 1).
 
 use std::cell::Cell;
 use std::path::Path;
@@ -348,7 +350,7 @@ impl Session {
         #[cfg(not(feature = "gpu"))]
         let _ = dag;
 
-        self.watch(work, &hashes, &found_rx, &stop);
+        self.watch(work, cache, &hashes, &found_rx, &stop);
         stop.store(true, Ordering::Relaxed);
         for worker in workers {
             let _ = worker.join();
@@ -394,20 +396,40 @@ fn cpu_workers(
         .collect()
 }
 
+/// True when the CPU reference agrees `nonce` is a share. The device's word
+/// alone is never submitted: a card computing wrong hashes (an undervolt, a
+/// bit flip) would otherwise send shares the node refuses.
+fn cpu_confirms(cache: &Cache, header: &[u8; 32], target: &[u8; 32], nonce: u64) -> bool {
+    meets_target(&hashimoto_light(cache, header, nonce).result, target)
+}
+
 impl Session {
     /// Reports the rate, submits found shares, and returns when work changes
     /// or a worker stops on its own (a GPU failure sets `stop`).
     fn watch(
         &self,
         work: &Work,
+        cache: &Cache,
         hashes: &AtomicU64,
         found: &mpsc::Receiver<u64>,
         stop: &AtomicBool,
     ) {
+        // Both were decoded already in `mine_epoch`, so this cannot fail.
+        let (Ok(header), Ok(target)) = (
+            decode32(&work.header, "header"),
+            decode32(&work.target, "target"),
+        ) else {
+            return;
+        };
         let (mut last_report, mut last_refresh) = (Instant::now(), Instant::now());
         let mut counted = 0u64;
         while !stop.load(Ordering::Relaxed) {
-            if let Ok(nonce) = found.recv_timeout(Duration::from_millis(200))
+            let found_now = found.recv_timeout(Duration::from_millis(200)).ok();
+            if let Some(nonce) = found_now
+                && !cpu_confirms(cache, &header, &target, nonce)
+            {
+                self.emit(&json!({"event": "hw_error", "nonce": nonce, "epoch": work.epoch}));
+            } else if let Some(nonce) = found_now
                 && !self.submit(work, nonce)
             {
                 // A refusal usually means the epoch closed or its budget is
@@ -479,6 +501,21 @@ impl Session {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn a_nonce_the_cpu_does_not_confirm_is_a_hardware_error() {
+        use custom_l1_node::crypto::dag::Params;
+        let cache = Cache::generate(0, Params::TESTING).unwrap();
+        let header = [7u8; 32];
+        assert!(
+            cpu_confirms(&cache, &header, &[0xFF; 32], 1),
+            "every digest meets the easiest target"
+        );
+        assert!(
+            !cpu_confirms(&cache, &header, &[0u8; 32], 1),
+            "no digest meets the zero target, so a device claiming one is wrong"
+        );
+    }
 
     #[test]
     fn a_new_key_file_is_created_once_and_read_back_the_same() {

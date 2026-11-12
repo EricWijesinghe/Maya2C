@@ -51,7 +51,8 @@ rustix = { version = "1", features = ["process"] }
 [target.'cfg(windows)'.dependencies]
 # DACL check on the payout key file (key_acl.rs). 0.62 matches the copy tauri
 # already pulls in, so the lock gains no second `windows` crate.
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
+# SystemInformation: the system folder for `nvidia-smi` (driver_tool.rs, ADR-137 S-8).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

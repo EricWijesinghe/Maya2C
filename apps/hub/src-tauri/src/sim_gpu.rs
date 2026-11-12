@@ -1,30 +1,31 @@
-//! SIM GPU: a deterministic model that carries the auto-tuner's tests. It is
-//! not hardware, and it says so in its backend name and in its log. Compiled
-//! for tests only, so no release build can select it.
+//! SIM GPU: a deterministic model that carries the guided tuner's tests. It
+//! is not hardware, and it says so in its name and its log. Compiled for
+//! tests only, so no release build can select it.
+//!
+//! The test plays the user: it calls [`SimGpu::set_limit`] with the value
+//! the Hub suggested, as a person would in their vendor tool, and the SIM
+//! card reads the new limit back on its next sample.
 
-use crate::autotune::Sample;
-use crate::gpu_control::{ControlError, GpuControl, Knobs};
+use crate::autotune::{Range, Sample};
 
-const SIM_POWER_W: f64 = 250.0;
-const SIM_CLOCK_MHZ: f64 = 2700.0;
-/// The SIM card's stock settings.
-pub const SIM_STOCK: Knobs = Knobs {
-    power_w: SIM_POWER_W,
-    clock_mhz: Some(SIM_CLOCK_MHZ),
+/// The SIM card's driver range.
+pub const SIM_RANGE: Range = Range {
+    min_w: 100.0,
+    default_w: 250.0,
 };
-const SIM_BACKEND: &str = "SIM (simulated GPU, not hardware)";
-/// Draw at full clock, as a share of the stock power limit.
-const DRAW_AT_STOCK: f64 = 0.9;
-/// Hash rate at full clock, in arbitrary SIM units.
-const HASH_AT_STOCK: f64 = 100.0;
-/// Hash rate stops rising with clock below this share of the stock clock.
-const CLOCK_KNEE: f64 = 0.8;
+/// Draw as a share of the limit.
+const DRAW_FRAC: f64 = 0.9;
+/// Hash rate at the default limit, in arbitrary SIM units.
+const HASH_AT_DEFAULT: f64 = 100.0;
+/// Hash rate follows draw to this power: concave, so efficiency rises as the
+/// limit falls and only the hash-rate floor stops the search.
+const HASH_EXPONENT: f64 = 0.3;
 const TEMP_BASE_C: f64 = 35.0;
 const TEMP_SPAN_C: f64 = 40.0;
 
 /// A simulated card. Its log lines all start with `SIM`.
 pub struct SimGpu {
-    current: Knobs,
+    limit_w: f64,
     pub log: Vec<String>,
 }
 
@@ -32,21 +33,38 @@ impl SimGpu {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            current: SIM_STOCK,
+            limit_w: SIM_RANGE.default_w,
             log: Vec::new(),
         }
     }
 
-    /// One reading at the current settings, as a running miner would report it.
+    /// What the user does in their vendor tool. The SIM card clamps to its
+    /// range, as a driver does.
+    pub fn set_limit(&mut self, watts: f64) {
+        self.limit_w = watts.clamp(SIM_RANGE.min_w, SIM_RANGE.default_w);
+        self.log
+            .push(format!("SIM limit set to {} W", self.limit_w));
+    }
+
+    /// Hash rate at a limit.
+    #[must_use]
+    pub fn rate_at(&self, limit_w: f64) -> f64 {
+        let draw = DRAW_FRAC * limit_w;
+        let at_default = DRAW_FRAC * SIM_RANGE.default_w;
+        HASH_AT_DEFAULT * (draw / at_default).powf(HASH_EXPONENT)
+    }
+
+    /// One reading, as the driver and a running miner would give it.
     #[must_use]
     pub fn sample(&self) -> Sample {
-        let (hps, power_w, temp_c) = model(self.current);
+        let draw = DRAW_FRAC * self.limit_w;
         Sample {
-            hps,
-            power_w,
-            temp_c,
+            hps: Some(self.rate_at(self.limit_w)),
+            power_w: Some(draw),
+            limit_w: Some(self.limit_w),
+            temp_c: Some(TEMP_BASE_C + TEMP_SPAN_C * draw / SIM_RANGE.default_w),
             running: true,
-            restarts: 0,
+            ..Sample::default()
         }
     }
 }
@@ -57,47 +75,14 @@ impl Default for SimGpu {
     }
 }
 
-/// Draw follows clock squared, capped by the limit. Hash rate rises with the
-/// clock up to a knee and then holds. Returns `(hps, watts, celsius)`.
-fn model(k: Knobs) -> (f64, f64, f64) {
-    let f = k.clock_mhz.unwrap_or(SIM_CLOCK_MHZ) / SIM_CLOCK_MHZ;
-    let draw = k.power_w.min(DRAW_AT_STOCK * SIM_POWER_W * f * f);
-    let hps = HASH_AT_STOCK * (f / CLOCK_KNEE).min(1.0);
-    let temp = TEMP_BASE_C + TEMP_SPAN_C * draw / SIM_POWER_W;
-    (hps, draw, temp)
-}
-
-impl GpuControl for SimGpu {
-    fn backend(&self) -> &'static str {
-        SIM_BACKEND
-    }
-
-    fn stock(&self) -> Result<Knobs, ControlError> {
-        Ok(SIM_STOCK)
-    }
-
-    fn apply(&mut self, knobs: Knobs) -> Result<(), ControlError> {
-        let within_card = knobs.power_w > 0.0
-            && knobs.power_w <= SIM_POWER_W
-            && knobs
-                .clock_mhz
-                .is_some_and(|c| c > 0.0 && c <= SIM_CLOCK_MHZ);
-        if !within_card {
-            self.log.push(format!(
-                "SIM refused {knobs:?}: above the SIM card's own limits"
-            ));
-            return Err(ControlError::Failed(
-                "SIM: the card refuses that setting".into(),
-            ));
-        }
-        self.log.push(format!("SIM apply {knobs:?}"));
-        self.current = knobs;
-        Ok(())
-    }
-
-    fn reset(&mut self, stock: Knobs) -> Result<(), ControlError> {
-        self.log.push("SIM reset".into());
-        self.current = stock;
-        Ok(())
-    }
+#[test]
+fn the_sim_card_says_it_is_simulated() {
+    let mut sim = SimGpu::new();
+    sim.set_limit(10.0);
+    assert_eq!(
+        sim.sample().limit_w,
+        Some(SIM_RANGE.min_w),
+        "clamped like a driver"
+    );
+    assert!(sim.log.iter().all(|l| l.starts_with("SIM")));
 }

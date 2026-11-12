@@ -75,7 +75,11 @@
 
           <div class="card">
             <h2>Rigs <small id="gpu-note"></small></h2>
-            <p class="fine">One miner per device. A miner that crashes restarts itself with a growing wait. A GPU that runs above its temperature ceiling is stopped until it cools. Tune is off until you press it: it tries lower power and clock settings for that card, stops at the Hub's own limits, and returns the card to stock on a crash, a collapse in hash rate, heat, or when the Hub closes.</p>
+            <p class="fine">One miner per device. A miner that crashes restarts itself with a growing wait. A GPU that runs above its temperature ceiling is stopped until it cools.</p>
+            <p class="fine"><strong>Tune</strong> is a guided power-limit search, off until you press it. The Hub never changes your card. 1. Start mining with the power limit at its default. 2. The Hub shows the next limit to try; you set it (in your GPU tool, or with the command shown, as administrator). 3. The Hub reads it back, waits 30 seconds, measures hash rate per watt for a minute, and shows the next step. It stops when efficiency stops improving or hash rate drops below the floor below, and tells you which limit to keep. If anything goes wrong (heat, a crash, a wrong hash, rejected shares), it tells you to set the default back.</p>
+            <label class="fine tune-floor">Keep at least <output id="tune-floor-out">95%</output> of the default hash rate
+              <input type="range" id="tune-floor" min="80" max="100" step="1" value="95" aria-describedby="tune-floor-out"></label>
+            <p class="fine" id="tune-note"></p>
             <div class="devices" id="devices"></div>
           </div>
 

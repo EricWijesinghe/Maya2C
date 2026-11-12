@@ -69,7 +69,7 @@ const preview = (() => {
     gpu_telemetry: () => ({ devices: [{ index: 0, uuid: "GPU-preview", name: "Preview GPU", temp_c: 58 + Math.random() * 4, power_w: 170 + Math.random() * 15,
       power_limit_w: 250, util_pct: 97, fan_pct: 54, mem_used_mib: 4300, mem_total_mib: 12227, clock_mhz: 2610 }], note: null }),
     // Preview does not tune: the card says so instead of pretending.
-    tune_report: () => ({ devices: [], notice: "preview mode: auto-tuning runs only in the desktop Hub" }),
+    tune_report: () => ({ devices: [], notice: "preview mode: guided tuning runs only in the desktop Hub" }),
   };
 })();
 
@@ -370,8 +370,13 @@ function rigCard(key) {
   });
   const tuneLine = document.createElement("p");
   tuneLine.className = "tune-line";
-  meta.append(counts, heat);
-  card.append(h3, spark, rings, meta, tune, tuneLine, btn);
+  // The command for the limit to set now. Shown as text to copy; the Hub never runs it.
+  const tuneCmd = document.createElement("code");
+  tuneCmd.className = "tune-cmd";
+  const eff = document.createElement("span");
+  eff.className = "rig-eff";
+  meta.append(counts, heat, eff);
+  card.append(h3, spark, rings, meta, tune, tuneLine, tuneCmd, btn);
   card.addEventListener("click", () => showRig(key));
   card.addEventListener("keydown", (e) => {
     if (e.key === "Enter") showRig(key);
@@ -401,20 +406,32 @@ function updateRig(card, key, w, g) {
   const btn = card.querySelector(".rig-btn");
   btn.hidden = state.watchOnly;
   setText(btn, w && w.running ? "Stop" : "Start");
-  updateTune(card, key, g);
+  // Efficiency read-out (ADR-137 T0): hash rate per watt drawn, only from real readings.
+  const hps = w && w.running ? lastRate(w) : 0;
+  const watts = g && Number.isFinite(g.power_w) ? g.power_w : 0;
+  setText(card.querySelector(".rig-eff"), hps > 0 && watts > 0 ? ` · ${(hps / watts).toFixed(2)} H/s per W` : "");
+  updateTune(card, g);
 }
 
-// The Tune toggle and its live line: stock, tuning step n, tuned +x%, or
-// rolled back with the reason. Off unless the user turned it on.
-function updateTune(card, key, g) {
-  const t = state.tune.devices.find((d) => d.index === Number(key.slice(3))) || null;
+// The Tune toggle and its guided steps. The Hub suggests a power limit, you
+// set it, the Hub reads it back and measures. It never changes the card.
+function updateTune(card, g) {
+  const t = (g && g.uuid && state.tune.devices.find((d) => d.uuid === g.uuid)) || null;
   const tune = card.querySelector(".tune-btn");
   const on = Boolean(t && t.on);
   tune.setAttribute("aria-pressed", String(on));
   tune.classList.toggle("on", on);
-  // No UUID, no profile: the driver's GPU cannot be keyed, so it cannot be tuned.
+  // The tuner keys every result by the driver's UUID: no UUID, no tuning.
   tune.disabled = state.watchOnly || !g || !g.uuid;
-  setText(card.querySelector(".tune-line"), t ? [t.line, t.note].filter(Boolean).join(" · ") : "stock");
+  const saved = t && t.saved_w ? ` Last result for this card: ${t.saved_w} W.` : "";
+  setText(card.querySelector(".tune-line"), t ? t.line + saved : "Tune is off. Press Tune for a guided power-limit search.");
+  // A command the user may paste as administrator: only from a well-formed UUID and a real number.
+  const safe = t && Number.isFinite(t.set_w) && /^GPU-[0-9a-fA-F-]+$/.test(g.uuid);
+  const cmd = safe ? `nvidia-smi -i ${g.uuid} -pl ${Math.round(t.set_w)}` : "";
+  const code = card.querySelector(".tune-cmd");
+  code.hidden = !cmd;
+  code.title = "Run in an administrator terminal, or set the same watts in your GPU tool";
+  setText(code, cmd);
 }
 
 function showRig(key) {
@@ -584,17 +601,35 @@ async function togglePower() {
   for (const device of rest) await startDevice(device);
 }
 
-// Tune is opt-in per card and visible on it. Off is the default and stock is
-// where every card goes back to (ADR-137).
+// Tune is opt-in per card and visible on it. Off is the default; the backend
+// takes the card's UUID and the floor, never a watt value (ADR-137 R-1).
 async function toggleTune(key) {
-  const index = Number(key.slice(3));
-  const on = !(state.tune.devices.find((d) => d.index === index) || { on: false }).on;
+  const g = gpuOf(key);
+  if (!g || !g.uuid) return;
+  const on = !(state.tune.devices.find((d) => d.uuid === g.uuid) || { on: false }).on;
   try {
-    await call("tune_set", { index, on, ceilingC: state.settings.thermal_ceiling_c });
+    await call("tune_set", { uuid: g.uuid, on, floorPct: tuneFloor(), ceilingC: state.settings.thermal_ceiling_c });
   } catch (err) {
     setText("gpu-note", String(err));
   }
   await refreshTune();
+}
+
+// The hash-rate floor slider (ADR-137 O-3): keep at least this share of the
+// default-limit hash rate. Default 95 %; the backend clamps it to 80-100 %.
+const TUNE_FLOOR_DEFAULT = 95;
+const tuneFloor = () => Number(state.settings.tune_floor_pct ?? TUNE_FLOOR_DEFAULT);
+
+function wireTuneFloor() {
+  const slider = $("tune-floor");
+  const show = () => setText("tune-floor-out", `${slider.value}%`);
+  slider.value = String(tuneFloor());
+  show();
+  slider.addEventListener("input", show);
+  slider.addEventListener("change", () => {
+    state.settings = { ...state.settings, tune_floor_pct: Number(slider.value) };
+    saveSettings(state.settings);
+  });
 }
 
 async function refreshTune() {
@@ -716,6 +751,7 @@ async function main() {
   state.settings = loadSettings(defaults);
   wireNav();
   wireSettings(defaults, state.gpus);
+  wireTuneFloor();
   renderUniverse();
   Wallet.init({ call, url: () => state.settings.rpc });
   NetView.init({ canvas: $("orb"), layer: $("net-layer"), tip: $("net-tip"), reduced: reducedMotion, onSelect: showNetDetail });
@@ -738,7 +774,13 @@ async function main() {
     renderNode();
   }, POLL_NODE_MS);
   poll("gpu_telemetry", () => undefined, (g) => { if (g) { state.gpus = g; renderRigs(); } }, POLL_GPU_MS);
-  poll("tune_report", () => undefined, (r) => { if (r) { state.tune = r; renderRigs(); } }, POLL_GPU_MS);
+  poll("tune_report", () => undefined, (r) => {
+    if (r) {
+      state.tune = r;
+      setText("tune-note", r.notice || "");
+      renderRigs();
+    }
+  }, POLL_GPU_MS);
   requestAnimationFrame(frame);
 }
 

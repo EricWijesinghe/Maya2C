@@ -1,243 +1,271 @@
-//! Hub GPU auto-tuner, the decision core (ADR-137, HW-1).
+//! Hub GPU tuner, the decision core (ADR-137 HW-1, stage T1a: guided).
 //!
-//! Pure: no I/O, no clock, no randomness. The driver in `tuning.rs` feeds it
-//! one [`Sample`] per tick and carries out the [`Step`] it returns, so the same
-//! samples always give the same decisions. Every setting it asks for stays
-//! inside [`Bounds`], which is built from the stock settings and never widens.
+//! The Hub never writes to the card. This state machine says which power
+//! limit the user should set next, waits until the driver reads that limit
+//! back, measures hash rate per watt over a window, and stops at the first
+//! step whose efficiency is no better than the previous one or whose hash rate
+//! is under the user's floor; it keeps the previous step. Power limit only
+//! (O-1): no clocks, no fans.
+//!
+//! Pure: no I/O, no clock, no randomness. `tuning.rs` feeds it one [`Sample`]
+//! per supervisor tick, so the same samples always give the same steps.
 
 use serde::Serialize;
 
-use crate::gpu_control::Knobs;
+use crate::watchdog::{THERMAL_CEILING_C, THERMAL_HYSTERESIS_C};
 
-// Policy limits, not measurements. Changing one needs a recorded sweep in
+// Policy values, not measurements (ADR-137: chosen from measurement in a
+// later PR; none exists yet). Changing one needs a recorded run in
 // docs/mining/gpu-autotune.md.
-/// Power never goes below this share of the stock power limit.
-pub const POWER_FLOOR_FRAC: f64 = 0.6;
-/// The core clock never goes below this share of the stock clock.
-pub const CLOCK_FLOOR_FRAC: f64 = 0.7;
-/// One search notch on the power limit, as a share of stock.
-pub const POWER_STEP_FRAC: f64 = 0.05;
-/// One search notch on the core clock, as a share of stock.
-pub const CLOCK_STEP_FRAC: f64 = 0.05;
-/// Most measured trials in one session.
-pub const MAX_TRIALS: u32 = 24;
-/// A candidate must beat the best efficiency by this share to be kept, so
-/// sampling noise cannot walk the setting around.
-pub const MIN_GAIN: f64 = 0.01;
-/// Hash rate below this share of stock is a collapse.
-pub const COLLAPSE_FRAC: f64 = 0.5;
-/// Consecutive collapsed samples before a tuned GPU is rolled back.
-pub const COLLAPSE_STREAK: u32 = 2;
-/// The tuner never allows a temperature above this, whatever the user asks
-/// for. Matches the watchdog's own default (watchdog.rs).
-pub const TEMP_CEILING_C: f64 = 80.0;
-/// Two candidates in a row that do not win end the search.
-const SEARCH_REJECTS: u32 = 2;
-/// Samples dropped after each write, so the device can settle.
-const SETTLE_SAMPLES: u32 = 1;
-/// Samples averaged into one measurement.
-const WINDOW_SAMPLES: usize = 3;
+/// The hash-rate floor slider's default, in percent of the default-limit rate (O-3).
+pub const FLOOR_PCT_DEFAULT: f64 = 95.0;
+/// The slider's range. The user moves inside it and never outside.
+pub const FLOOR_PCT_MIN: f64 = 80.0;
+pub const FLOOR_PCT_MAX: f64 = 100.0;
+/// One step down, as a share of the driver's range (default minus minimum).
+pub const STEP_FRAC: f64 = 0.1;
+/// Samples ignored after the limit reads back, so the card can settle. At
+/// the supervisor's 3-second GPU tick this is 30 s.
+pub const SETTLE_SAMPLES: u32 = 10;
+/// Valid samples averaged into one measurement: 60 s at a 3-second tick.
+pub const WINDOW_SAMPLES: usize = 20;
+/// How far a read-back limit may sit from the asked value (the driver rounds).
+pub const READBACK_TOLERANCE_W: f64 = 1.0;
+/// A trial aborts this far below the user's temperature ceiling.
+pub const THERMAL_MARGIN_C: f64 = 3.0;
 
-/// One reading of a GPU and its miner, taken once per supervisor tick.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The driver-reported power range for one card in this session.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Range {
+    pub min_w: f64,
+    pub default_w: f64,
+}
+
+impl Range {
+    /// `None` unless the driver reported both ends, finite, with `0 < min < default`.
+    #[must_use]
+    pub fn new(min_w: Option<f64>, default_w: Option<f64>) -> Option<Self> {
+        let (min_w, default_w) = (min_w?, default_w?);
+        (min_w.is_finite() && default_w.is_finite() && min_w > 0.0 && min_w < default_w)
+            .then_some(Self { min_w, default_w })
+    }
+
+    fn step_w(self) -> f64 {
+        ((self.default_w - self.min_w) * STEP_FRAC).max(1.0)
+    }
+}
+
+/// Hash rate per watt (hashes per joule), or `None` for a reading that is
+/// missing, zero or not finite. The efficiency read-out (ADR-137 T0).
+#[must_use]
+pub fn efficiency(hps: Option<f64>, power_w: Option<f64>) -> Option<f64> {
+    let (hps, power_w) = (hps?, power_w?);
+    (hps.is_finite() && power_w.is_finite() && hps > 0.0 && power_w > 0.0).then(|| hps / power_w)
+}
+
+/// One reading of a card and its miner. `None` is a reading the driver or
+/// the miner did not give: never a guess.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Sample {
-    pub hps: f64,
-    pub power_w: f64,
-    pub temp_c: f64,
+    pub hps: Option<f64>,
+    pub power_w: Option<f64>,
+    /// The power limit the driver reads back now.
+    pub limit_w: Option<f64>,
+    pub temp_c: Option<f64>,
     pub running: bool,
     pub restarts: u32,
+    pub rejected: u64,
+    pub hw_errors: u64,
 }
 
-/// The limits every write must satisfy: power and clock only ever fall
-/// from stock, and never below the floors.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Bounds {
-    pub power_min_w: f64,
-    pub power_max_w: f64,
-    pub clock_min_mhz: Option<f64>,
-    pub clock_max_mhz: Option<f64>,
-}
-
-impl Bounds {
-    /// Bounds around the stock settings.
-    #[must_use]
-    pub fn around(stock: Knobs) -> Self {
-        Self {
-            power_min_w: (stock.power_w * POWER_FLOOR_FRAC).ceil(),
-            power_max_w: stock.power_w,
-            clock_min_mhz: stock.clock_mhz.map(|c| (c * CLOCK_FLOOR_FRAC).ceil()),
-            clock_max_mhz: stock.clock_mhz,
-        }
-    }
-
-    /// True when `k` may be written to the device.
-    #[must_use]
-    pub fn contains(&self, k: Knobs) -> bool {
-        let power_ok = (self.power_min_w..=self.power_max_w).contains(&k.power_w);
-        let clock_ok = match (k.clock_mhz, self.clock_min_mhz, self.clock_max_mhz) {
-            (None, None, None) => true,
-            (Some(c), Some(lo), Some(hi)) => (lo..=hi).contains(&c),
-            _ => false,
-        };
-        power_ok && clock_ok
-    }
-}
-
-/// Which knob the search moves next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Dial {
-    Clock,
-    Power,
-}
-
-impl Dial {
-    const fn other(self) -> Self {
-        match self {
-            Self::Clock => Self::Power,
-            Self::Power => Self::Clock,
-        }
-    }
-}
-
-/// Why a session ended in a rollback to stock.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why a session stopped early.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum Reason {
-    MinerCrashed,
+    MissingReading,
     MinerStopped,
-    HashrateCollapse,
+    MinerRestarted,
     OverTemperature,
-    ControlError,
-    UserTurnedOff,
-    AppExit,
+    HardwareError,
+    SharesRejected,
+    LimitAboveDefault,
+    JournalFailed,
+    UserStopped,
 }
 
 impl Reason {
-    /// The words the UI shows after "rolled back: ".
+    /// Every reason, for the tests.
+    #[cfg(test)]
+    pub const ALL: [Self; 9] = [
+        Self::MissingReading,
+        Self::MinerStopped,
+        Self::MinerRestarted,
+        Self::OverTemperature,
+        Self::HardwareError,
+        Self::SharesRejected,
+        Self::LimitAboveDefault,
+        Self::JournalFailed,
+        Self::UserStopped,
+    ];
+
     #[must_use]
     pub const fn words(self) -> &'static str {
         match self {
-            Self::MinerCrashed => "the miner crashed",
+            Self::MissingReading => "a reading went missing",
             Self::MinerStopped => "the miner stopped",
-            Self::HashrateCollapse => "hash rate collapsed",
-            Self::OverTemperature => "GPU over its temperature ceiling",
-            Self::ControlError => "the driver refused a setting",
-            Self::UserTurnedOff => "tuning turned off",
-            Self::AppExit => "the Hub is closing",
+            Self::MinerRestarted => "the miner crashed and restarted",
+            Self::OverTemperature => "the card reached its temperature limit",
+            Self::HardwareError => "the card returned a wrong hash",
+            Self::SharesRejected => "more shares were rejected than at the default",
+            Self::LimitAboveDefault => "the power limit is above the driver default",
+            Self::JournalFailed => "the Hub could not record the step",
+            Self::UserStopped => "you stopped tuning",
         }
+    }
+
+    /// True when the stop says something about the trial setting, so that
+    /// step is marked bad for this card and driver.
+    #[must_use]
+    pub const fn implicates_setting(self) -> bool {
+        matches!(
+            self,
+            Self::MinerRestarted
+                | Self::OverTemperature
+                | Self::HardwareError
+                | Self::SharesRejected
+        )
     }
 }
 
-/// Where the tuner is.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Phase {
-    /// Tuning is on, but the miner has not hashed yet.
-    Waiting,
-    /// Measuring the stock settings, the reference for every trial.
-    Baseline,
-    /// Measuring one candidate.
-    Trial(Knobs),
-    /// Settled on the best setting, still watched for collapse and heat.
-    Tuned,
-    RolledBack(Reason),
+/// What the user should do after a stop. Always back to the driver
+/// default; on heat, only once the card has cooled, because the default is
+/// a higher limit than the trial (ADR-137: an abort never raises the limit
+/// on a hot card).
+#[must_use]
+pub fn rollback_guidance(reason: Reason, range: Range, ceiling_c: f64) -> String {
+    let d = range.default_w.round();
+    match reason {
+        Reason::OverTemperature => format!(
+            "Stopped: {}. Leave the power limit where it is until the card reads below {:.0} °C, \
+             then set it back to the default, {d} W.",
+            reason.words(),
+            capped_ceiling(ceiling_c) - THERMAL_HYSTERESIS_C
+        ),
+        _ => format!(
+            "Stopped: {}. Set the power limit back to the default, {d} W.",
+            reason.words()
+        ),
+    }
 }
 
-/// What the driver must do after a sample. `Settle` means the search is
-/// over and `Knobs` is the setting to keep.
+fn capped_ceiling(ceiling_c: f64) -> f64 {
+    if ceiling_c.is_finite() {
+        ceiling_c.min(THERMAL_CEILING_C)
+    } else {
+        THERMAL_CEILING_C
+    }
+}
+
+/// The slider value, kept inside its compiled range. A value that is not a
+/// number is the default.
+#[must_use]
+pub fn clamp_floor_pct(pct: f64) -> f64 {
+    if pct.is_finite() {
+        pct.clamp(FLOOR_PCT_MIN, FLOOR_PCT_MAX)
+    } else {
+        FLOOR_PCT_DEFAULT
+    }
+}
+
+/// Where a session is.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum Phase {
+    /// Waiting for a hashing miner with the limit at the driver default.
+    WaitDefault,
+    /// Measuring at the default: the reference for every step.
+    Baseline,
+    /// The user was asked to set this limit; waiting to read it back.
+    Await(f64),
+    /// The limit reads back; settling, then measuring.
+    Measure(f64),
+    /// Finished: keep this limit.
+    Done(f64),
+    Aborted(Reason),
+}
+
+impl Phase {
+    /// True until the search is finished or stopped.
+    #[must_use]
+    pub const fn active(self) -> bool {
+        !matches!(self, Self::Done(_) | Self::Aborted(_))
+    }
+}
+
+/// What the driver must record after a sample.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {
     Hold,
-    Apply(Knobs),
-    Settle(Knobs),
-    Rollback(Reason),
+    /// A new step to show. The journal entry is written before it is shown.
+    Suggest {
+        trial_w: f64,
+        previous_w: f64,
+    },
+    Finished {
+        best_w: f64,
+        gain_pct: f64,
+    },
+    Aborted(Reason),
 }
 
-/// Efficiency in hash rate per watt drawn.
-fn efficiency(s: Sample) -> f64 {
-    s.hps / s.power_w
-}
-
-/// The mean of a non-empty window, with the flags taken as live.
-fn mean(window: &[Sample]) -> Sample {
-    let n = window.len() as f64;
-    let (hps, power_w, temp_c) = window.iter().fold((0.0, 0.0, 0.0), |acc, s| {
-        (acc.0 + s.hps, acc.1 + s.power_w, acc.2 + s.temp_c)
-    });
-    Sample {
-        hps: hps / n,
-        power_w: power_w / n,
-        temp_c: temp_c / n,
-        running: true,
-        restarts: 0,
-    }
-}
-
-/// The setting one notch down on `dial`, or `None` at its bound or when the
-/// device has no such knob.
-fn notch(best: Knobs, dial: Dial, stock: Knobs, bounds: &Bounds) -> Option<Knobs> {
-    let next = match dial {
-        Dial::Power => Knobs {
-            power_w: (best.power_w - stock.power_w * POWER_STEP_FRAC)
-                .round()
-                .max(bounds.power_min_w),
-            ..best
-        },
-        Dial::Clock => {
-            let current = best.clock_mhz?;
-            let floor = bounds.clock_min_mhz?;
-            let step = stock.clock_mhz? * CLOCK_STEP_FRAC;
-            Knobs {
-                clock_mhz: Some((current - step).round().max(floor)),
-                ..best
-            }
-        }
-    };
-    (next != best && bounds.contains(next)).then_some(next)
-}
-
-/// One GPU's search. Starts at stock, tries the saved seed first if there is
-/// one, then steps clock and power down while efficiency keeps rising.
+/// One card's guided search.
 pub struct Tuner {
-    stock: Knobs,
-    bounds: Bounds,
+    range: Range,
+    floor: f64,
     ceiling_c: f64,
-    seed: Option<Knobs>,
+    /// Steps at or below this limit were marked bad for this driver.
+    bad_at_or_below_w: Option<f64>,
     phase: Phase,
-    best: Knobs,
-    stock_hps: f64,
-    stock_eff: f64,
-    best_eff: f64,
-    dial: Dial,
-    trials: u32,
-    rejects: u32,
-    low_streak: u32,
     settle_left: u32,
-    window: Vec<Sample>,
-    last_restarts: u32,
+    window: Vec<(f64, f64)>,
+    base_hps: f64,
+    base_eff: f64,
+    prev_w: f64,
+    prev_eff: f64,
+    start_restarts: Option<u32>,
+    start_hw_errors: u64,
+    rejected_at_window: u64,
+    base_rejected: u64,
+}
+
+fn near(a: f64, b: f64) -> bool {
+    (a - b).abs() <= READBACK_TOLERANCE_W
 }
 
 impl Tuner {
-    /// `ceiling_c` is the user's ceiling and is capped at [`TEMP_CEILING_C`].
-    /// `seed` is a best setting saved by an earlier session. It is tried first,
-    /// and kept only if it beats stock like any other candidate.
+    /// `floor_pct` is the slider; `ceiling_c` the user's temperature ceiling,
+    /// capped at the watchdog's own.
     #[must_use]
-    pub fn new(stock: Knobs, ceiling_c: f64, seed: Option<Knobs>) -> Self {
+    pub fn new(
+        range: Range,
+        floor_pct: f64,
+        ceiling_c: f64,
+        bad_at_or_below_w: Option<f64>,
+    ) -> Self {
         Self {
-            stock,
-            bounds: Bounds::around(stock),
-            ceiling_c: ceiling_c.min(TEMP_CEILING_C),
-            seed,
-            phase: Phase::Waiting,
-            best: stock,
-            stock_hps: 0.0,
-            stock_eff: 0.0,
-            best_eff: 0.0,
-            dial: Dial::Clock,
-            trials: 0,
-            rejects: 0,
-            low_streak: 0,
+            range,
+            floor: clamp_floor_pct(floor_pct) / 100.0,
+            ceiling_c: capped_ceiling(ceiling_c),
+            bad_at_or_below_w,
+            phase: Phase::WaitDefault,
             settle_left: 0,
             window: Vec::new(),
-            last_restarts: 0,
+            base_hps: 0.0,
+            base_eff: 0.0,
+            prev_w: range.default_w,
+            prev_eff: 0.0,
+            start_restarts: None,
+            start_hw_errors: 0,
+            rejected_at_window: 0,
+            base_rejected: 0,
         }
     }
 
@@ -247,448 +275,512 @@ impl Tuner {
     }
 
     #[must_use]
-    pub const fn trials(&self) -> u32 {
-        self.trials
+    pub const fn range(&self) -> Range {
+        self.range
     }
 
-    /// Efficiency gain over stock, in percent, once a trial has been measured.
     #[must_use]
-    pub fn gain_pct(&self) -> Option<f64> {
-        let measured = matches!(self.phase, Phase::Trial(_) | Phase::Tuned);
-        (measured && self.stock_eff > 0.0).then(|| (self.best_eff / self.stock_eff - 1.0) * 100.0)
+    pub const fn ceiling_c(&self) -> f64 {
+        self.ceiling_c
     }
 
-    /// Ends the session with a rollback. The driver resets the device to stock.
-    pub fn stop(&mut self, reason: Reason) -> Step {
-        match self.phase {
-            Phase::RolledBack(_) => Step::Hold,
-            _ => self.rollback(reason),
+    #[must_use]
+    pub fn floor_pct(&self) -> f64 {
+        self.floor * 100.0
+    }
+
+    /// Ends the session from outside (the user, or a failed journal write).
+    pub fn abort(&mut self, reason: Reason) -> Step {
+        if self.phase.active() {
+            self.phase = Phase::Aborted(reason);
+            Step::Aborted(reason)
+        } else {
+            Step::Hold
         }
     }
 
-    /// Consumes one sample and says what to do about it.
     pub fn on_sample(&mut self, s: Sample) -> Step {
         match self.phase {
-            Phase::RolledBack(_) => Step::Hold,
-            Phase::Waiting => {
-                if s.running {
-                    self.phase = Phase::Baseline;
-                    self.settle_left = SETTLE_SAMPLES;
-                    self.last_restarts = s.restarts;
-                }
-                Step::Hold
-            }
-            _ => self.watch(s),
+            Phase::Done(_) | Phase::Aborted(_) => Step::Hold,
+            Phase::WaitDefault => self.wait_default(s),
+            _ => match self.safety(s) {
+                Some(reason) => self.abort(reason),
+                None => self.progress(s),
+            },
         }
     }
 
-    /// Safety checks run on every sample; the search only on settled ones.
-    fn watch(&mut self, s: Sample) -> Step {
-        if s.restarts > self.last_restarts {
-            return self.rollback(Reason::MinerCrashed);
+    fn wait_default(&mut self, s: Sample) -> Step {
+        let ready = s.running
+            && s.limit_w.is_some_and(|l| near(l, self.range.default_w))
+            && efficiency(s.hps, s.power_w).is_some();
+        if ready {
+            self.phase = Phase::Baseline;
+            self.settle_left = SETTLE_SAMPLES;
+            self.start_restarts = Some(s.restarts);
+            self.start_hw_errors = s.hw_errors;
+            self.rejected_at_window = s.rejected;
+            self.window.clear();
         }
-        self.last_restarts = s.restarts;
+        Step::Hold
+    }
+
+    /// The abort checks, run on every sample once measuring has begun.
+    fn safety(&self, s: Sample) -> Option<Reason> {
         if !s.running {
-            return self.rollback(Reason::MinerStopped);
+            return Some(Reason::MinerStopped);
         }
-        if s.temp_c > self.ceiling_c {
-            return self.rollback(Reason::OverTemperature);
+        if self.start_restarts.is_some_and(|r| s.restarts > r) {
+            return Some(Reason::MinerRestarted);
         }
+        if s.hw_errors > self.start_hw_errors {
+            return Some(Reason::HardwareError);
+        }
+        let (Some(_), Some(_), Some(limit), Some(temp)) = (s.hps, s.power_w, s.limit_w, s.temp_c)
+        else {
+            return Some(Reason::MissingReading);
+        };
+        if !(limit.is_finite() && temp.is_finite()) {
+            return Some(Reason::MissingReading);
+        }
+        if temp >= self.ceiling_c - THERMAL_MARGIN_C {
+            return Some(Reason::OverTemperature);
+        }
+        if limit > self.range.default_w + READBACK_TOLERANCE_W {
+            return Some(Reason::LimitAboveDefault);
+        }
+        let in_window = s.rejected.saturating_sub(self.rejected_at_window);
+        (matches!(self.phase, Phase::Measure(_)) && in_window > self.base_rejected)
+            .then_some(Reason::SharesRejected)
+    }
+
+    fn progress(&mut self, s: Sample) -> Step {
+        let limit = s.limit_w.unwrap_or(f64::NAN);
+        match self.phase {
+            Phase::Baseline if !near(limit, self.range.default_w) => {
+                self.phase = Phase::WaitDefault;
+                Step::Hold
+            }
+            Phase::Await(w) if near(limit, w) => {
+                self.phase = Phase::Measure(w);
+                self.settle_left = SETTLE_SAMPLES;
+                self.window.clear();
+                self.rejected_at_window = s.rejected;
+                Step::Hold
+            }
+            Phase::Measure(w) if !near(limit, w) => {
+                // The user moved it: nothing is measured until it reads back again.
+                self.phase = Phase::Await(w);
+                self.window.clear();
+                Step::Hold
+            }
+            Phase::Baseline | Phase::Measure(_) => self.measure(s),
+            _ => Step::Hold,
+        }
+    }
+
+    /// Adds a sample to the window. A zero, missing or non-finite sample
+    /// voids the window, so a step needs a full valid one.
+    fn measure(&mut self, s: Sample) -> Step {
         if self.settle_left > 0 {
             self.settle_left -= 1;
             return Step::Hold;
         }
-        if let Some(step) = self.collapse_guard(s) {
-            return step;
-        }
-        match self.phase {
-            Phase::Tuned => Step::Hold,
-            _ => self.measure(s),
-        }
-    }
-
-    /// Two low samples in a row roll back to stock. Active only once the
-    /// stock hash rate is known.
-    fn collapse_guard(&mut self, s: Sample) -> Option<Step> {
-        if self.stock_hps <= 0.0 {
-            return None;
-        }
-        self.low_streak = if s.hps < COLLAPSE_FRAC * self.stock_hps {
-            self.low_streak + 1
-        } else {
-            0
+        let (Some(hps), Some(power)) = (s.hps, s.power_w) else {
+            self.window.clear();
+            return Step::Hold;
         };
-        (self.low_streak >= COLLAPSE_STREAK).then(|| self.rollback(Reason::HashrateCollapse))
-    }
-
-    /// Adds a sample to the window; a full window is one measurement.
-    fn measure(&mut self, s: Sample) -> Step {
-        if !(s.hps.is_finite() && s.hps > 0.0 && s.power_w.is_finite() && s.power_w > 0.0) {
+        if efficiency(Some(hps), Some(power)).is_none() {
+            self.window.clear();
             return Step::Hold;
         }
-        self.window.push(s);
+        self.window.push((hps, power));
         if self.window.len() < WINDOW_SAMPLES {
             return Step::Hold;
         }
-        let measured = mean(&self.window);
-        self.window.clear();
+        let n = self.window.len() as f64;
+        let (h, p) = self
+            .window
+            .drain(..)
+            .fold((0.0, 0.0), |a, (h, p)| (a.0 + h, a.1 + p));
+        let (hps, eff) = (h / n, h / p);
+        let rejected_now = s.rejected.saturating_sub(self.rejected_at_window);
+        self.rejected_at_window = s.rejected;
         match self.phase {
-            Phase::Trial(k) => self.judge(k, measured),
-            _ => self.finish_baseline(measured),
+            Phase::Measure(w) => self.judge(w, hps, eff),
+            _ => {
+                self.base_hps = hps;
+                self.base_eff = eff;
+                self.prev_eff = eff;
+                self.base_rejected = rejected_now;
+                self.next_from(self.range.default_w)
+            }
         }
     }
 
-    fn finish_baseline(&mut self, measured: Sample) -> Step {
-        self.stock_hps = measured.hps;
-        self.stock_eff = efficiency(measured);
-        self.best_eff = self.stock_eff;
-        self.advance()
+    fn judge(&mut self, w: f64, hps: f64, eff: f64) -> Step {
+        if hps < self.floor * self.base_hps || eff <= self.prev_eff {
+            return self.finish(self.prev_w);
+        }
+        self.prev_w = w;
+        self.prev_eff = eff;
+        self.next_from(w)
     }
 
-    /// Keeps the candidate only if it is inside the power ceiling and beats the
-    /// best efficiency by [`MIN_GAIN`]. Otherwise the search moves on.
-    fn judge(&mut self, k: Knobs, measured: Sample) -> Step {
-        let eff = efficiency(measured);
-        let within_power = measured.power_w <= self.bounds.power_max_w;
-        if within_power && eff > self.best_eff * (1.0 + MIN_GAIN) {
-            self.best = k;
-            self.best_eff = eff;
-            self.rejects = 0;
+    /// The next step below `from`, or the end of the search.
+    fn next_from(&mut self, from: f64) -> Step {
+        let next = (from - self.range.step_w())
+            .round()
+            .max(self.range.min_w.ceil());
+        let allowed = next < from
+            && next >= self.range.min_w
+            && next < self.range.default_w
+            && self.bad_at_or_below_w.is_none_or(|bad| next > bad);
+        if !allowed {
+            return self.finish(from);
+        }
+        self.phase = Phase::Await(next);
+        Step::Suggest {
+            trial_w: next,
+            previous_w: from,
+        }
+    }
+
+    fn finish(&mut self, best_w: f64) -> Step {
+        self.phase = Phase::Done(best_w);
+        let gain_pct = if self.base_eff > 0.0 && best_w < self.range.default_w {
+            (self.prev_eff / self.base_eff - 1.0) * 100.0
         } else {
-            self.rejects += 1;
-            self.dial = self.dial.other();
-        }
-        self.advance()
-    }
-
-    /// Starts the next trial, or settles when the search is spent.
-    fn advance(&mut self) -> Step {
-        if let Some(seed) = self.seed.take() {
-            if self.bounds.contains(seed) && seed != self.best {
-                return self.start_trial(seed);
-            }
-        }
-        loop {
-            if self.trials >= MAX_TRIALS || self.rejects >= SEARCH_REJECTS {
-                return self.settle();
-            }
-            match notch(self.best, self.dial, self.stock, &self.bounds) {
-                Some(next) => return self.start_trial(next),
-                None => {
-                    self.rejects += 1;
-                    self.dial = self.dial.other();
-                }
-            }
-        }
-    }
-
-    fn start_trial(&mut self, k: Knobs) -> Step {
-        self.trials += 1;
-        self.phase = Phase::Trial(k);
-        self.settle_left = SETTLE_SAMPLES;
-        Step::Apply(k)
-    }
-
-    fn settle(&mut self) -> Step {
-        self.phase = Phase::Tuned;
-        self.settle_left = SETTLE_SAMPLES;
-        self.low_streak = 0;
-        Step::Settle(self.best)
-    }
-
-    fn rollback(&mut self, reason: Reason) -> Step {
-        self.phase = Phase::RolledBack(reason);
-        self.window.clear();
-        self.low_streak = 0;
-        Step::Rollback(reason)
+            0.0
+        };
+        Step::Finished { best_w, gain_pct }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu_control::GpuControl;
-    use crate::sim_gpu::{SIM_STOCK, SimGpu};
+    use crate::sim_gpu::{SIM_RANGE, SimGpu};
 
-    /// A reading from a running miner, with the flags it always has.
-    fn live(hps: f64, power_w: f64, temp_c: f64) -> Sample {
-        Sample {
-            hps,
-            power_w,
-            temp_c,
-            running: true,
-            restarts: 0,
-        }
-    }
+    const CEILING: f64 = 80.0;
 
-    /// Stock hash rate, draw and temperature of the SIM card.
-    fn stock_reading() -> Sample {
-        live(100.0, 225.0, 71.0)
-    }
-
-    /// Feeds stock readings until the first trial is requested.
-    fn into_trial(t: &mut Tuner) -> Step {
-        let mut step = Step::Hold;
-        for _ in 0..5 {
-            step = t.on_sample(stock_reading());
-        }
-        step
-    }
-
-    /// Drives the tuner against the SIM card until it settles, returning the
-    /// tuner, the card, and every setting it was asked to write.
-    fn run_sim(seed: Option<Knobs>) -> (Tuner, SimGpu, Vec<Knobs>) {
-        const RUN_CAP: usize = 400;
+    /// Drives one tuner against the SIM card, the test playing the user who
+    /// sets each suggested limit. Returns every suggestion and the end step.
+    fn run_sim(floor_pct: f64) -> (Vec<f64>, Step, SimGpu) {
+        const RUN_CAP: usize = 2_000;
         let mut sim = SimGpu::new();
-        let mut tuner = Tuner::new(SIM_STOCK, TEMP_CEILING_C, seed);
-        let mut applied = Vec::new();
-        let mut step = tuner.on_sample(sim.sample());
+        let mut t = Tuner::new(SIM_RANGE, floor_pct, CEILING, None);
+        let mut asked = Vec::new();
         for _ in 0..RUN_CAP {
-            match step {
-                Step::Apply(k) | Step::Settle(k) => {
-                    sim.apply(k)
-                        .expect("in-bound knobs are inside the SIM card's limits");
-                    applied.push(k);
-                    if matches!(step, Step::Settle(_)) {
-                        break;
-                    }
+            match t.on_sample(sim.sample()) {
+                Step::Suggest { trial_w, .. } => {
+                    asked.push(trial_w);
+                    sim.set_limit(trial_w);
                 }
-                Step::Rollback(r) => panic!("unexpected rollback: {r:?}"),
-                Step::Hold => {}
-            }
-            step = tuner.on_sample(sim.sample());
-        }
-        (tuner, sim, applied)
-    }
-
-    #[test]
-    fn bounds_only_fall_from_stock_and_stop_at_the_floors() {
-        let bounds = Bounds::around(SIM_STOCK);
-        assert!(bounds.contains(SIM_STOCK));
-        assert!(!bounds.contains(Knobs {
-            power_w: SIM_STOCK.power_w + 1.0,
-            ..SIM_STOCK
-        }));
-        assert!(!bounds.contains(Knobs {
-            clock_mhz: Some(2701.0),
-            ..SIM_STOCK
-        }));
-        assert!(!bounds.contains(Knobs {
-            power_w: 149.0,
-            ..SIM_STOCK
-        }));
-        assert!(!bounds.contains(Knobs {
-            clock_mhz: Some(1889.0),
-            ..SIM_STOCK
-        }));
-        assert!(bounds.contains(Knobs {
-            power_w: 150.0,
-            clock_mhz: Some(1890.0)
-        }));
-    }
-
-    #[test]
-    fn notch_walks_each_knob_to_its_floor_and_stops_there() {
-        let bounds = Bounds::around(SIM_STOCK);
-        for (dial, floor) in [(Dial::Power, 150.0), (Dial::Clock, 1890.0)] {
-            let mut k = SIM_STOCK;
-            let mut notches = 0;
-            while let Some(next) = notch(k, dial, SIM_STOCK, &bounds) {
-                assert!(bounds.contains(next), "{next:?} left the bounds");
-                k = next;
-                notches += 1;
-                assert!(notches < 100, "the walk must end at the floor");
-            }
-            let at_floor = match dial {
-                Dial::Power => k.power_w,
-                Dial::Clock => k.clock_mhz.expect("SIM card has a clock"),
-            };
-            assert_eq!(at_floor, floor);
-        }
-    }
-
-    #[test]
-    fn waits_for_a_running_miner_before_measuring() {
-        let mut t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        let idle = Sample {
-            running: false,
-            ..stock_reading()
-        };
-        assert_eq!(t.on_sample(idle), Step::Hold);
-        assert_eq!(t.phase(), Phase::Waiting);
-    }
-
-    #[test]
-    fn the_sim_search_is_deterministic_and_keeps_a_gain() {
-        let (tuner, sim, applied) = run_sim(None);
-        let (_, _, again) = run_sim(None);
-        assert_eq!(applied, again, "the same curve gives the same trials");
-        assert_eq!(tuner.phase(), Phase::Tuned);
-        assert!(tuner.trials() <= MAX_TRIALS);
-        let best = *applied.last().expect("the search settled");
-        // Hand-derived for the SIM curve: draw falls with clock squared while
-        // hash rate holds to the knee, so the clock runs to its floor. Draw at
-        // that clock (about 110 W) sits under the power limit, so the power
-        // notch never helps and the search keeps the stock limit.
-        assert_eq!(best.clock_mhz, Some(1890.0));
-        assert_eq!(best.power_w, SIM_STOCK.power_w);
-        assert!(tuner.gain_pct().is_some_and(|g| g > 50.0));
-        assert!(sim.log.iter().all(|line| line.starts_with("SIM")));
-    }
-
-    #[test]
-    fn every_setting_asked_for_stays_inside_the_bounds_under_noise() {
-        let bounds = Bounds::around(SIM_STOCK);
-        let mut lcg: u64 = 0x9E37_79B9_7F4A_7C15;
-        let mut next = || {
-            lcg = lcg
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            (lcg >> 11) as f64 / (1_u64 << 53) as f64
-        };
-        let mut t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        let mut asked = 0;
-        for _ in 0..5000 {
-            let s = Sample {
-                hps: 50.0 + 100.0 * next(),
-                power_w: 100.0 + 200.0 * next(),
-                temp_c: 60.0 + 25.0 * next(),
-                running: next() > 0.02,
-                restarts: 0,
-            };
-            match t.on_sample(s) {
-                Step::Apply(k) | Step::Settle(k) => {
-                    assert!(bounds.contains(k), "{k:?} is outside {bounds:?}");
-                    asked += 1;
-                }
-                Step::Rollback(_) => t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None),
+                step @ (Step::Finished { .. } | Step::Aborted(_)) => return (asked, step, sim),
                 Step::Hold => {}
             }
         }
-        assert!(asked > 0, "the noise reached at least one trial");
+        panic!("the search must end inside {RUN_CAP} samples");
     }
 
-    #[test]
-    fn a_saved_seed_is_tried_first_and_an_out_of_bounds_seed_is_ignored() {
-        let seed = Knobs {
-            power_w: 150.0,
-            clock_mhz: Some(1890.0),
-        };
-        let (_, _, applied) = run_sim(Some(seed));
-        assert_eq!(applied.first(), Some(&seed));
-        assert_eq!(applied.last(), Some(&seed));
-
-        let outside = Knobs {
-            power_w: 100.0,
-            clock_mhz: Some(1890.0),
-        };
-        let (_, _, applied) = run_sim(Some(outside));
-        assert_ne!(applied.first(), Some(&outside));
-        assert!(applied.iter().all(|k| k.power_w >= 150.0));
-    }
-
-    #[test]
-    fn a_miner_crash_rolls_back_to_stock_and_then_holds() {
-        let mut t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        assert!(matches!(into_trial(&mut t), Step::Apply(_)));
-        let crashed = Sample {
-            restarts: 1,
-            ..stock_reading()
-        };
-        assert_eq!(t.on_sample(crashed), Step::Rollback(Reason::MinerCrashed));
-        assert_eq!(t.phase(), Phase::RolledBack(Reason::MinerCrashed));
-        assert_eq!(
-            t.on_sample(stock_reading()),
-            Step::Hold,
-            "no write after a rollback"
-        );
-    }
-
-    #[test]
-    fn a_stopped_miner_rolls_back() {
-        let mut t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        into_trial(&mut t);
-        let stopped = Sample {
-            running: false,
-            ..stock_reading()
-        };
-        assert_eq!(t.on_sample(stopped), Step::Rollback(Reason::MinerStopped));
-    }
-
-    #[test]
-    fn a_temperature_over_the_ceiling_rolls_back_and_the_ceiling_is_capped() {
-        // Stock runs at 71 C, so the user's ceiling sits just above it.
-        let mut t = Tuner::new(SIM_STOCK, 72.0, None);
-        into_trial(&mut t);
-        assert_eq!(
-            t.on_sample(live(100.0, 225.0, 72.5)),
-            Step::Rollback(Reason::OverTemperature),
-            "the user's lower ceiling is honoured"
-        );
-
-        let mut capped = Tuner::new(SIM_STOCK, 95.0, None);
-        into_trial(&mut capped);
-        assert_eq!(
-            capped.on_sample(live(100.0, 225.0, TEMP_CEILING_C + 0.5)),
-            Step::Rollback(Reason::OverTemperature),
-            "a ceiling of 95 is still capped at the tuner's own limit"
-        );
-    }
-
-    #[test]
-    fn two_collapsed_samples_in_a_row_roll_back_and_one_does_not() {
-        let mut t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        into_trial(&mut t);
-        assert_eq!(t.on_sample(live(40.0, 225.0, 71.0)), Step::Hold);
-        assert_eq!(
-            t.on_sample(stock_reading()),
-            Step::Hold,
-            "the streak resets"
-        );
-        assert_eq!(t.on_sample(live(40.0, 225.0, 71.0)), Step::Hold);
-        assert_eq!(
-            t.on_sample(live(40.0, 225.0, 71.0)),
-            Step::Rollback(Reason::HashrateCollapse)
-        );
-    }
-
-    #[test]
-    fn a_collapse_after_settling_rolls_back_too() {
-        let (mut tuner, _, _) = run_sim(None);
-        assert_eq!(tuner.phase(), Phase::Tuned);
-        let low = live(40.0, 150.0, 60.0);
-        assert_eq!(tuner.on_sample(low), Step::Hold);
-        assert_eq!(
-            tuner.on_sample(low),
-            Step::Rollback(Reason::HashrateCollapse)
-        );
-    }
-
-    #[test]
-    fn a_refused_write_and_a_user_stop_both_roll_back_once() {
-        let mut t = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        into_trial(&mut t);
-        assert_eq!(
-            t.stop(Reason::ControlError),
-            Step::Rollback(Reason::ControlError)
-        );
-        assert_eq!(t.stop(Reason::AppExit), Step::Hold, "already rolled back");
-
-        let mut u = Tuner::new(SIM_STOCK, TEMP_CEILING_C, None);
-        assert_eq!(
-            u.stop(Reason::UserTurnedOff),
-            Step::Rollback(Reason::UserTurnedOff)
-        );
-    }
-
-    #[test]
-    fn the_sim_card_refuses_what_it_cannot_do() {
+    /// A tuner moved into `Measure` of its first step, with a steady reading.
+    fn into_measure() -> (Tuner, SimGpu) {
         let mut sim = SimGpu::new();
-        let above = Knobs {
-            power_w: SIM_STOCK.power_w + 1.0,
-            ..SIM_STOCK
+        let mut t = Tuner::new(SIM_RANGE, FLOOR_PCT_DEFAULT, CEILING, None);
+        for _ in 0..200 {
+            if let Step::Suggest { trial_w, .. } = t.on_sample(sim.sample()) {
+                sim.set_limit(trial_w);
+                t.on_sample(sim.sample());
+                assert!(matches!(t.phase(), Phase::Measure(_)));
+                return (t, sim);
+            }
+        }
+        panic!("no first step");
+    }
+
+    #[test]
+    fn no_step_ever_exceeds_the_default_limit_or_leaves_the_driver_range() {
+        for floor in [FLOOR_PCT_MIN, 85.0, 90.0, FLOOR_PCT_DEFAULT, FLOOR_PCT_MAX] {
+            let (asked, end, _) = run_sim(floor);
+            for w in &asked {
+                assert!(
+                    *w < SIM_RANGE.default_w && *w >= SIM_RANGE.min_w,
+                    "{w} W at floor {floor}"
+                );
+            }
+            let Step::Finished { best_w, .. } = end else {
+                panic!("{end:?}");
+            };
+            assert!(best_w <= SIM_RANGE.default_w && best_w >= SIM_RANGE.min_w);
+        }
+    }
+
+    #[test]
+    fn the_search_stops_at_the_hash_rate_floor_and_keeps_the_previous_step() {
+        // Hand-derived for the SIM curve (sim_gpu.rs): draw is 0.9 x limit and
+        // hash rate follows draw^0.3, so efficiency always rises as the limit
+        // falls and only the floor stops the walk. Steps are 15 W.
+        // Floor 95 %: 205 W gives 94.2 % of the default rate, so 220 W is kept.
+        // Floor 90 %: 175 W gives 89.8 %, so 190 W is kept.
+        for (floor, best) in [(95.0, 220.0), (90.0, 190.0)] {
+            let (asked, end, sim) = run_sim(floor);
+            assert_eq!(
+                end,
+                Step::Finished {
+                    best_w: best,
+                    gain_pct: end_gain(end)
+                }
+            );
+            assert!(
+                asked.contains(&(best - 15.0)),
+                "the step past the floor was tried"
+            );
+            let kept = sim.rate_at(best) / sim.rate_at(SIM_RANGE.default_w) * 100.0;
+            assert!(kept >= floor, "{kept:.1}% kept at floor {floor}");
+        }
+    }
+
+    fn end_gain(step: Step) -> f64 {
+        match step {
+            Step::Finished { gain_pct, .. } => gain_pct,
+            _ => f64::NAN,
+        }
+    }
+
+    #[test]
+    fn the_floor_slider_is_respected_and_kept_inside_its_range() {
+        assert_eq!(clamp_floor_pct(10.0), FLOOR_PCT_MIN);
+        assert_eq!(clamp_floor_pct(150.0), FLOOR_PCT_MAX);
+        assert_eq!(clamp_floor_pct(f64::NAN), FLOOR_PCT_DEFAULT);
+        assert_eq!(clamp_floor_pct(92.0), 92.0);
+        // At 100 % the first step already loses hash rate, so the default is kept.
+        let (_, end, _) = run_sim(FLOOR_PCT_MAX);
+        assert_eq!(
+            end,
+            Step::Finished {
+                best_w: SIM_RANGE.default_w,
+                gain_pct: 0.0
+            }
+        );
+        // A lower floor walks further down, never less far.
+        let (low, _, _) = run_sim(FLOOR_PCT_MIN);
+        let (high, _, _) = run_sim(FLOOR_PCT_DEFAULT);
+        assert!(low.len() > high.len());
+    }
+
+    #[test]
+    fn the_search_is_deterministic() {
+        assert_eq!(run_sim(90.0).0, run_sim(90.0).0);
+    }
+
+    #[test]
+    fn the_search_stops_when_efficiency_falls_and_keeps_the_previous_step() {
+        let mut t = Tuner::new(SIM_RANGE, FLOOR_PCT_MIN, CEILING, None);
+        let at = |limit: f64, hps: f64, power: f64| Sample {
+            hps: Some(hps),
+            power_w: Some(power),
+            limit_w: Some(limit),
+            temp_c: Some(60.0),
+            running: true,
+            ..Sample::default()
         };
-        assert!(sim.apply(above).is_err());
-        assert!(sim.log.last().is_some_and(|l| l.starts_with("SIM refused")));
+        let feed = |t: &mut Tuner, s: Sample| {
+            (0..=SETTLE_SAMPLES as usize + WINDOW_SAMPLES)
+                .map(|_| t.on_sample(s))
+                .find(|s| *s != Step::Hold)
+        };
+        assert_eq!(
+            feed(&mut t, at(250.0, 100.0, 200.0)),
+            Some(Step::Suggest {
+                trial_w: 235.0,
+                previous_w: 250.0
+            })
+        );
+        t.on_sample(at(235.0, 99.0, 180.0));
+        assert_eq!(
+            feed(&mut t, at(235.0, 99.0, 180.0)),
+            Some(Step::Suggest {
+                trial_w: 220.0,
+                previous_w: 235.0
+            }),
+            "0.55 H/J beats 0.50"
+        );
+        t.on_sample(at(220.0, 90.0, 175.0));
+        let end = feed(&mut t, at(220.0, 90.0, 175.0));
+        assert!(
+            matches!(end, Some(Step::Finished { best_w, .. }) if best_w == 235.0),
+            "0.514 H/J is worse than 0.55, so 235 W is kept: {end:?}"
+        );
+    }
+
+    #[test]
+    fn rollback_guidance_shows_on_each_trigger() {
+        for reason in Reason::ALL {
+            let (mut t, sim) = into_measure();
+            let mut s = sim.sample();
+            match reason {
+                Reason::MissingReading => s.temp_c = None,
+                Reason::MinerStopped => s.running = false,
+                Reason::MinerRestarted => s.restarts += 1,
+                Reason::OverTemperature => s.temp_c = Some(CEILING - THERMAL_MARGIN_C),
+                Reason::HardwareError => s.hw_errors += 1,
+                Reason::SharesRejected => s.rejected += 1,
+                Reason::LimitAboveDefault => s.limit_w = Some(SIM_RANGE.default_w + 10.0),
+                Reason::JournalFailed | Reason::UserStopped => {}
+            }
+            let step = match reason {
+                Reason::JournalFailed | Reason::UserStopped => t.abort(reason),
+                _ => t.on_sample(s),
+            };
+            assert_eq!(step, Step::Aborted(reason));
+            assert_eq!(t.phase(), Phase::Aborted(reason));
+            assert_eq!(
+                t.on_sample(sim.sample()),
+                Step::Hold,
+                "nothing after a stop"
+            );
+            let text = rollback_guidance(reason, SIM_RANGE, CEILING);
+            assert!(text.contains("250 W"), "{reason:?}: {text}");
+            assert!(text.contains(reason.words()), "{reason:?}: {text}");
+        }
+    }
+
+    #[test]
+    fn a_thermal_abort_never_raises_the_limit_while_hot() {
+        let text = rollback_guidance(Reason::OverTemperature, SIM_RANGE, 95.0);
+        assert!(text.contains("Leave the power limit where it is"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "{:.0} °C",
+                THERMAL_CEILING_C - THERMAL_HYSTERESIS_C
+            )),
+            "a 95 °C ceiling is capped at the watchdog's: {text}"
+        );
+        let other = rollback_guidance(Reason::MinerStopped, SIM_RANGE, CEILING);
+        assert!(!other.contains("Leave the power limit"), "{other}");
+    }
+
+    #[test]
+    fn a_missing_reading_aborts_the_trial_and_is_never_a_guess() {
+        for blank in 0..4 {
+            let (mut t, sim) = into_measure();
+            let mut s = sim.sample();
+            match blank {
+                0 => s.hps = None,
+                1 => s.power_w = None,
+                2 => s.limit_w = None,
+                _ => s.temp_c = None,
+            }
+            assert_eq!(
+                t.on_sample(s),
+                Step::Aborted(Reason::MissingReading),
+                "field {blank}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_suggested_limit_that_does_not_read_back_is_not_measured() {
+        let mut sim = SimGpu::new();
+        let mut t = Tuner::new(SIM_RANGE, FLOOR_PCT_DEFAULT, CEILING, None);
+        let first = (0..200)
+            .map(|_| t.on_sample(sim.sample()))
+            .find(|s| matches!(s, Step::Suggest { .. }));
+        assert!(first.is_some());
+        // The user never sets it: the card still reads the default.
+        for _ in 0..500 {
+            assert_eq!(t.on_sample(sim.sample()), Step::Hold);
+        }
+        assert_eq!(t.phase(), Phase::Await(235.0));
+    }
+
+    #[test]
+    fn a_window_with_a_zero_power_or_non_finite_sample_is_void() {
+        let (mut t, sim) = into_measure();
+        for _ in 0..SETTLE_SAMPLES + WINDOW_SAMPLES as u32 - 1 {
+            assert_eq!(t.on_sample(sim.sample()), Step::Hold);
+        }
+        let mut zero = sim.sample();
+        zero.power_w = Some(0.0);
+        assert_eq!(
+            t.on_sample(zero),
+            Step::Hold,
+            "the window that would have closed is void"
+        );
+        let mut nan = sim.sample();
+        nan.hps = Some(f64::NAN);
+        assert_eq!(t.on_sample(nan), Step::Hold);
+        for _ in 0..WINDOW_SAMPLES - 1 {
+            assert_eq!(
+                t.on_sample(sim.sample()),
+                Step::Hold,
+                "a full new window is needed"
+            );
+        }
+        assert_ne!(t.on_sample(sim.sample()), Step::Hold);
+    }
+
+    #[test]
+    fn one_hw_error_event_aborts_the_trial() {
+        let (mut t, sim) = into_measure();
+        let mut s = sim.sample();
+        s.hw_errors = 1;
+        assert_eq!(t.on_sample(s), Step::Aborted(Reason::HardwareError));
+        assert!(Reason::HardwareError.implicates_setting());
+        assert!(!Reason::UserStopped.implicates_setting());
+    }
+
+    #[test]
+    fn measuring_waits_for_a_hashing_miner_at_the_default_limit() {
+        let mut sim = SimGpu::new();
+        sim.set_limit(200.0);
+        let mut t = Tuner::new(SIM_RANGE, FLOOR_PCT_DEFAULT, CEILING, None);
+        for _ in 0..100 {
+            assert_eq!(t.on_sample(sim.sample()), Step::Hold);
+        }
+        assert_eq!(
+            t.phase(),
+            Phase::WaitDefault,
+            "a card left at 200 W is not a baseline"
+        );
+    }
+
+    #[test]
+    fn a_step_marked_bad_is_never_suggested_again() {
+        let mut sim = SimGpu::new();
+        let mut t = Tuner::new(SIM_RANGE, FLOOR_PCT_MIN, CEILING, Some(220.0));
+        let mut asked = Vec::new();
+        for _ in 0..2_000 {
+            match t.on_sample(sim.sample()) {
+                Step::Suggest { trial_w, .. } => {
+                    asked.push(trial_w);
+                    sim.set_limit(trial_w);
+                }
+                Step::Finished { best_w, .. } => {
+                    assert_eq!(best_w, 235.0);
+                    break;
+                }
+                Step::Aborted(r) => panic!("{r:?}"),
+                Step::Hold => {}
+            }
+        }
+        assert_eq!(asked, [235.0]);
+    }
+
+    #[test]
+    fn efficiency_is_hash_rate_per_watt_and_nothing_for_a_bad_reading() {
+        assert_eq!(efficiency(Some(100.0), Some(200.0)), Some(0.5));
+        assert_eq!(efficiency(Some(100.0), Some(0.0)), None);
+        assert_eq!(efficiency(None, Some(200.0)), None);
+        assert_eq!(efficiency(Some(f64::INFINITY), Some(200.0)), None);
+    }
+
+    #[test]
+    fn a_range_needs_both_ends_from_the_driver() {
+        assert_eq!(Range::new(Some(100.0), None), None);
+        assert_eq!(Range::new(Some(250.0), Some(100.0)), None);
+        assert_eq!(Range::new(Some(0.0), Some(250.0)), None);
+        assert_eq!(Range::new(Some(100.0), Some(250.0)), Some(SIM_RANGE));
     }
 }

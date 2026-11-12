@@ -267,7 +267,10 @@ h2 small { text-transform: none; letter-spacing: 0; font: 400 12px var(--body); 
   background: transparent; color: var(--dim); font: 700 12px var(--display); cursor: pointer; }
 .tune-btn.on { border: 1px solid var(--teal); color: var(--teal-glow); }
 .tune-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.tune-line { margin: 6px 0 0; font: 12px var(--mono); color: var(--dim); }
+.tune-line { margin: 6px 0 0; font: 12px var(--body); color: var(--dim); }
+.tune-cmd { display: block; margin-top: 4px; font: 11px var(--mono); color: var(--dim); overflow-wrap: anywhere; user-select: all; }
+.tune-cmd[hidden] { display: none; }
+.tune-floor { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Alerts: a level, the message, the time. Each row opens its explanation. */
 .alerts { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }

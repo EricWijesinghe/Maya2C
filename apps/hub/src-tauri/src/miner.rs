@@ -74,6 +74,9 @@ pub struct MinerState {
     pub share_reward: Option<u128>,
     pub accepted: u64,
     pub rejected: u64,
+    /// Shares the device found that the CPU reference refused (`hw_error`):
+    /// an unstable card. One aborts a tuning trial (ADR-137).
+    pub hw_errors: u64,
     /// Growth of the payout account's on-chain balance since this run's
     /// first share. Not the sum of accepted shares: the node accepting a
     /// share into its pool is not the chain paying it (measured on the local
@@ -248,6 +251,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             }
         }
         "share" => state.rejected += 1,
+        "hw_error" => state.hw_errors += 1,
         _ => {}
     }
     let mut stamped = event;
@@ -649,6 +653,7 @@ mod tests {
             r#"{"event":"share","accepted":false,"reason":"stale"}"#,
             5,
         );
+        ingest(&mut s, r#"{"event":"hw_error","nonce":9,"epoch":7}"#, 5);
         ingest(&mut s, "plain text from stderr", 6);
 
         assert_eq!(s.address.as_deref(), Some("ab"));
@@ -656,6 +661,7 @@ mod tests {
             (s.epoch, s.accepted, s.rejected, s.earned),
             (Some(7), 1, 1, 0)
         );
+        assert_eq!(s.hw_errors, 1, "a hardware error is not a rejected share");
         assert_eq!(
             s.rates.back(),
             Some(&RateSample {

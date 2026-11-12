@@ -4,8 +4,9 @@
 //! the GPU driver or a process. Each blocking call runs off the UI thread.
 
 mod autotune;
+mod driver_tool;
 mod gpu;
-mod gpu_control;
+mod journal;
 #[cfg(windows)]
 mod key_acl;
 mod miner;
@@ -113,12 +114,14 @@ async fn gpu_telemetry() -> Result<gpu::GpuReport, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Turns the auto-tuner on or off for one GPU (ADR-137). Opt-in: the webview
-/// sends this only from the card's Tune toggle.
+/// Turns the guided tuner on or off for one GPU, named by its driver UUID
+/// (ADR-137). Opt-in: the webview sends this only from the card's Tune
+/// toggle. It takes no watt value, and the Hub writes nothing to the card.
 #[tauri::command]
 async fn tune_set(
-    index: u32,
+    uuid: String,
     on: bool,
+    floor_pct: f64,
     ceiling_c: f64,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -127,19 +130,28 @@ async fn tune_set(
         let dev = report
             .devices
             .iter()
-            .find(|d| d.index == index)
-            .ok_or_else(|| format!("the driver lists no GPU {index}"))?;
+            .find(|d| d.uuid.as_deref() == Some(uuid.as_str()))
+            .ok_or("the driver no longer lists that GPU")?;
         let state = app.state::<Mutex<Tuning>>();
         let mut tuned = tuning::lock(&state);
-        tuned.set(dev, on, ceiling_c)
+        tuned.set(dev, on, floor_pct, ceiling_c)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
+/// The tuner's lines. The live range comes from the last reading the
+/// supervisor took, so this never calls the driver tool itself.
 #[tauri::command]
-fn tune_report(state: tauri::State<'_, Mutex<Tuning>>) -> tuning::Report {
-    tuning::lock(&state).report()
+fn tune_report(
+    tuned: tauri::State<'_, Mutex<Tuning>>,
+    last: tauri::State<'_, Mutex<Vec<gpu::GpuStat>>>,
+) -> tuning::Report {
+    let devices = last
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    tuning::lock(&tuned).report(&devices)
 }
 
 #[tauri::command]
@@ -202,6 +214,10 @@ fn supervise(app: tauri::AppHandle) {
         let raised = miner.tick(miner::now_ms(), &temps);
         if let Some(report) = &reading {
             tuning::lock(&tuned).tick(&miner.report().workers, &report.devices);
+            let last = app.state::<Mutex<Vec<gpu::GpuStat>>>();
+            *last
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = report.devices.clone();
         }
         let notifier = app.state::<Mutex<Notifier>>();
         for alert in &raised {
@@ -224,6 +240,7 @@ pub fn run() {
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             app.manage(Mutex::new(Tuning::open(&data)));
+            app.manage(Mutex::new(Vec::<gpu::GpuStat>::new()));
             let handle = app.handle().clone();
             thread::spawn(move || supervise(handle));
             Ok(maya_app_update::start(app)?)
@@ -244,11 +261,11 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner
-            // nobody can see. Closing the hub stops every one of them, and a
-            // GPU left tuned goes back to stock (ADR-137).
+            // nobody can see. Closing the hub stops every one of them. A
+            // guided tuning step left open stays in the journal, so the next
+            // start says to set that card back to its default (ADR-137).
             if let tauri::WindowEvent::Destroyed = event {
                 window.state::<Miner>().stop(None);
-                tuning::lock(&window.state::<Mutex<Tuning>>()).reset_all();
             }
         })
         .run(tauri::generate_context!())
