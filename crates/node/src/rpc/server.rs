@@ -244,6 +244,18 @@ pub struct RpcContext {
     pub cert_bytes: Arc<crate::rpc::limit::RateLimiter>,
     /// The clients with a certificate page in flight: one at a time each.
     pub cert_gate: Arc<CertGate>,
+    /// Whether `get_bft_status` carries this node's seat id. Off unless the
+    /// operator opts in: the id ties this node's address to a staking
+    /// record, and a public gateway forwards the method.
+    pub expose_validator_id: bool,
+    /// `get_next_upgrade`'s answer for the current tip, so polling it under
+    /// load does not re-read the schedule from state on every call.
+    pub next_upgrade: Arc<
+        crate::rpc::tip_cache::TipCache<
+            (u64, crate::consensus::BlockId),
+            Option<crate::upgrade::ProtocolUpgrade>,
+        >,
+    >,
 }
 
 /// Bytes of certificate pages one client may take per second, sustained.
@@ -374,6 +386,8 @@ impl RpcContext {
                 CERT_BYTE_BURST,
             )),
             cert_gate: Arc::new(CertGate::default()),
+            expose_validator_id: false,
+            next_upgrade: Arc::default(),
         }
     }
 
@@ -401,6 +415,16 @@ impl RpcContext {
     pub fn with_page_limits(self, limits: crate::consensus::bft::certsync::PageLimits) -> Self {
         Self {
             page_limits: limits,
+            ..self
+        }
+    }
+
+    /// The same context, with `get_bft_status` carrying this node's seat id
+    /// (`--rpc-expose-validator-id`). For an RPC bound to a private interface.
+    #[must_use]
+    pub fn with_validator_id(self) -> Self {
+        Self {
+            expose_validator_id: true,
             ..self
         }
     }
@@ -533,9 +557,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_bft_status", |_params, ctx, _| {
             let status = ctx.bft_status.as_ref().map(|slot| {
-                *slot
+                let mut status = slot
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if !ctx.expose_validator_id {
+                    status.validator_id = None;
+                }
+                status
             });
             Ok::<_, ErrorObjectOwned>(status)
         })
@@ -816,6 +845,22 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .committed_staking()
                 .map_err(|e| rejected(e.to_string()))?;
             Ok::<_, ErrorObjectOwned>(record.as_ref().map(super::validators::validators_info))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_next_upgrade", |_params, ctx, _| {
+            // The next scheduled protocol version, read from committed state, so
+            // a dashboard can measure committee readiness for it (ADR-100).
+            // Recomputed only when the tip moves (W3-4b).
+            let chain = ctx.chain();
+            let height = chain.height();
+            ctx.next_upgrade
+                .get_or_compute((height, chain.tip()), || {
+                    let schedule = chain.state().effective_schedule()?;
+                    Ok(schedule.upgrades.next_after(height))
+                })
+                .map_err(|e: crate::error::NodeError| rejected(e.to_string()))
         })
         .map_err(|e| rejected(e.to_string()))?;
 

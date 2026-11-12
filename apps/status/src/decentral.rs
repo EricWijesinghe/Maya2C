@@ -18,6 +18,9 @@ const WHOLE_BPS: u64 = 10_000;
 /// One seat as `get_validators` reports it. Other fields are ignored.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 pub struct Seat {
+    /// Staking id, hex: the key a watched node's `validator_id` is matched on.
+    #[serde(default)]
+    pub id: String,
     /// In the current epoch's committee.
     pub in_committee: bool,
     /// Operator's own stake, decimal.
@@ -115,6 +118,74 @@ pub fn measure(set: &StakeSet) -> Option<Decentralization> {
     })
 }
 
+/// One committee seat as the readiness measure sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeatClaim {
+    /// The seat's live stake (`self_bond + delegated`).
+    pub stake: U256,
+    /// Some watched node saw the seat's peer connected.
+    pub observed: bool,
+    /// The lowest protocol version any observer heard the peer claim; 0 for
+    /// no claim. A claim is what the peer says of itself, never checked.
+    pub claimed: u32,
+}
+
+/// How much of the committee's stake claims a protocol version.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct Readiness {
+    /// The protocol version measured.
+    pub protocol: u32,
+    /// Committee members measured.
+    pub committee: usize,
+    /// Their stake, decimal.
+    pub total_stake: String,
+    /// Members whose peers claim `protocol` or later.
+    pub ready_seats: usize,
+    /// Their share of the stake, in basis points (floor).
+    pub ready_bps: u64,
+    /// Members some watched node can see connected.
+    pub observed_seats: usize,
+    /// Their share of the stake, in basis points (floor).
+    pub observed_bps: u64,
+}
+
+/// Stake sum of the seats `keep` selects; `None` if it overflows.
+fn stake_where(seats: &[SeatClaim], keep: impl Fn(&SeatClaim) -> bool) -> Option<U256> {
+    seats
+        .iter()
+        .filter(|s| keep(s))
+        .try_fold(U256::zero(), |acc, s| acc.checked_add(s.stake))
+}
+
+/// Share of `part` in `total`, in basis points, floored.
+fn bps_of(part: U256, total: U256) -> Option<u64> {
+    part.checked_mul(U256::from(WHOLE_BPS))?
+        .checked_div(total)
+        .map(|v| v.low_u64())
+}
+
+/// Share of the committee's stake whose peers claim `protocol` or later.
+/// Integer arithmetic. `None` (MISSING) for an empty or weightless committee, or
+/// when the arithmetic does not fit.
+#[must_use]
+pub fn readiness(seats: &[SeatClaim], protocol: u32) -> Option<Readiness> {
+    let total = stake_where(seats, |_| true)?;
+    if seats.is_empty() || total.is_zero() {
+        return None;
+    }
+    let ready = stake_where(seats, |s| s.claimed >= protocol)?;
+    let observed = stake_where(seats, |s| s.observed)?;
+    Some(Readiness {
+        protocol,
+        committee: seats.len(),
+        total_stake: total.to_string(),
+        ready_seats: seats.iter().filter(|s| s.claimed >= protocol).count(),
+        ready_bps: bps_of(ready, total)?,
+        observed_seats: seats.iter().filter(|s| s.observed).count(),
+        observed_bps: bps_of(observed, total)?,
+    })
+}
+
 /// The host part of a URL: `127.0.0.1`, `node.example`, `[::1]`.
 #[must_use]
 pub fn host_of(url: &str) -> &str {
@@ -146,6 +217,7 @@ mod tests {
             in_committee,
             self_bond: bond.to_string(),
             delegated: "0".into(),
+            ..Seat::default()
         }
     }
 
@@ -241,11 +313,13 @@ mod tests {
                     in_committee: true,
                     self_bond: max.clone(),
                     delegated: "0".into(),
+                    ..Seat::default()
                 },
                 Seat {
                     in_committee: true,
                     self_bond: "1".into(),
                     delegated: "0".into(),
+                    ..Seat::default()
                 },
             ],
         };
@@ -258,6 +332,7 @@ mod tests {
             in_committee: true,
             self_bond: "3".into(),
             delegated: "4".into(),
+            ..Seat::default()
         };
         assert_eq!(stake(&s), Some(U256::from(7u64)));
     }
@@ -276,5 +351,54 @@ mod tests {
         assert_eq!(one_host(&["127.0.0.1"]), None);
         assert_eq!(one_host(&["a.example", "b.example"]), None);
         assert_eq!(one_host(&[]), None);
+    }
+
+    fn claim(stake: u64, observed: bool, claimed: u32) -> SeatClaim {
+        SeatClaim {
+            stake: U256::from(stake),
+            observed,
+            claimed,
+        }
+    }
+
+    #[test]
+    fn an_empty_or_weightless_committee_has_no_readiness() {
+        assert_eq!(readiness(&[], 3), None);
+        assert_eq!(readiness(&[claim(0, true, 3)], 3), None);
+    }
+
+    #[test]
+    fn a_fully_claimed_committee_is_all_ready() {
+        let r = readiness(&[claim(5, true, 3), claim(5, true, 4)], 3).unwrap();
+        assert_eq!((r.ready_bps, r.ready_seats), (10_000, 2));
+        assert_eq!((r.observed_bps, r.observed_seats), (10_000, 2));
+    }
+
+    #[test]
+    fn an_old_claim_or_no_claim_is_not_ready() {
+        // Claimed 2 against a target of 3, and one seat never heard from.
+        let r = readiness(&[claim(5, true, 2), claim(5, false, 0)], 3).unwrap();
+        assert_eq!((r.ready_bps, r.ready_seats), (0, 0));
+        assert_eq!((r.observed_bps, r.observed_seats), (5_000, 1));
+    }
+
+    #[test]
+    fn readiness_is_weighted_by_stake_and_floored() {
+        // One seat of 1 ready against 3 of 4: 2500 bps.
+        let r = readiness(&[claim(1, true, 3), claim(3, true, 2)], 3).unwrap();
+        assert_eq!(r.ready_bps, 2_500);
+        // 1 of 3 is 3333.33 bps: floored, never rounded up to a threshold.
+        let r = readiness(&[claim(1, true, 3), claim(2, true, 2)], 3).unwrap();
+        assert_eq!(r.ready_bps, 3_333);
+    }
+
+    #[test]
+    fn an_overflowing_stake_sum_is_missing_not_guessed() {
+        let huge = SeatClaim {
+            stake: U256::MAX,
+            observed: true,
+            claimed: 3,
+        };
+        assert_eq!(readiness(&[huge, claim(1, true, 3)], 3), None);
     }
 }

@@ -186,6 +186,16 @@ impl UpgradeSchedule {
         self.upgrades.last().map_or(1, |u| u.version)
     }
 
+    /// The entry that activates next after `height`, if any: the upgrade
+    /// operators should prepare for next.
+    #[must_use]
+    pub fn next_after(&self, height: u64) -> Option<ProtocolUpgrade> {
+        self.upgrades
+            .iter()
+            .find(|u| u.activation_height > height)
+            .copied()
+    }
+
     /// The protocol version in force at `height`.
     #[must_use]
     pub fn version_at(&self, height: u64) -> u32 {
@@ -264,6 +274,35 @@ pub fn refuse_unsupported(unsupported: Option<ProtocolUpgrade>, height: u64) -> 
         }),
         _ => Ok(()),
     }
+}
+
+/// Prefix of the identify agent version a node advertises (ADR-100).
+const AGENT_PREFIX: &str = "maya2c/proto/";
+
+/// Longest identify agent version read from a peer. A peer's string is
+/// untrusted, so it is bounded before anything parses it.
+pub const MAX_AGENT_LEN: usize = 64;
+
+/// The identify agent version this binary advertises: the newest protocol
+/// version whose rules it implements.
+#[must_use]
+pub fn advertised_agent_version() -> String {
+    format!("{AGENT_PREFIX}{SUPPORTED_PROTOCOL_VERSION}")
+}
+
+/// The protocol version a peer's identify agent version claims, or `None`
+/// for anything not of that exact form. The claim is advisory: it never
+/// weights a vote and never changes state.
+#[must_use]
+pub fn claimed_protocol(agent: &str) -> Option<u32> {
+    if agent.len() > MAX_AGENT_LEN {
+        return None;
+    }
+    let digits = agent.strip_prefix(AGENT_PREFIX)?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 #[cfg(test)]
@@ -365,5 +404,44 @@ mod tests {
         let s = UpgradeSchedule::new(vec![up(SUPPORTED_PROTOCOL_VERSION + 1, 10)]).unwrap();
         assert!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION).is_some());
         assert_eq!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION + 1), None);
+    }
+
+    #[test]
+    fn the_next_upgrade_is_the_entry_still_to_activate() {
+        let s = UpgradeSchedule::new(vec![up(3, 100), up(4, 200)]).unwrap();
+        assert_eq!(s.next_after(0).map(|u| u.version), Some(3));
+        // An entry is active at its own height, so it is no longer "next".
+        assert_eq!(s.next_after(100).map(|u| u.version), Some(4));
+        assert_eq!(s.next_after(200), None);
+        assert_eq!(UpgradeSchedule::default().next_after(0), None);
+    }
+
+    #[test]
+    fn a_peer_advertising_version_n_is_read_as_n() {
+        let agent = advertised_agent_version();
+        assert_eq!(claimed_protocol(&agent), Some(SUPPORTED_PROTOCOL_VERSION));
+        assert_eq!(claimed_protocol("maya2c/proto/7"), Some(7));
+    }
+
+    #[test]
+    fn a_foreign_or_malformed_advertisement_claims_nothing() {
+        assert_eq!(claimed_protocol("rust-libp2p/0.56.0"), None);
+        assert_eq!(claimed_protocol("maya2c/proto/"), None);
+        assert_eq!(claimed_protocol("maya2c/proto/+2"), None);
+        assert_eq!(claimed_protocol("maya2c/proto/2x"), None);
+        assert_eq!(claimed_protocol("maya2c/proto/99999999999"), None);
+        assert_eq!(
+            claimed_protocol(
+                "maya2c/proto/2
+"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn an_oversized_advertisement_is_ignored_without_parsing() {
+        let padded = format!("maya2c/proto/{}", "2".repeat(MAX_AGENT_LEN));
+        assert_eq!(claimed_protocol(&padded), None);
     }
 }

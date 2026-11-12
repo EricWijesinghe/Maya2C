@@ -174,10 +174,12 @@ impl NodeBehaviour {
 
         let kademlia = kad::Behaviour::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
 
-        let identify = identify::Behaviour::new(identify::Config::new(
-            IDENTIFY_PROTOCOL.to_string(),
-            keypair.public(),
-        ));
+        // The agent version carries this binary's protocol version, so peers
+        // can show how much of the committee is ready for an upgrade (ADR-100).
+        let identify = identify::Behaviour::new(
+            identify::Config::new(IDENTIFY_PROTOCOL.to_string(), keypair.public())
+                .with_agent_version(crate::upgrade::advertised_agent_version()),
+        );
 
         Ok(Self {
             block_list: allow_block_list::Behaviour::default(),

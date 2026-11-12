@@ -110,7 +110,7 @@ pub struct CertPageInfo {
 
 /// What this node's DAG-BFT engine is doing, as `get_bft_status` serves it:
 /// whether consensus is moving, and whether this node takes part.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BftStatus {
     /// Staking epoch the engine runs.
     pub epoch: u64,
@@ -125,6 +125,11 @@ pub struct BftStatus {
     /// Following attested blocks after a catch-up (ADR-038), rather than
     /// building its own.
     pub follower: bool,
+    /// This node's committee seat id, hex (the staking validator id), or
+    /// `None` for an observer, a node that predates the field, or an RPC
+    /// whose operator did not pass `--rpc-expose-validator-id`. Self-reported.
+    #[serde(default)]
+    pub validator_id: Option<String>,
 }
 
 /// The newest quorum-attested block (ADR-038), as `get_checkpoint` serves
@@ -690,5 +695,31 @@ impl IotDeviceInfo {
             max: progress.has_batch.then_some(progress.max),
             last_height: latest(progress.height),
         }
+    }
+}
+
+#[cfg(test)]
+mod bft_status_tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::BftStatus;
+
+    #[test]
+    fn a_status_without_a_seat_id_still_parses() {
+        // An answer from a node that predates the field reads as "no seat id".
+        let old = r#"{"epoch":3,"round":9,"committed_round":8,"validator":1,"committee":4,"follower":false}"#;
+        let parsed: BftStatus = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.validator_id, None);
+        assert_eq!(parsed.committee, 4);
+    }
+
+    #[test]
+    fn a_voting_node_reports_its_seat_id_in_hex() {
+        let status = BftStatus {
+            validator_id: Some("ab".repeat(32)),
+            ..BftStatus::default()
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["validator_id"], "ab".repeat(32));
     }
 }

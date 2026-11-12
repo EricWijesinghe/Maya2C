@@ -137,6 +137,8 @@ struct Closing {
 struct EpochCommittee {
     keys: Arc<[VerifyingKey]>,
     weights: Option<Arc<[u64]>>,
+    /// Staking ids, in committee-index order; `None` on a genesis committee.
+    seats: Option<Arc<[[u8; 32]]>>,
 }
 
 impl EpochCommittee {
@@ -159,6 +161,7 @@ impl EpochCommittee {
         Ok(Self {
             keys,
             weights: weights.map(Into::into),
+            seats: Some(ids.into()),
         })
     }
 
@@ -201,6 +204,8 @@ pub struct BftDriver {
     committee: Arc<[VerifyingKey]>,
     /// Its voting weights on a stake-weighted chain (ADR-040 part 2).
     weights: Option<Arc<[u64]>>,
+    /// This node's staking id, when it holds a seat in a staking epoch.
+    seat: Option<[u8; 32]>,
     /// Attestations gathered into the newest checkpoint (ADR-038).
     attestations: Collector,
     /// Set after catching up through a checkpoint: this node lacks the DAG
@@ -297,6 +302,7 @@ impl BftDriver {
                 EpochCommittee {
                     keys: Arc::clone(&setup.committee),
                     weights: None,
+                    seats: None,
                 },
             )),
         }
@@ -318,6 +324,7 @@ impl BftDriver {
     ) -> Result<Self> {
         let engine_committee = committee.engine()?;
         let weights = committee.weights.clone();
+        let seats = committee.seats.clone();
         let committee = &committee.keys;
         let id = match &signer {
             None => None,
@@ -372,6 +379,7 @@ impl BftDriver {
             dir,
             committee: Arc::clone(committee),
             weights,
+            seat: seat_of(seats.as_deref(), id),
             attestations: Collector::default(),
             follower: false,
             resumed_at: 0,
@@ -570,6 +578,7 @@ impl BftDriver {
             validator: self.id,
             committee: u16::try_from(self.committee.len()).unwrap_or(u16::MAX),
             follower: self.follower,
+            validator_id: self.seat.map(hex::encode),
         }
     }
 
@@ -908,6 +917,32 @@ impl BftDriver {
         };
         let (tip_epoch, tip_round) = unseal(tip.header.nonce);
         (epoch, round) <= (tip_epoch, tip_round)
+    }
+}
+
+/// The staking id of the seat at committee `index`, where the epoch's seats
+/// are known. `None` for an observer, a genesis committee with no staking
+/// record, or an index past the end.
+fn seat_of(seats: Option<&[[u8; 32]]>, index: Option<ValidatorId>) -> Option<[u8; 32]> {
+    seats?.get(usize::from(index?)).copied()
+}
+
+#[cfg(test)]
+mod seat_tests {
+    use super::seat_of;
+
+    #[test]
+    fn a_voting_node_reads_its_seat_from_the_epoch_list() {
+        let seats = [[1u8; 32], [2u8; 32]];
+        assert_eq!(seat_of(Some(&seats), Some(1)), Some([2u8; 32]));
+    }
+
+    #[test]
+    fn an_observer_or_an_unknown_epoch_has_no_seat() {
+        let seats = [[1u8; 32]];
+        assert_eq!(seat_of(Some(&seats), None), None, "observer");
+        assert_eq!(seat_of(None, Some(0)), None, "genesis committee");
+        assert_eq!(seat_of(Some(&seats), Some(5)), None, "past the end");
     }
 }
 

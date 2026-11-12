@@ -218,6 +218,8 @@ struct Args {
     catch_up_from: Vec<String>,
     /// Keep private and loopback peer addresses (a local devnet only).
     allow_private_peers: bool,
+    /// Serve this node's seat id in `get_bft_status` (a private RPC only).
+    rpc_expose_validator_id: bool,
     /// Start a validator on a power plan that may sleep the PC (Windows).
     allow_sleep: bool,
     /// DAG-BFT: never propose a validator registration bonding less than
@@ -291,6 +293,7 @@ impl Default for Args {
             never_signed: false,
             catch_up_from: Vec::new(),
             allow_private_peers: false,
+            rpc_expose_validator_id: false,
             allow_sleep: false,
             min_register_bond: 0,
             validator_key: None,
@@ -444,6 +447,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--i-know-this-validator-never-signed" => args.never_signed = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
+            "--rpc-expose-validator-id" => args.rpc_expose_validator_id = true,
             "--allow-sleep" => args.allow_sleep = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
@@ -919,6 +923,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with_checkpoints(Arc::clone(&checkpoint_slot))
             .with_bft_status(Arc::clone(&status_slot))
             .with_bft_dir(args.data_dir.join(bft::BFT_DIR))
+    } else {
+        rpc_context
+    };
+    let rpc_context = if args.rpc_expose_validator_id {
+        rpc_context.with_validator_id()
     } else {
         rpc_context
     };

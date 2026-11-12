@@ -785,6 +785,12 @@ impl NodeDriver {
                 // attacker's name can resolve to an internal address at
                 // dial time; only operator-configured bootnodes may be
                 // names) and a handful of addresses at most.
+                // The advertised version is shown as a claim, never trusted:
+                // it is bounded and parsed by `upgrade::claimed_protocol`.
+                self.links.set_claimed(
+                    peer_id,
+                    crate::upgrade::claimed_protocol(&info.agent_version),
+                );
                 let allow_private = self.allow_private_addresses;
                 for address in info
                     .listen_addrs
