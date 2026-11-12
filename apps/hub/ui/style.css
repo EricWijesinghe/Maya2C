@@ -262,6 +262,12 @@ h2 small { text-transform: none; letter-spacing: 0; font: 400 12px var(--body); 
   color: var(--teal-glow); font: 700 12px var(--display); cursor: pointer; }
 .rig-btn:hover { border-color: var(--teal); }
 .rig-btn[hidden] { display: none; }
+/* Tune (ADR-137): off by default, lit while on, its state written beside it. */
+.tune-btn { margin-top: 10px; margin-right: 8px; padding: 7px 16px; border-radius: 999px; border: 1px dashed var(--line);
+  background: transparent; color: var(--dim); font: 700 12px var(--display); cursor: pointer; }
+.tune-btn.on { border: 1px solid var(--teal); color: var(--teal-glow); }
+.tune-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.tune-line { margin: 6px 0 0; font: 12px var(--mono); color: var(--dim); }
 
 /* Alerts: a level, the message, the time. Each row opens its explanation. */
 .alerts { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }

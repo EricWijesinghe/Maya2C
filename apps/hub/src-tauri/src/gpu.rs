@@ -10,13 +10,17 @@ use serde::Serialize;
 
 /// The query, in the column order [`parse`] expects.
 const QUERY: &str = "index,name,temperature.gpu,power.draw,power.limit,utilization.gpu,\
-                     fan.speed,memory.used,memory.total,clocks.sm";
-const COLUMNS: usize = 10;
+                     fan.speed,memory.used,memory.total,clocks.sm,uuid";
+const COLUMNS: usize = 11;
 
 /// One adapter's live readings.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
 pub struct GpuStat {
     pub index: u32,
+    /// The driver's device UUID, the key a tuning profile is saved under
+    /// (autotune.rs). `None` when the driver reports none: such a GPU is shown,
+    /// and it cannot be tuned.
+    pub uuid: Option<String>,
     pub name: String,
     pub temp_c: Option<f64>,
     pub power_w: Option<f64>,
@@ -53,6 +57,7 @@ pub fn parse(csv: &str) -> Vec<GpuStat> {
             }
             Some(GpuStat {
                 index: f[0].parse().ok()?,
+                uuid: Some(f[10].to_string()).filter(|u| !u.is_empty()),
                 name: f[1].to_string(),
                 temp_c: number(f[2]),
                 power_w: number(f[3]),
@@ -110,11 +115,12 @@ mod tests {
 
     #[test]
     fn parses_a_real_shaped_line_and_keeps_missing_fields_missing() {
-        let csv = "0, NVIDIA GeForce RTX 5070, 61, 182.40, 250.00, 97, [N/A], 9120, 12227, 2700\n";
+        let csv = "0, NVIDIA GeForce RTX 5070, 61, 182.40, 250.00, 97, [N/A], 9120, 12227, 2700, GPU-aaaa\n";
         let gpus = parse(csv);
         assert_eq!(gpus.len(), 1);
         let g = &gpus[0];
         assert_eq!(g.name, "NVIDIA GeForce RTX 5070");
+        assert_eq!(g.uuid.as_deref(), Some("GPU-aaaa"));
         assert_eq!(g.temp_c, Some(61.0));
         assert_eq!(g.power_w, Some(182.4));
         assert_eq!(g.fan_pct, None, "[N/A] is not zero");
@@ -124,14 +130,18 @@ mod tests {
     #[test]
     fn a_short_or_garbled_line_is_skipped_not_guessed() {
         assert!(parse("0, GPU, 60\n").is_empty());
-        assert!(parse("x, GPU, 1, 2, 3, 4, 5, 6, 7, 8\n").is_empty());
+        assert!(parse("x, GPU, 1, 2, 3, 4, 5, 6, 7, 8, GPU-x\n").is_empty());
+        assert!(
+            parse("0, GPU, 1, 2, 3, 4, 5, 6, 7, 8\n").is_empty(),
+            "the old ten-column query is refused"
+        );
         assert!(parse("").is_empty());
     }
 
     #[test]
     fn two_adapters_keep_their_own_indices_and_a_blank_temperature_stays_blank() {
-        let csv = "0, RTX A, 61, 182.40, 250.00, 97, 54, 9120, 12227, 2700\n\
-                   1, RTX B, [N/A], 90.10, 200.00, 0, [N/A], 512, 8192, 210\n";
+        let csv = "0, RTX A, 61, 182.40, 250.00, 97, 54, 9120, 12227, 2700, GPU-a\n\
+                   1, RTX B, [N/A], 90.10, 200.00, 0, [N/A], 512, 8192, 210, \n";
         let gpus = parse(csv);
         assert_eq!(gpus.iter().map(|g| g.index).collect::<Vec<_>>(), [0, 1]);
         let report = GpuReport {
@@ -139,6 +149,7 @@ mod tests {
             note: None,
         };
         assert_eq!(temperatures(&report), [(0, 61.0)]);
+        assert_eq!(report.devices[1].uuid, None, "an empty UUID is no UUID");
     }
 
     #[test]

@@ -3585,3 +3585,14 @@ class = "REAL"
 status = "stub"
 tests = ["crate:attacknet-controller"]
 note = "Scaffold. Process kill (by data dir, zero matches is an error) and start are real; every other fault returns a not-implemented error since 2026-11-10 (before that, many logged Ok without acting). Its scenario verdicts and reports/attacknet/runs/ are not evidence; use cargo xtask attacknet."
+
+[[subsystem]]
+id = "hub-gpu-autotune"
+name = "Hub GPU auto-tuner (opt-in per-card clock and power search)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/hub/src-tauri/src/autotune.rs`, `tuning.rs`, `gpu_control.rs`, `profiles.rs`, `sim_gpu.rs` (test only), `apps/hub/ui/app.js` (Tune toggle)"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = []
+note = "ADR-137 (HW-1, 2026-11-12). Off-chain only, no consensus code. Opt-in per card: the Tune toggle is off by default and visible on the card, with its live state (stock, tuning step n, tuned +x% efficiency, rolled back: reason). Decision core autotune.rs is pure: bounds only fall from stock, floors at 60% power and 70% clock; a candidate is kept only past a 1% efficiency gain; rollback to stock on miner crash, miner stop, hash-rate collapse (two low samples), temperature over the ceiling (capped at 80 C), a refused write, user off, or app exit. Vendor control behind one trait: NVIDIA through nvidia-smi (no NVML: no nvml-wrapper in Cargo.lock), AMD through the sysfs power cap on Linux (no AMD discovery yet, so not reachable), read-only elsewhere (Windows AMD). Profiles keyed by device UUID in gpu-tuning.json, with crash recovery of GPUs left tuned. Tests in autotune.rs, gpu_control.rs, profiles.rs and tuning.rs were written CI-first and are not compiled or run locally. Real-card behaviour is NOT VERIFIED. See docs/mining/gpu-autotune.md."

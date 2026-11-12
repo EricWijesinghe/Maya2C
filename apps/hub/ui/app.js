@@ -23,6 +23,7 @@ const state = {
   miner: null, // { workers: [MinerState], alerts: [Alert] }
   snapshot: null,
   gpus: { devices: [], note: null },
+  tune: { devices: [], notice: null }, // ADR-137: per-GPU auto-tuner state
   peak: 0,
   lastAccepted: 0,
   heights: [],
@@ -65,8 +66,10 @@ const preview = (() => {
     // Synthetic, like the rest of preview mode: the header already says so.
     watch_balances: ({ addresses }) => addresses.map((input, i) => ({ input, address_text: input,
       balance: (BigInt(i + 1) * 1234567n * 10n ** 21n).toString(), nonce: i, error: null })),
-    gpu_telemetry: () => ({ devices: [{ index: 0, name: "Preview GPU", temp_c: 58 + Math.random() * 4, power_w: 170 + Math.random() * 15,
+    gpu_telemetry: () => ({ devices: [{ index: 0, uuid: "GPU-preview", name: "Preview GPU", temp_c: 58 + Math.random() * 4, power_w: 170 + Math.random() * 15,
       power_limit_w: 250, util_pct: 97, fan_pct: 54, mem_used_mib: 4300, mem_total_mib: 12227, clock_mhz: 2610 }], note: null }),
+    // Preview does not tune: the card says so instead of pretending.
+    tune_report: () => ({ devices: [], notice: "preview mode: auto-tuning runs only in the desktop Hub" }),
   };
 })();
 
@@ -356,8 +359,19 @@ function rigCard(key) {
     e.stopPropagation();
     toggleRig(key);
   });
+  const tune = document.createElement("button");
+  tune.className = "tune-btn";
+  tune.type = "button";
+  tune.setAttribute("aria-pressed", "false");
+  tune.textContent = "Tune";
+  tune.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleTune(key);
+  });
+  const tuneLine = document.createElement("p");
+  tuneLine.className = "tune-line";
   meta.append(counts, heat);
-  card.append(h3, spark, rings, meta, btn);
+  card.append(h3, spark, rings, meta, tune, tuneLine, btn);
   card.addEventListener("click", () => showRig(key));
   card.addEventListener("keydown", (e) => {
     if (e.key === "Enter") showRig(key);
@@ -387,6 +401,20 @@ function updateRig(card, key, w, g) {
   const btn = card.querySelector(".rig-btn");
   btn.hidden = state.watchOnly;
   setText(btn, w && w.running ? "Stop" : "Start");
+  updateTune(card, key, g);
+}
+
+// The Tune toggle and its live line: stock, tuning step n, tuned +x%, or
+// rolled back with the reason. Off unless the user turned it on.
+function updateTune(card, key, g) {
+  const t = state.tune.devices.find((d) => d.index === Number(key.slice(3))) || null;
+  const tune = card.querySelector(".tune-btn");
+  const on = Boolean(t && t.on);
+  tune.setAttribute("aria-pressed", String(on));
+  tune.classList.toggle("on", on);
+  // No UUID, no profile: the driver's GPU cannot be keyed, so it cannot be tuned.
+  tune.disabled = state.watchOnly || !g || !g.uuid;
+  setText(card.querySelector(".tune-line"), t ? [t.line, t.note].filter(Boolean).join(" · ") : "stock");
 }
 
 function showRig(key) {
@@ -556,6 +584,27 @@ async function togglePower() {
   for (const device of rest) await startDevice(device);
 }
 
+// Tune is opt-in per card and visible on it. Off is the default and stock is
+// where every card goes back to (ADR-137).
+async function toggleTune(key) {
+  const index = Number(key.slice(3));
+  const on = !(state.tune.devices.find((d) => d.index === index) || { on: false }).on;
+  try {
+    await call("tune_set", { index, on, ceilingC: state.settings.thermal_ceiling_c });
+  } catch (err) {
+    setText("gpu-note", String(err));
+  }
+  await refreshTune();
+}
+
+async function refreshTune() {
+  const r = await call("tune_report").catch(() => null);
+  if (r) {
+    state.tune = r;
+    renderRigs();
+  }
+}
+
 async function toggleRig(device) {
   const w = state.miner && state.miner.workers.find((x) => x.device === device);
   if (w && w.running) {
@@ -689,6 +738,7 @@ async function main() {
     renderNode();
   }, POLL_NODE_MS);
   poll("gpu_telemetry", () => undefined, (g) => { if (g) { state.gpus = g; renderRigs(); } }, POLL_GPU_MS);
+  poll("tune_report", () => undefined, (r) => { if (r) { state.tune = r; renderRigs(); } }, POLL_GPU_MS);
   requestAnimationFrame(frame);
 }
 

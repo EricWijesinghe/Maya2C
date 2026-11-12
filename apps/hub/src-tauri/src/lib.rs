@@ -3,7 +3,9 @@
 //! The webview draws; these commands do everything that touches the network,
 //! the GPU driver or a process. Each blocking call runs off the UI thread.
 
+mod autotune;
 mod gpu;
+mod gpu_control;
 #[cfg(windows)]
 mod key_acl;
 mod miner;
@@ -11,6 +13,10 @@ mod miner_guard;
 mod node;
 mod notify;
 mod pools;
+mod profiles;
+#[cfg(test)]
+mod sim_gpu;
+mod tuning;
 mod watch;
 mod watchdog;
 
@@ -26,6 +32,7 @@ use tauri_plugin_notification::NotificationExt;
 use crate::miner::{Miner, MinerConfig, MinerReport};
 use crate::miner_guard::miner_file_name;
 use crate::notify::Notifier;
+use crate::tuning::Tuning;
 
 /// Starting values for the settings panel.
 #[derive(Serialize)]
@@ -106,6 +113,35 @@ async fn gpu_telemetry() -> Result<gpu::GpuReport, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Turns the auto-tuner on or off for one GPU (ADR-137). Opt-in: the webview
+/// sends this only from the card's Tune toggle.
+#[tauri::command]
+async fn tune_set(
+    index: u32,
+    on: bool,
+    ceiling_c: f64,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let report = gpu::read();
+        let dev = report
+            .devices
+            .iter()
+            .find(|d| d.index == index)
+            .ok_or_else(|| format!("the driver lists no GPU {index}"))?;
+        let state = app.state::<Mutex<Tuning>>();
+        let mut tuned = tuning::lock(&state);
+        tuned.set(dev, on, ceiling_c)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn tune_report(state: tauri::State<'_, Mutex<Tuning>>) -> tuning::Report {
+    tuning::lock(&state).report()
+}
+
 #[tauri::command]
 fn miner_start(
     config: MinerConfig,
@@ -150,21 +186,23 @@ fn miner_state(state: tauri::State<'_, Miner>) -> MinerReport {
     state.report()
 }
 
-/// Runs the watchdog once a second. GPU temperatures are read every third
-/// second and only while a GPU miner runs, so an idle Hub never calls
-/// `nvidia-smi`. A tick without a reading never stops or restarts a GPU.
+/// Runs the watchdog once a second. GPU readings are taken every third second
+/// and only while a GPU miner runs or a tune is active, so an idle Hub never
+/// calls `nvidia-smi`. A tick without a reading never stops or restarts a GPU.
 fn supervise(app: tauri::AppHandle) {
     let mut tick: u64 = 0;
     loop {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
         let miner = app.state::<Miner>();
-        let temps = if tick.is_multiple_of(3) && miner.gpu_running() {
-            gpu::temperatures(&gpu::read())
-        } else {
-            Vec::new()
-        };
+        let tuned = app.state::<Mutex<Tuning>>();
+        let wanted = miner.gpu_running() || tuning::lock(&tuned).active();
+        let reading = (tick.is_multiple_of(3) && wanted).then(gpu::read);
+        let temps = reading.as_ref().map_or_else(Vec::new, gpu::temperatures);
         let raised = miner.tick(miner::now_ms(), &temps);
+        if let Some(report) = &reading {
+            tuning::lock(&tuned).tick(&miner.report().workers, &report.devices);
+        }
         let notifier = app.state::<Mutex<Notifier>>();
         for alert in &raised {
             if notify::lock(&notifier).admit(alert) {
@@ -184,6 +222,8 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            let data = app.path().app_data_dir()?;
+            app.manage(Mutex::new(Tuning::open(&data)));
             let handle = app.handle().clone();
             thread::spawn(move || supervise(handle));
             Ok(maya_app_update::start(app)?)
@@ -195,6 +235,8 @@ pub fn run() {
             node_snapshot,
             watch_balances,
             gpu_telemetry,
+            tune_set,
+            tune_report,
             miner_start,
             miner_stop,
             miner_state,
@@ -202,9 +244,11 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner
-            // nobody can see. Closing the hub stops every one of them.
+            // nobody can see. Closing the hub stops every one of them, and a
+            // GPU left tuned goes back to stock (ADR-137).
             if let tauri::WindowEvent::Destroyed = event {
                 window.state::<Miner>().stop(None);
+                tuning::lock(&window.state::<Mutex<Tuning>>()).reset_all();
             }
         })
         .run(tauri::generate_context!())
