@@ -7,8 +7,6 @@ name: visual-baseline
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["fix/ci-master-reds"]
 
 permissions:
   contents: read
