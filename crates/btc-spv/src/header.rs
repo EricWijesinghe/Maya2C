@@ -187,6 +187,26 @@ mod tests {
     }
 
     #[test]
+    fn shifts_cross_limb_boundaries_and_saturate_to_zero() {
+        let one = U256::from_u64(1);
+        for n in [0u32, 1, 63, 64, 65, 127, 128, 129, 191, 192, 255] {
+            let up = shl(one, n);
+            assert_eq!(up.bits(), n + 1, "1 << {n}");
+            assert_eq!(shr(up, n), one, "round trip {n}");
+        }
+        // Bits leaving the top are dropped, not wrapped round.
+        assert_eq!(shl(one, 256), U256::ZERO);
+        assert_eq!(shr(one, 256), U256::ZERO);
+        assert_eq!(shr(U256::MAX, 255), one);
+        assert_eq!(shl(U256::MAX, 255), U256([0, 0, 0, 1 << 63]));
+        // A value straddling a limb edge moves whole.
+        let x = U256([0, 0xdead_beef_0000_0001, 0, 0]);
+        assert_eq!(shr(shl(x, 36), 36), x);
+        assert_eq!(shl(x, 0), x);
+        assert_eq!(shr(x, 0), x);
+    }
+
+    #[test]
     fn genesis_work_is_2_pow_32_ish() {
         let t = target_from_compact(0x1d00_ffff).expect("valid");
         assert_eq!(work_from_target(t), U256::from_u64(0x1_0001_0001));

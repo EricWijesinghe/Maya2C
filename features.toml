@@ -2690,6 +2690,7 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-wallet-core"]
+note = "ADR-083 decision 4 (2026-11-10, feat/hub-launch): `maya2c-wallet://` registered via tauri-plugin-deep-link 2.6.3 (tauri.conf.json plugins.deep-link.desktop.schemes) with single-instance 2.5.5 (deep-link feature). Strict parser in apps/wallet-gui/src-tauri/src/deeplink.rs, unit tests in that file: `open`, and `pay?to=<maya1…>&amount=<decimal>` that only prefills Send; the UI polls take_pending_pay on the Wallet screen only. Nothing is signed or sent from a link. Not verified: installed-build registration (NSIS/MSI, .desktop) and a live link. See docs/app-link-schemes.md."
 
 [[subsystem]]
 id = "leptos-block-explorer-and-dashboard"
@@ -2699,7 +2700,8 @@ paths = "`apps/explorer`, `apps/dashboard/`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["apps/explorer/tests/indexer_tests.rs", "apps/explorer/tests/server_tests.rs"]
+tests = ["apps/explorer/tests/indexer_tests.rs", "apps/explorer/tests/server_tests.rs", "apps/explorer/tests/chart_tests.rs", "apps/explorer/tests/fixture_tests.rs"]
+note = "explorer-v2 (CATALOG explorer-v2). Address pages take hex or Bech32m (ADR-081) at /account and /account/<address>; /mining shows the estimated hashrate; block-time, transactions-per-block and stake charts are inline SVG (src/chart.rs, pure and deterministic, no script); light and dark themes via a nav toggle. Validator uptime is NOT shown: the node RPC does not report it. Golden HTML in design/visual/explorer is screenshot-diffed by the visual job; its baselines are generated in the pinned Playwright container, not on a laptop."
 
 [[subsystem]]
 id = "axum-rest-graphql-gateway"
@@ -2722,6 +2724,18 @@ status = "verified"
 tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "crates/node/tests/hybrid_parity_tests.rs"]
 gate = "cargo build -p maya-sdk-wasm --target wasm32-unknown-unknown"
 note = "The parity tests run on the host. The browser bindings additionally have to *compile* for wasm32, which they did not until 2026-09-20 -- getrandom reaches the crate transitively at two majors and both needed their browser backend named. See docs/sdk.md; nightly.yml builds that target."
+
+[[subsystem]]
+id = "rust-gateway-sdk"
+name = "Rust gateway SDK (maya2c-sdk)"
+domain = "Tooling and formal verification"
+paths = "`sdks/rust`, `sdks/go/address.go`, `sdks/go/wallet.go`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya2c-sdk", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
+gate = "Go and Python unit tests run in the `sdks` workflow (.github/workflows/sdks.yml): `go test ./...` in sdks/go and `python -m unittest discover -s tests` in sdks/python. The live-node tests skip there and run only in nightly.yml's devnet job."
+note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. Tests run against an in-process mock gateway, not a live node: no live run is recorded yet, so this is not `verified`. Not published (publish needs Eric's APPROVED)."
 
 [[subsystem]]
 id = "latex-technical-reference-generator"
@@ -2807,7 +2821,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-chat", "apps/chat/tests/session_tests.rs", "apps/chat/tests/send_failure_tests.rs", "apps/chat/tests/relay_tests.rs", "apps/chat/tests/net_e2e_tests.rs", "apps/chat/tests/outbox_tests.rs", "apps/chat/tests/envelope_wire_tests.rs", "apps/chat-gui/src-tauri/src/delivery.rs"]
 gate = "ci.yml chat-gui (windows) and chat-gui (linux): cargo test --locked --lib --manifest-path apps/chat-gui/src-tauri/Cargo.toml (apps/chat-gui is outside the workspace)"
-note = "ADR-031. #285: a failed send no longer rewinds an established ratchet (the advanced chain is saved; the receiver skips up to MAX_SKIP 1000), pinned by apps/chat/tests/send_failure_tests.rs. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. ADR-074: sender outbox (sealed envelopes kept until a signed receipt, backoff retry, 1,000-entry bound, no eviction), delivery receipts signed by the recipient's ML-DSA-65 key and batched per pass with an opt-out, envelope v2 canonical byte strings with v1 kept readable, Request::Version negotiation. Transport stays on the v1-shaped encoding (cbor4ii). Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key. Each sent message shows its outbox state (sending, waiting for receipt, delivered, expired; Dismiss for expired) through read-only `deliveries` and `dismiss_delivery`, mapped and tested in apps/chat-gui/src-tauri/src/delivery.rs; `Client::standing` in apps/chat/src/client.rs."
+note = "ADR-031. ADR-083 decision 4 (feat/hub-launch, 2026-11-10): `maya2c-chat://open` registered via tauri-plugin-deep-link 2.6.3 and single-instance 2.5.5 in apps/chat-gui; the only route is `open` (strict parser and tests in apps/chat-gui/src-tauri/src/deeplink.rs). Installed-build registration not yet run; see docs/app-link-schemes.md. #285: a failed send no longer rewinds an established ratchet (the advanced chain is saved; the receiver skips up to MAX_SKIP 1000), pinned by apps/chat/tests/send_failure_tests.rs. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. ADR-074: sender outbox (sealed envelopes kept until a signed receipt, backoff retry, 1,000-entry bound, no eviction), delivery receipts signed by the recipient's ML-DSA-65 key and batched per pass with an opt-out, envelope v2 canonical byte strings with v1 kept readable, Request::Version negotiation. Transport stays on the v1-shaped encoding (cbor4ii). Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key. Each sent message shows its outbox state (sending, waiting for receipt, delivered, expired; Dismiss for expired) through read-only `deliveries` and `dismiss_delivery`, mapped and tested in apps/chat-gui/src-tauri/src/delivery.rs; `Client::standing` in apps/chat/src/client.rs."
 
 [[subsystem]]
 id = "chat-stickers"
@@ -2841,7 +2855,7 @@ tier = "extended"
 class = "REAL"
 status = "planned"
 tests = []
-note = "ADR-083 (2026-11-10): Wallet page, watch-only balances for up to 20 pasted addresses (watch.rs: network-checked by payout_bytes, exact decimal-string balances, a bad row is an error never zero; 6 unit tests); keys stay in the Wallet and Chat apps, and launching them from the Hub is a later step. ADR-073 phase 1 (C1) in source: per-device miner workers, watchdog (restart with backoff, stall and thermal stops, crash-loop give-up), alerts (opt-in OS toasts via tauri-plugin-notification for give-up and thermal stops, one per kind per 10 min; notify.rs), pool allow-list (public node only), rig view; 40 hub unit tests incl. watchdog and GPU stats parsing; not yet run against a mining chain. ADR-045. #275: the Hub runs maya2c-gpu-miner beside it, and nothing else, whose SHA-256 is in the build-time MAYA2C_MINER_SHA256SUMS (unset = no miner); the key file must canonicalize inside the data folder; 21 unit tests in apps/hub/src-tauri. Open: hash-then-spawn TOCTOU, key-file ACL check, and release CI does not yet set the pin, so release Hubs run no miner. #290: CSP drops style-src 'unsafe-inline' (no live Tauri launch recorded). Tauri 2, outside the workspace. Runs maya2c-gpu-miner --mine --json and draws hash rate, shares, earnings, NVIDIA telemetry via nvidia-smi, network height/committee/fees from JSON-RPC, and a status map of every app and field. Unit tests in src-tauri (cargo test there); not yet run against a mining chain, so planned until that end-to-end run is recorded."
+note = "ADR-083 (2026-11-10): Wallet page, watch-only balances for up to 20 pasted addresses (watch.rs: network-checked by payout_bytes, exact decimal-string balances, a bad row is an error never zero; 6 unit tests); keys stay in the Wallet and Chat apps, and opening Wallet and Chat from the Hub is built (ADR-083 decision 4, feat/hub-launch, 2026-11-10): `opener` 2.7.2, capability-scoped to `maya2c-wallet://open` and `maya2c-chat://open` only, with a plain install message when the link does not start; installed-build registration not yet run. ADR-073 phase 1 (C1) in source: per-device miner workers, watchdog (restart with backoff, stall and thermal stops, crash-loop give-up), alerts (opt-in OS toasts via tauri-plugin-notification for give-up and thermal stops, one per kind per 10 min; notify.rs), pool allow-list (public node only), rig view; 40 hub unit tests incl. watchdog and GPU stats parsing; not yet run against a mining chain. ADR-045. #275: the Hub runs maya2c-gpu-miner beside it, and nothing else, whose SHA-256 is in the build-time MAYA2C_MINER_SHA256SUMS (unset = no miner); the key file must canonicalize inside the data folder; 21 unit tests in apps/hub/src-tauri. Open: hash-then-spawn TOCTOU, key-file ACL check, and release CI does not yet set the pin, so release Hubs run no miner. #290: CSP drops style-src 'unsafe-inline' (no live Tauri launch recorded). Tauri 2, outside the workspace. Runs maya2c-gpu-miner --mine --json and draws hash rate, shares, earnings, NVIDIA telemetry via nvidia-smi, network height/committee/fees from JSON-RPC, and a status map of every app and field. Unit tests in src-tauri (cargo test there); not yet run against a mining chain, so planned until that end-to-end run is recorded."
 
 [[subsystem]]
 id = "ledger-hardware-wallet-app"
@@ -3100,7 +3114,7 @@ tier = "core"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/smart-account/tests/account_tests.rs"]
-note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type."
+note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type. Recovery corrected 2026-11-10 (ADR-086 §4 F1-F6, see ADR-056 Corrections): queued guardian changes, bounded sets, per-key requests with WithdrawApproval, finish drops every key and cancels pending transfers; a proptest pins below-threshold guardians and value conservation. F7 (policy day length) open."
 
 [[subsystem]]
 id = "data-availability"
@@ -3528,3 +3542,25 @@ class = "REAL"
 status = "working"
 tests = ["apps/explorer/tests/api_v1_tests.rs", "crate:maya-explorer"]
 note = "ADR-092. Read-only GET under /api/v1. History from the index (tx_outputs added, index generation 3); live values from the node through a TTL single-flight cache (supply 30 s). Bech32m addresses, cursor pages, RFC 9457 problem codes, per-client 10 rps / burst 30 limit, finality-aware Cache-Control. Postgres SQL for the new queries is NOT VERIFIED against a server (no Postgres harness in the repo); MemoryStore proves the logic. The golden spec is JSON in a .yaml file."
+
+[[subsystem]]
+id = "testnet-kit"
+name = "Testnet kit: local devnet, explorer, faucet and attack lab (`cargo xtask kit`)"
+domain = "Developer and operator tooling"
+paths = "`xtask/src/kit.rs`, `xtask/src/up.rs`, `xtask/src/attacknet.rs` (scenario table), `apps/explorer` (bin `maya-explorer`)"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["xtask/src/kit.rs", "xtask/src/up.rs", "xtask/src/attacknet.rs"]
+note = "catalog testnet-kit. Unit tests cover status probing, the attack argument list, the port guard and the scenario table. `kit up` and `kit attack` have not yet been run end to end in this tree; attacknet itself is the existing verified run."
+
+[[subsystem]]
+id = "node-in-a-box"
+name = "Node in a box: host checks, node config, key permissions and service text (`cargo xtask node`)"
+domain = "Developer and operator tooling"
+paths = "`xtask/src/node_box/`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
+note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."

@@ -12,7 +12,8 @@
 
 use leptos::prelude::*;
 
-use crate::model::{IndexedBlock, IndexedTx, NetworkStats};
+use crate::chart;
+use crate::model::{HashratePoint, IndexedBlock, IndexedTx, NetworkStats};
 
 /// Renders a component tree to an HTML string.
 fn render(view: impl IntoView + 'static) -> String {
@@ -112,6 +113,7 @@ pub fn Shell(
                 <meta name="twitter:card" content="summary_large_image"/>
                 <meta name="twitter:image" content="/assets/og-image.png"/>
 
+                <script>{THEME_SCRIPT}</script>
                 <style>{styles()}</style>
             </head>
             <body>
@@ -135,6 +137,8 @@ pub fn Shell(
                     <a href="/tx">"Transactions"</a>
                     <a href="/account">"Accounts"</a>
                     <a href="/validators">"Validators"</a>
+                    <a href="/mining">"Mining"</a>
+                    <button type="button" class="theme-toggle" data-theme-toggle="">"Light"</button>
                 </nav>
                 <main>{children()}</main>
                 <script>{LIVE_SCRIPT}</script>
@@ -195,34 +199,27 @@ pub fn BlockTimeChart(
     /// Recent blocks, newest first.
     blocks: Vec<IndexedBlock>,
 ) -> impl IntoView {
-    let mut times: Vec<(i64, u64)> = blocks
-        .windows(2)
-        .map(|w| {
-            let gap = w[0].timestamp.saturating_sub(w[1].timestamp).max(0);
-            (w[0].height, u64::try_from(gap).unwrap_or(0))
-        })
-        .collect();
-    times.reverse();
-    // Scaled against the window maximum, with a floor so a steady chain still
-    // shows bars rather than a flat line.
-    let peak = times.iter().map(|t| t.1).max().unwrap_or(1).max(2);
-    let bars: Vec<_> = times
-        .iter()
-        .map(|(height, secs)| {
-            #[allow(clippy::cast_precision_loss)]
-            let pct = ((*secs as f64 / peak as f64) * 100.0).clamp(6.0, 100.0);
-            let label = format!("block {height} · {secs}s after its parent");
-            view! {
-                <div class="bar" style=format!("height:{pct:.1}%") title=label></div>
-            }
-        })
-        .collect();
-
+    let svg = chart::bar_chart(&chart::block_time_series(&blocks), "Block time");
     view! {
         <section class="panel">
             <h2>"Block time"</h2>
-            <div class="chart">{bars}</div>
+            <div class="chart" inner_html=svg></div>
             <p class="muted">"Seconds between each recent block and its parent. Every block shown is final: DAG-BFT does not reorganise."</p>
+        </section>
+    }
+}
+
+/// Transactions per recent block, as bars.
+#[component]
+pub fn TxCountChart(
+    /// Recent blocks, newest first.
+    blocks: Vec<IndexedBlock>,
+) -> impl IntoView {
+    let svg = chart::bar_chart(&chart::tx_count_series(&blocks), "Transactions per block");
+    view! {
+        <section class="panel">
+            <h2>"Transactions per block"</h2>
+            <div class="chart" inner_html=svg></div>
         </section>
     }
 }
@@ -381,7 +378,10 @@ pub fn dashboard_page(stats: NetworkStats, blocks: Vec<IndexedBlock>) -> String 
             <p class="lead">"Post-quantum layer 1 · DAG-BFT finality · every block below is final"</p>
             <StatsPanel stats=stats/>
             <BlockRibbon blocks=blocks.clone()/>
-            <BlockTimeChart blocks=blocks.clone()/>
+            <div class="charts">
+                <BlockTimeChart blocks=blocks.clone()/>
+                <TxCountChart blocks=blocks.clone()/>
+            </div>
             <BlockTable blocks=blocks/>
         </Shell>
     })
@@ -482,11 +482,25 @@ pub fn transaction_page(transaction: Option<IndexedTx>, query: String) -> String
 #[must_use]
 pub fn account_page(
     address: String,
+    text: Option<String>,
     balance: Option<primitive_types::U256>,
     nonce: Option<u64>,
     transactions: Vec<IndexedTx>,
     error: Option<String>,
 ) -> String {
+    // The Bech32m form is what people copy and paste; the hex id stays because
+    // it is what the RPC and the transaction links use.
+    let text_row = match text {
+        Some(text) => view! {
+            <dl class="detail">
+                <dt>"Address"</dt><dd class="mono">{text}</dd>
+                <dt>"Hex id"</dt><dd class="mono">{address.clone()}</dd>
+            </dl>
+        }
+        .into_any(),
+        None => view! { <span></span> }.into_any(),
+    };
+
     let summary = match (balance, nonce) {
         (Some(balance), Some(nonce)) => view! {
             <section class="tiles">
@@ -521,6 +535,7 @@ pub fn account_page(
                 <button type="submit">"Look up"</button>
             </form>
             {message}
+            {text_row}
             {summary}
             <section class="panel">
                 <h2>"Transactions sent"</h2>
@@ -569,9 +584,14 @@ pub fn validators_page(
                     }
                 })
                 .collect();
+            let stake = chart::bar_chart(
+                &chart::stake_series(&info.validators),
+                "Stake per validator",
+            );
             view! {
                 <section class="panel">
                     <h2>{summary}</h2>
+                    <div class="chart" inner_html=stake></div>
                     <div class="tablewrap">
                         <table>
                             <thead>
@@ -593,6 +613,50 @@ pub fn validators_page(
             <h1>"Validators"</h1>
             {message}
             {body}
+        </Shell>
+    })
+}
+
+/// The mining page: the estimated hashrate over recent blocks, as a line.
+///
+/// The series is `HashratePoint`s from the same estimator the dashboard uses,
+/// so the two pages cannot disagree about the current rate.
+#[must_use]
+pub fn mining_page(stats: NetworkStats, series: Vec<HashratePoint>) -> String {
+    let samples: Vec<chart::Sample> = series
+        .iter()
+        .map(|point| chart::Sample {
+            label: format!(
+                "height {} · {}",
+                point.height,
+                format_hashrate(point.hashrate)
+            ),
+            value: point.hashrate,
+        })
+        .collect();
+    let svg = chart::line_chart(&samples, "Estimated hashrate");
+    render(view! {
+        <Shell title="Mining".to_string()>
+            <h1>"Mining"</h1>
+            <p class="lead">"Estimated from the work each recent block's target demanded, over the time between blocks."</p>
+            <section class="tiles">
+                <div class="tile">
+                    <span class="label">"Hashrate"</span>
+                    <span class="value">{format_hashrate(stats.hashrate)}</span>
+                </div>
+                <div class="tile">
+                    <span class="label">"Blocks / min"</span>
+                    <span class="value">{blocks_per_minute(stats.average_block_time)}</span>
+                </div>
+                <div class="tile">
+                    <span class="label">"Avg block time"</span>
+                    <span class="value">{format!("{:.1}s", stats.average_block_time)}</span>
+                </div>
+            </section>
+            <section class="panel">
+                <h2>"Hashrate over recent blocks"</h2>
+                <div class="chart" inner_html=svg></div>
+            </section>
         </Shell>
     })
 }
@@ -623,7 +687,7 @@ const STYLES: &str = r#"
 /* Living quantum ledger: deep-sea cyan and indigo. Blocks are cubes on a
    slow 3D ribbon and the finality pulse beats once per block. Every motion is
    held behind prefers-reduced-motion, which leaves a static ribbon. */
-:root, [data-theme="command"] { --accent:#22d3ee; --focus:#818cf8; --on-accent:#021018; --deep:#030716; }
+[data-theme="command"] { --accent:#22d3ee; --focus:#818cf8; --on-accent:#021018; --deep:#030716; }
 * { box-sizing:border-box; }
 body { margin:0; font:14px/1.5 "Inter",ui-sans-serif,system-ui,sans-serif; color:var(--fg);
        background:var(--deep); min-height:100vh; position:relative; isolation:isolate; }
@@ -731,11 +795,19 @@ td a:hover { text-shadow:0 0 12px rgb(34 211 238 / 0.6); }
 .plain { font-size:1.05rem; margin:0 0 1rem; }
 details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75rem; }
 :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
-.chart { display:flex; align-items:flex-end; gap:3px; height:120px; padding-top:0.5rem; }
-.bar { flex:1; min-width:2px; background:linear-gradient(180deg,#22d3ee,#6366f1); opacity:0.85;
-       border-radius:3px 3px 0 0; box-shadow:0 0 10px rgb(34 211 238 / 0.25);
-       transition:opacity .18s ease, box-shadow .18s ease; }
-.bar:hover { opacity:1; box-shadow:0 0 16px rgb(34 211 238 / 0.7); }
+/* Charts are inline SVG (chart.rs). Colour lives here so the theme switch
+   recolours them; the markup carries none. */
+.charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:0 1rem; }
+.chart { padding-top:0.5rem; }
+.chart-svg { display:block; width:100%; height:auto; max-height:220px; }
+.chart-svg .bar { fill:var(--accent); opacity:0.85; transition:opacity .18s ease; }
+.chart-svg .bar:hover { opacity:1; fill:var(--focus); }
+.chart-svg .line { fill:none; stroke:var(--accent); stroke-width:2; stroke-linejoin:round; }
+.chart-svg .dot { fill:var(--focus); }
+.chart-svg text.axis { fill:var(--muted); font-size:14px; }
+.theme-toggle { margin-left:auto; font:inherit; color:var(--fg); background:transparent;
+       border:1px solid var(--border); border-radius:6px; padding:0.25rem 0.7rem; cursor:pointer; }
+.theme-toggle:hover { border-color:var(--accent); }
 .detail { display:grid; grid-template-columns:150px 1fr; gap:0.4rem 1rem; margin:0; }
 .detail dt { color:var(--muted); }
 .detail dd { margin:0; overflow-wrap:anywhere; }
@@ -762,7 +834,7 @@ details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75re
 /* Site palette (maya2c.dev): abyss background, signal teal, bronze-gold, verified
    green. Flat panels, no neon or gradient text; the ribbon is a flat wave of
    chips (no spin, only a slow sine bob). Overrides the living-ledger rules above. */
-:root, [data-theme="command"] { --accent:#1fb5c2; --focus:#e6b260; --on-accent:#08100f; --deep:#050b0f;
+[data-theme="command"] { --accent:#1fb5c2; --focus:#e6b260; --on-accent:#08100f; --deep:#050b0f;
   --panel:rgba(14,30,36,0.62); --border:rgba(150,226,232,0.13); --fg:#edf3f2; --muted:#93a4aa; }
 body::before { animation:none; background:
   radial-gradient(50rem 28rem at 8% -5%, rgb(31 181 194 / 0.28), transparent 62%),
@@ -773,7 +845,7 @@ body::after { opacity:0.6; background-image:radial-gradient(rgb(255 255 255 / 0.
   background-size:22px 22px; -webkit-mask-image:linear-gradient(#000 20%, transparent 85%); mask-image:linear-gradient(#000 20%, transparent 85%); }
 .nav::after, .tile::before, .panel::before, .pulse::after { display:none; }
 h1 { background:none; color:var(--fg); animation:none; font-weight:650; letter-spacing:-0.01em; }
-.nav { background:#0d1216; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.nav { background:var(--deep); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .nav .brand .emblem { filter:none; }
 .nav .brand .word { background:none; color:var(--fg); -webkit-text-fill-color:currentColor; }
 .tile, .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:none; }
@@ -781,12 +853,10 @@ h1 { background:none; color:var(--fg); animation:none; font-weight:650; letter-s
 .tile:nth-child(1){--n:0} .tile:nth-child(2){--n:1} .tile:nth-child(3){--n:2} .tile:nth-child(4){--n:3}
 .tile:nth-child(5){--n:4} .tile:nth-child(6){--n:5} .tile:nth-child(7){--n:6} .tile:nth-child(8){--n:7}
 .tile:hover, .panel:hover { transform:none; box-shadow:none; border-color:#33424d; }
-.tile .value { color:#fff; font-weight:650; }
+.tile .value { color:var(--fg); font-weight:650; }
 .panel h2 { color:var(--fg); }
 .panel h2::before { content:""; display:inline-block; width:3px; height:0.9em; margin-right:0.5rem;
   vertical-align:-0.1em; border-radius:2px; background:linear-gradient(#1fb5c2,#e6b260); }
-.bar { background:var(--accent); opacity:0.8; border-radius:2px 2px 0 0; box-shadow:none; }
-.bar:hover { opacity:1; box-shadow:none; background:var(--focus); }
 .pulse { box-shadow:none; width:8px; height:8px; }
 .search input { border-radius:4px; } .search input:focus { box-shadow:none; }
 .search button { border-radius:4px; box-shadow:none; }
@@ -813,6 +883,34 @@ h1 { background:none; color:var(--fg); animation:none; font-weight:650; letter-s
 /// what makes the page live, and it must never break the server-rendered
 /// content it patches: every lookup is guarded, and a closed socket retries
 /// rather than leaving a silently stale page.
+/// Applies the viewer's saved theme before first paint, then wires the nav
+/// toggle. Dark (`command`) is the default the server renders; the choice is a
+/// per-viewer convenience, so storage failures fall back silently to the default.
+const THEME_SCRIPT: &str = r"
+(function () {
+  var key = 'maya-explorer-theme';
+  var root = document.documentElement;
+  function read() { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function write(v) { try { localStorage.setItem(key, v); } catch (e) { /* private window */ } }
+  var saved = read();
+  if (saved === 'calm' || saved === 'command') root.setAttribute('data-theme', saved);
+  document.addEventListener('DOMContentLoaded', function () {
+    var button = document.querySelector('[data-theme-toggle]');
+    if (!button) return;
+    function label() {
+      button.textContent = root.getAttribute('data-theme') === 'calm' ? 'Dark' : 'Light';
+    }
+    button.addEventListener('click', function () {
+      var next = root.getAttribute('data-theme') === 'calm' ? 'command' : 'calm';
+      root.setAttribute('data-theme', next);
+      write(next);
+      label();
+    });
+    label();
+  });
+})();
+";
+
 const LIVE_SCRIPT: &str = r"
 (function () {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

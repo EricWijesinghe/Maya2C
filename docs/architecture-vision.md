@@ -216,11 +216,13 @@ is a fork; §7 states the rule.
 | `maya2c` developer CLI | **SHIPPED** (tool) | `bins/maya2c-cli`, `maya_vm::trace` | `dev` (funded local chain, redeploy on save), `debug` (time-travel over recorded host calls), `replay` (a block re-executed, state root reproduced), `fork` (verified copy, extended locally). Never on a consensus path |
 | Mesh (Rosetta) Data API | **SHIPPED** (tool) | `mesh-api`, node `get_balance_changes` | One `BALANCE_CHANGE` per balance a block moved, from the undo journal's before/after pair, so fees, burns and rewards reconcile without modelling each. Checked by `mesh-cli check:data`. Construction API absent: Mesh has no post-quantum curve or signature type |
 | Multi-language SDKs | **SHIPPED** | `sdk-ffi`, `sdk-wasm`, `sdk-js` | Which bindings are generated but never compiled: [sdk.md](sdk.md) |
+| Rust gateway SDK | **SHIPPED** | `sdks/rust` (`maya2c-sdk`) | Typed blocking client for REST `/v1`; not published. Live-gateway run not yet recorded |
 | LaTeX technical reference generator | **SHIPPED** | `docgen` | Generated from module documentation |
 | Testnet faucet | **SHIPPED** | `faucet` | Two independent rate-limit buckets — invariant 16 |
 | Chain status and uptime | **SHIPPED** | `apps/status` | Uptime and halts recomputed from block timestamps, never self-reported; status.maya2c.dev; push alert on a halt when configured |
 | Live chain sentinel (ADR-077 watcher) | **SHIPPED** (tool) | `apps/sentinel` | Read-only RPC polling; halt, fork, supply, peer, unreachable and stranding detectors; one ntfy push per incident and a resolve on clear. Stranding needs a node that serves `get_mempool_info` (nodes without it are logged as idle); equivocation is not detected (no evidence RPC) |
 | Workspace automation (`xtask`) | **SHIPPED** | `xtask` | `cargo xtask disk` measures build output against the 30 GiB ceiling — this volume has been filled to zero bytes twice, and a full disk reports as `os error 112`. `cargo xtask coverage` fails when `features.toml` claims a subsystem works and names no test that exists |
+| Testnet kit and node-in-a-box (`xtask kit`, `xtask node`) | **SHIPPED** (tool; end-to-end run pending) | `xtask/src/kit.rs`, `xtask/src/node_box/` | `kit up` starts the devnet, explorer and a funded wallet; `kit attack` runs one attacknet scenario; `node setup` and `node doctor` check the host and key permissions and print the service text, installing nothing. Unit-tested; `kit up` and `node setup` not yet run end to end |
 | Lean 4 mathematical proof engine | **PLANNED** | — | Machine-checked proofs of the ledger and consensus rules. Kani covers the arithmetic crates today; Lean would reach what bounded model checking cannot |
 
 ## 7. Execution directives

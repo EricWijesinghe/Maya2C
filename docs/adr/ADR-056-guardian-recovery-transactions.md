@@ -38,3 +38,16 @@ Wallet: a "Recovery" screen with three guardians by address, and a banner on eve
 1. Testnet now, with an activation height and a rolling upgrade one validator at a time, or only at mainnet genesis?
 2. The delay default: 1 epoch, or 7 days?
 3. Should recovery also be able to rotate a *vault* key (ADR-030), or vaults stay separate?
+
+## Corrections (2026-11-10)
+
+The library this ADR builds on modelled a weaker rule than the table above. ADR-086 §4 (wallet v2) lists the defects F1–F7; F1–F6 are fixed in `crates/smart-account` and each is pinned by a test in `crates/smart-account/tests/account_tests.rs`:
+
+- F1 a later `SetGuardians` is queued for the current delay; the first set is immediate.
+- F2 finishing a recovery removes every key, session keys included.
+- F3 guardian sets are validated: 1–7 distinct, not the account itself, threshold a strict majority, `MIN_DELAY_BLOCKS` (one epoch, 3,600) ≤ delay ≤ `MAX_DELAY_BLOCKS` (1,000,000, the vault ceiling). The upper bound replaces "30 days of blocks" above, which depends on a block time that is not settled (F7).
+- F4 only the current guardians' approvals count at finish.
+- F5 finishing cancels pending transfers back to the balance.
+- F6 one request per proposed key; a guardian's approval follows its latest proposal and can be withdrawn (`WithdrawApproval`), so one hostile guardian cannot block an honest majority.
+
+F7 (`BLOCKS_PER_DAY = 43_200`, 2 s blocks, against the node's 15 s `TARGET_BLOCK_TIME`) is open and pinned as-is by a test.

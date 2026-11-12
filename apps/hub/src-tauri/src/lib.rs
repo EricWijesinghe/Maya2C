@@ -182,6 +182,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(maya_app_update::dialog())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle().clone();
             thread::spawn(move || supervise(handle));

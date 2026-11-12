@@ -808,15 +808,52 @@ fn beyond_retention(net: &mut Net) -> Result<()> {
     Ok(())
 }
 
+type Attack = fn(&mut Net) -> Result<()>;
+
+/// The attacks one round runs, in order, under the names `kit attack` and
+/// `attacknet --scenario` take.
+const ROUND: &[(&str, Attack)] = &[
+    ("crash-f", crash_f),
+    ("crash-f-plus-one", crash_f_plus_one),
+    ("stolen-key", stolen_key),
+    ("garbage", garbage_on_the_wire),
+    ("rpc-flood", rpc_flood),
+    ("long-outage", long_outage),
+    ("restart-ahead", restart_while_ahead),
+];
+
+/// Every name `--scenario` accepts: the round's attacks and the retention one.
+pub fn scenario_names() -> Vec<&'static str> {
+    ROUND
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(["beyond-retention"])
+        .collect()
+}
+
+/// Runs one named attack, then checks no fork anywhere.
+fn run_scenario(net: &mut Net, name: &str) -> Result<()> {
+    if name == "beyond-retention" {
+        beyond_retention(net)?;
+    } else {
+        let (_, attack) = ROUND
+            .iter()
+            .find(|(known, _)| *known == name)
+            .ok_or_else(|| format!("unknown scenario `{name}`"))?;
+        attack(net)?;
+    }
+    let h = no_fork(&Net::honest(&[]))?;
+    net.say(format!(
+        "scenario {name}: no fork anywhere through height {h}"
+    ));
+    Ok(())
+}
+
 fn round(net: &mut Net, n: usize) -> Result<()> {
     net.say(format!("--- round {n} ---"));
-    crash_f(net)?;
-    crash_f_plus_one(net)?;
-    stolen_key(net)?;
-    garbage_on_the_wire(net)?;
-    rpc_flood(net)?;
-    long_outage(net)?;
-    restart_while_ahead(net)?;
+    for (_, attack) in ROUND {
+        attack(net)?;
+    }
     let h = no_fork(&Net::honest(&[]))?;
     net.say(format!("round {n}: no fork anywhere through height {h}"));
     Ok(())
@@ -870,6 +907,20 @@ pub fn attacknet(args: &[String]) -> Result<()> {
     if rounds == 0 {
         return Err("--rounds must be at least 1".into());
     }
+    // `--scenario NAME` runs that one attack once, instead of the rounds.
+    let scenario = args
+        .iter()
+        .position(|a| a == "--scenario")
+        .and_then(|p| args.get(p + 1))
+        .map(String::as_str);
+    if let Some(name) = scenario
+        && !scenario_names().contains(&name)
+    {
+        return Err(format!(
+            "unknown scenario `{name}` (one of: {})",
+            scenario_names().join(", ")
+        ));
+    }
     devnet::build(&["maya2c-node", "l1-wallet"])?;
     let work = devnet::root().join("target").join("attacknet");
     setup(&work, weighted)?;
@@ -889,7 +940,10 @@ pub fn attacknet(args: &[String]) -> Result<()> {
                 "{VALIDATORS} validators on one chain {t:.1?} after start"
             ));
         })
-        .and_then(|()| (1..=rounds).try_for_each(|n| round(&mut net, n)))
+        .and_then(|()| match scenario {
+            Some(name) => run_scenario(&mut net, name),
+            None => (1..=rounds).try_for_each(|n| round(&mut net, n)),
+        })
         .and_then(|()| {
             if retention {
                 beyond_retention(&mut net)?;
@@ -946,5 +1000,34 @@ mod tests {
     fn a_reply_without_a_height_is_not_passed_on() {
         let block = json!({ "height": 3, "header": { "id": id('b') } });
         assert_eq!(trusted_flag(&json!({}), &block), None);
+    }
+
+    #[test]
+    fn a_round_runs_the_attacks_in_the_order_they_were_written() {
+        // Why: the rounds' order is the attack sequence the reports describe; a reorder must be a decision.
+        let names: Vec<&str> = ROUND.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            names,
+            [
+                "crash-f",
+                "crash-f-plus-one",
+                "stolen-key",
+                "garbage",
+                "rpc-flood",
+                "long-outage",
+                "restart-ahead",
+            ]
+        );
+    }
+
+    #[test]
+    fn every_scenario_name_is_unique_and_retention_is_offered() {
+        let names = scenario_names();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len());
+        assert!(names.contains(&"beyond-retention"));
+        assert!(!names.contains(&"no-such-attack"));
     }
 }

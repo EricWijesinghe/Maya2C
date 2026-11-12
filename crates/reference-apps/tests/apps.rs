@@ -276,7 +276,7 @@ fn vault_holds_a_large_withdrawal_guardians_cancel_theft_and_the_auditor_reads_o
         guardians: vec![guardian.id],
         threshold: 1,
         delay_above: Amount::from_u64(10_000),
-        delay_blocks: 100,
+        delay_blocks: 3_600,
     };
     vault::configure(&mut r, &mut owner, &rules, 1).unwrap();
     let auditor = ViewingKey::generate();

@@ -32,6 +32,13 @@ tauri = { version = "2", features = [] }
 # The native confirm screen for a signature (`sign_transfer`). Already resolved
 # in Cargo.lock through maya-app-update; registered there, not here.
 tauri-plugin-dialog = "2"
+# `maya2c-wallet://` links (ADR-083 decision 4). Official Tauri plugins, exact
+# pins; DepScout 2026-11-10: no OSV advisories, Apache-2.0 OR MIT. The
+# single-instance `deep-link` feature forwards a second launch's URL here.
+tauri-plugin-deep-link = "=2.6.3"
+tauri-plugin-single-instance = { version = "=2.5.5", features = ["deep-link"] }
+# Address check for `pay?to=` links: bech32m text, checksum and network HRP.
+maya-address = { path = "../../../crates/address" }
 # In-app updates: check, ask, verify against the signing key, install.
 maya-app-update = { path = "../../app-update" }
 serde = { version = "1", features = ["derive"] }
