@@ -356,3 +356,42 @@ fn a_council_sunset_has_no_emergency_window_so_no_path_exits_a_frozen_vault_earl
             .is_none()
     );
 }
+
+// ADR-135: breaker modules 13 (Nft) and 14 (Names) are unknown to a pre-v4
+// binary, so a quorum pause naming one must be refused until its bit
+// activates, or the two binaries fork on that block. This chain names no v4
+// bit, so both stay dark; a known module still pauses.
+#[test]
+fn a_council_pause_of_a_dark_v4_module_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir);
+    for (i, module) in [Module::Nft, Module::Names].into_iter().enumerate() {
+        let pause = council(
+            CouncilKind::Pause {
+                module: module.tag(),
+                blocks: 5,
+            },
+            0,
+            &[0, 1],
+            0,
+        );
+        assert!(
+            mine(&mut c, vec![pause]).is_err(),
+            "case {i}: {} paused before its bit activated",
+            module.label()
+        );
+    }
+    mine(
+        &mut c,
+        vec![council(
+            CouncilKind::Pause {
+                module: Module::Vault.tag(),
+                blocks: 5,
+            },
+            0,
+            &[0, 1],
+            0,
+        )],
+    )
+    .expect("an active module still pauses");
+}

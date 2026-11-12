@@ -5,8 +5,8 @@
 //! ```text
 //! nm:n: ‖ blake3(label)(32)  → 0x01 ‖ len(1) ‖ label ‖ owner ‖ target ‖ registered_at(8 LE) ‖ expires_at(8 LE) ‖ stealth_flag(1)
 //! nm:r: ‖ address(32)        → blake3(label)(32)      reverse record, written by the address's own SetReverse
-//! nm:c: ‖ commitment(32)     → height(8 LE) ‖ committer(32)
-//! nm:x: ‖ expiry(8 BE) ‖ commitment(32) → (empty)   expiry index, see below
+//! nm:c: ‖ committer(32) ‖ commitment(32) → height(8 LE) ‖ committer(32)
+//! nm:x: ‖ expiry(8 BE) ‖ committer(32) ‖ commitment(32) → (empty)   expiry index, see below
 //! commitment = blake3::derive_key("maya2c name commit v1", label ‖ sender ‖ salt)
 //! ```
 //!
@@ -78,6 +78,15 @@ pub const MAX_COMMIT_AGE: u64 = 86_400;
 /// one block's expiring cohort is normally cleared in its own block; any
 /// remainder carries to the next block.
 pub const MAX_COMMIT_PRUNE_PER_BLOCK: usize = 1024;
+// Pins the claim above: the smallest admissible signer is ML-DSA-65 (Ed25519 is
+// refused on every network, `crypto::suites`), and every transaction carries
+// its signature and public key, so a full block cannot hold more commits than
+// one block prunes. A smaller suite or a bigger block fails this build.
+const _: () = assert!(
+    crate::state::fees::MAX_BLOCK_BYTES
+        / (crate::crypto::keys::SIGNATURE_LENGTH + crate::crypto::keys::PUBLIC_KEY_LEN) as u64
+        <= MAX_COMMIT_PRUNE_PER_BLOCK as u64
+);
 /// Blocks in one year at one block per second (ADR-135 O-1).
 pub const YEAR_BLOCKS: u64 = 31_536_000;
 /// Blocks after expiry during which only the owner may renew.
@@ -203,12 +212,21 @@ fn reverse_key(address: &Address) -> Vec<u8> {
     [REVERSE_PREFIX, &address[..]].concat()
 }
 
-fn commit_key(commitment: &[u8; 32]) -> Vec<u8> {
-    [COMMIT_PREFIX, &commitment[..]].concat()
+/// Keyed by committer as well as commitment: keyed by the commitment alone,
+/// anyone who copied a victim's `CommitName` from the mempool would own the
+/// row first and refuse the victim's commit and reveal, at a fee per salt.
+fn commit_key(committer: &Address, commitment: &[u8; 32]) -> Vec<u8> {
+    [COMMIT_PREFIX, &committer[..], &commitment[..]].concat()
 }
 
-fn expiry_key(expiry: u64, commitment: &[u8; 32]) -> Vec<u8> {
-    [EXPIRY_PREFIX, &expiry.to_be_bytes()[..], &commitment[..]].concat()
+fn expiry_key(expiry: u64, committer: &Address, commitment: &[u8; 32]) -> Vec<u8> {
+    [
+        EXPIRY_PREFIX,
+        &expiry.to_be_bytes()[..],
+        &committer[..],
+        &commitment[..],
+    ]
+    .concat()
 }
 
 /// The first height at which a commitment made at `committed_at` is refused.
@@ -261,20 +279,27 @@ impl StateDB {
     ///
     /// # Errors
     ///
-    /// [`NodeError::Storage`] on a read failure.
+    /// [`NodeError::Storage`] on a read failure; a decode error for a corrupt record.
     pub fn reverse_name(&self, address: &Address) -> Result<Option<[u8; 32]>> {
-        Ok(self
-            .raw_get(&reverse_key(address))?
-            .map(|bytes| array(&bytes)))
+        self.raw_get(&reverse_key(address))?
+            .map(|bytes| {
+                <[u8; 32]>::try_from(bytes.as_slice())
+                    .map_err(|_| NodeError::Decode("name reverse record".into()))
+            })
+            .transpose()
     }
 
-    /// The height a commitment was made at, or `None`.
+    /// The height `committer` made `commitment` at, or `None`.
     ///
     /// # Errors
     ///
-    /// [`NodeError::Storage`] on a read failure.
-    pub fn commitment_height(&self, commitment: &[u8; 32]) -> Result<Option<u64>> {
-        self.raw_get(&commit_key(commitment))?
+    /// [`NodeError::Storage`] on a read failure; a decode error for a corrupt record.
+    pub fn commitment_height(
+        &self,
+        committer: &Address,
+        commitment: &[u8; 32],
+    ) -> Result<Option<u64>> {
+        self.raw_get(&commit_key(committer, commitment))?
             .map(|bytes| commit_value(&bytes).map(|(height, _)| height))
             .transpose()
     }
@@ -319,17 +344,24 @@ impl StateDB {
         commitment: &[u8; 32],
         context: BlockContext,
     ) -> Result<()> {
-        if self.record(overlay, &commit_key(commitment))?.is_some() {
-            return Err(refused(
-                "a commitment already exists; re-committing would reset its age",
-            ));
+        if let Some(bytes) = self.record(overlay, &commit_key(sender, commitment))? {
+            let (committed_at, _) = commit_value(&bytes)?;
+            let expiry = commit_expiry(committed_at);
+            if expiry > context.height {
+                return Err(refused(
+                    "a commitment already exists; re-committing would reset its age",
+                ));
+            }
+            // Expired but not yet pruned (a backlog): it can never be revealed,
+            // so it is replaced, index row and all, rather than blocking.
+            Self::delete_record(overlay, expiry_key(expiry, sender, commitment));
         }
         let mut value = context.height.to_le_bytes().to_vec();
         value.extend_from_slice(sender);
-        Self::put_record(overlay, commit_key(commitment), value);
+        Self::put_record(overlay, commit_key(sender, commitment), value);
         Self::put_record(
             overlay,
-            expiry_key(commit_expiry(context.height), commitment),
+            expiry_key(commit_expiry(context.height), sender, commitment),
             Vec::new(),
         );
         Ok(())
@@ -364,9 +396,13 @@ impl StateDB {
             if pruned >= cap {
                 break;
             }
+            // Refused, not skipped: only this module writes these keys, so a
+            // malformed one is corrupt state, and stopping beats guessing.
             let bad = || NodeError::Decode("name expiry index key".into());
             let rest = key.get(EXPIRY_PREFIX.len()..).ok_or_else(bad)?;
-            let (expiry, commitment) = (rest.len() == 8 + 32)
+            // expiry(8) ‖ committer(32) ‖ commitment(32); the last 64 bytes are
+            // exactly the commitment row's key suffix.
+            let (expiry, slot) = (rest.len() == 8 + 32 + 32)
                 .then(|| rest.split_at(8))
                 .ok_or_else(bad)?;
             let expiry = u64::from_be_bytes(expiry.try_into().map_err(|_| bad())?);
@@ -376,7 +412,7 @@ impl StateDB {
             if matches!(overlay.records.get(&key), Some(None)) {
                 continue;
             }
-            Self::delete_record(overlay, [COMMIT_PREFIX, commitment].concat());
+            Self::delete_record(overlay, [COMMIT_PREFIX, slot].concat());
             Self::delete_record(overlay, key);
             pruned += 1;
         }
@@ -428,7 +464,7 @@ impl StateDB {
         require_periods(periods)?;
 
         let commitment = name_commitment(label, sender, salt);
-        let Some(bytes) = self.record(overlay, &commit_key(&commitment))? else {
+        let Some(bytes) = self.record(overlay, &commit_key(sender, &commitment))? else {
             return Err(refused("no commitment for this name by this sender"));
         };
         let (committed_at, committer) = commit_value(&bytes)?;
@@ -473,10 +509,10 @@ impl StateDB {
             expires_at,
         };
         Self::put_record(overlay, name_key(label), record.encode());
-        Self::delete_record(overlay, commit_key(&commitment));
+        Self::delete_record(overlay, commit_key(sender, &commitment));
         Self::delete_record(
             overlay,
-            expiry_key(commit_expiry(committed_at), &commitment),
+            expiry_key(commit_expiry(committed_at), sender, &commitment),
         );
         Ok(())
     }

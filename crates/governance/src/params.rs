@@ -453,7 +453,7 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 10);
+        assert_eq!(count, 15);
     }
 
     #[test]
@@ -461,7 +461,8 @@ mod tests {
         // A node that skipped an unknown key would execute a proposal it did
         // not understand and then build on a state every upgraded node
         // disagrees with. Refusing turns a silent fork into a stopped node.
-        for tag in [0u16, 11, 999, u16::MAX] {
+        // 16: the first tag past `NameReservedLabels` (15, ADR-135).
+        for tag in [0u16, 16, 999, u16::MAX] {
             assert_eq!(
                 ParameterKey::from_tag(tag),
                 Err(GovernanceError::UnknownParameter { tag })

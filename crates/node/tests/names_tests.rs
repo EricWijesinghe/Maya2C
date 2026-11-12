@@ -195,7 +195,10 @@ fn a_duplicate_commitment_is_refused_and_the_age_does_not_reset() {
     let again = signed(commit(c), 1, &victim);
     let err = apply(&f, vec![again], V4 + 50).unwrap_err();
     assert!(refusal(&err).contains("already exists"), "{err}");
-    assert_eq!(f.db.commitment_height(&c).expect("read"), Some(V4));
+    assert_eq!(
+        f.db.commitment_height(&victim.address(), &c).expect("read"),
+        Some(V4)
+    );
 }
 
 // M-11
@@ -214,9 +217,10 @@ fn a_commitment_older_than_max_commit_age_is_refused_and_pruned() {
     assert!(refusal(&err).contains("expired"), "{err}");
     // A refused block writes nothing, so the stale commitment is still there
     // until a block at that height commits; the end-of-block pass prunes it.
-    assert_eq!(f.db.commitment_height(&c).expect("read"), Some(V4));
+    let v = victim.address();
+    assert_eq!(f.db.commitment_height(&v, &c).expect("read"), Some(V4));
     apply(&f, vec![], stale).expect("empty block");
-    assert_eq!(f.db.commitment_height(&c).expect("read"), None);
+    assert_eq!(f.db.commitment_height(&v, &c).expect("read"), None);
     // And once pruned, the reveal is refused for want of any commitment.
     let err = apply(
         &f,
@@ -239,9 +243,10 @@ fn an_expired_commitment_is_pruned_at_its_expiry_and_the_root_is_deterministic()
         let c = commit_at(f, &key, b"alice", 0, V4);
         // The last block at which a reveal is still accepted keeps it.
         let kept = apply(f, vec![], expiry - 1).expect("before expiry");
-        assert_eq!(f.db.commitment_height(&c).expect("read"), Some(V4));
+        let k = key.address();
+        assert_eq!(f.db.commitment_height(&k, &c).expect("read"), Some(V4));
         let pruned = apply(f, vec![], expiry).expect("at expiry");
-        assert_eq!(f.db.commitment_height(&c).expect("read"), None);
+        assert_eq!(f.db.commitment_height(&k, &c).expect("read"), None);
         assert_ne!(
             kept, pruned,
             "the commitment and its index row left the root"
@@ -256,11 +261,20 @@ fn an_expired_commitment_is_pruned_at_its_expiry_and_the_root_is_deterministic()
 fn seed_commitment(f: &Fixture, commitment: &[u8; 32], committer: &Address) {
     let mut value = 0u64.to_le_bytes().to_vec();
     value.extend_from_slice(committer);
-    f.db.raw_put_for_test(&[&b"nm:c:"[..], commitment].concat(), &value)
-        .expect("seed commitment");
+    f.db.raw_put_for_test(
+        &[&b"nm:c:"[..], &committer[..], &commitment[..]].concat(),
+        &value,
+    )
+    .expect("seed commitment");
     let expiry = MAX_COMMIT_AGE + 1;
     f.db.raw_put_for_test(
-        &[&b"nm:x:"[..], &expiry.to_be_bytes()[..], commitment].concat(),
+        &[
+            &b"nm:x:"[..],
+            &expiry.to_be_bytes()[..],
+            &committer[..],
+            &commitment[..],
+        ]
+        .concat(),
         &[],
     )
     .expect("seed index");
@@ -275,7 +289,7 @@ fn the_prune_cap_carries_the_remainder_to_the_next_block_in_key_order() {
     let seeded = fixture(&[]);
     let clean = fixture(&[]);
     let mut commitments: Vec<[u8; 32]> = (0..MAX_COMMIT_PRUNE_PER_BLOCK + EXTRA)
-        .map(|i| *blake3::hash(&(i as u64).to_le_bytes()).as_bytes())
+        .map(|i| *blake3::hash(&u64::try_from(i).unwrap().to_le_bytes()).as_bytes())
         .collect();
     for c in &commitments {
         seed_commitment(&seeded, c, &committer);
@@ -285,7 +299,7 @@ fn the_prune_cap_carries_the_remainder_to_the_next_block_in_key_order() {
     let h = V4 + MAX_COMMIT_AGE + 1;
     apply(&seeded, vec![], h).expect("first prune");
     for (i, c) in commitments.iter().enumerate() {
-        let left = seeded.db.commitment_height(c).expect("read");
+        let left = seeded.db.commitment_height(&committer, c).expect("read");
         if i < MAX_COMMIT_PRUNE_PER_BLOCK {
             assert_eq!(left, None, "#{i} is within the cap, in key order");
         } else {
@@ -294,11 +308,13 @@ fn the_prune_cap_carries_the_remainder_to_the_next_block_in_key_order() {
     }
 
     let root = apply(&seeded, vec![], h + 1).expect("second prune");
-    assert!(
-        commitments
-            .iter()
-            .all(|c| seeded.db.commitment_height(c).expect("read").is_none())
-    );
+    assert!(commitments.iter().all(|c| {
+        seeded
+            .db
+            .commitment_height(&committer, c)
+            .expect("read")
+            .is_none()
+    }));
     // Every seeded row, index rows included, is gone: the root is the root of
     // a chain that never held a commitment.
     apply(&clean, vec![], h).expect("clean");
@@ -578,6 +594,128 @@ fn a_names_breaker_halts_register_and_update_but_never_renew() {
     ));
 }
 
+#[test]
+fn a_renewal_lands_while_the_names_breaker_is_tripped() {
+    let owner = generate_signing_key().expect("key");
+    let f = fixture(&[owner.address()]);
+    commit_at(&f, &owner, b"alice", 0, V4);
+    let h = V4 + MIN_COMMIT_AGE;
+    apply(
+        &f,
+        vec![signed(register(b"alice", 1, owner.address()), 1, &owner)],
+        h,
+    )
+    .expect("register");
+    let tripped = custom_l1_node::state::invariant_guard::BreakerRecord {
+        module: Module::Names,
+        invariant: custom_l1_node::state::invariant_guard::Invariant::PoolValuePerShare,
+        tripped_at: h,
+        until: h + 100,
+    };
+    f.db.raw_put_for_test(
+        &custom_l1_node::state::invariant_guard::guard_key(Module::Names),
+        &tripped.encode(),
+    )
+    .expect("trip");
+    apply(&f, vec![signed(renew(b"alice", 1), 2, &owner)], h + 1)
+        .expect("a renewal is never halted");
+    let blocked = signed(update(b"alice", NameUpdate::SetReverse), 3, &owner);
+    assert!(matches!(
+        apply(&f, vec![blocked], h + 2).unwrap_err(),
+        NodeError::ModuleHalted { .. }
+    ));
+}
+
+// Copied commitment: keyed by committer, so Mallory submitting Alice's exact
+// commitment first neither blocks Alice's commit nor her reveal.
+#[test]
+fn a_copied_commitment_does_not_block_the_original_committer() {
+    let alice = generate_signing_key().expect("key");
+    let mallory = generate_signing_key().expect("key");
+    let f = fixture(&[alice.address(), mallory.address()]);
+    let c = name_commitment(b"alice", &alice.address(), &SALT);
+    apply(&f, vec![signed(commit(c), 0, &mallory)], V4).expect("the copy lands");
+    apply(&f, vec![signed(commit(c), 0, &alice)], V4 + 1).expect("alice still commits");
+    apply(
+        &f,
+        vec![signed(register(b"alice", 1, alice.address()), 1, &alice)],
+        V4 + 1 + MIN_COMMIT_AGE,
+    )
+    .expect("alice reveals");
+    assert_eq!(
+        f.db.get_name(b"alice").expect("read").expect("held").owner,
+        alice.address()
+    );
+    // Mallory's copy is useless to her: the commitment hashes in Alice's address.
+    let err = apply(
+        &f,
+        vec![signed(
+            register(b"alice", 1, mallory.address()),
+            1,
+            &mallory,
+        )],
+        V4 + 2 + MIN_COMMIT_AGE,
+    )
+    .unwrap_err();
+    assert!(refusal(&err).contains("no commitment"), "{err}");
+}
+
+// A commitment past expiry but not yet pruned may be made again: it can
+// never be revealed, so it must not block the same sender and salt.
+#[test]
+fn an_expired_unpruned_commitment_can_be_made_again() {
+    let owner = generate_signing_key().expect("key");
+    let f = fixture(&[owner.address()]);
+    let c = name_commitment(b"alice", &owner.address(), &SALT);
+    // Seeded as a backlog row: due at MAX_COMMIT_AGE + 1, never pruned because
+    // no block at or after that height has committed yet.
+    seed_commitment(&f, &c, &owner.address());
+    let again = V4 + MAX_COMMIT_AGE + 1;
+    apply(&f, vec![signed(commit(c), 0, &owner)], again).expect("re-commit");
+    assert_eq!(
+        f.db.commitment_height(&owner.address(), &c).expect("read"),
+        Some(again),
+        "the old row was replaced, not pruned out from under the new one"
+    );
+    apply(
+        &f,
+        vec![signed(register(b"alice", 1, owner.address()), 1, &owner)],
+        again + MIN_COMMIT_AGE,
+    )
+    .expect("the new commitment reveals");
+}
+
+// The Names and Nft layers sit in the proof's layer order where the root
+// folds them, so an account proof verifies once they and `up:` hold rows.
+#[test]
+fn an_account_proof_verifies_with_names_nft_and_schedule_rows() {
+    let owner = generate_signing_key().expect("key");
+    let f = fixture(&[owner.address()]);
+    commit_at(&f, &owner, b"alice", 0, V4);
+    f.db.raw_put_for_test(b"n:c:proof-test", b"x")
+        .expect("nft row");
+    f.db.raw_put_for_test(b"up:proof-test", b"x")
+        .expect("schedule row");
+    let proof =
+        f.db.account_proof(&owner.address())
+            .expect("read")
+            .expect("account exists");
+    let layers: Vec<_> = proof.layers.iter().map(|digest| digest.layer).collect();
+    use custom_l1_node::state::proof::StateLayer;
+    for layer in [
+        StateLayer::Names,
+        StateLayer::Nft,
+        StateLayer::UpgradeSchedule,
+    ] {
+        assert!(layers.contains(&layer), "{layer:?}");
+    }
+    assert!(
+        proof
+            .verify(&f.db.state_root().expect("root"))
+            .expect("verifies")
+    );
+}
+
 // M-6/M-7: retargeting a name clears the reverse record of the address it
 // no longer resolves to.
 #[test]
@@ -685,7 +823,10 @@ fn a_reorg_restores_owner_expiry_and_the_consumed_commitment() {
     f.db.revert_block(&id).expect("revert");
 
     assert!(f.db.get_name(b"alice").expect("read").is_none());
-    assert_eq!(f.db.commitment_height(&c).expect("read"), Some(V4));
+    assert_eq!(
+        f.db.commitment_height(&owner.address(), &c).expect("read"),
+        Some(V4)
+    );
     assert_eq!(f.db.state_root().expect("root"), root_before);
 }
 

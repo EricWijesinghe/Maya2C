@@ -110,11 +110,11 @@ pub enum StateLayer {
     /// would have produced a node that accepts the second spend of that note.
     Nullifiers,
     /// Unique assets: collections and items under the `n:` prefix (ADR-135
-    /// P-2). Appended, never reordered; absent on a chain that never opens a
-    /// collection, so it moves no existing root.
+    /// P-2). A new tag; folded after `Vault` (see [`LAYER_ORDER`]), and absent
+    /// on a chain that never opens a collection, so it moves no existing root.
     Nft,
-    /// Names with commit-reveal under `nm:` (ADR-135 P-3). Appended; absent
-    /// until a name is committed or registered.
+    /// Names with commit-reveal under `nm:` (ADR-135 P-3). Folded after `Nft`;
+    /// absent until a name is committed or registered.
     Names,
 }
 
@@ -132,13 +132,18 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Iot,
     StateLayer::Staking,
     StateLayer::Vault,
-    StateLayer::UpgradeSchedule,
+    // The order `state_layers` pushes them (`RECORD_LAYERS`, then the pool,
+    // contracts and nullifiers): a proof checks against this list, so a
+    // mismatch fails every account proof once both layers hold rows. Moving
+    // these four moves no root a genesis can seed: none seeds `n:`, `nm:` or
+    // `sl:`, and the fold is by the push order, not by this list.
+    StateLayer::Nft,
+    StateLayer::Names,
     StateLayer::Stateless,
+    StateLayer::UpgradeSchedule,
     StateLayer::Shielded,
     StateLayer::Contracts,
     StateLayer::Nullifiers,
-    StateLayer::Nft,
-    StateLayer::Names,
 ];
 
 impl StateLayer {

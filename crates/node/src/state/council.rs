@@ -156,7 +156,20 @@ impl StateDB {
         let dark = match module {
             Module::Nft => !context.nft_active(),
             Module::Names => !context.names_active(),
-            _ => false,
+            // Listed, not `_`: a new module must decide its own gate here.
+            Module::Channels
+            | Module::Dex
+            | Module::Shielded
+            | Module::Oracle
+            | Module::Governance
+            | Module::Vm
+            | Module::Sealed
+            | Module::Identity
+            | Module::Rwa
+            | Module::Htlc
+            | Module::ThreatIntel
+            | Module::Iot
+            | Module::Vault => false,
         };
         if dark {
             return Err(NodeError::Decode(format!("unknown module {module_tag}")));
