@@ -168,3 +168,12 @@ fn every_proposal_state_round_trips_and_settles_correctly() {
         assert_eq!(ProposalState::from_tag(tag), None);
     }
 }
+
+#[test]
+fn the_governance_floors_are_two_and_four_hours_at_one_block_per_second() {
+    // Sized for 1 block/s (round_interval_ms 500, an anchor every 2 rounds).
+    // At the old 15 s assumption, 480 and 960 blocks were 2 h and 4 h of a
+    // 15 s chain, which is 2 h and 4 h of nothing on the real 1 s chain.
+    assert_eq!(MIN_VOTING_BLOCKS, 7_200);
+    assert_eq!(MIN_TIMELOCK_BLOCKS, 14_400);
+}

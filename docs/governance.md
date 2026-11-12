@@ -24,8 +24,8 @@ appear in **no** `ParameterKey`, and are reachable by no transaction:
 
 | Floor | Value | What it protects |
 |---|---|---|
-| `MIN_VOTING_BLOCKS` | 480 (~2h) | A vote cannot be opened and closed between two glances at an explorer |
-| `MIN_TIMELOCK_BLOCKS` | 960 (~4h) | The exit window — time to sell, withdraw, fork, or decline the release |
+| `MIN_VOTING_BLOCKS` | 7,200 (2 h at 1 block/s) | A vote cannot be opened and closed between two glances at an explorer |
+| `MIN_TIMELOCK_BLOCKS` | 14,400 (4 h at 1 block/s) | The exit window — time to sell, withdraw, fork, or decline the release |
 | `MIN_QUORUM_BPS` | 1000 (10%) | A result is not an artefact of who was awake |
 | `MIN_APPROVAL_BPS` | 5001 | A strict majority; anything at or below half admits a proposal *and its opposite* both passing |
 

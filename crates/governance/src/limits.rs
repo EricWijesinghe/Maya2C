@@ -26,11 +26,11 @@
 
 /// Fewest blocks a proposal must remain open for voting.
 ///
-/// 480 blocks — about two hours at the 15-second target in
-/// `consensus::difficulty::TARGET_BLOCK_TIME`. Short enough that governance is
+/// 7,200 blocks — two hours at 1 block/s (round_interval_ms 500, anchor every
+/// 2 rounds). Short enough that governance is
 /// usable, long enough that a vote cannot be opened and closed between two
 /// glances at a block explorer.
-pub const MIN_VOTING_BLOCKS: u64 = 480;
+pub const MIN_VOTING_BLOCKS: u64 = 7_200;
 
 /// Most blocks a proposal may remain open.
 ///
@@ -47,8 +47,8 @@ pub const MAX_VOTING_BLOCKS: u64 = 100_000;
 /// with no dissent mechanism, which is why this is a floor rather than a
 /// default.
 ///
-/// 960 blocks, about four hours.
-pub const MIN_TIMELOCK_BLOCKS: u64 = 960;
+/// 14,400 blocks, four hours at 1 block/s (round_interval_ms 500, anchor every 2 rounds).
+pub const MIN_TIMELOCK_BLOCKS: u64 = 14_400;
 
 /// Most blocks a proposal may wait between passing and executing.
 ///

@@ -25,8 +25,9 @@ use crate::suite::SuiteId;
 /// The floor below which the audit flags a suite: NIST category 1.
 pub const MIN_PQ_SECURITY_BITS: u16 = 128;
 
-/// The shortest ordinary migration window: about 30 days at 15 s blocks.
-pub const MIN_MIGRATION_WINDOW: u64 = 172_800;
+/// The shortest ordinary migration window: 30 days at 1 block/s (round_interval_ms 500,
+/// anchor every 2 rounds).
+pub const MIN_MIGRATION_WINDOW: u64 = 2_592_000;
 
 /// The shortest *emergency* window: about 3 days. For a suite that has been
 /// broken in public, a month of exposure is worse than a rushed migration.

@@ -95,6 +95,11 @@ reviewer's figure of about 18.6 days assumes a 7-day migration window. The code'
 `MIN_MIGRATION_WINDOW` is 172,800 blocks (2 days). The figure is recorded in
 DECISIONS.md, and the decision on the window is open before mainnet.
 
+**Update 2026-11-12 (block-time fix A).** The figures above assumed 15 s blocks. At
+the canonical 1 block/s, `MIN_MIGRATION_WINDOW` is 2,592,000 blocks (30 days) and
+`COUNCIL_SUNSET_LEAD_BLOCKS` is 3,592,000 blocks (about 41.6 days). The lead is
+derived, so it moves with the window.
+
 **No exit-only mode.** An exit a broken suite can still sign would let an attacker
 exit a victim's funds too. Users migrate by transferring to an address under
 another suite.

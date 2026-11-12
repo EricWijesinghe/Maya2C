@@ -143,7 +143,7 @@ named chains are only those in
 | 256-bit amounts at 24 decimals: no ceiling to outgrow | ADR-046, ADR-068 |
 | Every state prefix under the state root; an uncovered key is caught | invariant 25, `uncovered_keys` (#395) |
 | Network-prefixed, checksummed addresses | ADR-081 |
-| A security council bounded by compiled rules: it can pause one module for at most `max_pause_blocks` (the pause expires by itself), or schedule a suite sunset no sooner than `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about 13.6 days); it cannot move funds, mint, or schedule a version. It has no term limit | `crates/node/src/state/council.rs`, `CouncilGenesis` in `crates/node/src/genesis.rs`, invariant 34 (ADR-082) |
+| A security council bounded by compiled rules: it can pause one module for at most `max_pause_blocks` (the pause expires by itself), or schedule a suite sunset no sooner than `COUNCIL_SUNSET_LEAD_BLOCKS` (3,592,000 blocks, about 41.6 days at 1 block/s); it cannot move funds, mint, or schedule a version. It has no term limit | `crates/node/src/state/council.rs`, `CouncilGenesis` in `crates/node/src/genesis.rs`, invariant 34 (ADR-082) |
 
 **Gaps, stated plainly.** These are the places where another chain is ahead
 today:
@@ -291,8 +291,8 @@ with no hash suite; no Kani harness in `crates/crypto-pq` or `crates/node/src`.
 
 Doc drift found and fixed in the same change: `docs/invariants.md:259` said
 `MIN_COUNCIL_SUNSET_LEAD_BLOCKS` is "7 days"; code `crates/node/src/state/upgrades.rs:39` has `COUNCIL_SUNSET_LEAD_BLOCKS = MAX_DELAY_BLOCKS +
-MIN_MIGRATION_WINDOW` = 1,172,800 blocks (~13.6 days), matching ADR-082:86. `MIN_MIGRATION_WINDOW`
-is 172,800 blocks = 2 days (`agility/mod.rs:29`); ADR-082:94-96 leaves it open before mainnet
+MIN_MIGRATION_WINDOW` = 3,592,000 blocks (~41.6 days at 1 block/s), derived from the 2026-11-12 block-time fix A.
+`MIN_MIGRATION_WINDOW` is 2,592,000 blocks = 30 days at 1 block/s (`agility/mod.rs:29`; was 172,800, which was 30 days only at 15 s). ADR-082:94-96 leaves it open before mainnet
 (BIP-361 gives years).
 
 | id | Need | Mechanism (repo paths) | Prior art | Maya2C difference (repo fact) | Rung | Wave | Effort | Consensus | Risks |

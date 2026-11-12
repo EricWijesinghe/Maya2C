@@ -210,6 +210,14 @@ impl CouncilGenesis {
 /// the node's 100 ms tick. `xtask genesis-check` holds the same number.
 pub const MIN_ANCHOR_TIMEOUT_MS: u64 = 500;
 
+/// The round interval a value-bearing chain must use: one block per second
+/// (an anchor every two 500 ms rounds). The governance and migration windows
+/// are counted in blocks and sized for this rate (block-time fix A).
+pub const CANONICAL_ROUND_INTERVAL_MS: u64 = 500;
+
+/// Chains that carry value. A devnet or testnet genesis may name any interval.
+const VALUE_BEARING_CHAIN_IDS: &[&str] = &["maya-mainnet", "mainnet"];
+
 /// The genesis committee of a DAG-BFT network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BftGenesis {
@@ -686,7 +694,8 @@ impl GenesisConfig {
     ///
     /// Returns [`NodeError::Decode`] if the chain id is empty, the difficulty
     /// floor is harder than the starting difficulty, an address is malformed,
-    /// an address is duplicated, or the total allocation overflows `u64`.
+    /// an address is duplicated, the total allocation overflows `u64`, or a
+    /// value-bearing chain's `round_interval_ms` is not [`CANONICAL_ROUND_INTERVAL_MS`].
     pub fn validate(&self) -> Result<()> {
         if self.chain_id.is_empty() {
             return Err(NodeError::Decode("chain_id must not be empty".to_string()));
@@ -712,6 +721,17 @@ impl GenesisConfig {
             if bft.anchor_timeout_ms < MIN_ANCHOR_TIMEOUT_MS {
                 return Err(NodeError::Decode(format!(
                     "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
+                )));
+            }
+            let id = self.chain_id.trim();
+            let value_bearing = VALUE_BEARING_CHAIN_IDS
+                .iter()
+                .any(|known| id.eq_ignore_ascii_case(known));
+            if value_bearing && bft.round_interval_ms != CANONICAL_ROUND_INTERVAL_MS {
+                return Err(NodeError::Decode(format!(
+                    "bft.round_interval_ms must be {CANONICAL_ROUND_INTERVAL_MS} on {} \
+                     (got {}): the governance windows assume one block per second",
+                    self.chain_id, bft.round_interval_ms
                 )));
             }
             if bft.staking.as_ref().is_some_and(|staking| {
@@ -1451,6 +1471,47 @@ mod tests {
         for accepted in [MIN_ANCHOR_TIMEOUT_MS, 1_000, 10_000] {
             assert!(!about_the_timeout(accepted), "{accepted} ms was refused");
         }
+    }
+
+    #[test]
+    fn a_value_bearing_genesis_refuses_a_round_interval_off_the_canonical_rate() {
+        let with_interval = |chain_id: &str, round_interval_ms: u64| GenesisConfig {
+            chain_id: chain_id.to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: Vec::new(),
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            suite_deprecations: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec!["00".repeat(32)],
+                anchor_timeout_ms: 1_000,
+                batch_size: 100,
+                round_interval_ms,
+                staking: None,
+                fees: None,
+                mining: None,
+            }),
+        };
+        let refused = |chain_id: &str, ms: u64| {
+            with_interval(chain_id, ms)
+                .validate()
+                .is_err_and(|e| e.to_string().contains("round_interval_ms"))
+        };
+        // Mainnet at 1 s per block (the 15 s figure the windows once assumed) is refused.
+        assert!(refused("maya-mainnet", 1_000), "1000 ms mainnet accepted");
+        assert!(refused("maya-mainnet", 15_000), "15000 ms mainnet accepted");
+        // Case and surrounding space do not get a value-bearing chain out of the check.
+        assert!(refused("Maya-Mainnet", 1_000), "case variant accepted");
+        assert!(refused(" MAINNET ", 1_000), "padded variant accepted");
+        assert!(with_interval("maya-mainnet", 500).validate().is_ok());
+        // A devnet or testnet genesis keeps the interval it names.
+        assert!(!refused("maya-testnet-2", 1_000), "testnet refused 1000 ms");
     }
 
     /// A default `min_delegation` leaves the bytes and the id of every earlier
