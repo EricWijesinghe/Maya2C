@@ -7,9 +7,19 @@
 // (both already in the CSP connect-src). Project figures: public/progress.json,
 // written at build time by scripts/gen-progress.mjs.
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import SupplyRing from "../components/SupplyRing.astro";
+import BlockStream from "../components/BlockStream.astro";
+import LiveProgress from "../components/LiveProgress.astro";
+import ProgressPulse from "../components/ProgressPulse.astro";
+import progress from "../../public/progress.json";
+const proofs = (progress as { proofs?: Record<string, number> | null }).proofs ?? null;
+const proofRows = [
+  ["Kani harnesses", "kani_harnesses"], ["Fuzz targets", "fuzz_targets"], ["Conformance vectors", "conformance_vectors"],
+  ["Exploit replays", "exploit_replays"], ["ACVP vector files", "acvp_vector_files"],
+] as const;
 ---
 
-<StarlightPage frontmatter={{ title: "Live statistics", description: "Block times, throughput, hashrate, consensus rounds and development activity for Maya2C, measured live from public endpoints.", template: "splash" }}>
+<StarlightPage frontmatter={{ title: "Live statistics", description: "Block height, block times, throughput, hashrate, supply, proofs, consensus rounds and development activity for Maya2C, measured live from public endpoints.", template: "splash" }}>
   <section class="st" aria-label="Live statistics">
     <p class="st-state"><span id="dot" class="dot"></span><span id="state">connecting…</span> · tip <span id="age">—</span> ago</p>
 
@@ -24,7 +34,10 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       <div><dt>Committee</dt><dd id="committee">—</dd></div>
       <div><dt>Rounds / min</dt><dd id="rpm">—</dd></div>
       <div><dt>Transactions indexed</dt><dd id="txall">—</dd></div>
+      <div><dt>Peers online</dt><dd id="peers">—</dd></div>
+      <div><dt>Uptime since genesis</dt><dd id="uptime">—</dd></div>
     </dl>
+    <BlockStream />
     <figure class="chart">
       <figcaption>Seconds between blocks, newest on the right (<span id="nblocks">0</span> blocks)</figcaption>
       <svg id="btChart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Block interval per block"></svg>
@@ -35,6 +48,15 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
     </figure>
     <p class="note">Block times come from block header timestamps, not your clock. Throughput is transactions in the window divided by the window's span. Rounds per minute is two <code>get_bft_status</code> samples apart. When the testnet is paused these show dashes.</p>
 
+    <h2>Supply</h2>
+    <SupplyRing />
+
+    <h2>Proofs that never fall</h2>
+    <dl class="tiles">
+      {proofRows.map(([label, key]) => <div><dt>{label}</dt><dd>{proofs?.[key] ?? "—"}</dd></div>)}
+    </dl>
+    <p class="note">From <a href="https://github.com/EricWijesinghe/Maya2C/blob/master/proof-ratchet.txt"><code>proof-ratchet.txt</code></a> at build time. <code>cargo xtask proof-ratchet --check</code> fails CI if any count falls (ADR-078 O3).</p>
+
     <h2>Finality, measured</h2>
     <dl class="tiles" id="fin">
       <div><dt>p50</dt><dd id="f50">—</dd></div>
@@ -44,7 +66,8 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
     </dl>
     <p class="note" id="finNote">No finality bench report is committed yet.</p>
 
-    <h2>Development, live</h2>
+    <h2 id="developers">Developer transparency</h2>
+    <p class="note">How the project itself is doing: CI, merges and releases. Honest, including when CI is red.</p>
     <dl class="tiles">
       <div><dt>Master CI pass rate</dt><dd id="ci">—</dd></div>
       <div><dt>Commits, 30 days</dt><dd id="commits">—</dd></div>
@@ -54,6 +77,8 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
       <div><dt>Latest release</dt><dd id="rel">—</dd></div>
     </dl>
     <p class="note">From the GitHub API when this site was last built (<span id="gen">—</span>); the site rebuilds every 6 hours. CI pass rate is over the newest 50 finished master runs, cancelled ones left out.</p>
+    <LiveProgress ci />
+    <ProgressPulse />
   </section>
 
   <script>
@@ -128,6 +153,8 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         addBlocks(recent);
         state("live", true);
       } catch { state("explorer unreachable right now", false); }
+      try { const l = await json("https://status.maya2c.dev/api/live"); if (Array.isArray(l.peers)) $("peers").textContent = fmt(l.peers.length); } catch { /* status service down: dash stays */ }
+      try { const u = await json("https://status.maya2c.dev/api/status"); if (typeof u.uptime === "number") $("uptime").textContent = `${(u.uptime * 100).toFixed(2)}%`; } catch { /* dash stays */ }
       try { const h: { hashrate: number }[] = await json(`${EXPLORER}/api/hashrate`); line("hashChart", h.map((p) => p.hashrate)); } catch { /* chart stays empty */ }
       try {
         const { result } = await json(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }) });

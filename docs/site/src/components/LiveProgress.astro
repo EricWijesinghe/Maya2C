@@ -6,6 +6,10 @@
 import p from "../../public/progress.json";
 import h from "../../public/health.json";
 import { mainnetGates } from "../data/mainnet-gates";
+// The CI pass-rate bar is developer transparency: /stats/ passes `ci`, the
+// homepage does not (U3: build and deploy status is not a visitor's concern).
+interface Props { ci?: boolean }
+const { ci: showCi = false } = Astro.props;
 const ledgerTotal = h.ledger.total;
 const ledgerVerified = h.ledger.by_status.verified;
 const bars = [
@@ -14,7 +18,7 @@ const bars = [
   { key: "backlog", label: "Backlog items finished", done: p.backlog.done, of: p.backlog.items, src: "BACKLOG.md" },
 ];
 const ci = (p as { ci_pass_rate?: { passed: number; of: number } }).ci_pass_rate;
-if (ci) bars.splice(1, 0, { key: "ci", label: "Master CI runs passing", done: ci.passed, of: ci.of, src: "newest finished master CI runs" });
+if (ci && showCi) bars.splice(1, 0, { key: "ci", label: "Master CI runs passing", done: ci.passed, of: ci.of, src: "newest finished master CI runs" });
 const pct = (d: number, o: number) => (o ? Math.round((d / o) * 100) : 0);
 const met = mainnetGates.filter((g) => g.state === "met").length;
 ---
