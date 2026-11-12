@@ -3,7 +3,7 @@
 //! and every card it returns is verified again before the model sees it.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -34,7 +34,7 @@ pub fn tools() -> Vec<Value> {
                    "quote": {"type": "object"}, "payee_card": {"type": "object"},
                    "payer": {"type": "string", "description": "your agent id, 64 hex characters"}},
                    "required": ["quote", "payee_card", "payer"]}}),
-        json!({"name": "agent_verify_receipt", "description": "Check that a payee-signed receipt describes a given transfer (txid, memo, amount, height).",
+        json!({"name": "agent_verify_receipt", "description": "Check that a payee-signed receipt describes a given transfer (txid, memo, to, amount, height).",
                "inputSchema": {"type": "object", "properties": {
                    "receipt": {"type": "object"}, "payee_card": {"type": "object"}, "transfer": {"type": "object"}},
                    "required": ["receipt", "payee_card", "transfer"]}}),
@@ -114,10 +114,17 @@ fn http_get_json(base: &str, path: &str) -> Result<Value, String> {
         .strip_prefix("http://")
         .map(|h| h.trim_end_matches('/'))
         .ok_or(REFUSE_REGISTRY)?;
-    if !(host.starts_with("127.0.0.1:") || host.starts_with("localhost:")) {
-        return Err(REFUSE_REGISTRY.to_owned());
-    }
-    let mut stream = TcpStream::connect(host).map_err(|e| e.to_string())?;
+    // Exact name and a bare port: a prefix match let `127.0.0.1:80\r\nX: y` or
+    // `localhost:80@elsewhere` through into the Host header. The connection
+    // always goes to 127.0.0.1, so `localhost` never reaches a resolver.
+    let port = host
+        .split_once(':')
+        .filter(|(name, _)| matches!(*name, "127.0.0.1" | "localhost"))
+        .and_then(|(_, port)| port.parse::<u16>().ok())
+        .filter(|port| *port != 0)
+        .ok_or(REFUSE_REGISTRY)?;
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let mut stream = TcpStream::connect_timeout(&addr, READ_TIMEOUT).map_err(|e| e.to_string())?;
     stream
         .set_read_timeout(Some(READ_TIMEOUT))
         .map_err(|e| e.to_string())?;

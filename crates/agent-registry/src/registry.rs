@@ -8,6 +8,8 @@ use crate::error::{Error, Result};
 /// Most distinct agents held at once.
 /// shortcut: in-memory cap; a full registry refuses new agents until persistence and eviction exist.
 pub const MAX_AGENTS: usize = 10_000;
+/// How far ahead of the registry's clock a card's `issued_at` may be.
+pub const MAX_CLOCK_SKEW_SECS: u64 = 300;
 
 #[derive(Debug, Default)]
 pub struct Registry {
@@ -18,6 +20,11 @@ impl Registry {
     /// Verifies the card, then stores it. A card replaces the held one only when newer.
     pub fn publish(&mut self, card: SignedCard, now: u64) -> Result<AgentId> {
         let id = card.verify(now)?;
+        // A far-future `issued_at` would make every later update look stale,
+        // so a card that leaked once could pin the slot until it expires.
+        if card.card.issued_at > now.saturating_add(MAX_CLOCK_SKEW_SECS) {
+            return Err(Error::Bounds);
+        }
         let stale = self
             .cards
             .get(&id)

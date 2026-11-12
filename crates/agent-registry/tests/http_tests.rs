@@ -128,3 +128,18 @@ async fn a_client_over_its_budget_is_limited_and_others_are_not() {
     );
     assert_eq!(send(&app, other).await.0, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn a_malformed_body_gets_a_fixed_message_not_the_parser_detail() {
+    let app = app(100);
+    let body = Body::from(r#"{"card": {"name": "secret-probe-text"}}"#);
+    let (status, body) = send(&app, request("POST", "/v1/cards", body, PEER)).await;
+    assert!(status.is_client_error(), "{status}");
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains("body is not a signed card"), "{text}");
+    assert!(!text.contains("missing field"), "{text}");
+
+    let (status, body) = send(&app, request("GET", "/v1/agents", Body::empty(), PEER)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(!String::from_utf8_lossy(&body).contains("deserialize"));
+}

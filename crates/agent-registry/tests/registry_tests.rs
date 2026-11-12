@@ -56,6 +56,13 @@ fn a_card_older_than_the_held_one_is_refused() {
 }
 
 #[test]
+fn a_card_issued_in_the_future_is_refused() {
+    let mut registry = Registry::default();
+    let future = signed_at(&signer(1), "translate", NOW + 10_000);
+    assert_eq!(registry.publish(future, NOW), Err(Error::Bounds));
+}
+
+#[test]
 fn an_expired_card_is_refused_at_publish() {
     let mut registry = Registry::default();
     let alice = signer(1);

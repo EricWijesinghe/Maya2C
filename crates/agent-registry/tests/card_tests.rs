@@ -57,13 +57,19 @@ fn a_card_cannot_be_signed_with_a_key_it_does_not_name() {
 fn a_forged_signature_by_another_key_is_refused() {
     let alice = signer(1);
     let mallory = signer(2);
-    let card = card_at(&alice, "translate", NOW);
-    let bytes = card.canonical().expect("canonical");
-    let forged = SignedCard {
-        signature: mallory.sign(&bytes).expect("mallory signs her own bytes"),
-        card,
-    };
+    // Mallory signs a card naming her own key, then swaps in Alice's card body.
+    let mut forged = signed_at(&mallory, "translate", NOW);
+    forged.card = card_at(&alice, "translate", NOW);
     assert_eq!(forged.verify(NOW), Err(Error::Signature));
+}
+
+#[test]
+fn the_agent_key_is_not_the_chain_key_of_the_same_seed() {
+    use maya_crypto_pq::suite::{HybridMlDsa65SlhDsa128s, MasterSeed, SignatureSuite};
+    let chain_key =
+        HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([1; 32]));
+    let chain_public = HybridMlDsa65SlhDsa128s::public_key(&chain_key);
+    assert_ne!(signer(1).public_key(), chain_public.as_slice());
 }
 
 #[test]

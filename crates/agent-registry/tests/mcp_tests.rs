@@ -34,6 +34,25 @@ fn search_refuses_a_registry_that_is_not_loopback() {
 }
 
 #[test]
+fn search_refuses_a_loopback_prefix_with_trailing_text() {
+    for registry in [
+        "http://127.0.0.1:1\r\nX-Injected: 1",
+        "http://localhost:1@example.com",
+        "http://127.0.0.1:1/extra",
+        "http://127.0.0.1.example.com:1",
+        "http://127.0.0.1:0",
+    ] {
+        let args = json!({"registry": registry, "capability": "translate"});
+        let result = mcp::call("agent_search", &args).expect("claimed");
+        assert_eq!(
+            result,
+            Err("registry must be http://127.0.0.1:<port> or http://localhost:<port>".to_owned()),
+            "{registry:?}"
+        );
+    }
+}
+
+#[test]
 fn search_refuses_a_capability_that_would_need_escaping() {
     let args = json!({"registry": "http://127.0.0.1:1", "capability": "a b&c"});
     let result = mcp::call("agent_search", &args).expect("claimed");

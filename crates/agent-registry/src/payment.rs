@@ -80,16 +80,22 @@ impl SignedQuote {
 
     /// Checks the payee's signature, then the expiry. Returns the quote hash.
     pub fn verify(&self, payee_public_key: &[u8], now: u64) -> Result<[u8; 32]> {
+        let hash = self.verify_signature(payee_public_key)?;
+        if now >= self.quote.expires_at {
+            return Err(Error::Expired);
+        }
+        Ok(hash)
+    }
+
+    /// The payee's signature alone, no clock. Returns the quote hash.
+    pub fn verify_signature(&self, payee_public_key: &[u8]) -> Result<[u8; 32]> {
         if agent_id_of(payee_public_key) != self.quote.payee {
             return Err(Error::Signature);
         }
         let canonical = self.quote.canonical()?;
         HybridMlDsa65SlhDsa128s::verify(payee_public_key, &canonical, &self.signature)
             .map_err(|_| Error::Signature)?;
-        if now >= self.quote.expires_at {
-            return Err(Error::Expired);
-        }
-        self.quote.hash()
+        Ok(*blake3::hash(&canonical).as_bytes())
     }
 }
 
@@ -146,6 +152,10 @@ pub struct PaymentBook {
 }
 
 impl PaymentBook {
+    pub fn is_settled(&self, quote_hash: &[u8; 32]) -> bool {
+        self.settled.contains(quote_hash)
+    }
+
     pub fn settle(&mut self, quote_hash: [u8; 32]) -> Result<()> {
         if self.settled.insert(quote_hash) {
             Ok(())
@@ -165,6 +175,10 @@ pub struct Receipt {
     pub payer: AgentId,
     #[serde(with = "wire::hex32")]
     pub payee: AgentId,
+    /// The account the transfer paid. Bound so a receipt cannot be shown
+    /// beside a transfer to some other account with the same memo and amount.
+    #[serde(with = "wire::hex32")]
+    pub to: [u8; 32],
     #[serde(with = "wire::dec_u256")]
     pub amount: U256,
     pub height: u64,
@@ -178,6 +192,7 @@ impl Receipt {
         out.extend_from_slice(&self.txid);
         out.extend_from_slice(&self.payer);
         out.extend_from_slice(&self.payee);
+        out.extend_from_slice(&self.to);
         wire::put_u256(&mut out, self.amount);
         out.extend_from_slice(&self.height.to_be_bytes());
         out
@@ -192,34 +207,44 @@ pub struct SignedReceipt {
 }
 
 /// Payee side. Refuses unless the transfer pays this quote's memo, address and
-/// amount; then marks the quote spent and signs the receipt.
+/// amount; then signs the receipt and marks the quote spent.
+///
+/// Expiry is not checked here: it guards the payer before paying
+/// (`draft_payment`). Once a matching transfer is on chain the funds have
+/// arrived, and refusing the receipt because the payee looked late would leave
+/// the payer paid-up with nothing to show for it.
 pub fn issue_receipt(
     book: &mut PaymentBook,
     signer: &AgentSigner,
     quote: &SignedQuote,
     transfer: &Transfer,
-    now: u64,
 ) -> Result<SignedReceipt> {
     if quote.quote.payee != signer.agent_id() {
         return Err(Error::NotPayee);
     }
-    let quote_hash = quote.verify(signer.public_key(), now)?;
+    let quote_hash = quote.verify_signature(signer.public_key())?;
     let paid = transfer.memo == quote_hash
         && transfer.to == quote.quote.payee_address
         && transfer.amount == quote.quote.amount;
     if !paid {
         return Err(Error::Mismatch);
     }
-    book.settle(quote_hash)?;
+    if book.is_settled(&quote_hash) {
+        return Err(Error::Replay);
+    }
     let receipt = Receipt {
         quote_hash,
         txid: transfer.txid,
         payer: quote.quote.payer,
         payee: quote.quote.payee,
+        to: transfer.to,
         amount: transfer.amount,
         height: transfer.height,
     };
+    // Sign before marking spent: a signing failure must leave the quote open,
+    // or the payer has paid and can never get a receipt.
     let signature = signer.sign(&receipt.canonical())?;
+    book.settle(quote_hash)?;
     Ok(SignedReceipt { receipt, signature })
 }
 
@@ -237,6 +262,7 @@ pub fn verify_receipt(
         .map_err(|_| Error::Signature)?;
     let bound = transfer.txid == receipt.txid
         && transfer.memo == receipt.quote_hash
+        && transfer.to == receipt.to
         && transfer.amount == receipt.amount
         && transfer.height == receipt.height;
     if bound { Ok(()) } else { Err(Error::Mismatch) }

@@ -20,6 +20,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 hex.workspace = true
 blake3.workspace = true
+# The derived agent seed is wiped after the key is built (Standing Order 5).
+zeroize.workspace = true
 thiserror.workspace = true
 # The HTTP registry. Loopback by default; see src/main.rs.
 axum.workspace = true

@@ -40,9 +40,9 @@ fn a_quote_is_paid_once() {
     let draft = draft_payment(&quote, seller.public_key(), &buyer.agent_id(), NOW).expect("draft");
     let mut book = PaymentBook::default();
 
-    assert!(issue_receipt(&mut book, &seller, &quote, &paying(&draft, 9), NOW).is_ok());
+    assert!(issue_receipt(&mut book, &seller, &quote, &paying(&draft, 9)).is_ok());
     // A second transfer carrying the same memo must not earn a second receipt.
-    let replay = issue_receipt(&mut book, &seller, &quote, &paying(&draft, 8), NOW);
+    let replay = issue_receipt(&mut book, &seller, &quote, &paying(&draft, 8));
     assert_eq!(replay, Err(Error::Replay));
 }
 
@@ -55,7 +55,7 @@ fn a_receipt_verifies_only_against_the_transfer_it_names() {
     let draft = draft_payment(&quote, seller.public_key(), &buyer.agent_id(), NOW).expect("draft");
     let transfer = paying(&draft, 9);
     let mut book = PaymentBook::default();
-    let receipt = issue_receipt(&mut book, &seller, &quote, &transfer, NOW).expect("receipt");
+    let receipt = issue_receipt(&mut book, &seller, &quote, &transfer).expect("receipt");
 
     assert_eq!(
         verify_receipt(&receipt, seller.public_key(), &transfer),
@@ -82,6 +82,25 @@ fn a_receipt_verifies_only_against_the_transfer_it_names() {
         verify_receipt(&receipt, seller.public_key(), &other_amount),
         Err(Error::Mismatch)
     );
+
+    let mut other_to = transfer.clone();
+    other_to.to = [4; 32];
+    assert_eq!(
+        verify_receipt(&receipt, seller.public_key(), &other_to),
+        Err(Error::Mismatch)
+    );
+}
+
+#[test]
+fn a_quote_paid_in_time_still_earns_a_receipt_after_it_expires() {
+    let seller = signer(1);
+    let buyer = signer(2);
+    let quote =
+        SignedQuote::sign(quote_for(&seller.agent_id(), &buyer.agent_id()), &seller).expect("sign");
+    let draft = draft_payment(&quote, seller.public_key(), &buyer.agent_id(), NOW).expect("draft");
+    let mut book = PaymentBook::default();
+    // issue_receipt takes no clock: the funds are on chain, so the receipt is owed.
+    assert!(issue_receipt(&mut book, &seller, &quote, &paying(&draft, 9)).is_ok());
 }
 
 #[test]
@@ -96,11 +115,11 @@ fn a_transfer_with_the_wrong_memo_does_not_spend_the_quote() {
     let mut wrong = paying(&draft, 9);
     wrong.memo = [0; 32];
     assert_eq!(
-        issue_receipt(&mut book, &seller, &quote, &wrong, NOW),
+        issue_receipt(&mut book, &seller, &quote, &wrong),
         Err(Error::Mismatch)
     );
     // The quote is still open for the transfer that does bind it.
-    assert!(issue_receipt(&mut book, &seller, &quote, &paying(&draft, 9), NOW).is_ok());
+    assert!(issue_receipt(&mut book, &seller, &quote, &paying(&draft, 9)).is_ok());
 }
 
 #[test]
@@ -112,7 +131,7 @@ fn a_tampered_receipt_is_refused() {
     let draft = draft_payment(&quote, seller.public_key(), &buyer.agent_id(), NOW).expect("draft");
     let transfer = paying(&draft, 9);
     let mut book = PaymentBook::default();
-    let mut receipt = issue_receipt(&mut book, &seller, &quote, &transfer, NOW).expect("receipt");
+    let mut receipt = issue_receipt(&mut book, &seller, &quote, &transfer).expect("receipt");
 
     receipt.receipt.amount = U256::from(999u64);
     assert_eq!(
@@ -162,6 +181,6 @@ fn only_the_payee_can_issue_a_receipt() {
         SignedQuote::sign(quote_for(&seller.agent_id(), &buyer.agent_id()), &seller).expect("sign");
     let draft = draft_payment(&quote, seller.public_key(), &buyer.agent_id(), NOW).expect("draft");
     let mut book = PaymentBook::default();
-    let result = issue_receipt(&mut book, &buyer, &quote, &paying(&draft, 9), NOW);
+    let result = issue_receipt(&mut book, &buyer, &quote, &paying(&draft, 9));
     assert_eq!(result, Err(Error::NotPayee));
 }

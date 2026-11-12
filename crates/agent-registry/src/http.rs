@@ -1,7 +1,9 @@
-//! The HTTP registry. Every card is verified on the way in and on the way out.
+//! The HTTP registry. Every card is verified on the way in; clients (the MCP
+//! tools) verify again on the way out, since they cannot trust this server.
 //!
 //! Routes: `POST /v1/cards`, `GET /v1/agents?capability=`, `GET /v1/agents/{id}`.
-//! Errors carry a fixed message from `Error`, never a parser's detail.
+//! Errors carry a fixed message from `Error`, never a parser's detail: body and
+//! query rejections are mapped to fixed strings too.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -9,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::Router;
+use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
@@ -19,11 +22,12 @@ use serde_json::json;
 
 use crate::card::{MAX_TEXT_BYTES, SignedCard};
 use crate::error::Error;
-use crate::limit::FixedWindow;
+use crate::limit::{FixedWindow, client_key};
 use crate::registry::Registry;
 use crate::wire;
 
-/// Largest request body. A card is about 11 KiB of signature plus hex keys.
+/// Largest request body. A hybrid signature is 11,165 bytes and the key 1,984,
+/// so a card is about 26 KiB once both are hex.
 pub const MAX_BODY_BYTES: usize = 64 * 1024;
 /// Most cards returned by one search.
 pub const MAX_RESULTS: usize = 100;
@@ -72,7 +76,7 @@ async fn limit(
     next: Next,
 ) -> Response {
     let admitted = match state.lock() {
-        Ok(mut shared) => shared.limiter.admit(&peer.ip().to_string(), now()),
+        Ok(mut shared) => shared.limiter.admit(&client_key(peer.ip()), now()),
         Err(code) => return code.into_response(),
     };
     if admitted {
@@ -95,7 +99,14 @@ fn error_response(error: Error) -> Response {
     reply(code, &error.to_string())
 }
 
-async fn publish(State(state): State<AppState>, Json(card): Json<SignedCard>) -> Response {
+async fn publish(
+    State(state): State<AppState>,
+    body: Result<Json<SignedCard>, JsonRejection>,
+) -> Response {
+    let card = match body {
+        Ok(Json(card)) => card,
+        Err(rejection) => return reply(rejection.status(), "body is not a signed card"),
+    };
     let outcome = match state.lock() {
         Ok(mut shared) => shared.registry.publish(card, now()),
         Err(code) => return code.into_response(),
@@ -115,7 +126,13 @@ struct SearchParams {
     capability: String,
 }
 
-async fn search(State(state): State<AppState>, Query(params): Query<SearchParams>) -> Response {
+async fn search(
+    State(state): State<AppState>,
+    query: Result<Query<SearchParams>, QueryRejection>,
+) -> Response {
+    let Ok(Query(params)) = query else {
+        return reply(StatusCode::BAD_REQUEST, "capability is required");
+    };
     if params.capability.is_empty() || params.capability.len() > MAX_TEXT_BYTES {
         return reply(StatusCode::BAD_REQUEST, "capability out of bounds");
     }
