@@ -9,6 +9,7 @@
 //!   encrypted the same way: who someone talks to is as private as what they
 //!   say.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use chacha20poly1305::aead::{Aead, KeyInit};
@@ -63,6 +64,24 @@ pub struct Line {
     /// Set when the line is a reply.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<ReplyRef>,
+    /// This message's disappearing timer, seconds; 0 for none. Fixed when the
+    /// message is sent, so a later change of the chat's timer never reaches it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub timer: u64,
+    /// When the line is deleted, on [`crate::expiry::Clock`] seconds; 0 while
+    /// its clock has not started (a received line not yet shown) or with no
+    /// timer. Stored, so a restart deletes it on time ([`crate::expiry`]).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub deadline: u64,
+    /// Written by this app (a timer change), never by the peer: a peer who
+    /// types the same words is shown as an ordinary message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub notice: bool,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if passes a reference
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// What a reply points at.
@@ -139,6 +158,21 @@ pub struct Profile {
     /// Recently sent sticker ids, newest first.
     #[serde(default)]
     pub recent: Vec<String>,
+    /// Each chat's disappearing timer by peer address, seconds; a chat not
+    /// here has [`crate::expiry::DEFAULT_TIMER`].
+    #[serde(default)]
+    pub timers: BTreeMap<String, u64>,
+    /// Peers whose app has shown it reads timers (sent one, or a timed
+    /// message). Any other peer may run an app that keeps messages forever.
+    #[serde(default)]
+    pub timer_peers: BTreeSet<String>,
+    /// The one suggestion to turn timers on has been shown or answered.
+    #[serde(default)]
+    pub timer_prompted: bool,
+    /// The latest time [`crate::expiry::Clock`] has reported, so a clock set
+    /// back, even across a restart, never lengthens a message's life.
+    #[serde(default)]
+    pub clock_floor: u64,
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -272,6 +306,20 @@ impl Files {
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         write_atomic(&dir.join(format!("{id}.bin")), &seal(seed, STICKER_DOMAIN, bytes)?)?;
         Ok(id)
+    }
+
+    /// Deletes a cached sticker file; one that is not there is already gone.
+    /// The file was encrypted under the seed-derived key; flash storage may
+    /// keep the old blocks, which no app can prevent (ADR-140 section 5).
+    pub fn remove_sticker(&self, id: &str) -> Result<(), String> {
+        if !is_hex_id(id) {
+            return Err("not a sticker id".into());
+        }
+        let path = self.dir.join("stickers").join(format!("{id}.bin"));
+        match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {e}", path.display())),
+            _ => Ok(()),
+        }
     }
 
     pub fn save_profile(&self, seed: &[u8; 32], profile: &Profile) -> Result<(), String> {

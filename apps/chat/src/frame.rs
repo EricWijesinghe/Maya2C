@@ -1,4 +1,5 @@
-//! Structured messages: stickers, sticker packs, reactions and replies.
+//! Structured messages: stickers, sticker packs, reactions, replies and
+//! disappearing timers.
 //!
 //! Shared by the CLI and the desktop app (ADR-140, build PR 1; moved here
 //! from `apps/chat-gui/src-tauri/src/stickers.rs`, which re-exports it). A
@@ -19,6 +20,14 @@
 //! transit or in a cache. A reply's body is its text. Everything else has an
 //! empty body. A kind this build does not know is refused as
 //! [`FrameError::UnknownKind`], never parsed further.
+//!
+//! Disappearing messages (ADR-140 build PR 2): [`Content::Timer`] sets a
+//! chat's timer for later messages, and each message that disappears carries
+//! its own timer as a `t` field beside the tag (seconds, one of
+//! [`TIMER_OPTIONS`]). An older app ignores the unknown field and keeps the
+//! message; it shows a `Timer` or a timed [`Content::Text`] as "needs a newer
+//! Maya2C Chat". Enforcement is the receiving app's: no frame can make a
+//! modified app, a screenshot or a camera forget.
 
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +60,28 @@ pub const MAX_EMOJI_BYTES: usize = 64;
 pub const MAX_MARKS: usize = 32;
 const QUOTE_DOMAIN: &str = "maya-chat 2026-11-13 reply quote v1";
 /// The kinds this build reads; any other is [`FrameError::UnknownKind`].
-const KNOWN_KINDS: [&str; 5] = ["sticker", "pack_request", "pack_item", "reaction", "reply"];
+const KNOWN_KINDS: [&str; 7] = [
+    "sticker",
+    "pack_request",
+    "pack_item",
+    "reaction",
+    "reply",
+    "text",
+    "timer",
+];
+/// The disappearing timers a chat can be set to, in seconds, with what the
+/// apps call them; 0 is off (ADR-140 section 5). Any other value is
+/// [`FrameError::BadTimer`]. 90 days is longer than any relay keeps an
+/// envelope, which only matters once the message has been fetched.
+pub const TIMER_OPTIONS: [(u64, &str); 7] = [
+    (0, "off"),
+    (30, "30 seconds"),
+    (5 * 60, "5 minutes"),
+    (3_600, "1 hour"),
+    (24 * 3_600, "1 day"),
+    (7 * 24 * 3_600, "7 days"),
+    (90 * 24 * 3_600, "90 days"),
+];
 
 /// Why a frame was refused.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -91,6 +121,8 @@ pub enum FrameError {
     BadEmoji,
     #[error("a reply needs text, without NUL characters")]
     BadText,
+    #[error("not a disappearing-message timer this app offers")]
+    BadTimer,
 }
 
 /// The desktop app's commands report errors as strings.
@@ -235,13 +267,21 @@ pub enum Content {
     /// `quote` is [`quote_hash`] of the text replied to, so a reply cannot
     /// misquote: the app shows its own copy only when the hash matches.
     Reply { target: String, quote: String },
+    /// Text that disappears; the text is the body. Plain text with no timer
+    /// is still sent unframed, so older apps read it.
+    Text,
+    /// "Disappearing messages are now `secs` (0: off) in this chat", for
+    /// messages sent after it; earlier ones keep their own timer.
+    Timer { secs: u64 },
 }
 
-/// Only the tag, read before the rest so an unknown kind is told apart from
-/// a malformed known one.
+/// Only the tag and the per-message timer, read before the rest so an
+/// unknown kind is told apart from a malformed known one.
 #[derive(Deserialize)]
 struct Kind {
     k: String,
+    #[serde(default)]
+    t: u64,
 }
 
 /// A decoded structured message.
@@ -250,6 +290,8 @@ pub struct Decoded {
     pub content: Content,
     /// The sticker file or the reply's text; empty for the other kinds.
     pub file: Vec<u8>,
+    /// This message's disappearing timer in seconds, 0 for none.
+    pub timer: u64,
 }
 
 /// Whether a plaintext is structured rather than text.
@@ -286,6 +328,45 @@ pub fn check_emoji(emoji: &str) -> Result<(), FrameError> {
     ok.then_some(()).ok_or(FrameError::BadEmoji)
 }
 
+/// Checks a disappearing timer is one of [`TIMER_OPTIONS`].
+///
+/// # Errors
+///
+/// [`FrameError::BadTimer`].
+pub fn check_timer(secs: u64) -> Result<(), FrameError> {
+    timer_label(secs).map(|_| ()).ok_or(FrameError::BadTimer)
+}
+
+/// What the apps call the timer `secs`, if it is one they offer.
+#[must_use]
+pub fn timer_label(secs: u64) -> Option<&'static str> {
+    TIMER_OPTIONS
+        .iter()
+        .find(|(s, _)| *s == secs)
+        .map(|(_, label)| *label)
+}
+
+/// Checks a message's own timer: one of [`TIMER_OPTIONS`], and only on a
+/// kind the user sees as a line.
+fn check_message_timer(content: &Content, timer: u64) -> Result<(), FrameError> {
+    check_timer(timer)?;
+    let is_line = matches!(
+        content,
+        Content::Sticker { .. } | Content::Reply { .. } | Content::Text
+    );
+    (timer == 0 || is_line)
+        .then_some(())
+        .ok_or(FrameError::BadTimer)
+}
+
+fn check_text(body: &[u8]) -> Result<(), FrameError> {
+    let text = std::str::from_utf8(body).map_err(|_| FrameError::BadText)?;
+    if text.trim().is_empty() || text.contains('\0') {
+        return Err(FrameError::BadText);
+    }
+    Ok(())
+}
+
 /// [`Content::Reply`]'s `quote` for the text replied to.
 #[must_use]
 pub fn quote_hash(text: &str) -> String {
@@ -310,6 +391,11 @@ fn check(content: &Content, body: &[u8]) -> Result<(), FrameError> {
             )
         }
         Content::PackRequest { .. } => None,
+        Content::Timer { secs } => {
+            check_timer(*secs)?;
+            None
+        }
+        Content::Text => return check_text(body),
         Content::Reaction { target, emoji, .. } => {
             check_id(target)?;
             check_emoji(emoji)?;
@@ -318,11 +404,7 @@ fn check(content: &Content, body: &[u8]) -> Result<(), FrameError> {
         Content::Reply { target, quote } => {
             check_id(target)?;
             check_id(quote)?;
-            let text = std::str::from_utf8(body).map_err(|_| FrameError::BadText)?;
-            if text.trim().is_empty() || text.contains('\0') {
-                return Err(FrameError::BadText);
-            }
-            return Ok(());
+            return check_text(body);
         }
     };
     match claimed {
@@ -345,8 +427,28 @@ fn check(content: &Content, body: &[u8]) -> Result<(), FrameError> {
 /// A header over [`MAX_HEADER`], a body over [`MAX_STICKER_BYTES`], or
 /// anything [`decode`] would refuse.
 pub fn encode(content: &Content, body: &[u8]) -> Result<Vec<u8>, FrameError> {
+    encode_timed(content, body, 0)
+}
+
+/// [`encode`] for a message that disappears `timer` seconds after it is
+/// first shown (0: never). The timer travels beside the tag as `t`.
+///
+/// # Errors
+///
+/// As [`encode`], or [`FrameError::BadTimer`] for a timer outside
+/// [`TIMER_OPTIONS`] or on a kind that is not a message.
+pub fn encode_timed(content: &Content, body: &[u8], timer: u64) -> Result<Vec<u8>, FrameError> {
+    check_message_timer(content, timer)?;
     let mut header =
         serde_json::to_vec(content).map_err(|e| FrameError::Malformed(e.to_string()))?;
+    if timer != 0 {
+        // Every kind serializes as an object ending in `}`; the timer goes
+        // last, so an untimed frame's bytes are what build PR 1 wrote.
+        if header.pop() != Some(b'}') {
+            return Err(FrameError::Header);
+        }
+        header.extend_from_slice(format!(",\"t\":{timer}}}").as_bytes());
+    }
     if header.len() > MAX_HEADER {
         return Err(FrameError::HeaderTooLong);
     }
@@ -388,10 +490,12 @@ pub fn decode(plain: &[u8]) -> Result<Decoded, FrameError> {
         return Err(FrameError::UnknownKind);
     }
     let content: Content = serde_json::from_slice(header).map_err(malformed)?;
+    check_message_timer(&content, kind.t)?;
     check(&content, body)?;
     Ok(Decoded {
         content,
         file: body.to_vec(),
+        timer: kind.t,
     })
 }
 
@@ -404,7 +508,7 @@ pub fn describe(plain: &[u8]) -> String {
     }
     let short = |id: &str| id.chars().take(8).collect::<String>();
     match decode(plain) {
-        Ok(Decoded { content, file }) => match content {
+        Ok(Decoded { content, file, .. }) => match content {
             Content::Sticker { emoji, .. } => format!("[sticker {emoji}]"),
             Content::PackRequest { .. } => "[asks for a sticker pack]".into(),
             Content::PackItem { pack, .. } => {
@@ -431,6 +535,12 @@ pub fn describe(plain: &[u8]) -> String {
                     String::from_utf8_lossy(&file)
                 )
             }
+            Content::Text => String::from_utf8_lossy(&file).into_owned(),
+            Content::Timer { secs: 0 } => "[disappearing messages turned off]".into(),
+            Content::Timer { secs } => format!(
+                "[disappearing messages set to {}]",
+                timer_label(secs).unwrap_or("?")
+            ),
         },
         Err(FrameError::UnknownKind) => FrameError::UnknownKind.to_string(),
         Err(e) => format!("[unreadable message: {e}]"),

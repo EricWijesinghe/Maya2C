@@ -2858,6 +2858,18 @@ gate = "cargo test -p maya-chat --test frame_tests --test frame_e2e_tests; cargo
 note = "ADR-140 section 2, build PR 1 (CI-first: not compiled locally when written, so stub). The frame moved from chat-gui into apps/chat/src/frame.rs so the CLI and the GUI share it. Reaction { target, emoji, on, at } and Reply { target, quote } inside the encryption, naming the 32-byte envelope id (now carried on client::Received). A reaction is a toggle per (reactor, message, emoji), bounded to 8 emoji or a 64-hex custom id, at most 32 marks per message; later at wins, off wins a tie. A reply's quote is a BLAKE3 hash of the quoted text; mismatch shows no quote, a missing original shows 'original not available'. Frames are space-padded to 256-byte multiples, so a reaction and a short reply seal to one size; plain text is still sent unframed and unpadded. Unknown kinds are refused as 'needs a newer Maya2C Chat'. Edits, threads and polls are not built (threads and polls wait for ADR-085)."
 
 [[subsystem]]
+id = "chat-disappearing-messages"
+name = "Maya2C Chat disappearing messages"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/frame.rs`, `apps/chat/src/client.rs`, `apps/chat/src/courier.rs`, `apps/chat-gui/src-tauri/src/expiry.rs`, `apps/chat-gui/src-tauri/src/store.rs`, `apps/chat-gui/src-tauri/src/sticker_cmds.rs`, `apps/chat-gui/src-tauri/src/lib.rs`, `apps/chat-gui/ui/app.js`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["apps/chat/tests/timer_tests.rs", "apps/chat-gui/src-tauri/src/expiry.rs"]
+gate = "cargo test -p maya-chat --test timer_tests; cargo test --lib in apps/chat-gui/src-tauri"
+note = "ADR-140 section 5, build PR 2 (CI-first: not compiled locally when written, so stub). A Timer { secs } frame either side may send sets the chat's timer for later messages (off, 30 s, 5 min, 1 h, 1 day, 7 days, 90 days; any other value refused); each timed message carries its own timer as a `t` header field, and timed text travels as a Text frame. The sender counts from sending, the receiver from first display; deadlines are stored, so a restart deletes on time, and the clock is the latest of wall clock, monotonic clock and a stored floor, so a clock set back never extends a life. The sweep removes the line with its reactions, the quote link of replies to it, and any sticker file only it used, and zeroizes the text. The envelope's relay expiry is capped at the timer. Off by default with one suggestion in the third chat (ADR-140 Q2 option a, unanswered). Honest-client only: the UI says a modified app, screenshot or camera can keep a copy, and warns the sender until the peer's app has shown it reads timers. View-once is not built."
+
+[[subsystem]]
 id = "mining-rewards-lane"
 name = "Mining rewards lane (DAG-PoW shares paid from a genesis reserve)"
 domain = "Consensus and execution"

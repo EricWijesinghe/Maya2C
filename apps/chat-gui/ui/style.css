@@ -219,6 +219,17 @@ input:focus { border-color: rgb(31 181 194 / 0.6); }
 .reply-text { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .reply-bar button { border: none; background: none; color: var(--dim); cursor: pointer; font-size: 1rem; }
 
+/* Disappearing messages (ADR-140 PR 2). The limit is always shown while a
+   timer is on; a notice is the app speaking, so it is not a bubble. */
+.timer-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem;
+  padding: 0.45rem 1.25rem; border-bottom: 1px solid var(--line); font-size: 0.85rem;
+}
+.timer-bar p { flex-basis: 100%; margin: 0; }
+.timer-warn { color: var(--rose); }
+.timer-prompt { color: var(--text); }
+.lines li.notice { align-self: center; background: none; border: none; color: var(--dim); font-size: 0.8rem; }
+
 /* First run: an orbit behind the title, then a list of real steps, each
    ticked when the command it waits on returns. */
 .welcome { position: relative; }
