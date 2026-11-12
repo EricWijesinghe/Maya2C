@@ -2,8 +2,8 @@
 //!
 //! # The shape of self-amendment here
 //!
-//! Every governable rule is a `u64` under a [`ParameterKey`], stored in
-//! consensus state, and read at execution time by whichever subsystem owns it.
+//! Every governable rule is a 256-bit [`Amount`] (ADR-066) under a
+//! [`ParameterKey`], stored in consensus state, and read at execution time by whichever subsystem owns it.
 //! A change carries an activation height, so the value that applies at height
 //! *h* is a function of *h* alone — which is what makes two nodes replaying the
 //! same chain reach the same answer.
@@ -60,17 +60,21 @@ const SURCHARGE_CEILING: Amount = {
     Amount::from_le_bytes(bytes)
 };
 
-/// Proposed default, governed (ADR-135 O-3): the per-year fee of a 3-byte
-/// name, in base units (one coin is `maya_amount::ONE_COIN`). Governance
-/// replaces it; it exists so a 3-byte name is never free at activation.
-pub const PROPOSED_NAME_BASE_FEE_3: u64 = 1_000_000_000_000_000_000;
-/// Proposed default, governed (ADR-135 O-3): as [`PROPOSED_NAME_BASE_FEE_3`],
-/// for 4 bytes.
-pub const PROPOSED_NAME_BASE_FEE_4: u64 = 100_000_000_000_000_000;
-/// Default, governed: the per-year fee of a name of 5 bytes or more. Eric's
-/// decision (2026-11-12): small and non-zero, burned, about 1/100 of the
-/// 4-byte default, so a long name costs something but almost nothing.
-pub const NAME_BASE_FEE_5: u64 = PROPOSED_NAME_BASE_FEE_4 / 100;
+/// The 4-byte per-year fee in base units, kept as `u128` so the 5-byte fee
+/// below is derived from it in compile-time arithmetic (an overflow or a
+/// non-exact division would fail the build, not round).
+const NAME_FEE_4_UNITS: u128 = COIN / 10;
+
+/// Default, governed: the per-year fee of a 3-byte name, one coin (Eric,
+/// 2026-11-12, settling ADR-135 O-3). Burned.
+pub const NAME_BASE_FEE_3: Amount = Amount::from_u128(COIN);
+/// Default, governed: the per-year fee of a 4-byte name, 0.1 coin (Eric,
+/// 2026-11-12). Burned.
+pub const NAME_BASE_FEE_4: Amount = Amount::from_u128(NAME_FEE_4_UNITS);
+/// Default, governed: the per-year fee of a name of 5 bytes or more, 0.001
+/// coin: 1/100 of the 4-byte fee (Eric, 2026-11-12), so a long name costs
+/// something but almost nothing. Burned.
+pub const NAME_BASE_FEE_5: Amount = Amount::from_u128(NAME_FEE_4_UNITS / 100);
 /// `NameReservedLabels` with every compiled reserved label held. One label
 /// today (`maya2c`, bit 0); must equal `(1 << RESERVED_LABELS.len()) - 1` in
 /// the node, which a node test pins.
@@ -334,24 +338,25 @@ impl ParameterKey {
                 max: SURCHARGE_CEILING,
                 default: Amount::from_u64(0),
             },
-            // Proposed defaults, governed (ADR-135 O-3). Non-zero for 3 and 4
-            // bytes so a short name is never free at activation; 5 and longer
-            // is 1/100 of the 4-byte fee (Eric, 2026-11-12). Base units, per
-            // year, all burned.
+            // Eric, 2026-11-12: 1 / 0.1 / 0.001 coin a year for 3 / 4 / 5+
+            // bytes, all burned. The ceiling is the ADR-135 surcharge bound,
+            // 2^252 - 1: the 1-coin default (~2^80) sits far below it, and
+            // since `periods` is at most 10 (< 16) the node's one
+            // `fee × periods` multiply stays inside U256 for every legal value.
             Self::NameBaseFee3 => Bounds {
                 min: Amount::from_u64(0),
                 max: SURCHARGE_CEILING,
-                default: Amount::from_u64(PROPOSED_NAME_BASE_FEE_3),
+                default: NAME_BASE_FEE_3,
             },
             Self::NameBaseFee4 => Bounds {
                 min: Amount::from_u64(0),
                 max: SURCHARGE_CEILING,
-                default: Amount::from_u64(PROPOSED_NAME_BASE_FEE_4),
+                default: NAME_BASE_FEE_4,
             },
             Self::NameBaseFee5 => Bounds {
                 min: Amount::from_u64(0),
                 max: SURCHARGE_CEILING,
-                default: Amount::from_u64(NAME_BASE_FEE_5),
+                default: NAME_BASE_FEE_5,
             },
             // A bit set, not a quantity: one bit per compiled reserved label.
             // The ceiling grows with the list, which is a binary upgrade anyway.

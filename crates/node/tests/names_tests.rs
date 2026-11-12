@@ -32,6 +32,11 @@ mod common;
 /// The v4 activation height these tests run under.
 const V4: u64 = 10;
 const SALT: [u8; 32] = [0x5A; 32];
+/// One coin in base units (`maya_amount::ONE_COIN`), written out so the fee
+/// tests pin Eric's decision rather than whatever the constant becomes.
+const COIN: u128 = 1_000_000_000_000_000_000_000_000;
+/// Each funded account: enough for ten years of a 3-byte name (10 coins) with room.
+const FUNDING: u128 = 1_000 * COIN;
 
 struct Fixture {
     db: Arc<StateDB>,
@@ -46,7 +51,7 @@ fn fixture(funded: &[Address]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: U256::from(1_000_000_000_000_000_000_000_000u128),
+                balance: U256::from(FUNDING),
                 nonce: 0,
             },
         )
@@ -845,4 +850,94 @@ fn the_root_is_unchanged_when_no_name_exists() {
         .expect("dark");
     let b = lit.db.apply_block(&empty, at(V4)).expect("lit");
     assert_eq!(a, b);
+}
+
+/// Applies `txs` from `payer` at `height` and returns what `FEE_SINK` gained,
+/// asserting the payer lost exactly that (no other charge in these fixtures).
+fn burned_by(f: &Fixture, payer: &Address, txs: Vec<Transaction>, height: u64) -> U256 {
+    let sink_before = balance(f, &FEE_SINK);
+    let payer_before = balance(f, payer);
+    apply(f, txs, height).expect("apply");
+    let burned = balance(f, &FEE_SINK) - sink_before;
+    assert_eq!(
+        payer_before - balance(f, payer),
+        burned,
+        "payer paid the burn"
+    );
+    burned
+}
+
+/// Eric, 2026-11-12: 1 / 0.1 / 0.001 coin a year for 3 / 4 / 5+ bytes, burned,
+/// times the periods bought, for one period and for several.
+#[test]
+fn register_burns_exactly_the_length_class_fee_times_periods() {
+    let long: Vec<u8> = vec![b'a'; 63];
+    let cases: [(&[u8], u8, u128); 8] = [
+        (b"abc", 1, COIN),
+        (b"abd", 10, 10 * COIN),
+        (b"abcd", 1, COIN / 10),
+        (b"abce", 7, 7 * (COIN / 10)),
+        (b"abcde", 1, COIN / 1_000),
+        (b"abcdf", 3, 3 * (COIN / 1_000)),
+        (b"abcdg", 10, 10 * (COIN / 1_000)),
+        (long.as_slice(), 1, COIN / 1_000),
+    ];
+    let keys: Vec<HybridSigningKey> = (0..cases.len())
+        .map(|_| generate_signing_key().expect("key"))
+        .collect();
+    let addresses: Vec<Address> = keys.iter().map(HybridSigningKey::address).collect();
+    let f = fixture(&addresses);
+    for (key, (label, periods, expected)) in keys.iter().zip(&cases) {
+        commit_at(&f, key, label, 0, V4);
+        let paid = burned_by(
+            &f,
+            &key.address(),
+            vec![signed(register(label, *periods, key.address()), 1, key)],
+            V4 + MIN_COMMIT_AGE,
+        );
+        assert_eq!(
+            paid,
+            U256::from(*expected),
+            "{} bytes x {periods}",
+            label.len()
+        );
+        // A long name is not free.
+        assert!(!paid.is_zero(), "{} bytes is free", label.len());
+    }
+}
+
+#[test]
+fn renew_burns_exactly_the_length_class_fee_times_periods() {
+    let cases: [(&[u8], u8, u128); 3] = [
+        (b"xyz", 2, 2 * COIN),
+        (b"wxyz", 3, 3 * (COIN / 10)),
+        (b"vwxyz", 5, 5 * (COIN / 1_000)),
+    ];
+    let keys: Vec<HybridSigningKey> = (0..cases.len())
+        .map(|_| generate_signing_key().expect("key"))
+        .collect();
+    let addresses: Vec<Address> = keys.iter().map(HybridSigningKey::address).collect();
+    let f = fixture(&addresses);
+    let h = V4 + MIN_COMMIT_AGE;
+    for (key, (label, periods, expected)) in keys.iter().zip(&cases) {
+        commit_at(&f, key, label, 0, V4);
+        apply(
+            &f,
+            vec![signed(register(label, 1, key.address()), 1, key)],
+            h,
+        )
+        .expect("register");
+        let paid = burned_by(
+            &f,
+            &key.address(),
+            vec![signed(renew(label, *periods), 2, key)],
+            h + 1,
+        );
+        assert_eq!(
+            paid,
+            U256::from(*expected),
+            "renew {} bytes x {periods}",
+            label.len()
+        );
+    }
 }
