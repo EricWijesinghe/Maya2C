@@ -3279,8 +3279,8 @@ paths = "`bins/maya2c-mcp`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs"]
-note = "Master Prompt 24 §5. Decode, clear-sign review, error explanation, node RPC; writes refused to non-loopback nodes. 10/10 task set."
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "bins/maya2c-mcp/tests/debug_tools_tests.rs"]
+note = "Master Prompt 24 §5. Decode, clear-sign review, error explanation, node RPC; writes refused to non-loopback nodes. 10/10 task set. v3 P6 (gap S6): read-only debugging tools replay_block (maya2c_cli::fork::replay), trace_transaction (maya2c_cli::record_spec), explain_refusal (parsed from crates/node/src/error.rs at build time) and compare_account (get_balance_at_height twice), tested against an in-process dev chain served by the node RPC. Trace starts from empty contract storage."
 
 [[subsystem]]
 id = "interop-proof-routes"

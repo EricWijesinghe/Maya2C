@@ -143,7 +143,7 @@ fn ten_assistant_tasks() {
     );
     assert_eq!(replies.len(), 10);
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "maya2c-mcp");
-    assert_eq!(replies[1]["result"]["tools"].as_array().unwrap().len(), 4);
+    assert_eq!(replies[1]["result"]["tools"].as_array().unwrap().len(), 8);
     let (t, err) = text(&replies[2]);
     assert!(
         !err && t.contains("\"txid\"") && t.contains("\"signed\":true"),

@@ -12,7 +12,20 @@
 //!   so an assistant can never write to a public network through this server;
 //!   a person does that, with their own wallet.
 //!
-//! `maya2c-mcp --rpc 127.0.0.1:8545`
+//! Read-only debugging (v3 P6, [`debug_tools`], [`refusal`]):
+//!
+//! - `replay_block` — `maya2c replay`: re-execute a block locally, return its
+//!   balance changes; needs `--genesis FILE`.
+//! - `trace_transaction` — `maya2c debug`: a contract call's recorded steps.
+//! - `explain_refusal` — a node refusal message, explained from `NodeError`.
+//! - `compare_account` — an account's balance at two heights.
+//!
+//! None of them calls a state-changing method or touches a key.
+//!
+//! `maya2c-mcp --rpc 127.0.0.1:8545 [--genesis genesis.json]`
+
+mod debug_tools;
+mod refusal;
 
 use maya_amount::Amount;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -33,7 +46,15 @@ fn tools() -> Value {
         {"name": "explain_error", "description": "Explain a node error kind (e.g. InvalidNonce) in plain language, with the spec rule it comes from.",
          "inputSchema": {"type": "object", "properties": {"kind": {"type": "string"}}, "required": ["kind"]}},
         {"name": "rpc_call", "description": "Call the configured node's JSON-RPC. Read methods only, unless the node is on loopback.",
-         "inputSchema": {"type": "object", "properties": {"method": {"type": "string"}, "params": {"type": "array"}}, "required": ["method"]}}
+         "inputSchema": {"type": "object", "properties": {"method": {"type": "string"}, "params": {"type": "array"}}, "required": ["method"]}},
+        {"name": "replay_block", "description": "Read-only. Re-execute the block at a height on a fresh local copy of the configured node's chain (maya2c replay); returns its transactions and every balance it changed. Optional txid checks the transaction is in that block.",
+         "inputSchema": {"type": "object", "properties": {"height": {"type": "integer"}, "txid": {"type": "string"}}, "required": ["height"]}},
+        {"name": "trace_transaction", "description": "Read-only. Run a contract call once under the time-travel debugger (maya2c debug) and return every host-call step, storage after, events and gas. Give the contract wasm (hex) and either a CallContract transaction (hex) or input/caller/gas.",
+         "inputSchema": {"type": "object", "properties": {"wasm": {"type": "string"}, "tx": {"type": "string"}, "input": {"type": "string"}, "caller": {"type": "string"}, "height": {"type": "integer"}, "gas": {"type": "integer"}}, "required": ["wasm"]}},
+        {"name": "explain_refusal", "description": "Explain why the node refused something: give the refusal message (or a NodeError kind); returns the variant, its fields and the node's own documentation of it, read from crates/node/src/error.rs.",
+         "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "kind": {"type": "string"}}}},
+        {"name": "compare_account", "description": "Read-only. An account's balance at two heights on the configured node, and the change between them.",
+         "inputSchema": {"type": "object", "properties": {"address": {"type": "string"}, "from": {"type": "integer"}, "to": {"type": "integer"}}, "required": ["address", "from", "to"]}}
     ])
 }
 
@@ -132,7 +153,7 @@ fn review_intent(args: &Value) -> Result<Value, String> {
     ))
 }
 
-fn explain(kind: &str) -> Result<Value, String> {
+pub(crate) fn explain(kind: &str) -> Result<Value, String> {
     let (text, rule) = match kind {
         "InvalidNonce" => (
             "The transaction's nonce is not the sender's next nonce: it was already used (a replay) or one is missing before it. Resend with the nonce `get_balance` reports.",
@@ -163,7 +184,7 @@ fn explain(kind: &str) -> Result<Value, String> {
     Ok(json!({"explanation": text, "rule": rule}))
 }
 
-fn rpc(target: Option<&str>, args: &Value) -> Result<Value, String> {
+pub(crate) fn rpc(target: Option<&str>, args: &Value) -> Result<Value, String> {
     let target = target.ok_or("no node configured: start with --rpc HOST:PORT")?;
     let method = args["method"].as_str().ok_or("method is required")?;
     let addr: SocketAddr = target.parse().map_err(|e| format!("--rpc: {e}"))?;
@@ -188,17 +209,22 @@ fn rpc(target: Option<&str>, args: &Value) -> Result<Value, String> {
     serde_json::from_str(json_part).map_err(|e| e.to_string())
 }
 
-fn call_tool(name: &str, args: &Value, target: Option<&str>) -> Result<Value, String> {
+fn call_tool(name: &str, args: &Value, config: debug_tools::Config<'_>) -> Result<Value, String> {
+    let target = config.rpc;
     match name {
         "decode_transaction" => decode(args["hex"].as_str().ok_or("hex is required")?),
         "review_intent" => review_intent(args),
         "explain_error" => explain(args["kind"].as_str().ok_or("kind is required")?),
         "rpc_call" => rpc(target, args),
+        "replay_block" => debug_tools::replay_block(config, args),
+        "trace_transaction" => debug_tools::trace_transaction(args),
+        "explain_refusal" => refusal::explain_refusal(args),
+        "compare_account" => debug_tools::compare_account(config, args),
         other => Err(format!("unknown tool {other}")),
     }
 }
 
-fn handle(msg: &Value, target: Option<&str>) -> Option<Value> {
+fn handle(msg: &Value, target: debug_tools::Config<'_>) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let result = match msg["method"].as_str().unwrap_or("") {
         "initialize" => {
@@ -226,11 +252,16 @@ fn handle(msg: &Value, target: Option<&str>) -> Option<Value> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let target = args
-        .iter()
-        .position(|a| a == "--rpc")
-        .and_then(|i| args.get(i + 1))
-        .map(String::as_str);
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str)
+    };
+    let target = debug_tools::Config {
+        rpc: flag("--rpc"),
+        genesis: flag("--genesis"),
+    };
     let stdout = std::io::stdout();
     for line in BufReader::new(std::io::stdin())
         .lines()

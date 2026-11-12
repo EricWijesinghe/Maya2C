@@ -6983,7 +6983,11 @@ dependencies = [
  "hex",
  "maya-amount",
  "maya-clear-sign",
+ "maya2c-cli",
+ "primitive-types",
  "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
