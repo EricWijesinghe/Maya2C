@@ -91,7 +91,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | finality-latency-bench | Per-transaction submit-to-finalized latency, with the mix, hardware and command stated; closes the measured-finality gap ([COMPETITORS.md](COMPETITORS.md) section 4) | `cargo xtask bench-tps`, `reports/bench/` | none (non-consensus) | S | W0 |
 | validator-recruitment | Public validator onboarding and operator guide, so the validator count can grow beyond the disclosed launch set | `apps/status`, `apps/sentinel`, one-line-node-join | owner decision: no third-party validators before mainnet (2026-10-28 directive) | M | W1 |
 | independent-audit-program | Scoped external audit of the consensus, crypto and ledger crates, with a public report | `features.toml` `kani-model-checking`, `crates/build-guard` | Eric approval and budget | L | W1 |
-| succinct-state-proofs | Constant-size proofs of chain state for light clients, beyond today's SPV | `crates/stateless-core`, `crates/light-client` | research and an ADR before code | L | W4 |
+| succinct-state-proofs | Phone-sized proofs that a Maya2C state or epoch hand-off is final. Phase 0 (M0) is built as a native finality light client in `crates/light-client` (ADR-089): quorum checkpoints and committee handoffs, no proof system. Later phases: phone benchmarks, an off-chain epoch-chain proof, then a committee commitment that needs consensus review | `crates/light-client/src/finality.rs`, `crates/zk-stark`, research note `docs/research/succinct-light-client-2026-11-10.md` | phase 0 built; phases 1-2 none; phase 3 consensus ADR and activation height | M | W3 |
 
 Status of the two rows above: **testnet-kit** and **node-in-a-box** are
 stubs (tool code in `xtask/src/kit.rs` and `xtask/src/node_box/`, unit-tested,

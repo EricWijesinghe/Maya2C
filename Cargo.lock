@@ -6400,6 +6400,7 @@ name = "maya-light-client"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "criterion",
  "custom-l1-node",
  "hex",
  "primitive-types",

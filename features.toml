@@ -2185,6 +2185,16 @@ status = "verified"
 tests = ["crates/light-client/tests/spv_tests.rs", "crates/light-client/tests/stateless_memory.rs", "crates/node/tests/consensus_tests.rs"]
 
 [[subsystem]]
+id = "finality-light-client"
+name = "Finality light client (DAG-BFT checkpoints, committee handoffs)"
+domain = "Kernel, networking and transport"
+paths = "`crates/light-client/src/finality.rs`, `crates/light-client/src/record.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/light-client/tests/finality_tests.rs"]
+
+[[subsystem]]
 id = "network-simulation-harness"
 name = "Network simulation harness"
 domain = "Kernel, networking and transport"
