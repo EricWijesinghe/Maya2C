@@ -31,6 +31,18 @@ use crate::{EntropyError, EntropySource};
 /// windows of 512.
 pub const STARTUP_SAMPLES: usize = 4_096;
 
+/// Start-up attempts before key generation is refused: one retry, on fresh
+/// samples and a fresh monitor.
+///
+/// A healthy H = 8 source fails one 4,096-sample start-up with probability
+/// 2.53 × 10⁻⁴, about 1 in 3,956 (exact, computed from the cutoffs in
+/// [`crate::health`]: repetition count, cutoff 4, about 1 in 4,116; adaptive
+/// proportion, cutoff 13, 1.22 × 10⁻⁶ per window × 8 windows, about 1 in
+/// 102,303). The integer cutoffs put the repetition count's real rate at
+/// 2⁻²⁴ per sample, below the α = 2⁻²⁰ bound. Two independent failures:
+/// about 6.4 × 10⁻⁸, 1 in 15.7 million. A stuck or biased source fails both.
+pub const STARTUP_ATTEMPTS: u32 = 2;
+
 /// Why key generation refused to proceed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum KeygenEntropyError {
@@ -48,10 +60,13 @@ pub enum KeygenEntropyError {
 /// A source's health, for a status line. Never contains a sample value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct HealthStatus {
-    /// Samples run through the health tests, start-up included.
+    /// Samples run through the live monitor, start-up included (a failed
+    /// start-up attempt's samples are not counted).
     pub samples_tested: u64,
     /// Whether the start-up test passed.
     pub startup_passed: bool,
+    /// Start-up attempts made, at most [`STARTUP_ATTEMPTS`].
+    pub startup_attempts: u32,
     /// Requests refused because of a health failure.
     pub failures: u64,
     /// The latched failure, if any.
@@ -87,29 +102,50 @@ impl KeygenEntropy<OsSource> {
 
 impl<S: EntropySource> KeygenEntropy<S> {
     /// Wraps `source` and runs the start-up test on [`STARTUP_SAMPLES`] of
-    /// its output, which are then zeroized and dropped.
+    /// its output, which are then zeroized and dropped. A failed attempt is
+    /// retried once on fresh samples ([`STARTUP_ATTEMPTS`]).
     ///
     /// # Errors
     ///
-    /// [`KeygenEntropyError::Startup`] or [`KeygenEntropyError::Source`].
+    /// [`KeygenEntropyError::Startup`] with the last attempt's failure, or
+    /// [`KeygenEntropyError::Source`] (not retried).
     pub fn new(mut source: S) -> Result<Self, KeygenEntropyError> {
-        let mut monitor = HealthMonitor::new(source.min_entropy_millibits());
         let mut startup = Zeroizing::new(vec![0u8; STARTUP_SAMPLES]);
-        source.fill(&mut startup)?;
-        monitor
-            .check(&startup)
-            .map_err(KeygenEntropyError::Startup)?;
-        let status = HealthStatus {
-            samples_tested: monitor.samples(),
-            startup_passed: true,
-            failures: 0,
-            last_failure: None,
-        };
-        Ok(Self {
-            source,
-            monitor,
-            status,
-        })
+        let mut attempt = 1;
+        loop {
+            let mut monitor = HealthMonitor::new(source.min_entropy_millibits());
+            source.fill(&mut startup)?;
+            let checked = monitor.check(&startup);
+            // `[u8]::zeroize`, not `Vec::zeroize`: the latter also truncates.
+            startup.as_mut_slice().zeroize();
+            match checked {
+                Ok(()) => {
+                    let status = HealthStatus {
+                        samples_tested: monitor.samples(),
+                        startup_passed: true,
+                        startup_attempts: attempt,
+                        failures: 0,
+                        last_failure: None,
+                    };
+                    return Ok(Self {
+                        source,
+                        monitor,
+                        status,
+                    });
+                }
+                Err(failure) if attempt < STARTUP_ATTEMPTS => {
+                    // The failure's Display carries counts and cutoffs only.
+                    tracing::warn!(
+                        attempt,
+                        max = STARTUP_ATTEMPTS,
+                        %failure,
+                        "entropy start-up test failed; retrying on fresh samples"
+                    );
+                    attempt += 1;
+                }
+                Err(failure) => return Err(KeygenEntropyError::Startup(failure)),
+            }
+        }
     }
 
     /// Fills `out` with source bytes that passed the continuous tests.
@@ -163,6 +199,8 @@ mod tests {
     use super::*;
     use crate::SourceClass;
     use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A scripted source: a deterministic stream, so a pass or a fail is the
     /// same on every run (an OS draw trips the RCT at α = 2⁻²⁰ per sample).
@@ -213,9 +251,80 @@ mod tests {
         }
     }
 
+    /// Counts `fill` calls, observable after the source moves into `new`.
+    struct Counted {
+        inner: Scripted,
+        fills: Arc<AtomicUsize>,
+    }
+
+    impl EntropySource for Counted {
+        fn name(&self) -> &'static str {
+            "counted"
+        }
+        fn class(&self) -> SourceClass {
+            SourceClass::Real
+        }
+        fn min_entropy_millibits(&self) -> u32 {
+            self.inner.millibits
+        }
+        fn fill(&mut self, out: &mut [u8]) -> Result<(), EntropyError> {
+            self.fills.fetch_add(1, Ordering::SeqCst);
+            self.inner.fill(out)
+        }
+    }
+
+    fn counted(stream: Vec<u8>) -> (Counted, Arc<AtomicUsize>) {
+        let fills = Arc::new(AtomicUsize::new(0));
+        let source = Counted {
+            inner: Scripted::new(stream, 8_000),
+            fills: Arc::clone(&fills),
+        };
+        (source, fills)
+    }
+
+    #[test]
+    fn a_transient_startup_failure_then_a_good_source_succeeds() {
+        let mut stream = vec![0u8; STARTUP_SAMPLES];
+        stream.extend(Scripted::good(STARTUP_SAMPLES + 32).stream);
+        let (source, fills) = counted(stream);
+        let mut entropy = KeygenEntropy::new(source).expect("retry passes");
+        let status = entropy.status();
+        assert!(status.startup_passed);
+        assert_eq!(status.startup_attempts, 2);
+        assert_eq!(status.samples_tested, STARTUP_SAMPLES as u64);
+        assert_eq!(fills.load(Ordering::SeqCst), 2);
+        entropy.seed::<32>().expect("seed after retry");
+    }
+
+    #[test]
+    fn a_stuck_source_fails_after_two_startup_attempts() {
+        let (source, fills) = counted(vec![0u8; 3 * STARTUP_SAMPLES]);
+        assert_eq!(
+            KeygenEntropy::new(source).err(),
+            Some(KeygenEntropyError::Startup(
+                HealthFailure::RepetitionCount { cutoff: 4 }
+            ))
+        );
+        assert_eq!(fills.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn startup_never_makes_more_than_two_attempts() {
+        // A third attempt would pass; it must never be made.
+        let mut stream = vec![0u8; 2 * STARTUP_SAMPLES];
+        stream.extend(Scripted::good(STARTUP_SAMPLES).stream);
+        let (source, fills) = counted(stream);
+        assert!(matches!(
+            KeygenEntropy::new(source),
+            Err(KeygenEntropyError::Startup(_))
+        ));
+        assert_eq!(fills.load(Ordering::SeqCst), 2);
+        assert_eq!(STARTUP_ATTEMPTS, 2);
+    }
+
     #[test]
     fn a_stuck_all_zero_source_fails_the_startup_repetition_test() {
-        let stuck = Scripted::new(vec![0u8; STARTUP_SAMPLES], 8_000);
+        let stuck = Scripted::new(vec![0u8; 2 * STARTUP_SAMPLES], 8_000);
         assert_eq!(
             KeygenEntropy::new(stuck).err(),
             Some(KeygenEntropyError::Startup(
@@ -228,7 +337,7 @@ mod tests {
     fn a_biased_source_fails_the_startup_adaptive_proportion_test() {
         // 0x55 in every other position, a counter elsewhere: no run longer
         // than one, but half of every 512-sample window is one value.
-        let biased = (0..STARTUP_SAMPLES)
+        let biased = (0..2 * STARTUP_SAMPLES)
             .map(|i| {
                 if i % 2 == 0 {
                     0x55
@@ -313,14 +422,9 @@ mod tests {
 
     #[test]
     fn the_os_source_starts_up() {
-        // At H = 8 the start-up draw trips the RCT with probability about
-        // 4,096 · 2⁻²⁴ = 2⁻¹² — fail-safe, and why a second try is allowed
-        // here. A broken OS generator fails both.
-        let first = KeygenEntropy::os();
-        let entropy = match first {
-            Ok(e) => e,
-            Err(_) => KeygenEntropy::os().expect("two start-up failures"),
-        };
+        // `new` retries once itself; both attempts fail on a healthy source
+        // about 1 in 15.7 million runs (see `STARTUP_ATTEMPTS`).
+        let entropy = KeygenEntropy::os().expect("two start-up failures");
         assert!(entropy.status().startup_passed);
     }
 }
