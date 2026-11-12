@@ -292,7 +292,7 @@ mod tests {
             .and_then(Json::as_array)
             .unwrap()
             .len();
-        assert!(pairs >= 26, "the spec lists 26 pairs per theme, found {pairs}");
+        assert!(pairs >= 27, "the spec lists 27 pairs per theme, found {pairs}");
         assert_eq!(measured.len(), pairs * THEMES.len());
         for m in &measured {
             println!(
