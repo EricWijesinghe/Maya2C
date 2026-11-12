@@ -60,7 +60,10 @@ async fn reads_every_field_when_the_node_serves_them() {
     let s = obs.supply.expect("supply requested");
     assert_eq!(s.total, U256::from(10u64).pow(U256::from(21u64)));
     assert_eq!(s.burned, U256::from(10u64).pow(U256::from(20u64)));
-    assert_eq!(s.unissued, U256::from(2u64) * U256::from(10u64).pow(U256::from(20u64)));
+    assert_eq!(
+        s.unissued,
+        U256::from(2u64) * U256::from(10u64).pow(U256::from(20u64))
+    );
     assert!(s.adds_up());
 }
 

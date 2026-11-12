@@ -138,7 +138,10 @@ fn the_mining_reserve_is_its_own_bucket_in_the_sum() {
         unissued: U256::from(10),
     });
     let f = d.evaluate(0, &[up("a", a)]);
-    assert!(!keys(&f).iter().any(|k| k.starts_with("supply-mismatch")), "{f:?}");
+    assert!(
+        !keys(&f).iter().any(|k| k.starts_with("supply-mismatch")),
+        "{f:?}"
+    );
 }
 
 #[test]
