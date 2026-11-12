@@ -414,6 +414,29 @@ impl StateDB {
         Ok(out)
     }
 
+    /// The first `limit` key/value pairs under `prefix`, in key order: a scan
+    /// whose work is bounded however many rows the prefix holds (invariant 33).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix_limit(
+        &self,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
+        let mut out = Vec::new();
+        for item in self.db.iterator(mode).take(limit) {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            out.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(out)
+    }
+
     /// Reads every channel record in identifier order.
     ///
     /// # Errors
@@ -916,6 +939,11 @@ impl StateDB {
         // assembling this block must not be able to place a transaction ahead
         // of it. See `crate::state::sealed_exec`.
         self.settle_sealed(&mut overlay, context)?;
+        // After every transaction, sealed reveals included, so a cancel in
+        // the due block wins over the run (ADR-135 P-7, S-7); bounded per
+        // block (invariant 33). Its RUN_FEE reaches the collector before
+        // `settle_fees` and staking, so it joins the tips.
+        self.settle_schedules(&mut overlay, context)?;
 
         self.settle_trading(&mut overlay, context)?;
         // After trading, so a contract or a swap in this block sees the

@@ -115,6 +115,9 @@ pub enum Module {
     /// Vault configuration, requests and execution (ADR-030). A cancel belongs
     /// to no module — see [`Module::of`].
     Vault,
+    /// Scheduled payments: create, cancel, and the end-of-block step, which a
+    /// tripped breaker skips (ADR-135 P-7).
+    Scheduled,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -133,6 +136,7 @@ pub const MODULES: &[Module] = &[
     Module::ThreatIntel,
     Module::Iot,
     Module::Vault,
+    Module::Scheduled,
 ];
 
 impl Module {
@@ -153,6 +157,7 @@ impl Module {
             Self::ThreatIntel => 10,
             Self::Iot => 11,
             Self::Vault => 12,
+            Self::Scheduled => 13,
         }
     }
 
@@ -173,6 +178,7 @@ impl Module {
             10 => Some(Self::ThreatIntel),
             11 => Some(Self::Iot),
             12 => Some(Self::Vault),
+            13 => Some(Self::Scheduled),
             _ => None,
         }
     }
@@ -194,6 +200,7 @@ impl Module {
             Self::ThreatIntel => "threat intel",
             Self::Iot => "iot anchor",
             Self::Vault => "vault",
+            Self::Scheduled => "scheduled payments",
         }
     }
 
@@ -229,6 +236,11 @@ impl Module {
             // ADR-135: a mint bug and a pool bug both need trading stopped,
             // so capped-asset forms share the DEX breaker.
             | TxKind::AssetMint(_) => Some(Self::Dex),
+
+            // ADR-135 P-7: its own breaker, which also skips the end-of-block
+            // step. A cancel is halted too: nothing is lost while it waits,
+            // the escrow stays prepaid, and a cancel bug needs stopping.
+            TxKind::Schedule(_) => Some(Self::Scheduled),
 
             TxKind::Shielded(_) => Some(Self::Shielded),
 

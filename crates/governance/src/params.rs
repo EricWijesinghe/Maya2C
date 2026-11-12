@@ -98,6 +98,11 @@ pub enum ParameterKey {
     /// before that height, so a pre-v4 binary and a v4 binary agree on every
     /// pre-activation block.
     AssetRegistrationFee,
+    /// Native units each scheduled-payment run pays `FEE_COLLECTOR`, prepaid
+    /// with the schedule's escrow (ADR-135 P-7, `RUN_FEE`): it joins the tips.
+    /// Zero at activation, raisable (Eric, O-6). Refused in a proposal before
+    /// bit 46 activates.
+    ScheduleRunFee,
 }
 
 /// Every key, in tag order.
@@ -116,6 +121,7 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::GovernanceProposalDeposit,
     ParameterKey::DefaultSignatureSuite,
     ParameterKey::AssetRegistrationFee,
+    ParameterKey::ScheduleRunFee,
 ];
 
 /// The permitted range and starting value of one parameter.
@@ -153,6 +159,7 @@ impl ParameterKey {
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
             Self::AssetRegistrationFee => 11,
+            Self::ScheduleRunFee => 12,
         }
     }
 
@@ -182,6 +189,7 @@ impl ParameterKey {
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
             11 => Ok(Self::AssetRegistrationFee),
+            12 => Ok(Self::ScheduleRunFee),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -292,6 +300,14 @@ impl ParameterKey {
                 max: SURCHARGE_CEILING,
                 default: Amount::from_u64(0),
             },
+            // Eric O-6: zero at activation, governed and raisable. The
+            // ceiling keeps `amount + RUN_FEE` one `checked_add` from the top
+            // of U256; the 2^249 creation bound refuses it before that.
+            Self::ScheduleRunFee => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(0),
+            },
         }
     }
 
@@ -310,6 +326,7 @@ impl ParameterKey {
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
             Self::AssetRegistrationFee => "asset.registration_fee",
+            Self::ScheduleRunFee => "schedule.run_fee",
         }
     }
 
@@ -387,7 +404,7 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 10);
+        assert_eq!(count, 12);
     }
 
     #[test]
@@ -395,7 +412,7 @@ mod tests {
         // A node that skipped an unknown key would execute a proposal it did
         // not understand and then build on a state every upgraded node
         // disagrees with. Refusing turns a silent fork into a stopped node.
-        for tag in [0u16, 11, 999, u16::MAX] {
+        for tag in [0u16, 13, 999, u16::MAX] {
             assert_eq!(
                 ParameterKey::from_tag(tag),
                 Err(GovernanceError::UnknownParameter { tag })

@@ -29,7 +29,7 @@ use crate::state::context::{
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
     ZKML_ACTIVATION_HEIGHT,
 };
-use crate::state::upgrades::ASSET_MINT_ACTIVATION_HEIGHT;
+use crate::state::upgrades::{ASSET_MINT_ACTIVATION_HEIGHT, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT};
 
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
@@ -60,8 +60,11 @@ impl FeatureSet {
     /// Capped-asset mint and burn, tags 55-58 (ADR-135 P-1). Bits 8-40 are
     /// claimed by other open ADRs (`adr-claims.txt`), not defined here.
     pub const ASSET_MINT: u64 = 1 << 41;
+    /// Scheduled payments, tags 67-68 and the end-of-block step (ADR-135 P-7).
+    /// Bits 42-45 are ADR-135's other features, defined on their own branches.
+    pub const SCHEDULED_PAYMENTS: u64 = 1 << 46;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT | Self::SCHEDULED_PAYMENTS;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -101,6 +104,8 @@ pub struct FeatureActivations {
     pub rwa_strict: u64,
     /// Capped-asset mint and burn (bit 41).
     pub asset_mint: u64,
+    /// Scheduled payments (bit 46).
+    pub scheduled: u64,
 }
 
 impl Default for FeatureActivations {
@@ -116,6 +121,7 @@ impl Default for FeatureActivations {
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             asset_mint: ASSET_MINT_ACTIVATION_HEIGHT,
+            scheduled: SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -226,6 +232,7 @@ impl UpgradeSchedule {
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
             asset_mint: at(FeatureSet::ASSET_MINT, never.asset_mint),
+            scheduled: at(FeatureSet::SCHEDULED_PAYMENTS, never.scheduled),
         }
     }
 
@@ -364,6 +371,19 @@ mod tests {
         // The neighbours of bit 41 are other ADRs' claims, not features here.
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 40)]).is_err());
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 42)]).is_err());
+    }
+
+    #[test]
+    fn scheduled_payments_are_dark_until_an_entry_names_bit_46() {
+        assert_eq!(FeatureActivations::default().scheduled, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 66, FeatureSet::SCHEDULED_PAYMENTS)]).unwrap();
+        assert_eq!(s.features().scheduled, 66);
+        assert_eq!(
+            s.features().asset_mint,
+            u64::MAX,
+            "bit 46 switches on nothing else"
+        );
+        assert!(UpgradeSchedule::new(vec![with(2, 66, 1 << 47)]).is_err());
     }
 
     #[test]

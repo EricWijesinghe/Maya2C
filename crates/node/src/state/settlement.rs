@@ -165,6 +165,9 @@ impl StateDB {
             TxKind::AssetMint(action) => {
                 self.apply_asset_mint(overlay, &sender, nonce, action, context)
             }
+            TxKind::Schedule(action) => {
+                self.apply_schedule(overlay, &sender, nonce, action, context)
+            }
             TxKind::TransferAsset(transfer) => self.transfer_asset(overlay, &sender, transfer),
             TxKind::CreatePool(creation) => self.create_pool(overlay, &sender, creation),
             TxKind::AddLiquidity(deposit) => self.add_liquidity(overlay, &sender, deposit),

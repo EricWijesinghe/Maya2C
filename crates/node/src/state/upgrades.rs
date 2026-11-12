@@ -46,6 +46,12 @@ pub const COUNCIL_SUNSET_LEAD_BLOCKS: u64 =
 /// height, never a cargo feature).
 pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
+/// First height at which scheduled payments execute
+/// (`FeatureSet::SCHEDULED_PAYMENTS`, bit 46, ADR-135 P-7: tags 67-68 and the
+/// end-of-block step) and `ScheduleRunFee` is accepted. Never, unless a
+/// schedule entry names the bit (ADR-002).
+pub const SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 /// Prefix of every upgrade-schedule record. A committed layer
 /// (`StateLayer::UpgradeSchedule`), so it is under the state root (invariant 25).
 pub const UPGRADE_PREFIX: &[u8] = b"up:";
