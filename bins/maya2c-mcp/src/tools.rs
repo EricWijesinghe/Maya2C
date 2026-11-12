@@ -25,7 +25,7 @@ const MAX_COIN_TEXT: usize = 80;
 const ID_HEX_LEN: usize = 64;
 
 pub fn list() -> Value {
-    json!([
+    let mut tools = json!([
         {"name": "get_height", "description": "Current chain height, chain id and genesis (the chain tag every signature commits to).",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "get_block", "description": "A block by height: header, transaction count and transaction ids.",
@@ -52,7 +52,12 @@ pub fn list() -> Value {
          "inputSchema": {"type": "object", "properties": {"claimed": {"type": "array"}, "simulated": {"type": "array"}}, "required": ["claimed", "simulated"]}},
         {"name": "explain_error", "description": "Explain a node error kind (e.g. InvalidNonce) in plain language, with the spec rule it comes from.",
          "inputSchema": {"type": "object", "properties": {"kind": {"type": "string"}}, "required": ["kind"]}}
-    ])
+    ]);
+    // Agent tools (ADR-130) live in their own crate; they need no node.
+    if let Some(list) = tools.as_array_mut() {
+        list.extend(maya_agent_registry::mcp::tools());
+    }
+    tools
 }
 
 /// Runs one tool. The error string is shown to the assistant as the tool's text.
@@ -69,7 +74,8 @@ pub fn call(node: &mut Node, name: &str, args: &Value) -> Result<Value, String> 
         "decode_transaction" => decode(text_arg(args, "hex")?),
         "review_intent" => review_intent(args),
         "explain_error" => explain(text_arg(args, "kind")?),
-        other => Err(format!("unknown tool {other}")),
+        other => maya_agent_registry::mcp::call(other, args)
+            .unwrap_or_else(|| Err(format!("unknown tool {other}"))),
     }
 }
 

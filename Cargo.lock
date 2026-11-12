@@ -5916,6 +5916,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-agent-registry"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "blake3",
+ "hex",
+ "http-body-util",
+ "maya-crypto-pq",
+ "primitive-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "maya-amount"
 version = "0.1.0"
 dependencies = [
@@ -6983,6 +7002,7 @@ dependencies = [
  "custom-l1-node",
  "hex",
  "maya-address",
+ "maya-agent-registry",
  "maya-amount",
  "maya-clear-sign",
  "primitive-types",

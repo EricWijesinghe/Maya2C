@@ -130,6 +130,7 @@ members = [
     # REST and GraphQL gateway. Talks to a node over JSON-RPC rather than
     # opening the state database, so it deploys separately and keeps RocksDB's
     # C++ out of the process terminating untrusted HTTP.
+    "crates/agent-registry",
     "crates/api-gateway",
     # uniffi bindings over the hybrid signing primitives. A member so it cannot
     # rot; note that it links `custom-l1-node` for `HybridSigningKey` and so
