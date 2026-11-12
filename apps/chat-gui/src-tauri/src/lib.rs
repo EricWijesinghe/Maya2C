@@ -279,6 +279,10 @@ async fn send(app: State<'_, Arc<App>>, peer: String, text: String) -> Result<Li
     if text.contains('\0') {
         return Err("a message cannot contain a NUL character".into());
     }
+    // `:shortcode:` becomes `:<id>:`, the name every app reads the same way,
+    // and a custom emoji pack goes to this peer before its first use.
+    let (text, used) = maya_chat::emoji::expand_codes(&text, &s.profile.packs);
+    sticker_cmds::share_emoji(&app, s, &hex::encode(to), used).await;
     let at = now();
     let timer = expiry::timer_of(&s.profile, &hex::encode(to));
     // Untimed text stays unframed, so older apps still read it.
@@ -340,6 +344,9 @@ async fn react(app: State<'_, Arc<App>>, peer: String, target: String, emoji: St
     let peer = hex::encode(address(&peer)?);
     frame::check_emoji(&emoji)?;
     store::find(&s.profile.history, &peer, &target).ok_or("that message is not in this chat")?;
+    if on && let Some(pack) = maya_chat::emoji::pack_of(&emoji, &s.profile.packs) {
+        sticker_cmds::share_emoji(&app, s, &peer, std::collections::BTreeSet::from([pack])).await;
+    }
     let at = now();
     let content = Content::Reaction { target: target.clone(), emoji: emoji.clone(), on, at };
     sticker_cmds::deliver(&app, s, &peer, &frame::encode(&content, &[])?, at).await?;

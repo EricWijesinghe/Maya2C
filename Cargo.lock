@@ -6017,6 +6017,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305 0.10.1",
  "ciborium",
+ "flate2",
  "futures",
  "getrandom 0.4.3",
  "hex",

@@ -10,7 +10,7 @@ description = "Fetches a window of Sentinel-2 L2A red/NIR pixels from public COG
 # A developer tool that writes fixtures; nothing links it.
 [dependencies]
 anyhow = "1"
-flate2 = "1"
+flate2.workspace = true
 reqwest = { workspace = true, features = ["blocking", "json", "rustls-tls-native-roots"] }
 serde_json.workspace = true
 

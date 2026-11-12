@@ -21,6 +21,9 @@ maya-crypto-pq = { path = "../../crates/crypto-pq" }
 blake3.workspace = true
 chacha20poly1305.workspace = true
 ciborium = "0.2"
+# Telegram `.tgs` stickers are gzipped Lottie; inflated through a bounded
+# reader (src/media.rs). Already in the tree for eo-fetch.
+flate2.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 hex.workspace = true

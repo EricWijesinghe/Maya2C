@@ -2870,6 +2870,18 @@ gate = "cargo test -p maya-chat --test timer_tests; cargo test --lib in apps/cha
 note = "ADR-140 section 5, build PR 2 (CI-first: not compiled locally when written, so stub). A Timer { secs } frame either side may send sets the chat's timer for later messages (off, 30 s, 5 min, 1 h, 1 day, 7 days, 90 days; any other value refused); each timed message carries its own timer as a `t` header field, and timed text travels as a Text frame. The sender counts from sending, the receiver from first display; deadlines are stored, so a restart deletes on time, and the clock is the latest of wall clock, monotonic clock and a stored floor, so a clock set back never extends a life. The sweep removes the line with its reactions, the quote link of replies to it, and any sticker file only it used, and zeroizes the text. The envelope's relay expiry is capped at the timer. Off by default with one suggestion in the third chat (ADR-140 Q2 option a, unanswered). Honest-client only: the UI says a modified app, screenshot or camera can keep a copy, and warns the sender until the peer's app has shown it reads timers. View-once is not built."
 
 [[subsystem]]
+id = "chat-custom-emoji"
+name = "Maya2C Chat custom emoji packs and per-format sticker caps"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/media.rs`, `apps/chat/src/emoji.rs`, `apps/chat/src/frame.rs`, `apps/chat-gui/src-tauri/src/stickers.rs`, `apps/chat-gui/src-tauri/src/sticker_cmds.rs`, `apps/chat-gui/src-tauri/src/lib.rs`, `apps/chat-gui/ui/stickers.js`, `apps/chat-gui/ui/app.js`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["apps/chat/tests/sticker_caps_tests.rs", "apps/chat/tests/custom_emoji_tests.rs"]
+gate = "cargo test -p maya-chat --test sticker_caps_tests --test custom_emoji_tests"
+note = "ADR-140 section 2, build PR 3 (CI-first: not compiled locally when written, so stub). check_file now applies per-format caps read from the bytes (never a file name): Lottie JSON and TGS at most 64 KB, 3 s and 60 fps; TGS inflated through a reader that stops past 1 MiB (chosen bound), trailing bytes refused; Lottie nesting at most 64 (chosen bound), counted before parsing; WebM at most 120 KB, 3 s, 90 frames and 30 fps, one video track, no audio track, no laced video; every raster or animation at most 512 px a side. A refusal names the cap. Custom emoji: a pack with kind = emoji, 1 to 24 items (bounded by the 4 KB frame header), each at most 100 px a side with a shortcode; its manifest is signed with the hybrid ML-DSA-65 + SLH-DSA-128s suite under a key derived from the author's chat identity seed, sent as an EmojiPack frame before the items, and the receiving app takes no item of an emoji pack whose manifest it has not verified. Text carries :<64-hex id>:, typed as :shortcode:; reactions use the same id; an id with no installed pack draws a fallback glyph. A pack goes to a peer once, on first use in that chat, inside the E2E path; nothing is fetched remotely. Moving stickers pause under prefers-reduced-motion (first frame) and while the window is unfocused. Not built: incognito-only starter pack (threat model T7)."
+
+[[subsystem]]
 id = "mining-rewards-lane"
 name = "Mining rewards lane (DAG-PoW shares paid from a genesis reserve)"
 domain = "Consensus and execution"

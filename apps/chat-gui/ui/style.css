@@ -307,7 +307,11 @@ input:focus { border-color: rgb(31 181 194 / 0.6); }
 
 /* ---- stickers ---------------------------------------------------------- */
 .sticker { display: grid; place-items: center; }
-.sticker img, .sticker video, .sticker svg { width: 100%; height: 100%; object-fit: contain; }
+.sticker img, .sticker video, .sticker svg, .sticker canvas { width: 100%; height: 100%; object-fit: contain; }
+.sticker [hidden] { display: none; }
+/* Custom emoji sit on the text line, at the text's size. */
+.emoji-inline { display: inline-grid; vertical-align: -0.25em; width: 1.4em !important; height: 1.4em !important; }
+.emoji-fallback { display: inline-block; min-width: 1em; text-align: center; opacity: 0.7; }
 /* A sticker line has no bubble, like Telegram: the sticker is the message. */
 .lines li.is-sticker.mine, .lines li.is-sticker.theirs { background: none; border: none; box-shadow: none; padding: 0.2rem 0; }
 .sticker-line { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; }
