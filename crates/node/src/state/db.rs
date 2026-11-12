@@ -402,9 +402,25 @@ impl StateDB {
     ///
     /// Returns [`NodeError::Storage`] on an iteration failure.
     pub(crate) fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.scan_prefix_limit(prefix, usize::MAX)
+    }
+
+    /// The first `limit` key/value pairs under `prefix`, in key order: a scan
+    /// whose work is bounded however many rows the prefix holds (invariant 33).
+    /// One copy for every bounded end-of-block pass (ADR-135: the name-commit
+    /// prune and the scheduled-payment step), so they cannot drift.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix_limit(
+        &self,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
         let mut out = Vec::new();
-        for item in self.db.iterator(mode) {
+        for item in self.db.iterator(mode).take(limit) {
             let (key, value) = item.map_err(storage_err)?;
             if !key.starts_with(prefix) {
                 break;

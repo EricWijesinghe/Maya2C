@@ -173,7 +173,10 @@ fn a_mint_at_exactly_the_cap_is_applied_and_one_over_is_refused() {
     assert_eq!(balance(&s.f, &s.asset, &s.issuer), U256::from(1_000));
 
     let one = signed(mint(s.asset, s.issuer, U256::one()), 2, &s.key);
-    assert!(apply(&s.f, vec![one], V4 + 2).is_err(), "nothing past the cap");
+    assert!(
+        apply(&s.f, vec![one], V4 + 2).is_err(),
+        "nothing past the cap"
+    );
 }
 
 // 3 (T-3)
@@ -258,9 +261,16 @@ fn a_multisig_member_below_threshold_cannot_mint_as_the_authority() {
     let g = fixture(&[member_key.address(), account]);
     let reg = frame(register(0, U256::from(50), account), 0, &[0, 1]);
     apply(&g, vec![reg], V4).expect("register");
-    let own = signed(mint(asset, member_key.address(), U256::from(7)), 0, &member_key);
+    let own = signed(
+        mint(asset, member_key.address(), U256::from(7)),
+        0,
+        &member_key,
+    );
     let err = apply(&g, vec![own], V4 + 1).unwrap_err();
-    assert!(refusal(&err).contains("not the asset's mint authority"), "{err}");
+    assert!(
+        refusal(&err).contains("not the asset's mint authority"),
+        "{err}"
+    );
 
     // The quorum itself can.
     let quorum = frame(mint(asset, account, U256::from(7)), 1, &[1, 2]);
@@ -293,9 +303,16 @@ fn a_zero_amount_mint_is_refused_and_leaves_the_v1_record_untouched() {
     // A v1 asset has no authority, so a real mint is refused too.
     let one = signed(mint(asset, key.address(), U256::one()), 1, &key);
     assert!(refusal(&apply(&f, vec![one], V4 + 1).unwrap_err()).contains("no mint authority"));
-    assert_eq!(f.db.state_root().unwrap(), root, "the v1 record was not rewritten");
+    assert_eq!(
+        f.db.state_root().unwrap(),
+        root,
+        "the v1 record was not rewritten"
+    );
     let lifted = record(&f, &asset);
-    assert_eq!((lifted.cap, lifted.authority), (U256::from(40), NO_AUTHORITY));
+    assert_eq!(
+        (lifted.cap, lifted.authority),
+        (U256::from(40), NO_AUTHORITY)
+    );
 }
 
 // 6 (T-6)
@@ -373,8 +390,11 @@ fn a_mint_one_block_before_v4_activation_is_refused_and_at_it_is_applied() {
     );
     // The compiled default is never.
     assert!(matches!(
-        f.db.apply_block(&block_of(vec![reg()]), BlockContext::at_height(u64::MAX - 1))
-            .unwrap_err(),
+        f.db.apply_block(
+            &block_of(vec![reg()]),
+            BlockContext::at_height(u64::MAX - 1)
+        )
+        .unwrap_err(),
         NodeError::AssetMintInactive { .. }
     ));
     apply(&f, vec![reg()], V4).expect("at activation");

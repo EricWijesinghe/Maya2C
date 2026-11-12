@@ -125,8 +125,14 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Iot,
     StateLayer::Staking,
     StateLayer::Vault,
-    StateLayer::UpgradeSchedule,
+    // The order `state_layers` pushes them (`RECORD_LAYERS`, then the pool,
+    // contracts and nullifiers): a proof checks against this list, so a
+    // mismatch fails every account proof once `sl:` and `up:` both hold rows.
+    // Swapping these two moves no root a genesis can seed: none seeds `sl:`.
+    // New record layers go here, after `Vault`, in the ADR-135 allocation
+    // order (#447's account authority, then NFT, names, scheduled payments).
     StateLayer::Stateless,
+    StateLayer::UpgradeSchedule,
     StateLayer::Shielded,
     StateLayer::Contracts,
     StateLayer::Nullifiers,
