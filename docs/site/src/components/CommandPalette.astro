@@ -1,0 +1,259 @@
+---
+// ⌘K / Ctrl+K command palette, mounted as Starlight's `Search` override
+// (astro.config.mjs components.Search), so it replaces the stock search button
+// in every page's header. It queries the same Pagefind index Starlight builds
+// into /pagefind/, loaded on first open. A native modal <dialog> gives the
+// focus trap and Escape; the input is an ARIA 1.2 combobox driving a listbox
+// through aria-activedescendant, so focus never leaves the input.
+const quick = [
+  { title: "Quickstart", url: "/guides/quickstart/", hint: "Guide" },
+  { title: "API reference", url: "/guides/api/", hint: "Guide" },
+  { title: "Run a node", url: "/guides/help-run/", hint: "Guide" },
+  { title: "Design system", url: "/design-system/", hint: "Reference" },
+  { title: "Explorer", url: "https://explorer.maya2c.dev/", hint: "Service" },
+  { title: "Network status", url: "https://status.maya2c.dev/", hint: "Service" },
+];
+---
+
+<maya-palette data-quick={JSON.stringify(quick)}>
+  <button type="button" class="cmdk-trigger" data-palette-open aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span class="cmdk-trigger__label">Search docs</span>
+    <kbd class="cmdk-trigger__kbd"><span data-mod>Ctrl</span> K</kbd>
+  </button>
+  <dialog class="cmdk" aria-label="Search the documentation">
+    <div class="cmdk__bar">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input
+        class="cmdk__input"
+        type="text"
+        role="combobox"
+        aria-expanded="true"
+        aria-controls="cmdk-list"
+        aria-autocomplete="list"
+        aria-label="Search pages"
+        placeholder="Search pages…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <kbd class="cmdk__esc">Esc</kbd>
+    </div>
+    <ul class="cmdk__list" id="cmdk-list" role="listbox" aria-label="Results"></ul>
+    <div class="cmdk__foot">
+      <span aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> move</span>
+      <span aria-hidden="true"><kbd>↵</kbd> open</span>
+      <span aria-hidden="true"><kbd>Esc</kbd> close</span>
+      <span class="cmdk__status" role="status" aria-live="polite"></span>
+    </div>
+  </dialog>
+</maya-palette>
+
+<script>
+  type Item = { title: string; url: string; hint: string; excerpt?: string };
+  type PagefindResult = { data: () => Promise<{ url: string; meta: { title?: string }; excerpt: string }> };
+  type Pagefind = { debouncedSearch: (q: string, o?: object, ms?: number) => Promise<{ results: PagefindResult[] } | null> };
+
+  const MAX_RESULTS = 8;
+  const DEBOUNCE_MS = 120;
+
+  /** Pagefind excerpts are HTML with <mark>; keep only text and marks (DOMParser runs no scripts). */
+  function excerptNodes(html: string): Node[] {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return [...doc.body.childNodes].map((n) => {
+      if (n.nodeName === "MARK") {
+        const m = document.createElement("mark");
+        m.textContent = n.textContent;
+        return m;
+      }
+      return document.createTextNode(n.textContent ?? "");
+    });
+  }
+
+  class MayaPalette extends HTMLElement {
+    #dialog = this.querySelector("dialog")!;
+    #input = this.querySelector<HTMLInputElement>(".cmdk__input")!;
+    #list = this.querySelector<HTMLUListElement>(".cmdk__list")!;
+    #status = this.querySelector<HTMLElement>(".cmdk__status")!;
+    #trigger = this.querySelector<HTMLButtonElement>("[data-palette-open]")!;
+    #quick: Item[] = JSON.parse(this.dataset.quick ?? "[]");
+    #items: Item[] = [];
+    #active = 0;
+    #pagefind: Promise<Pagefind | null> | null = null;
+
+    connectedCallback() {
+      if (/(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+        this.querySelector("[data-mod]")!.textContent = "⌘";
+      }
+      this.#trigger.addEventListener("click", () => this.open());
+      this.#dialog.addEventListener("click", (e) => { if (e.target === this.#dialog) this.#dialog.close(); });
+      this.#dialog.addEventListener("close", () => this.#trigger.focus());
+      this.#input.addEventListener("input", () => this.#search(this.#input.value.trim()));
+      this.#input.addEventListener("keydown", (e) => this.#onKey(e));
+      addEventListener("keydown", (e) => {
+        const typing = (e.target as HTMLElement).closest?.("input, textarea, select, [contenteditable=true]");
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+          e.preventDefault();
+          this.#dialog.open ? this.#dialog.close() : this.open();
+        } else if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !this.#dialog.open) {
+          e.preventDefault();
+          this.open();
+        }
+      });
+    }
+
+    open() {
+      this.#dialog.showModal();
+      this.#input.select();
+      this.#search(this.#input.value.trim());
+    }
+
+    #loadPagefind(): Promise<Pagefind | null> {
+      const path = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/pagefind/pagefind.js`;
+      // The index exists only in a built site; `astro dev` has none.
+      this.#pagefind ??= import(/* @vite-ignore */ path).catch(() => null);
+      return this.#pagefind;
+    }
+
+    async #search(query: string) {
+      if (!query) {
+        this.#render(this.#quick, "Go to");
+        return;
+      }
+      const pagefind = await this.#loadPagefind();
+      if (!pagefind) {
+        this.#render([], "Search needs the built site (npm run build).");
+        return;
+      }
+      const found = await pagefind.debouncedSearch(query, {}, DEBOUNCE_MS);
+      if (found === null || query !== this.#input.value.trim()) return; // a newer query superseded this one
+      const data = await Promise.all(found.results.slice(0, MAX_RESULTS).map((r) => r.data()));
+      const items = data.map((d) => ({ title: d.meta.title ?? d.url, url: d.url, hint: "Page", excerpt: d.excerpt }));
+      this.#render(items, items.length ? `${found.results.length} result${found.results.length === 1 ? "" : "s"}` : `No pages match “${query}”.`);
+    }
+
+    #render(items: Item[], status: string) {
+      this.#items = items;
+      this.#active = 0;
+      this.#list.replaceChildren(...items.map((item, i) => {
+        const li = document.createElement("li");
+        li.id = `cmdk-opt-${i}`;
+        li.setAttribute("role", "option");
+        li.className = "cmdk__option";
+        const title = document.createElement("span");
+        title.className = "cmdk__title";
+        title.textContent = item.title;
+        const hint = document.createElement("span");
+        hint.className = "cmdk__hint";
+        hint.textContent = item.hint;
+        li.append(title, hint);
+        if (item.excerpt) {
+          const ex = document.createElement("span");
+          ex.className = "cmdk__excerpt";
+          ex.append(...excerptNodes(item.excerpt));
+          li.append(ex);
+        }
+        li.addEventListener("mousemove", () => this.#select(i));
+        li.addEventListener("click", () => this.#go(i));
+        return li;
+      }));
+      this.#status.textContent = status;
+      this.#select(0);
+    }
+
+    #select(i: number) {
+      if (!this.#items.length) {
+        this.#input.removeAttribute("aria-activedescendant");
+        return;
+      }
+      this.#active = (i + this.#items.length) % this.#items.length;
+      [...this.#list.children].forEach((li, n) => li.setAttribute("aria-selected", String(n === this.#active)));
+      this.#input.setAttribute("aria-activedescendant", `cmdk-opt-${this.#active}`);
+      this.#list.children[this.#active]?.scrollIntoView({ block: "nearest" });
+    }
+
+    #go(i: number) {
+      const item = this.#items[i];
+      if (item) location.href = item.url;
+    }
+
+    #onKey(e: KeyboardEvent) {
+      const moves: Record<string, () => void> = {
+        ArrowDown: () => this.#select(this.#active + 1),
+        ArrowUp: () => this.#select(this.#active - 1),
+        Home: () => this.#select(0),
+        End: () => this.#select(this.#items.length - 1),
+        Enter: () => this.#go(this.#active),
+      };
+      const move = moves[e.key];
+      if (!move || ((e.key === "Home" || e.key === "End") && !e.ctrlKey)) return;
+      e.preventDefault();
+      move();
+    }
+  }
+
+  customElements.define("maya-palette", MayaPalette);
+</script>
+
+<style is:global>
+  /* Global, prefixed: the options are created by the script, so Astro's scoped
+     attribute would never reach them. */
+  maya-palette { display: contents; }
+
+  .cmdk-trigger {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    width: 100%; max-width: 15rem; height: var(--control-h); padding: 0 var(--space-2) 0 var(--space-3);
+    background: var(--surface-1); color: var(--text-2);
+    border: 1px solid var(--border); border-radius: var(--r-md);
+    font: var(--type-body-weight) var(--type-body-sm-size)/1 var(--font-sans);
+    cursor: pointer;
+    transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+  }
+  .cmdk-trigger:hover { border-color: var(--border-strong); color: var(--text); }
+  .cmdk-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cmdk-trigger__label { flex: 1; text-align: start; }
+  maya-palette kbd {
+    font: var(--weight-medium) var(--type-label-size)/1 var(--font-mono);
+    padding: 3px 5px; border: 1px solid var(--border); border-radius: var(--r-xs);
+    background: var(--surface-2); color: var(--text-2);
+  }
+  @media (max-width: 50rem) {
+    .cmdk-trigger { width: var(--control-h); padding: 0; justify-content: center; }
+    .cmdk-trigger__label, .cmdk-trigger__kbd { display: none; }
+  }
+
+  .cmdk {
+    width: min(40rem, calc(100vw - 2 * var(--space-4)));
+    margin: 12vh auto auto; padding: 0;
+    background: var(--glass); color: var(--text);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg), var(--shadow-inset);
+  }
+  .cmdk::backdrop { background: color-mix(in srgb, var(--bg) 60%, transparent); }
+  .cmdk[open] { animation: cmdk-in var(--dur-2) var(--ease); }
+  @keyframes cmdk-in { from { opacity: 0; transform: translateY(-4px); } }
+
+  .cmdk__bar { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4); border-bottom: 1px solid var(--border); color: var(--text-2); }
+  .cmdk__input {
+    flex: 1; height: 48px; border: 0; background: transparent; color: var(--text);
+    font: var(--type-body-lg-weight) var(--type-body-lg-size)/1 var(--font-sans);
+  }
+  .cmdk__input:focus { outline: none; }
+  .cmdk__input::placeholder { color: var(--text-3); }
+
+  .cmdk__list { list-style: none; margin: 0; padding: var(--space-2); max-height: min(60vh, 24rem); overflow-y: auto; }
+  .cmdk__option {
+    display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3);
+    padding: var(--space-2) var(--space-3); border-radius: var(--r-md); cursor: pointer;
+  }
+  .cmdk__option[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
+  .cmdk__title { font: var(--weight-medium) var(--type-body-size)/1.4 var(--font-sans); color: var(--text); }
+  .cmdk__hint { font-size: var(--type-label-size); color: var(--text-2); align-self: center; }
+  .cmdk__excerpt { grid-column: 1 / -1; font-size: var(--type-body-sm-size); color: var(--text-2); line-height: var(--line-body);
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .cmdk__excerpt mark { background: none; color: var(--text); font-weight: var(--weight-semibold); }
+
+  .cmdk__status { margin-left: auto; }
+  .cmdk__foot { display: flex; gap: var(--space-4); padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); font-size: var(--type-label-size); color: var(--text-2); }
+  .cmdk__foot kbd { margin-inline-end: 2px; }
+</style>

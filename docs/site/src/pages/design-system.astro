@@ -1,0 +1,30 @@
+---
+// The component kit (ADR-136, U2): every component in both themes. Dark is the
+// default; the light block is set by data-theme, not by a second stylesheet.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import KitShowcase from "../components/ui/KitShowcase.astro";
+import { selfCheck } from "../lib/ui-kit";
+
+// A broken formatter fails the build here, not on a payment screen.
+selfCheck();
+
+const themes = ["dark", "light"] as const;
+---
+
+<StarlightPage frontmatter={{ title: "Design system", description: "The Maya2C component kit: buttons, inputs, code blocks, data tables, status chips, tabs, toasts, states, money and address displays and the command palette, in dark and light, with WCAG AA contrast." }}>
+  <p>
+    Every component below is built from the tokens in <code>design/tokens.json</code>
+    (generated into <code>tokens.css</code>): neutral surfaces with hairline borders, one teal
+    accent, radii of 4 to 12 px, and 120 to 240 ms motion on one curve. Each theme is shown in
+    full. Every listed text and accent pair is checked against WCAG AA by
+    <code>cargo xtask design-tokens</code> in CI.
+  </p>
+  {/* not-content: Starlight's prose styles colour headings and table cells
+      from the site theme, which would put dark-theme text on the light kit. */}
+  {themes.map((theme) => (
+    <div class="ui-kit not-content" data-theme={theme} lang="en">
+      <h2>{theme === "dark" ? "Dark" : "Light"} theme</h2>
+      <KitShowcase id={`kit-${theme}`} />
+    </div>
+  ))}
+</StarlightPage>
