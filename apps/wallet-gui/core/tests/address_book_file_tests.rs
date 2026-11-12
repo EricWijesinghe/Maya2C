@@ -24,7 +24,9 @@ fn address(i: u16) -> [u8; 32] {
 
 #[test]
 fn a_book_of_150_contacts_round_trips_through_its_file() {
-    let key = Wallet::from_mnemonic(PHRASE, "").unwrap().address_book_key();
+    let key = Wallet::from_mnemonic(PHRASE, "")
+        .unwrap()
+        .address_book_key();
     let mut book = AddressBook::default();
     for i in 0..150u16 {
         book.add(
@@ -46,7 +48,10 @@ fn a_book_of_150_contacts_round_trips_through_its_file() {
         "150 contacts seal to {} bytes; the Windows credential limit is {WINDOWS_CREDENTIAL_BLOB_MAX}",
         raw.len()
     );
-    assert!(raw.len() > WINDOWS_CREDENTIAL_BLOB_MAX, "the file is needed at this size");
+    assert!(
+        raw.len() > WINDOWS_CREDENTIAL_BLOB_MAX,
+        "the file is needed at this size"
+    );
     assert!(!String::from_utf8_lossy(&raw).contains("Contact number"));
     assert_eq!(AddressBook::load_file(&path, &key).unwrap(), book);
 
@@ -59,8 +64,13 @@ fn a_book_of_150_contacts_round_trips_through_its_file() {
 
     // No file yet is an empty book; the wrong key is refused.
     let missing = dir.path().join("none.contacts");
-    assert_eq!(AddressBook::load_file(&missing, &key).unwrap(), AddressBook::default());
-    let other = Wallet::from_mnemonic(PHRASE, "other").unwrap().address_book_key();
+    assert_eq!(
+        AddressBook::load_file(&missing, &key).unwrap(),
+        AddressBook::default()
+    );
+    let other = Wallet::from_mnemonic(PHRASE, "other")
+        .unwrap()
+        .address_book_key();
     assert!(matches!(
         AddressBook::load_file(&path, &other),
         Err(WalletError::Unlock)
@@ -69,7 +79,9 @@ fn a_book_of_150_contacts_round_trips_through_its_file() {
 
 #[test]
 fn an_address_is_stored_compactly_not_as_a_json_number_array() {
-    let key = Wallet::from_mnemonic(PHRASE, "").unwrap().address_book_key();
+    let key = Wallet::from_mnemonic(PHRASE, "")
+        .unwrap()
+        .address_book_key();
     let mut book = AddressBook::default();
     book.add(address(1), Network::Testnet, "A", "", Source::Manual, 0)
         .unwrap();

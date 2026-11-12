@@ -296,7 +296,14 @@ pub async fn scan_qr(png_base64: &str, genesis: &str) -> Result<PaymentRequest, 
         png_base64: &'a str,
         genesis: &'a str,
     }
-    call("scan_qr", &Args { png_base64, genesis }).await
+    call(
+        "scan_qr",
+        &Args {
+            png_base64,
+            genesis,
+        },
+    )
+    .await
 }
 
 /// Parses a pasted address or `maya:` URI.
@@ -368,7 +375,13 @@ pub async fn add_contact(
         scanned: bool,
         genesis: &'a str,
     }
-    let args = Args { address, name, note, scanned, genesis };
+    let args = Args {
+        address,
+        name,
+        note,
+        scanned,
+        genesis,
+    };
     call("add_contact", &args).await
 }
 
@@ -629,7 +642,15 @@ pub async fn receive_request(
         amount: Option<String>,
         genesis: Option<String>,
     }
-    call("receive_request", &Args { index, amount, genesis }).await
+    call(
+        "receive_request",
+        &Args {
+            index,
+            amount,
+            genesis,
+        },
+    )
+    .await
 }
 
 #[wasm_bindgen]

@@ -16,7 +16,9 @@ const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon ab
                       abandon abandon abandon about";
 
 fn key() -> BookKey {
-    Wallet::from_mnemonic(PHRASE, "").unwrap().address_book_key()
+    Wallet::from_mnemonic(PHRASE, "")
+        .unwrap()
+        .address_book_key()
 }
 
 fn book_with(names: &[(&str, u8)]) -> AddressBook {
@@ -37,9 +39,15 @@ fn the_book_is_encrypted_at_rest_and_opens_only_with_its_wallets_key() {
 
     let raw = std::fs::read(&path).unwrap();
     let as_text = String::from_utf8_lossy(&raw);
-    assert!(!as_text.contains("Alice") && !as_text.contains("Bob"), "names in clear");
+    assert!(
+        !as_text.contains("Alice") && !as_text.contains("Bob"),
+        "names in clear"
+    );
     assert!(!raw.windows(32).any(|w| w == [1u8; 32]), "address in clear");
-    assert!(!as_text.contains(&hex::encode([1u8; 32])), "hex address in clear");
+    assert!(
+        !as_text.contains(&hex::encode([1u8; 32])),
+        "hex address in clear"
+    );
 
     assert_eq!(AddressBook::load_file(&path, &key()).unwrap(), book);
 
@@ -99,18 +107,41 @@ fn confusable_and_mixed_alphabet_names_warn_and_invisible_controls_are_removed()
     let mut book = book_with(&[("Paypal", 1)]);
     // Cyrillic "а" in place of Latin "a".
     let check = book
-        .add([2; 32], Network::Testnet, "P\u{0430}ypal", "", Source::Manual, 1)
+        .add(
+            [2; 32],
+            Network::Testnet,
+            "P\u{0430}ypal",
+            "",
+            Source::Manual,
+            1,
+        )
         .unwrap();
-    assert!(check.warnings.iter().any(|w| w.contains("mixes alphabets")), "{check:?}");
-    assert!(check.warnings.iter().any(|w| w.contains("'Paypal'")), "{check:?}");
+    assert!(
+        check.warnings.iter().any(|w| w.contains("mixes alphabets")),
+        "{check:?}"
+    );
+    assert!(
+        check.warnings.iter().any(|w| w.contains("'Paypal'")),
+        "{check:?}"
+    );
     // l and 1 and I read alike.
     let check = book
         .add([3; 32], Network::Testnet, "PaypaI", "", Source::Manual, 1)
         .unwrap();
-    assert!(check.warnings.iter().any(|w| w.contains("'Paypal'")), "{check:?}");
+    assert!(
+        check.warnings.iter().any(|w| w.contains("'Paypal'")),
+        "{check:?}"
+    );
     // A right-to-left override is stripped before the name is stored.
     let check = book
-        .add([4; 32], Network::Testnet, "\u{202E}Carol", "", Source::Manual, 1)
+        .add(
+            [4; 32],
+            Network::Testnet,
+            "\u{202E}Carol",
+            "",
+            Source::Manual,
+            1,
+        )
         .unwrap();
     assert_eq!(check.name, "Carol");
     assert!(check.warnings.is_empty());
@@ -126,7 +157,11 @@ fn a_paste_is_checked_against_the_book_and_the_network() {
     let paid: BTreeSet<[u8; 32]> = [[0x33; 32]].into_iter().collect();
 
     let saved = book
-        .check_paste(&maya_address::encode(Network::Testnet, &alice), Network::Testnet, &paid)
+        .check_paste(
+            &maya_address::encode(Network::Testnet, &alice),
+            Network::Testnet,
+            &paid,
+        )
         .unwrap();
     assert_eq!(saved.contact.as_deref(), Some("Alice"));
     assert!(!saved.new_recipient);
@@ -137,7 +172,10 @@ fn a_paste_is_checked_against_the_book_and_the_network() {
         .check_paste(&hex::encode(poison), Network::Testnet, &paid)
         .unwrap();
     assert_eq!(look.look_alike_of.as_deref(), Some("Alice"));
-    assert!(look.new_recipient, "a look-alike is also new: the interstitial shows");
+    assert!(
+        look.new_recipient,
+        "a look-alike is also new: the interstitial shows"
+    );
 
     let paid_before = book
         .check_paste(&hex::encode([0x33; 32]), Network::Testnet, &paid)
@@ -163,14 +201,38 @@ fn dust_and_never_paid_incoming_transfers_stay_out_of_recent() {
     let paid = [5u8; 32];
     let activity = vec![
         // A poisoner's dust from a look-alike nobody ever paid.
-        Activity { counterparty: [9; 32], amount: U256::from(1), incoming: true },
+        Activity {
+            counterparty: [9; 32],
+            amount: U256::from(1),
+            incoming: true,
+        },
         // A large incoming payment from a stranger: still never paid.
-        Activity { counterparty: [8; 32], amount: U256::from(1_000_000), incoming: true },
+        Activity {
+            counterparty: [8; 32],
+            amount: U256::from(1_000_000),
+            incoming: true,
+        },
         // Dust from a saved contact: hidden too.
-        Activity { counterparty: [1; 32], amount: U256::from(5), incoming: true },
-        Activity { counterparty: [1; 32], amount: U256::from(5_000), incoming: true },
-        Activity { counterparty: paid, amount: U256::from(10), incoming: false },
-        Activity { counterparty: paid, amount: U256::from(2_000), incoming: true },
+        Activity {
+            counterparty: [1; 32],
+            amount: U256::from(5),
+            incoming: true,
+        },
+        Activity {
+            counterparty: [1; 32],
+            amount: U256::from(5_000),
+            incoming: true,
+        },
+        Activity {
+            counterparty: paid,
+            amount: U256::from(10),
+            incoming: false,
+        },
+        Activity {
+            counterparty: paid,
+            amount: U256::from(2_000),
+            incoming: true,
+        },
     ];
     assert_eq!(recent(&activity, &book, dust), vec![[1; 32], paid]);
 }
@@ -186,7 +248,10 @@ fn saving_an_address_that_looks_like_a_saved_contact_warns() {
         .add(poison, Network::Testnet, "Bob", "", Source::Manual, 1)
         .unwrap();
     assert!(
-        check.warnings.iter().any(|w| w.contains("looks like the saved contact 'Alice'")),
+        check
+            .warnings
+            .iter()
+            .any(|w| w.contains("looks like the saved contact 'Alice'")),
         "{check:?}"
     );
     // The preview the native dialog shows gives the same warning and saves nothing.

@@ -33,6 +33,8 @@ fn main() -> Result<(), String> {
         }
     }
     store.delete(PROBE).map_err(|e| e.to_string())?;
-    println!("OS keychain under '{service}': largest accepted secret {ok} bytes, first refused {bad}");
+    println!(
+        "OS keychain under '{service}': largest accepted secret {ok} bytes, first refused {bad}"
+    );
     Ok(())
 }

@@ -167,7 +167,8 @@ fn bech32m_text(
             match address {
                 Some(a) => {
                     let full = grouped(network, &a);
-                    let short = format!("{:02x}{:02x}\u{2026}{:02x}{:02x}", a[0], a[1], a[30], a[31]);
+                    let short =
+                        format!("{:02x}{:02x}\u{2026}{:02x}{:02x}", a[0], a[1], a[30], a[31]);
                     summary = summary.replace(&short, &full);
                     (label, full)
                 }

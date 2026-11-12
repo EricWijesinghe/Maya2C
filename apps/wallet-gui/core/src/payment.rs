@@ -46,7 +46,9 @@ pub const MAX_MESSAGE_CHARS: usize = 256;
 fn claimed_text(value: &str, max: usize, what: &str) -> Result<String> {
     let text = crate::address_book::strip_invisible(&percent_decode(value));
     if text.chars().count() > max {
-        return Err(WalletError::Qr(format!("{what} is longer than {max} characters")));
+        return Err(WalletError::Qr(format!(
+            "{what} is longer than {max} characters"
+        )));
     }
     Ok(text)
 }

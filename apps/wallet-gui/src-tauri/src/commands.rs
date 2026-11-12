@@ -145,7 +145,9 @@ fn book_path(app: &tauri::AppHandle, name: &str) -> Result<std::path::PathBuf, S
     const MAX_NAME: usize = 64;
     if name.is_empty()
         || name.len() > MAX_NAME
-        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
         return Err("a wallet name is letters, digits, '-' and '_' only".to_string());
     }
@@ -347,7 +349,10 @@ fn unix_now() -> Result<u64, String> {
 
 /// Refuses a request for another network or past its `exp`, before the send
 /// form opens (ADR-086 §7). `exp` is this machine's clock, not consensus.
-pub(crate) fn checked_request(request: PaymentRequest, genesis: Option<&str>) -> Result<PaymentRequest, String> {
+pub(crate) fn checked_request(
+    request: PaymentRequest,
+    genesis: Option<&str>,
+) -> Result<PaymentRequest, String> {
     let now = unix_now()?;
     request
         .check(networks::address_network(genesis.unwrap_or_default()), now)
@@ -423,13 +428,24 @@ pub async fn add_contact(
 ) -> Result<NameCheck, String> {
     let network = networks::address_network(&genesis);
     let id = payment::decode_address_for(&address, network).map_err(|e| e.to_string())?;
-    let source = if scanned { Source::Scanned } else { Source::Manual };
+    let source = if scanned {
+        Source::Scanned
+    } else {
+        Source::Manual
+    };
     let preview = session.with_book(&app, false, |book, _| {
         book.check_add(&id, &name).map_err(|e| e.to_string())
     })?;
-    let mut lines: Vec<String> = preview.warnings.iter().map(|w| format!("Warning: {w}")).collect();
+    let mut lines: Vec<String> = preview
+        .warnings
+        .iter()
+        .map(|w| format!("Warning: {w}"))
+        .collect();
     lines.push(format!("Save as: {}", preview.name));
-    lines.push(format!("Address: {}", maya_clear_sign::grouped(network, &id)));
+    lines.push(format!(
+        "Address: {}",
+        maya_clear_sign::grouped(network, &id)
+    ));
     if !native_ok(&app, &window, "Save contact", lines.join("\n"), "Save").await? {
         return Err("cancelled on the native dialog; nothing was saved".to_string());
     }
@@ -626,7 +642,14 @@ async fn approved_on_screen(
     window: &tauri::WebviewWindow,
     shown: &Confirmation,
 ) -> Result<bool, String> {
-    native_ok(app, window, "Confirm transfer", approval_message(shown), "Sign").await
+    native_ok(
+        app,
+        window,
+        "Confirm transfer",
+        approval_message(shown),
+        "Sign",
+    )
+    .await
 }
 
 /// A native OK/Cancel dialog with words the core wrote; `ok` labels the
@@ -644,7 +667,10 @@ async fn native_ok(
         .parent(window)
         .title(title)
         .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom(ok.into(), "Cancel".into()));
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            ok.into(),
+            "Cancel".into(),
+        ));
     // A blocking dialog must not hold an async worker thread (as in app-update).
     tauri::async_runtime::spawn_blocking(move || question.blocking_show())
         .await
