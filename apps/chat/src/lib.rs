@@ -8,6 +8,8 @@
 //! - [`client`] — a user's sessions over a relay.
 //! - [`courier`] — publishing, delivering and collecting through a relay.
 //! - [`net`] — the `/maya-chat/1` libp2p protocol and a relay node.
+//! - [`miniapp`] and [`miniapp_bridge`] — signed mini-app manifests and the
+//!   host bridge that lets an app ask, never sign (ADR-138).
 //!
 //! RESEARCH: unaudited. Do not rely on it for sensitive conversations until
 //! it has had an external review. Group chat (MLS) and metadata privacy
@@ -20,6 +22,8 @@ pub mod net;
 pub mod relay;
 pub mod session;
 
+pub mod miniapp;
+pub mod miniapp_bridge;
 pub mod outbox;
 pub mod pay;
 pub mod pay_link;

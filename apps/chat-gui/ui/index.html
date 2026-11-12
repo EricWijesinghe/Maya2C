@@ -53,6 +53,8 @@
         </section>
         <form id="compose" class="compose">
           <button id="sticker-toggle" type="button" class="icon" title="Stickers" disabled>😊</button>
+          <button id="request-toggle" type="button" class="icon" title="Request a payment" disabled>₥</button>
+          <button id="apps-toggle" type="button" class="icon" title="Mini-apps" disabled>▦</button>
           <input id="text" placeholder="Write a message, or one emoji for stickers" autocomplete="off" disabled />
           <button id="send" class="primary" disabled>Send</button>
         </form>
@@ -75,8 +77,51 @@
       </div>
     </dialog>
 
+    <dialog id="request-dialog" class="maker">
+      <h2>Request a payment</h2>
+      <input id="request-amount" placeholder="Amount in coins, e.g. 2.5" inputmode="decimal" autocomplete="off" />
+      <input id="request-memo" placeholder="What it is for (optional)" maxlength="140" autocomplete="off" />
+      <p class="hint">They pay from their wallet. Chat never holds a wallet key.</p>
+      <p id="request-error" class="error" role="alert"></p>
+      <div class="maker-actions">
+        <button type="button" class="secondary dialog-close">Cancel</button>
+        <button id="request-send" type="button" class="primary">Send request</button>
+      </div>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="maker">
+      <h2>Check before you confirm</h2>
+      <pre id="confirm-text" class="confirm-text"></pre>
+      <div class="maker-actions">
+        <button id="confirm-no" type="button" class="secondary">No</button>
+        <button id="confirm-yes" type="button" class="primary">Yes</button>
+      </div>
+    </dialog>
+
+    <dialog id="link-dialog" class="maker">
+      <h2>Open this in Maya Wallet</h2>
+      <p class="hint">The wallet shows the payment again and asks you to sign it there.</p>
+      <input id="link-text" readonly />
+      <div class="maker-actions">
+        <button id="link-copy" type="button" class="secondary">Copy link</button>
+        <button type="button" class="primary dialog-close">Done</button>
+      </div>
+    </dialog>
+
+    <dialog id="apps-dialog" class="maker apps">
+      <h2>Mini-apps</h2>
+      <p class="hint">Apps run sandboxed with no network. They can ask; only you and your wallet decide.</p>
+      <div id="apps-list" class="apps-list"></div>
+      <div id="apps-frame" class="apps-frame"></div>
+      <p id="apps-error" class="error" role="alert"></p>
+      <div class="maker-actions">
+        <button type="button" class="secondary dialog-close">Close</button>
+      </div>
+    </dialog>
+
     <script src="vendor/lottie_light.min.js"></script>
     <script src="stickers.js"></script>
+    <script src="wallet.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -311,3 +311,14 @@ input:focus { border-color: rgb(31 181 194 / 0.6); }
 .draft input { width: 3.2rem !important; text-align: center; font-size: 1.1rem; }
 .maker-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 @media (prefers-reduced-motion: reduce) { .pick:hover { transform: none; } }
+
+/* In-chat wallet bubbles and the mini-app runner (ADR-138). */
+.pay { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 12px; }
+.pay small { color: var(--dim); }
+.pay .mono { font-family: monospace; }
+.pay button { align-self: flex-start; }
+.pay-paid, .pay-receipt { border-style: dashed; }
+.confirm-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: monospace; color: var(--text); }
+.apps-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.apps-frame:empty { display: none; }
+.miniapp-frame { width: min(560px, 80vw); height: 420px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }

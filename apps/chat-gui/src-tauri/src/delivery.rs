@@ -133,6 +133,7 @@ mod tests {
             at,
             sticker: None,
             outbox: id.map(str::to_owned),
+            pay: None,
         }
     }
 
