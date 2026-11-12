@@ -6,7 +6,14 @@
 // click (or Enter) to pin its detail. Without WebGL the same subsystems are a
 // keyboard-reachable grid of dots, so nothing is lost to the missing canvas.
 // The headline numbers are the reality ledger, counted live at build; the test
-// figure carries its own as-of date.
+// figure carries its own as-of date, and is left out once it is more than 14
+// days old (audit W-09): an old count on the homepage reads as today's.
+import health from "../../public/health.json";
+import { mainnetGates } from "../data/mainnet-gates";
+const FRESH_DAYS = 14;
+const testsFresh = Date.now() - Date.parse(health.tests.as_of) <= FRESH_DAYS * 864e5;
+const st = health.ledger.by_status as Record<string, number>;
+const met = mainnetGates.filter((g) => g.state === "met").length;
 ---
 
 <section class="health" aria-label="Project health">
@@ -14,11 +21,11 @@
   <h2 class="maya-section-title">The whole system, by what a test can prove</h2>
 
   <div class="stats" id="health-stats" aria-live="polite">
-    <div class="stat big"><span class="n" data-k="tests">—</span><span class="l">tests passing</span><span class="s" id="tests-asof"></span></div>
-    <div class="stat"><span class="n" data-k="verified">—</span><span class="l">verified subsystems</span><span class="s">backed by a named test</span></div>
-    <div class="stat"><span class="n" data-k="working">—</span><span class="l">working</span><span class="s">built, test pending verify</span></div>
-    <div class="stat"><span class="n" data-k="planned">—</span><span class="l">planned</span><span class="s">designed, no code yet</span></div>
-    <div class="stat"><span class="n" data-k="gates">—</span><span class="l">launch gates passed</span><span class="s">of <b id="gates-total">—</b>, before mainnet</span></div>
+    {testsFresh && <div class="stat big"><span class="n" data-k="tests">{health.tests.passed}</span><span class="l">tests passing</span><span class="s" id="tests-asof">measured {health.tests.as_of}</span></div>}
+    <div class="stat"><span class="n" data-k="verified">{st.verified ?? 0}</span><span class="l">verified subsystems</span><span class="s">backed by a named test</span></div>
+    <div class="stat"><span class="n" data-k="working">{st.working ?? 0}</span><span class="l">working</span><span class="s">built, test pending verify</span></div>
+    <div class="stat"><span class="n" data-k="planned">{st.planned ?? 0}</span><span class="l">planned</span><span class="s">designed, no code yet</span></div>
+    <div class="stat"><span class="n" data-k="gates">{met}</span><span class="l">mainnet gates met</span><span class="s">of <b id="gates-total">{mainnetGates.length}</b>, before mainnet</span></div>
   </div>
 
   <div class="stage" id="health-3d">

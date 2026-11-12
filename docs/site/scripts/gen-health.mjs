@@ -40,10 +40,12 @@ const subsystems = blocks.map((b) => ({
 const tally = (key) =>
   subsystems.reduce((acc, s) => ((acc[s[key]] = (acc[s[key]] || 0) + 1), acc), {});
 
-// --- launch gates ---------------------------------------------------------
-const gatesSrc = read(resolve(siteRoot, "src/data/launch-gates.ts"));
-const gatesTotal = (gatesSrc.match(/\bstate:\s*"(done|next|later)"/g) || []).length;
-const gatesPassed = (gatesSrc.match(/\bstate:\s*"done"/g) || []).length;
+// --- mainnet gates ---------------------------------------------------------
+// The ten mainnet v1 gates (src/data/mainnet-gates.ts), the same count
+// scripts/gen-progress.mjs makes, so the site gives one answer (audit W-09).
+const gatesSrc = read(resolve(siteRoot, "src/data/mainnet-gates.ts"));
+const gatesTotal = (gatesSrc.match(/\{ n: \d+/g) || []).length;
+const gatesPassed = (gatesSrc.match(/state: "met"/g) || []).length;
 
 // --- measured tests (CI overwrites this block on every push) --------------
 const tests = {

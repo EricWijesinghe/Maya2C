@@ -8,8 +8,13 @@
 import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
+import { testnet, pausedLabel } from "../data/network-state";
 
 const repo = "https://github.com/EricWijesinghe/Maya2C/blob/master";
+// No test count older than 14 days on the homepage (audit W-09).
+const testsFresh = Date.now() - Date.parse(health.tests.as_of) <= 14 * 864e5;
+// While the testnet is stopped on purpose, a live tile shows that, not a dash (W-04).
+const idle = testnet.paused ? pausedLabel : "—";
 const s = health.ledger.by_status as Record<string, number>;
 const proofs = (progress as { proofs?: Record<string, number> | null }).proofs ?? null;
 const live = [
@@ -17,11 +22,11 @@ const live = [
   { id: "peers", label: "Peers online", src: "status.maya2c.dev /api/live, peers connected now" },
   { id: "hashrate", label: "Network hashrate", src: "Explorer /api/stats, estimated from indexed blocks" },
   { id: "txs", label: "Transactions", src: "Explorer /api/stats, transactions indexed" },
-  { id: "uptime", label: "Uptime since genesis", src: "status.maya2c.dev /api/status" },
+  { id: "uptime", label: "Uptime since genesis", src: testnet.paused ? "Last status.maya2c.dev /api/status reading before the stop, quoted in the stop report" : "status.maya2c.dev /api/status" },
 ];
 const built = [
   { value: s.working ?? 0, label: "Subsystems working", src: "features.toml, status = working", href: `${repo}/features.toml` },
-  { value: health.tests.passed, label: "Tests passing", src: `Full workspace count of ${health.tests.as_of}: ${health.tests.source}`, href: `${repo}/.github/workflows/ci.yml` },
+  ...(testsFresh ? [{ value: health.tests.passed, label: "Tests passing", src: `Full workspace count of ${health.tests.as_of}: ${health.tests.source}`, href: `${repo}/.github/workflows/ci.yml` }] : []),
   { value: proofs?.kani_harnesses ?? null, label: "Kani proofs", src: "proof-ratchet.txt (ADR-078 O3): CI fails if it falls", href: `${repo}/proof-ratchet.txt` },
   { value: proofs?.fuzz_targets ?? null, label: "Fuzz targets", src: "proof-ratchet.txt (ADR-078 O3)", href: `${repo}/proof-ratchet.txt` },
   { value: proofs?.conformance_vectors ?? null, label: "Conformance vectors", src: "proof-ratchet.txt (ADR-078 O3)", href: `${repo}/proof-ratchet.txt` },
@@ -31,7 +36,7 @@ const total = health.ledger.total;
 ---
 
 <section class="not-content ls" aria-label="Live proof numbers" data-ls>
-  <p class="ls-live"><span class="ls-dot" data-ls-dot aria-hidden="true"></span><span data-ls-state>Network: connecting…</span></p>
+  <p class="ls-live"><span class="ls-dot" data-ls-dot aria-hidden="true"></span><span data-ls-state>{testnet.paused ? `Network: paused on purpose since ${testnet.since}` : "Network: connecting…"}</span>{testnet.paused && <a class="ls-why" href={testnet.report}>why</a>}</p>
   <dl class="ls-grid">
     {built.map((t) => (
       <div class="ui-card ls-tile" data-tilt>
@@ -40,10 +45,12 @@ const total = health.ledger.total;
         <SourceTip text={t.src} href={t.href} />
       </div>
     ))}
-    {live.map((t) => (
+    {/* Paused: the live tiles would all say the same thing, so only the one with a recorded value stays; the state line above says why. */}
+    {live.filter((t) => !testnet.paused || t.id === "uptime").map((t) => (
       <div class="ui-card ls-tile" data-tilt>
         <dt class="ui-stat__label">{t.label}</dt>
-        <dd class="ui-stat__value" data-live={t.id}>—</dd>
+        <dd class="ui-stat__value" data-live={t.id} data-idle>{t.id === "uptime" && testnet.paused ? `${(testnet.last.uptime * 100).toFixed(2)}%` : idle}</dd>
+        {t.id === "uptime" && testnet.paused && <small class="ls-note">until the stop, {testnet.last.at}</small>}
         <SourceTip text={t.src} />
       </div>
     ))}
@@ -84,7 +91,7 @@ const total = health.ledger.total;
       if (p && Array.isArray(p.peers)) set("peers", fmt(p.peers.length));
       if (u && typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`);
       const up = Boolean(st || b);
-      root.querySelector("[data-ls-state]")!.textContent = up ? "Network: live" : "Network: paused for the next genesis";
+      if (up) root.querySelector("[data-ls-state]")!.textContent = "Network: live";
       root.querySelector("[data-ls-dot]")!.classList.toggle("on", up);
     };
     poll();
@@ -97,6 +104,9 @@ const total = health.ledger.total;
   .ls-live { margin: 0; display: flex; align-items: center; gap: 8px; font: 500 13px/1.3 var(--mono); color: var(--muted); }
   .ls-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .ls-dot.on { background: var(--success); }
+  .ls-why { font-size: 12.5px; }
+  .ls-note { font-size: 12px; color: var(--muted); }
+  [data-idle] { overflow-wrap: anywhere; }
   .ls-grid { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--space-3); }
   .ls-tile { display: grid; gap: 6px; align-content: start; padding: var(--space-4); }
   .ls-tile dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
