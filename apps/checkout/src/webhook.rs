@@ -63,7 +63,10 @@ pub fn sign(secret: &[u8], timestamp: u64, nonce: &str, body: &[u8]) -> Result<S
     let mut mac = new_mac(secret)?;
     mac.update(format!("{timestamp}.{nonce}.").as_bytes());
     mac.update(body);
-    Ok(format!("sha256={}", hex::encode(mac.finalize().into_bytes())))
+    Ok(format!(
+        "sha256={}",
+        hex::encode(mac.finalize().into_bytes())
+    ))
 }
 
 /// Receiver-side check: freshness first, then the signature in constant time.
@@ -95,7 +98,8 @@ pub fn verify(
     mac.update(format!("{timestamp}.{nonce}.").as_bytes());
     mac.update(body);
     // verify_slice compares in constant time.
-    mac.verify_slice(&presented).map_err(|_| VerifyError::Mismatch)
+    mac.verify_slice(&presented)
+        .map_err(|_| VerifyError::Mismatch)
 }
 
 /// Remembers nonces accepted within the tolerance window, so a receiver can
@@ -113,8 +117,14 @@ impl NonceCache {
     /// # Errors
     ///
     /// [`VerifyError::Replay`] if the nonce was seen inside the window.
-    pub fn accept(&mut self, nonce: &str, timestamp: u64, now_unix: u64) -> std::result::Result<(), VerifyError> {
-        self.seen.retain(|_, ts| now_unix.abs_diff(*ts) <= TOLERANCE_SECS);
+    pub fn accept(
+        &mut self,
+        nonce: &str,
+        timestamp: u64,
+        now_unix: u64,
+    ) -> std::result::Result<(), VerifyError> {
+        self.seen
+            .retain(|_, ts| now_unix.abs_diff(*ts) <= TOLERANCE_SECS);
         if self.seen.contains_key(nonce) {
             return Err(VerifyError::Replay);
         }
@@ -129,7 +139,10 @@ pub const NONCE_HEX_LEN: usize = 32;
 /// Whether `nonce` has the shape [`new_nonce`] produces: exactly 32 lowercase hex.
 #[must_use]
 pub fn is_nonce_shape(nonce: &str) -> bool {
-    nonce.len() == NONCE_HEX_LEN && nonce.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    nonce.len() == NONCE_HEX_LEN
+        && nonce
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// A fresh nonce: 128 random bits, hex.

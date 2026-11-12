@@ -73,7 +73,11 @@ pub fn parse_https(raw: &str) -> Result<Url, UrlError> {
         Some(Host::Name(name)) => is_public_name(name),
         None => false,
     };
-    if host_ok { Ok(url) } else { Err(UrlError::HostName) }
+    if host_ok {
+        Ok(url)
+    } else {
+        Err(UrlError::HostName)
+    }
 }
 
 /// Approves a parsed URL against the addresses its host resolved to. An IP
@@ -94,7 +98,10 @@ pub fn pin(url: Url, resolved: &[IpAddr]) -> Result<Target, UrlError> {
         return Err(UrlError::NotPublic);
     }
     let port = url.port_or_known_default().ok_or(UrlError::Malformed)?;
-    let addrs = addrs.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
+    let addrs = addrs
+        .into_iter()
+        .map(|ip| SocketAddr::new(ip, port))
+        .collect();
     Ok(Target { url, addrs })
 }
 
@@ -137,9 +144,16 @@ fn host_kind(url: &Url) -> Option<Host<'_>> {
 /// A name must look like a public DNS name: dotted, and not a local suffix.
 fn is_public_name(name: &str) -> bool {
     let name = name.trim_end_matches('.').to_ascii_lowercase();
-    let local_suffix = [".localhost", ".local", ".internal", ".lan", ".home.arpa", ".localdomain"]
-        .iter()
-        .any(|s| name.ends_with(s));
+    let local_suffix = [
+        ".localhost",
+        ".local",
+        ".internal",
+        ".lan",
+        ".home.arpa",
+        ".localdomain",
+    ]
+    .iter()
+    .any(|s| name.ends_with(s));
     name.contains('.') && !local_suffix && name != "localhost"
 }
 

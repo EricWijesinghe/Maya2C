@@ -135,18 +135,31 @@ pub async fn scan(
 /// below it does too. On a mismatch, rolls back one step and returns `true`.
 async fn verify_frontier(store: &Mutex<Store>, chain: &dyn ChainSource) -> Result<bool> {
     let frontier = scan_position(&*store.lock().await)?;
-    let stored = store.lock().await.ledger().block_ids.get(&frontier).cloned();
+    let stored = store
+        .lock()
+        .await
+        .ledger()
+        .block_ids
+        .get(&frontier)
+        .cloned();
     let Some(stored) = stored else {
         return Ok(false);
     };
     let node = chain.blocks(frontier, 1).await?;
-    let node_id = node.iter().find(|b| b.height == frontier).map(|b| b.id.as_str());
+    let node_id = node
+        .iter()
+        .find(|b| b.height == frontier)
+        .map(|b| b.id.as_str());
     if node_id == Some(stored.as_str()) {
         return Ok(false);
     }
     let mut guard = store.lock().await;
     let reverted = roll_back(guard.ledger_mut(), frontier);
-    tracing::warn!(height = frontier, reverted, "stored block is no longer on the node; rolled back");
+    tracing::warn!(
+        height = frontier,
+        reverted,
+        "stored block is no longer on the node; rolled back"
+    );
     guard.commit()?;
     Ok(true)
 }
@@ -165,7 +178,11 @@ enum Progress {
 /// internal links before any change, so a malformed batch leaves the ledger
 /// untouched. If the first block does not descend from the stored block at
 /// `first - 1`, that stored block was reorged out: roll back over it.
-async fn apply_batch(store: &Mutex<Store>, first: u64, blocks: &[BlockOutputs]) -> Result<Progress> {
+async fn apply_batch(
+    store: &Mutex<Store>,
+    first: u64,
+    blocks: &[BlockOutputs],
+) -> Result<Progress> {
     for (offset, block) in blocks.iter().enumerate() {
         let expected = first.saturating_add(offset as u64);
         if block.height != expected {
@@ -176,7 +193,9 @@ async fn apply_batch(store: &Mutex<Store>, first: u64, blocks: &[BlockOutputs]) 
         }
     }
     if blocks.windows(2).any(|pair| pair[1].prev_id != pair[0].id) {
-        return Err(CheckoutError::Chain("node sent blocks that do not link".into()));
+        return Err(CheckoutError::Chain(
+            "node sent blocks that do not link".into(),
+        ));
     }
     let mut guard = store.lock().await;
     // Genesis is never rolled back, so the check starts at height 2.
@@ -185,7 +204,10 @@ async fn apply_batch(store: &Mutex<Store>, first: u64, blocks: &[BlockOutputs]) 
     if let (Some(height), None) = (stored_parent, &stored) {
         // Only a pruned or never-recorded parent lands here. The check is skipped
         // for this batch, so say so.
-        tracing::info!(height, "reorg check skipped: no stored id for the parent block");
+        tracing::info!(
+            height,
+            "reorg check skipped: no stored id for the parent block"
+        );
     }
     if let Some(parent) = stored.filter(|parent| *parent != blocks[0].prev_id) {
         // `stored` is only Some when `stored_parent` is, so `first - 1` is the orphan.
@@ -250,7 +272,10 @@ async fn due_jobs(store: &Mutex<Store>, now_unix: u64) -> Result<Vec<Job>> {
         .map(|inv| -> Result<Job> {
             Ok(Job {
                 id: inv.id.clone(),
-                txid: inv.payment.as_ref().map_or_else(String::new, |p| p.txid.clone()),
+                txid: inv
+                    .payment
+                    .as_ref()
+                    .map_or_else(String::new, |p| p.txid.clone()),
                 url: inv.webhook_url.clone(),
                 body: payload(inv)?,
             })
@@ -281,7 +306,8 @@ fn payload(inv: &Invoice) -> Result<Vec<u8>> {
 
 /// One delivery attempt. Every failure is logged and reported as `false`.
 async fn attempt(sender: &dyn WebhookSender, secret: &[u8], job: &Job, now_unix: u64) -> bool {
-    let vetted = tokio::time::timeout(Duration::from_secs(DNS_TIMEOUT_SECS), ssrf::vet(&job.url)).await;
+    let vetted =
+        tokio::time::timeout(Duration::from_secs(DNS_TIMEOUT_SECS), ssrf::vet(&job.url)).await;
     let target = match vetted {
         Ok(Ok(target)) => target,
         Ok(Err(reason)) => {
@@ -325,7 +351,12 @@ async fn record(store: &Mutex<Store>, job: &Job, delivered: bool, now_unix: u64)
     // Randomness is drawn before the lock: the lock is never held across I/O.
     let jitter_seed = webhook::random_u64()?;
     let mut guard = store.lock().await;
-    let Some(inv) = guard.ledger_mut().invoices.iter_mut().find(|inv| inv.id == job.id) else {
+    let Some(inv) = guard
+        .ledger_mut()
+        .invoices
+        .iter_mut()
+        .find(|inv| inv.id == job.id)
+    else {
         return Ok(());
     };
     // The invoice may have been reverted by a reorg while the request was in

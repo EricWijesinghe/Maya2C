@@ -28,7 +28,9 @@ async fn main() -> ExitCode {
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 async fn run() -> Result<()> {
@@ -70,7 +72,14 @@ async fn run() -> Result<()> {
     let scanner_chain = Arc::clone(&chain);
     tokio::spawn(async move {
         loop {
-            if let Err(e) = engine::scan(&scanner_store, scanner_chain.as_ref(), confirmations, unix_now()).await {
+            if let Err(e) = engine::scan(
+                &scanner_store,
+                scanner_chain.as_ref(),
+                confirmations,
+                unix_now(),
+            )
+            .await
+            {
                 tracing::warn!(error = %e, "scan cycle failed; retrying");
             }
             tokio::time::sleep(poll).await;
@@ -80,7 +89,8 @@ async fn run() -> Result<()> {
     let secret = cfg.webhook_secret.clone();
     tokio::spawn(async move {
         loop {
-            if let Err(e) = engine::deliver(&delivery_store, &HttpSender, &secret, unix_now()).await {
+            if let Err(e) = engine::deliver(&delivery_store, &HttpSender, &secret, unix_now()).await
+            {
                 tracing::warn!(error = %e, "delivery cycle failed; retrying");
             }
             tokio::time::sleep(poll).await;
@@ -100,7 +110,10 @@ async fn run() -> Result<()> {
         .map_err(|e| CheckoutError::Config(format!("cannot listen on {}: {e}", cfg.listen)))?;
     tracing::info!(listen = %cfg.listen, "serving");
     // Connect info gives the read limiter each client's socket address.
-    axum::serve(listener, router(state).into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .await
-        .map_err(|e| CheckoutError::Internal(format!("server: {e}")))
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .map_err(|e| CheckoutError::Internal(format!("server: {e}")))
 }

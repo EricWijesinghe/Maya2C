@@ -32,7 +32,10 @@ fn eligible(invoice: &Invoice, height: u64, output: &Output) -> bool {
 /// address of any invoice the service has issued.
 fn is_merchant(ledger: &Ledger, recipient: &[u8; 32]) -> bool {
     ledger.merchant.as_deref() == Some(hex::encode(recipient).as_str())
-        || ledger.invoices.iter().any(|inv| inv.recipient == *recipient)
+        || ledger
+            .invoices
+            .iter()
+            .any(|inv| inv.recipient == *recipient)
 }
 
 /// Settles pending invoices from one block's outputs. Returns the ids settled.
@@ -40,7 +43,9 @@ pub fn detect(ledger: &mut Ledger, block: &BlockOutputs) -> Vec<String> {
     let mut settled = Vec::new();
     for tx in &block.txs {
         for (index, output) in tx.outputs.iter().enumerate() {
-            let Ok(index) = u32::try_from(index) else { continue };
+            let Ok(index) = u32::try_from(index) else {
+                continue;
+            };
             let key = claim_key(&tx.txid, index);
             if ledger.claims.contains_key(&key) || !is_merchant(ledger, &output.recipient) {
                 continue;
@@ -58,8 +63,24 @@ pub fn detect(ledger: &mut Ledger, block: &BlockOutputs) -> Vec<String> {
                     settle(ledger, *only, &key, tx, index, block, output);
                     settled.push(id);
                 }
-                [] => record_unmatched(ledger, &key, tx, index, block, output, UnmatchedReason::NoExactInvoice),
-                _ => record_unmatched(ledger, &key, tx, index, block, output, UnmatchedReason::AmbiguousInvoices),
+                [] => record_unmatched(
+                    ledger,
+                    &key,
+                    tx,
+                    index,
+                    block,
+                    output,
+                    UnmatchedReason::NoExactInvoice,
+                ),
+                _ => record_unmatched(
+                    ledger,
+                    &key,
+                    tx,
+                    index,
+                    block,
+                    output,
+                    UnmatchedReason::AmbiguousInvoices,
+                ),
             }
         }
     }
@@ -84,7 +105,9 @@ fn settle(
         block_id: block.id.clone(),
         amount_paid: output.amount,
     });
-    ledger.claims.insert(key.to_owned(), Claim::Invoice(invoice.id.clone()));
+    ledger
+        .claims
+        .insert(key.to_owned(), Claim::Invoice(invoice.id.clone()));
 }
 
 fn record_unmatched(
@@ -108,7 +131,9 @@ fn record_unmatched(
     ledger.claims.insert(key.to_owned(), Claim::Unmatched);
     while ledger.unmatched.len() > UNMATCHED_CAP {
         let evicted = ledger.unmatched.remove(0);
-        ledger.claims.remove(&claim_key(&evicted.txid, evicted.index));
+        ledger
+            .claims
+            .remove(&claim_key(&evicted.txid, evicted.index));
         tracing::warn!(
             txid = %evicted.txid,
             "unmatched payment records are full; the oldest was evicted"
@@ -126,15 +151,27 @@ pub const UNMATCHED_CAP: usize = 1_000;
 /// A payment whose block id no longer matches the node's block at that height
 /// is not confirmed: it is reverted to pending, so the output can be claimed
 /// again on the branch that is now canonical.
-pub fn confirm(ledger: &mut Ledger, tip_height: u64, confirmations: u64, now_unix: u64) -> Vec<String> {
+pub fn confirm(
+    ledger: &mut Ledger,
+    tip_height: u64,
+    confirmations: u64,
+    now_unix: u64,
+) -> Vec<String> {
     let depth = confirmations.saturating_sub(1);
-    let Ledger { invoices, claims, block_ids, .. } = ledger;
+    let Ledger {
+        invoices,
+        claims,
+        block_ids,
+        ..
+    } = ledger;
     let mut confirmed = Vec::new();
     for invoice in invoices.iter_mut() {
         if invoice.status != Status::Detected {
             continue;
         }
-        let Some(payment) = invoice.payment.as_ref() else { continue };
+        let Some(payment) = invoice.payment.as_ref() else {
+            continue;
+        };
         let (height, block_id) = (payment.height, payment.block_id.clone());
         if block_ids.get(&height) != Some(&block_id) {
             revert_to_pending(invoice, claims);
@@ -169,10 +206,19 @@ fn revert_to_pending(invoice: &mut Invoice, claims: &mut BTreeMap<String, Claim>
 ///
 /// Returns how many invoices were reverted.
 pub fn roll_back(ledger: &mut Ledger, height: u64) -> usize {
-    let Ledger { invoices, claims, block_ids, unmatched, scanned_to, .. } = ledger;
+    let Ledger {
+        invoices,
+        claims,
+        block_ids,
+        unmatched,
+        scanned_to,
+        ..
+    } = ledger;
     let mut reverted = 0;
     for invoice in invoices.iter_mut() {
-        let Some(payment) = invoice.payment.as_ref() else { continue };
+        let Some(payment) = invoice.payment.as_ref() else {
+            continue;
+        };
         if payment.height < height {
             continue;
         }

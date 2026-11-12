@@ -112,10 +112,13 @@ impl RpcChain {
     ///
     /// [`CheckoutError::Config`] if the URL cannot be used.
     pub fn new(url: &str) -> Result<Self> {
-        let client = HttpClientBuilder::default()
-            .build(url)
-            .map_err(|e| CheckoutError::Config(format!("rpc url: {}", scrub(&e.to_string(), url))))?;
-        Ok(Self { client, url: url.to_owned() })
+        let client = HttpClientBuilder::default().build(url).map_err(|e| {
+            CheckoutError::Config(format!("rpc url: {}", scrub(&e.to_string(), url)))
+        })?;
+        Ok(Self {
+            client,
+            url: url.to_owned(),
+        })
     }
 }
 
@@ -143,12 +146,17 @@ impl ChainSource for RpcChain {
             .request("get_chain_info", rpc_params![])
             .await
             .map_err(|e| transport_err(e, &self.url))?;
-        Ok(Tip { height: info.height, chain_id: info.chain_id })
+        Ok(Tip {
+            height: info.height,
+            chain_id: info.chain_id,
+        })
     }
 
     async fn blocks(&self, from: u64, count: u64) -> Result<Vec<BlockOutputs>> {
         if count == 0 || count > MAX_RANGE {
-            return Err(CheckoutError::Internal(format!("range count {count} out of bounds")));
+            return Err(CheckoutError::Internal(format!(
+                "range count {count} out of bounds"
+            )));
         }
         let raw: Vec<RawBlock> = self
             .client
@@ -177,7 +185,10 @@ fn convert_block(block: RawBlock) -> Result<BlockOutputs> {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            Ok(TxOutputs { txid: tx.txid, outputs })
+            Ok(TxOutputs {
+                txid: tx.txid,
+                outputs,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(BlockOutputs {

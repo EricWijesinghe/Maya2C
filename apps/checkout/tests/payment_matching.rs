@@ -29,7 +29,10 @@ fn block(height: u64, txid: &str, recipient: [u8; 32], amount: u64) -> BlockOutp
         prev_id: format!("b{}", height.saturating_sub(1)),
         txs: vec![TxOutputs {
             txid: txid.into(),
-            outputs: vec![Output { recipient, amount: U256::from(amount) }],
+            outputs: vec![Output {
+                recipient,
+                amount: U256::from(amount),
+            }],
         }],
     }
 }
@@ -53,25 +56,37 @@ fn first_pending_invoice_cannot_take_another_invoices_payment() {
         invoices: vec![invoice("tiny", 1, 0, 50), invoice("big", 1000, 0, 50)],
         ..Ledger::default()
     };
-    assert_eq!(detect(&mut ledger, &block(5, "tx1", MERCHANT, 1000)), vec!["big".to_owned()]);
+    assert_eq!(
+        detect(&mut ledger, &block(5, "tx1", MERCHANT, 1000)),
+        vec!["big".to_owned()]
+    );
     assert_eq!(status_of(&ledger, "tiny"), Status::Pending);
     assert_eq!(status_of(&ledger, "big"), Status::Detected);
 }
 
 #[test]
 fn underpayment_is_recorded_as_unmatched_and_settles_nothing() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 1000, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 1000, 0, 50)],
+        ..Ledger::default()
+    };
     assert!(detect(&mut ledger, &block(5, "tx1", MERCHANT, 999)).is_empty());
     assert_eq!(status_of(&ledger, "a"), Status::Pending);
     assert_eq!(ledger.unmatched.len(), 1);
     assert_eq!(ledger.unmatched[0].amount, U256::from(999u64));
     assert_eq!(ledger.unmatched[0].reason, UnmatchedReason::NoExactInvoice);
-    assert_eq!(ledger.claims.get(&claim_key("tx1", 0)), Some(&Claim::Unmatched));
+    assert_eq!(
+        ledger.claims.get(&claim_key("tx1", 0)),
+        Some(&Claim::Unmatched)
+    );
 }
 
 #[test]
 fn overpayment_is_recorded_as_unmatched_and_never_settles() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 1000, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 1000, 0, 50)],
+        ..Ledger::default()
+    };
     assert!(detect(&mut ledger, &block(5, "tx1", MERCHANT, 1500)).is_empty());
     assert_eq!(status_of(&ledger, "a"), Status::Pending);
     assert_eq!(ledger.unmatched.len(), 1);
@@ -89,12 +104,18 @@ fn two_pending_invoices_with_one_amount_settle_nothing() {
     assert!(detect(&mut ledger, &block(5, "tx1", MERCHANT, 500)).is_empty());
     assert_eq!(status_of(&ledger, "a"), Status::Pending);
     assert_eq!(status_of(&ledger, "b"), Status::Pending);
-    assert_eq!(ledger.unmatched[0].reason, UnmatchedReason::AmbiguousInvoices);
+    assert_eq!(
+        ledger.unmatched[0].reason,
+        UnmatchedReason::AmbiguousInvoices
+    );
 }
 
 #[test]
 fn one_output_is_claimed_once_even_when_the_block_repeats() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 50)],
+        ..Ledger::default()
+    };
     let b5 = block(5, "tx1", MERCHANT, 500);
     assert_eq!(detect(&mut ledger, &b5), vec!["a".to_owned()]);
     // The same block seen again (a re-scan after a crash) must not claim again.
@@ -105,7 +126,10 @@ fn one_output_is_claimed_once_even_when_the_block_repeats() {
 
 #[test]
 fn a_claimed_output_cannot_settle_a_later_invoice() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 10)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 10)],
+        ..Ledger::default()
+    };
     detect(&mut ledger, &block(5, "tx1", MERCHANT, 500));
     // A new invoice for the same amount, made after block 5, must not be paid by it.
     ledger.invoices.push(invoice("b", 500, 5, 10));
@@ -117,23 +141,38 @@ fn a_claimed_output_cannot_settle_a_later_invoice() {
 fn payment_in_or_before_the_creation_block_is_not_settled() {
     // Created with tip 10: only blocks above 10 can pay. A payment in block 10
     // happened before the invoice was visible.
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 10, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 10, 50)],
+        ..Ledger::default()
+    };
     assert!(detect(&mut ledger, &block(10, "old", MERCHANT, 500)).is_empty());
     assert!(detect(&mut ledger, &block(9, "older", MERCHANT, 500)).is_empty());
-    assert_eq!(detect(&mut ledger, &block(11, "new", MERCHANT, 500)), vec!["a".to_owned()]);
+    assert_eq!(
+        detect(&mut ledger, &block(11, "new", MERCHANT, 500)),
+        vec!["a".to_owned()]
+    );
 }
 
 #[test]
 fn payment_after_the_window_is_not_settled() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 10)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 10)],
+        ..Ledger::default()
+    };
     assert!(detect(&mut ledger, &block(11, "late", MERCHANT, 500)).is_empty());
     assert_eq!(ledger.unmatched.len(), 1);
-    assert_eq!(detect(&mut ledger, &block(10, "last", MERCHANT, 500)), vec!["a".to_owned()]);
+    assert_eq!(
+        detect(&mut ledger, &block(10, "last", MERCHANT, 500)),
+        vec!["a".to_owned()]
+    );
 }
 
 #[test]
 fn expiry_happens_only_after_the_window_is_scanned() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 10)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 10)],
+        ..Ledger::default()
+    };
     assert!(expire(&mut ledger, 9).is_empty());
     assert_eq!(expire(&mut ledger, 10), vec!["a".to_owned()]);
     assert_eq!(status_of(&ledger, "a"), Status::Expired);
@@ -141,7 +180,10 @@ fn expiry_happens_only_after_the_window_is_scanned() {
 
 #[test]
 fn payment_to_another_address_is_ignored_not_recorded() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 50)],
+        ..Ledger::default()
+    };
     assert!(detect(&mut ledger, &block(5, "tx1", OTHER, 500)).is_empty());
     assert!(ledger.unmatched.is_empty());
     assert!(ledger.claims.is_empty());
@@ -149,7 +191,10 @@ fn payment_to_another_address_is_ignored_not_recorded() {
 
 #[test]
 fn confirmations_gate_the_webhook() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 50)],
+        ..Ledger::default()
+    };
     detect(&mut ledger, &block(20, "tx1", MERCHANT, 500));
     ledger.block_ids.insert(20, "b20".into());
     // Three confirmations: the payment's own block is the first.
@@ -163,13 +208,23 @@ fn confirmations_gate_the_webhook() {
 
 #[test]
 fn confirm_refuses_a_payment_whose_block_id_changed() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 50)],
+        ..Ledger::default()
+    };
     detect(&mut ledger, &block(20, "tx1", MERCHANT, 500));
     // The node now has a different block at height 20: the payment is not final.
     ledger.block_ids.insert(20, "forked".into());
     assert!(confirm(&mut ledger, 99, 3, 1000).is_empty());
-    assert_eq!(status_of(&ledger, "a"), Status::Pending, "the payment must be un-settled");
-    assert!(ledger.claims.is_empty(), "the output must be claimable again on the new branch");
+    assert_eq!(
+        status_of(&ledger, "a"),
+        Status::Pending,
+        "the payment must be un-settled"
+    );
+    assert!(
+        ledger.claims.is_empty(),
+        "the output must be claimable again on the new branch"
+    );
 }
 
 #[test]
@@ -188,7 +243,10 @@ fn unsettling_from_a_height_reverts_detected_payments_only_from_there() {
 
 #[test]
 fn an_expired_invoice_is_not_confirmed_by_a_late_scan() {
-    let mut ledger = Ledger { invoices: vec![invoice("a", 500, 0, 10)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 500, 0, 10)],
+        ..Ledger::default()
+    };
     expire(&mut ledger, 10);
     assert!(confirm(&mut ledger, 100, 1, 0).is_empty());
     assert_eq!(status_of(&ledger, "a"), Status::Expired);
@@ -198,16 +256,31 @@ fn an_expired_invoice_is_not_confirmed_by_a_late_scan() {
 fn dust_to_the_merchant_cannot_grow_the_unmatched_records_without_bound() {
     // N3: a flood of unmatched outputs keeps only the newest UNMATCHED_CAP records,
     // and each evicted record releases its claim.
-    let mut ledger = Ledger { invoices: vec![invoice("a", 5000, 0, 50)], ..Ledger::default() };
+    let mut ledger = Ledger {
+        invoices: vec![invoice("a", 5000, 0, 50)],
+        ..Ledger::default()
+    };
     let txs: Vec<TxOutputs> = (1..=(UNMATCHED_CAP as u64 + 5))
         .map(|amount| TxOutputs {
             txid: format!("dust{amount}"),
-            outputs: vec![Output { recipient: MERCHANT, amount: U256::from(amount) }],
+            outputs: vec![Output {
+                recipient: MERCHANT,
+                amount: U256::from(amount),
+            }],
         })
         .collect();
-    let flood = BlockOutputs { height: 5, id: "b5".into(), prev_id: "b4".into(), txs };
+    let flood = BlockOutputs {
+        height: 5,
+        id: "b5".into(),
+        prev_id: "b4".into(),
+        txs,
+    };
     detect(&mut ledger, &flood);
     assert_eq!(ledger.unmatched.len(), UNMATCHED_CAP);
-    assert_eq!(ledger.unmatched[0].amount, U256::from(6u64), "the oldest five are evicted");
+    assert_eq!(
+        ledger.unmatched[0].amount,
+        U256::from(6u64),
+        "the oldest five are evicted"
+    );
     assert_eq!(ledger.claims.len(), UNMATCHED_CAP);
 }

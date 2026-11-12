@@ -168,7 +168,9 @@ impl Invoice {
         tip_height: u64,
     ) -> Result<Self> {
         if req.amount.is_zero() {
-            return Err(CheckoutError::BadRequest("amount must be above zero".into()));
+            return Err(CheckoutError::BadRequest(
+                "amount must be above zero".into(),
+            ));
         }
         validate_memo(&req.memo)?;
         validate_expiry(req.expires_in_blocks)?;
@@ -204,7 +206,9 @@ pub fn validate_memo(memo: &str) -> Result<()> {
         )));
     }
     if memo.chars().any(char::is_control) {
-        return Err(CheckoutError::BadRequest("memo contains control characters".into()));
+        return Err(CheckoutError::BadRequest(
+            "memo contains control characters".into(),
+        ));
     }
     Ok(())
 }
@@ -230,8 +234,7 @@ pub fn validate_expiry(blocks: u64) -> Result<()> {
 /// [`CheckoutError::Internal`] if the OS random source fails.
 pub fn new_id() -> Result<String> {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)
-        .map_err(|e| CheckoutError::Internal(format!("randomness: {e}")))?;
+    getrandom::fill(&mut bytes).map_err(|e| CheckoutError::Internal(format!("randomness: {e}")))?;
     Ok(hex::encode(bytes))
 }
 
@@ -277,7 +280,10 @@ pub mod amount {
 pub mod hex32 {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(value: &[u8; 32], s: S) -> std::result::Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        value: &[u8; 32],
+        s: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
         s.serialize_str(&hex::encode(value))
     }
 

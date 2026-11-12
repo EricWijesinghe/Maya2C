@@ -77,9 +77,15 @@ struct Window {
 impl ReadLimiter {
     /// Whether a read from `client` at `now_unix` fits in both budgets.
     pub fn admit(&self, client: IpAddr, now_unix: u64) -> bool {
-        let mut window = self.window.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut window = self
+            .window
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if window.second != now_unix {
-            *window = Window { second: now_unix, ..Window::default() };
+            *window = Window {
+                second: now_unix,
+                ..Window::default()
+            };
         }
         if window.admitted >= GLOBAL_READS_PER_SEC {
             return false;
@@ -157,13 +163,19 @@ async fn create(
     let mut store = state.store.lock().await;
     // The store quotes the amount: the requested one, or a free one just above it.
     store.insert(inv)?;
-    let stored = store.find(&id).ok_or_else(|| CheckoutError::Internal("invoice vanished after insert".into()))?;
+    let stored = store
+        .find(&id)
+        .ok_or_else(|| CheckoutError::Internal("invoice vanished after insert".into()))?;
     Ok((StatusCode::CREATED, Json(render(&state, stored))))
 }
 
 /// Admits one public read from `peer`, or refuses it when a budget is spent.
 fn admit_read(state: &AppState, peer: SocketAddr) -> Result<()> {
-    if state.reads.admit(peer.ip(), unix_now()) { Ok(()) } else { Err(CheckoutError::RateLimited) }
+    if state.reads.admit(peer.ip(), unix_now()) {
+        Ok(())
+    } else {
+        Err(CheckoutError::RateLimited)
+    }
 }
 
 fn unix_now() -> u64 {
@@ -238,7 +250,12 @@ async fn alerts(
 ) -> Result<Json<Value>> {
     authorize(&state, &headers)?;
     let store = state.store.lock().await;
-    let flagged: Vec<&Invoice> = store.ledger().invoices.iter().filter(|inv| inv.reorged).collect();
+    let flagged: Vec<&Invoice> = store
+        .ledger()
+        .invoices
+        .iter()
+        .filter(|inv| inv.reorged)
+        .collect();
     let rows = flagged.iter().map(|inv| {
         json!({
             "invoice_id": inv.id,
@@ -272,7 +289,9 @@ async fn resend(
             inv.next_attempt_unix = 0;
         }
         Delivery::Delivered => {
-            return Err(CheckoutError::Conflict("this webhook was already delivered".into()));
+            return Err(CheckoutError::Conflict(
+                "this webhook was already delivered".into(),
+            ));
         }
         Delivery::NotDue | Delivery::Due => {}
     }

@@ -74,7 +74,12 @@ mod tests {
 
     #[test]
     fn uri_matches_the_wallet_format() {
-        let uri = payment_uri(Network::Testnet, &[7u8; 32], U256::from(1500u64), "order 42&x");
+        let uri = payment_uri(
+            Network::Testnet,
+            &[7u8; 32],
+            U256::from(1500u64),
+            "order 42&x",
+        );
         assert!(uri.starts_with("maya:tmaya1"), "{uri}");
         assert!(uri.ends_with("?amount=1500&id=order%2042%26x"), "{uri}");
     }

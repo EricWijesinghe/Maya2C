@@ -51,11 +51,17 @@ impl IntoResponse for CheckoutError {
             Self::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             Self::Chain(_) => {
                 tracing::warn!(error = %self, "request needs the chain node");
-                (StatusCode::SERVICE_UNAVAILABLE, "chain node unavailable".to_owned())
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "chain node unavailable".to_owned(),
+                )
             }
             Self::Store(_) | Self::Internal(_) | Self::Config(_) => {
                 tracing::error!(error = %self, "request failed internally");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_owned())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal error".to_owned(),
+                )
             }
         };
         (status, axum::Json(serde_json::json!({ "error": message }))).into_response()

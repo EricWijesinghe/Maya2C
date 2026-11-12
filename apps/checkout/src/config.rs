@@ -47,8 +47,14 @@ impl std::fmt::Debug for Config {
             .field("rpc_url", &redact_url(&self.rpc_url))
             .field("pay_to", &self.pay_to)
             .field("store_path", &self.store_path)
-            .field("api_token", &format_args!("<{} bytes, redacted>", self.api_token.len()))
-            .field("webhook_secret", &format_args!("<{} bytes, redacted>", self.webhook_secret.len()))
+            .field(
+                "api_token",
+                &format_args!("<{} bytes, redacted>", self.api_token.len()),
+            )
+            .field(
+                "webhook_secret",
+                &format_args!("<{} bytes, redacted>", self.webhook_secret.len()),
+            )
             .field("confirmations", &self.confirmations)
             .field("poll_secs", &self.poll_secs)
             .finish()
@@ -72,7 +78,10 @@ impl Config {
         // Secret text is moved straight into a zeroizing buffer, so the only copy
         // that outlives this function is the zeroized one.
         let required_secret = |name: &str| required(name).map(Zeroizing::new);
-        let api_token = secret(&required_secret("MAYA_CHECKOUT_API_TOKEN")?, "MAYA_CHECKOUT_API_TOKEN")?;
+        let api_token = secret(
+            &required_secret("MAYA_CHECKOUT_API_TOKEN")?,
+            "MAYA_CHECKOUT_API_TOKEN",
+        )?;
         let webhook_secret = secret(
             &required_secret("MAYA_CHECKOUT_WEBHOOK_SECRET")?,
             "MAYA_CHECKOUT_WEBHOOK_SECRET",
@@ -88,7 +97,9 @@ impl Config {
             .map_err(|_| CheckoutError::Config("MAYA_CHECKOUT_LISTEN is not host:port".into()))?;
         let confirmations = number(&get, "MAYA_CHECKOUT_CONFIRMATIONS", DEFAULT_CONFIRMATIONS)?;
         if confirmations == 0 {
-            return Err(CheckoutError::Config("MAYA_CHECKOUT_CONFIRMATIONS must be at least 1".into()));
+            return Err(CheckoutError::Config(
+                "MAYA_CHECKOUT_CONFIRMATIONS must be at least 1".into(),
+            ));
         }
         // A depth beyond the retained block ids could never be checked for reorgs.
         if confirmations > RETAIN_BLOCKS {
@@ -100,7 +111,9 @@ impl Config {
         // service was started in, and forget every pending invoice.
         let store_path = PathBuf::from(required("MAYA_CHECKOUT_STORE")?);
         if !store_path.is_absolute() {
-            return Err(CheckoutError::Config("MAYA_CHECKOUT_STORE must be an absolute path".into()));
+            return Err(CheckoutError::Config(
+                "MAYA_CHECKOUT_STORE must be an absolute path".into(),
+            ));
         }
         Ok(Self {
             listen,
@@ -158,12 +171,18 @@ mod tests {
     const SECRET: &str = "secret-secret-secret-secret-secret-bb";
 
     fn lookup(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let map: HashMap<String, String> =
-            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        let map: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
         move |k| map.get(k).cloned()
     }
 
-    const STORE: &str = if cfg!(windows) { r"D:\checkout\ledger.json" } else { "/var/lib/maya/ledger.json" };
+    const STORE: &str = if cfg!(windows) {
+        r"D:\checkout\ledger.json"
+    } else {
+        "/var/lib/maya/ledger.json"
+    };
 
     fn base() -> Vec<(&'static str, &'static str)> {
         vec![
@@ -179,7 +198,10 @@ mod tests {
     fn the_ledger_path_must_be_set_and_absolute() {
         // A relative default would open an empty ledger from whatever directory
         // the service was started in, and forget every pending invoice.
-        let without = base().into_iter().filter(|(k, _)| *k != "MAYA_CHECKOUT_STORE").collect::<Vec<_>>();
+        let without = base()
+            .into_iter()
+            .filter(|(k, _)| *k != "MAYA_CHECKOUT_STORE")
+            .collect::<Vec<_>>();
         assert!(Config::from_lookup(lookup(&without)).is_err());
         let mut relative = base();
         relative[4] = ("MAYA_CHECKOUT_STORE", "ledger.json");
@@ -189,7 +211,10 @@ mod tests {
     #[test]
     fn debug_never_prints_rpc_credentials() {
         let mut pairs = base();
-        pairs[0] = ("MAYA_CHECKOUT_RPC", "https://operator:hunter2-password@node.example:9944");
+        pairs[0] = (
+            "MAYA_CHECKOUT_RPC",
+            "https://operator:hunter2-password@node.example:9944",
+        );
         let cfg = Config::from_lookup(lookup(&pairs)).unwrap();
         let shown = format!("{cfg:?}");
         assert!(!shown.contains("hunter2-password"));

@@ -193,7 +193,9 @@ impl Store {
         for offset in 0..=MAX_AMOUNT_OFFSET {
             let candidate = requested.saturating_add(U256::from(offset));
             let taken = self.ledger.invoices.iter().any(|open| {
-                holds_amount(open) && open.recipient == invoice.recipient && open.amount == candidate
+                holds_amount(open)
+                    && open.recipient == invoice.recipient
+                    && open.amount == candidate
             });
             if !taken {
                 quoted = Some(candidate);
@@ -226,8 +228,10 @@ fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     // A leftover temporary file keeps its old permissions if reused, so start clean.
     let _ = std::fs::remove_file(&tmp);
     let mut file = private_file(&tmp).map_err(|e| CheckoutError::Store(format!("create: {e}")))?;
-    file.write_all(bytes).map_err(|e| CheckoutError::Store(format!("write: {e}")))?;
-    file.sync_all().map_err(|e| CheckoutError::Store(format!("sync: {e}")))?;
+    file.write_all(bytes)
+        .map_err(|e| CheckoutError::Store(format!("write: {e}")))?;
+    file.sync_all()
+        .map_err(|e| CheckoutError::Store(format!("sync: {e}")))?;
     drop(file);
     std::fs::rename(&tmp, path).map_err(|e| CheckoutError::Store(format!("rename: {e}")))?;
     #[cfg(unix)]
@@ -238,12 +242,19 @@ fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(unix)]
 fn private_file(path: &Path) -> std::io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
 }
 
 #[cfg(not(unix))]
 fn private_file(path: &Path) -> std::io::Result<File> {
-    std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
 }
 
 /// The sidecar file that holds the recent block ids: `<ledger path>.blocks`.
@@ -293,7 +304,10 @@ mod tests {
         let path = temp_path("survive.json");
         let _ = std::fs::remove_file(&path);
         let mut store = Store::open(&path).unwrap();
-        store.ledger_mut().claims.insert(claim_key("ab", 0), Claim::Invoice("inv-1".into()));
+        store
+            .ledger_mut()
+            .claims
+            .insert(claim_key("ab", 0), Claim::Invoice("inv-1".into()));
         store.commit().unwrap();
         let reopened = Store::open(&path).unwrap();
         assert_eq!(
@@ -319,7 +333,10 @@ mod tests {
         assert_eq!(store.insert(invoice("b", 500)).unwrap(), U256::from(501u64));
         assert_eq!(store.insert(invoice("c", 500)).unwrap(), U256::from(502u64));
         assert_eq!(store.find("b").unwrap().amount, U256::from(501u64));
-        assert_eq!(store.find("b").unwrap().requested_amount, U256::from(500u64));
+        assert_eq!(
+            store.find("b").unwrap().requested_amount,
+            U256::from(500u64)
+        );
     }
 
     #[test]
@@ -368,9 +385,16 @@ mod tests {
         let ledger_writes = store.writes();
         store.ledger_mut().block_ids.insert(9, "b9".into());
         store.commit().unwrap();
-        assert_eq!(store.writes(), ledger_writes, "a block id must not rewrite the ledger");
+        assert_eq!(
+            store.writes(),
+            ledger_writes,
+            "a block id must not rewrite the ledger"
+        );
         let reopened = Store::open(&path).unwrap();
-        assert_eq!(reopened.ledger().block_ids.get(&9).map(String::as_str), Some("b9"));
+        assert_eq!(
+            reopened.ledger().block_ids.get(&9).map(String::as_str),
+            Some("b9")
+        );
     }
 
     #[test]

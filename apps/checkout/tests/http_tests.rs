@@ -12,10 +12,10 @@ use http_body_util::BodyExt;
 use maya_address::Network;
 use maya_checkout::chain::{BlockOutputs, ChainSource, Tip};
 use maya_checkout::http::{AppState, ReadLimiter, router};
-use maya_checkout::invoice::{UnmatchedPayment, UnmatchedReason, Delivery};
-use primitive_types::U256;
+use maya_checkout::invoice::{Delivery, UnmatchedPayment, UnmatchedReason};
 use maya_checkout::store::Store;
 use maya_checkout::{CheckoutError, Result};
+use primitive_types::U256;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use tower::ServiceExt;
@@ -34,7 +34,10 @@ impl ChainSource for FakeChain {
         if self.fail {
             return Err(CheckoutError::Chain("down".into()));
         }
-        Ok(Tip { height: 100, chain_id: Some("maya-testnet-1".into()) })
+        Ok(Tip {
+            height: 100,
+            chain_id: Some("maya-testnet-1".into()),
+        })
     }
     async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
         Ok(vec![])
@@ -42,10 +45,16 @@ impl ChainSource for FakeChain {
 }
 
 fn app(name: &str, fail_chain: bool) -> Router {
-    let path = std::env::temp_dir().join(format!("maya-checkout-http-{}-{name}.json", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "maya-checkout-http-{}-{name}.json",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&path);
     let store = Store::open(&path).unwrap();
-    with_chain(Arc::new(Mutex::new(store)), Arc::new(FakeChain { fail: fail_chain }))
+    with_chain(
+        Arc::new(Mutex::new(store)),
+        Arc::new(FakeChain { fail: fail_chain }),
+    )
 }
 
 fn with_chain(store: Arc<Mutex<Store>>, chain: Arc<dyn ChainSource>) -> Router {
@@ -60,7 +69,10 @@ fn with_chain(store: Arc<Mutex<Store>>, chain: Arc<dyn ChainSource>) -> Router {
 }
 
 fn fresh_store(name: &str) -> Arc<Mutex<Store>> {
-    let path = std::env::temp_dir().join(format!("maya-checkout-http-{}-{name}.json", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "maya-checkout-http-{}-{name}.json",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&path);
     Arc::new(Mutex::new(Store::open(&path).unwrap()))
 }
@@ -74,7 +86,10 @@ struct GatedChain {
 impl ChainSource for GatedChain {
     async fn tip(&self) -> Result<Tip> {
         self.release.notified().await;
-        Ok(Tip { height: 100, chain_id: Some("maya-testnet-1".into()) })
+        Ok(Tip {
+            height: 100,
+            chain_id: Some("maya-testnet-1".into()),
+        })
     }
     async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
         Ok(vec![])
@@ -83,10 +98,19 @@ impl ChainSource for GatedChain {
 
 /// Gives a request the peer address that `serve` with connect info would add.
 fn with_peer(req: axum::http::request::Builder) -> axum::http::request::Builder {
-    req.extension(axum::extract::ConnectInfo(std::net::SocketAddr::from(([203, 0, 113, 7], 40000))))
+    req.extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+        [203, 0, 113, 7],
+        40000,
+    ))))
 }
 
-async fn call(app: &Router, method: &str, uri: &str, auth: Option<&str>, body: Option<Value>) -> (StatusCode, Vec<u8>) {
+async fn call(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    auth: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Vec<u8>) {
     let mut req = Request::builder().method(method).uri(uri);
     if let Some(token) = auth {
         req = req.header(header::AUTHORIZATION, format!("Bearer {token}"));
@@ -98,9 +122,19 @@ async fn call(app: &Router, method: &str, uri: &str, auth: Option<&str>, body: O
         }
         None => Body::empty(),
     };
-    let response = app.clone().oneshot(with_peer(req).body(body).unwrap()).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(with_peer(req).body(body).unwrap())
+        .await
+        .unwrap();
     let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes().to_vec();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .to_vec();
     (status, bytes)
 }
 
@@ -112,9 +146,22 @@ fn invoice_body(amount: &str, webhook: &str) -> Value {
 async fn creating_an_invoice_needs_the_bearer_token() {
     let app = app("auth", false);
     let body = invoice_body("500", PUBLIC_HOOK);
-    assert_eq!(call(&app, "POST", "/v1/invoices", None, Some(body.clone())).await.0, StatusCode::UNAUTHORIZED);
     assert_eq!(
-        call(&app, "POST", "/v1/invoices", Some("not-the-token"), Some(body)).await.0,
+        call(&app, "POST", "/v1/invoices", None, Some(body.clone()))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/invoices",
+            Some("not-the-token"),
+            Some(body)
+        )
+        .await
+        .0,
         StatusCode::UNAUTHORIZED
     );
 }
@@ -122,7 +169,14 @@ async fn creating_an_invoice_needs_the_bearer_token() {
 #[tokio::test]
 async fn a_valid_request_returns_a_payment_link_and_pending_status() {
     let app = app("create", false);
-    let (status, bytes) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
+    let (status, bytes) = call(
+        &app,
+        "POST",
+        "/v1/invoices",
+        Some(TOKEN),
+        Some(invoice_body("500", PUBLIC_HOOK)),
+    )
+    .await;
     assert_eq!(status, StatusCode::CREATED);
     let json: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(json["status"], "pending");
@@ -138,12 +192,24 @@ async fn a_valid_request_returns_a_payment_link_and_pending_status() {
 async fn bad_amounts_and_memos_are_refused() {
     let app = app("bad", false);
     for amount in ["0500", "0", "-5", "12.5", "abc"] {
-        let (status, _) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body(amount, PUBLIC_HOOK))).await;
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/invoices",
+            Some(TOKEN),
+            Some(invoice_body(amount, PUBLIC_HOOK)),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "accepted amount {amount}");
     }
     let mut long = invoice_body("500", PUBLIC_HOOK);
     long["memo"] = json!("m".repeat(200));
-    assert_eq!(call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(long)).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(long))
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 #[tokio::test]
@@ -155,7 +221,14 @@ async fn a_webhook_to_a_private_or_plain_address_is_refused_at_creation() {
         "http://93.184.216.34/hook",
         "https://user:pw@93.184.216.34/hook",
     ] {
-        let (status, _) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", url))).await;
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/invoices",
+            Some(TOKEN),
+            Some(invoice_body("500", url)),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "accepted webhook {url}");
     }
 }
@@ -166,7 +239,18 @@ async fn a_second_open_invoice_for_the_same_amount_is_quoted_a_unit_higher() {
     // quotes the next free base unit, and the response says both amounts.
     let app = app("clash", false);
     let body = invoice_body("777", PUBLIC_HOOK);
-    assert_eq!(call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body.clone())).await.0, StatusCode::CREATED);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/v1/invoices",
+            Some(TOKEN),
+            Some(body.clone())
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
     let (status, bytes) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body)).await;
     assert_eq!(status, StatusCode::CREATED);
     let view: Value = serde_json::from_slice(&bytes).unwrap();
@@ -178,8 +262,18 @@ async fn a_second_open_invoice_for_the_same_amount_is_quoted_a_unit_higher() {
 async fn alerts_list_invoices_whose_delivered_payment_was_reorged_out() {
     let store = fresh_store("alerts");
     let app = with_chain(Arc::clone(&store), Arc::new(FakeChain { fail: false }));
-    let (_, created) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
-    let id = serde_json::from_slice::<Value>(&created).unwrap()["id"].as_str().unwrap().to_owned();
+    let (_, created) = call(
+        &app,
+        "POST",
+        "/v1/invoices",
+        Some(TOKEN),
+        Some(invoice_body("500", PUBLIC_HOOK)),
+    )
+    .await;
+    let id = serde_json::from_slice::<Value>(&created).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     store.lock().await.ledger_mut().invoices[0].reorged = true;
 
     let (status, _) = call(&app, "GET", "/v1/alerts", None, None).await;
@@ -215,7 +309,14 @@ async fn unmatched_payments_are_paged_and_the_page_size_is_capped() {
     assert_eq!(page["total"], 3);
     assert_eq!(page["next_offset"], 2);
 
-    let (_, body) = call(&app, "GET", "/v1/unmatched?offset=2&limit=2", Some(TOKEN), None).await;
+    let (_, body) = call(
+        &app,
+        "GET",
+        "/v1/unmatched?offset=2&limit=2",
+        Some(TOKEN),
+        None,
+    )
+    .await;
     let page: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(page["items"].as_array().unwrap().len(), 1);
     assert!(page["next_offset"].is_null());
@@ -228,25 +329,55 @@ async fn unmatched_payments_are_paged_and_the_page_size_is_capped() {
 #[tokio::test]
 async fn an_unknown_invoice_is_not_found_and_a_known_one_is_public_without_secrets() {
     let app = app("view", false);
-    let (_, bytes) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("900", PUBLIC_HOOK))).await;
-    let id = serde_json::from_slice::<Value>(&bytes).unwrap()["id"].as_str().unwrap().to_owned();
+    let (_, bytes) = call(
+        &app,
+        "POST",
+        "/v1/invoices",
+        Some(TOKEN),
+        Some(invoice_body("900", PUBLIC_HOOK)),
+    )
+    .await;
+    let id = serde_json::from_slice::<Value>(&bytes).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
-    assert_eq!(call(&app, "GET", "/v1/invoices/nope", None, None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(&app, "GET", "/v1/invoices/nope", None, None).await.0,
+        StatusCode::NOT_FOUND
+    );
     let (status, view) = call(&app, "GET", &format!("/v1/invoices/{id}"), None, None).await;
     assert_eq!(status, StatusCode::OK);
     let text = String::from_utf8(view).unwrap();
     assert!(!text.contains(TOKEN));
-    assert!(!text.contains("93.184.216.34"), "the public view leaks the webhook destination: {text}");
+    assert!(
+        !text.contains("93.184.216.34"),
+        "the public view leaks the webhook destination: {text}"
+    );
 }
 
 #[tokio::test]
 async fn the_qr_code_is_an_svg() {
     let app = app("qr", false);
-    let (_, bytes) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("400", PUBLIC_HOOK))).await;
-    let id = serde_json::from_slice::<Value>(&bytes).unwrap()["id"].as_str().unwrap().to_owned();
+    let (_, bytes) = call(
+        &app,
+        "POST",
+        "/v1/invoices",
+        Some(TOKEN),
+        Some(invoice_body("400", PUBLIC_HOOK)),
+    )
+    .await;
+    let id = serde_json::from_slice::<Value>(&bytes).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let response = app
         .clone()
-        .oneshot(with_peer(Request::builder().uri(format!("/v1/invoices/{id}/qr.svg"))).body(Body::empty()).unwrap())
+        .oneshot(
+            with_peer(Request::builder().uri(format!("/v1/invoices/{id}/qr.svg")))
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -256,7 +387,14 @@ async fn the_qr_code_is_an_svg() {
 #[tokio::test]
 async fn an_unreachable_node_stops_creation_rather_than_guessing_a_height() {
     let app = app("down", true);
-    let (status, _) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/invoices",
+        Some(TOKEN),
+        Some(invoice_body("500", PUBLIC_HOOK)),
+    )
+    .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
 }
 
@@ -264,13 +402,28 @@ async fn an_unreachable_node_stops_creation_rather_than_guessing_a_height() {
 async fn a_slow_node_does_not_hold_the_ledger_while_an_invoice_is_created() {
     let store = fresh_store("slow-node");
     let release = Arc::new(tokio::sync::Notify::new());
-    let app = with_chain(Arc::clone(&store), Arc::new(GatedChain { release: Arc::clone(&release) }));
+    let app = with_chain(
+        Arc::clone(&store),
+        Arc::new(GatedChain {
+            release: Arc::clone(&release),
+        }),
+    );
     let creating = tokio::spawn(async move {
-        call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await
+        call(
+            &app,
+            "POST",
+            "/v1/invoices",
+            Some(TOKEN),
+            Some(invoice_body("500", PUBLIC_HOOK)),
+        )
+        .await
     });
     // Let the request reach the node call and park there.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    assert!(store.try_lock().is_ok(), "the ledger lock was held across the node call");
+    assert!(
+        store.try_lock().is_ok(),
+        "the ledger lock was held across the node call"
+    );
     release.notify_one();
     let (status, _) = creating.await.unwrap();
     assert_eq!(status, StatusCode::CREATED);
@@ -280,7 +433,14 @@ async fn a_slow_node_does_not_hold_the_ledger_while_an_invoice_is_created() {
 async fn a_failed_webhook_can_be_resent_but_a_delivered_one_cannot() {
     let store = fresh_store("resend");
     let app = with_chain(Arc::clone(&store), Arc::new(FakeChain { fail: false }));
-    let (_, created) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(invoice_body("500", PUBLIC_HOOK))).await;
+    let (_, created) = call(
+        &app,
+        "POST",
+        "/v1/invoices",
+        Some(TOKEN),
+        Some(invoice_body("500", PUBLIC_HOOK)),
+    )
+    .await;
     let id: Value = serde_json::from_slice(&created).unwrap();
     let uri = format!("/v1/invoices/{}/resend", id["id"].as_str().unwrap());
     {
@@ -301,21 +461,30 @@ async fn a_failed_webhook_can_be_resent_but_a_delivered_one_cannot() {
     let (status, _) = call(&app, "POST", &uri, Some(TOKEN), None).await;
     assert_eq!(status, StatusCode::CONFLICT);
     let (status, _) = call(&app, "POST", &uri, None, None).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "resend needs the bearer token");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "resend needs the bearer token"
+    );
 }
 
 #[tokio::test]
 async fn unmatched_payments_are_listed_for_the_merchant_only() {
     let store = fresh_store("unmatched");
-    store.lock().await.ledger_mut().unmatched.push(UnmatchedPayment {
-        txid: "ab".into(),
-        index: 0,
-        height: 7,
-        block_id: "b7".into(),
-        recipient: [9; 32],
-        amount: U256::from(999u64),
-        reason: UnmatchedReason::NoExactInvoice,
-    });
+    store
+        .lock()
+        .await
+        .ledger_mut()
+        .unmatched
+        .push(UnmatchedPayment {
+            txid: "ab".into(),
+            index: 0,
+            height: 7,
+            block_id: "b7".into(),
+            recipient: [9; 32],
+            amount: U256::from(999u64),
+            reason: UnmatchedReason::NoExactInvoice,
+        });
     let app = with_chain(store, Arc::new(FakeChain { fail: false }));
 
     let (status, _) = call(&app, "GET", "/v1/unmatched", None, None).await;
@@ -338,9 +507,15 @@ fn public_reads_are_budgeted_per_client_address() {
     for _ in 0..50 {
         assert!(limiter.admit(a, now));
     }
-    assert!(!limiter.admit(a, now), "client A's 51st read in one second must be refused");
+    assert!(
+        !limiter.admit(a, now),
+        "client A's 51st read in one second must be refused"
+    );
     assert!(limiter.admit(b, now), "client B has its own budget");
-    assert!(limiter.admit(a, now + 1), "A's budget refills with the next second");
+    assert!(
+        limiter.admit(a, now + 1),
+        "A's budget refills with the next second"
+    );
 }
 
 #[test]
