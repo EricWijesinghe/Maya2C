@@ -3,7 +3,7 @@
 //!
 //! Genesis is the only seed the schedule has here, so these tests run real
 //! blocks to the sunset height. The sunset is an emergency one with the shortest
-//! window the network permits, `MIN_EMERGENCY_WINDOW` (17,280 blocks), so the
+//! window the network permits, `MIN_EMERGENCY_WINDOW` (259,200 blocks, 3 days at 1 block/s), so the
 //! chain reaches it in one run of empty blocks. Nothing in the tests overrides a
 //! lead: the schedule comes from the genesis file.
 

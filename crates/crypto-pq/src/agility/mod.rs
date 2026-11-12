@@ -29,9 +29,10 @@ pub const MIN_PQ_SECURITY_BITS: u16 = 128;
 /// anchor every 2 rounds).
 pub const MIN_MIGRATION_WINDOW: u64 = 2_592_000;
 
-/// The shortest *emergency* window: about 3 days. For a suite that has been
+/// The shortest *emergency* window: 3 days at 1 block/s (was 17,280, which was
+/// 3 days only at 15 s blocks; Eric 2026-11-12). For a suite that has been
 /// broken in public, a month of exposure is worse than a rushed migration.
-pub const MIN_EMERGENCY_WINDOW: u64 = 17_280;
+pub const MIN_EMERGENCY_WINDOW: u64 = 259_200;
 
 /// Which network a policy governs. Only devnet admits Ed25519.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
