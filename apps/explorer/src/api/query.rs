@@ -146,9 +146,18 @@ mod tests {
     #[test]
     fn cursor_round_trips_every_position() {
         for seek in [
-            Seek { height: 0, position: 0 },
-            Seek { height: 42, position: 7 },
-            Seek { height: i64::MAX, position: i64::MAX },
+            Seek {
+                height: 0,
+                position: 0,
+            },
+            Seek {
+                height: 42,
+                position: 7,
+            },
+            Seek {
+                height: i64::MAX,
+                position: i64::MAX,
+            },
         ] {
             assert_eq!(decode_cursor(&encode_cursor(seek)).unwrap(), seek);
         }
@@ -156,7 +165,10 @@ mod tests {
 
     #[test]
     fn cursor_rejects_tampering_and_foreign_input() {
-        let good = encode_cursor(Seek { height: 9, position: 1 });
+        let good = encode_cursor(Seek {
+            height: 9,
+            position: 1,
+        });
         let wrong_version = format!("02{}", &good[2..]);
         let truncated = &good[..good.len() - 2];
         for bad in ["", "zz", wrong_version.as_str(), truncated] {

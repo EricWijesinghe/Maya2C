@@ -103,7 +103,10 @@ mod tests {
                 calls.fetch_add(1, Ordering::SeqCst);
                 Ok::<_, ()>(5)
             };
-            cache.get_or_fetch("k", Duration::from_secs(60), fetch).await.unwrap();
+            cache
+                .get_or_fetch("k", Duration::from_secs(60), fetch)
+                .await
+                .unwrap();
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -121,7 +124,9 @@ mod tests {
                     calls.fetch_add(1, Ordering::SeqCst);
                     Ok::<_, ()>(9)
                 };
-                cache.get_or_fetch("supply", Duration::from_secs(30), fetch).await
+                cache
+                    .get_or_fetch("supply", Duration::from_secs(30), fetch)
+                    .await
             }));
         }
         for task in tasks {
@@ -134,7 +139,9 @@ mod tests {
     async fn errors_are_not_cached() {
         let cache = TtlCache::<u32>::default();
         let failed = cache
-            .get_or_fetch("k", Duration::from_secs(60), || async { Err::<u32, _>("down") })
+            .get_or_fetch("k", Duration::from_secs(60), || async {
+                Err::<u32, _>("down")
+            })
             .await;
         assert!(failed.is_err());
         let (value, source) = cache
@@ -147,7 +154,10 @@ mod tests {
     #[tokio::test]
     async fn expired_value_is_refetched() {
         let cache = TtlCache::<u32>::default();
-        cache.get_or_fetch("k", Duration::ZERO, || async { Ok::<_, ()>(1) }).await.unwrap();
+        cache
+            .get_or_fetch("k", Duration::ZERO, || async { Ok::<_, ()>(1) })
+            .await
+            .unwrap();
         let (value, source) = cache
             .get_or_fetch("k", Duration::ZERO, || async { Ok::<_, ()>(2) })
             .await

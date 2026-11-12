@@ -172,7 +172,13 @@ impl BlockStore for MemoryStore {
         let limit = limit.max(0) as usize;
         let inner = self.read();
         Ok(match before {
-            Some(seek) => inner.blocks.range(..seek.height).rev().take(limit).map(|(_, b)| b.clone()).collect(),
+            Some(seek) => inner
+                .blocks
+                .range(..seek.height)
+                .rev()
+                .take(limit)
+                .map(|(_, b)| b.clone())
+                .collect(),
             None => inner.blocks.values().rev().take(limit).cloned().collect(),
         })
     }

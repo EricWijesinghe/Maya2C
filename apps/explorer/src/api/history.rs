@@ -40,7 +40,11 @@ async fn meta_for(state: &ApiState, indexed: Option<i64>) -> Meta {
 }
 
 async fn indexed_height(state: &ApiState) -> Result<Option<i64>, ApiError> {
-    state.store.latest_height().await.map_err(|e| index_error(&e))
+    state
+        .store
+        .latest_height()
+        .await
+        .map_err(|e| index_error(&e))
 }
 
 /// Resolves a block reference, or `404 not_found`.

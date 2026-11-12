@@ -22,13 +22,19 @@ const BLOCK_TIME_WINDOW: i64 = 30;
 /// tables and hosts, which a public client has no business seeing.
 pub fn index_error(error: &ExplorerError) -> ApiError {
     eprintln!("api: store: {error}");
-    ApiError::new(Code::IndexBehind, "the index cannot answer right now; retry shortly")
+    ApiError::new(
+        Code::IndexBehind,
+        "the index cannot answer right now; retry shortly",
+    )
 }
 
 /// A node failure. Its text is logged, not returned.
 pub fn node_error(error: &ExplorerError) -> ApiError {
     eprintln!("api: node: {error}");
-    ApiError::new(Code::NodeUnavailable, "the node cannot answer right now; retry shortly")
+    ApiError::new(
+        Code::NodeUnavailable,
+        "the node cannot answer right now; retry shortly",
+    )
 }
 
 /// Chain and index summary.
@@ -48,15 +54,27 @@ pub async fn status(State(state): State<ApiState>) -> Result<Response, ApiError>
         .and_then(|i| i.chain_id.as_deref())
         .and_then(Network::for_chain_id);
 
-    let indexed = state.store.latest_height().await.map_err(|e| index_error(&e))?;
-    let oldest = state.store.oldest_height().await.map_err(|e| index_error(&e))?;
+    let indexed = state
+        .store
+        .latest_height()
+        .await
+        .map_err(|e| index_error(&e))?;
+    let oldest = state
+        .store
+        .oldest_height()
+        .await
+        .map_err(|e| index_error(&e))?;
     let window = state
         .store
         .latest_blocks(BLOCK_TIME_WINDOW)
         .await
         .map_err(|e| index_error(&e))?;
     let counts = Counts {
-        blocks: state.store.block_count().await.map_err(|e| index_error(&e))?,
+        blocks: state
+            .store
+            .block_count()
+            .await
+            .map_err(|e| index_error(&e))?,
         transactions: state
             .store
             .transaction_count()

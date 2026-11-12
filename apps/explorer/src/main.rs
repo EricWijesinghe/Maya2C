@@ -17,11 +17,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use maya_explorer::indexer::{Indexer, RpcSource};
-use maya_web_security::rate_limit::ClientIp;
 use maya_explorer::server::{AppState, serve};
 use maya_explorer::store::BlockStore;
 use maya_explorer::store::memory::MemoryStore;
 use maya_explorer::store::postgres::PostgresStore;
+use maya_web_security::rate_limit::ClientIp;
 
 struct Args {
     node_rpc: String,

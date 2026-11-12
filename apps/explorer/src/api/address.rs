@@ -28,7 +28,11 @@ pub fn parse(text: &str, expected: Option<Network>) -> Result<[u8; 32], ApiError
         Ok((network, id)) => match expected {
             Some(wanted) if wanted != network => Err(ApiError::new(
                 Code::WrongNetwork,
-                format!("address is for {}, this node serves {}", network.hrp(), wanted.hrp()),
+                format!(
+                    "address is for {}, this node serves {}",
+                    network.hrp(),
+                    wanted.hrp()
+                ),
             )),
             _ => Ok(id),
         },
@@ -72,8 +76,14 @@ mod tests {
     #[test]
     fn hex_is_refused() {
         let hex_form = hex::encode([7u8; 32]);
-        assert_eq!(parse(&hex_form, None).unwrap_err().code, Code::InvalidAddress);
-        assert_eq!(parse("0x0707", None).unwrap_err().code, Code::InvalidAddress);
+        assert_eq!(
+            parse(&hex_form, None).unwrap_err().code,
+            Code::InvalidAddress
+        );
+        assert_eq!(
+            parse("0x0707", None).unwrap_err().code,
+            Code::InvalidAddress
+        );
     }
 
     #[test]
@@ -91,16 +101,25 @@ mod tests {
         let mut corrupted = text_form.clone();
         let last = corrupted.pop().unwrap();
         corrupted.push(if last == 'q' { 'p' } else { 'q' });
-        assert_eq!(parse(&corrupted, None).unwrap_err().code, Code::InvalidAddress);
+        assert_eq!(
+            parse(&corrupted, None).unwrap_err().code,
+            Code::InvalidAddress
+        );
         // Editing the prefix breaks the checksum too, so it is InvalidAddress.
         let renamed = text_form.replacen("tmaya", "xmaya", 1);
-        assert_eq!(parse(&renamed, None).unwrap_err().code, Code::InvalidAddress);
+        assert_eq!(
+            parse(&renamed, None).unwrap_err().code,
+            Code::InvalidAddress
+        );
     }
 
     #[test]
     fn text_needs_a_known_network_and_a_full_id() {
         let (id, text_form) = sample();
-        assert_eq!(text(Some(Network::Testnet), &hex::encode(id)), Some(text_form));
+        assert_eq!(
+            text(Some(Network::Testnet), &hex::encode(id)),
+            Some(text_form)
+        );
         assert_eq!(text(None, &hex::encode(id)), None);
         assert_eq!(text(Some(Network::Testnet), "abcd"), None);
     }

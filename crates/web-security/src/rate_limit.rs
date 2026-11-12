@@ -104,7 +104,13 @@ fn header_ip<T>(
     // The last header line, not the first: a client can send its own
     // `X-Forwarded-For` line before the proxy's, and the proxy's line is the
     // one appended last.
-    let value = request.headers().get_all(name).iter().last()?.to_str().ok()?;
+    let value = request
+        .headers()
+        .get_all(name)
+        .iter()
+        .last()?
+        .to_str()
+        .ok()?;
     pick(value)?.trim().parse().ok()
 }
 

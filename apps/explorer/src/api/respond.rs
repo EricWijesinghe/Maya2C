@@ -72,7 +72,10 @@ pub fn json<T: Serialize>(body: &T, freshness: Freshness, meta: Meta) -> Respons
     };
 
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     headers.insert(header::CACHE_CONTROL, cache_control(freshness));
     if freshness == Freshness::Live {
         let digest = Sha256::digest(&bytes);
@@ -138,7 +141,10 @@ pub async fn legacy_api(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     if path.starts_with("/api/") && !path.starts_with("/api/v1/") {
         let headers = response.headers_mut();
-        headers.insert(HeaderName::from_static("deprecation"), HeaderValue::from_static("true"));
+        headers.insert(
+            HeaderName::from_static("deprecation"),
+            HeaderValue::from_static("true"),
+        );
         headers.insert(
             header::LINK,
             HeaderValue::from_static("</api/v1/status>; rel=\"successor-version\""),

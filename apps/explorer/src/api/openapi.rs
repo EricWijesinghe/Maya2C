@@ -9,7 +9,9 @@ use serde::Serialize;
 use utoipa::{OpenApi, ToSchema};
 
 use crate::api::chain;
-use crate::api::dto::{Account, Block, Counts, Mempool, Output, Status, Supply, Transaction, TransactionDetail};
+use crate::api::dto::{
+    Account, Block, Counts, Mempool, Output, Status, Supply, Transaction, TransactionDetail,
+};
 use crate::api::history;
 use crate::api::problem::Code;
 

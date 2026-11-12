@@ -138,7 +138,10 @@ fn rate_limited(burst: u32, error: GovernorError) -> Response {
     match error {
         GovernorError::TooManyRequests { wait_time, .. } => {
             let mut headers = HeaderMap::new();
-            headers.insert(axum::http::header::RETRY_AFTER, HeaderValue::from(wait_time));
+            headers.insert(
+                axum::http::header::RETRY_AFTER,
+                HeaderValue::from(wait_time),
+            );
             headers.insert(RATELIMIT_LIMIT, HeaderValue::from(burst));
             headers.insert(RATELIMIT_REMAINING, HeaderValue::from(0u32));
             headers.insert(RATELIMIT_RESET, HeaderValue::from(wait_time));

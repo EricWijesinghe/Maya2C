@@ -118,7 +118,10 @@ impl NodeSource for FakeNode {
 
     async fn mempool(&self) -> Result<Mempool> {
         self.answer()?;
-        Ok(Mempool { size: 2, bytes: 512 })
+        Ok(Mempool {
+            size: 2,
+            bytes: 512,
+        })
     }
 }
 
@@ -236,7 +239,12 @@ impl Reply {
     }
 }
 
-async fn send(app: &Router, uri: &str, peer: Option<SocketAddr>, headers: &[(&str, &str)]) -> Reply {
+async fn send(
+    app: &Router,
+    uri: &str,
+    peer: Option<SocketAddr>,
+    headers: &[(&str, &str)],
+) -> Reply {
     let mut builder = Request::builder().uri(uri);
     for (name, value) in headers {
         builder = builder.header(*name, *value);
@@ -248,7 +256,12 @@ async fn send(app: &Router, uri: &str, peer: Option<SocketAddr>, headers: &[(&st
     let response = app.clone().oneshot(request).await.expect("infallible");
     let status = response.status();
     let headers = response.headers().clone();
-    let bytes = response.into_body().collect().await.expect("body").to_bytes();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
     let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     Reply {
         status,
@@ -342,8 +355,16 @@ async fn transaction_detail_includes_outputs_with_exact_amounts() {
     // Above 2^64: a JSON number would lose this digit.
     assert_eq!(outputs[0]["amount"], "18446744073709551617");
     assert_eq!(outputs[1]["amount"], "5");
-    assert_eq!(get(&app, &format!("/api/v1/transactions/{}", hash(9))).await.code(), "not_found");
-    assert_eq!(get(&app, "/api/v1/transactions/xyz").await.code(), "invalid_param");
+    assert_eq!(
+        get(&app, &format!("/api/v1/transactions/{}", hash(9)))
+            .await
+            .code(),
+        "not_found"
+    );
+    assert_eq!(
+        get(&app, "/api/v1/transactions/xyz").await.code(),
+        "invalid_param"
+    );
 }
 
 #[tokio::test]
@@ -401,7 +422,11 @@ async fn cursor_walk_returns_the_full_set_once() {
     assert_eq!(expected.len(), 10);
     let app = build_app(store, Arc::new(FakeNode::default()));
     for limit in [1, 3, 4, 10, 100] {
-        assert_eq!(walk(&app, "/api/v1/transactions", limit).await, expected, "limit {limit}");
+        assert_eq!(
+            walk(&app, "/api/v1/transactions", limit).await,
+            expected,
+            "limit {limit}"
+        );
     }
 }
 
@@ -425,7 +450,10 @@ async fn rollback_removes_abandoned_rows_from_every_list() {
     let txs = walk(&app, "/api/v1/transactions", 2).await;
     assert_eq!(txs.len(), 6);
     for abandoned in [txid(4, 0), txid(4, 1), txid(5, 0), txid(5, 1)] {
-        assert!(!txs.contains(&abandoned), "abandoned row {abandoned} listed");
+        assert!(
+            !txs.contains(&abandoned),
+            "abandoned row {abandoned} listed"
+        );
     }
     let heights = get(&app, "/api/v1/blocks?limit=10").await;
     assert_eq!(heights.body["items"][0]["height"], 3);
@@ -448,8 +476,16 @@ async fn receive_only_account_lists_incoming_transactions() {
 async fn direction_filter_splits_sent_and_received() {
     let app = build_app(seeded(5).await, Arc::new(FakeNode::default()));
     let base = format!("/api/v1/accounts/{}/transactions", bech(2));
-    assert_eq!(walk(&app, &format!("{base}?direction=sent"), 4).await.len(), 5);
-    assert_eq!(walk(&app, &format!("{base}?direction=received"), 4).await.len(), 5);
+    assert_eq!(
+        walk(&app, &format!("{base}?direction=sent"), 4).await.len(),
+        5
+    );
+    assert_eq!(
+        walk(&app, &format!("{base}?direction=received"), 4)
+            .await
+            .len(),
+        5
+    );
     assert_eq!(walk(&app, &base, 4).await.len(), 10);
     let bad = get(&app, &format!("{base}?direction=in")).await;
     assert_eq!(bad.code(), "invalid_param");
@@ -469,7 +505,11 @@ async fn bad_limits_and_cursors_are_typed_errors() {
     }
     let garbage = get(&app, "/api/v1/transactions?cursor=nothex").await;
     assert_eq!(garbage.code(), "invalid_cursor");
-    let wrong_version = get(&app, &format!("/api/v1/transactions?cursor=02{}", "00".repeat(16))).await;
+    let wrong_version = get(
+        &app,
+        &format!("/api/v1/transactions?cursor=02{}", "00".repeat(16)),
+    )
+    .await;
     assert_eq!(wrong_version.code(), "invalid_cursor");
 }
 
@@ -480,7 +520,11 @@ async fn cursor_from_another_block_is_refused() {
     assert!(!first.body["next_cursor"].is_null());
     let page = get(&app, "/api/v1/transactions?limit=1").await;
     let cursor = page.body["next_cursor"].as_str().unwrap().to_string();
-    let reply = get(&app, &format!("/api/v1/blocks/2/transactions?cursor={cursor}")).await;
+    let reply = get(
+        &app,
+        &format!("/api/v1/blocks/2/transactions?cursor={cursor}"),
+    )
+    .await;
     assert_eq!(reply.code(), "invalid_cursor");
 }
 
@@ -493,7 +537,12 @@ async fn addresses_must_be_bech32m_for_this_network() {
     let mut corrupted = bech(1);
     let last = corrupted.pop().unwrap();
     corrupted.push(if last == 'q' { 'p' } else { 'q' });
-    assert_eq!(get(&app, &format!("/api/v1/accounts/{corrupted}")).await.code(), "invalid_address");
+    assert_eq!(
+        get(&app, &format!("/api/v1/accounts/{corrupted}"))
+            .await
+            .code(),
+        "invalid_address"
+    );
 
     let mainnet = encode(Network::Mainnet, &addr(1));
     let other = get(&app, &format!("/api/v1/accounts/{mainnet}")).await;
@@ -510,7 +559,12 @@ async fn burst_plus_one_is_limited_with_retry_headers() {
     let limit = limit_of(3, 1, ClientIp::Socket);
     let app = app_with(seeded(1).await, Arc::new(FakeNode::default()), limit);
     for _ in 0..3 {
-        assert_eq!(send(&app, "/api/v1/mempool", Some(peer(1)), &[]).await.status, StatusCode::OK);
+        assert_eq!(
+            send(&app, "/api/v1/mempool", Some(peer(1)), &[])
+                .await
+                .status,
+            StatusCode::OK
+        );
     }
     let limited = send(&app, "/api/v1/mempool", Some(peer(1)), &[]).await;
     assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
@@ -529,8 +583,18 @@ async fn clients_are_limited_independently() {
     for _ in 0..2 {
         send(&app, "/api/v1/mempool", Some(peer(1)), &[]).await;
     }
-    assert_eq!(send(&app, "/api/v1/mempool", Some(peer(1)), &[]).await.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(send(&app, "/api/v1/mempool", Some(peer(2)), &[]).await.status, StatusCode::OK);
+    assert_eq!(
+        send(&app, "/api/v1/mempool", Some(peer(1)), &[])
+            .await
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        send(&app, "/api/v1/mempool", Some(peer(2)), &[])
+            .await
+            .status,
+        StatusCode::OK
+    );
 }
 
 #[tokio::test]
@@ -553,7 +617,13 @@ async fn proxy_mode_keys_on_the_proxy_appended_address() {
     // The client prepends whatever it likes; the proxy appends the real peer.
     for prefix in ["7.7.7.7", "8.8.8.8", "9.9.9.9"] {
         let value = format!("{prefix}, 203.0.113.9");
-        send(&app, "/api/v1/mempool", Some(peer(1)), &[("x-forwarded-for", value.as_str())]).await;
+        send(
+            &app,
+            "/api/v1/mempool",
+            Some(peer(1)),
+            &[("x-forwarded-for", value.as_str())],
+        )
+        .await;
     }
     let limited = send(
         &app,
@@ -572,11 +642,17 @@ async fn proxy_mode_keys_on_the_proxy_appended_address() {
 #[tokio::test]
 async fn fifty_concurrent_supply_requests_make_one_node_call() {
     let node = Arc::new(FakeNode::default());
-    let app = app_with(seeded(1).await, Arc::clone(&node), limit_of(1_000, 1_000, ClientIp::Socket));
+    let app = app_with(
+        seeded(1).await,
+        Arc::clone(&node),
+        limit_of(1_000, 1_000, ClientIp::Socket),
+    );
     let mut tasks = Vec::new();
     for _ in 0..50 {
         let app = app.clone();
-        tasks.push(tokio::spawn(async move { get(&app, "/api/v1/supply").await.status }));
+        tasks.push(tokio::spawn(async move {
+            get(&app, "/api/v1/supply").await.status
+        }));
     }
     for task in tasks {
         assert_eq!(task.await.unwrap(), StatusCode::OK);
@@ -590,8 +666,16 @@ async fn node_down_blocks_live_routes_and_leaves_history_working() {
     node.down.store(true, Ordering::SeqCst);
     let app = build_app(seeded(3).await, node);
     assert_eq!(get(&app, "/api/v1/supply").await.code(), "node_unavailable");
-    assert_eq!(get(&app, "/api/v1/mempool").await.status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(get(&app, &format!("/api/v1/accounts/{}", bech(1))).await.code(), "node_unavailable");
+    assert_eq!(
+        get(&app, "/api/v1/mempool").await.status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        get(&app, &format!("/api/v1/accounts/{}", bech(1)))
+            .await
+            .code(),
+        "node_unavailable"
+    );
     assert_eq!(get(&app, "/api/v1/blocks/2").await.status, StatusCode::OK);
     let status = get(&app, "/api/v1/status").await;
     assert_eq!(status.status, StatusCode::OK);
@@ -608,7 +692,10 @@ async fn cache_headers_follow_finality() {
     });
     let app = build_app(seeded(5).await, node);
     let final_block = get(&app, "/api/v1/blocks/2").await;
-    assert_eq!(final_block.headers["cache-control"], "public, max-age=31536000, immutable");
+    assert_eq!(
+        final_block.headers["cache-control"],
+        "public, max-age=31536000, immutable"
+    );
     let tip_block = get(&app, "/api/v1/blocks/4").await;
     assert_eq!(tip_block.headers["cache-control"], "public, max-age=5");
     let list = get(&app, "/api/v1/blocks").await;
@@ -627,7 +714,13 @@ async fn live_data_revalidates_with_etag() {
     let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     let first = get(&app, "/api/v1/mempool").await;
     let etag = first.headers["etag"].to_str().unwrap().to_string();
-    let again = send(&app, "/api/v1/mempool", Some(peer(1)), &[("if-none-match", etag.as_str())]).await;
+    let again = send(
+        &app,
+        "/api/v1/mempool",
+        Some(peer(1)),
+        &[("if-none-match", etag.as_str())],
+    )
+    .await;
     assert_eq!(again.status, StatusCode::NOT_MODIFIED);
     assert_eq!(again.headers["etag"], etag.as_str());
 }
@@ -679,12 +772,18 @@ async fn every_route_is_served() {
 #[test]
 fn openapi_matches_the_golden_file() {
     let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("openapi/v1.yaml");
-    let generated = format!("{}\n", serde_json::to_string_pretty(&openapi::document()).unwrap());
+    let generated = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&openapi::document()).unwrap()
+    );
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::write(&golden, &generated).expect("write golden");
     }
     let committed = std::fs::read_to_string(&golden).expect("golden file exists");
-    assert_eq!(committed, generated, "run with UPDATE_GOLDEN=1 after an intended change");
+    assert_eq!(
+        committed, generated,
+        "run with UPDATE_GOLDEN=1 after an intended change"
+    );
 }
 
 #[tokio::test]
@@ -700,7 +799,12 @@ async fn legacy_api_is_marked_deprecated_and_v1_is_not() {
     let app = explorer_router(state);
     let legacy = get(&app, "/api/stats").await;
     assert_eq!(legacy.headers["deprecation"], "true");
-    assert!(legacy.headers["link"].to_str().unwrap().contains("successor-version"));
+    assert!(
+        legacy.headers["link"]
+            .to_str()
+            .unwrap()
+            .contains("successor-version")
+    );
     let v1 = get(&app, "/api/v1/status").await;
     assert!(!v1.headers.contains_key("deprecation"));
 }
