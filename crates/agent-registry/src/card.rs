@@ -18,6 +18,39 @@ const ID_DOMAIN: &[u8] = b"maya2c agent id v1";
 pub const MAX_TEXT_BYTES: usize = 256;
 /// Most capabilities, and most prices, per card.
 pub const MAX_LIST_LEN: usize = 32;
+/// Longest card lifetime. An agent re-signs to stay listed, so a slot held by
+/// a forgotten card frees itself.
+pub const MAX_LIFETIME_SECS: u64 = 30 * 24 * 3600;
+
+/// A capability is a token: ASCII letters, digits and `. _ : -`. Card text is
+/// shown to a model by the MCP tools, so free text is kept out of the fields
+/// it matches on.
+pub fn is_capability(text: &str) -> bool {
+    (1..=MAX_TEXT_BYTES).contains(&text.len())
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._:-".contains(c))
+}
+
+/// Display text: bounded, and no control or bidirectional-override
+/// characters, which could hide or reorder what a person or model reads.
+fn is_display_text(text: &str) -> bool {
+    const BIDI: [char; 11] = [
+        '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}',
+        '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+    ];
+    (1..=MAX_TEXT_BYTES).contains(&text.len())
+        && !text.chars().any(|c| c.is_control() || BIDI.contains(&c))
+}
+
+/// An endpoint is `https://…`, or plain HTTP on loopback for local agents;
+/// printable ASCII only.
+fn is_endpoint(text: &str) -> bool {
+    let schemes = ["https://", "http://127.0.0.1:", "http://localhost:"];
+    (1..=MAX_TEXT_BYTES).contains(&text.len())
+        && text.chars().all(|c| c.is_ascii_graphic())
+        && schemes.iter().any(|s| text.starts_with(s))
+}
 
 pub type AgentId = [u8; 32];
 
@@ -85,19 +118,19 @@ impl AgentCard {
     }
 
     fn check_bounds(&self) -> Result<()> {
-        let text_ok = |s: &str| (1..=MAX_TEXT_BYTES).contains(&s.len());
         let lists_ok = !self.capabilities.is_empty()
             && self.capabilities.len() <= MAX_LIST_LEN
             && self.prices.len() <= MAX_LIST_LEN;
-        let capabilities_ok = self.capabilities.iter().all(|c| text_ok(c));
-        let prices_ok = self.prices.iter().all(|p| {
-            text_ok(&p.capability)
-                && self.capabilities.contains(&p.capability)
-                && !p.amount.is_zero()
-        });
-        let window_ok = self.expires_at > self.issued_at;
-        if text_ok(&self.name)
-            && text_ok(&self.endpoint)
+        let capabilities_ok = self.capabilities.iter().all(|c| is_capability(c));
+        // Membership in `capabilities` already implies the token charset.
+        let prices_ok = self
+            .prices
+            .iter()
+            .all(|p| self.capabilities.contains(&p.capability) && !p.amount.is_zero());
+        let window_ok = self.expires_at > self.issued_at
+            && self.expires_at - self.issued_at <= MAX_LIFETIME_SECS;
+        if is_display_text(&self.name)
+            && is_endpoint(&self.endpoint)
             && lists_ok
             && capabilities_ok
             && prices_ok

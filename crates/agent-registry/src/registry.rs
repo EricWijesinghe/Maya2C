@@ -5,11 +5,34 @@ use std::collections::BTreeMap;
 use crate::card::{AgentId, SignedCard};
 use crate::error::{Error, Result};
 
-/// Most distinct agents held at once.
-/// shortcut: in-memory cap; a full registry refuses new agents until persistence and eviction exist.
+/// Most distinct agents held at once. Expired cards are dropped when the
+/// table is full, so a burst of short-lived cards cannot hold the slots.
+/// shortcut: in-memory cap; unexpired cards from many keys can still fill it
+/// until persistence and per-publisher quotas exist.
 pub const MAX_AGENTS: usize = 10_000;
 /// How far ahead of the registry's clock a card's `issued_at` may be.
 pub const MAX_CLOCK_SKEW_SECS: u64 = 300;
+
+/// A card whose signature and expiry have been checked. Only [`VerifiedCard::new`]
+/// makes one, so [`Registry::insert`] cannot be handed an unchecked card; the
+/// HTTP layer verifies before it takes the registry lock.
+#[derive(Debug)]
+pub struct VerifiedCard {
+    id: AgentId,
+    card: SignedCard,
+}
+
+impl VerifiedCard {
+    pub fn new(card: SignedCard, now: u64) -> Result<Self> {
+        let id = card.verify(now)?;
+        // A far-future `issued_at` would make every later update look stale,
+        // so one bad card could pin the agent's slot until it expires.
+        if card.card.issued_at > now.saturating_add(MAX_CLOCK_SKEW_SECS) {
+            return Err(Error::Bounds);
+        }
+        Ok(Self { id, card })
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Registry {
@@ -19,12 +42,12 @@ pub struct Registry {
 impl Registry {
     /// Verifies the card, then stores it. A card replaces the held one only when newer.
     pub fn publish(&mut self, card: SignedCard, now: u64) -> Result<AgentId> {
-        let id = card.verify(now)?;
-        // A far-future `issued_at` would make every later update look stale,
-        // so a card that leaked once could pin the slot until it expires.
-        if card.card.issued_at > now.saturating_add(MAX_CLOCK_SKEW_SECS) {
-            return Err(Error::Bounds);
-        }
+        self.insert(VerifiedCard::new(card, now)?, now)
+    }
+
+    /// Stores an already verified card. A card replaces the held one only when newer.
+    pub fn insert(&mut self, verified: VerifiedCard, now: u64) -> Result<AgentId> {
+        let VerifiedCard { id, card } = verified;
         let stale = self
             .cards
             .get(&id)
@@ -33,7 +56,10 @@ impl Registry {
             return Err(Error::Stale);
         }
         if !self.cards.contains_key(&id) && self.cards.len() >= MAX_AGENTS {
-            return Err(Error::Full);
+            self.cards.retain(|_, held| now < held.card.expires_at);
+            if self.cards.len() >= MAX_AGENTS {
+                return Err(Error::Full);
+            }
         }
         self.cards.insert(id, card);
         Ok(id)

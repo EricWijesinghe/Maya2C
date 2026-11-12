@@ -11,7 +11,7 @@ use maya_crypto_pq::suite::{HybridMlDsa65SlhDsa128s, SignatureSuite};
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
-use crate::card::{AgentId, MAX_TEXT_BYTES, agent_id_of};
+use crate::card::{AgentId, agent_id_of, is_capability};
 use crate::error::{Error, Result};
 use crate::signer::AgentSigner;
 use crate::wire;
@@ -40,8 +40,7 @@ pub struct Quote {
 
 impl Quote {
     pub fn canonical(&self) -> Result<Vec<u8>> {
-        let capability_ok = (1..=MAX_TEXT_BYTES).contains(&self.capability.len());
-        if !capability_ok || self.amount.is_zero() {
+        if !is_capability(&self.capability) || self.amount.is_zero() {
             return Err(Error::Bounds);
         }
         let mut out = Vec::new();

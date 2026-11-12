@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use crate::card::{MAX_TEXT_BYTES, SignedCard};
+use crate::card::{SignedCard, is_capability};
 use crate::http::now;
 use crate::payment::{SignedQuote, SignedReceipt, Transfer, draft_payment, verify_receipt};
 use crate::wire;
@@ -19,6 +19,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 /// shortcut: loopback over plain HTTP only; a remote registry needs a TLS client, a later change.
 const REFUSE_REGISTRY: &str = "registry must be http://127.0.0.1:<port> or http://localhost:<port>";
+const UNREACHABLE: &str = "registry unreachable";
 
 pub fn tools() -> Vec<Value> {
     vec![
@@ -34,7 +35,7 @@ pub fn tools() -> Vec<Value> {
                    "quote": {"type": "object"}, "payee_card": {"type": "object"},
                    "payer": {"type": "string", "description": "your agent id, 64 hex characters"}},
                    "required": ["quote", "payee_card", "payer"]}}),
-        json!({"name": "agent_verify_receipt", "description": "Check that a payee-signed receipt describes a given transfer (txid, memo, to, amount, height).",
+        json!({"name": "agent_verify_receipt", "description": "Check that a payee-signed receipt describes a given transfer (txid, memo, to, amount, height). The transfer is taken as given: this does not look it up on chain, so confirm the txid with get_transaction first.",
                "inputSchema": {"type": "object", "properties": {
                    "receipt": {"type": "object"}, "payee_card": {"type": "object"}, "transfer": {"type": "object"}},
                    "required": ["receipt", "payee_card", "transfer"]}}),
@@ -66,10 +67,7 @@ fn verify_card(args: &Value) -> Result<Value, String> {
 fn search(args: &Value) -> Result<Value, String> {
     let registry: String = arg(args, "registry")?;
     let capability: String = arg(args, "capability")?;
-    let charset_ok = capability
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "._:-".contains(c));
-    if capability.is_empty() || capability.len() > MAX_TEXT_BYTES || !charset_ok {
+    if !is_capability(&capability) {
         return Err("capability: letters, digits and . _ : - only".to_owned());
     }
     let body = http_get_json(&registry, &format!("/v1/agents?capability={capability}"))?;
@@ -124,20 +122,28 @@ fn http_get_json(base: &str, path: &str) -> Result<Value, String> {
         .filter(|port| *port != 0)
         .ok_or(REFUSE_REGISTRY)?;
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-    let mut stream = TcpStream::connect_timeout(&addr, READ_TIMEOUT).map_err(|e| e.to_string())?;
+    // One fixed message for every transport failure: the OS's text would tell
+    // a prompt-injected caller which loopback ports are open.
+    // shortcut: timeouts are per read, not a total deadline; a local server
+    // that sends one byte every few seconds holds the call until the 4 MiB cap.
+    let unreachable = |_| UNREACHABLE.to_owned();
+    let mut stream = TcpStream::connect_timeout(&addr, READ_TIMEOUT).map_err(unreachable)?;
     stream
         .set_read_timeout(Some(READ_TIMEOUT))
-        .map_err(|e| e.to_string())?;
+        .map_err(unreachable)?;
+    stream
+        .set_write_timeout(Some(READ_TIMEOUT))
+        .map_err(unreachable)?;
     write!(
         stream,
         "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(unreachable)?;
     let mut raw = Vec::new();
     (&mut stream)
         .take(MAX_RESPONSE_BYTES)
         .read_to_end(&mut raw)
-        .map_err(|e| e.to_string())?;
+        .map_err(unreachable)?;
     let text = String::from_utf8_lossy(&raw);
     let (head, body) = text
         .split_once("\r\n\r\n")
@@ -145,5 +151,5 @@ fn http_get_json(base: &str, path: &str) -> Result<Value, String> {
     if !head.starts_with("HTTP/1.1 200") {
         return Err("registry refused the request".to_owned());
     }
-    serde_json::from_str(body).map_err(|e| e.to_string())
+    serde_json::from_str(body).map_err(|_| "registry reply is not JSON".to_owned())
 }

@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
 use axum::Router;
-use axum::extract::rejection::{JsonRejection, QueryRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
@@ -23,14 +23,16 @@ use serde_json::json;
 use crate::card::{MAX_TEXT_BYTES, SignedCard};
 use crate::error::Error;
 use crate::limit::{FixedWindow, client_key};
-use crate::registry::Registry;
+use crate::registry::{Registry, VerifiedCard};
 use crate::wire;
 
 /// Largest request body. A hybrid signature is 11,165 bytes and the key 1,984,
 /// so a card is about 26 KiB once both are hex.
 pub const MAX_BODY_BYTES: usize = 64 * 1024;
-/// Most cards returned by one search.
-pub const MAX_RESULTS: usize = 100;
+/// Most cards returned by one search. A worst-case card is about 46 KB of
+/// JSON, so 50 stay under the MCP client's 4 MiB reply cap.
+/// shortcut: no pagination; agents past the first 50 in id order are not listed.
+pub const MAX_RESULTS: usize = 50;
 
 pub struct Shared {
     pub registry: Registry,
@@ -107,8 +109,16 @@ async fn publish(
         Ok(Json(card)) => card,
         Err(rejection) => return reply(rejection.status(), "body is not a signed card"),
     };
+    // The hybrid verify is the expensive step; it runs before the lock so one
+    // client's junk signatures do not stall every other request (and the
+    // limiter, which takes the same lock).
+    let at = now();
+    let verified = match VerifiedCard::new(card, at) {
+        Ok(verified) => verified,
+        Err(error) => return error_response(error),
+    };
     let outcome = match state.lock() {
-        Ok(mut shared) => shared.registry.publish(card, now()),
+        Ok(mut shared) => shared.registry.insert(verified, at),
         Err(code) => return code.into_response(),
     };
     match outcome {
@@ -149,8 +159,14 @@ async fn search(
     Json(cards).into_response()
 }
 
-async fn get_one(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    let Ok(id) = wire::hex32_from_str(&id) else {
+async fn get_one(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+) -> Response {
+    let Some(id) = path
+        .ok()
+        .and_then(|Path(id)| wire::hex32_from_str(&id).ok())
+    else {
         return reply(StatusCode::BAD_REQUEST, "agent id must be 32 bytes of hex");
     };
     let found = match state.lock() {
