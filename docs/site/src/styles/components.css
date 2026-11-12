@@ -1,0 +1,230 @@
+/* Forged Light 2 component kit (ADR-136, U2). Every value is a token from
+   design/tokens.json; a literal colour or size here is a bug. Classes are
+   `ui-*` so they cannot collide with the site's own maya.css rules.
+   Light and dark come from the theme attributes that tokens.css defines, so a
+   component needs no theme code. Reduced motion needs no code either: the
+   motion tokens become 1 ms and loops run once (tokens.json reduced-motion). */
+
+.ui-kit {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--type-body-weight) var(--type-body-size)/var(--type-body-line) var(--type-body-font);
+  padding: var(--space-5);
+  border-radius: var(--r-3);
+}
+
+.ui-kit :focus-visible,
+.ui-btn:focus-visible,
+.ui-tab:focus-visible,
+.ui-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Button: 44 px target (WCAG 2.5.5), one primary action per view. */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+/* No hover colour change on primary: on-accent is listed only on accent, and
+   a hover fill would be an unmeasured pair. */
+.ui-btn--primary { background: var(--accent); color: var(--on-accent); }
+.ui-btn--secondary { background: transparent; color: var(--accent-text); border-color: var(--accent); }
+.ui-btn--secondary:hover { background: var(--raised); }
+.ui-btn--ghost { background: transparent; color: var(--text-2); }
+.ui-btn--ghost:hover { color: var(--text); background: var(--raised); }
+.ui-btn:disabled,
+.ui-btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+
+/* Card: every card is flat (surface + line). Raised on hover or selection;
+   the hero is the one floating card per screen. */
+.ui-card {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  padding: var(--space-5);
+  box-shadow: var(--elevation-flat);
+}
+.ui-card--raised:hover,
+.ui-card--selected { box-shadow: var(--elevation-raised); border-color: var(--accent); }
+.ui-card--hero { box-shadow: var(--elevation-floating); border-radius: var(--r-3); }
+
+/* Stat tile: label, the figure, and a change line. A missing figure is a dash. */
+.ui-stat { display: grid; gap: var(--space-1); }
+.ui-stat__label {
+  color: var(--muted);
+  font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+}
+.ui-stat__value {
+  font: var(--type-num-weight) var(--type-title-1-size)/var(--type-title-1-line) var(--type-num-font);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ui-stat__delta { font-size: var(--type-body-sm-size); color: var(--text-2); }
+.ui-stat__delta--up { color: var(--success); }
+.ui-stat__delta--down { color: var(--danger); }
+
+/* Status pill: the words carry the meaning; the dot repeats it in colour. */
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.ui-pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.ui-pill--ok { color: var(--success); }
+.ui-pill--warn { color: var(--warning); }
+.ui-pill--bad { color: var(--danger); }
+.ui-pill--info { color: var(--info); }
+
+/* Table: numbers right-aligned by the caller with .ui-num, tabular figures. */
+.ui-table { width: 100%; border-collapse: collapse; font-size: var(--type-body-sm-size); }
+.ui-table th {
+  color: var(--muted);
+  font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+  text-align: start;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.ui-table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  text-align: start;
+}
+.ui-num { font-variant-numeric: tabular-nums; text-align: end; }
+
+/* Tabs: the selected tab is underlined in accent, its text in accent-text. */
+.ui-tabs { display: flex; gap: var(--space-4); border-bottom: 1px solid var(--line); }
+.ui-tab {
+  min-height: 44px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ui-tab[aria-selected="true"] { color: var(--accent-text); border-bottom-color: var(--accent); }
+
+/* Toast: a short message in a raised panel; the left rule is the status. */
+.ui-toast {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 28rem;
+  padding: var(--space-4);
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--accent);
+  border-radius: var(--r-2);
+  box-shadow: var(--elevation-raised);
+}
+.ui-toast--ok { border-inline-start-color: var(--success); }
+.ui-toast--warn { border-inline-start-color: var(--warning); }
+.ui-toast--bad { border-inline-start-color: var(--danger); }
+
+/* Empty, loading and error states: each says what happened and what to do. */
+.ui-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-5);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.ui-state__title { color: var(--text); font: var(--type-title-2-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--type-title-2-font); }
+.ui-state--error { border-style: solid; color: var(--danger); }
+.ui-state--error .ui-state__title { color: var(--danger); }
+
+.ui-skeleton {
+  display: block;
+  height: 1em;
+  width: 100%;
+  border-radius: var(--r-1);
+  background: var(--raised);
+  animation: ui-pulse var(--dur-pulse) var(--ease-out) var(--loop) both;
+}
+@keyframes ui-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+/* Address: Bech32m text in groups of four, so a human can compare it. The
+   chunks come from ui-kit.ts (chunkAddress); this only spaces them. */
+.ui-address {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  font: var(--type-mono-weight) var(--type-mono-size)/var(--type-mono-line) var(--type-mono-font);
+  color: var(--text);
+}
+.ui-address__chunk { white-space: nowrap; }
+.ui-address__chunk--prefix { color: var(--accent-text); }
+
+/* Amount: integer large, fraction muted at full precision, unit as a label. */
+.ui-amount { display: inline-flex; align-items: baseline; gap: var(--space-1); font-variant-numeric: tabular-nums; }
+.ui-amount__int {
+  font: var(--type-num-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--type-num-font);
+  color: var(--text);
+}
+.ui-amount__frac {
+  font: var(--type-mono-weight) var(--type-mono-size)/var(--type-mono-line) var(--type-mono-font);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ui-amount__unit {
+  color: var(--bronze-text);
+  font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font);
+  letter-spacing: var(--type-label-tracking);
+}
+
+/* Money confirm: a native dialog (focus is trapped, Escape closes). The send
+   button is never the default focus; cancel is. */
+.ui-confirm {
+  width: min(34rem, calc(100vw - 2 * var(--space-5)));
+  padding: var(--space-5);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  box-shadow: var(--elevation-floating);
+}
+.ui-confirm::backdrop { background: color-mix(in srgb, var(--bg) 70%, transparent); }
+.ui-confirm__rows { display: grid; gap: var(--space-3); margin: var(--space-4) 0; }
+.ui-confirm__row { display: grid; gap: var(--space-1); }
+.ui-confirm__actions { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: flex-end; }
+
+.ui-field {
+  min-height: 44px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  font: inherit;
+}

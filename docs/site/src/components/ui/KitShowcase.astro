@@ -1,0 +1,145 @@
+---
+// Every kit component in one block, rendered once per theme by the
+// /design-system/ page. Sample text only: no figure here is a chain number.
+import { chunkAddress, formatAmount, MISSING } from "../../lib/ui-kit";
+
+const address = chunkAddress("maya1qz3k9w7d4e8f2h6j0m5pr3t7v9x2y4a6c8e0gq");
+const amount = formatAmount("1500000000000000000000000");
+---
+
+<section aria-labelledby="kit-buttons">
+  <h3 id="kit-buttons">Buttons</h3>
+  <p>
+    <button class="ui-btn ui-btn--primary" type="button">Send</button>
+    <button class="ui-btn ui-btn--secondary" type="button">Review</button>
+    <button class="ui-btn ui-btn--ghost" type="button">Cancel</button>
+    <button class="ui-btn ui-btn--primary" type="button" disabled>Sending</button>
+  </p>
+</section>
+
+<section aria-labelledby="kit-cards">
+  <h3 id="kit-cards">Cards and stat tiles</h3>
+  <div class="ui-card"><p>Flat card: surface and line, no shadow.</p></div>
+  <div class="ui-card ui-card--selected"><p>Raised card: selected.</p></div>
+  <div class="ui-card ui-card--hero"><p>Hero card: the one floating card per screen.</p></div>
+  <div class="ui-card">
+    <div class="ui-stat">
+      <span class="ui-stat__label">Block height</span>
+      <span class="ui-stat__value">{MISSING}</span>
+      <span class="ui-stat__delta">Waiting for the node: no figure yet</span>
+    </div>
+  </div>
+  <div class="ui-card">
+    <div class="ui-stat">
+      <span class="ui-stat__label">Change</span>
+      <span class="ui-stat__value">{MISSING}</span>
+      <span class="ui-stat__delta ui-stat__delta--up">Up</span>
+      <span class="ui-stat__delta ui-stat__delta--down">Down</span>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="kit-status">
+  <h3 id="kit-status">Status pills</h3>
+  <p>
+    <span class="ui-pill ui-pill--ok">Confirmed</span>
+    <span class="ui-pill ui-pill--warn">Pending</span>
+    <span class="ui-pill ui-pill--bad">Failed</span>
+    <span class="ui-pill ui-pill--info">Draft</span>
+    <span class="ui-pill">Unknown</span>
+  </p>
+</section>
+
+<section aria-labelledby="kit-table">
+  <h3 id="kit-table">Table and tabs</h3>
+  <div role="tablist" class="ui-tabs">
+    <button role="tab" type="button" class="ui-tab" aria-selected="true">Transfers</button>
+    <button role="tab" type="button" class="ui-tab" aria-selected="false">Contracts</button>
+  </div>
+  <table class="ui-table">
+    <thead>
+      <tr><th scope="col">Transaction</th><th scope="col">Block</th><th scope="col">Status</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>7f3a09c1…e4d2</td><td class="ui-num">{MISSING}</td><td><span class="ui-pill ui-pill--ok">Confirmed</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section aria-labelledby="kit-toast">
+  <h3 id="kit-toast">Toast</h3>
+  <div class="ui-toast ui-toast--ok" role="status">
+    <strong>Saved</strong>
+    <span>The change is in your address book.</span>
+  </div>
+</section>
+
+<section aria-labelledby="kit-states">
+  <h3 id="kit-states">Empty, loading and error</h3>
+  <div class="ui-state">
+    <span class="ui-state__title">No transfers yet</span>
+    <span>Transfers you send or receive appear here.</span>
+  </div>
+  <div class="ui-state" role="status" aria-live="polite">
+    <span class="ui-skeleton" aria-hidden="true"></span>
+    <span>Loading balance…</span>
+  </div>
+  <div class="ui-state ui-state--error" role="alert">
+    <span class="ui-state__title">Could not reach the node</span>
+    <span>Check the address and try again. Nothing was sent.</span>
+  </div>
+</section>
+
+<section aria-labelledby="kit-money">
+  <h3 id="kit-money">Address and amount</h3>
+  <p>
+    <span class="ui-address" aria-label={`Address ${address.prefix}${address.chunks.join("")}`}>
+      <span class="ui-address__chunk ui-address__chunk--prefix">{address.prefix}</span>
+      {address.chunks.map((c) => <span class="ui-address__chunk">{c}</span>)}
+    </span>
+  </p>
+  <p>
+    <span class="ui-amount">
+      <span class="ui-amount__int">{amount.int}</span><span class="ui-amount__frac">.{amount.frac}</span>
+      <span class="ui-amount__unit">MAYA</span>
+    </span>
+  </p>
+  <p>
+    <span class="ui-amount">
+      <span class="ui-amount__int">{MISSING}</span>
+      <span class="ui-amount__unit">MAYA</span>
+    </span>
+  </p>
+</section>
+
+<section aria-labelledby="kit-confirm">
+  <h3 id="kit-confirm">Money confirm</h3>
+  <dialog class="ui-confirm" open aria-labelledby="kit-confirm-title">
+    <h4 id="kit-confirm-title">Confirm transfer</h4>
+    <div class="ui-confirm__rows">
+      <div class="ui-confirm__row">
+        <span class="ui-stat__label">Amount</span>
+        <span class="ui-amount">
+          <span class="ui-amount__int">{amount.int}</span><span class="ui-amount__frac">.{amount.frac}</span>
+          <span class="ui-amount__unit">MAYA</span>
+        </span>
+      </div>
+      <div class="ui-confirm__row">
+        <span class="ui-stat__label">To</span>
+        <span class="ui-address">
+          <span class="ui-address__chunk ui-address__chunk--prefix">{address.prefix}</span>
+          {address.chunks.slice(0, 4).map((c) => <span class="ui-address__chunk">{c}</span>)}
+          <span class="ui-address__chunk">…</span>
+        </span>
+      </div>
+      <div class="ui-confirm__row">
+        <span class="ui-stat__label">Fee</span>
+        <span class="ui-amount"><span class="ui-amount__int">{MISSING}</span><span class="ui-amount__unit">MAYA</span></span>
+      </div>
+    </div>
+    <div class="ui-confirm__actions">
+      <button class="ui-btn ui-btn--ghost" type="button" autofocus>Cancel</button>
+      <button class="ui-btn ui-btn--primary" type="button">Send</button>
+    </div>
+  </dialog>
+</section>
