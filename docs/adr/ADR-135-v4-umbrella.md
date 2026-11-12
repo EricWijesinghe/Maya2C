@@ -563,3 +563,15 @@ vector that contains a period.
 | O-5 | **Smart accounts.** A per-signature price for v9 policy frames (up to 40 cost units of verification), or bytes only? | Bytes only. |
 | O-6 | **Schedules.** `RUN_FEE` at activation; burn or join tips; `MAX_RUNS = 120`, `MIN_INTERVAL = 3,600` as governed parameters or compiled? | Zero `RUN_FEE` at activation (governed, raisable); joins tips; compiled. |
 | O-7 | **Scope.** Confirm the fork contents table and the cut list C-1..C-5. If one feature must go to make the window, P-7 goes first. | As written. |
+
+### Eric's answers (2026-11-12)
+
+| # | Answer |
+|---|---|
+| O-1 | 1 block/s (block-time fix A: governance windows re-derived at 1 s, genesis pins the 500 ms round interval). |
+| O-2 | Bytes only, no registration or mint surcharge; any fee goes to `FEE_SINK` (burn). |
+| O-3 | **Changed from the default.** `NameBaseFee` is non-zero for 3- and 4-character labels and near zero for 5+, per year, burned; values are governed parameters proposed in the I3 PR, not fixed here. No fee on `CommitName`. One reserved label, `maya2c`, held by a governance proposal, not by a key. Reason: a zero fee lets one account register every short label at activation. |
+| O-4 | Sponsor-only, zero surcharge; 64 pending / 86,400-block window as node defaults. |
+| O-5 | Bytes only. |
+| O-6 | `RUN_FEE` zero at activation (governed, raisable), joins tips; `MAX_RUNS` and `MIN_INTERVAL` compiled. |
+| O-7 | All six features as written; if the window slips, P-7 (schedules) moves to v5 first. |
