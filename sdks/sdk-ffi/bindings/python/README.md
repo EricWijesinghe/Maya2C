@@ -2,8 +2,23 @@
 
 Post-quantum signing primitives for the Maya2C network.
 
+## Install
+
+### Not published yet, build from source
+
+`maya2c` is not on PyPI: `pypi.org/pypi/maya2c` answered 404 on 2026-11-13,
+and publishing waits for an explicit approval. Build the extension from a clone
+into a virtual environment. It compiles RocksDB (see "Wheels only" below), so
+it needs the same C++ toolchain and LLVM as a node build
+([quickstart](https://maya2c.dev/guides/quickstart/)).
+
 ```bash
-pip install maya2c
+git clone https://github.com/EricWijesinghe/Maya2C
+cd Maya2C/sdks/sdk-ffi
+python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
+python -m pip install "maturin>=1.7,<2.0"
+maturin develop --release                       # builds and installs `maya2c` into the venv
+python -c "import maya2c; print(maya2c.SigningKey.generate().address())"
 ```
 
 ## What it does
@@ -47,8 +62,8 @@ A key that can be read out is a key that ends up in a log.
 
 It is not a client. There is no RPC, no transaction builder, and no way to reach
 a chain from this package. Building and submitting transactions is the
-gateway's business — `maya2c.js` does that for TypeScript, and there is no
-Python equivalent yet.
+gateway's business: `maya2c.js` does that for TypeScript, and `sdks/python`
+(`maya2c_sdk`) for Python, signing transfers through `l1-wallet`.
 
 ## Wheels only
 
