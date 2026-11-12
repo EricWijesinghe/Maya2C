@@ -55,8 +55,6 @@
 .ui-pill--info { color: var(--accent-text); }
 .app-gap { height: var(--space-4); }
 .app .ui-pill { white-space: nowrap; }
-/* Phones: the network state gets its own row under the section links. */
-@media (max-width: 560px) {
-  .app-subnav { flex-wrap: wrap; }
-  .app-status { flex: 1 1 100%; margin: var(--space-1) 0 0; padding-inline-start: var(--space-3); white-space: normal; }
-}
+/* Phones: the links scroll in one row and the state chip goes; each page
+   states the paused network in its own banner or first section. */
+@media (max-width: 560px) { .app-status { display: none; } }
