@@ -439,7 +439,7 @@ mod tests {
 
         let response = get(server.address, "/api/v1/supply").await;
         assert!(response.starts_with("HTTP/1.1 200"));
-        for field in ["total", "circulating", "shielded", "burned"] {
+        for field in ["total", "circulating", "shielded", "burned", "unissued"] {
             assert!(response.contains(field), "missing {field}");
         }
     }
@@ -459,18 +459,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn circulating_supply_excludes_the_fee_sink() {
+    async fn circulating_supply_excludes_the_fee_sink_and_the_reserve() {
         // Fees burned to the sink are unspendable — nobody holds its key — so
-        // counting them would inflate the circulating figure forever.
+        // counting them would inflate the circulating figure forever. The
+        // unissued reserve is keyless too, and not yet paid out.
         let (server, _dir) = start_funded(
             MarketFeed::empty(),
-            &[([1u8; 32], 900), (crate::state::shielded::FEE_SINK, 100)],
+            &[
+                ([1u8; 32], 900),
+                (crate::state::shielded::FEE_SINK, 100),
+                (crate::state::mining::MINING_RESERVE, 50),
+            ],
         )
         .await;
 
         assert_eq!(
             body(&get(server.address, "/api/v1/total_supply").await),
-            "1000"
+            "1050"
         );
         assert_eq!(
             body(&get(server.address, "/api/v1/circulating_supply").await),

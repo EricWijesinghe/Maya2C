@@ -35,6 +35,7 @@ fn supply(total: u64, circulating: u64, burned: u64) -> Option<Supply> {
         total: U256::from(total),
         circulating: U256::from(circulating),
         burned: U256::from(burned),
+        unissued: U256::zero(),
     })
 }
 
@@ -122,6 +123,40 @@ fn supply_must_add_up_and_agree_across_nodes() {
     y.supply = supply(101, 101, 0);
     let f = d.evaluate(5_000, &[up("x", x), up("y", y)]);
     assert!(keys(&f).contains(&"supply-split:9"), "{f:?}");
+}
+
+#[test]
+fn the_mining_reserve_is_its_own_bucket_in_the_sum() {
+    // A reward paid out of the reserve moves units from `unissued` to
+    // `circulating` and leaves `burned` alone. The buckets must still close.
+    let mut d = Detector::new(Thresholds::default());
+    let mut a = obs(7, "aa", 0);
+    a.supply = Some(Supply {
+        total: U256::from(100),
+        circulating: U256::from(60),
+        burned: U256::from(30),
+        unissued: U256::from(10),
+    });
+    let f = d.evaluate(0, &[up("a", a)]);
+    assert!(
+        !keys(&f).iter().any(|k| k.starts_with("supply-mismatch")),
+        "{f:?}"
+    );
+}
+
+#[test]
+fn a_bucket_sum_that_overflows_is_a_mismatch_not_a_match() {
+    // Saturating addition would clamp MAX + 1 to MAX and call it equal to total.
+    let mut d = Detector::new(Thresholds::default());
+    let mut a = obs(7, "aa", 0);
+    a.supply = Some(Supply {
+        total: U256::MAX,
+        circulating: U256::MAX,
+        burned: U256::one(),
+        unissued: U256::zero(),
+    });
+    let f = d.evaluate(0, &[up("a", a)]);
+    assert_eq!(keys(&f), ["supply-mismatch:a"]);
 }
 
 #[test]

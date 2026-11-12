@@ -38,9 +38,10 @@ fn healthy(method: &str) -> Result<Value, String> {
         })),
         "get_supply" => Ok(json!({
             "total": "1000000000000000000000",
-            "circulating": "900000000000000000000",
+            "circulating": "700000000000000000000",
             "shielded": "0",
             "burned": "100000000000000000000",
+            "unissued": "200000000000000000000",
         })),
         "get_peers" => Ok(json!({ "peer_id": "p", "peers": [{}, {}, {}, {}] })),
         "get_mempool_info" => Ok(json!({ "pending": 7 })),
@@ -58,7 +59,34 @@ async fn reads_every_field_when_the_node_serves_them() {
     assert_eq!(obs.pending, Some(7));
     let s = obs.supply.expect("supply requested");
     assert_eq!(s.total, U256::from(10u64).pow(U256::from(21u64)));
-    assert_eq!(s.circulating.saturating_add(s.burned), s.total);
+    assert_eq!(s.burned, U256::from(10u64).pow(U256::from(20u64)));
+    assert_eq!(
+        s.unissued,
+        U256::from(2u64) * U256::from(10u64).pow(U256::from(20u64))
+    );
+    assert!(s.adds_up());
+}
+
+#[tokio::test]
+async fn a_node_without_the_unissued_field_still_parses() {
+    // Nodes from before the field report `burned` with the reserve in it, so
+    // an absent `unissued` is zero, not an error.
+    let answers = |m: &str| match m {
+        "get_supply" => Ok(json!({
+            "total": "1000",
+            "circulating": "900",
+            "shielded": "0",
+            "burned": "100",
+        })),
+        other => healthy(other),
+    };
+    let s = observe(&Scripted(answers), true)
+        .await
+        .expect("observed")
+        .supply
+        .expect("supply parsed");
+    assert_eq!(s.unissued, U256::zero());
+    assert!(s.adds_up());
 }
 
 #[tokio::test]
