@@ -55,6 +55,9 @@ const features = [
   svg { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: var(--space-2); }
   .t { font: var(--weight-semibold) var(--type-body-lg-size)/1.3 var(--font-sans); color: var(--text); }
   .l { font-size: var(--type-body-size); line-height: 1.5; color: var(--text-2); }
+  /* Out of flow where it only shows on hover, so it leaves no blank band. */
+  a { position: relative; }
+  @media (hover: hover) { .more { position: absolute; left: var(--space-6); bottom: var(--space-4); } a { padding-bottom: var(--space-10); } }
   .more { margin-top: var(--space-2); font-size: var(--type-body-sm-size); font-weight: var(--weight-medium); color: var(--accent-text); opacity: 0; transition: opacity var(--dur-2) var(--ease); }
   a:hover .more, a:focus-visible .more { opacity: 1; }
   @media (hover: none) { .more { opacity: 1; } }

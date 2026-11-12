@@ -61,7 +61,7 @@ const nav = [["chain", "Chain"], ["supply", "Supply"], ["proofs", "Proofs"], ["f
     </nav>
 
     <section class="app-section" id="chain" aria-labelledby="h-chain">
-      <h2 id="h-chain">Chain, live</h2>
+      <h2 id="h-chain">Chain</h2>
       {paused && (
         <p class="ui-state app-banner"><span class="ui-state__title">Paused on purpose</span>The public testnet stopped on {testnet.since} after {testnet.last.run} with {testnet.last.halts} halts. Live figures return with the next genesis; until then the tiles show the last reading or a dash. <a href={testnet.report}>Stop report</a></p>
       )}
@@ -71,6 +71,7 @@ const nav = [["chain", "Chain"], ["supply", "Supply"], ["proofs", "Proofs"], ["f
         ))}
       </dl>
       <BlockStream />
+      {paused ? <p class="app-note">No blocks since {testnet.since}, so the block-interval and hashrate charts are empty until the next genesis.</p> : (
       <div class="app-charts">
         <figure class="app-chart">
           <figcaption>Seconds between blocks, newest on the right (<span data-n>0</span> blocks)</figcaption>
@@ -81,6 +82,7 @@ const nav = [["chain", "Chain"], ["supply", "Supply"], ["proofs", "Proofs"], ["f
           <svg data-chart="hash" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Hashrate over time"></svg>
         </figure>
       </div>
+      )}
       <p class="app-note">Block times come from block header timestamps, not your clock. Throughput is transactions in the window divided by the window's span. Rounds per minute is two <code>get_bft_status</code> samples apart.</p>
     </section>
 
@@ -117,6 +119,7 @@ const nav = [["chain", "Chain"], ["supply", "Supply"], ["proofs", "Proofs"], ["f
     <section class="app-section" id="developers" aria-labelledby="h-dev">
       <h2 id="h-dev">Developer transparency</h2>
       <p class="app-note">How the project itself is doing: CI, merges and releases. Honest, including when CI is red. From the GitHub API at build time ({when(p.generated)}); the site rebuilds every 6 hours.</p>
+      <div class="app-gap"></div>
       <div class="ui-table-wrap app-table">
         <table class="ui-table">
           <thead><tr><th scope="col">Measure</th><th scope="col" class="ui-num">Value</th><th scope="col">Source</th></tr></thead>

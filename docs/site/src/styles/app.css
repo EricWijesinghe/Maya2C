@@ -30,7 +30,7 @@
 /* Stat grid: one bordered block, cells divided by 1 px hairlines. */
 /* Hairlines are each cell's right and bottom shadow; the outer edge clips the
    last ones, and a part-filled last row leaves plain surface, not a grey gap. */
-.app-grid { margin: 0 0 var(--space-4); display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
+.app-grid { margin: 0 0 var(--space-4); display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
 .app-grid > div { display: grid; gap: var(--space-1); align-content: start; min-height: 72px; padding: var(--space-3) var(--space-4); box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
 .app-grid dt { font-size: var(--type-body-sm-size); color: var(--text-2); }
 .app-grid dd { margin: 0; font: var(--weight-semibold) var(--type-title-3-size)/1.3 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
@@ -53,3 +53,10 @@
 /* "working" in the ledger: the kit has ok, warn, bad and neutral; PageTitle and
    /ecosystem/ also use info, which had no colour and read as plain text. */
 .ui-pill--info { color: var(--accent-text); }
+.app-gap { height: var(--space-4); }
+.app .ui-pill { white-space: nowrap; }
+/* Phones: the network state gets its own row under the section links. */
+@media (max-width: 560px) {
+  .app-subnav { flex-wrap: wrap; }
+  .app-status { flex: 1 1 100%; margin: var(--space-1) 0 0; padding-inline-start: var(--space-3); white-space: normal; }
+}
