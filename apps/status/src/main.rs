@@ -35,7 +35,7 @@ use maya_status::incident_store::{self, StoreError};
 use maya_status::incidents;
 use maya_status::live::{BftStatus, Live, NetworkView, NodePoll};
 use maya_status::slo::{self, Finality};
-use maya_status::{operator, Timeline};
+use maya_status::{Timeline, operator};
 
 const POLL: Duration = Duration::from_secs(2);
 
@@ -619,7 +619,9 @@ mod router_tests {
             .await
             .unwrap();
         assert_eq!(response.status(), 200, "{uri}");
-        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
         serde_json::from_slice(&bytes).unwrap()
     }
 
@@ -663,9 +665,17 @@ mod router_tests {
     #[tokio::test]
     async fn finality_is_null_until_the_node_has_been_read() {
         let missing = get_json(shared_with(None, None), "/api/slo").await;
-        assert!(missing["finality"].is_null(), "not measured is MISSING, not zero");
+        assert!(
+            missing["finality"].is_null(),
+            "not measured is MISSING, not zero"
+        );
         assert_eq!(missing["targets"]["p99_s"], 6.0);
-        let measured = Finality { samples: 100, p50_s: 1.0, p99_s: 5.6, measured_at: 1 };
+        let measured = Finality {
+            samples: 100,
+            p50_s: 1.0,
+            p99_s: 5.6,
+            measured_at: 1,
+        };
         let body = get_json(shared_with(None, Some(measured)), "/api/slo").await;
         assert_eq!(body["finality"]["samples"], 100);
         assert!(body["uptime"]["percent"].is_null(), "no timeline yet");
@@ -681,7 +691,11 @@ mod router_tests {
             streak_seconds: 0,
             halted_now: false,
             since_last_block: 0,
-            halts: vec![maya_status::Halt { height: 5, started: 1_000, ended: 1_120 }],
+            halts: vec![maya_status::Halt {
+                height: 5,
+                started: 1_000,
+                ended: 1_120,
+            }],
             threshold_seconds: 60,
         }
     }

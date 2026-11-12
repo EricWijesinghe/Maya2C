@@ -153,11 +153,17 @@ impl Entry {
         let refuse = |why: &str| Err(StoreError::Refused(why.to_owned()));
         let id_ok = !self.id.is_empty()
             && self.id.len() <= MAX_ID
-            && self.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+            && self
+                .id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-');
         if !id_ok {
             return refuse("id must be 1-64 ASCII letters, digits or '-'");
         }
-        if self.title.is_empty() || self.title.len() > MAX_TITLE || self.title.chars().any(char::is_control) {
+        if self.title.is_empty()
+            || self.title.len() > MAX_TITLE
+            || self.title.chars().any(char::is_control)
+        {
             return refuse("title must be 1-120 bytes, no control characters");
         }
         if self.body.len() > MAX_BODY || self.body.chars().any(|c| c.is_control() && c != '\n') {
@@ -199,7 +205,9 @@ fn check(record: &Record, position: usize, head: &str, trusted: &[Vec<u8>]) -> R
         return Err(format!("seq is {}, expected {position}", body.seq));
     }
     if body.prev != head {
-        return Err("prev does not link to the line above (a line was removed, reordered or edited)".into());
+        return Err(
+            "prev does not link to the line above (a line was removed, reordered or edited)".into(),
+        );
     }
     let hash = record_hash(body).map_err(|e| e.to_string())?;
     if hash != record.hash {
@@ -276,10 +284,18 @@ pub fn append(
 ) -> Result<Record, StoreError> {
     entry.validate()?;
     match (entry.kind, operator) {
-        (Kind::Draft, Some(_)) => return Err(StoreError::Refused("a draft is never signed".into())),
-        (Kind::Signed, None) => return Err(StoreError::Refused("a published record needs an operator key".into())),
+        (Kind::Draft, Some(_)) => {
+            return Err(StoreError::Refused("a draft is never signed".into()));
+        }
+        (Kind::Signed, None) => {
+            return Err(StoreError::Refused(
+                "a published record needs an operator key".into(),
+            ));
+        }
         (Kind::Signed, Some(op)) if !trusted.iter().any(|k| k.as_slice() == op.public_key()) => {
-            return Err(StoreError::Refused("operator key is not in the trusted list".into()));
+            return Err(StoreError::Refused(
+                "operator key is not in the trusted list".into(),
+            ));
         }
         _ => {}
     }
@@ -307,7 +323,12 @@ pub fn append(
         }
         None => (None, None),
     };
-    let record = Record { body, hash, signer, sig };
+    let record = Record {
+        body,
+        hash,
+        signer,
+        sig,
+    };
     let mut line = serde_json::to_string(&record)?;
     line.push('\n');
     std::fs::create_dir_all(dir)?;
@@ -357,7 +378,10 @@ mod tests {
         signed.ended = Some(90);
         append(dir.path(), &trusted, &signed, Some(&op)).unwrap();
         let after = std::fs::read(dir.path().join(FILE)).unwrap();
-        assert!(after.starts_with(&before), "earlier bytes must be untouched");
+        assert!(
+            after.starts_with(&before),
+            "earlier bytes must be untouched"
+        );
         let records = load(dir.path(), &trusted).unwrap();
         assert_eq!(records.len(), 2);
         assert_eq!(records[1].body.prev, records[0].hash);
@@ -429,7 +453,11 @@ mod tests {
         record.body.title = "Nothing happened".into();
         // An attacker recomputes the hash after the edit, but has no key to re-sign.
         record.hash = record_hash(&record.body).unwrap();
-        std::fs::write(&path, format!("{}\n", serde_json::to_string(&record).unwrap())).unwrap();
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&record).unwrap()),
+        )
+        .unwrap();
         let err = load(dir.path(), &trusted).unwrap_err().to_string();
         assert!(err.contains("signature does not verify"), "{err}");
     }
@@ -444,7 +472,11 @@ mod tests {
         let mut record: Record =
             serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
         record.signer = Some(hex::encode(Operator::from_seed([4; 32]).public_key()));
-        std::fs::write(&path, format!("{}\n", serde_json::to_string(&record).unwrap())).unwrap();
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&record).unwrap()),
+        )
+        .unwrap();
         let err = load(dir.path(), &trusted).unwrap_err().to_string();
         assert!(err.contains("not a trusted operator"), "{err}");
     }

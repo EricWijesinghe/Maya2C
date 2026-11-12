@@ -101,19 +101,25 @@ fn keygen(out: &Path) -> Result<String, String> {
 fn publish(f: &BTreeMap<String, String>) -> Result<String, String> {
     let dir = PathBuf::from(required(f, "dir")?);
     let trusted = operator::read_operators(&operators_path(f)?)?;
-    let seed_text = std::fs::read_to_string(required(f, "key")?).map_err(|e| format!("key: {e}"))?;
+    let seed_text =
+        std::fs::read_to_string(required(f, "key")?).map_err(|e| format!("key: {e}"))?;
     let seed = operator::parse_seed(&seed_text)?;
     let op = Operator::from_seed(*seed);
     let id = required(f, "id")?;
     let existing = incidents::fold(&store::load(&dir, &trusted).map_err(|e| e.to_string())?);
     let prior = existing.iter().find(|i| i.id == id);
     let started = match (f.get("started"), prior) {
-        (Some(s), _) => s.parse().map_err(|_| "--started must be Unix seconds".to_owned())?,
+        (Some(s), _) => s
+            .parse()
+            .map_err(|_| "--started must be Unix seconds".to_owned())?,
         (None, Some(p)) => p.started,
         (None, None) => return Err("--started is required for a new incident".into()),
     };
     let ended = match f.get("ended") {
-        Some(e) => Some(e.parse().map_err(|_| "--ended must be Unix seconds".to_owned())?),
+        Some(e) => Some(
+            e.parse()
+                .map_err(|_| "--ended must be Unix seconds".to_owned())?,
+        ),
         None => prior.and_then(|p| p.ended),
     };
     let severity = match f.get("severity").map(String::as_str) {
@@ -183,11 +189,25 @@ mod tests {
         let k = key.to_str().unwrap();
 
         let published = run(&args(&[
-            "publish", "--dir", d, "--key", k, "--id", "manual-1", "--started", "100",
-            "--title", "Test incident", "--body", "A rehearsal.",
+            "publish",
+            "--dir",
+            d,
+            "--key",
+            k,
+            "--id",
+            "manual-1",
+            "--started",
+            "100",
+            "--title",
+            "Test incident",
+            "--body",
+            "A rehearsal.",
         ]))
         .unwrap();
-        assert!(published.starts_with("published manual-1 as record 0"), "{published}");
+        assert!(
+            published.starts_with("published manual-1 as record 0"),
+            "{published}"
+        );
         let verified = run(&args(&["verify", "--dir", d])).unwrap();
         assert!(verified.starts_with("verified 1 records"), "{verified}");
     }
@@ -208,8 +228,17 @@ mod tests {
         run(&args(&["keygen", "--out", key.to_str().unwrap()])).unwrap();
         let d = dir.path().to_str().unwrap();
         let err = run(&args(&[
-            "publish", "--dir", d, "--key", key.to_str().unwrap(), "--id", "x",
-            "--title", "t", "--body", "b",
+            "publish",
+            "--dir",
+            d,
+            "--key",
+            key.to_str().unwrap(),
+            "--id",
+            "x",
+            "--title",
+            "t",
+            "--body",
+            "b",
         ]))
         .unwrap_err();
         assert!(err.contains("--started"), "{err}");

@@ -246,12 +246,20 @@ mod tests {
     fn a_completed_halt_is_drafted_once_and_not_again() {
         let (_d, log) = log();
         let r = report(
-            vec![Halt { height: 5, started: 1_000, ended: 1_120 }],
+            vec![Halt {
+                height: 5,
+                started: 1_000,
+                ended: 1_120,
+            }],
             false,
             1_120,
         );
         assert_eq!(log.sync_halts(&r, 2_000).unwrap(), 1);
-        assert_eq!(log.sync_halts(&r, 2_001).unwrap(), 0, "restart must not duplicate");
+        assert_eq!(
+            log.sync_halts(&r, 2_001).unwrap(),
+            0,
+            "restart must not duplicate"
+        );
         let rows = log.incidents().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "halt-1000");
@@ -270,18 +278,42 @@ mod tests {
         assert_eq!(rows[0].ended, None);
         assert_eq!(rows[0].title, "Chain halted");
 
-        let closed = report(vec![Halt { height: 7, started: 1_000, ended: 1_150 }], false, 1_150);
-        assert_eq!(log.sync_halts(&closed, 1_151).unwrap(), 1, "the end is a new draft line");
+        let closed = report(
+            vec![Halt {
+                height: 7,
+                started: 1_000,
+                ended: 1_150,
+            }],
+            false,
+            1_150,
+        );
+        assert_eq!(
+            log.sync_halts(&closed, 1_151).unwrap(),
+            1,
+            "the end is a new draft line"
+        );
         let rows = log.incidents().unwrap();
         assert_eq!(rows.len(), 1, "one incident, not two");
         assert_eq!(rows[0].ended, Some(1_150));
-        assert_eq!(log.records().unwrap().len(), 2, "append-only: both lines remain");
+        assert_eq!(
+            log.records().unwrap().len(),
+            2,
+            "append-only: both lines remain"
+        );
     }
 
     #[test]
     fn a_published_incident_is_never_overwritten_by_a_draft() {
         let (_d, log) = log();
-        let r = report(vec![Halt { height: 5, started: 1_000, ended: 1_120 }], false, 1_120);
+        let r = report(
+            vec![Halt {
+                height: 5,
+                started: 1_000,
+                ended: 1_120,
+            }],
+            false,
+            1_120,
+        );
         log.sync_halts(&r, 2_000).unwrap();
         let op = crate::operator::Operator::from_seed([3; 32]);
         let log = Log::new(log.dir.as_path(), vec![op.public_key().to_vec()]);
@@ -298,20 +330,46 @@ mod tests {
         };
         store::append(&log.dir, &log.trusted, &publish, Some(&op)).unwrap();
         // A later draft for the same halt must not change a published row.
-        let drafts = halt_drafts(&log.incidents().unwrap(), &[Span { height: 5, started: 1_000, ended: Some(1_999) }], 4_000);
+        let drafts = halt_drafts(
+            &log.incidents().unwrap(),
+            &[Span {
+                height: 5,
+                started: 1_000,
+                ended: Some(1_999),
+            }],
+            4_000,
+        );
         assert!(drafts.is_empty());
         let rows = log.incidents().unwrap();
         assert!(rows[0].published);
         assert_eq!(rows[0].title, "Halt from a bad validator");
-        assert_eq!(rows[0].signer.as_deref(), Some(hex::encode(op.public_key()).as_str()));
+        assert_eq!(
+            rows[0].signer.as_deref(),
+            Some(hex::encode(op.public_key()).as_str())
+        );
     }
 
     #[test]
     fn spans_cover_past_halts_and_the_one_in_progress() {
-        let r = report(vec![Halt { height: 2, started: 10, ended: 20 }], true, 30);
+        let r = report(
+            vec![Halt {
+                height: 2,
+                started: 10,
+                ended: 20,
+            }],
+            true,
+            30,
+        );
         let spans = spans_of(&r);
         assert_eq!(spans.len(), 2);
-        assert_eq!(spans[1], Span { height: 7, started: 30, ended: None });
+        assert_eq!(
+            spans[1],
+            Span {
+                height: 7,
+                started: 30,
+                ended: None
+            }
+        );
         assert_eq!(span_id(30), "halt-30");
     }
 

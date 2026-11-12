@@ -164,7 +164,9 @@ maya_finality_latency_seconds_count 100
 
     #[test]
     fn no_samples_is_missing_not_zero() {
-        let text = EXPOSITION.replace(" 100\n", " 0\n").replace("} 10\n", "} 0\n");
+        let text = EXPOSITION
+            .replace(" 100\n", " 0\n")
+            .replace("} 10\n", "} 0\n");
         assert!(finality_from(&text, 1).is_none());
         assert!(finality_from("", 1).is_none(), "no histogram at all");
     }
@@ -177,8 +179,20 @@ maya_finality_latency_seconds_count 100
 
     #[test]
     fn a_fractional_or_missing_inf_bucket_is_refused() {
-        assert!(histogram("maya_finality_latency_seconds_bucket{le=\"1\"} 1.5\n", FINALITY_METRIC).is_none());
-        assert!(histogram("maya_finality_latency_seconds_bucket{le=\"1\"} 1\n", FINALITY_METRIC).is_none());
+        assert!(
+            histogram(
+                "maya_finality_latency_seconds_bucket{le=\"1\"} 1.5\n",
+                FINALITY_METRIC
+            )
+            .is_none()
+        );
+        assert!(
+            histogram(
+                "maya_finality_latency_seconds_bucket{le=\"1\"} 1\n",
+                FINALITY_METRIC
+            )
+            .is_none()
+        );
     }
 
     fn report(halts: Vec<Halt>, halted_now: bool, last_block: u64, genesis: u64) -> Report {
@@ -199,8 +213,16 @@ maya_finality_latency_seconds_count 100
     #[allow(clippy::cast_precision_loss)]
     fn uptime_counts_only_halts_inside_the_window() {
         let now = 100 * 86_400;
-        let old = Halt { height: 1, started: 10, ended: 10 + 86_400 }; // outside the 30 days
-        let recent = Halt { height: 2, started: now - 864, ended: now - 864 + 86 }; // 86 s
+        let old = Halt {
+            height: 1,
+            started: 10,
+            ended: 10 + 86_400,
+        }; // outside the 30 days
+        let recent = Halt {
+            height: 2,
+            started: now - 864,
+            ended: now - 864 + 86,
+        }; // 86 s
         let r = report(vec![old, recent], false, now, 0);
         let pct = uptime_window(&r, now).unwrap();
         let expected = 100.0 * (1.0 - 86.0 / WINDOW_SECS as f64);

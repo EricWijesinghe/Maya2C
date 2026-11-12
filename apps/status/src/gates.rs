@@ -101,7 +101,11 @@ mod tests {
         ours.sort_unstable();
         let mut theirs = document_gate_numbers();
         theirs.sort_unstable();
-        assert_eq!(theirs.len(), 10, "the plan's table changed shape; update data/gates.json");
+        assert_eq!(
+            theirs.len(),
+            10,
+            "the plan's table changed shape; update data/gates.json"
+        );
         assert_eq!(ours, theirs);
     }
 
