@@ -23,6 +23,9 @@
          custom protocol where `/` is not the document's directory. -->
 
     <link data-trunk rel="rust" data-wasm-opt="z" />
+    <!-- Generated design tokens (cargo xtask design-tokens) first, so the
+         wallet's own rules still win where a name is shared. -->
+    <link data-trunk rel="css" href="tokens.css" />
     <link data-trunk rel="css" href="styles.css" />
   </head>
   <body></body>

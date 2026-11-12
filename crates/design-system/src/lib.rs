@@ -4,9 +4,9 @@
 //! "World-class" is defined by measurements here, so every part of this crate
 //! is something a test can hold to account:
 //!
-//! - [`tokens`]: color, type, spacing and motion for two themes, emitted as CSS
-//!   custom properties. Every text/background pair the components use is
-//!   listed in [`tokens::REQUIRED_PAIRS`] and checked against WCAG 2.2 AA by
+//! - Tokens live in `design/tokens.json` (Forged Light 2, ADR-136);
+//!   `cargo xtask design-tokens` generates `tokens.css` into every surface and
+//!   checks each listed text/background pair against WCAG AA with
 //!   [`contrast`].
 //! - [`flows`]: the wallet flows as state graphs. A test proves no flow has a
 //!   dead end and every flow has an error state with a way out. This is a model
@@ -25,4 +25,3 @@ pub mod flows;
 pub mod guard;
 pub mod i18n;
 pub mod specimen;
-pub mod tokens;

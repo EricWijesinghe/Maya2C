@@ -24,9 +24,6 @@ path = "src/main.rs"
 custom-l1-node = { path = "../../crates/node" }
 # ADR-046: money is a U256 (the node's wire amounts, decimal strings).
 primitive-types.workspace = true
-# The shared tokens (Master Prompt 29): one palette for every interface,
-# checked against WCAG AA in its own tests.
-maya-design-system = { path = "../../crates/design-system" }
 # ADR-081: addresses are shown as Bech32m text beside their hex id.
 maya-address = { path = "../../crates/address" }
 

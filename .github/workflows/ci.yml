@@ -103,6 +103,11 @@ jobs:
       - name: Guide commands
         run: cargo xtask guides-check
 
+      # ADR-136: every surface's tokens.css is the generator's output from
+      # design/tokens.json, and every listed colour pair passes WCAG AA.
+      - name: Design tokens
+        run: cargo xtask design-tokens --check
+
   # The protocol spec's conformance suite (spec/README.md). The node side,
   # crates/node/tests/conformance.rs, runs in the `test` job with the rest of
   # the workspace; this job checks the vectors are what the reference
