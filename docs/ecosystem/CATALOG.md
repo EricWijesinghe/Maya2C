@@ -107,7 +107,7 @@ ledger entries `stub`). Guides: [testnet-kit.md](testnet-kit.md),
 | confidential-ai | Inference on private data with attestation | `crates/confidential-ai` | TEE invariant must be numbered first (CLAUDE.md) | L | W4 |
 | agent-wallets | AI agents with spending limits and human approval for large payments | smart-account sessions, mcp-server | ADR (limits and kill switch) | M | W3 |
 | ai-marketplace | Market for models, data sets and jobs | verified-inference | legal (data licences) | L | W4 |
-| sentinel-ai | Watchdog AI that proposes and never acts (ADR-077) | `apps/sentinel` | ADR-077 phases | L | W3 |
+| sentinel-ai | Watchdog AI that proposes and never acts (ADR-077) | `apps/sentinel` | ADR-077 phases; P1 detectors built (ADR-101), P2-P5 wait for Eric (local vs API model, quorum sentinel hosts) | L | W3 |
 | on-device-assistant | Wallet and chat helpers that run locally; nothing leaves the device by default | ECOSYSTEM.md section 4 | data-leaves-device statement | M | W3 |
 
 ## F. Fields (detached apps on the shared identity)
