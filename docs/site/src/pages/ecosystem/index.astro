@@ -134,11 +134,11 @@ const count = (tone: string) => hubItems.filter((i) => i.tone === tone).length;
   .lede { margin: 0 0 var(--space-4); max-width: 72ch; font-size: var(--type-body-size); line-height: 1.55; color: var(--text-2); }
   .muted { color: var(--text-2); }
   .small { font-size: var(--type-body-sm-size); }
-  .n { margin-inline-start: var(--space-1); font: var(--type-body-sm-size) var(--font-mono); color: var(--text-3); }
+  .n { margin-inline-start: var(--space-1); font: var(--type-body-sm-size) var(--font-mono); color: var(--text-2); }
   .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-8); }
   .filters button[aria-pressed="true"] { border-color: var(--accent); }
   .group tr[hidden] { display: none; }
-  .name a { font-weight: var(--weight-medium); color: var(--text); text-decoration: none; white-space: nowrap; }
+  .name a { font-weight: var(--weight-medium); color: var(--text); text-decoration: none; white-space: nowrap; overflow-wrap: normal; }
   .name a:hover { color: var(--accent-text); }
   .what { color: var(--text-2) !important; }
   .where { color: var(--text-2); font-size: var(--type-body-sm-size); }
@@ -148,10 +148,10 @@ const count = (tone: string) => hubItems.filter((i) => i.tone === tone).length;
   .cards, .entries { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-3); }
   .cards li, .entries li { margin: 0; }
   .card { display: grid; gap: var(--space-1); height: 100%; text-decoration: none; color: var(--text); }
-  .entry h3 { margin: 0 0 var(--space-2); font-size: var(--type-body-lg-size); }
+  .entry h3 { margin: 0 0 var(--space-2) !important; font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
   .row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin: var(--space-2) 0 !important; font-size: var(--type-body-sm-size); }
   .row a.ui-pill { text-decoration: none; }
-  .tag { min-width: 4.5rem; font-size: var(--type-body-sm-size); color: var(--text-3); }
+  .tag { min-width: 4.5rem; font-size: var(--type-body-sm-size); color: var(--text-2); }
 
   .empty { border-style: dashed; }
   .empty .big { margin: 0 0 var(--space-1) !important; font-weight: var(--weight-semibold); color: var(--text) !important; }
@@ -162,4 +162,14 @@ const count = (tone: string) => hubItems.filter((i) => i.tone === tone).length;
   .gets { list-style: none; padding: 0; color: var(--text-2); }
   .gets li { margin: var(--space-2) 0; }
   .gets strong { color: var(--text); }
+  /* Phones (critique): the path column goes; name, status and what fit 390 px. */
+  @media (max-width: 560px) {
+    .group thead { display: none; }
+    .group :is(table, tbody, tr, td) { display: block; width: 100%; }
+    .group tr { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+    .group tbody tr:last-child { border-bottom: 0; }
+    .group td { height: auto !important; padding: 0 !important; border: 0 !important; min-width: 0 !important; }
+    .group td + td { margin-top: var(--space-1); }
+    .group td.where { display: none; }
+  }
 </style>
