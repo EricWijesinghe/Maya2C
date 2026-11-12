@@ -1,0 +1,175 @@
+---
+// Ecosystem hub (audit lane F): what can be built on today, read from the
+// reality ledger at build. Every chip comes from features.toml through
+// src/data/ecosystem-apps.ts, or says "in progress" and links the open PR.
+// Partners and funding state what is true today: none, and none.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { HUB_GROUPS, hubItems, entryPoints, partners } from "../../data/ecosystem-apps";
+
+const REPO = "https://github.com/EricWijesinghe/Maya2C";
+const byId = new Map(hubItems.map((i) => [i.id, i]));
+const groups = HUB_GROUPS.map((g) => ({ ...g, items: hubItems.filter((i) => i.group === g.id) }));
+const tones = [
+  { id: "ok", label: "Verified" },
+  { id: "info", label: "Working" },
+  { id: "warn", label: "Stub, planned or in progress" },
+] as const;
+const count = (tone: string) => hubItems.filter((i) => i.tone === tone).length;
+---
+
+<StarlightPage frontmatter={{ title: "Ecosystem", description: "Apps, SDKs, tools, the MCP server and agent tools around Maya2C, each with its reality-ledger status; where to start building; partners and funding as they stand today.", template: "splash" }}>
+  {/* U3 (2026-11-13): an app page. The orbit map and emoji cards became a
+      sub-nav and one dense table per group (src/styles/app.css). */}
+  <div class="not-content app hub" data-hub>
+    <nav class="app-subnav" aria-label="Ecosystem groups">
+      {groups.map((g) => <a href={`#g-${g.id}`}>{g.label} <span class="n">{g.items.length}</span></a>)}
+      <a href="#h-build">Build</a>
+      <a href="#h-partners">Partners</a>
+      <a href="#h-funding">Funding</a>
+    </nav>
+
+    <p class="lede">
+      Everything around the chain, with the status the reality ledger (<code>features.toml</code>) gives it at build time.
+      The testnet is paused, so live services are offline until it restarts.
+    </p>
+
+    <div class="filters" role="group" aria-label="Show items by status">
+      <button type="button" class="ui-btn ui-btn--sm ui-btn--secondary" data-filter="all" aria-pressed="true">All {hubItems.length}</button>
+      {tones.map((t) => (
+        <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" data-filter={t.id} aria-pressed="false"><span class={`ui-pill ui-pill--${t.id}`}>{t.label} {count(t.id)}</span></button>
+      ))}
+    </div>
+
+    {groups.map((g) => (
+      <section id={`g-${g.id}`} class="app-section group" aria-labelledby={`h-${g.id}`}>
+        <h2 id={`h-${g.id}`}>{g.label} <span class="n">{g.items.length}</span></h2>
+        <div class="ui-table-wrap app-table">
+          <table class="ui-table">
+            <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">What it does</th><th scope="col">Where</th></tr></thead>
+            <tbody>
+              {g.items.map((i) => (
+                <tr data-tone={i.tone}>
+                  <td class="name"><a href={i.href}>{i.name}</a></td>
+                  <td><span class={`ui-pill ui-pill--${i.tone}`}>{i.chip}</span></td>
+                  <td class="app-wrap what">{i.what}</td>
+                  <td class="app-mono where">{i.pr ? `PR #${i.pr}` : i.path}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    ))}
+
+    <section class="app-section group" aria-labelledby="h-build">
+      <h2 id="h-build">Build on Maya2C</h2>
+      <ul class="entries">
+        {entryPoints.map((e) => (
+          <li class="ui-card entry">
+            <h3>{e.title}</h3>
+            <p class="row"><span class="tag">Today</span>
+              {e.exists.map((id) => { const i = byId.get(id)!; return <a class={`ui-pill ui-pill--${i.tone}`} href={i.href}>{i.name}</a>; })}
+            </p>
+            <p class="row"><span class="tag">Docs</span>{e.docs.map((d) => <a href={d.href}>{d.label}</a>)}</p>
+            <p class="row"><span class="tag">Planned</span><span class="muted">{e.planned}</span></p>
+          </li>
+        ))}
+      </ul>
+      <p class="muted small">Planned names are rows in the <a href={`${REPO}/blob/master/docs/ecosystem/CATALOG.md`}>ecosystem catalog</a>, a staging list rather than a status claim. The order is on the <a href="/ecosystem/roadmap/">roadmap</a>.</p>
+    </section>
+
+    <section class="app-section group" aria-labelledby="h-partners">
+      <h2 id="h-partners">Partners</h2>
+      {partners.length === 0 ? (
+        <div class="ui-card empty">
+          <p class="big">No partners yet.</p>
+          <p>Be the one to integrate: the checklist below is everything it takes. A partner is listed here only after agreeing in writing, and no logo appears without that consent.</p>
+        </div>
+      ) : (
+        <ul class="cards">{partners.map((p) => <li><a class="ui-card card" href={p.href}><strong>{p.name}</strong><span class="what">{p.what}</span></a></li>)}</ul>
+      )}
+      <h3>Onboarding checklist</h3>
+      <ol class="steps">
+        <li><a href="/guides/quickstart/">Build and run a node</a> from source on a local network.</li>
+        <li>Talk to it through the <a href="/guides/api/">gateway API</a>; apps never link the node crate.</li>
+        <li>Use an <a href="/reference/sdk/">SDK</a> for keys, addresses and signing.</li>
+        <li>Read how <a href="/guides/transactions/">transactions</a> and <a href="/guides/consensus/">finality</a> work before crediting anything.</li>
+        <li>Exchanges and custodians: credit deposits through the <a href={byId.get("deposit-watcher")!.href}>deposit watcher</a>.</li>
+        <li><a href="/reference/verify-release/">Verify release signatures</a> before you deploy a binary.</li>
+        <li>Report security problems privately through <a href={`${REPO}/security/advisories/new`}>a GitHub advisory</a>, never a public issue.</li>
+        <li>Tell us in <a href={`${REPO}/discussions`}>GitHub Discussions</a> or an <a href={`${REPO}/issues/new/choose`}>issue</a> when you are live.</li>
+      </ol>
+    </section>
+
+    <section class="app-section group" aria-labelledby="h-funding">
+      <h2 id="h-funding">Funding</h2>
+      <div class="facts">
+        <div class="ui-card fact"><span class="ui-pill ui-pill--bad">None</span><strong>Grants programme</strong><span class="muted">There is no grants programme today.</span></div>
+        <div class="ui-card fact"><span class="ui-pill ui-pill--bad">None</span><strong>Token sale</strong><span class="muted">There is no token sale today.</span></div>
+      </div>
+      <p>What a builder does get:</p>
+      <ul class="gets">
+        <li><strong>Credit</strong>: a checked entry in the contributors list, and security reporters on the <a href="/guides/security-hall-of-fame/">Hall of Fame</a>.</li>
+        <li>A <a href="/guides/contributors/">contributor badge</a>: a record, with no token and no money.</li>
+        <li><strong>Review</strong>: every suggestion read in full and every pull request inspected line by line; the maintainer decides.</li>
+      </ul>
+      <p><a class="ui-btn ui-btn--primary" href={`${REPO}/issues/new?template=suggestion.yml`}>Propose work</a></p>
+    </section>
+  </div>
+</StarlightPage>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-hub]")) {
+    const filters = [...root.querySelectorAll<HTMLButtonElement>("[data-filter]")];
+    const cards = [...root.querySelectorAll<HTMLElement>("[data-tone]")];
+    filters.forEach((f) => f.addEventListener("click", () => {
+      const want = f.dataset.filter!;
+      filters.forEach((x) => x.setAttribute("aria-pressed", String(x === f)));
+      cards.forEach((c) => (c.hidden = want !== "all" && c.dataset.tone !== want));
+    }));
+  }
+</script>
+
+<style>
+  .lede { margin: 0 0 var(--space-4); max-width: 72ch; font-size: var(--type-body-size); line-height: 1.55; color: var(--text-2); }
+  .muted { color: var(--text-2); }
+  .small { font-size: var(--type-body-sm-size); }
+  .n { margin-inline-start: var(--space-1); font: var(--type-body-sm-size) var(--font-mono); color: var(--text-2); }
+  .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-8); }
+  .filters button[aria-pressed="true"] { border-color: var(--accent); }
+  .group tr[hidden] { display: none; }
+  .name a { font-weight: var(--weight-medium); color: var(--text); text-decoration: none; white-space: nowrap; overflow-wrap: normal; }
+  .name a:hover { color: var(--accent-text); }
+  .what { color: var(--text-2) !important; }
+  .where { color: var(--text-2); font-size: var(--type-body-sm-size); }
+  .group > h3 { margin: var(--space-6) 0 var(--space-3); font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  .group > p { margin: var(--space-3) 0; color: var(--text-2); }
+
+  .cards, .entries { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-3); }
+  .cards li, .entries li { margin: 0; }
+  .card { display: grid; gap: var(--space-1); height: 100%; text-decoration: none; color: var(--text); }
+  .entry h3 { margin: 0 0 var(--space-2) !important; font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  .row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin: var(--space-2) 0 !important; font-size: var(--type-body-sm-size); }
+  .row a.ui-pill { text-decoration: none; }
+  .tag { min-width: 4.5rem; font-size: var(--type-body-sm-size); color: var(--text-2); }
+
+  .empty { border-style: dashed; }
+  .empty .big { margin: 0 0 var(--space-1) !important; font-weight: var(--weight-semibold); color: var(--text) !important; }
+  .steps { padding-left: var(--space-6); color: var(--text-2); }
+  .steps li { margin: var(--space-2) 0; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-3); }
+  .fact { display: grid; gap: var(--space-1); justify-items: start; }
+  .gets { list-style: none; padding: 0; color: var(--text-2); }
+  .gets li { margin: var(--space-2) 0; }
+  .gets strong { color: var(--text); }
+  /* Phones (critique): the path column goes; name, status and what fit 390 px. */
+  @media (max-width: 560px) {
+    .group thead { display: none; }
+    .group :is(table, tbody, tr, td) { display: block; width: 100%; }
+    .group tr { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+    .group tbody tr:last-child { border-bottom: 0; }
+    .group td { height: auto !important; padding: 0 !important; border: 0 !important; min-width: 0 !important; }
+    .group td + td { margin-top: var(--space-1); }
+    .group td.where { display: none; }
+  }
+</style>
