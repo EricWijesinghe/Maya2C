@@ -3563,3 +3563,25 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "xtask-attacknet"
+name = "Attacknet (cargo xtask attacknet)"
+domain = "Tooling and formal verification"
+paths = "`xtask/src/attacknet.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:xtask"]
+note = "The gate evidence: each run writes reports/attacknet/<date>-<n>.md (seven validators on one machine, loopback links). The crate:xtask unit tests cover only --trusted-block parsing; the attacks themselves are checked by running them, not by a test target."
+
+[[subsystem]]
+id = "attacknet-controller"
+name = "Attacknet lab controller"
+domain = "Tooling and formal verification"
+paths = "`bins/attacknet-controller`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["crate:attacknet-controller"]
+note = "Scaffold. Process kill (by data dir, zero matches is an error) and start are real; every other fault returns a not-implemented error since 2026-11-10 (before that, many logged Ok without acting). Its scenario verdicts and reports/attacknet/runs/ are not evidence; use cargo xtask attacknet."
