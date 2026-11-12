@@ -335,7 +335,10 @@ impl Mempool {
             tx,
             &sender_address,
             self.admission_height()?,
-            self.state.effective_schedule()?.features().account_authority,
+            self.state
+                .effective_schedule()?
+                .features()
+                .account_authority,
         )?;
 
         // Then the signature, with the same rule block execution applies, at

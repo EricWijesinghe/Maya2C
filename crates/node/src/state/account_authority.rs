@@ -290,7 +290,9 @@ impl RecoveryRecord {
         let policy_count = usize::from(r.read_u8()?);
         let approval_count = |n: usize| n <= MAX_GUARDIANS;
         if !approval_count(policy_count) {
-            return Err(NodeError::Decode(format!("{policy_count} recovery policies")));
+            return Err(NodeError::Decode(format!(
+                "{policy_count} recovery policies"
+            )));
         }
         let mut policies = BTreeMap::new();
         for _ in 0..policy_count {
@@ -328,7 +330,9 @@ impl RecoveryRecord {
 fn validate(set: &GuardianSet, account: &Address) -> Result<()> {
     let n = set.guardians.len();
     if !(1..=MAX_GUARDIANS).contains(&n) {
-        return refuse(format!("{n} guardians; an account needs 1..={MAX_GUARDIANS}"));
+        return refuse(format!(
+            "{n} guardians; an account needs 1..={MAX_GUARDIANS}"
+        ));
     }
     for (i, g) in set.guardians.iter().enumerate() {
         if g == account {
@@ -475,15 +479,21 @@ impl StateDB {
         }
         let sender = tx.sender();
         match action {
-            AccountAction::AdoptPolicy(policy) => self.adopt_policy(overlay, &sender, policy, context),
-            AccountAction::SetGuardians(set) => self.set_guardians(overlay, tx, &sender, set, context),
+            AccountAction::AdoptPolicy(policy) => {
+                self.adopt_policy(overlay, &sender, policy, context)
+            }
+            AccountAction::SetGuardians(set) => {
+                self.set_guardians(overlay, tx, &sender, set, context)
+            }
             AccountAction::ProposeRecovery { account, policy } => {
                 self.propose_recovery(overlay, &sender, account, policy, context)
             }
             AccountAction::CancelRecovery { account } => {
                 self.cancel_recovery(overlay, &sender, account, context.height)
             }
-            AccountAction::FinishRecovery { account } => self.finish_recovery(overlay, account, context),
+            AccountAction::FinishRecovery { account } => {
+                self.finish_recovery(overlay, account, context)
+            }
             AccountAction::WithdrawApproval { account } => {
                 self.withdraw_approval(overlay, &sender, account, context.height)
             }
@@ -618,8 +628,12 @@ impl StateDB {
             return refuse("only the account's own authority may cancel");
         }
         let recovery = self.recovery_record(overlay, account)?;
-        let authority = self.authority_record(overlay, account)?.map(|a| a.normalised(height));
-        let guardians = self.guardian_record(overlay, account)?.map(|g| g.normalised(height));
+        let authority = self
+            .authority_record(overlay, account)?
+            .map(|a| a.normalised(height));
+        let guardians = self
+            .guardian_record(overlay, account)?
+            .map(|g| g.normalised(height));
         let queued = authority.as_ref().is_some_and(|a| a.queued.is_some())
             || guardians.as_ref().is_some_and(|g| g.queued.is_some());
         if recovery.is_none() && !queued {

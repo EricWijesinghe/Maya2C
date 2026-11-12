@@ -343,8 +343,7 @@ mod tests {
 
     #[test]
     fn account_authority_resolves_from_its_entry() {
-        let s =
-            UpgradeSchedule::new(vec![with(3, 40, FeatureSet::ACCOUNT_AUTHORITY)]).unwrap();
+        let s = UpgradeSchedule::new(vec![with(3, 40, FeatureSet::ACCOUNT_AUTHORITY)]).unwrap();
         assert_eq!(s.features().account_authority, 40);
         assert_eq!(
             UpgradeSchedule::default().features().account_authority,

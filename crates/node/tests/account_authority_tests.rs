@@ -17,10 +17,10 @@ use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::account_authority::MIN_DELAY_BLOCKS;
 use custom_l1_node::state::{Account, Address, BlockContext, Module, StateDB};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
-use maya_fee_market::limits::MAX_BLOCK_BYTES;
 use maya_crypto_pq::suite::{
     HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa65, MlDsa87, SignatureSuite, SuiteId,
 };
+use maya_fee_market::limits::MAX_BLOCK_BYTES;
 use primitive_types::U256;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -157,7 +157,12 @@ impl Chain {
     }
 }
 
-fn hybrid(chain: &Chain, key: &HybridSigningKey, kind: TxKind, outputs: Vec<TxOutput>) -> Transaction {
+fn hybrid(
+    chain: &Chain,
+    key: &HybridSigningKey,
+    kind: TxKind,
+    outputs: Vec<TxOutput>,
+) -> Transaction {
     let mut tx = Transaction::with_kind(kind, chain.nonce(&key.address()));
     tx.outputs = outputs;
     tx.sign(key, &CHAIN).unwrap();
@@ -368,7 +373,8 @@ fn v9_hybrid(
     let message = tx.signing_bytes(&CHAIN);
     // The node's hybrid key from this seed is the suite-0x30 key from it
     // (invariant 30), so the owner signs its own 1-of-1 policy.
-    let suite_key = HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([seed; 32]));
+    let suite_key =
+        HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([seed; 32]));
     let approvals = vec![Approval {
         index: 0,
         signature: HybridMlDsa65SlhDsa128s::sign(&suite_key, &message).unwrap(),
@@ -433,8 +439,17 @@ fn v7_and_v8_frames_are_refused_once_their_account_opts_in() {
         }],
     )
     .unwrap();
-    let ok = v9(&chain, a7, &p7, std::slice::from_ref(&k7), TxKind::Transfer, pay(1));
-    chain.send(ok).expect("the v7 key acts through its 1-of-1 v9 frame");
+    let ok = v9(
+        &chain,
+        a7,
+        &p7,
+        std::slice::from_ref(&k7),
+        TxKind::Transfer,
+        pay(1),
+    );
+    chain
+        .send(ok)
+        .expect("the v7 key acts through its 1-of-1 v9 frame");
 
     let mut tx = Transaction::with_kind(account(AccountAction::SetGuardians(set)), 0);
     tx.multisig = Some(Box::new(MultisigAuth::unsigned(p8.clone())));
@@ -461,7 +476,12 @@ fn v7_and_v8_frames_are_refused_once_their_account_opts_in() {
         })
         .collect();
     v8_later.multisig = Some(Box::new(MultisigAuth::new(p8.clone(), approvals).unwrap()));
-    assert!(chain.send(v8_later).unwrap_err().contains("authority moved"));
+    assert!(
+        chain
+            .send(v8_later)
+            .unwrap_err()
+            .contains("authority moved")
+    );
     chain
         .send(v9(&chain, a8, &p8, &k8, TxKind::Transfer, pay(1)))
         .expect("the same quorum acts through v9");
@@ -519,8 +539,14 @@ fn a_later_guardian_change_is_queued_behind_the_current_delay() {
     let queued_at = s.chain.height;
     let (_, g, _) = s.chain.db.committed_account_authority(&s.address).unwrap();
     let g = g.unwrap();
-    assert_eq!(g.effective(queued_at + DELAY - 1).guardians[0], s.gs[0].address);
-    assert_eq!(g.effective(queued_at + DELAY).guardians[0], fresh[0].address);
+    assert_eq!(
+        g.effective(queued_at + DELAY - 1).guardians[0],
+        s.gs[0].address
+    );
+    assert_eq!(
+        g.effective(queued_at + DELAY).guardians[0],
+        fresh[0].address
+    );
     // While queued the old guardians still recover.
     let new = policy_of(2, &devices(&[1, 2, 3]));
     propose(&mut s, 0, &new).expect("old guardian still counts");
@@ -582,7 +608,11 @@ fn removed_guardians_approvals_are_ignored() {
     s.chain.send(change).unwrap();
     s.chain.idle_to(s.chain.height + DELAY);
     // Guardian 0 is no longer a guardian at all.
-    assert!(propose(&mut s, 0, &new).unwrap_err().contains("current guardian"));
+    assert!(
+        propose(&mut s, 0, &new)
+            .unwrap_err()
+            .contains("current guardian")
+    );
     // Guardian 2 approves: with 0's approval it would be 2 of 3, without it 1.
     propose(&mut s, 2, &new).unwrap();
     s.chain.idle_to(s.chain.height + DELAY);
@@ -623,17 +653,32 @@ fn guardian_bounds_are_enforced_by_the_chain() {
         },
     ];
     for set in bad {
-        let tx = hybrid(&chain, &owner, account(AccountAction::SetGuardians(set.clone())), vec![]);
+        let tx = hybrid(
+            &chain,
+            &owner,
+            account(AccountAction::SetGuardians(set.clone())),
+            vec![],
+        );
         assert!(chain.send(tx).is_err(), "{set:?} must be refused");
     }
-    assert_eq!(chain.authority(&address), None, "a refused opt-in records nothing");
+    assert_eq!(
+        chain.authority(&address),
+        None,
+        "a refused opt-in records nothing"
+    );
 }
 
 #[test]
 fn cancel_and_withdraw_are_never_halted() {
     let a = [7; 32];
-    assert_eq!(Module::of(&account(AccountAction::CancelRecovery { account: a })), None);
-    assert_eq!(Module::of(&account(AccountAction::WithdrawApproval { account: a })), None);
+    assert_eq!(
+        Module::of(&account(AccountAction::CancelRecovery { account: a })),
+        None
+    );
+    assert_eq!(
+        Module::of(&account(AccountAction::WithdrawApproval { account: a })),
+        None
+    );
     assert_eq!(
         Module::of(&account(AccountAction::FinishRecovery { account: a })),
         Some(Module::Account)
@@ -655,7 +700,14 @@ fn v9_and_account_actions_are_refused_below_activation_and_by_verify() {
     let owner = owner_key(0x03);
     let mut chain = Chain::with_activation(&[account_address, owner.address()], 1_000);
 
-    let frame = v9(&chain, account_address, &policy, &keys, TxKind::Transfer, pay(1));
+    let frame = v9(
+        &chain,
+        account_address,
+        &policy,
+        &keys,
+        TxKind::Transfer,
+        pay(1),
+    );
     assert!(frame.verify(&CHAIN).is_err(), "verify has no height");
     let err = chain.send(frame.clone()).unwrap_err();
     assert!(err.contains("not active"), "{err}");
@@ -663,7 +715,10 @@ fn v9_and_account_actions_are_refused_below_activation_and_by_verify() {
     let opt_in = hybrid(
         &chain,
         &owner,
-        account(AccountAction::SetGuardians(guardians(&[&gs[0], &gs[1], &gs[2]], 2))),
+        account(AccountAction::SetGuardians(guardians(
+            &[&gs[0], &gs[1], &gs[2]],
+            2,
+        ))),
         vec![],
     );
     let err = chain.send(opt_in).unwrap_err();
@@ -676,7 +731,16 @@ fn v9_and_account_actions_are_refused_below_activation_and_by_verify() {
 
     // The mempool judges at the tip under the committed (dark) schedule.
     let pool = Mempool::new(Arc::new(chain.db));
-    let frame = v9_with(account_address, &policy, &keys, &[0, 1], TxKind::Transfer, pay(1), 0, &CHAIN);
+    let frame = v9_with(
+        account_address,
+        &policy,
+        &keys,
+        &[0, 1],
+        TxKind::Transfer,
+        pay(1),
+        0,
+        &CHAIN,
+    );
     let err = pool.validate(&frame).unwrap_err().to_string();
     assert!(err.contains("not active"), "{err}");
 }
@@ -686,7 +750,16 @@ fn v9_signing_bytes_bind_account_policy_and_chain() {
     let keys = devices(&[1, 2, 3]);
     let policy = policy_of(2, &keys);
     let other = policy_of(2, &devices(&[4, 5, 6]));
-    let frame = v9_with([1; 32], &policy, &keys, &[0, 1], TxKind::Transfer, pay(3), 0, &CHAIN);
+    let frame = v9_with(
+        [1; 32],
+        &policy,
+        &keys,
+        &[0, 1],
+        TxKind::Transfer,
+        pay(3),
+        0,
+        &CHAIN,
+    );
     let bytes = frame.signing_bytes(&CHAIN);
     let rebind = |account| {
         let mut t = frame.clone();
@@ -699,16 +772,30 @@ fn v9_signing_bytes_bind_account_policy_and_chain() {
         t
     };
     assert_ne!(rebind([2; 32]).signing_bytes(&CHAIN), bytes, "account");
-    assert_ne!(frame.signing_bytes(&ChainTag::from_genesis([43; 32])), bytes, "chain");
+    assert_ne!(
+        frame.signing_bytes(&ChainTag::from_genesis([43; 32])),
+        bytes,
+        "chain"
+    );
     let mut swapped = frame.clone();
     swapped.multisig = Some(Box::new(MultisigAuth::unsigned(other).bound_to([1; 32])));
     assert_ne!(swapped.signing_bytes(&CHAIN), bytes, "policy");
 
-    let policy_suites = custom_l1_node::crypto::suites::verification_policy(&SuiteSunsets::EMPTY)
-        .unwrap();
-    frame.verify_at(1, &policy_suites, &CHAIN).expect("as signed");
-    assert!(rebind([2; 32]).verify_at(1, &policy_suites, &CHAIN).is_err());
-    assert!(frame.verify_at(1, &policy_suites, &ChainTag::from_genesis([43; 32])).is_err());
+    let policy_suites =
+        custom_l1_node::crypto::suites::verification_policy(&SuiteSunsets::EMPTY).unwrap();
+    frame
+        .verify_at(1, &policy_suites, &CHAIN)
+        .expect("as signed");
+    assert!(
+        rebind([2; 32])
+            .verify_at(1, &policy_suites, &CHAIN)
+            .is_err()
+    );
+    assert!(
+        frame
+            .verify_at(1, &policy_suites, &ChainTag::from_genesis([43; 32]))
+            .is_err()
+    );
     // The same approvals presented as a v8 frame do not verify: other domain.
     let mut as_v8 = frame.clone();
     let auth = as_v8.multisig.take().unwrap();
@@ -741,7 +828,11 @@ fn a_suite_sunset_before_finish_refuses_the_recovery() {
     let new = policy_of(2, &devices(&[1, 2, 3]));
     // A proposal whose delay would end past the sunset is refused...
     s.chain.idle_to(sunset_height - DELAY);
-    assert!(propose(&mut s, 0, &new).unwrap_err().contains("may not sign"));
+    assert!(
+        propose(&mut s, 0, &new)
+            .unwrap_err()
+            .contains("may not sign")
+    );
     // ...one that ends before it is admitted, and finishing late is refused.
     let mut s2 = scene();
     s2.chain.sunsets = s.chain.sunsets;
@@ -780,20 +871,29 @@ fn a_reorg_restores_authority_records() {
     let tx = hybrid(
         &chain,
         &owner,
-        account(AccountAction::SetGuardians(guardians(&[&gs[0], &gs[1], &gs[2]], 2))),
+        account(AccountAction::SetGuardians(guardians(
+            &[&gs[0], &gs[1], &gs[2]],
+            2,
+        ))),
         vec![],
     );
     chain.height = 1;
     let mut block = chain.block(vec![tx]);
     let context = chain.context(1);
     block.header.state_root = chain.db.preview_root(&block, context).unwrap();
-    let after = chain.db.apply_block_journaled(&block, &[1; 32], context).unwrap();
+    let after = chain
+        .db
+        .apply_block_journaled(&block, &[1; 32], context)
+        .unwrap();
     assert_ne!(after, before, "an opt-in moves the root");
     assert!(chain.authority(&address).is_some());
     assert_eq!(chain.db.uncovered_keys().unwrap(), Vec::<Vec<u8>>::new());
 
     chain.db.revert_block(&[1; 32]).unwrap();
-    assert_eq!(chain.db.committed_account_authority(&address).unwrap(), (None, None, None));
+    assert_eq!(
+        chain.db.committed_account_authority(&address).unwrap(),
+        (None, None, None)
+    );
     assert_eq!(chain.db.state_root().unwrap(), before);
 }
 
@@ -818,7 +918,10 @@ fn vault_limits_survive_recovery() {
     let opt_in = hybrid(
         &chain,
         &owner,
-        account(AccountAction::SetGuardians(guardians(&[&gs[0], &gs[1], &gs[2]], 2))),
+        account(AccountAction::SetGuardians(guardians(
+            &[&gs[0], &gs[1], &gs[2]],
+            2,
+        ))),
         vec![],
     );
     chain.send(opt_in).expect("a vault account may opt in");
@@ -839,11 +942,20 @@ fn vault_limits_survive_recovery() {
     finish(&mut s).unwrap();
     assert_eq!(s.chain.db.committed_vault(&address).unwrap(), vault_before);
 
-    let over = v9(&s.chain, address, &new, &keys, TxKind::Transfer, pay(LIMIT + 1));
+    let over = v9(
+        &s.chain,
+        address,
+        &new,
+        &keys,
+        TxKind::Transfer,
+        pay(LIMIT + 1),
+    );
     let err = s.chain.send(over).unwrap_err();
     assert!(err.contains("vault"), "{err}");
     let within = v9(&s.chain, address, &new, &keys, TxKind::Transfer, pay(LIMIT));
-    s.chain.send(within).expect("in-limit transfer under the new keys");
+    s.chain
+        .send(within)
+        .expect("in-limit transfer under the new keys");
 }
 
 #[test]
@@ -851,7 +963,9 @@ fn measured_v9_frame_bytes() {
     // Printed, not asserted: there is no target (ADR-086 §3.2, invariant 33).
     for (label, m, n) in [("2-of-3", 2usize, 3u8), ("3-of-5", 3, 5)] {
         let keys: Vec<_> = (1..=n)
-            .map(|i| HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([i; 32])))
+            .map(|i| {
+                HybridMlDsa65SlhDsa128s::signing_key_from_seed(&MasterSeed::from_bytes([i; 32]))
+            })
             .collect();
         let listed = keys
             .iter()
@@ -862,7 +976,9 @@ fn measured_v9_frame_bytes() {
             .collect();
         let policy = MultisigPolicy::new(m, listed).unwrap();
         let mut tx = Transaction::new(vec![], pay(1), 0);
-        tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy.clone()).bound_to([1; 32])));
+        tx.multisig = Some(Box::new(
+            MultisigAuth::unsigned(policy.clone()).bound_to([1; 32]),
+        ));
         let message = tx.signing_bytes(&CHAIN);
         let approvals = (0..u8::try_from(m).unwrap())
             .map(|i| Approval {
@@ -871,7 +987,9 @@ fn measured_v9_frame_bytes() {
             })
             .collect();
         tx.multisig = Some(Box::new(
-            MultisigAuth::new(policy, approvals).unwrap().bound_to([1; 32]),
+            MultisigAuth::new(policy, approvals)
+                .unwrap()
+                .bound_to([1; 32]),
         ));
         let v9_len = tx.to_bytes().len();
         let mut v6 = Transaction::new(vec![], pay(1), 0);
@@ -1013,7 +1131,16 @@ const VECTORS_PATH: &str = concat!(
 fn vector_cases() -> serde_json::Value {
     let keys = devices(&[1, 2, 3]);
     let policy = policy_of(2, &keys);
-    let frame = v9_with([1; 32], &policy, &keys, &[0, 1], TxKind::Transfer, pay(3), 0, &CHAIN);
+    let frame = v9_with(
+        [1; 32],
+        &policy,
+        &keys,
+        &[0, 1],
+        TxKind::Transfer,
+        pay(3),
+        0,
+        &CHAIN,
+    );
     let set = GuardianSet {
         guardians: vec![[0x11; 32], [0x22; 32], [0x33; 32]],
         threshold: 2,
@@ -1076,5 +1203,8 @@ fn conformance_vectors_match_the_spec_file() {
     }
     let stored: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(VECTORS_PATH).unwrap()).unwrap();
-    assert_eq!(stored, computed, "spec/account-authority-vectors.json is stale");
+    assert_eq!(
+        stored, computed,
+        "spec/account-authority-vectors.json is stale"
+    );
 }
