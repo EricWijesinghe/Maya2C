@@ -47,7 +47,7 @@ import SourceTip from "./SourceTip.astro";
     unit.addEventListener("change", render);
     explorerStats().then((s) => {
       network = s && s.hashrate > 0 ? s.hashrate : null;
-      root.querySelector("[data-hs-net]")!.textContent = network === null ? "— (not answering; the testnet is paused)" : hashFmt(network);
+      root.querySelector("[data-hs-net]")!.textContent = network === null ? "— (paused for the next genesis)" : hashFmt(network);
       render();
     });
   }

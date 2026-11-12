@@ -152,7 +152,7 @@ const proofRows = [
         $("hash").textContent = hashFmt(stats.hashrate);
         addBlocks(recent);
         state("live", true);
-      } catch { state("explorer unreachable right now", false); }
+      } catch { state("paused for the next genesis (explorer not answering)", false); }
       try { const l = await json("https://status.maya2c.dev/api/live"); if (Array.isArray(l.peers)) $("peers").textContent = fmt(l.peers.length); } catch { /* status service down: dash stays */ }
       try { const u = await json("https://status.maya2c.dev/api/status"); if (typeof u.uptime === "number") $("uptime").textContent = `${(u.uptime * 100).toFixed(2)}%`; } catch { /* dash stays */ }
       try { const h: { hashrate: number }[] = await json(`${EXPLORER}/api/hashrate`); line("hashChart", h.map((p) => p.hashrate)); } catch { /* chart stays empty */ }
@@ -224,7 +224,7 @@ const proofRows = [
   @keyframes pulse { 50% { opacity: 0.4; } }
   @media (prefers-reduced-motion: reduce) { .dot.on { animation: none; } }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.75rem; margin: 1rem 0; }
-  .tiles div { border: 1px solid var(--sl-color-gray-5); border-radius: 0.5rem; padding: 0.75rem; }
+  .tiles > div { margin-top: 0; background: var(--surface); border: 1px solid var(--sl-color-gray-5); border-radius: 0.5rem; padding: 0.75rem; }
   .tiles dt { font-size: 0.8rem; color: var(--sl-color-gray-3); }
   .tiles dd { margin: 0.25rem 0 0; font-size: 1.35rem; font-variant-numeric: tabular-nums; font-weight: 600; }
   #rel { font-size: 1rem; overflow-wrap: anywhere; }

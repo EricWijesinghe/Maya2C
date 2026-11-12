@@ -3,8 +3,8 @@
 // public services report it (read in the visitor's browser, a dash when a
 // service does not answer), and the repository as the build counted it
 // (features.toml, the proof ratchet, the test count with its date). Nothing is
-// estimated and nothing is simulated (Standing Orders 1-2). Height and
-// validators are in the hero tiles above, so they are not repeated here.
+// estimated and nothing is simulated (Standing Orders 1-2). Height,
+// validators and verified subsystems are in the hero tiles above, so they are not repeated here.
 import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
@@ -20,7 +20,6 @@ const live = [
   { id: "uptime", label: "Uptime since genesis", src: "status.maya2c.dev /api/status" },
 ];
 const built = [
-  { value: s.verified ?? 0, label: "Subsystems verified", src: "features.toml, status = verified", href: `${repo}/features.toml` },
   { value: s.working ?? 0, label: "Subsystems working", src: "features.toml, status = working", href: `${repo}/features.toml` },
   { value: health.tests.passed, label: "Tests passing", src: `Full workspace count of ${health.tests.as_of}: ${health.tests.source}`, href: `${repo}/.github/workflows/ci.yml` },
   { value: proofs?.kani_harnesses ?? null, label: "Kani proofs", src: "proof-ratchet.txt (ADR-078 O3): CI fails if it falls", href: `${repo}/proof-ratchet.txt` },
@@ -34,18 +33,18 @@ const total = health.ledger.total;
 <section class="not-content ls" aria-label="Live proof numbers" data-ls>
   <p class="ls-live"><span class="ls-dot" data-ls-dot aria-hidden="true"></span><span data-ls-state>Network: connecting…</span></p>
   <dl class="ls-grid">
-    {live.map((t) => (
-      <div class="ui-card ls-tile" data-tilt>
-        <dt class="ui-stat__label">{t.label}</dt>
-        <dd class="ui-stat__value" data-live={t.id}>—</dd>
-        <SourceTip text={t.src} />
-      </div>
-    ))}
     {built.map((t) => (
       <div class="ui-card ls-tile" data-tilt>
         <dt class="ui-stat__label">{t.label}</dt>
         <dd class="ui-stat__value" data-count={t.value ?? undefined}>{t.value === null ? "—" : t.value.toLocaleString("en-US")}</dd>
         <SourceTip text={t.src} href={t.href} />
+      </div>
+    ))}
+    {live.map((t) => (
+      <div class="ui-card ls-tile" data-tilt>
+        <dt class="ui-stat__label">{t.label}</dt>
+        <dd class="ui-stat__value" data-live={t.id}>—</dd>
+        <SourceTip text={t.src} />
       </div>
     ))}
   </dl>
@@ -85,7 +84,7 @@ const total = health.ledger.total;
       if (p && Array.isArray(p.peers)) set("peers", fmt(p.peers.length));
       if (u && typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`);
       const up = Boolean(st || b);
-      root.querySelector("[data-ls-state]")!.textContent = up ? "Network: live" : "Network: not answering (the testnet is paused for the next genesis)";
+      root.querySelector("[data-ls-state]")!.textContent = up ? "Network: live" : "Network: paused for the next genesis";
       root.querySelector("[data-ls-dot]")!.classList.toggle("on", up);
     };
     poll();
@@ -115,4 +114,5 @@ const total = health.ledger.total;
   .ls-legend { margin: 0; display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-2); }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
   @media (prefers-reduced-motion: reduce) { .seg { transition: none; } }
+  @media (max-width: 560px) { .ls-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ls-tile { padding: var(--space-3); } }
 </style>

@@ -23,7 +23,7 @@ const verified = health.ledger.by_status.verified ?? 0;
   <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
-      <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</p>
+      <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b><span id="chip-tip" hidden> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</span></p>
       <h1>Mine the <span>post-quantum</span> chain with your GPU.</h1>
       <p class="lede">Every transaction carries two NIST post-quantum signatures. Every number on this page links to where it comes from.</p>
       <!-- One message, one call to action (U3). The other doors are in the header. -->
@@ -99,11 +99,11 @@ const verified = health.ledger.by_status.verified ?? 0;
   let retry = 1000, everLive = false;
   function stream() {
     const ws = new WebSocket("wss://explorer.maya2c.dev/ws/blocks");
-    ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; stage.classList.add("live"); };
+    ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; $("chip-tip")!.hidden = false; stage.classList.add("live"); };
     ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0, true, b.timestamp); } catch { /* skip */ } };
     ws.onclose = () => {
       // Never reached this visit: say offline, not an endless "reconnecting".
-      live = false; stage.classList.remove("live"); $("chip-state")!.textContent = everLive ? "reconnecting…" : "offline";
+      live = false; stage.classList.remove("live"); $("chip-state")!.textContent = everLive ? "reconnecting…" : "paused for the next genesis";
       setTimeout(stream, retry); retry = Math.min(retry * 2, 30000);
     };
     ws.onerror = () => ws.close();

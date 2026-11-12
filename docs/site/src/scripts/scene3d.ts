@@ -82,7 +82,7 @@ export function mountSupplyCoin(canvas: HTMLCanvasElement, emblemUrl: string): S
   let target = 0, shown = 0, burnFrac = 0;
 
   const { scene } = stage(canvas, 38, 6, (t, dt) => {
-    body.rotation.z += dt * 0.5; // slow spin on the coin's own axis
+    body.rotation.z = Math.sin(t / 3000) * 0.6; // a slow sway: the face stays toward the viewer
     coin.position.y = Math.sin(t / 1400) * 0.06;
     // The arc grows from 0 to the real ratio once, then holds it.
     if (Math.abs(target - shown) > 0.0005) { shown += (target - shown) * Math.min(1, dt * 2.2); build(); }
