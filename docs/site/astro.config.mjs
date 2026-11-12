@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { unified } from "@astrojs/markdown-remark";
+import { codeThemes, codeStyleOverrides } from "./src/lib/code-theme.mjs";
 
 // Emitted by scripts/ingest.mjs, which runs before every build. Generated
 // rather than hand-listed so a new file in docs/ reaches the site without a
@@ -45,8 +46,6 @@ export default defineConfig({
         // scripts/check-csp.mjs fails the build if one changes.
         hashes: [
           "sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=",
-          // Head.astro: sets data-section and data-motif before first paint. Reviewed 2026-10-18.
-          "sha256-6ZINGwbBwZAoVmAasCd7cTtRBKBuDMifxtzCpxtsf9c=",
           "sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=",
           "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
           "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
@@ -84,7 +83,7 @@ export default defineConfig({
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
         // Link-preview images are per section, set in src/components/Head.astro.
-        { tag: "meta", attrs: { name: "theme-color", content: "#050b0f" } },
+        { tag: "meta", attrs: { name: "theme-color", content: "#08090b" } },
         // Structured data, so search engines know what the site is about:
         // the project, its source, and that the software is free.
         {
@@ -146,8 +145,8 @@ export default defineConfig({
       // Self-hosted variable fonts: no third-party request, no layout shift
       // from a late swap, and the same letterforms on every OS.
       customCss: [
-        "@fontsource-variable/manrope",
-        "@fontsource-variable/inter",
+        // Inter with its optical-size axis: one family for display and body (ADR-136).
+        "@fontsource-variable/inter/opsz.css",
         "@fontsource-variable/jetbrains-mono",
         // KaTeX glyph styles, self-hosted from node_modules (fonts are same-origin).
         "katex/dist/katex.min.css",
@@ -159,8 +158,10 @@ export default defineConfig({
         "./src/styles/components.css",
         "./src/styles/maya.css",
         "./src/styles/maya-living.css",
-        // U3 depth: card tilt and scroll-in sections (transform and opacity only).
+        // Layout helpers for kit components inside pages.
         "./src/styles/depth.css",
+        // App-like pages: sub-nav, stat grids, tables, skeletons (U3).
+        "./src/styles/app.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.
@@ -173,6 +174,15 @@ export default defineConfig({
         PageTitle: "./src/components/PageTitle.astro",
         // Per-page structured data: breadcrumbs and a TechArticle.
         Head: "./src/components/Head.astro",
+        // The command palette replaces the stock search button and its dialog;
+        // it reads the same Pagefind index.
+        Search: "./src/components/CommandPalette.astro",
+      },
+      // Code blocks: Shiki themes built from design/tokens.json; frames give
+      // the filename tab and the copy button with its "Copied!" feedback.
+      expressiveCode: {
+        themes: codeThemes,
+        styleOverrides: codeStyleOverrides,
       },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },

@@ -1,98 +1,71 @@
 ---
-// Live proof numbers. Two kinds, each tile saying which: the network as its
-// public services report it (read in the visitor's browser, a dash when a
-// service does not answer), and the repository as the build counted it
-// (features.toml, the proof ratchet, the test count with its date). Nothing is
-// estimated and nothing is simulated (Standing Orders 1-2). Height,
-// validators and verified subsystems are in the hero tiles above, so they are not repeated here.
+// The homepage proof row: four figures, each with where it comes from. Two
+// are the network as its public services report it (read in the visitor's
+// browser; while the testnet is paused, the last reading from the stop report,
+// dated), two are the repository as this build counted it. Nothing is
+// estimated and nothing is simulated (Standing Orders 1-2).
 import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
-import { testnet, pausedLabel } from "../data/network-state";
+import { testnet } from "../data/network-state";
 
-const repo = "https://github.com/EricWijesinghe/Maya2C/blob/master";
-// No test count older than 14 days on the homepage (audit W-09).
-const testsFresh = Date.now() - Date.parse(health.tests.as_of) <= 14 * 864e5;
-// While the testnet is stopped on purpose, a live tile shows that, not a dash (W-04).
-const idle = testnet.paused ? pausedLabel : "—";
+const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality ?? null;
 const s = health.ledger.by_status as Record<string, number>;
-const proofs = (progress as { proofs?: Record<string, number> | null }).proofs ?? null;
-const live = [
-  { id: "blocktime", label: "Average block time", src: "Explorer /api/stats, mean gap over its window" },
-  { id: "peers", label: "Peers online", src: "status.maya2c.dev /api/live, peers connected now" },
-  { id: "hashrate", label: "Network hashrate", src: "Explorer /api/stats, estimated from indexed blocks" },
-  { id: "txs", label: "Transactions", src: "Explorer /api/stats, transactions indexed" },
-  { id: "uptime", label: "Uptime since genesis", src: testnet.paused ? "Last status.maya2c.dev /api/status reading before the stop, quoted in the stop report" : "status.maya2c.dev /api/status" },
+const paused = testnet.paused;
+const stats = [
+  {
+    id: "height", label: paused ? "Last block" : "Block height",
+    value: paused ? testnet.last.height.toLocaleString("en-US") : null,
+    note: paused ? `${testnet.last.at}, then paused` : "maya-testnet-1, live",
+    src: paused ? "status.maya2c.dev /api/status, last reading before the stop, quoted in the stop report" : "Explorer /api/stats",
+    href: paused ? testnet.report : undefined,
+  },
+  {
+    id: "uptime", label: paused ? "Uptime, last run" : "Uptime since genesis",
+    value: paused ? `${(testnet.last.uptime * 100).toFixed(2)}%` : null,
+    note: paused ? `${testnet.last.run}, ${testnet.last.halts} halts` : "status.maya2c.dev",
+    src: paused ? "status.maya2c.dev /api/status before the stop, in the stop report" : "status.maya2c.dev /api/status",
+    href: paused ? testnet.report : undefined,
+  },
+  {
+    id: "finality", label: "Finality p50",
+    value: finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : null,
+    note: finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed",
+    src: finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed",
+    href: "/stats/#finality",
+  },
+  {
+    id: "verified", label: "Verified subsystems",
+    value: `${s.verified ?? 0} / ${health.ledger.total}`,
+    note: "each names a test CI runs",
+    src: "features.toml, status = verified, counted at build by scripts/gen-health.mjs",
+    href: "/health/",
+  },
 ];
-const built = [
-  { value: s.working ?? 0, label: "Subsystems working", src: "features.toml, status = working", href: `${repo}/features.toml` },
-  ...(testsFresh ? [{ value: health.tests.passed, label: "Tests passing", src: `Full workspace count of ${health.tests.as_of}: ${health.tests.source}`, href: `${repo}/.github/workflows/ci.yml` }] : []),
-  { value: proofs?.kani_harnesses ?? null, label: "Kani proofs", src: "proof-ratchet.txt (ADR-078 O3): CI fails if it falls", href: `${repo}/proof-ratchet.txt` },
-  { value: proofs?.fuzz_targets ?? null, label: "Fuzz targets", src: "proof-ratchet.txt (ADR-078 O3)", href: `${repo}/proof-ratchet.txt` },
-  { value: proofs?.conformance_vectors ?? null, label: "Conformance vectors", src: "proof-ratchet.txt (ADR-078 O3)", href: `${repo}/proof-ratchet.txt` },
-];
-const order = ["verified", "working", "stub", "planned"] as const;
-const total = health.ledger.total;
 ---
 
-<section class="not-content ls" aria-label="Live proof numbers" data-ls>
-  <p class="ls-live"><span class="ls-dot" data-ls-dot aria-hidden="true"></span><span data-ls-state>{testnet.paused ? `Network: paused on purpose since ${testnet.since}` : "Network: connecting…"}</span>{testnet.paused && <a class="ls-why" href={testnet.report}>why</a>}</p>
-  <dl class="ls-grid">
-    {built.map((t) => (
-      <div class="ui-card ls-tile" data-tilt>
-        <dt class="ui-stat__label">{t.label}</dt>
-        <dd class="ui-stat__value" data-count={t.value ?? undefined}>{t.value === null ? "—" : t.value.toLocaleString("en-US")}</dd>
-        <SourceTip text={t.src} href={t.href} />
-      </div>
-    ))}
-    {/* Paused: the live tiles would all say the same thing, so only the one with a recorded value stays; the state line above says why. */}
-    {live.filter((t) => !testnet.paused || t.id === "uptime").map((t) => (
-      <div class="ui-card ls-tile" data-tilt>
-        <dt class="ui-stat__label">{t.label}</dt>
-        <dd class="ui-stat__value" data-live={t.id} data-idle>{t.id === "uptime" && testnet.paused ? `${(testnet.last.uptime * 100).toFixed(2)}%` : idle}</dd>
-        {t.id === "uptime" && testnet.paused && <small class="ls-note">until the stop, {testnet.last.at}</small>}
-        <SourceTip text={t.src} />
+<section class="not-content proof" aria-label="Proof numbers" data-proof data-paused={paused ? "" : undefined}>
+  <dl>
+    {stats.map((t) => (
+      <div class="cell">
+        <dt>{t.label}</dt>
+        <dd data-live={t.value === null ? t.id : undefined}>{t.value ?? "—"}</dd>
+        <p class="note">{t.note} <SourceTip text={t.src} href={t.href} /></p>
       </div>
     ))}
   </dl>
-
-  <figure class="ls-ledger">
-    <figcaption>The reality ledger: {total} subsystems by status <SourceTip text="features.toml, counted at build by scripts/gen-health.mjs" href="/health/" /></figcaption>
-    <div class="ls-stack" role="img" aria-label={order.map((k) => `${s[k] ?? 0} ${k}`).join(", ")}>
-      {order.map((k) => <span class={`seg ${k}`} style={`--w:${((s[k] ?? 0) / total) * 100}%`}></span>)}
-    </div>
-    <p class="ls-legend">{order.map((k) => <span><i class={`sw ${k}`}></i>{s[k] ?? 0} {k}</span>)}</p>
-  </figure>
 </section>
 
 <script>
-  import { bft, explorerStats, fmt, hashFmt, peers, uptime } from "../scripts/live";
-  for (const root of document.querySelectorAll<HTMLElement>("[data-ls]")) {
-    const set = (id: string, v: string | null) => { const el = root.querySelector(`[data-live="${id}"]`); if (el && v !== null) el.textContent = v; };
-    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!reduce) root.classList.add("armed");
-    // Count up from 0 to the build's own figure once the band is on screen.
-    const countUp = () => root.querySelectorAll<HTMLElement>("[data-count]").forEach((el) => {
-      const to = Number(el.dataset.count);
-      if (reduce || !Number.isFinite(to)) return;
-      const t0 = performance.now(), dur = 1100;
-      const step = (t: number) => { const k = Math.min(1, (t - t0) / dur); el.textContent = fmt(Math.round(to * (1 - (1 - k) ** 3))); if (k < 1) requestAnimationFrame(step); };
-      requestAnimationFrame(step);
-    });
-    new IntersectionObserver((es, io) => { if (es.some((e) => e.isIntersecting)) { root.classList.add("go"); countUp(); io.disconnect(); } }, { threshold: 0.25 }).observe(root);
-
+  import { explorerStats, fmt, uptime } from "../scripts/live";
+  const root = document.querySelector<HTMLElement>("[data-proof]");
+  // Paused: every figure is already the dated last reading; nothing to fetch.
+  if (root && !root.hasAttribute("data-paused")) {
+    const set = (id: string, v: string) => { const el = root.querySelector(`[data-live="${id}"]`); if (el) el.textContent = v; };
     const poll = async () => {
-      const [st, b, p, u] = await Promise.all([explorerStats(), bft(), peers(), uptime()]);
-      if (st) {
-        set("blocktime", st.average_block_time > 0 ? `${st.average_block_time.toFixed(1)} s` : null);
-        set("hashrate", st.hashrate > 0 ? hashFmt(st.hashrate) : null);
-        set("txs", fmt(st.transactions_indexed));
-      }
-      if (p && Array.isArray(p.peers)) set("peers", fmt(p.peers.length));
+      const [st, u] = await Promise.all([explorerStats(), uptime()]);
+      if (st) set("height", fmt(st.height));
       if (u && typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`);
-      const up = Boolean(st || b);
-      if (up) root.querySelector("[data-ls-state]")!.textContent = "Network: live";
-      root.querySelector("[data-ls-dot]")!.classList.toggle("on", up);
     };
     poll();
     setInterval(() => { if (!document.hidden) poll(); }, 15000);
@@ -100,29 +73,18 @@ const total = health.ledger.total;
 </script>
 
 <style>
-  .ls { margin: 28px 0 8px; display: grid; gap: var(--space-4); }
-  .ls-live { margin: 0; display: flex; align-items: center; gap: 8px; font: 500 13px/1.3 var(--mono); color: var(--muted); }
-  .ls-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
-  .ls-dot.on { background: var(--success); }
-  .ls-why { font-size: 12.5px; }
-  .ls-note { font-size: 12px; color: var(--muted); }
-  [data-idle] { overflow-wrap: anywhere; }
-  .ls-grid { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--space-3); }
-  .ls-tile { display: grid; gap: 6px; align-content: start; padding: var(--space-4); }
-  .ls-tile dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-  .ls-ledger { margin: 0; padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface); }
-  .ls-ledger figcaption { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-weight: 600; color: var(--text); }
-  .ls-stack { display: flex; height: 14px; margin: 12px 0 8px; border-radius: 999px; overflow: hidden; background: var(--raised); }
-  /* Final width without JS; the script arms the bar so it grows from 0 on view. */
-  .seg { width: var(--w); transition: width 1.3s cubic-bezier(.22,1,.36,1); }
-  .armed .seg { width: 0; }
-  .armed.go .seg { width: var(--w); }
-  .seg.verified, .sw.verified { background: var(--success); }
-  .seg.working, .sw.working { background: var(--accent); }
-  .seg.stub, .sw.stub { background: var(--bronze); }
-  .seg.planned, .sw.planned { background: var(--muted); }
-  .ls-legend { margin: 0; display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-2); }
-  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
-  @media (prefers-reduced-motion: reduce) { .seg { transition: none; } }
-  @media (max-width: 560px) { .ls-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ls-tile { padding: var(--space-3); } }
+  .proof { margin: var(--space-12) 0 0; }
+  dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); overflow: visible; }
+  .cell { display: grid; gap: var(--space-1); align-content: start; padding: var(--space-5); min-width: 0; }
+  .cell + .cell { border-inline-start: 1px solid var(--border); }
+  dt { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
+  dd { margin: 0; text-align: start; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
+  .note { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  @media (max-width: 760px) {
+    dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cell:nth-child(3) { border-inline-start: 0; }
+    .cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
+    .cell { padding: var(--space-4); }
+    dd { font-size: var(--type-title-3-size); }
+  }
 </style>

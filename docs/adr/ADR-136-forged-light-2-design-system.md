@@ -48,3 +48,28 @@ direction (`docs/design/forged-light-2.md`) on 2026-11-12.
   `light-ar`) and must be regenerated in the pinned Playwright container.
 - Surfaces still carry their own literals; the audit's acceptance check
   (no hex outside `tokens.css`) belongs to U2–U7, not to this change.
+
+## Revision 2026-11-13: developer-tool look
+
+Eric found the first Forged Light 2 tokens "too childish" (large radii,
+bright colours, a spring easing). The token file was revised in place to a
+quieter developer-tool register; the generator, the drift check and the
+contrast gate are unchanged.
+
+- Colour roles: `bg`, `surface-1/2/3`, translucent `border` and
+  `border-strong`, `text`, `text-2`, `text-3`, `accent` with `accent-hover`,
+  `accent-subtle` and `accent-text`, the primary-button gradient stops,
+  `bronze` (sparing), `steel`, `success`, `warn`, `danger`, `glass`, and four
+  shadows. `raised`, `line`, `muted`, `info`, `warning` and `bronze-text` are gone.
+- Radii are 4/6/8/12 px plus a pill for status dots and chips only. Spacing is
+  a 4 px scale named by px / 4. Motion is 120/180/240 ms on one
+  `cubic-bezier(.2, 0, 0, 1)`; reduced motion sets the durations to 0 ms.
+- Inter (optical-size axis) for everything, JetBrains Mono for code and
+  figures; Manrope is removed from the tokens and the site.
+- Two measured deviations from the brief's palette, both kept as given and
+  handled by role rather than by changing a value: `text-3` measures 3.41 to
+  4.10:1 on the dark surfaces, so it is listed as large-text (hints,
+  placeholders, disabled) and never body copy; the light `accent` #0e8f80
+  measures 3.50 to 3.99:1, so it is a non-text colour (rings, fills, the
+  selected tab) and links use the added `accent-text` (#0a7468, 4.96:1 or
+  more on every light surface).

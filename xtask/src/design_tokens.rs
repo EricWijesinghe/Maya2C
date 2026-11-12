@@ -47,7 +47,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         for f in &failures {
             eprintln!("below WCAG AA: {f}");
         }
-        return Err(format!("{SOURCE}: {} contrast pair(s) fail", failures.len()));
+        return Err(format!(
+            "{SOURCE}: {} contrast pair(s) fail",
+            failures.len()
+        ));
     }
     let css = render(&tokens)?;
     if check {
@@ -100,7 +103,9 @@ fn entries<'a>(value: &'a Json, what: &str) -> Result<Vec<(&'a str, &'a Json)>, 
 }
 
 fn group<'a>(value: &'a Json, key: &str) -> Result<&'a Json, String> {
-    value.get(key).ok_or_else(|| format!("{SOURCE}: no `{key}`"))
+    value
+        .get(key)
+        .ok_or_else(|| format!("{SOURCE}: no `{key}`"))
 }
 
 /// Leaves of `value` as (property name, CSS value) in file order; nested keys
@@ -115,7 +120,11 @@ fn flatten(prefix: &str, value: &Json, out: &mut Decls) -> Result<(), String> {
         }
         Json::Object(_) => {
             for (k, v) in entries(value, prefix)? {
-                let name = if prefix.is_empty() { k.to_owned() } else { format!("{prefix}-{k}") };
+                let name = if prefix.is_empty() {
+                    k.to_owned()
+                } else {
+                    format!("{prefix}-{k}")
+                };
                 flatten(&name, v, out)?;
             }
             Ok(())
@@ -126,8 +135,14 @@ fn flatten(prefix: &str, value: &Json, out: &mut Decls) -> Result<(), String> {
 
 fn check_name(name: &str) -> Result<(), String> {
     let ok = name.starts_with(|c: char| c.is_ascii_lowercase())
-        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
-    if ok { Ok(()) } else { Err(format!("`{name}`: token names are [a-z][a-z0-9-]*")) }
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("`{name}`: token names are [a-z][a-z0-9-]*"))
+    }
 }
 
 /// The value lands verbatim inside a declaration, so nothing that could end it,
@@ -136,7 +151,11 @@ fn check_value(name: &str, v: &str) -> Result<(), String> {
     let bad = v.trim().is_empty()
         || v.contains(['{', '}', ';', '<', '\\', '\n', '\r'])
         || v.contains("*/");
-    if bad { Err(format!("--{name}: value `{v}` is not a plain CSS value")) } else { Ok(()) }
+    if bad {
+        Err(format!("--{name}: value `{v}` is not a plain CSS value"))
+    } else {
+        Ok(())
+    }
 }
 
 fn theme(tokens: &Json, name: &str) -> Result<Decls, String> {
@@ -158,7 +177,8 @@ fn pair_ratios(tokens: &Json) -> Result<Vec<Measured>, String> {
                 .iter()
                 .find(|(n, _)| n == role)
                 .ok_or_else(|| format!("contrast pair names unknown role `{role}`"))?;
-            Rgb::hex(v).ok_or_else(|| format!("{theme_name} {role} = {v}: a contrast pair needs #rrggbb"))
+            Rgb::hex(v)
+                .ok_or_else(|| format!("{theme_name} {role} = {v}: a contrast pair needs #rrggbb"))
         };
         for pair in pairs {
             let [fg, bg, usage] = triple(pair)?;
@@ -166,7 +186,11 @@ fn pair_ratios(tokens: &Json) -> Result<Vec<Measured>, String> {
                 "text" => Use::Text,
                 "large-text" => Use::LargeText,
                 "non-text" => Use::NonText,
-                other => return Err(format!("contrast pair use `{other}`: text, large-text or non-text")),
+                other => {
+                    return Err(format!(
+                        "contrast pair use `{other}`: text, large-text or non-text"
+                    ));
+                }
             };
             out.push(Measured {
                 theme: theme_name,
@@ -196,7 +220,16 @@ fn contrast_failures(tokens: &Json) -> Result<Vec<String>, String> {
     Ok(pair_ratios(tokens)?
         .into_iter()
         .filter(|m| m.ratio < m.usage.minimum())
-        .map(|m| format!("{} {} on {} {:.2} (min {})", m.theme, m.fg, m.bg, m.ratio, m.usage.minimum()))
+        .map(|m| {
+            format!(
+                "{} {} on {} {:.2} (min {})",
+                m.theme,
+                m.fg,
+                m.bg,
+                m.ratio,
+                m.usage.minimum()
+            )
+        })
         .collect())
 }
 
@@ -207,7 +240,10 @@ fn render(tokens: &Json) -> Result<String, String> {
     let (dn, ln) = (names(&dark), names(&light));
     if dn != ln {
         let diff: Vec<_> = dn.symmetric_difference(&ln).cloned().collect();
-        return Err(format!("dark and light name different roles: {}", diff.join(", ")));
+        return Err(format!(
+            "dark and light name different roles: {}",
+            diff.join(", ")
+        ));
     }
     let mut global = Vec::new();
     for (key, g) in entries(group(tokens, "global")?, "global")? {
@@ -222,7 +258,10 @@ fn render(tokens: &Json) -> Result<String, String> {
     }
     let mut reduced = Vec::new();
     flatten("", group(tokens, "reduced-motion")?, &mut reduced)?;
-    if let Some((n, _)) = reduced.iter().find(|(n, _)| !global.iter().any(|(g, _)| g == n)) {
+    if let Some((n, _)) = reduced
+        .iter()
+        .find(|(n, _)| !global.iter().any(|(g, _)| g == n))
+    {
         return Err(format!("reduced-motion overrides unknown token --{n}"));
     }
 
@@ -235,7 +274,13 @@ fn render(tokens: &Json) -> Result<String, String> {
     block(&mut body, "  ", ":root", Some("light"), &light);
     body.push_str("}\n");
     block(&mut body, "", "[data-theme=\"dark\"]", Some("dark"), &dark);
-    block(&mut body, "", "[data-theme=\"light\"]", Some("light"), &light);
+    block(
+        &mut body,
+        "",
+        "[data-theme=\"light\"]",
+        Some("light"),
+        &light,
+    );
     block(&mut body, "", ":root", None, &global);
     body.push_str("@media (prefers-reduced-motion: reduce) {\n");
     block(&mut body, "  ", ":root", None, &reduced);
@@ -279,7 +324,10 @@ mod tests {
     fn edited(from: &str, to: &str) -> Json {
         let path = crate::workspace_root().join(SOURCE);
         let text = fs::read_to_string(path).unwrap();
-        assert!(text.contains(from), "fixture literal {from} not in {SOURCE}");
+        assert!(
+            text.contains(from),
+            "fixture literal {from} not in {SOURCE}"
+        );
         Json::parse(&text.replacen(from, to, 1)).unwrap()
     }
 
@@ -292,11 +340,14 @@ mod tests {
             .and_then(Json::as_array)
             .unwrap()
             .len();
-        assert!(pairs >= 27, "the spec lists 27 pairs per theme, found {pairs}");
+        assert!(
+            pairs >= 37,
+            "the token file lists 37 pairs per theme, found {pairs}"
+        );
         assert_eq!(measured.len(), pairs * THEMES.len());
         for m in &measured {
             println!(
-                "{:>5} {:>11} on {:<7} {:>5.2} (min {})",
+                "{:>5} {:>16} on {:<16} {:>5.2} (min {})",
                 m.theme,
                 m.fg,
                 m.bg,
@@ -310,18 +361,24 @@ mod tests {
 
     #[test]
     fn a_pair_below_aa_is_reported() {
-        // Dark muted darkened to #3a4448: about 2:1 on the abyss.
-        let failures = contrast_failures(&edited("#8a9ca3", "#3a4448")).unwrap();
+        // Dark text-2 darkened to #3a4448: about 2:1 on the dark bg.
+        let failures = contrast_failures(&edited("#a1a7b0", "#3a4448")).unwrap();
         assert!(
-            failures.iter().any(|f| f.starts_with("dark muted on bg")),
+            failures.iter().any(|f| f.starts_with("dark text-2 on bg")),
             "{failures:?}"
         );
-        assert!(failures.iter().all(|f| f.starts_with("dark muted")), "{failures:?}");
+        assert!(
+            failures.iter().all(|f| f.starts_with("dark text-2")),
+            "{failures:?}"
+        );
     }
 
     #[test]
     fn a_pair_naming_a_non_hex_role_is_an_error() {
-        let tokens = edited("[\"text\", \"bg\", \"text\"]", "[\"line\", \"bg\", \"text\"]");
+        let tokens = edited(
+            "[\"text\", \"bg\", \"text\"]",
+            "[\"border\", \"bg\", \"text\"]",
+        );
         assert!(pair_ratios(&tokens).is_err());
     }
 
@@ -339,9 +396,9 @@ mod tests {
     #[test]
     fn a_token_change_changes_the_output_and_its_hash() {
         let a = render(&real()).unwrap();
-        let b = render(&edited("\"r-2\": \"12px\"", "\"r-2\": \"14px\"")).unwrap();
+        let b = render(&edited("\"r-lg\": \"12px\"", "\"r-lg\": \"14px\"")).unwrap();
         assert_ne!(a.split_once("*/").unwrap().0, b.split_once("*/").unwrap().0);
-        assert!(b.contains("--r-2: 14px;"));
+        assert!(b.contains("--r-lg: 14px;"));
     }
 
     #[test]
@@ -352,13 +409,13 @@ mod tests {
             "@media (prefers-color-scheme: light) {\n  :root {\n    color-scheme: light;",
             "[data-theme=\"dark\"] {\n  color-scheme: dark;",
             "[data-theme=\"light\"] {\n  color-scheme: light;",
-            "--bg: #050b0f;",
-            "--bg: #f5f8f8;",
+            "--bg: #08090b;",
+            "--bg: #fbfbfc;",
             "--type-display-1-size: 56px;",
-            "--space-9: 96px;",
+            "--space-24: 96px;",
             "--r-pill: 999px;",
             "--chart-1: var(--accent);",
-            "@media (prefers-reduced-motion: reduce) {\n  :root {\n    --dur-1: 1ms;",
+            "@media (prefers-reduced-motion: reduce) {\n  :root {\n    --dur-1: 0ms;",
         ] {
             assert!(css.contains(needle), "missing {needle:?}");
         }
@@ -371,19 +428,19 @@ mod tests {
 
     #[test]
     fn themes_must_name_the_same_roles() {
-        let tokens = edited("\"info\": \"#2f55b8\",", "");
-        assert!(render(&tokens).unwrap_err().contains("info"));
+        let tokens = edited("\"steel\": \"#5b6b80\",", "");
+        assert!(render(&tokens).unwrap_err().contains("steel"));
     }
 
     #[test]
     fn reduced_motion_may_only_override_existing_tokens() {
-        let tokens = edited("\"loop\": \"1\"", "\"loops\": \"1\"");
-        assert!(render(&tokens).unwrap_err().contains("loops"));
+        let tokens = edited("\"dur-3\": \"0ms\"", "\"dur-4\": \"0ms\"");
+        assert!(render(&tokens).unwrap_err().contains("dur-4"));
     }
 
     #[test]
     fn a_value_that_would_break_out_of_the_declaration_is_refused() {
-        let tokens = edited("\"r-1\": \"8px\"", "\"r-1\": \"8px; } body { x: y\"");
+        let tokens = edited("\"r-md\": \"8px\"", "\"r-md\": \"8px; } body { x: y\"");
         assert!(render(&tokens).is_err());
     }
 
@@ -397,7 +454,7 @@ mod tests {
             fs::write(path, &css).unwrap();
         }
         assert!(stale(&root, &css).is_empty());
-        fs::write(root.join(TARGETS[3]), css.replace("#050b0f", "#050b10")).unwrap();
+        fs::write(root.join(TARGETS[3]), css.replace("#08090b", "#08090c")).unwrap();
         fs::remove_file(root.join(TARGETS[1])).unwrap();
         let mut found = stale(&root, &css);
         found.sort();

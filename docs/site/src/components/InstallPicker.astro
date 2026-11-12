@@ -104,160 +104,63 @@ const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?
 </script>
 
 <style>
-  .ip {
-    border: 1px solid var(--sl-color-gray-5);
-    border-radius: 14px;
-    padding: 1rem;
-    background: color-mix(in srgb, var(--sl-color-bg) 88%, var(--accent, #1fb5c2) 12%);
-    margin-block: 1.25rem;
-  }
-  /* not-content opts out of Starlight's prose spacing, which pushed every
-     button after the first down a line; the few text styles needed are here. */
-  .ip :where(p) { line-height: 1.6; }
-  .ip :where(p code, .ip-help code) {
-    font-family: var(--sl-font-mono);
-    font-size: 0.85em;
-    padding: 0.1em 0.35em;
-    border-radius: 5px;
-    background: var(--sl-color-gray-6);
-  }
-  .ip :where(strong) { color: var(--sl-color-white); }
-  .ip-rows { display: grid; gap: 0.85rem; }
+  /* Restyled on the kit (U3, 2026-11-13; the design critique called the
+     tinted panel and pill buttons out of place): a flat surface, segmented
+     choices, and the walkthrough as a numbered rail. Tokens only. */
+  .ip { margin-block: var(--space-6); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); }
+  /* not-content opts out of Starlight's prose spacing; the few text styles needed are here. */
+  .ip :where(p) { margin: 0; line-height: 1.6; color: var(--text-2); font-size: var(--type-body-size); }
+  .ip :where(p code, .ip-help code) { font-family: var(--font-mono); font-size: .85em; padding: .1em .35em; border-radius: var(--r-xs); background: var(--surface-2); border: 1px solid var(--border); }
+  .ip :where(strong) { color: var(--text); }
+  .ip-rows { display: grid; gap: var(--space-4); }
   .ip-row[hidden] { display: none; }
-  .ip-label {
-    display: block;
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--sl-color-gray-2);
-    margin-bottom: 0.35rem;
-  }
-  .ip-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.45rem; }
-  .ip-opt {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.1rem;
-    padding: 0.55rem 0.75rem;
-    border-radius: 10px;
-    border: 1px solid var(--sl-color-gray-5);
-    background: var(--sl-color-bg-nav);
-    color: var(--sl-color-white);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, transform 0.15s;
-  }
-  .ip-opt:hover { border-color: var(--sl-color-accent); transform: translateY(-1px); }
-  .ip-opt[aria-checked="true"] {
-    border-color: var(--sl-color-accent);
-    background: color-mix(in srgb, var(--sl-color-accent) 22%, var(--sl-color-bg-nav));
-    box-shadow: 0 0 0 1px var(--sl-color-accent) inset;
-  }
-  .ip-opt:focus-visible { outline: 2px solid var(--sl-color-accent-high); outline-offset: 2px; }
-  .ip-opt-name { font-weight: 650; }
-  .ip-opt-hint { font-size: 0.75rem; color: var(--sl-color-gray-3); }
-  .ip-help { margin: 0.35rem 0 0; font-size: 0.82rem; color: var(--sl-color-gray-3); }
+  .ip-label { display: block; margin-bottom: var(--space-2); font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
+  .ip-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--space-2); }
+  .ip-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-2); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease); }
+  .ip-opt:hover { background: var(--surface-3); }
+  .ip-opt[aria-checked="true"] { border-color: var(--accent); background: var(--accent-subtle); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .ip-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ip-opt-name { font-weight: var(--weight-medium); font-size: var(--type-body-size); }
+  .ip-opt-hint { font-size: var(--type-body-sm-size); color: var(--text-2); }
+  .ip-help { margin-top: var(--space-2) !important; font-size: var(--type-body-sm-size) !important; }
 
-  .ip-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-    margin: 1.1rem 0 0.6rem;
-    padding-top: 0.9rem;
-    border-top: 1px solid var(--sl-color-gray-5);
-  }
-  .ip-progress { display: flex; align-items: center; gap: 0.6rem; flex: 1 1 14rem; }
-  .ip-meter { flex: 1; height: 8px; border-radius: 99px; background: var(--sl-color-gray-6); overflow: hidden; }
-  .ip-meter-fill {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: linear-gradient(90deg, var(--sl-color-accent), var(--sl-color-accent-high));
-    transition: width 0.3s;
-  }
-  .ip-count { font-size: 0.85rem; color: var(--sl-color-gray-2); white-space: nowrap; }
-  .ip-guided { font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+  .ip-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-5) 0 var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+  .ip-progress { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 14rem; }
+  .ip-meter { flex: 1; height: 4px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+  .ip-meter-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width var(--dur-3) var(--ease); }
+  .ip-count { font-size: var(--type-body-sm-size); color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ip-guided { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--type-body-sm-size); color: var(--text-2); cursor: pointer; white-space: nowrap; }
+  .ip input[type="checkbox"] { accent-color: var(--accent); }
 
   .ip-walk[hidden] { display: none; }
-  .ip-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.7rem; }
-  .ip-step {
-    margin: 0;
-    padding: 0.8rem 0.9rem;
-    border-radius: 12px;
-    border: 1px solid var(--sl-color-gray-5);
-    background: var(--sl-color-bg);
-  }
-  .ip-step.is-done { opacity: 0.72; }
-  .ip-step.is-done .ip-num { background: var(--sl-color-green, #45e0a0); color: #02161a; }
-  .ip-step-head { display: flex; align-items: center; gap: 0.6rem; }
-  .ip-num {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 1.8rem;
-    height: 1.8rem;
-    border-radius: 50%;
-    font-weight: 700;
-    background: var(--sl-color-accent);
-    color: var(--sl-color-black);
-  }
-  .ip-step-title { margin: 0 !important; font-size: 1.02rem; flex: 1; }
-  .ip-done { font-size: 0.8rem; color: var(--sl-color-gray-3); cursor: pointer; white-space: nowrap; }
-  .ip-step > p { margin: 0.5rem 0 0; }
-  .ip-after { font-size: 0.85rem; color: var(--sl-color-gray-3); }
-  .ip-cmd { position: relative; margin-top: 0.55rem; }
-  .ip-cmd pre {
-    margin: 0;
-    padding: 0.75rem 5rem 0.75rem 0.85rem;
-    border-radius: 10px;
-    background: var(--sl-color-gray-7, #0a161b);
-    border: 1px solid var(--sl-color-gray-5);
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-  .ip-cmd code { font-size: 0.85rem; background: none; padding: 0; }
-  .ip-copy {
-    position: absolute;
-    top: 0.45rem;
-    right: 0.45rem;
-    padding: 0.3rem 0.7rem;
-    border-radius: 8px;
-    border: 1px solid var(--sl-color-accent);
-    background: var(--sl-color-bg-nav);
-    color: var(--sl-color-white);
-    font: inherit;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  .ip-copy.is-copied { background: var(--sl-color-accent); color: var(--sl-color-black); }
-  .ip-nav { display: none; margin-top: 0.7rem; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-  .ip-nav button {
-    padding: 0.4rem 0.9rem;
-    border-radius: 8px;
-    border: 1px solid var(--sl-color-gray-4);
-    background: var(--sl-color-bg-nav);
-    color: var(--sl-color-white);
-    font: inherit;
-    cursor: pointer;
-  }
-  .ip-nav .ip-next { border-color: var(--sl-color-accent); background: var(--sl-color-accent); color: var(--sl-color-black); font-weight: 650; }
-  .ip-last { font-size: 0.85rem; color: var(--sl-color-gray-3); }
+  /* The rail: one hairline behind the numbers, from the first step to the last. */
+  .ip-steps { list-style: none; padding: 0; margin: 0; display: grid; position: relative; }
+  .ip-step { position: relative; margin: 0; padding: 0 0 var(--space-6) calc(28px + var(--space-4)); }
+  .ip-step::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: var(--border-strong); }
+  .ip-step:last-child { padding-bottom: 0; }
+  .ip-step:last-child::before { display: none; }
+  .ip-step-head { display: flex; align-items: center; gap: var(--space-3); min-height: 28px; }
+  .ip-num { position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-pill); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); font: var(--weight-semibold) var(--type-body-sm-size)/1 var(--font-mono); }
+  .ip-step.is-done .ip-num { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .ip-step.is-done .ip-step-title { color: var(--text-2); }
+  .ip-step-title { margin: 0 !important; flex: 1; font: var(--weight-semibold) var(--type-body-lg-size)/1.35 var(--font-sans) !important; color: var(--text); }
+  .ip-done { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--type-body-sm-size); color: var(--text-2); cursor: pointer; white-space: nowrap; }
+  .ip-step > p { margin-top: var(--space-2); }
+  .ip-after { font-size: var(--type-body-sm-size) !important; }
+  .ip-cmd { position: relative; margin-top: var(--space-3); }
+  .ip-cmd pre { margin: 0; padding: var(--space-3) 5rem var(--space-3) var(--space-4); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .ip-cmd code { font: var(--type-mono-size)/1.6 var(--font-mono); color: var(--text); background: none; padding: 0; border: 0; }
+  .ip-copy { position: absolute; top: var(--space-2); right: var(--space-2); height: var(--control-h-sm); padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface-1); color: var(--text-2); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--font-sans); cursor: pointer; transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease); }
+  .ip-copy:hover { color: var(--text); background: var(--surface-3); }
+  .ip-copy.is-copied { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+  .ip-nav { display: none; margin-top: var(--space-3); gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+  .ip-nav button { height: var(--control-h); padding: 0 var(--space-3); border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); font: var(--weight-medium) var(--type-body-size)/1 var(--font-sans); cursor: pointer; }
+  .ip-nav .ip-next { border-color: var(--accent-grad-to); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); }
+  .ip-last { font-size: var(--type-body-sm-size); color: var(--text-2); }
   .ip.is-guided .ip-step { display: none; }
-  .ip.is-guided .ip-step.is-current { display: block; }
+  .ip.is-guided .ip-step.is-current { display: block; padding-bottom: 0; }
+  .ip.is-guided .ip-step.is-current::before { display: none; }
   .ip.is-guided .ip-nav { display: flex; }
-  .ip-unavailable {
-    margin: 0;
-    padding: 0.9rem 1rem;
-    border-radius: 12px;
-    border: 1px dashed var(--sl-color-orange, #e6b260);
-    color: var(--sl-color-white);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .ip-opt, .ip-meter-fill { transition: none; }
-  }
+  .ip-unavailable { padding: var(--space-3) var(--space-4); border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); background: color-mix(in srgb, var(--warn) 7%, var(--surface-1)); color: var(--text) !important; }
+  @media (max-width: 560px) { .ip { padding: var(--space-4); } .ip-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

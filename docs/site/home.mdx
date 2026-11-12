@@ -9,119 +9,74 @@ head:
     content: "Maya2C: Post-Quantum Layer-1 Blockchain, DAG-BFT Finality"
 ---
 
-import StackDiagram from "../../components/StackDiagram.astro";
-import EcosystemExplorer from "../../components/EcosystemExplorer.astro";
-import LiveProgress from "../../components/LiveProgress.astro";
-import QuestTrail from "../../components/QuestTrail.astro";
-import Hero3D from "../../components/Hero3D.astro";
-import OrbRow from "../../components/OrbRow.astro";
-import MainnetDial from "../../components/MainnetDial.astro";
-import QuantumFacts from "../../components/QuantumFacts.astro";
-import HealthConstellation from "../../components/HealthConstellation.astro";
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+import Hero from "../../components/Hero.astro";
 import LiveStats from "../../components/LiveStats.astro";
-import BlockStream from "../../components/BlockStream.astro";
-import NetworkConstellation from "../../components/NetworkConstellation.astro";
-import SupplyRing from "../../components/SupplyRing.astro";
-import HashShare from "../../components/HashShare.astro";
-import MiningPath from "../../components/MiningPath.astro";
+import FeatureGrid from "../../components/FeatureGrid.astro";
+import TrustStrip from "../../components/TrustStrip.astro";
 import FearsFaq from "../../components/FearsFaq.astro";
-import TxJourney from "../../components/TxJourney.astro";
 
 {/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
 
-<Hero3D />
+{/* U3 (2026-11-13): hero, proof row, feature grid, code, trust, FAQ. The
+    3D scenes, mining calculators and roadmap widgets that were here moved
+    out: their numbers are on /stats/ and /health/, the roadmap on /ecosystem/roadmap/. */}
+
+<Hero />
 
 <LiveStats />
 
-<p class="maya-eyebrow">Live</p>
-<h2 class="maya-section-title" id="live">The chain, block by block</h2>
+<FeatureGrid />
 
-<BlockStream />
+<section class="home-code" aria-labelledby="code-title">
+<h2 id="code-title" class="home-h2">Read the chain in a few lines</h2>
+<p class="home-lede">The snippets are copied from each SDK's own README or doc comment. Signing happens client-side; the gateway holds no keys. <a href="/guides/api/">API reference</a></p>
 
-<NetworkConstellation />
+<Tabs>
+<TabItem label="Rust">
 
-<p class="maya-eyebrow">Mine</p>
-<h2 class="maya-section-title" id="mine">Start mining in three steps</h2>
+```rust title="sdks/rust/src/lib.rs"
+let client = maya2c_sdk::Client::new("https://api.example.invalid")?;
+let balance = client.balance("maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f")?;
+println!("{} units, next nonce {}", balance.balance, balance.nonce);
+```
 
-<MiningPath />
+</TabItem>
+<TabItem label="TypeScript">
 
-<p class="maya-eyebrow">Supply and your share</p>
-<h2 class="maya-section-title" id="share">What one GPU adds</h2>
+```ts title="sdks/sdk-js/README.md"
+import { MayaClient } from "maya2c.js";
 
-<div class="maya-duo">
-  <SupplyRing />
-  <HashShare />
-</div>
+const client = new MayaClient({ baseUrl: "https://gateway.example.com" });
 
-<p class="maya-eyebrow">Before you start</p>
-<h2 class="maya-section-title" id="questions">Straight answers</h2>
+const balance = await client.getBalance("a71cf0…");
+const supply  = await client.getSupply();
+const block   = await client.getBlock(4200);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python title="sdks/python/README.md"
+from maya2c_sdk import Client, Wallet
+
+client = Client("http://127.0.0.1:8545")
+wallet = Wallet("l1-wallet", "wallet.key", password, client)
+txid = wallet.transfer(recipient, 1_000)
+```
+
+</TabItem>
+</Tabs>
+</section>
+
+<TrustStrip />
+
+<section class="home-faq" aria-labelledby="faq-title">
+<h2 id="faq-title" class="home-h2">Before you start</h2>
 
 <FearsFaq />
 
-<p class="maya-eyebrow">In plain words</p>
-<h2 class="maya-section-title" id="tx-journey">From two signatures to a final block</h2>
+<p class="home-lede">More answers: <a href="/guides/faq/">FAQ</a>. Uptime and every halt: <a href="/health/">status</a>. Build and CI: <a href="/stats/#developers">developer transparency</a>.</p>
+</section>
 
-<p>A shared notebook everyone copies: a payment is written only when both of its
-signatures check out, and a sealed page never changes. Step through it.</p>
-
-<TxJourney />
-
-<p class="maya-eyebrow">Why it is built this way</p>
-<h2 class="maya-section-title">Security you can check</h2>
-
-<OrbRow items={[
-  { title: "Two signatures", line: "ML-DSA-65 and SLH-DSA on every transaction", href: "/guides/signatures/" },
-  { title: "Final in seconds", line: "DAG-BFT: a block never reorganises", href: "/reference/blockgraph/" },
-  { title: "Post-quantum links", line: "ML-KEM-1024, with ML-KEM-768 as fallback, on every peer link", href: "/reference/pq-transport/" },
-  { title: "Proven claims", line: "A claim without a test fails CI", href: "/reference/invariants/" },
-]} />
-
-<QuantumFacts />
-
-<p class="maya-eyebrow">Architecture</p>
-<h2 class="maya-section-title">Post-quantum at every layer</h2>
-
-<StackDiagram />
-
-<p class="maya-eyebrow" id="journey">Your journey</p>
-<h2 class="maya-section-title">Explore, learn, earn your badge</h2>
-
-<QuestTrail />
-
-<p class="maya-eyebrow">Ecosystem</p>
-<h2 class="maya-section-title" id="ecosystem">Many apps, one identity</h2>
-
-<p>Every app talks to the same chain. Tap one to see what it does, whether it exists today, and what you can do with it now.</p>
-
-<EcosystemExplorer />
-
-<p class="maya-eyebrow">Try it</p>
-<h2 class="maya-section-title">Use it, build on it, break it</h2>
-
-<OrbRow items={[
-  { title: "Experience", line: "Back with the next genesis", href: "/experience/" },
-  { title: "Test coins", line: "Back with the next genesis", href: "/guides/testnet/" },
-  { title: "Uptime", line: "Every halt, on the record", href: "/health/" },
-  { title: "Wallet, chat, miner", line: "Windows and Linux", href: "https://github.com/EricWijesinghe/Maya2C/releases" },
-  { title: "Mine", line: "GPU mining from mainnet launch", href: "/guides/mining/" },
-  { title: "Build on it", line: "SDKs and a public API", href: "/guides/api/" },
-  { title: "Break it", line: "Attack it, earn credit", href: "/guides/break-it/" },
-]} />
-
-<HealthConstellation />
-
-<p class="maya-eyebrow">Mainnet gates</p>
-<h2 class="maya-section-title">Ten checks before mainnet</h2>
-
-<MainnetDial />
-
-<p class="maya-eyebrow">Progress</p>
-<h2 class="maya-section-title" id="progress">Live from the repository</h2>
-
-<LiveProgress />
-
-<p class="maya-footnote">Build and CI status, merges and releases: <a href="/stats/#developers">developer transparency</a>.</p>
-
-<p class="maya-footnote">No token is for sale, and nothing here is an offer of one.</p>
-
-<p class="maya-footnote">Every download is built from this source by CI and carries verifiable provenance: <a href="/guides/code-signing-policy/">Code signing policy</a>.</p>
+<p class="maya-footnote">No token is for sale, and nothing here is an offer of one. Every download is built from this source by CI and carries verifiable provenance: <a href="/guides/code-signing-policy/">code signing policy</a>.</p>
