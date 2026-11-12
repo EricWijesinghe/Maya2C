@@ -436,6 +436,20 @@ impl StateDB {
                     activation: context.asset_mint_activation,
                 });
             }
+            // Tags 12-14 (ADR-135 P-3) are unknown to a pre-v4 binary; the same
+            // refusal keeps both agreeing on every earlier block.
+            if matches!(
+                key,
+                ParameterKey::NameBaseFee3
+                    | ParameterKey::NameBaseFee4
+                    | ParameterKey::NameBaseFee5
+            ) && !context.names_active()
+            {
+                return Err(NodeError::NameInactive {
+                    height: context.height,
+                    activation: context.names_activation,
+                });
+            }
         }
 
         let proposal = Proposal::open(

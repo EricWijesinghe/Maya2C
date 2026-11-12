@@ -534,6 +534,23 @@ pub enum NodeError {
         reason: &'static str,
     },
 
+    /// A name form (tags 63-66), or a name-fee parameter, before feature bit 43
+    /// activates (ADR-135 P-3). Refused on admission and on apply by the same check.
+    #[error("names are not active at height {height} (from {activation})")]
+    NameInactive {
+        /// Height the transaction was judged at.
+        height: u64,
+        /// First height at which the forms execute; `u64::MAX` means never.
+        activation: u64,
+    },
+
+    /// A name form broke one of its rules (ADR-135 P-3). A refusal, never a no-op.
+    #[error("name refused: {reason}")]
+    NameRefused {
+        /// The rule that failed.
+        reason: &'static str,
+    },
+
     /// A registration landed on an identifier that already exists.
     ///
     /// Requires the same sender, nonce, and symbol, so it is unreachable while

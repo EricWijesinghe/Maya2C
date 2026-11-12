@@ -2663,6 +2663,17 @@ tests = ["crates/node/tests/nft_tests.rs", "crates/node/tests/nft_conformance.rs
 note = "ADR-135 P-2 (PROPOSED), post-genesis. Off: feature bit 42, NFT_ACTIVATION_HEIGHT = u64::MAX until a schedule entry names it. Tags 59-62, prefix n: (StateLayer::Nft, appended). Hash-only metadata (ADR-104). Replay tests written before the code; not compiled locally (CI-first). Fuzz target over the decoders not yet written. No royalty, no sale (cut to v5)."
 
 [[subsystem]]
+id = "names-commit-reveal"
+name = "Names with commit-reveal (v4 P-3)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/state/names.rs`, `crates/node/src/core/name_payload.rs`, `crates/governance/src/params.rs` (NameBaseFee3/4/5)"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/names_tests.rs", "crates/node/tests/names_conformance.rs"]
+note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed PROPOSED placeholders pending Eric (O-3). Not built: stealth meta-addresses (ADR-102 encoding), governance release of the reserved label (compiled refusal stands in), pruning of stale commitments (see PR), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

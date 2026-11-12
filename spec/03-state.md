@@ -48,6 +48,20 @@ Vectors: `spec/tests/nfts.json`, hand-laid from these layouts. Integers are litt
 - **NF-6** Only a hash is stored per item and per collection. No URI, no royalty, no sale (ADR-104; ADR-135 cut list).
 - **NF-7** Below the activation height of feature bit 42 every form is refused, on mempool admission and on apply, by the same check. The compiled height is `u64::MAX`. A vault account may not send these forms (ADR-030).
 
+## Names (ADR-135 P-3, dark until feature bit 43)
+
+Vectors: `spec/tests/names.json` (hand-laid). Block counts assume one block per second (ADR-135 O-1).
+
+- **NM-1** The forms are `63 ‖ commitment(32)` (33 bytes, `CommitName`), `64 ‖ len(1) ‖ label ‖ salt(32) ‖ periods(1) ‖ target(32)` (70 to 130 bytes, `RegisterName`, label 3 to 63), `65 ‖ len(1) ‖ label ‖ periods(1)` (6 to 66, `RenewName`), and `66 ‖ len(1) ‖ label ‖ op(1) ‖ arg` (`UpdateName`), with op `0x01 SetTarget(address 32)`, `0x03 SetReverse` (no argument) and `0x04 Transfer(new_owner 32)`. Op `0x02` and `0x05` (stealth, ADR-102) are refused at decode in this change. A truncated form is a decode error. *(positive and negative vectors: `NM-enc-*`)*
+- **NM-2** A label is 3 to 63 bytes of `a-z`, `0-9` and `-`, with no leading or trailing `-` and no `--`. A label that breaks a rule is refused at decode, so it never reaches execution. *(positive and negative vectors)*
+- **NM-3** The commitment is `blake3::derive_key("maya2c name commit v1", label ‖ sender ‖ salt)`. `CommitName` writes `nm:c: ‖ commitment → height ‖ committer`, is free, and refuses a commitment that already exists (the age does not reset). *(positive only: no vector yet)*
+- **NM-4** `RegisterName` needs `1 <= periods <= 10`, a commitment by the sender present, an age of `MIN_COMMIT_AGE` (60) to `MAX_COMMIT_AGE` (86,400) blocks inclusive, and a free label (none, or lapsed past the 90-day grace). It burns `NameBaseFee{3|4|5+} × periods` to `FEE_SINK`, sets `expires_at = height + periods × YEAR_BLOCKS` (31,536,000 blocks), and deletes the commitment it consumed. A commitment older than `MAX_COMMIT_AGE` is refused and not deleted by that refusal. *(positive only: no vector yet)*
+- **NM-5** `RenewName` may be paid by anyone while the name is live; during grace only the owner may renew; after grace it must be registered again. `expires_at = min(expires_at + periods × YEAR_BLOCKS, height + 10 × YEAR_BLOCKS)`. *(positive only: no vector yet)*
+- **NM-6** `UpdateName` needs an unexpired name. `SetTarget` and `Transfer` need the owner. `SetReverse` needs `target == sender` and may be sent by anyone; it writes `nm:r: ‖ sender`. `Transfer` clears the old owner's reverse record if it names the label. *(positive only: no vector yet)*
+- **NM-7** The labels `maya2c` is reserved: a registration of it is refused. *(positive only: no vector yet; the governance release is not in this change)*
+- **NM-8** Below the activation height of feature bit 43 every name form, and the three name-fee parameters in a proposal, are refused on admission and on apply by the same check. The compiled height is `u64::MAX`.
+- **NM-9** The name-fee values are governed parameters (tags 12 to 14). Their compiled defaults are PROPOSED placeholders, not a decision (ADR-135 O-3): non-zero for 3 and 4 bytes, zero for 5 and longer.
+
 ## Gaps
 
 - ROOT-5 is pinned by the accounts-only vectors: the node folds every layer it has and must still reproduce the reference's accounts-only root. No vector yet populates a layer.

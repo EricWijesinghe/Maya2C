@@ -60,6 +60,13 @@ const SURCHARGE_CEILING: Amount = {
     Amount::from_le_bytes(bytes)
 };
 
+/// PROPOSED, not decided (ADR-135 O-3): the per-year fee of a 3-byte name, in
+/// base units (one coin is `maya_amount::ONE_COIN`). Governance replaces it;
+/// it exists so a 3-byte name is never free at activation.
+pub const PROPOSED_NAME_BASE_FEE_3: u64 = 1_000_000_000_000_000_000;
+/// PROPOSED, not decided (ADR-135 O-3): as [`PROPOSED_NAME_BASE_FEE_3`], for 4 bytes.
+pub const PROPOSED_NAME_BASE_FEE_4: u64 = 100_000_000_000_000_000;
+
 /// A rule that governance may change.
 ///
 /// The tags are consensus and must never be renumbered. A key this build does
@@ -98,6 +105,14 @@ pub enum ParameterKey {
     /// before that height, so a pre-v4 binary and a v4 binary agree on every
     /// pre-activation block.
     AssetRegistrationFee,
+    /// Native units burned per year for a 3-byte name, times the years bought
+    /// (ADR-135 P-3, O-3). Refused in a proposal before bit 43 activates.
+    /// Governed, not fixed: the default is a PROPOSED placeholder.
+    NameBaseFee3,
+    /// As [`Self::NameBaseFee3`], for a 4-byte name.
+    NameBaseFee4,
+    /// As [`Self::NameBaseFee3`], for a name of 5 bytes or more.
+    NameBaseFee5,
 }
 
 /// Every key, in tag order.
@@ -116,6 +131,9 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::GovernanceProposalDeposit,
     ParameterKey::DefaultSignatureSuite,
     ParameterKey::AssetRegistrationFee,
+    ParameterKey::NameBaseFee3,
+    ParameterKey::NameBaseFee4,
+    ParameterKey::NameBaseFee5,
 ];
 
 /// The permitted range and starting value of one parameter.
@@ -153,6 +171,9 @@ impl ParameterKey {
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
             Self::AssetRegistrationFee => 11,
+            Self::NameBaseFee3 => 12,
+            Self::NameBaseFee4 => 13,
+            Self::NameBaseFee5 => 14,
         }
     }
 
@@ -182,6 +203,9 @@ impl ParameterKey {
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
             11 => Ok(Self::AssetRegistrationFee),
+            12 => Ok(Self::NameBaseFee3),
+            13 => Ok(Self::NameBaseFee4),
+            14 => Ok(Self::NameBaseFee5),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -292,6 +316,24 @@ impl ParameterKey {
                 max: SURCHARGE_CEILING,
                 default: Amount::from_u64(0),
             },
+            // PROPOSED placeholders, not a decision (ADR-135 O-3, Eric sets the
+            // amounts). Non-zero for 3 and 4 bytes so a short name is never free
+            // at activation; zero for 5 and longer. Base units, per year.
+            Self::NameBaseFee3 => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(PROPOSED_NAME_BASE_FEE_3),
+            },
+            Self::NameBaseFee4 => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(PROPOSED_NAME_BASE_FEE_4),
+            },
+            Self::NameBaseFee5 => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(0),
+            },
         }
     }
 
@@ -310,6 +352,9 @@ impl ParameterKey {
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
             Self::AssetRegistrationFee => "asset.registration_fee",
+            Self::NameBaseFee3 => "name.base_fee_3",
+            Self::NameBaseFee4 => "name.base_fee_4",
+            Self::NameBaseFee5 => "name.base_fee_5",
         }
     }
 

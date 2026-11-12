@@ -166,6 +166,7 @@ impl StateDB {
                 self.apply_asset_mint(overlay, &sender, nonce, action, context)
             }
             TxKind::Nft(action) => self.apply_nft(overlay, &sender, nonce, action, context),
+            TxKind::Name(action) => self.apply_name(overlay, &sender, action, context),
             TxKind::TransferAsset(transfer) => self.transfer_asset(overlay, &sender, transfer),
             TxKind::CreatePool(creation) => self.create_pool(overlay, &sender, creation),
             TxKind::AddLiquidity(deposit) => self.add_liquidity(overlay, &sender, deposit),

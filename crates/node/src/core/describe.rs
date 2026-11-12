@@ -478,6 +478,47 @@ pub fn describe_kind(kind: &TxKind) -> Description {
         ),
         TxKind::AssetMint(action) => describe_asset_mint(action),
         TxKind::Nft(action) => describe_nft(action),
+        TxKind::Name(action) => describe_name(action),
+    }
+}
+
+fn describe_name(action: &crate::core::name_payload::NameAction) -> Description {
+    use crate::core::name_payload::{NameAction as M, NameUpdate};
+    use Review::{Careful, Routine};
+    match action {
+        M::Commit { .. } => Description::new(
+            "Commit to a name. Free; you can reveal it after a short wait.",
+            Routine,
+        ),
+        M::Register { label, periods, .. } => Description::new(
+            format!(
+                "Register {}.maya for {periods} year(s). The fee is burned.",
+                String::from_utf8_lossy(label)
+            ),
+            Careful,
+        ),
+        M::Renew { label, periods } => Description::new(
+            format!(
+                "Extend {}.maya by {periods} year(s). The fee is burned.",
+                String::from_utf8_lossy(label)
+            ),
+            Careful,
+        ),
+        M::Update { label, op } => {
+            let name = String::from_utf8_lossy(label).into_owned();
+            match op {
+                NameUpdate::SetTarget(to) => {
+                    Description::new(format!("Point {name}.maya at {}.", short(to)), Careful)
+                }
+                NameUpdate::SetReverse => Description::new(
+                    format!("Show {name}.maya as the name of your address."),
+                    Routine,
+                ),
+                NameUpdate::Transfer(to) => {
+                    Description::new(format!("Give {name}.maya to {}.", short(to)), Careful)
+                }
+            }
+        }
     }
 }
 

@@ -113,6 +113,9 @@ pub enum StateLayer {
     /// P-2). Appended, never reordered; absent on a chain that never opens a
     /// collection, so it moves no existing root.
     Nft,
+    /// Names with commit-reveal under `nm:` (ADR-135 P-3). Appended; absent
+    /// until a name is committed or registered.
+    Names,
 }
 
 /// Every layer, in fold order.
@@ -135,6 +138,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Contracts,
     StateLayer::Nullifiers,
     StateLayer::Nft,
+    StateLayer::Names,
 ];
 
 impl StateLayer {
@@ -164,6 +168,7 @@ impl StateLayer {
             Self::Vault => "maya vault state root v1",
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
             Self::Nft => "maya nft state root v1",
+            Self::Names => "maya names state root v1",
         }
     }
 
@@ -189,6 +194,7 @@ impl StateLayer {
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
             Self::Nft => 18,
+            Self::Names => 19,
         }
     }
 
@@ -214,6 +220,7 @@ impl StateLayer {
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
             18 => Some(Self::Nft),
+            19 => Some(Self::Names),
             _ => None,
         }
     }
@@ -249,6 +256,7 @@ impl StateLayer {
             Self::Vault => "vault",
             Self::UpgradeSchedule => "upgrade-schedule",
             Self::Nft => "nft",
+            Self::Names => "names",
         }
     }
 }

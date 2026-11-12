@@ -371,6 +371,7 @@ impl Mempool {
             .with_features(self.state.effective_schedule()?.features());
         crate::state::asset_mint::require_active(&tx.kind, context)?;
         crate::state::nft::require_nft_active(&tx.kind, context)?;
+        crate::state::names::require_names_active(&tx.kind, context)?;
 
         self.check_breaker(&tx.kind)
     }
