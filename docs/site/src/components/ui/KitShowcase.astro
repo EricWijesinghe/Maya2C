@@ -1,14 +1,25 @@
 ---
 // Every kit component in one block, rendered once per theme by the
 // /design-system/ page. Sample text only: no figure here is a chain number.
+// `id` prefixes every element id, so the two theme copies on one page do not
+// share ids (aria-labelledby and tab wiring would point at the first copy).
 import { chunkAddress, formatAmount, MISSING } from "../../lib/ui-kit";
 
-const address = chunkAddress("maya1qz3k9w7d4e8f2h6j0m5pr3t7v9x2y4a6c8e0gq");
+interface Props {
+  id: string;
+}
+const { id } = Astro.props;
+const ref = (name: string) => `${id}-${name}`;
+
+// spec/address-vectors.json: a real mainnet encoding, so the sample is a valid
+// address a reader can copy without it pointing at a made-up checksum.
+const addressText = "maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f";
+const address = chunkAddress(addressText);
 const amount = formatAmount("1500000000000000000000000");
 ---
 
-<section aria-labelledby="kit-buttons">
-  <h3 id="kit-buttons">Buttons</h3>
+<section aria-labelledby={ref("buttons")}>
+  <h3 id={ref("buttons")}>Buttons</h3>
   <p>
     <button class="ui-btn ui-btn--primary" type="button">Send</button>
     <button class="ui-btn ui-btn--secondary" type="button">Review</button>
@@ -17,8 +28,8 @@ const amount = formatAmount("1500000000000000000000000");
   </p>
 </section>
 
-<section aria-labelledby="kit-cards">
-  <h3 id="kit-cards">Cards and stat tiles</h3>
+<section aria-labelledby={ref("cards")}>
+  <h3 id={ref("cards")}>Cards and stat tiles</h3>
   <div class="ui-card"><p>Flat card: surface and line, no shadow.</p></div>
   <div class="ui-card ui-card--selected"><p>Raised card: selected.</p></div>
   <div class="ui-card ui-card--hero"><p>Hero card: the one floating card per screen.</p></div>
@@ -39,8 +50,8 @@ const amount = formatAmount("1500000000000000000000000");
   </div>
 </section>
 
-<section aria-labelledby="kit-status">
-  <h3 id="kit-status">Status pills</h3>
+<section aria-labelledby={ref("status")}>
+  <h3 id={ref("status")}>Status pills</h3>
   <p>
     <span class="ui-pill ui-pill--ok">Confirmed</span>
     <span class="ui-pill ui-pill--warn">Pending</span>
@@ -50,32 +61,38 @@ const amount = formatAmount("1500000000000000000000000");
   </p>
 </section>
 
-<section aria-labelledby="kit-table">
-  <h3 id="kit-table">Table and tabs</h3>
-  <div role="tablist" class="ui-tabs">
-    <button role="tab" type="button" class="ui-tab" aria-selected="true">Transfers</button>
-    <button role="tab" type="button" class="ui-tab" aria-selected="false">Contracts</button>
+<section aria-labelledby={ref("table")}>
+  <h3 id={ref("table")}>Table and tabs</h3>
+  <!-- Static specimen: one tab in the tab order (roving tabindex); a live tab
+       set adds arrow-key handling and swaps the panel. -->
+  <div role="tablist" class="ui-tabs" aria-label="Activity">
+    <button role="tab" type="button" class="ui-tab" id={ref("tab-transfers")}
+      aria-selected="true" aria-controls={ref("panel-transfers")} tabindex="0">Transfers</button>
+    <button role="tab" type="button" class="ui-tab" id={ref("tab-contracts")}
+      aria-selected="false" tabindex="-1">Contracts</button>
   </div>
-  <table class="ui-table">
-    <thead>
-      <tr><th scope="col">Transaction</th><th scope="col">Block</th><th scope="col">Status</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>7f3a09c1…e4d2</td><td class="ui-num">{MISSING}</td><td><span class="ui-pill ui-pill--ok">Confirmed</span></td></tr>
-    </tbody>
-  </table>
+  <div role="tabpanel" id={ref("panel-transfers")} aria-labelledby={ref("tab-transfers")}>
+    <table class="ui-table">
+      <thead>
+        <tr><th scope="col">Transaction</th><th scope="col">Block</th><th scope="col">Status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>7f3a09c1…e4d2</td><td class="ui-num">{MISSING}</td><td><span class="ui-pill ui-pill--ok">Confirmed</span></td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
-<section aria-labelledby="kit-toast">
-  <h3 id="kit-toast">Toast</h3>
+<section aria-labelledby={ref("toast")}>
+  <h3 id={ref("toast")}>Toast</h3>
   <div class="ui-toast ui-toast--ok" role="status">
     <strong>Saved</strong>
     <span>The change is in your address book.</span>
   </div>
 </section>
 
-<section aria-labelledby="kit-states">
-  <h3 id="kit-states">Empty, loading and error</h3>
+<section aria-labelledby={ref("states")}>
+  <h3 id={ref("states")}>Empty, loading and error</h3>
   <div class="ui-state">
     <span class="ui-state__title">No transfers yet</span>
     <span>Transfers you send or receive appear here.</span>
@@ -90,12 +107,16 @@ const amount = formatAmount("1500000000000000000000000");
   </div>
 </section>
 
-<section aria-labelledby="kit-money">
-  <h3 id="kit-money">Address and amount</h3>
+<section aria-labelledby={ref("money")}>
+  <h3 id={ref("money")}>Address and amount</h3>
   <p>
-    <span class="ui-address" aria-label={`Address ${address.prefix}${address.chunks.join("")}`}>
-      <span class="ui-address__chunk ui-address__chunk--prefix">{address.prefix}</span>
-      {address.chunks.map((c) => <span class="ui-address__chunk">{c}</span>)}
+    <!-- The groups are for eyes; a screen reader gets the address as one string. -->
+    <span class="ui-address">
+      <span class="ui-sr">{addressText}</span>
+      <span class="ui-address__chunks" aria-hidden="true">
+        <span class="ui-address__chunk ui-address__chunk--prefix">{address.prefix}</span>
+        {address.chunks.map((c) => <span class="ui-address__chunk">{c}</span>)}
+      </span>
     </span>
   </p>
   <p>
@@ -112,10 +133,13 @@ const amount = formatAmount("1500000000000000000000000");
   </p>
 </section>
 
-<section aria-labelledby="kit-confirm">
-  <h3 id="kit-confirm">Money confirm</h3>
-  <dialog class="ui-confirm" open aria-labelledby="kit-confirm-title">
-    <h4 id="kit-confirm-title">Confirm transfer</h4>
+<section aria-labelledby={ref("confirm")}>
+  <h3 id={ref("confirm")}>Money confirm</h3>
+  <!-- Shown inline here, so no autofocus: on a page it would pull focus to the
+       bottom on load. The live component opens with showModal() and puts
+       autofocus on Cancel, never on Send. -->
+  <dialog class="ui-confirm" open aria-labelledby={ref("confirm-title")}>
+    <h4 id={ref("confirm-title")}>Confirm transfer</h4>
     <div class="ui-confirm__rows">
       <div class="ui-confirm__row">
         <span class="ui-stat__label">Amount</span>
@@ -126,10 +150,14 @@ const amount = formatAmount("1500000000000000000000000");
       </div>
       <div class="ui-confirm__row">
         <span class="ui-stat__label">To</span>
+        <!-- Every group, never a shortened form: address poisoning works by
+             matching the first and last few characters. -->
         <span class="ui-address">
-          <span class="ui-address__chunk ui-address__chunk--prefix">{address.prefix}</span>
-          {address.chunks.slice(0, 4).map((c) => <span class="ui-address__chunk">{c}</span>)}
-          <span class="ui-address__chunk">…</span>
+          <span class="ui-sr">{addressText}</span>
+          <span class="ui-address__chunks" aria-hidden="true">
+            <span class="ui-address__chunk ui-address__chunk--prefix">{address.prefix}</span>
+            {address.chunks.map((c) => <span class="ui-address__chunk">{c}</span>)}
+          </span>
         </span>
       </div>
       <div class="ui-confirm__row">
@@ -138,7 +166,7 @@ const amount = formatAmount("1500000000000000000000000");
       </div>
     </div>
     <div class="ui-confirm__actions">
-      <button class="ui-btn ui-btn--ghost" type="button" autofocus>Cancel</button>
+      <button class="ui-btn ui-btn--ghost" type="button">Cancel</button>
       <button class="ui-btn ui-btn--primary" type="button">Send</button>
     </div>
   </dialog>

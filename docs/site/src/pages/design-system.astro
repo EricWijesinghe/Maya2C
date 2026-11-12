@@ -17,10 +17,12 @@ const themes = ["dark", "light"] as const;
     (generated into <code>tokens.css</code>). Each theme is shown in full. Contrast for every
     text and border pair is checked by <code>cargo xtask design-tokens</code> in CI.
   </p>
+  {/* not-content: Starlight's prose styles colour headings and table cells
+      from the site theme, which would put dark-theme text on the light kit. */}
   {themes.map((theme) => (
-    <div class="ui-kit" data-theme={theme} lang="en">
+    <div class="ui-kit not-content" data-theme={theme} lang="en">
       <h2>{theme === "dark" ? "Dark" : "Light"} theme</h2>
-      <KitShowcase />
+      <KitShowcase id={`kit-${theme}`} />
     </div>
   ))}
 </StarlightPage>
