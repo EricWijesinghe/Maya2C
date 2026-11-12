@@ -134,9 +134,10 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Vault,
     // The order `state_layers` pushes them (`RECORD_LAYERS`, then the pool,
     // contracts and nullifiers): a proof checks against this list, so a
-    // mismatch fails every account proof once both layers hold rows. Moving
-    // these four moves no root a genesis can seed: none seeds `n:`, `nm:` or
-    // `sl:`, and the fold is by the push order, not by this list.
+    // mismatch fails every account proof once `sl:` and `up:` both hold rows.
+    // Swapping these two moves no root a genesis can seed: none seeds `sl:`.
+    // New record layers go here, after `Vault`, in the ADR-135 allocation
+    // order (#447's account authority, then NFT, names, scheduled payments).
     StateLayer::Nft,
     StateLayer::Names,
     StateLayer::Stateless,
@@ -198,8 +199,8 @@ impl StateLayer {
             Self::Staking => 15,
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
-            Self::Nft => 18,
-            Self::Names => 19,
+            Self::Nft => 19,
+            Self::Names => 20,
         }
     }
 
@@ -224,8 +225,8 @@ impl StateLayer {
             15 => Some(Self::Staking),
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
-            18 => Some(Self::Nft),
-            19 => Some(Self::Names),
+            19 => Some(Self::Nft),
+            20 => Some(Self::Names),
             _ => None,
         }
     }

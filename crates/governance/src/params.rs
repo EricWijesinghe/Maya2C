@@ -60,12 +60,17 @@ const SURCHARGE_CEILING: Amount = {
     Amount::from_le_bytes(bytes)
 };
 
-/// PROPOSED, not decided (ADR-135 O-3): the per-year fee of a 3-byte name, in
-/// base units (one coin is `maya_amount::ONE_COIN`). Governance replaces it;
-/// it exists so a 3-byte name is never free at activation.
+/// Proposed default, governed (ADR-135 O-3): the per-year fee of a 3-byte
+/// name, in base units (one coin is `maya_amount::ONE_COIN`). Governance
+/// replaces it; it exists so a 3-byte name is never free at activation.
 pub const PROPOSED_NAME_BASE_FEE_3: u64 = 1_000_000_000_000_000_000;
-/// PROPOSED, not decided (ADR-135 O-3): as [`PROPOSED_NAME_BASE_FEE_3`], for 4 bytes.
+/// Proposed default, governed (ADR-135 O-3): as [`PROPOSED_NAME_BASE_FEE_3`],
+/// for 4 bytes.
 pub const PROPOSED_NAME_BASE_FEE_4: u64 = 100_000_000_000_000_000;
+/// Default, governed: the per-year fee of a name of 5 bytes or more. Eric's
+/// decision (2026-11-12): small and non-zero, burned, about 1/100 of the
+/// 4-byte default, so a long name costs something but almost nothing.
+pub const NAME_BASE_FEE_5: u64 = PROPOSED_NAME_BASE_FEE_4 / 100;
 /// `NameReservedLabels` with every compiled reserved label held. One label
 /// today (`maya2c`, bit 0); must equal `(1 << RESERVED_LABELS.len()) - 1` in
 /// the node, which a node test pins.
@@ -329,9 +334,10 @@ impl ParameterKey {
                 max: SURCHARGE_CEILING,
                 default: Amount::from_u64(0),
             },
-            // PROPOSED placeholders, not a decision (ADR-135 O-3, Eric sets the
-            // amounts). Non-zero for 3 and 4 bytes so a short name is never free
-            // at activation; zero for 5 and longer. Base units, per year.
+            // Proposed defaults, governed (ADR-135 O-3). Non-zero for 3 and 4
+            // bytes so a short name is never free at activation; 5 and longer
+            // is 1/100 of the 4-byte fee (Eric, 2026-11-12). Base units, per
+            // year, all burned.
             Self::NameBaseFee3 => Bounds {
                 min: Amount::from_u64(0),
                 max: SURCHARGE_CEILING,
@@ -345,7 +351,7 @@ impl ParameterKey {
             Self::NameBaseFee5 => Bounds {
                 min: Amount::from_u64(0),
                 max: SURCHARGE_CEILING,
-                default: Amount::from_u64(0),
+                default: Amount::from_u64(NAME_BASE_FEE_5),
             },
             // A bit set, not a quantity: one bit per compiled reserved label.
             // The ceiling grows with the list, which is a binary upgrade anyway.
@@ -453,6 +459,8 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
+        // 11 (`AssetRegistrationFee`) plus the four name keys, 12-15
+        // (ADR-135 allocation table).
         assert_eq!(count, 15);
     }
 

@@ -785,6 +785,8 @@ fn a_registration_burns_the_length_class_fee_and_a_commitment_is_free() {
     .expect("register long");
     let long_paid = balance(&f, &FEE_SINK) - long_before;
     assert!(long_paid < paid, "a long name costs less than a short one");
+    // Eric, 2026-11-12: 5+ characters is small but not free.
+    assert!(!long_paid.is_zero(), "a long name is not free");
 }
 
 // Dark until bit 43 activates (ADR-135 P-3), on admission and apply alike.

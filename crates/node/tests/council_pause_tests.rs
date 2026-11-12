@@ -357,7 +357,7 @@ fn a_council_sunset_has_no_emergency_window_so_no_path_exits_a_frozen_vault_earl
     );
 }
 
-// ADR-135: breaker modules 13 (Nft) and 14 (Names) are unknown to a pre-v4
+// ADR-135: breaker modules 14 (Nft) and 15 (Names) are unknown to a pre-v4
 // binary, so a quorum pause naming one must be refused until its bit
 // activates, or the two binaries fork on that block. This chain names no v4
 // bit, so both stay dark; a known module still pauses.

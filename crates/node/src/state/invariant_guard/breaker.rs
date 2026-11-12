@@ -289,10 +289,13 @@ mod tests {
             assert_eq!(Module::from_tag(tag), Some(module));
         }
         // Not `MODULES.len()`: a variant left out of `MODULES` would make that
-        // comparison agree with itself. 15 is the count this wire format has
-        // since `Vault` took tag 12 (ADR-030), `Nft` 13 and `Names` 14 (ADR-135).
+        // comparison agree with itself. 13 modules (tags 0-12) since `Vault`
+        // took tag 12 (ADR-030), plus `Nft` 14 and `Names` 15 (ADR-135
+        // allocation table); 13 is reserved for #447's `Account` and unassigned
+        // on this branch.
         assert_eq!(seen.len(), 15);
-        assert_eq!(Module::from_tag(15), None);
+        assert_eq!(Module::from_tag(13), None);
+        assert_eq!(Module::from_tag(16), None);
     }
 
     #[test]

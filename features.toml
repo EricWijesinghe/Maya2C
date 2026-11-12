@@ -2671,7 +2671,7 @@ tier = "core"
 class = "RESEARCH"
 status = "stub"
 tests = ["crates/node/tests/names_tests.rs", "crates/node/tests/names_conformance.rs"]
-note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed PROPOSED placeholders pending Eric (O-3). Stale commitments pruned at end of block through the nm:x: expiry index, at most 1,024 per block with carry-over (M-11). maya2c held by the governed NameReservedLabels bit set (tag 15), released only by a passed proposal. Own breaker module Names (14); renewals never halted. Not built: stealth meta-addresses (ADR-102 encoding), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
+note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed: 3/4-byte proposed defaults, 5+ = 1/100 of the 4-byte fee, non-zero (Eric 2026-11-12, O-3). Stale commitments pruned at end of block through the nm:x: expiry index, at most 1,024 per block with carry-over (M-11). maya2c held by the governed NameReservedLabels bit set (tag 15), released only by a passed proposal. Own breaker modules Nft (14) and Names (15), state layers 19 and 20 (13 and 18 reserved for #447); renewals never halted. Not built: stealth meta-addresses (ADR-102 encoding), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
 
 [[subsystem]]
 id = "jurisdictional-transfer-rules"

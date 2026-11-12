@@ -160,8 +160,8 @@ impl Module {
             Self::ThreatIntel => 10,
             Self::Iot => 11,
             Self::Vault => 12,
-            Self::Nft => 13,
-            Self::Names => 14,
+            Self::Nft => 14,
+            Self::Names => 15,
         }
     }
 
@@ -182,8 +182,8 @@ impl Module {
             10 => Some(Self::ThreatIntel),
             11 => Some(Self::Iot),
             12 => Some(Self::Vault),
-            13 => Some(Self::Nft),
-            14 => Some(Self::Names),
+            14 => Some(Self::Nft),
+            15 => Some(Self::Names),
             _ => None,
         }
     }
