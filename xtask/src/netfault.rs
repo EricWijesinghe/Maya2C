@@ -542,7 +542,9 @@ fn partition(seed: u64, say: &mut Vec<String>) -> Result<()> {
     let work = devnet::root().join("target").join("netfault-partition");
     let (relay, _procs, address) = boot(&work, Shape::default(), seed)?;
     let nodes: Vec<u16> = (0..localnet::VALIDATORS).collect();
-    say.push(format!("boot: four validators on one chain, relay seed {seed}"));
+    say.push(format!(
+        "boot: four validators on one chain, relay seed {seed}"
+    ));
     relay.partition(&[vec![0, 1], vec![2, 3]], None);
     std::thread::sleep(SETTLE);
     let before = heights(&nodes, &address)?;
@@ -587,10 +589,14 @@ fn partition(seed: u64, say: &mut Vec<String>) -> Result<()> {
 
 /// Times transfers under one link shape and reports their median.
 fn timed(name: &str, shape: Shape, seed: u64, say: &mut Vec<String>) -> Result<()> {
-    let work = devnet::root().join("target").join(format!("netfault-{name}"));
+    let work = devnet::root()
+        .join("target")
+        .join(format!("netfault-{name}"));
     let (relay, _procs, _address) = boot(&work, shape, seed)?;
     let nodes: Vec<u16> = (0..localnet::VALIDATORS).collect();
-    say.push(format!("{name}: four validators on one chain under {shape:?}"));
+    say.push(format!(
+        "{name}: four validators on one chain under {shape:?}"
+    ));
     let mut samples = Vec::new();
     for k in 0..TRANSFERS {
         let t = transfer_finality(&work, &nodes, k)?;

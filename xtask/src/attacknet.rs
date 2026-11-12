@@ -366,12 +366,7 @@ fn start_node(
 /// the only startup that runs certificate sync (`main.rs` skips it when a
 /// trusted block is given), so only this path reaches the S-009 refusal in
 /// `certsync::peer_not_behind`.
-fn start_untrusted(
-    work: &Path,
-    i: u16,
-    sources: &[u16],
-    route: Option<&Relay>,
-) -> Result<Child> {
+fn start_untrusted(work: &Path, i: u16, sources: &[u16], route: Option<&Relay>) -> Result<Child> {
     let mut cmd = node_command(work, i, route)?;
     for from in sources {
         cmd.args(["--catch-up-from", &format!("http://{}", rpc_addr(*from))]);
@@ -416,9 +411,9 @@ fn node_command(work: &Path, i: u16, route: Option<&Relay>) -> Result<Command> {
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         let bootnode = match route {
             Some(relay) => {
-                let addr = relay.listen(i, peer).ok_or_else(|| {
-                    format!("no relay link from validator {i} to {peer}")
-                })?;
+                let addr = relay
+                    .listen(i, peer)
+                    .ok_or_else(|| format!("no relay link from validator {i} to {peer}"))?;
                 netfault::multiaddr(addr)
             }
             None => format!("/ip4/127.0.0.1/tcp/{}", P2P_BASE + peer),

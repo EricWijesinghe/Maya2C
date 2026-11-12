@@ -169,7 +169,11 @@ pub(crate) fn setup_tweaked(work: &Path, tweak: &dyn Fn(&mut Value)) -> Result<S
 }
 
 /// As [`setup`]; with `remote`, the last validator's key is the signer's.
-pub(crate) fn setup_with(work: &Path, remote: Option<&Remote>, tweak: &dyn Fn(&mut Value)) -> Result<String> {
+pub(crate) fn setup_with(
+    work: &Path,
+    remote: Option<&Remote>,
+    tweak: &dyn Fn(&mut Value),
+) -> Result<String> {
     let mut validators = Vec::new();
     for i in 0..VALIDATORS {
         let dir = work.join(format!("v{i}"));
