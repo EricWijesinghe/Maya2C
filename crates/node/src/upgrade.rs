@@ -33,6 +33,13 @@ use crate::state::context::{
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
 
+/// The lowest protocol version an on-chain [`FeatureSet::SHIELDED`] entry may
+/// name (ADR-093 amendment 2026-11-12): above every binary shipped so far, so
+/// each of them halts at the entry instead of disagreeing about it. A literal,
+/// not `SUPPORTED_PROTOCOL_VERSION + 1`: it is consensus and must not move when
+/// a later release raises the supported version.
+pub const SHIELDED_MIN_PROTOCOL_VERSION: u32 = 3;
+
 /// The dark features an upgrade entry can switch on, as a bitmask. The bit
 /// positions are consensus: never renumber, only append.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,17 +240,30 @@ impl UpgradeSchedule {
     /// The first scheduled upgrade this binary does not implement, if any.
     #[must_use]
     pub fn first_unsupported(&self) -> Option<ProtocolUpgrade> {
-        self.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION)
+        self.first_unsupported_by(
+            SUPPORTED_PROTOCOL_VERSION,
+            maya_zk_stark::pool::circuit_is_audited(),
+        )
     }
 
-    /// [`Self::first_unsupported`] for a binary implementing up to `supported`.
-    /// Lets a test model an older binary.
+    /// [`Self::first_unsupported`] for a binary implementing up to `supported`
+    /// whose shielded circuit is `audited` or not. Lets a test model an older
+    /// or unaudited binary.
+    ///
+    /// The audit flag is read here, on the execution side only: an entry at or
+    /// above [`SHIELDED_MIN_PROTOCOL_VERSION`] carrying
+    /// [`FeatureSet::SHIELDED`] is unsupported without it, so such a binary
+    /// halts at the activation height rather than diverging (ADR-093
+    /// amendment 2026-11-12). Genesis entries below that version are not
+    /// affected; the startup guard covers them.
     #[must_use]
-    pub fn first_unsupported_by(&self, supported: u32) -> Option<ProtocolUpgrade> {
-        self.upgrades
-            .iter()
-            .copied()
-            .find(|u| u.version > supported)
+    pub fn first_unsupported_by(&self, supported: u32, audited: bool) -> Option<ProtocolUpgrade> {
+        self.upgrades.iter().copied().find(|u| {
+            u.version > supported
+                || (!audited
+                    && u.version >= SHIELDED_MIN_PROTOCOL_VERSION
+                    && u.features.contains(FeatureSet::SHIELDED))
+        })
     }
 
     /// Refuses `height` if the version in force there is newer than this
@@ -421,7 +441,39 @@ mod tests {
     #[test]
     fn an_older_binary_halts_on_a_version_it_does_not_implement() {
         let s = UpgradeSchedule::new(vec![up(SUPPORTED_PROTOCOL_VERSION + 1, 10)]).unwrap();
-        assert!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION).is_some());
-        assert_eq!(s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION + 1), None);
+        assert!(
+            s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION, true)
+                .is_some()
+        );
+        assert_eq!(
+            s.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION + 1, true),
+            None
+        );
+    }
+
+    #[test]
+    fn an_unaudited_binary_halts_at_a_shielded_entry() {
+        let s = UpgradeSchedule::new(vec![with(
+            SHIELDED_MIN_PROTOCOL_VERSION,
+            40,
+            FeatureSet::SHIELDED,
+        )])
+        .unwrap();
+        let min = SHIELDED_MIN_PROTOCOL_VERSION;
+        assert_eq!(
+            s.first_unsupported_by(min, false)
+                .map(|u| u.activation_height),
+            Some(40)
+        );
+        assert_eq!(s.first_unsupported_by(min, true), None);
+        // A version-3 entry without the bit does not depend on the audit.
+        let dvp = UpgradeSchedule::new(vec![with(min, 40, FeatureSet::DVP)]).unwrap();
+        assert_eq!(dvp.first_unsupported_by(min, false), None);
+        // This binary (version 2, unaudited) halts at 40, not before.
+        assert!(s.check(39).is_ok());
+        assert!(matches!(
+            s.check(40),
+            Err(NodeError::UpgradeRequired { height: 40, .. })
+        ));
     }
 }

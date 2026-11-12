@@ -1445,32 +1445,31 @@
       "scheduled": "40"
     },
     {
-      "audited": true,
       "expect": {
         "result": "ok"
       },
       "fn": "shielded_entry",
-      "id": "shielded-entry-audited-idle-pool",
+      "id": "shielded-entry-v3-idle-pool",
       "pool_activation": "18446744073709551615",
       "rules": [
         "CON-15"
-      ]
+      ],
+      "version": 3
     },
     {
-      "audited": false,
       "expect": {
         "error": "Governance",
         "result": "error"
       },
       "fn": "shielded_entry",
-      "id": "shielded-entry-unaudited-refused",
+      "id": "shielded-entry-v2-refused",
       "pool_activation": "18446744073709551615",
       "rules": [
         "CON-15"
-      ]
+      ],
+      "version": 2
     },
     {
-      "audited": true,
       "expect": {
         "error": "Governance",
         "result": "error"
@@ -1480,10 +1479,10 @@
       "pool_activation": "0",
       "rules": [
         "CON-15"
-      ]
+      ],
+      "version": 3
     },
     {
-      "audited": true,
       "expect": {
         "error": "Governance",
         "result": "error"
@@ -1493,7 +1492,8 @@
       "pool_activation": "40",
       "rules": [
         "CON-15"
-      ]
+      ],
+      "version": 3
     }
   ],
   "format": 1,

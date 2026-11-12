@@ -78,3 +78,35 @@ genesis.
 - `genesis_tests::a_scheduled_shielded_pool_turns_on_exactly_at_its_height`,
   `a_genesis_naming_the_pool_twice_is_refused`
 - `consensus_conformance` against CON-14 / CON-15 vectors from `crates/spec-ref`
+
+## Amendment 2026-11-12: admission does not read the audit flag
+
+Review of PR #420 found that `check_shielded_entry` read
+`circuit_is_audited()`, a compile-time constant, inside block execution. Two
+binaries built with the flag on and off would then disagree about whether
+the `ScheduleUpgrade` carrying `SHIELDED` is valid, and the chain would split
+at the vote block, not at the activation height. The "Consequences" note
+above described this and left it unenforced.
+
+Changed:
+
+- **Admission (CON-15) is flag-free.** An on-chain entry carrying `SHIELDED`
+  is admitted when it names a protocol version of at least
+  `SHIELDED_MIN_PROTOCOL_VERSION` (3, a literal: above every binary shipped
+  so far, which all support version 2), and the pool has no activation yet.
+  The pool check counts every entry in the schedule, whatever its version,
+  so it does not depend on the binary's `SUPPORTED_PROTOCOL_VERSION` either.
+- **The audit flag gates execution only, through the halt.**
+  `UpgradeSchedule::first_unsupported` treats an entry at or above
+  `SHIELDED_MIN_PROTOCOL_VERSION` that carries `SHIELDED` as unsupported on a
+  binary whose circuit is not audited. Such a binary stops with
+  `NodeError::UpgradeRequired` at the activation height (the ADR-082
+  protocol-upgrade halt) instead of executing or refusing join-splits. A
+  binary older than version 3 halts there anyway.
+- Genesis entries below version 3 are unchanged: no audit clause, and the
+  startup guard still refuses a value-bearing chain whose pool can run.
+
+Evidence: `state::upgrades::tests::audited_and_unaudited_binaries_agree_on_a_shielded_entry`,
+`a_shielded_entry_must_name_a_version_above_every_older_binary`;
+`upgrade::tests::an_unaudited_binary_halts_at_a_shielded_entry`; CON-15
+vectors regenerated.

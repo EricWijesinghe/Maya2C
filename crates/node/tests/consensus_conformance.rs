@@ -307,8 +307,8 @@ fn check_shielded(case: &Value) {
         "shielded_entry" => {
             let admitted = custom_l1_node::state::upgrades::check_shielded_entry(
                 custom_l1_node::upgrade::FeatureSet(custom_l1_node::upgrade::FeatureSet::SHIELDED),
+                Some(u32::try_from(case["version"].as_u64().unwrap()).unwrap()),
                 num(&case["pool_activation"]),
-                case["audited"].as_bool().unwrap(),
             );
             assert_eq!(outcome(admitted.is_ok()), want, "{id}");
         }

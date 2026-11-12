@@ -588,23 +588,24 @@ fn shielded_activation_cases() -> Vec<Value> {
     .collect()
 }
 
-/// CON-15: an on-chain `SHIELDED` entry needs an audited circuit and an idle pool.
+/// CON-15: an on-chain `SHIELDED` entry needs version 3 or later and an idle pool.
 fn shielded_entry_cases() -> Vec<Value> {
     let never = consensus::SHIELDED_NEVER;
+    let min = consensus::SHIELDED_MIN_PROTOCOL_VERSION;
     [
-        ("shielded-entry-audited-idle-pool", never, true),
-        ("shielded-entry-unaudited-refused", never, false),
-        ("shielded-entry-pool-already-on-refused", 0, true),
-        ("shielded-entry-pool-already-scheduled-refused", 40, true),
+        ("shielded-entry-v3-idle-pool", never, min),
+        ("shielded-entry-v2-refused", never, min - 1),
+        ("shielded-entry-pool-already-on-refused", 0, min),
+        ("shielded-entry-pool-already-scheduled-refused", 40, min),
     ]
     .iter()
-    .map(|(id, pool, audited)| {
-        let expect = if consensus::shielded_entry_admitted(*pool, *audited) {
+    .map(|(id, pool, version)| {
+        let expect = if consensus::shielded_entry_admitted(*pool, *version) {
             json!({"result": "ok"})
         } else {
             json!({"result": "error", "error": "Governance"})
         };
-        json!({"id": id, "rules": ["CON-15"], "fn": "shielded_entry", "pool_activation": pool.to_string(), "audited": audited, "expect": expect})
+        json!({"id": id, "rules": ["CON-15"], "fn": "shielded_entry", "pool_activation": pool.to_string(), "version": version, "expect": expect})
     })
     .collect()
 }

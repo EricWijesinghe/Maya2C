@@ -261,10 +261,15 @@ pub fn shielded_activation(genesis: u64, scheduled: u64) -> Option<u64> {
     }
 }
 
-/// CON-15: whether an on-chain entry carrying `SHIELDED` may be written.
+/// CON-15: the lowest protocol version an on-chain `SHIELDED` entry may name.
+pub const SHIELDED_MIN_PROTOCOL_VERSION: u32 = 3;
+
+/// CON-15: whether an on-chain entry carrying `SHIELDED` at `version` may be
+/// written. No audit input: admission must not depend on how a binary was
+/// built (ADR-093 amendment 2026-11-12).
 #[must_use]
-pub fn shielded_entry_admitted(pool_activation: u64, audited: bool) -> bool {
-    pool_activation == SHIELDED_NEVER && audited
+pub fn shielded_entry_admitted(pool_activation: u64, version: u32) -> bool {
+    pool_activation == SHIELDED_NEVER && version >= SHIELDED_MIN_PROTOCOL_VERSION
 }
 
 /// CON-8: a block at or below the prune horizon is refused.

@@ -24,7 +24,8 @@ use crate::state::context::SHIELDED_NEVER;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::vault::MAX_DELAY_BLOCKS;
 use crate::upgrade::{
-    FeatureActivations, FeatureSet, ProtocolUpgrade, UpgradeSchedule, refuse_unsupported,
+    FeatureActivations, FeatureSet, ProtocolUpgrade, SHIELDED_MIN_PROTOCOL_VERSION,
+    UpgradeSchedule, refuse_unsupported,
 };
 use maya_crypto_pq::agility::{Network, SuitePolicy};
 use maya_crypto_pq::suite::SuiteId;
@@ -69,19 +70,25 @@ pub fn sunset_key(suite: u8) -> Vec<u8> {
 }
 
 /// Refuses a schedule entry carrying [`FeatureSet::SHIELDED`] (ADR-093,
-/// CON-15) while the circuit is unaudited, or when the pool already has an
-/// activation height (`pool_activation` is not [`SHIELDED_NEVER`]). The second
-/// rule keeps an on-chain vote from producing the two-source conflict that
+/// CON-15) when the pool already has an activation height (`pool_activation`
+/// is not [`SHIELDED_NEVER`]), or when it names a version below
+/// [`SHIELDED_MIN_PROTOCOL_VERSION`]. The first rule keeps an on-chain vote
+/// from producing the two-source conflict that
 /// [`crate::upgrade::resolve_shielded_activation`] refuses, which would stop
 /// every later block context.
+///
+/// Admission runs inside block execution, so it reads nothing compiled into
+/// the binary: not the circuit audit flag (amendment 2026-11-12). The audit
+/// gates execution instead, through the halt
+/// ([`UpgradeSchedule::first_unsupported`]).
 ///
 /// # Errors
 ///
 /// [`NodeError::Governance`] naming the rule.
 pub fn check_shielded_entry(
     features: FeatureSet,
+    version: Option<u32>,
     pool_activation: u64,
-    audited: bool,
 ) -> Result<()> {
     if !features.contains(FeatureSet::SHIELDED) {
         return Ok(());
@@ -91,9 +98,11 @@ pub fn check_shielded_entry(
             reason: format!("the shielded pool already activates at height {pool_activation}"),
         });
     }
-    if !audited {
+    if version.is_none_or(|v| v < SHIELDED_MIN_PROTOCOL_VERSION) {
         return Err(NodeError::Governance {
-            reason: "the shielded pool cannot be scheduled until its circuit is audited".into(),
+            reason: format!(
+                "the shielded pool must be scheduled at protocol version {SHIELDED_MIN_PROTOCOL_VERSION} or later"
+            ),
         });
     }
     Ok(())
@@ -188,11 +197,19 @@ impl EffectiveSchedule {
             return refuse("a sunset-only entry cannot switch features on".into());
         }
         // An entry staged earlier in this block is in `self` but not yet in
-        // the context's height, so either source counts.
+        // the context's height, so either source counts. Every entry counts,
+        // whatever its version: `features()` skips versions this binary does
+        // not implement, which would make the answer binary-dependent.
+        let scheduled = self
+            .upgrades
+            .entries()
+            .iter()
+            .find(|u| u.features.contains(FeatureSet::SHIELDED))
+            .map_or(SHIELDED_NEVER, |u| u.activation_height);
         check_shielded_entry(
             request.features,
-            pool_activation.min(self.upgrades.features().shielded),
-            maya_zk_stark::pool::circuit_is_audited(),
+            request.version,
+            pool_activation.min(scheduled),
         )?;
         // Heights are bounded above as well as below. Without a horizon one far
         // entry would fix the floor for every later entry of its kind.
@@ -631,40 +648,74 @@ mod tests {
     fn shielded_at(activation: u64) -> ScheduleRequest {
         ScheduleRequest {
             features: FeatureSet(FeatureSet::SHIELDED),
+            version: Some(SHIELDED_MIN_PROTOCOL_VERSION),
             ..version_at(activation)
         }
     }
 
     #[test]
-    fn a_shielded_entry_is_refused_while_the_circuit_is_unaudited() {
-        // ADR-093: enforced by the writer, from the flag itself.
+    fn a_shielded_entry_must_name_a_version_above_every_older_binary() {
+        // Amendment 2026-11-12: admitted on this unaudited binary too, because
+        // admission no longer reads the flag.
         assert!(!maya_zk_stark::pool::circuit_is_audited());
-        let refused = empty().admit(
-            &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
-            NOW,
-            MIN_UPGRADE_LEAD_BLOCKS,
-            DEFAULT,
-            SHIELDED_NEVER,
-        );
+        empty()
+            .admit(
+                &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
+                NOW,
+                MIN_UPGRADE_LEAD_BLOCKS,
+                DEFAULT,
+                SHIELDED_NEVER,
+            )
+            .expect("a version-3 shielded entry is admitted");
+        let old = ScheduleRequest {
+            version: Some(SHIELDED_MIN_PROTOCOL_VERSION - 1),
+            ..shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS)
+        };
+        let refused = empty().admit(&old, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT, SHIELDED_NEVER);
         assert!(
-            matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("audited")),
+            matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("version")),
             "{refused:?}"
         );
-        // The same rule with the flag on admits it: the audit is the only gate.
-        assert!(
-            check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, true).is_ok()
-        );
-        assert!(
-            check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), SHIELDED_NEVER, false).is_err()
-        );
-        assert!(check_shielded_entry(FeatureSet(FeatureSet::DVP), SHIELDED_NEVER, false).is_ok());
+        let dvp = FeatureSet(FeatureSet::DVP);
+        assert!(check_shielded_entry(dvp, Some(2), SHIELDED_NEVER).is_ok());
+    }
+
+    #[test]
+    fn audited_and_unaudited_binaries_agree_on_a_shielded_entry() {
+        // W3-4b: a vote block must not split binaries built with and without
+        // the audit flag. Admission has no audit input; the two configurations
+        // differ only in the halt at the activation height.
+        let shielded = FeatureSet(FeatureSet::SHIELDED);
+        let min = SHIELDED_MIN_PROTOCOL_VERSION;
+        for (version, pool) in [
+            (min, SHIELDED_NEVER),
+            (min, 0),
+            (min, 40),
+            (min - 1, SHIELDED_NEVER),
+        ] {
+            let admitted = check_shielded_entry(shielded, Some(version), pool).is_ok();
+            assert_eq!(
+                admitted,
+                version >= min && pool == SHIELDED_NEVER,
+                "v{version} pool {pool}"
+            );
+        }
+        let entry = UpgradeSchedule::new(vec![ProtocolUpgrade {
+            version: min,
+            activation_height: 40,
+            features: shielded,
+        }])
+        .unwrap();
+        let halts = |audited| entry.first_unsupported_by(min, audited).is_some();
+        assert!(halts(false), "an unaudited binary halts at the entry");
+        assert!(!halts(true), "an audited one runs it");
     }
 
     #[test]
     fn a_shielded_entry_is_refused_when_the_pool_already_has_a_height() {
         // From the genesis (the context's height) ...
         for pool in [0, 1, NOW + MIN_UPGRADE_LEAD_BLOCKS] {
-            assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), pool, true).is_err());
+            assert!(check_shielded_entry(FeatureSet(FeatureSet::SHIELDED), Some(3), pool).is_err());
             let refused = empty().admit(
                 &shielded_at(NOW + MIN_UPGRADE_LEAD_BLOCKS),
                 NOW,
