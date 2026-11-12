@@ -6,23 +6,25 @@
 // An SVG ring (the three.js coin went in U3, 2026-11-13); dashes when the
 // network does not answer.
 import SourceTip from "./SourceTip.astro";
-import { testnet, pausedLabel } from "../data/network-state";
+import { testnet } from "../data/network-state";
 const R = 54, C = 2 * Math.PI * R;
 ---
 
-<figure class="not-content sr" data-sr style={`--c:${C}`}>
-  <div class="sr-view">
+<figure class="not-content sr" data-sr data-paused={testnet.paused ? "" : undefined} style={`--c:${C}`}>
+  <div class="sr-view" hidden={testnet.paused}>
     <svg class="sr-poster" viewBox="0 0 140 140" aria-hidden="true">
       <circle class="track" cx="70" cy="70" r={R} />
       <circle class="arc" cx="70" cy="70" r={R} data-sr-arc />
     </svg>
   </div>
   <figcaption>
-    <p class="sr-big"><b data-sr-pct class={testnet.paused ? "idle" : undefined}>{testnet.paused ? pausedLabel : "—"}</b> in circulation</p>
+    {testnet.paused
+      ? <p class="sr-big">Paused since {testnet.since}: <code>get_supply</code> answers again with the next genesis.</p>
+      : <p class="sr-big"><b data-sr-pct>—</b> in circulation</p>}
     <dl class="sr-rows">
-      <div><dt>Circulating</dt><dd data-sr-circ>{testnet.paused ? pausedLabel : "—"}</dd></div>
-      <div><dt>Issued at genesis</dt><dd data-sr-total>{testnet.paused ? pausedLabel : "—"}</dd></div>
-      <div><dt>Burned</dt><dd data-sr-burn>{testnet.paused ? pausedLabel : "—"}</dd></div>
+      <div><dt>Circulating</dt><dd data-sr-circ>—</dd></div>
+      <div><dt>Issued at genesis</dt><dd data-sr-total>—</dd></div>
+      <div><dt>Burned</dt><dd data-sr-burn>—</dd></div>
     </dl>
     <SourceTip text="get_supply on rpc.maya2c.dev: total, circulating and burned base units; whole coins rounded down. Rewards come from a genesis reserve (ADR-068)." href="/guides/api/" />
   </figcaption>
@@ -31,7 +33,8 @@ const R = 54, C = 2 * Math.PI * R;
 <script>
   import { whenNear } from "../scripts/near";
   import { coins, shareBp, supply } from "../scripts/live";
-  for (const root of document.querySelectorAll<HTMLElement>("[data-sr]")) {
+  // Paused: the RPC host is down on purpose; nothing to fetch.
+  for (const root of document.querySelectorAll<HTMLElement>("[data-sr]:not([data-paused])")) {
     whenNear(root, async () => {
       const s = await supply();
       const circ = s ? shareBp(s.circulating, s.total) : null;
@@ -49,6 +52,8 @@ const R = 54, C = 2 * Math.PI * R;
 
 <style>
   .sr { margin: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-5); align-items: center; }
+  .sr[data-paused] { grid-template-columns: minmax(0, 1fr); }
+  .sr-view[hidden] { display: none; }
   .sr-view { position: relative; aspect-ratio: 1; width: 100%; }
   .sr-poster { position: absolute; inset: 0; width: 100%; height: 100%; }
   .track, .arc { fill: none; stroke-width: 7; }

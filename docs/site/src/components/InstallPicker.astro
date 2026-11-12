@@ -134,7 +134,8 @@ const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?
 
   .ip-walk[hidden] { display: none; }
   /* The rail: one hairline behind the numbers, from the first step to the last. */
-  .ip-steps { list-style: none; padding: 0; margin: 0; display: grid; position: relative; }
+  .ip-steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); position: relative; }
+  .ip-step, .ip-cmd, .ip-cmd pre { min-width: 0; }
   .ip-step { position: relative; margin: 0; padding: 0 0 var(--space-6) calc(28px + var(--space-4)); }
   .ip-step::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: var(--border-strong); }
   .ip-step:last-child { padding-bottom: 0; }
@@ -148,7 +149,7 @@ const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?
   .ip-step > p { margin-top: var(--space-2); }
   .ip-after { font-size: var(--type-body-sm-size) !important; }
   .ip-cmd { position: relative; margin-top: var(--space-3); }
-  .ip-cmd pre { margin: 0; padding: var(--space-3) 5rem var(--space-3) var(--space-4); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .ip-cmd pre { margin: 0; padding: var(--space-3) 5rem var(--space-3) var(--space-4); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); overflow-x: auto; white-space: pre; word-break: normal; }
   .ip-cmd code { font: var(--type-mono-size)/1.6 var(--font-mono); color: var(--text); background: none; padding: 0; border: 0; }
   .ip-copy { position: absolute; top: var(--space-2); right: var(--space-2); height: var(--control-h-sm); padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface-1); color: var(--text-2); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--font-sans); cursor: pointer; transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease); }
   .ip-copy:hover { color: var(--text); background: var(--surface-3); }
@@ -162,5 +163,5 @@ const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?
   .ip.is-guided .ip-step.is-current::before { display: none; }
   .ip.is-guided .ip-nav { display: flex; }
   .ip-unavailable { padding: var(--space-3) var(--space-4); border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); background: color-mix(in srgb, var(--warn) 7%, var(--surface-1)); color: var(--text) !important; }
-  @media (max-width: 560px) { .ip { padding: var(--space-4); } .ip-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .ip { padding: var(--space-4); } .ip-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ip-cmd { display: flex; flex-direction: column-reverse; gap: var(--space-2); } .ip-cmd pre { padding-right: var(--space-4); } .ip-copy { position: static; align-self: flex-end; } }
 </style>

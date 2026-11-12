@@ -142,7 +142,7 @@ a {
 .home-code .home-h2 { margin-bottom: var(--space-3) !important; }
 .home-code starlight-tabs { margin-top: var(--space-4); }
 .home-faq .home-lede { margin-top: var(--space-4) !important; }
-.maya-footnote { margin: var(--space-16) 0 var(--space-6) !important; text-align: center; color: var(--text-2); font-size: var(--type-body-sm-size); }
+.maya-footnote { margin: var(--space-16) 0 var(--space-6) !important; max-width: 72ch; color: var(--text-2); font-size: var(--type-body-sm-size); }
 
 /* Homepage: the hero starts right under the nav. Starlight's title panel is
    kept for screen readers but takes no space, and the hero's panel loses its
@@ -247,7 +247,7 @@ header.header { border-bottom: 1px solid var(--sl-color-hairline); }
 
 /* Docs reading width: prose lines stop near 72 characters (Stripe and
    Next.js docs sit there); code, tables and kit components keep the column. */
-.sl-markdown-content > :is(p, ul, ol, blockquote, dl, h2, h3, h4, h5, .sl-heading-wrapper) { max-width: 72ch; }
+.sl-markdown-content > :is(p, ul, ol, blockquote, dl) { max-width: 72ch; }
 /* Heading anchors: quiet until the heading is hovered or the link focused. */
 .sl-markdown-content .sl-anchor-link { color: var(--text-3); transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
 .sl-markdown-content .sl-anchor-link:hover { color: var(--accent-text); }

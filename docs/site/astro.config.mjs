@@ -214,7 +214,8 @@ export default defineConfig({
           ],
         },
         // The whole of docs/, in the order ingest found it.
-        { label: "Reference", items: reference },
+        // Collapsed: 80+ entries open by default buried the guides (critique, U3).
+        { label: "Reference", collapsed: true, items: reference },
       ],
     }),
   ],

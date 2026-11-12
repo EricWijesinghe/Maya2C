@@ -41,6 +41,18 @@ const showSearch =
       </a>
     ))}
   </nav>
+  {/* Below 72rem the main nav folds into this menu (design critique, U3): the
+      docs template's own button opens the sidebar, not these entries. No script. */}
+  <details class="mnav print:hidden">
+    <summary aria-label="Main menu">Menu</summary>
+    <nav aria-label="Main, compact">
+      {nav.map((n) => (
+        <a href={n.href} aria-current={n.match?.some((m) => path.startsWith(m)) ? "page" : undefined} {...(n.external ? { rel: "noopener", target: "_blank" } : {})}>
+          {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}
+        </a>
+      ))}
+    </nav>
+  </details>
   <div class="search print:hidden">{showSearch && <Search />}</div>
   <div class="right sl-hidden md:sl-flex print:hidden">
     <SocialIcons />
@@ -85,6 +97,14 @@ const showSearch =
   .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
   .search { flex: 1 1 auto; display: flex; justify-content: flex-end; min-width: 0; }
   .right { flex: none; align-items: center; gap: 1rem; }
+  .mnav { position: relative; flex: none; }
+  .mnav summary { list-style: none; display: inline-flex; align-items: center; height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-1); color: var(--text); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--sans); cursor: pointer; }
+  .mnav summary::-webkit-details-marker { display: none; }
+  .mnav[open] summary { background: var(--surface-2); }
+  .mnav nav { position: absolute; left: 0; top: calc(100% + var(--space-2)); z-index: 50; min-width: 14rem; display: grid; padding: var(--space-1); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-lg); }
+  .mnav nav a { display: flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); border-radius: var(--r-md); color: var(--text-2); text-decoration: none; font: var(--weight-medium) var(--type-body-size)/1 var(--sans); }
+  .mnav nav a:hover, .mnav nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); }
+  @media (min-width: 72rem) { .mnav { display: none; } }
   @media (min-width: 72rem) { .primary { display: flex; } .search { flex: 0 1 240px; margin-left: auto; } }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
