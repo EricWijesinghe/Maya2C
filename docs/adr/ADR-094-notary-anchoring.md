@@ -24,8 +24,10 @@ The notary uses `AnchorAttestation` with schema `notary-v1`, signed under the
 wallet's own DID. The root is the BLAKE3 hash of the file, computed on the
 user's machine. The file never leaves it.
 
-Verification scans blocks for the transaction, checks the block's transaction
-root against its header, and reads the newest committee checkpoint for
+Verification scans blocks for the transaction, checks each served block's
+transactions against the `tx_root` in the header its id hashes, checks that id
+is the one the node named, checks the stamp's signature against the chain tag
+the node reports, and reads the newest committee checkpoint for
 finality. The node's RPC is not extended.
 
 ## Consequences
@@ -37,4 +39,9 @@ finality. The node's RPC is not extended.
   `get_transaction` RPC would remove that cost. It is a post-genesis change.
 - Finality trusts the node's checkpoint. Verifying committee signatures is the
   next step and is not in this change.
+- The chain tag the signature is checked against comes from the node's
+  `get_chain_info`; verify does not pin a genesis.
+- One earlier manual run (before the devnet test existed) never saw the stamp
+  in a block. It was not reproduced and its cause is unknown; the status rests
+  on the devnet test runs recorded in PR #449.
 - BLAKE3 is plain (not domain-separated), so standard tools reproduce the hash.

@@ -1,9 +1,11 @@
 //! Notary: hashing, anchoring, tamper detection and receipts, without a node.
 
 use custom_l1_node::core::identity_payload::AnchorAttestation;
-use custom_l1_node::core::{Transaction, TxKind};
+use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
+use custom_l1_node::rpc::types::BlockInfo;
 use maya2c_cli::notary::{
-    Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match, finality, hash_reader,
+    Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match, decode_block, finality,
+    hash_reader, next_height,
 };
 
 /// A transaction carrying a notary anchor for `root` under `schema`.
@@ -97,4 +99,61 @@ fn receipt_round_trips_through_json() {
 fn receipt_refuses_a_transaction_that_is_not_a_stamp() {
     let tx = anchor_tx("other/v1", [1; 32]);
     assert!(build_receipt([1; 32], &tx, placement(1), None).is_err());
+}
+
+fn header(timestamp: u64) -> BlockHeader {
+    BlockHeader {
+        version: 0,
+        prev_hash: [0; 32],
+        state_root: [0; 32],
+        timestamp,
+        nonce: 0,
+        difficulty_target: [0xff; 32],
+        tx_root: [0; 32],
+    }
+}
+
+#[test]
+fn decode_block_accepts_an_honest_block() {
+    let block = Block::new(header(1), vec![anchor_tx(SCHEMA, [1; 32])]);
+    let info = BlockInfo::new(5, &block);
+    assert_eq!(decode_block(&info).expect("honest block"), block);
+}
+
+#[test]
+fn decode_block_refuses_a_swapped_body_under_an_honest_header() {
+    // The honest block's header (so its id is the real block id) over a
+    // forged body, with the JSON tx_root set to the forged body's root.
+    let honest = Block::new(header(1), vec![anchor_tx(SCHEMA, [1; 32])]);
+    let forged = Block {
+        header: honest.header.clone(),
+        transactions: vec![anchor_tx(SCHEMA, [2; 32])],
+    };
+    let mut info = BlockInfo::new(5, &forged);
+    info.header.tx_root = hex::encode(forged.tx_root());
+    assert_eq!(info.header.id, hex::encode(honest.header.id()));
+    let refused = format!("{:#}", decode_block(&info).unwrap_err());
+    assert!(refused.contains("tx root"), "{refused}");
+}
+
+#[test]
+fn decode_block_refuses_bytes_that_are_not_the_named_block() {
+    let block = Block::new(header(1), vec![]);
+    let other = Block::new(header(2), vec![]);
+    let mut info = BlockInfo::new(5, &block);
+    info.header.id = hex::encode(other.header.id());
+    let refused = format!("{:#}", decode_block(&info).unwrap_err());
+    assert!(refused.contains("not the block the node named"), "{refused}");
+}
+
+#[test]
+fn next_height_refuses_a_batch_that_does_not_advance() {
+    let block = Block::new(header(1), vec![]);
+    let at = |h| BlockInfo::new(h, &block);
+    assert_eq!(next_height(&[at(3), at(4)], 3).expect("contiguous"), 5);
+    // A node that answers every request with block 0 must not loop verify.
+    assert!(next_height(&[at(0)], 3).is_err());
+    assert!(next_height(&[at(3), at(3)], 3).is_err());
+    assert!(next_height(&[at(4)], 3).is_err());
+    assert!(next_height(&[], 3).is_err());
 }

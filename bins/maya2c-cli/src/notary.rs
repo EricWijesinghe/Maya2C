@@ -14,6 +14,9 @@
 //! one call; that is a post-genesis node change.
 //! shortcut: the checkpoint signatures are not verified here, so finality is
 //! the node's word. Verifying the committee signatures is the next step.
+//! shortcut: the stamp's signature is checked against the chain tag the node
+//! reports (`get_chain_info`), so the chain identity is the node's word, as
+//! finality is. Pinning the genesis on verify (as `stamp` does) closes it.
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -67,7 +70,8 @@ pub struct Receipt {
     pub hash: String,
     /// The anchoring transaction.
     pub txid: String,
-    /// The sender's address, i.e. the DID that signed the stamp.
+    /// The sender's address, i.e. the DID that signed the stamp (signature
+    /// checked by `verify`).
     pub sender: String,
     /// Schema label; always [`SCHEMA`] for a receipt.
     pub schema: String,
@@ -233,22 +237,24 @@ pub async fn verify(file: &Path, txid_hex: &str, rpc: &str, from: u64) -> Result
     let client = HttpClientBuilder::default().build(rpc)?;
     let tip: ChainInfo = client.request("get_chain_info", rpc_params![]).await?;
 
+    let chain = tip.chain_tag().context("get_chain_info")?;
+
     let mut next = from.max(1);
     while next <= tip.height {
         let count = SCAN_BATCH.min(tip.height - next + 1);
         let infos: Vec<BlockInfo> = client
             .request("get_blocks_by_height_range", rpc_params![next, count])
             .await?;
-        if infos.is_empty() {
-            bail!("the node stopped serving blocks at height {next}");
-        }
+        let after = next_height(&infos, next)?;
         for info in &infos {
             let block = decode_block(info)?;
             if let Some(tx) = block.transactions.iter().find(|t| t.txid() == txid) {
+                tx.verify(&chain)
+                    .map_err(|e| anyhow!("the stamp's signature does not verify: {e}"))?;
                 return finish(&client, file_hash, tx, &block, info.height).await;
             }
         }
-        next = info_next(&infos, next);
+        next = after;
     }
     bail!(
         "transaction {txid_hex} is not in blocks {from}..={}",
@@ -256,21 +262,54 @@ pub async fn verify(file: &Path, txid_hex: &str, rpc: &str, from: u64) -> Result
     )
 }
 
-/// The height after the last block in a batch.
-fn info_next(infos: &[BlockInfo], fallback: u64) -> u64 {
-    infos.last().map_or(fallback, |last| last.height + 1)
+/// The height after a served batch, refusing unless the batch is the
+/// non-empty, contiguous run of heights starting at `next`. Without this a
+/// node serving the same block forever keeps verify looping.
+///
+/// # Errors
+///
+/// Returns an error for an empty batch or any height out of sequence.
+pub fn next_height(infos: &[BlockInfo], next: u64) -> Result<u64> {
+    if infos.is_empty() {
+        bail!("the node stopped serving blocks at height {next}");
+    }
+    let mut expected = next;
+    for info in infos {
+        if info.height != expected {
+            bail!(
+                "the node served block {} where block {expected} belongs",
+                info.height
+            );
+        }
+        expected = expected.checked_add(1).context("block height overflow")?;
+    }
+    Ok(expected)
 }
 
-/// Decodes a served block and checks its transactions against its header.
-fn decode_block(info: &BlockInfo) -> Result<Block> {
+/// Decodes a served block, refusing unless its body matches the `tx_root`
+/// its id commits to, and that id is the one the node reported.
+///
+/// The decoded header's own `tx_root` is the one checked: `Block::from_bytes`
+/// keeps the value it arrived with, and `header.id()` hashes it, so a swapped
+/// body under an honest header shows here. The JSON `tx_root` is a separate
+/// claim and proves nothing.
+///
+/// # Errors
+///
+/// Returns an error if the bytes are not a block, the body disagrees with the
+/// header, or the header's id is not `info.header.id`.
+pub fn decode_block(info: &BlockInfo) -> Result<Block> {
     let bytes = hex::decode(&info.raw).context("the node sent a block that is not hex")?;
     let block =
         Block::from_bytes(&bytes).map_err(|e| anyhow!("decoding block {}: {e}", info.height))?;
-    if hex::encode(block.tx_root()) != info.header.tx_root {
+    if block.tx_root() != block.header.tx_root {
         bail!(
-            "block {} bytes do not match its header's tx root",
+            "block {} transactions do not match its header's tx root",
             info.height
         );
+    }
+    if hex::encode(block.header.id()) != info.header.id {
+        bail!("block {} bytes are not the block the node named", info.height);
     }
     Ok(block)
 }

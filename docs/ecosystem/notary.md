@@ -74,6 +74,9 @@ hash, for example `b3sum contract.pdf`. Compare it with `hash` in the receipt.
 - **Verify is slow on long chains.** The node has no lookup by transaction
   id, so verify scans blocks from `--from` (default block 1) in batches of
   32. Pass `--from` near the stamp height if you know it.
+- **The chain is the node's word too.** Verify checks the stamp's signature
+  and each block's transactions against the header its id hashes, but it
+  takes the chain's genesis from the node it asks. Ask a node you trust.
 - **Finality is the node's word.** The receipt does not yet check the
   committee signatures on the checkpoint. Treat `final` as "the node says
   so" until that check lands.
@@ -82,6 +85,8 @@ hash, for example `b3sum contract.pdf`. Compare it with `hash` in the receipt.
   transaction in its block is the proof, not the record. Do not rely on the
   node's state for old stamps; keep the txid and receipt.
 - **Mainnet genesis is not pinned yet.** Until it is, pass `--genesis`.
+- **One unexplained miss.** An early manual run never saw a stamp land in a
+  block. The devnet test has not reproduced it, and its cause is unknown.
 
 ## Why there is no node change
 
