@@ -21,12 +21,15 @@
   import { SERIES, log2Cost, type Series } from "./growth";
 
   const NS = "http://www.w3.org/2000/svg";
-  const COLOR: Record<Series, string> = {
-    brute: "#f87171",
-    grover: "#fbbf24",
-    sieve: "#60a5fa",
-    sieveQuantum: "#a78bfa",
-    shor: "#5eead4",
+  // Colours live in the stylesheet as tokens (one class per series), so the
+  // plot follows a theme switch with no redraw. Quantum series are dashed:
+  // the legend never relies on colour alone.
+  const CLASS: Record<Series, string> = {
+    brute: "s-brute",
+    grover: "s-grover",
+    sieve: "s-sieve",
+    sieveQuantum: "s-sieveq",
+    shor: "s-shor",
   };
   const W = 360;
   const H = 240;
@@ -53,19 +56,19 @@
     }
 
     function drawStatic() {
-      el("line", { x1: String(PAD), y1: String(H - PAD), x2: String(W - 8), y2: String(H - PAD), stroke: "#7b8f99" });
-      el("line", { x1: String(PAD), y1: "8", x2: String(PAD), y2: String(H - PAD), stroke: "#7b8f99" });
+      el("line", { x1: String(PAD), y1: String(H - PAD), x2: String(W - 8), y2: String(H - PAD), class: "axis" });
+      el("line", { x1: String(PAD), y1: "8", x2: String(PAD), y2: String(H - PAD), class: "axis" });
       // 2^128: the classical security target most readers will recognise.
-      el("line", { x1: String(PAD), y1: String(Y(128)), x2: String(W - 8), y2: String(Y(128)), stroke: "#64748b", "stroke-dasharray": "4 4" });
-      el("text", { x: String(W - 10), y: String(Y(128) - 4), "text-anchor": "end", fill: "#94a3b8", "font-size": "10" })
+      el("line", { x1: String(PAD), y1: String(Y(128)), x2: String(W - 8), y2: String(Y(128)), class: "ref", "stroke-dasharray": "4 4" });
+      el("text", { x: String(W - 10), y: String(Y(128) - 4), "text-anchor": "end", class: "lbl", "font-size": "10" })
         .textContent = "2^128";
-      el("text", { x: String(PAD), y: "10", fill: "#94a3b8", "font-size": "10" }).textContent = "log2 work";
-      el("text", { x: String(W - 8), y: String(H - 8), "text-anchor": "end", fill: "#94a3b8", "font-size": "10" })
+      el("text", { x: String(PAD), y: "10", class: "lbl", "font-size": "10" }).textContent = "log2 work";
+      el("text", { x: String(W - 8), y: String(H - 8), "text-anchor": "end", class: "lbl", "font-size": "10" })
         .textContent = "s";
       for (const series of SERIES) {
         const points: string[] = [];
         for (let s = 8; s <= S_MAX; s += 8) points.push(`${X(s).toFixed(1)},${Y(log2Cost(series, s)).toFixed(1)}`);
-        el("polyline", { points: points.join(" "), fill: "none", stroke: COLOR[series], "stroke-width": "2" });
+        el("polyline", { points: points.join(" "), fill: "none", class: `series ${CLASS[series]}`, "stroke-width": "2" });
       }
     }
 
@@ -73,7 +76,7 @@
       const s = Number(range.value);
       out.textContent = String(s);
       svg.querySelectorAll("[data-marker]").forEach((n) => n.remove());
-      const marker = el("line", { x1: String(X(s)), y1: "8", x2: String(X(s)), y2: String(H - PAD), stroke: "#e2e8f0", "stroke-dasharray": "2 3" });
+      const marker = el("line", { x1: String(X(s)), y1: "8", x2: String(X(s)), y2: String(H - PAD), class: "marker", "stroke-dasharray": "2 3" });
       marker.setAttribute("data-marker", "");
       const v = (series: Series) => log2Cost(series, s).toFixed(1);
       readout.textContent =
@@ -92,14 +95,28 @@
   .attack { margin: 1.5rem 0; max-width: 40rem; }
   .attack label { display: block; margin-bottom: 0.4rem; }
   .attack input[type="range"] { width: 100%; min-height: 44px; }
-  .attack svg { width: 100%; height: auto; background: var(--sl-color-gray-6, #0e1a20); border-radius: 0.5rem; }
-  .attack polyline { stroke-linejoin: round; }
+  /* Two families, one hue each: brute force in bronze, lattice sieving in
+     steel; Shor in danger, the attack that breaks today's public-key crypto.
+     Solid = classical, dashed = quantum. Every value is a token measured at
+     3:1 or more on --surface-2 in both themes (design/visual/site-shell.mjs). */
+  .attack { --plot: var(--surface-2); }
+  .attack svg { width: 100%; height: auto; background: var(--plot); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .attack :global(.series) { stroke-linejoin: round; }
+  .attack :global(.s-brute) { stroke: var(--bronze); }
+  .attack :global(.s-grover) { stroke: var(--bronze); stroke-dasharray: 6 4; }
+  .attack :global(.s-sieve) { stroke: var(--steel); }
+  .attack :global(.s-sieveq) { stroke: var(--steel); stroke-dasharray: 6 4; }
+  .attack :global(.s-shor) { stroke: var(--danger); stroke-dasharray: 2 3; stroke-width: 2.5; }
+  .attack :global(.axis) { stroke: var(--chart-axis); }
+  .attack :global(.ref) { stroke: var(--text-3); }
+  .attack :global(.marker) { stroke: var(--accent); stroke-width: 1.5; }
+  .attack :global(.lbl) { fill: var(--text-2); font-family: var(--mono); }
   .attack .legend { list-style: none; padding: 0; margin: 0.6rem 0; display: grid; gap: 0.2rem; font-size: 0.9rem; }
-  .attack .sw { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 2px; margin-right: 0.45rem; vertical-align: -0.12rem; }
-  .attack .brute { background: #f87171; }
-  .attack .grover { background: #fbbf24; }
-  .attack .sieve { background: #60a5fa; }
-  .attack .sieveq { background: #a78bfa; }
-  .attack .shor { background: #5eead4; }
+  .attack .sw { display: inline-block; width: 1.4rem; height: 0; border-top: 3px solid; margin-right: 0.45rem; vertical-align: 0.25rem; }
+  .attack .brute { border-color: var(--bronze); }
+  .attack .grover { border-color: var(--bronze); border-top-style: dashed; }
+  .attack .sieve { border-color: var(--steel); }
+  .attack .sieveq { border-color: var(--steel); border-top-style: dashed; }
+  .attack .shor { border-color: var(--danger); border-top-style: dotted; }
   .attack p { font-size: 0.92rem; }
 </style>

@@ -1,0 +1,10 @@
+---
+// Starlight's page banner (frontmatter `banner`), with the network notice
+// above it. Both sit at the top of <main>, so the notice reaches every page
+// layout, splash pages included, without a second mount point.
+import Default from "@astrojs/starlight/components/Banner.astro";
+import Maintenance from "./Maintenance.astro";
+---
+
+<Maintenance />
+<Default />

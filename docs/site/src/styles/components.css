@@ -76,7 +76,9 @@
 /* Hover brightens the measured gradient a little rather than inventing a fill. */
 .ui-btn--primary:hover { filter: brightness(1.06); }
 .ui-btn--primary:active { filter: brightness(0.96); }
-.ui-btn--secondary { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); box-shadow: var(--shadow-inset); }
+/* Outlined controls and fields share --border-control, the 3:1 non-text edge
+   (L01 token; --text-3 until it lands, which also clears 3:1). */
+.ui-btn--secondary { background: var(--surface-2); color: var(--text); border-color: var(--border-control, var(--text-3)); box-shadow: var(--shadow-inset); }
 .ui-btn--secondary:hover { background: var(--surface-3); }
 .ui-btn--ghost { background: transparent; color: var(--text-2); }
 .ui-btn--ghost:hover { background: var(--surface-2); color: var(--text); }
@@ -99,6 +101,9 @@
 .ui-card--interactive:hover,
 .ui-card--raised { box-shadow: var(--shadow-md), var(--shadow-inset); border-color: var(--border-strong); }
 .ui-card--selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow-inset); }
+/* Light: white cards on paper carry the small shadow at rest, md when raised. */
+:root[data-theme="light"] .ui-card { box-shadow: var(--shadow-sm); }
+:root[data-theme="light"] :is(.ui-card--interactive:hover, .ui-card--raised) { box-shadow: var(--shadow-md); }
 
 /* Stat tile: label, the figure, and a change line. A missing figure is a dash. */
 .ui-stat { display: grid; gap: var(--space-1); }
@@ -128,7 +133,7 @@
   padding: 0 var(--space-3);
   background: var(--surface-1);
   color: var(--text);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control, var(--text-3));
   border-radius: var(--r-md);
   box-shadow: var(--shadow-sm);
   font: var(--type-body-weight) var(--type-body-size)/var(--line-body) var(--font-sans);
@@ -311,7 +316,8 @@ select.ui-field {
 }
 /* A dialog opened with the `open` attribute (the kit page) is not modal, and
    the UA positions it absolutely over the content after it; keep it in flow. */
-.ui-confirm:not(:modal) { position: static; margin: 0; }
+/* In flow it sizes to its column, not the viewport: 100vw ran 9 px past a 360 px phone. */
+.ui-confirm:not(:modal) { position: static; margin: 0; width: 100%; max-width: 32rem; }
 .ui-confirm::backdrop { background: color-mix(in srgb, var(--bg) 70%, transparent); }
 .ui-confirm__rows { display: grid; gap: var(--space-4); margin: var(--space-5) 0; padding: var(--space-4) 0; border-block: 1px solid var(--border); }
 .ui-confirm__row { display: grid; gap: var(--space-1); }

@@ -14,7 +14,7 @@ import { testnet } from "../data/network-state";
 
 const path = Astro.url.pathname;
 const nav = [
-  { label: "Experience", href: "/experience/", match: ["/experience"] },
+  { label: "Tour", href: "/experience/", match: ["/experience"] },
   { label: "Build", href: "/guides/quickstart/", match: ["/guides/quickstart", "/guides/api", "/guides/wallet", "/guides/contracts"] },
   { label: "Run a node", href: "/guides/help-run/", match: ["/guides/help-run", "/guides/testnet", "/guides/validators", "/guides/mining", "/guides/start-mining"] },
   // While the testnet is paused the explorer and status hosts are down (HTTP
@@ -22,8 +22,10 @@ const nav = [
   ...(testnet.paused
     ? [{ label: "Stats", href: "/stats/", match: ["/stats"] }, { label: "Status", href: "/health/", match: ["/health"] }]
     : [{ label: "Explorer", href: "https://explorer.maya2c.dev/", external: true }, { label: "Status", href: "https://status.maya2c.dev/", external: true }]),
-  { label: "Built by Eric", href: "https://eric.maya2c.dev/", external: true },
 ];
+// One call to action, the developer's first step. The author credit lives in the footer.
+const start = { label: "Get started", href: "/guides/quickstart/" };
+const repo = config.social?.find((s) => s.icon === "github")?.href ?? "https://github.com/EricWijesinghe/Maya2C";
 const showSearch =
   config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
 ---
@@ -42,18 +44,34 @@ const showSearch =
     ))}
   </nav>
   {/* Below 72rem the main nav folds into this menu (design critique, U3): the
-      docs template's own button opens the sidebar, not these entries. No script. */}
+      docs template's own button opens the sidebar, not these entries. No script.
+      Its last rows carry GitHub and the theme, which the bar hides on phones
+      and which splash pages (no sidebar, so no sidebar footer) had nowhere else. */}
   <details class="mnav print:hidden">
-    <summary aria-label="Main menu">Menu</summary>
-    <nav aria-label="Main, compact">
-      {nav.map((n) => (
-        <a href={n.href} aria-current={n.match?.some((m) => path.startsWith(m)) ? "page" : undefined} {...(n.external ? { rel: "noopener", target: "_blank" } : {})}>
-          {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}
+    <summary aria-label="Main menu">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+      <span>Menu</span>
+    </summary>
+    <div class="mnav__panel">
+      <nav aria-label="Main, compact">
+        {nav.map((n) => (
+          <a href={n.href} aria-current={n.match?.some((m) => path.startsWith(m)) ? "page" : undefined} {...(n.external ? { rel: "noopener", target: "_blank" } : {})}>
+            {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}
+          </a>
+        ))}
+        <a class="mnav__cta" href={start.href} aria-current={path.startsWith(start.href) ? "page" : undefined}>{start.label}</a>
+      </nav>
+      <div class="mnav__prefs">
+        <a class="mnav__gh" href={repo} rel="noopener" target="_blank">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
+          GitHub<span class="ext" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
         </a>
-      ))}
-    </nav>
+        <ThemeSelect />
+      </div>
+    </div>
   </details>
   <div class="search print:hidden">{showSearch && <Search />}</div>
+  <a class="cta print:hidden" href={start.href}>{start.label}</a>
   <div class="right sl-hidden md:sl-flex print:hidden">
     <SocialIcons />
     <ThemeSelect />
@@ -98,20 +116,36 @@ const showSearch =
   .search { flex: 1 1 auto; display: flex; justify-content: flex-end; min-width: 0; }
   .right { flex: none; align-items: center; gap: 1rem; }
   .mnav { position: relative; flex: none; }
-  .mnav summary { list-style: none; display: inline-flex; align-items: center; height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-1); color: var(--text); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--sans); cursor: pointer; }
+  /* 44 px tall: the menu is the phone's whole navigation, so it gets a full tap target. */
+  .mnav summary { list-style: none; display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-3); border: 1px solid var(--border-control, var(--text-3)); border-radius: var(--r-md); background: var(--surface-1); color: var(--text); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--sans); cursor: pointer; }
   .mnav summary::-webkit-details-marker { display: none; }
   .mnav[open] summary { background: var(--surface-2); }
-  .mnav nav { position: absolute; left: 0; top: calc(100% + var(--space-2)); z-index: 50; min-width: 14rem; display: grid; padding: var(--space-1); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-lg); }
-  .mnav nav a { display: flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); border-radius: var(--r-md); color: var(--text-2); text-decoration: none; font: var(--weight-medium) var(--type-body-size)/1 var(--sans); }
-  .mnav nav a:hover, .mnav nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); }
+  /* Anchored to the bar, not the button, so the panel never runs off a 360 px screen. */
+  .mnav__panel { position: fixed; left: var(--space-3); right: var(--space-3); top: calc(var(--sl-nav-height) + var(--space-1)); z-index: 50; max-height: calc(100dvh - var(--sl-nav-height) - var(--space-4)); overflow-y: auto; display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-lg); }
+  .mnav nav { display: grid; }
+  .mnav__panel a { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-3); border-radius: var(--r-md); color: var(--text-2); text-decoration: none; font: var(--weight-medium) var(--type-body-lg-size)/1 var(--sans); }
+  .mnav__panel a:hover, .mnav nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); }
+  .mnav nav a[aria-current="page"] { box-shadow: inset 2px 0 0 var(--accent); }
+  .mnav nav .mnav__cta { justify-content: center; margin-top: var(--space-2); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font-weight: var(--weight-semibold); box-shadow: var(--shadow-sm); }
+  .mnav nav .mnav__cta:hover { background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); filter: brightness(1.06); }
+  .mnav__prefs { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+  .mnav__prefs :global(starlight-theme-select) { display: flex; align-items: center; min-height: 44px; padding-inline-end: var(--space-2); }
+  .mnav__prefs :global(select) { min-height: 44px; }
+  @media (min-width: 50rem) { .mnav__prefs { display: none; } .mnav__panel { left: auto; width: 18rem; } }
   @media (min-width: 72rem) { .mnav { display: none; } }
   @media (min-width: 72rem) { .primary { display: flex; } .search { flex: 0 1 240px; margin-left: auto; } }
+
+  /* The one primary action. Hidden on phones, where it leads the menu instead. */
+  .cta { display: none; flex: none; align-items: center; height: var(--control-h); padding: 0 var(--space-3); border-radius: var(--r-md); border: 1px solid var(--accent-grad-to); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font: var(--weight-semibold) var(--type-body-sm-size)/1 var(--sans); text-decoration: none; white-space: nowrap; box-shadow: inset 0 1px 0 var(--accent-highlight), var(--shadow-sm); transition: filter var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
+  .cta:hover { filter: brightness(1.06); }
+  .cta:active { transform: translateY(1px); }
+  @media (min-width: 40rem) { .cta { display: inline-flex; } }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
   .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); opacity: .6; }
 
   .to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 90;
-    width: 40px; height: 40px; border-radius: var(--r-md); display: grid; place-items: center; cursor: pointer;
+    width: 44px; height: 44px; border-radius: var(--r-md); display: grid; place-items: center; cursor: pointer;
     color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-md); opacity: 0; transform: translateY(4px); pointer-events: none;
     transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), border-color var(--dur-1) var(--ease); }

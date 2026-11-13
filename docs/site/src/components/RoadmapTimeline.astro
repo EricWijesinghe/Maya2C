@@ -111,13 +111,15 @@ const n = (id: string, s: string) => inLane(id).filter((i) => i.status === s).le
   .rt { margin: 1.5rem auto 2.5rem; max-width: 62rem; }
   .rt-note { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 0 0 0.75rem; }
   .rt-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 1.25rem; }
-  .rt-filters button { background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); border-radius: 999px; padding: 0.4rem 0.9rem; font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 44px; }
+  .rt-filters button { background: var(--surface-1); border: 1px solid var(--border-control, var(--text-3)); color: var(--text); border-radius: 999px; padding: 0.4rem 0.9rem; font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 44px; }
   .rt-filters button[aria-pressed="true"] { border-color: var(--cherenkov); box-shadow: 0 0 0 1px var(--cherenkov) inset; }
   .rt-filters b { color: var(--cherenkov-hi); margin-left: 0.25rem; }
 
   .rt-lanes { list-style: none; padding: 0; margin: 0; display: grid; gap: 1.5rem; }
   .lane { margin: 0; padding-left: 1.1rem; border-left: 2px solid var(--glass-edge); position: relative; }
-  .lane::before { content: ""; position: absolute; left: -7px; top: 0.35rem; width: 12px; height: 12px; border-radius: 50%; background: var(--cherenkov); box-shadow: 0 0 0.9rem var(--halo); }
+  .lane::before { content: ""; position: absolute; left: -7px; top: 0.35rem; width: 12px; height: 12px; border-radius: 50%; background: var(--cherenkov); box-shadow: 0 0 0 3px var(--bg), var(--shadow-sm); }
+  /* The lit dot is a dark-theme effect; on paper the ring and shadow carry it. */
+  :global(:root[data-theme="dark"]) .lane::before { box-shadow: 0 0 0 3px var(--bg), 0 0 0.9rem var(--halo); }
   .lane header h2 { margin: 0; font-size: 1.15rem; border: 0; padding: 0; }
   .sub { margin: 0.1rem 0 0.5rem; color: var(--muted); font-size: 0.85rem; }
   .bar { display: flex; height: 0.5rem; border-radius: 999px; background: var(--well); overflow: hidden; max-width: 22rem; }
@@ -129,10 +131,10 @@ const n = (id: string, s: string) => inLane(id).filter((i) => i.status === s).le
   .cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; grid-template-columns: minmax(0, 1fr); }
   .cards > li { margin: 0; min-width: 0; }
   .cards > li[hidden] { display: none; }
-  .card { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 1rem; overflow: hidden; }
-  .card.shipped { border-color: rgba(69, 224, 160, 0.45); }
-  .card.review { border-color: rgba(31, 181, 194, 0.55); }
-  .card.design { border-style: dashed; border-color: rgba(201, 168, 106, 0.6); }
+  .card { background: var(--surface-1); border: 1px solid var(--glass-edge); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
+  .card.shipped { border-color: color-mix(in srgb, var(--success) 50%, var(--border)); }
+  .card.review { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .card.design { border-style: dashed; border-color: color-mix(in srgb, var(--bronze) 60%, var(--border)); }
   .card.queued { border-style: dotted; border-color: var(--muted); }
   .head { all: unset; box-sizing: border-box; width: 100%; min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; padding: 0.6rem 0.85rem; cursor: pointer; color: var(--text); transition: background 0.25s; }
   .head:hover { background: var(--nav-hover); }
