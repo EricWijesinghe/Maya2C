@@ -99,9 +99,9 @@ pub fn inv_ntt(w_hat: &Poly) -> Poly {
 #[must_use]
 pub fn negacyclic_mul(a: &Poly, b: &Poly) -> Poly {
     let mut out = [0u32; N];
-    for i in 0..N {
-        for j in 0..N {
-            let p = mul_mod(a[i], b[j]);
+    for (i, &ai) in a.iter().enumerate() {
+        for (j, &bj) in b.iter().enumerate() {
+            let p = mul_mod(ai, bj);
             let k = i + j;
             if k < N {
                 out[k] = add_mod(out[k], p);

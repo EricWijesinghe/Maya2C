@@ -165,18 +165,20 @@ pub fn decode_outputs(
         return Err(VerifyError::StaleBuffer("output shorter than the batch"));
     }
     let mut outputs = Vec::with_capacity(count);
-    for (index, item) in words.chunks_exact(WORDS_OUT).take(count).enumerate() {
+    for (index, item) in words
+        .as_chunks::<WORDS_OUT>()
+        .0
+        .iter()
+        .take(count)
+        .enumerate()
+    {
         if item[0] != nonce {
             return Err(VerifyError::StaleBuffer("nonce is not this batch's"));
         }
         if usize::try_from(item[1]).ok() != Some(index) {
             return Err(VerifyError::StaleBuffer("item index out of place"));
         }
-        let mut polys = item[HEADER_WORDS..].chunks_exact(N).map(|p| {
-            let mut poly = [0u32; N];
-            poly.copy_from_slice(p);
-            poly
-        });
+        let mut polys = item[HEADER_WORDS..].as_chunks::<N>().0.iter().copied();
         let mut next = || polys.next().unwrap_or([0u32; N]);
         let z_hat = core::array::from_fn(|_| next());
         let c_hat = next();

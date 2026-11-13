@@ -29,6 +29,7 @@ use maya_wgpu_verify::{
 
 /// The CPU reference, then every GPU adapter (with `--features gpu`).
 fn backends() -> Vec<Box<dyn LatticeBackend>> {
+    #[cfg_attr(not(feature = "gpu"), allow(unused_mut))] // pushed to only with `gpu`
     let mut list: Vec<Box<dyn LatticeBackend>> = vec![Box::new(CpuLattice)];
     #[cfg(feature = "gpu")]
     {
