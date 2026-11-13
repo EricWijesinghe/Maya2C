@@ -56,6 +56,7 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         kind: String::new(),
         summary: String::new(),
         careful: false,
+        explanation: String::new(),
     }
 }
 
@@ -681,6 +682,140 @@ async fn the_block_page_shows_kind_with_its_summary_as_tooltip() {
     assert!(body.contains("place_order (check first)"), "{body}");
     assert!(
         body.contains(r#"title="Place an order to buy 5 units.""#),
+        "{body}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// explorer v2: mining page, charts, Bech32m account paths, theme toggle
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_mining_page_draws_the_hashrate_series() {
+    let h = harness(12).await;
+
+    let (status, body) = get(&format!("{}/mining", h.base)).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains("Hashrate over recent blocks"), "{body}");
+    assert!(body.contains("<polyline"), "{body}");
+    assert!(body.contains("<svg"), "{body}");
+}
+
+#[tokio::test]
+async fn the_mining_page_renders_on_an_empty_index() {
+    let h = harness(0).await;
+
+    let (status, body) = get(&format!("{}/mining", h.base)).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains("No data"), "{body}");
+}
+
+#[tokio::test]
+async fn the_dashboard_charts_block_time_and_transactions_as_svg() {
+    let h = harness(10).await;
+
+    let (status, body) = get(&format!("{}/", h.base)).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains("Block time"), "{body}");
+    assert!(body.contains("Transactions per block"), "{body}");
+    assert!(body.matches("<svg").count() >= 2, "{body}");
+    // Charts are inline SVG; no script library is loaded for them.
+    assert!(!body.contains("chart.js"), "{body}");
+}
+
+#[tokio::test]
+async fn the_nav_links_the_mining_page_and_offers_a_theme_toggle() {
+    let h = harness(1).await;
+
+    let (_, body) = get(&format!("{}/", h.base)).await;
+
+    assert!(body.contains(r#"href="/mining""#), "{body}");
+    assert!(body.contains("data-theme-toggle"), "{body}");
+}
+
+#[tokio::test]
+async fn an_account_path_accepts_a_bech32m_address_and_shows_its_text() {
+    let h = harness(2).await;
+    let id = [0xaa_u8; 32];
+    let text = maya_address::encode(maya_address::Network::Testnet, &id);
+
+    let (status, body) = get(&format!("{}/account/{text}", h.base)).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains(&text), "{body}");
+    assert!(body.contains(&"aa".repeat(32)), "{body}");
+}
+
+#[tokio::test]
+async fn a_bech32m_address_typed_in_the_query_is_accepted() {
+    let h = harness(2).await;
+    let text = maya_address::encode(maya_address::Network::Testnet, &[0xbb_u8; 32]);
+
+    let (status, body) = get(&format!("{}/account?address={text}", h.base)).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains(&text), "{body}");
+}
+
+#[tokio::test]
+async fn a_hex_address_still_resolves_and_lists_its_transactions() {
+    let h = harness(3).await;
+
+    let (status, body) = get(&format!("{}/account?address={}", h.base, "aa".repeat(32))).await;
+
+    assert_eq!(status, 200);
+    assert!(body.contains("Transactions sent"), "{body}");
+    // No node is configured, so the network is unknown and no text form is shown.
+    assert!(!body.contains("tmaya1"), "{body}");
+}
+
+#[tokio::test]
+async fn a_corrupt_bech32m_address_is_rejected_with_a_reason() {
+    let h = harness(1).await;
+    let text = maya_address::encode(maya_address::Network::Testnet, &[0xcc_u8; 32]);
+    // Flip the last character: the checksum no longer matches.
+    let mut bad = text.clone();
+    let last = bad.pop().expect("non-empty");
+    bad.push(if last == 'q' { 'p' } else { 'q' });
+
+    let (status, body) = get(&format!("{}/account/{bad}", h.base)).await;
+
+    assert_eq!(status, 400);
+    assert!(body.contains("Bech32m address"), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_block_and_tx_pages_explain_themselves() {
+    let h = harness(3).await;
+    let tx = IndexedTx {
+        explanation: "aaaaaaaa…aaaaaa signed: Send 5 base units of the native coin to b000…000b."
+            .into(),
+        ..transaction(1, 9)
+    };
+    h.store
+        .put_block(&block(1, 1), std::slice::from_ref(&tx))
+        .await
+        .expect("seed");
+
+    let (status, body) = get(&format!("{}/blocks/1", h.base)).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("Explain this block"), "{body}");
+    assert!(
+        body.contains("Block 1 holds 1 transaction(s) moving 509 base units in total"),
+        "{body}"
+    );
+    assert!(
+        body.contains("Send 5 base units of the native coin to b000…000b"),
+        "{body}"
+    );
+
+    let (status, body) = get(&format!("{}/tx/{}", h.base, tx.txid)).await;
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("Send 5 base units of the native coin to b000…000b"),
         "{body}"
     );
 }

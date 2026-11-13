@@ -275,7 +275,8 @@ impl Worker {
             phase: Phase::Active,
         })?;
         let recipient = lock.recipient;
-        self.pending
+        let submitted = self
+            .pending
             .submit(
                 side,
                 chain.as_ref(),
@@ -283,7 +284,14 @@ impl Worker {
                 Purpose::Lock(commitment_id),
                 TxKind::HtlcLock(Box::new(lock)),
             )
-            .await?;
+            .await;
+        if let Err(error @ WatcherError::GenesisChanged { .. }) = submitted {
+            // Signed for a genesis this chain no longer has: it can never be
+            // mined, so nothing is escrowed and nothing needs refunding.
+            self.journal.abandon(&commitment_id)?;
+            return Err(error);
+        }
+        submitted?;
         self.pay_allowance(side, recipient, commitment_id).await?;
         Ok(lock_id)
     }

@@ -15,8 +15,10 @@
 //! validator key never doubles as a transport key.
 
 use std::collections::BTreeMap;
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use maya_crypto_pq::suite::MasterSeed;
 use maya_signer::backend::KeystoreBackend;
@@ -25,6 +27,50 @@ use maya_signer::keystore;
 use maya_signer::protection::SlashingDb;
 use maya_signer::service::{Request, Service};
 use zeroize::Zeroizing;
+
+/// How long a connection may take to authenticate. The signer serves one
+/// connection at a time, so without a bound a peer that connects and sends
+/// nothing would hold the only slot and stop the validator signing.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A stream with one deadline over every read, not a timeout per read: a
+/// per-read timeout restarts on each byte, so a peer sending one byte every
+/// few seconds would hold the slot indefinitely.
+struct Deadline {
+    stream: TcpStream,
+    until: Option<Instant>,
+}
+
+impl Deadline {
+    /// Lifts the deadline once the peer is authenticated.
+    fn clear(&mut self) -> std::io::Result<()> {
+        self.until = None;
+        self.stream.set_read_timeout(None)
+    }
+}
+
+impl Read for Deadline {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(until) = self.until {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(std::io::ErrorKind::TimedOut.into());
+            }
+            self.stream.set_read_timeout(Some(left))?;
+        }
+        self.stream.read(buf)
+    }
+}
+
+impl Write for Deadline {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
+    }
+}
 
 fn args() -> Result<(String, BTreeMap<String, String>), String> {
     let mut it = std::env::args().skip(1);
@@ -59,6 +105,8 @@ fn unhex(s: &str) -> Result<Vec<u8>, String> {
         .step_by(2)
         .map(|i| {
             s.get(i..i + 2)
+                // `from_str_radix` alone accepts a sign: "+f" would parse as 0x0f.
+                .filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()))
                 .and_then(|h| u8::from_str_radix(h, 16).ok())
                 .ok_or("bad hex".to_string())
         })
@@ -89,10 +137,23 @@ fn serve(f: &BTreeMap<String, String>) -> Result<(), String> {
     // protection database, which is the point.
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
+        // A write that blocks (a peer that stops reading) must not hold the
+        // slot either, during the handshake or after it.
+        if stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
+            continue;
+        }
+        let stream = Deadline {
+            stream,
+            until: Some(Instant::now() + HANDSHAKE_TIMEOUT),
+        };
         let Ok(mut ch) = channel::server(stream, &identity, &allowed) else {
             eprintln!("maya2c-signer: refused a connection that failed authentication");
             continue;
         };
+        // An authenticated node may sit idle between requests.
+        if ch.stream_mut().clear().is_err() {
+            continue;
+        }
         while let Ok(frame) = ch.recv() {
             let Ok(req) = serde_json::from_slice::<Request>(&frame) else {
                 break;

@@ -182,6 +182,7 @@ jobs:
       fail-fast: false
       matrix:
         package:
+          - maya-amount
           - maya-ledger-math
           - maya-governance
           - maya-fee-market
@@ -217,6 +218,8 @@ jobs:
           set -euo pipefail
           case "$PACKAGE" in
             maya-fee-market) heavy="a_split_conserves_every_unit the_base_fee_respects_its_floor_and_its_step a_rise_is_one_denominator_share_and_stops_at_the_ceiling" ;;
+            # No verdict within 20 min each in WSL (2026-11-10, reports/kani/2026-11-10-amount.md).
+            maya-amount) heavy="mul_then_div_round_trips mul_wide_matches_u128_multiplication mul_wide_is_commutative decimal_chunk_step_is_exact display_round_trips_through_a_decimal_reader" ;;
             *) heavy="" ;;
           esac
           if [ -z "$heavy" ]; then
