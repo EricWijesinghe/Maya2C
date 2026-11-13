@@ -637,7 +637,10 @@ mod parse_address_tests {
     #[test]
     fn a_text_address_resolves_to_the_same_account_and_network() {
         let text = maya_address::encode(Network::Testnet, &[7u8; 32]);
-        assert_eq!(parse_address(&text), Ok(([7u8; 32], Some(Network::Testnet))));
+        assert_eq!(
+            parse_address(&text),
+            Ok(([7u8; 32], Some(Network::Testnet)))
+        );
     }
 
     #[test]
