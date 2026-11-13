@@ -80,17 +80,36 @@ What the apps do now:
    and stops there. No background check.
 2. A **Check for updates** button (Hub settings, Wallet network settings,
    Chat settings) calls `maya_app_update::check_for_updates`. A build with
-   no updater config says that updates are off.
+   no updater config says that updates are off (by code review; no test
+   builds a Tauri app without one). One check runs at a time: a second
+   press while one runs is refused, so two installs cannot race.
 3. When an update exists, a native dialog names the version and the
    publisher key's fingerprint: SHA-256 of the raw minisign public key, in
-   groups of four hex digits (`verify::fingerprint`). The minisign key id is
+   `sha256sum`'s format (`verify::fingerprint`). The minisign key id is
    not used as a fingerprint, because it is chosen at random and another key
-   can carry it. Nothing downloads until the user presses **Install now**.
-4. After the download, `verify::verify` checks the signature against the
-   key compiled into the app, in addition to the plugin's own check. An
-   empty signature, a signature by another key, a changed download and an
-   unreadable signature are refused. Each case is a unit test in
-   `apps/app-update/src/verify.rs`.
+   can carry it. The fingerprint is of the key compiled into the running
+   app, so it says which key the app trusts; it cannot reveal a stolen key,
+   and the dialog says so. Nothing downloads until the user presses
+   **Download**.
+4. The plugin checks the signature in `Update::download` and again in
+   `Update::install` (tauri-plugin-updater 2.14.1), so it normally refuses
+   an unsigned or wrong-key bundle first, with its own error text.
+   `verify::verify_confirm_install` is a second, stricter check behind it:
+   it also refuses legacy (non-prehashed) signatures, which the plugin
+   accepts. It runs in a fixed order: signature, then a second dialog that
+   shows the download's SHA-256, then install only on **Install now**. That
+   SHA-256 is compared with the release's `SHA256SUMS`, which the release
+   workflow signs with cosign (keyless) and attests; it is the one check
+   that does not depend on the update key.
+
+What the tests pin (`apps/app-update/src/verify.rs`, `src/lib.rs`): the
+signature gate refuses an empty signature, another key's signature, changed
+bytes and unreadable signatures; an unsigned or wrong-key manifest signature
+never reaches the question or the install; a declined download is not
+installed; the digest shown is `sha256sum`'s; `start` contains no check,
+download, install or spawn (a source-level test); a second concurrent check
+is refused. The manifest fetch and parsing are the plugin's and are not
+tested here.
 
 **Plan for k-of-n (not built).** Automatic checks return only when all of
 this exists:
@@ -111,3 +130,11 @@ this exists:
 Until then the owner publishes the fingerprint of `apps/updater-pubkey.txt`
 in `docs/verify-release.md` when the key is created, so a user can compare
 it with the one the dialog shows.
+
+**Residual risk until k-of-n lands.** The release pipeline is unchanged:
+the `updater-sign` job in `release-binaries.yml` and `gen-updates.mjs` still
+sign every update with the single `TAURI_SIGNING_PRIVATE_KEY`, so the manual
+check trusts one key. Whoever holds it can make an update that passes both
+signature checks and shows the expected fingerprint. Comparing the
+download's SHA-256 with the cosign-signed `SHA256SUMS` is the only check
+independent of that key.

@@ -2,10 +2,15 @@
 //! so they can be tested without a window.
 //!
 //! The keys and signatures are the ones `cargo tauri signer` writes: base64 of
-//! a minisign text file. The Tauri updater plugin checks the same signature
-//! when it downloads; [`verify`] repeats the check in this crate's install path
-//! so the refusal is ours, and pinned by the tests below.
+//! a minisign text file. The Tauri updater plugin checks the signature first:
+//! `Update::download` and `Update::install` both call its `verify_signature`
+//! (tauri-plugin-updater 2.14.1, `updater.rs`), so an unsigned or wrong-key
+//! bundle normally fails there, with the plugin's error text. [`verify`] is a
+//! second, stricter check behind it: it refuses legacy (non-prehashed)
+//! signatures, which the plugin accepts, and the tests below pin it whatever
+//! a plugin upgrade does to the first check.
 
+use std::error::Error;
 use std::fmt;
 
 use base64::Engine as _;
@@ -49,11 +54,21 @@ fn public_key(pubkey: &str) -> Result<PublicKey, VerifyError> {
     PublicKey::decode(&text).map_err(|_| VerifyError::BadKey)
 }
 
+/// SHA-256 of `bytes` as `sha256sum` prints it (64 lower-case hex digits), so
+/// it can be compared character for character with a release's `SHA256SUMS`.
+#[must_use]
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// SHA-256 of the raw public key (algorithm, key id and Ed25519 key), in
-/// groups of four hex digits. The key id alone is not a fingerprint: it is
+/// [`sha256_hex`]'s format. The key id alone is not a fingerprint: it is
 /// chosen at random when the key is made, so another key can carry it.
 ///
-/// Anyone can reproduce it from `apps/updater-pubkey.txt`:
+/// Anyone can reproduce it from `apps/updater-pubkey.txt`, in the same format:
 /// `base64 -d updater-pubkey.txt | sed -n 2p | base64 -d | sha256sum`.
 ///
 /// # Errors
@@ -66,11 +81,31 @@ pub fn fingerprint(pubkey: &str) -> Result<String, VerifyError> {
     let raw = STANDARD
         .decode(line.trim())
         .map_err(|_| VerifyError::BadKey)?;
-    let hex: Vec<String> = Sha256::digest(raw)
-        .chunks(2)
-        .map(|pair| format!("{:02X}{:02X}", pair[0], pair[1]))
-        .collect();
-    Ok(hex.join(" "))
+    Ok(sha256_hex(&raw))
+}
+
+/// The install path after the download, in the only order it may run: the
+/// manifest's `signature` must verify over `bytes`, then the user must accept
+/// `confirm` (shown the download's [`sha256_hex`]), and only then `install`.
+/// Returns whether it installed.
+///
+/// # Errors
+///
+/// The [`VerifyError`] of a refused signature (neither `confirm` nor
+/// `install` runs), or `install`'s own error.
+pub fn verify_confirm_install(
+    pubkey: &str,
+    signature: &str,
+    bytes: Vec<u8>,
+    confirm: impl FnOnce(&str) -> bool,
+    install: impl FnOnce(Vec<u8>) -> Result<(), Box<dyn Error + Send + Sync>>,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    verify(pubkey, signature, &bytes)?;
+    if !confirm(&sha256_hex(&bytes)) {
+        return Ok(false);
+    }
+    install(bytes)?;
+    Ok(true)
 }
 
 /// Checks that `data` was signed by `pubkey`. An empty signature, one from
@@ -144,14 +179,72 @@ mod tests {
 
     #[test]
     fn fingerprint_is_sha256_of_the_raw_key() {
-        // Expected values from `base64 -d | sed -n 2p | base64 -d | sha256sum`.
+        // Expected values from `base64 -d | sed -n 2p | base64 -d | sha256sum`,
+        // in that command's own format so a user can compare them as printed.
         assert_eq!(
             fingerprint(KEY_A).as_deref(),
-            Ok("7EE6 92AA C59F 0C21 33FF 01E6 ED53 3019 AF55 4F84 D772 1401 A7CD A0AA 454E 0623")
+            Ok("7ee692aac59f0c2133ff01e6ed533019af554f84d7721401a7cda0aa454e0623")
         );
         assert_eq!(
             fingerprint(KEY_B).as_deref(),
-            Ok("9671 2CDE ABAB 47DF 37F2 CFC0 260E 57A2 20F8 915C 07E9 803C BA23 CA64 7923 BF0F")
+            Ok("96712cdeabab47df37f2cfc0260e57a220f8915c07e9803cba23ca647923bf0f")
         );
+    }
+
+    /// Runs the gate and records what it reached: the digest it asked about,
+    /// and the bytes it installed.
+    fn gate(
+        pubkey: &str,
+        signature: &str,
+        accept: bool,
+    ) -> (Result<bool, VerifyError>, Option<String>, Option<Vec<u8>>) {
+        let mut asked = None;
+        let mut installed = None;
+        let result = verify_confirm_install(
+            pubkey,
+            signature,
+            PAYLOAD.to_vec(),
+            |digest| {
+                asked = Some(digest.to_owned());
+                accept
+            },
+            |bytes| {
+                installed = Some(bytes);
+                Ok(())
+            },
+        )
+        .map_err(|error| {
+            error
+                .downcast_ref::<VerifyError>()
+                .cloned()
+                .expect("a refusal is a VerifyError")
+        });
+        (result, asked, installed)
+    }
+
+    #[test]
+    fn unsigned_manifest_never_reaches_the_question_or_the_install() {
+        assert_eq!(gate(KEY_A, "", true), (Err(VerifyError::Unsigned), None, None));
+    }
+
+    #[test]
+    fn wrong_key_manifest_never_reaches_the_question_or_the_install() {
+        assert_eq!(gate(KEY_B, SIG_A, true), (Err(VerifyError::Refused), None, None));
+    }
+
+    #[test]
+    fn signed_download_asks_with_its_sha256sum_then_installs_those_bytes() {
+        // `printf 'maya2c test update payload\n' | sha256sum`.
+        let digest = "079a98ba41136036a6c3f39c354820f3ed3b96afb1b91e1c2bb447b14219687f";
+        assert_eq!(
+            gate(KEY_A, SIG_A, true),
+            (Ok(true), Some(digest.to_owned()), Some(PAYLOAD.to_vec()))
+        );
+    }
+
+    #[test]
+    fn declined_download_is_not_installed() {
+        let (result, asked, installed) = gate(KEY_A, SIG_A, false);
+        assert_eq!((result, asked.is_some(), installed), (Ok(false), true, None));
     }
 }

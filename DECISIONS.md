@@ -910,5 +910,9 @@ stolen key would reach every installed Hub, Wallet and Chat at once. The
 apps no longer check on start: `apps/app-update` only registers the updater,
 and a **Check for updates** button runs the check. The dialog shows the
 publisher key's SHA-256 fingerprint, and the download must pass
-`maya_app_update::verify::verify` before it installs. Automatic checks come
-back only with k-of-n manifest signing (ADR-080, amendment 2026-11-14).
+`maya_app_update::verify::verify_confirm_install` (signature, then a second
+dialog showing the download's SHA-256 to compare with the cosign-signed
+`SHA256SUMS`, then install) before it installs. Until k-of-n the manual
+check trusts one key; the `SHA256SUMS` comparison is the only check
+independent of it. Automatic checks come back only with k-of-n manifest
+signing (ADR-080, amendment 2026-11-14).

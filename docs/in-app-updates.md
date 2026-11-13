@@ -9,12 +9,27 @@ Maya Wallet (network settings), Maya Chat (settings) and the Hub (settings)
 each have a **Check for updates** button. It asks
 `https://maya2c.dev/updates/<app>.json` whether a newer version exists. When
 one does, a dialog names it, shows the **publisher key fingerprint**
-(SHA-256 of the update public key) and offers **Install now** or **Later**.
+(SHA-256 of the update public key) and offers **Download** or **Later**.
 Nothing downloads without that click. The download must be signed by the
 public key built into the app; an unsigned or wrongly signed one is refused.
-Then it installs and the app restarts.
+A second dialog then shows the **SHA-256 of the download** and offers
+**Install now** or **Cancel**. Only that click installs it, and the app
+restarts.
 
-To check the fingerprint yourself from the public key file:
+What each check proves:
+
+- The fingerprint is of the key this app has trusted since you installed
+  it. A match does not prove the update is genuine if that key was stolen.
+  If `docs/verify-release.md` lists no fingerprint, do not install.
+- The download's SHA-256 must appear in `SHA256SUMS` of the release that
+  ships that version. The release workflow signs that file with cosign
+  (keyless) and attests it, so this is the one check that does not depend on
+  the update key. Check `SHA256SUMS` itself as `docs/verify-release.md`
+  describes.
+
+Both values are printed the way `sha256sum` prints them: 64 lower-case hex
+digits, no spaces. To compute the fingerprint yourself from the public key
+file:
 
 ```bash
 base64 -d apps/updater-pubkey.txt | sed -n 2p | base64 -d | sha256sum
