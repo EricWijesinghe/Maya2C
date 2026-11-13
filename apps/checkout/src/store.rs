@@ -5,7 +5,7 @@
 //! an output already paid an invoice, and the same output could settle a second
 //! one. So the claims and the scan position are committed together.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,13 +13,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CheckoutError, Result};
-use primitive_types::U256;
 
-use crate::invoice::{Delivery, Invoice, Status, UnmatchedPayment};
+use crate::invoice::{Invoice, UnmatchedPayment};
 
-/// How many recent block ids are kept for reorg checks. A reorg deeper than
-/// this is not detected: shortcut: depth-limited reorg check, upgrade by
-/// keeping ids back to the finalized checkpoint.
+/// How many recent block ids are kept for reorg and checkpoint checks. A
+/// checkpoint more than this far below the scan position cannot be matched to
+/// a stored id, so nothing confirms until finality catches up (fail closed).
 pub const RETAIN_BLOCKS: u64 = 256;
 
 /// What an output was used for. An output appears in the claims at most once.
@@ -38,10 +37,11 @@ pub enum Claim {
 pub struct Ledger {
     /// Highest block height whose outputs have been examined.
     pub scanned_to: Option<u64>,
-    /// The merchant receiving address, hex. Payments to it are recorded even
-    /// before the first invoice exists, so none goes unseen.
+    /// The merchant's deposit addresses, hex: derived in the merchant's wallet
+    /// and loaded at startup (public addresses only, no keys). Each invoice is
+    /// given one that no invoice ever had, and it is never handed out again.
     #[serde(default)]
-    pub merchant: Option<String>,
+    pub addresses: BTreeSet<String>,
     /// Invoices in creation order.
     pub invoices: Vec<Invoice>,
     /// `"txid:index"` to what the output was used for.
@@ -69,22 +69,6 @@ pub struct Store {
     /// How many times the ledger file was actually written.
     writes: u64,
 }
-
-/// Whether an invoice holds its amount: no other invoice may be quoted it.
-/// Pending and detected invoices hold it. A confirmed invoice holds it until
-/// its webhook is delivered, because a reorg can still revert it to pending.
-#[must_use]
-pub fn holds_amount(inv: &Invoice) -> bool {
-    match inv.status {
-        Status::Pending | Status::Detected => true,
-        Status::Confirmed => inv.delivery != Delivery::Delivered,
-        Status::Expired => false,
-    }
-}
-
-/// How far above the requested amount a quote may go to find a free amount.
-/// Bounded, so a flood of open invoices cannot push quotes without limit.
-pub const MAX_AMOUNT_OFFSET: u64 = 1_000;
 
 /// The claim key for one transaction output.
 #[must_use]
@@ -174,44 +158,62 @@ impl Store {
         Ok(())
     }
 
-    /// Adds an invoice and commits. Returns the amount it is quoted at.
+    /// A pool address no invoice has ever been given.
     ///
-    /// A payment carries no memo on chain, so the exact amount is the only thing
-    /// that ties it to an invoice. Two invoices holding one amount would make a
-    /// payment ambiguous, so when the requested amount is held, the invoice is
-    /// quoted the next free base unit above it (at most [`MAX_AMOUNT_OFFSET`]
-    /// above). The shop shows the quoted amount to the customer.
+    /// A transaction carries no memo, so the deposit address is what binds a
+    /// payment to one invoice. Addresses are never reused, not even after an
+    /// invoice expires: a late payment then still names the invoice it was for.
     ///
     /// # Errors
     ///
-    /// [`CheckoutError::Conflict`] when no free amount is left within the bound,
-    /// [`CheckoutError::Store`] if the commit fails (the invoice is then not kept
-    /// in memory either).
-    pub fn insert(&mut self, mut invoice: Invoice) -> Result<U256> {
-        let requested = invoice.requested_amount;
-        let mut quoted = None;
-        for offset in 0..=MAX_AMOUNT_OFFSET {
-            let candidate = requested.saturating_add(U256::from(offset));
-            let taken = self.ledger.invoices.iter().any(|open| {
-                holds_amount(open)
-                    && open.recipient == invoice.recipient
-                    && open.amount == candidate
-            });
-            if !taken {
-                quoted = Some(candidate);
-                break;
-            }
+    /// [`CheckoutError::Conflict`] when every pool address has been used: the
+    /// merchant must load more.
+    pub fn free_address(&self) -> Result<[u8; 32]> {
+        let used: BTreeSet<String> = self
+            .ledger
+            .invoices
+            .iter()
+            .map(|inv| hex::encode(inv.recipient))
+            .collect();
+        let free = self
+            .ledger
+            .addresses
+            .iter()
+            .find(|a| !used.contains(*a))
+            .ok_or_else(|| {
+                CheckoutError::Conflict("no unused deposit address left; load more".into())
+            })?;
+        hex::decode(free)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| CheckoutError::Store("pool address is not 32 bytes of hex".into()))
+    }
+
+    /// Adds an invoice and commits.
+    ///
+    /// # Errors
+    ///
+    /// [`CheckoutError::Conflict`] when its address is not an unused pool
+    /// address, [`CheckoutError::Store`] if the commit fails (the invoice is
+    /// then not kept in memory either).
+    pub fn insert(&mut self, invoice: Invoice) -> Result<()> {
+        let address = hex::encode(invoice.recipient);
+        let shared = self
+            .ledger
+            .invoices
+            .iter()
+            .any(|inv| inv.recipient == invoice.recipient);
+        if shared || !self.ledger.addresses.contains(&address) {
+            return Err(CheckoutError::Conflict(
+                "the deposit address is not an unused pool address".into(),
+            ));
         }
-        let quoted = quoted.ok_or_else(|| {
-            CheckoutError::Conflict("too many open invoices at this amount; try again later".into())
-        })?;
-        invoice.amount = quoted;
         self.ledger.invoices.push(invoice);
         if let Err(e) = self.commit() {
             self.ledger.invoices.pop();
             return Err(e);
         }
-        Ok(quoted)
+        Ok(())
     }
 
     /// The invoice with this id.
@@ -280,7 +282,7 @@ fn sync_parent(path: &Path) -> Result<()> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::invoice::{Delivery, NewInvoice};
+    use crate::invoice::{NewInvoice, Status};
     use primitive_types::U256;
 
     fn temp_path(name: &str) -> PathBuf {
@@ -289,14 +291,24 @@ mod tests {
         dir.join(name)
     }
 
-    fn invoice(id: &str, amount: u64) -> Invoice {
+    fn invoice(id: &str, recipient: [u8; 32]) -> Invoice {
         let req = NewInvoice {
-            amount: U256::from(amount),
+            amount: U256::from(500u64),
             memo: "o".into(),
             expires_in_blocks: 10,
             webhook_url: "https://shop.example/hook".into(),
         };
-        Invoice::open(id.into(), [1; 32], &req, 0).unwrap()
+        Invoice::open(id.into(), recipient, &req, 0).unwrap()
+    }
+
+    fn pooled(name: &str, pool: &[[u8; 32]]) -> Store {
+        let path = temp_path(name);
+        let _ = std::fs::remove_file(&path);
+        let mut store = Store::open(&path).unwrap();
+        for a in pool {
+            store.ledger_mut().addresses.insert(hex::encode(a));
+        }
+        store
     }
 
     #[test]
@@ -324,54 +336,41 @@ mod tests {
     }
 
     #[test]
-    fn second_open_invoice_with_same_amount_is_quoted_a_unit_higher() {
-        // N4: no 409. The second invoice is quoted the next free base unit.
-        let path = temp_path("clash.json");
-        let _ = std::fs::remove_file(&path);
-        let mut store = Store::open(&path).unwrap();
-        assert_eq!(store.insert(invoice("a", 500)).unwrap(), U256::from(500u64));
-        assert_eq!(store.insert(invoice("b", 500)).unwrap(), U256::from(501u64));
-        assert_eq!(store.insert(invoice("c", 500)).unwrap(), U256::from(502u64));
-        assert_eq!(store.find("b").unwrap().amount, U256::from(501u64));
-        assert_eq!(
-            store.find("b").unwrap().requested_amount,
-            U256::from(500u64)
-        );
+    fn each_invoice_takes_a_fresh_pool_address() {
+        let mut store = pooled("fresh.json", &[[1; 32], [2; 32]]);
+        let first = store.free_address().unwrap();
+        store.insert(invoice("a", first)).unwrap();
+        let second = store.free_address().unwrap();
+        assert_ne!(first, second);
+        store.insert(invoice("b", second)).unwrap();
+        assert!(matches!(
+            store.free_address(),
+            Err(CheckoutError::Conflict(_))
+        ));
     }
 
     #[test]
-    fn a_detected_invoice_still_holds_its_amount() {
-        let path = temp_path("detected-clash.json");
-        let _ = std::fs::remove_file(&path);
-        let mut store = Store::open(&path).unwrap();
-        store.insert(invoice("a", 500)).unwrap();
-        store.ledger_mut().invoices[0].status = Status::Detected;
-        assert_eq!(store.insert(invoice("b", 500)).unwrap(), U256::from(501u64));
+    fn an_address_is_never_given_to_a_second_invoice() {
+        let mut store = pooled("shared.json", &[[1; 32], [2; 32]]);
+        store.insert(invoice("a", [1; 32])).unwrap();
+        // Not even once the first invoice is over: a late payment to it must
+        // still name invoice `a`.
+        store.ledger_mut().invoices[0].status = Status::Expired;
+        assert!(matches!(
+            store.insert(invoice("b", [1; 32])),
+            Err(CheckoutError::Conflict(_))
+        ));
+        assert_eq!(store.free_address().unwrap(), [2; 32]);
     }
 
     #[test]
-    fn a_confirmed_invoice_that_can_still_revert_holds_its_amount() {
-        // A reorg can revert an undelivered confirmed invoice to pending, so its
-        // amount must stay reserved, or two pending invoices could share it.
-        let path = temp_path("confirmed-holds.json");
-        let _ = std::fs::remove_file(&path);
-        let mut store = Store::open(&path).unwrap();
-        store.insert(invoice("a", 500)).unwrap();
-        store.ledger_mut().invoices[0].status = Status::Confirmed;
-        store.ledger_mut().invoices[0].delivery = Delivery::Due;
-        assert_eq!(store.insert(invoice("b", 500)).unwrap(), U256::from(501u64));
-    }
-
-    #[test]
-    fn a_delivered_invoice_releases_its_amount() {
-        // Delivered invoices never revert, so their amount is free again.
-        let path = temp_path("delivered-free.json");
-        let _ = std::fs::remove_file(&path);
-        let mut store = Store::open(&path).unwrap();
-        store.insert(invoice("a", 500)).unwrap();
-        store.ledger_mut().invoices[0].status = Status::Confirmed;
-        store.ledger_mut().invoices[0].delivery = Delivery::Delivered;
-        assert_eq!(store.insert(invoice("b", 500)).unwrap(), U256::from(500u64));
+    fn an_address_outside_the_pool_is_refused() {
+        let mut store = pooled("outside.json", &[[1; 32]]);
+        assert!(matches!(
+            store.insert(invoice("a", [3; 32])),
+            Err(CheckoutError::Conflict(_))
+        ));
+        assert!(store.ledger().invoices.is_empty());
     }
 
     #[test]

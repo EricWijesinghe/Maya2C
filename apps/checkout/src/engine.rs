@@ -83,19 +83,18 @@ fn scan_position(store: &Store) -> Result<u64> {
         .ok_or_else(|| CheckoutError::Internal("scan position not set at startup".into()))
 }
 
-/// Examines every block up to the node's tip, then confirms and expires.
-/// Returns the tip height.
+/// Examines every block up to the node's tip, then confirms what DAG-BFT has
+/// finalized and expires. Returns the tip height.
 ///
 /// # Errors
 ///
 /// [`CheckoutError::Chain`] when the node cannot answer, or returns blocks out
-/// of sequence. Progress made before the error is already committed.
-pub async fn scan(
-    store: &Mutex<Store>,
-    chain: &dyn ChainSource,
-    confirmations: u64,
-    now_unix: u64,
-) -> Result<u64> {
+/// of sequence. Progress made before the error is already committed. A failed
+/// checkpoint read still lets the scan run, confirms nothing, and is returned.
+pub async fn scan(store: &Mutex<Store>, chain: &dyn ChainSource, now_unix: u64) -> Result<u64> {
+    // Read before the tip, so the checkpoint is never above the scanned blocks
+    // except for a reorg; then it cannot be matched and confirms nothing.
+    let finalized = chain.finalized().await;
     let tip = chain.tip().await?;
     let mut verified = false;
     loop {
@@ -124,9 +123,14 @@ pub async fn scan(
     let mut guard = store.lock().await;
     let scanned = scan_position(&guard)?;
     let ledger = guard.ledger_mut();
-    confirm(ledger, tip.height, confirmations, now_unix);
+    confirm(
+        ledger,
+        finalized.as_ref().ok().and_then(Option::as_ref),
+        now_unix,
+    );
     expire(ledger, scanned);
     guard.commit()?;
+    finalized?;
     Ok(tip.height)
 }
 
@@ -390,12 +394,11 @@ pub async fn run_once(
     chain: &dyn ChainSource,
     sender: &dyn WebhookSender,
     secret: &[u8],
-    confirmations: u64,
     now_unix: u64,
 ) -> Result<()> {
     // A failing node must not stop webhooks that are already due: deliver
     // first, then report the scan error.
-    let scanned = scan(store, chain, confirmations, now_unix).await;
+    let scanned = scan(store, chain, now_unix).await;
     deliver(store, sender, secret, now_unix).await?;
     scanned.map(|_| ())
 }

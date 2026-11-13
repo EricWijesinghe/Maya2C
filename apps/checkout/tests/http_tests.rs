@@ -1,5 +1,5 @@
 //! The HTTP API: authentication, input refusal, the SSRF gate at creation,
-//! the amount clash rule, and what a public view must not reveal.
+//! the per-invoice deposit address, and what a public view must not reveal.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use maya_address::Network;
-use maya_checkout::chain::{BlockOutputs, ChainSource, Tip};
+use maya_checkout::chain::{BlockOutputs, ChainSource, Finalized, Tip};
 use maya_checkout::http::{AppState, ReadLimiter, router};
 use maya_checkout::invoice::{Delivery, UnmatchedPayment, UnmatchedReason};
 use maya_checkout::store::Store;
@@ -42,6 +42,9 @@ impl ChainSource for FakeChain {
     async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
         Ok(vec![])
     }
+    async fn finalized(&self) -> Result<Option<Finalized>> {
+        Ok(None)
+    }
 }
 
 fn app(name: &str, fail_chain: bool) -> Router {
@@ -50,7 +53,8 @@ fn app(name: &str, fail_chain: bool) -> Router {
         std::process::id()
     ));
     let _ = std::fs::remove_file(&path);
-    let store = Store::open(&path).unwrap();
+    let mut store = Store::open(&path).unwrap();
+    seed_pool(&mut store, POOL);
     with_chain(
         Arc::new(Mutex::new(store)),
         Arc::new(FakeChain { fail: fail_chain }),
@@ -62,7 +66,6 @@ fn with_chain(store: Arc<Mutex<Store>>, chain: Arc<dyn ChainSource>) -> Router {
         store,
         chain,
         network: Network::Testnet,
-        pay_to: [9; 32],
         api_token: Zeroizing::new(TOKEN.as_bytes().to_vec()),
         reads: ReadLimiter::default(),
     }))
@@ -74,7 +77,18 @@ fn fresh_store(name: &str) -> Arc<Mutex<Store>> {
         std::process::id()
     ));
     let _ = std::fs::remove_file(&path);
-    Arc::new(Mutex::new(Store::open(&path).unwrap()))
+    let mut store = Store::open(&path).unwrap();
+    seed_pool(&mut store, POOL);
+    Arc::new(Mutex::new(store))
+}
+
+/// Deposit addresses the merchant derived in a wallet and handed over.
+const POOL: u8 = 8;
+
+fn seed_pool(store: &mut Store, count: u8) {
+    for n in 1..=count {
+        store.ledger_mut().addresses.insert(hex::encode([n; 32]));
+    }
 }
 
 /// A node that answers the tip only once the test releases it.
@@ -93,6 +107,9 @@ impl ChainSource for GatedChain {
     }
     async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
         Ok(vec![])
+    }
+    async fn finalized(&self) -> Result<Option<Finalized>> {
+        Ok(None)
     }
 }
 
@@ -234,28 +251,52 @@ async fn a_webhook_to_a_private_or_plain_address_is_refused_at_creation() {
 }
 
 #[tokio::test]
-async fn a_second_open_invoice_for_the_same_amount_is_quoted_a_unit_higher() {
-    // N4: no 409 that a stranger's open invoice could trigger. The second invoice
-    // quotes the next free base unit, and the response says both amounts.
-    let app = app("clash", false);
+async fn each_invoice_gets_its_own_deposit_address_and_the_exact_amount() {
+    // CRITICAL finding: the binding is the address, never the amount. Two
+    // invoices for one amount get two addresses and both quote that amount.
+    let app = app("distinct", false);
     let body = invoice_body("777", PUBLIC_HOOK);
-    assert_eq!(
-        call(
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        let (status, bytes) = call(
             &app,
             "POST",
             "/v1/invoices",
             Some(TOKEN),
-            Some(body.clone())
+            Some(body.clone()),
         )
-        .await
-        .0,
-        StatusCode::CREATED
-    );
-    let (status, bytes) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body)).await;
-    assert_eq!(status, StatusCode::CREATED);
-    let view: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(view["amount"], "778");
-    assert_eq!(view["requested_amount"], "777");
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let view: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(view["amount"], "777");
+        seen.push(view["address"].as_str().unwrap().to_owned());
+    }
+    assert_ne!(seen[0], seen[1], "two invoices shared a deposit address");
+}
+
+#[tokio::test]
+async fn an_exhausted_address_pool_refuses_new_invoices_rather_than_reuse() {
+    let store = fresh_store("exhausted");
+    let app = with_chain(Arc::clone(&store), Arc::new(FakeChain { fail: false }));
+    let body = invoice_body("10", PUBLIC_HOOK);
+    for _ in 0..POOL {
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/invoices",
+            Some(TOKEN),
+            Some(body.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    // Expire them all: an expired invoice's address is still never handed out
+    // again, so a late payment to it stays attributable to that invoice.
+    for inv in &mut store.lock().await.ledger_mut().invoices {
+        inv.status = maya_checkout::invoice::Status::Expired;
+    }
+    let (status, _) = call(&app, "POST", "/v1/invoices", Some(TOKEN), Some(body)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
 }
 
 #[tokio::test]
@@ -297,7 +338,8 @@ async fn unmatched_payments_are_paged_and_the_page_size_is_capped() {
                 block_id: format!("b{n}"),
                 recipient: [9; 32],
                 amount: U256::from(n + 1),
-                reason: UnmatchedReason::NoExactInvoice,
+                reason: UnmatchedReason::Underpaid,
+                invoice_id: None,
             });
         }
     }
@@ -483,7 +525,8 @@ async fn unmatched_payments_are_listed_for_the_merchant_only() {
             block_id: "b7".into(),
             recipient: [9; 32],
             amount: U256::from(999u64),
-            reason: UnmatchedReason::NoExactInvoice,
+            reason: UnmatchedReason::Underpaid,
+            invoice_id: Some("inv-7".into()),
         });
     let app = with_chain(store, Arc::new(FakeChain { fail: false }));
 
@@ -494,7 +537,8 @@ async fn unmatched_payments_are_listed_for_the_merchant_only() {
     let page: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(page["items"][0]["txid"], "ab");
     assert_eq!(page["items"][0]["amount"], "999");
-    assert_eq!(page["items"][0]["reason"], "no_exact_invoice");
+    assert_eq!(page["items"][0]["reason"], "underpaid");
+    assert_eq!(page["items"][0]["invoice_id"], "inv-7");
 }
 
 #[test]

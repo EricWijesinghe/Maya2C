@@ -38,10 +38,8 @@ pub struct AppState {
     pub store: Arc<Mutex<Store>>,
     /// Node access, used to fix an invoice's creation height.
     pub chain: Arc<dyn ChainSource>,
-    /// Network the merchant address belongs to.
+    /// Network the merchant addresses belong to.
     pub network: Network,
-    /// Merchant receiving address, 32 bytes.
-    pub pay_to: [u8; 32],
     /// Bearer token for invoice creation.
     pub api_token: Zeroizing<Vec<u8>>,
     /// Budget for the public, unauthenticated reads.
@@ -156,12 +154,12 @@ async fn create(
     let id = invoice::new_id()?;
     // The tip is read before the lock, never while holding it: a hung node must
     // not freeze every other request. A block that lands between this read and
-    // the insert can hold an exact-amount payment the scanner records as
-    // unmatched. That fails safe: the merchant reviews it, nothing settles wrongly.
+    // the insert can hold a payment to the new address the scanner records as
+    // early. That fails safe: the merchant reviews it, nothing settles wrongly.
     let tip = state.chain.tip().await?;
-    let inv = Invoice::open(id.clone(), state.pay_to, &req, tip.height)?;
     let mut store = state.store.lock().await;
-    // The store quotes the amount: the requested one, or a free one just above it.
+    // A deposit address no invoice ever had: it is what binds a payment here.
+    let inv = Invoice::open(id.clone(), store.free_address()?, &req, tip.height)?;
     store.insert(inv)?;
     let stored = store
         .find(&id)
@@ -237,6 +235,7 @@ async fn unmatched(
             "recipient": hex::encode(u.recipient),
             "amount": u.amount.to_string(),
             "reason": u.reason,
+            "invoice_id": u.invoice_id,
         })
     });
     Ok(Json(page(rows, all.len(), &query)))
@@ -334,7 +333,7 @@ fn render(state: &AppState, inv: &Invoice) -> Value {
         "id": inv.id,
         "status": inv.status,
         "amount": inv.amount.to_string(),
-        "requested_amount": inv.requested_amount.to_string(),
+        "address": maya_address::encode(state.network, &inv.recipient),
         "reorged": inv.reorged,
         "memo": inv.memo,
         "created_height": inv.created_height,

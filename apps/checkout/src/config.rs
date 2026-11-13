@@ -10,13 +10,10 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use crate::error::{CheckoutError, Result};
-use crate::store::RETAIN_BLOCKS;
 use crate::webhook::MIN_SECRET_BYTES;
 
 /// Default listen address: loopback only. Put a TLS proxy in front to expose it.
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:8787";
-/// Default confirmation depth before a payment is reported. Shops may raise it.
-pub const DEFAULT_CONFIRMATIONS: u64 = 6;
 /// Default pause between scan cycles, in seconds.
 pub const DEFAULT_POLL_SECS: u64 = 5;
 
@@ -26,16 +23,15 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Node JSON-RPC endpoint.
     pub rpc_url: String,
-    /// Merchant receiving address, Bech32m text (ADR-081).
-    pub pay_to: String,
+    /// File of the merchant's deposit addresses, one Bech32m address (ADR-081)
+    /// per line. Public addresses only: the keys stay in the merchant's wallet.
+    pub addresses_file: PathBuf,
     /// Path of the ledger file.
     pub store_path: PathBuf,
     /// Bearer token that authorises invoice creation.
     pub api_token: Zeroizing<Vec<u8>>,
     /// HMAC key for webhooks.
     pub webhook_secret: Zeroizing<Vec<u8>>,
-    /// Blocks on top of a payment before it counts.
-    pub confirmations: u64,
     /// Seconds between scan cycles.
     pub poll_secs: u64,
 }
@@ -45,7 +41,7 @@ impl std::fmt::Debug for Config {
         f.debug_struct("Config")
             .field("listen", &self.listen)
             .field("rpc_url", &redact_url(&self.rpc_url))
-            .field("pay_to", &self.pay_to)
+            .field("addresses_file", &self.addresses_file)
             .field("store_path", &self.store_path)
             .field(
                 "api_token",
@@ -55,7 +51,6 @@ impl std::fmt::Debug for Config {
                 "webhook_secret",
                 &format_args!("<{} bytes, redacted>", self.webhook_secret.len()),
             )
-            .field("confirmations", &self.confirmations)
             .field("poll_secs", &self.poll_secs)
             .finish()
     }
@@ -95,17 +90,12 @@ impl Config {
         let listen = listen
             .parse()
             .map_err(|_| CheckoutError::Config("MAYA_CHECKOUT_LISTEN is not host:port".into()))?;
-        let confirmations = number(&get, "MAYA_CHECKOUT_CONFIRMATIONS", DEFAULT_CONFIRMATIONS)?;
-        if confirmations == 0 {
+        // Payments confirm at DAG-BFT finality, not at a depth: a depth setting
+        // left over from an older configuration is refused, not ignored.
+        if get("MAYA_CHECKOUT_CONFIRMATIONS").is_some() {
             return Err(CheckoutError::Config(
-                "MAYA_CHECKOUT_CONFIRMATIONS must be at least 1".into(),
+                "MAYA_CHECKOUT_CONFIRMATIONS is gone: payments confirm at finality".into(),
             ));
-        }
-        // A depth beyond the retained block ids could never be checked for reorgs.
-        if confirmations > RETAIN_BLOCKS {
-            return Err(CheckoutError::Config(format!(
-                "MAYA_CHECKOUT_CONFIRMATIONS must be at most {RETAIN_BLOCKS}"
-            )));
         }
         // A relative default would open an empty ledger from whatever directory the
         // service was started in, and forget every pending invoice.
@@ -118,14 +108,46 @@ impl Config {
         Ok(Self {
             listen,
             rpc_url: required("MAYA_CHECKOUT_RPC")?,
-            pay_to: required("MAYA_CHECKOUT_PAY_TO")?,
+            addresses_file: PathBuf::from(required("MAYA_CHECKOUT_ADDRESSES")?),
             store_path,
             api_token,
             webhook_secret,
-            confirmations,
             poll_secs: number(&get, "MAYA_CHECKOUT_POLL_SECS", DEFAULT_POLL_SECS)?,
         })
     }
+}
+
+/// Parses the deposit address file: one Bech32m address per line; blank lines
+/// and lines starting with `#` are skipped. Every address must be for
+/// `network`, and the file must name at least one.
+///
+/// # Errors
+///
+/// [`CheckoutError::Config`] naming the first bad line.
+pub fn parse_addresses(text: &str, network: maya_address::Network) -> Result<Vec<[u8; 32]>> {
+    let mut out = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (net, bytes) = maya_address::decode_any(line).map_err(|e| {
+            CheckoutError::Config(format!("MAYA_CHECKOUT_ADDRESSES line {}: {e}", n + 1))
+        })?;
+        if net != network {
+            return Err(CheckoutError::Config(format!(
+                "MAYA_CHECKOUT_ADDRESSES line {} is for a different network than the node",
+                n + 1
+            )));
+        }
+        out.push(bytes);
+    }
+    if out.is_empty() {
+        return Err(CheckoutError::Config(
+            "MAYA_CHECKOUT_ADDRESSES names no address".into(),
+        ));
+    }
+    Ok(out)
 }
 
 /// A secret of at least [`MIN_SECRET_BYTES`], held zeroized.
@@ -187,7 +209,7 @@ mod tests {
     fn base() -> Vec<(&'static str, &'static str)> {
         vec![
             ("MAYA_CHECKOUT_RPC", "http://127.0.0.1:9944"),
-            ("MAYA_CHECKOUT_PAY_TO", "tmaya1example"),
+            ("MAYA_CHECKOUT_ADDRESSES", "addresses.txt"),
             ("MAYA_CHECKOUT_API_TOKEN", TOKEN),
             ("MAYA_CHECKOUT_WEBHOOK_SECRET", SECRET),
             ("MAYA_CHECKOUT_STORE", STORE),
@@ -224,8 +246,30 @@ mod tests {
     #[test]
     fn loads_with_defaults() {
         let cfg = Config::from_lookup(lookup(&base())).unwrap();
-        assert_eq!(cfg.confirmations, DEFAULT_CONFIRMATIONS);
         assert_eq!(cfg.listen.to_string(), DEFAULT_LISTEN);
+    }
+
+    #[test]
+    fn a_confirmation_depth_setting_is_refused() {
+        let mut pairs = base();
+        pairs.push(("MAYA_CHECKOUT_CONFIRMATIONS", "6"));
+        assert!(Config::from_lookup(lookup(&pairs)).is_err());
+    }
+
+    #[test]
+    fn the_address_file_needs_valid_addresses_for_the_node_network() {
+        use maya_address::Network;
+        let a = maya_address::encode(Network::Testnet, &[1; 32]);
+        let b = maya_address::encode(Network::Testnet, &[2; 32]);
+        let text = format!("# pool\n{a}\n\n  {b}  \n");
+        assert_eq!(
+            parse_addresses(&text, Network::Testnet).unwrap(),
+            vec![[1; 32], [2; 32]]
+        );
+        assert!(parse_addresses("# none\n", Network::Testnet).is_err());
+        assert!(parse_addresses("not-an-address", Network::Testnet).is_err());
+        let main = maya_address::encode(Network::Mainnet, &[1; 32]);
+        assert!(parse_addresses(&main, Network::Testnet).is_err());
     }
 
     #[test]

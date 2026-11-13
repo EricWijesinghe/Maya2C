@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 
 use async_trait::async_trait;
-use maya_checkout::chain::{BlockOutputs, ChainSource, Output, Tip, TxOutputs};
+use maya_checkout::chain::{BlockOutputs, ChainSource, Finalized, Output, Tip, TxOutputs};
 use maya_checkout::engine::{WebhookSender, deliver, run_once, scan};
 use maya_checkout::invoice::{Delivery, Invoice, NewInvoice, Status};
 use maya_checkout::ssrf::Target;
@@ -28,6 +28,16 @@ const PUBLIC_HOOK: &str = "https://93.184.216.34/hook";
 struct FakeChain {
     height: u64,
     blocks: Vec<BlockOutputs>,
+    /// Height of the newest checkpoint the node serves; `None` for none.
+    finalized: Option<u64>,
+}
+
+impl FakeChain {
+    /// The same chain, with its newest checkpoint at `height` (or none).
+    fn final_at(mut self, height: Option<u64>) -> Self {
+        self.finalized = height;
+        self
+    }
 }
 
 #[async_trait]
@@ -45,6 +55,17 @@ impl ChainSource for FakeChain {
             .filter(|b| b.height >= from && b.height < from + count)
             .cloned()
             .collect())
+    }
+    async fn finalized(&self) -> Result<Option<Finalized>> {
+        Ok(self.finalized.and_then(|h| {
+            self.blocks
+                .iter()
+                .find(|b| b.height == h)
+                .map(|b| Finalized {
+                    height: h,
+                    block_id: b.id.clone(),
+                })
+        }))
     }
 }
 
@@ -110,9 +131,11 @@ fn branch(tip: u64, fork_at: u64, tag: &str, payment: Option<(u64, u64)>) -> Fak
             }
         })
         .collect();
+    // Fully final unless a test says otherwise.
     FakeChain {
         height: tip,
         blocks,
+        finalized: Some(tip),
     }
 }
 
@@ -131,6 +154,9 @@ impl ChainSource for DownChain {
     async fn blocks(&self, _from: u64, _count: u64) -> Result<Vec<BlockOutputs>> {
         Err(CheckoutError::Chain("node down".into()))
     }
+    async fn finalized(&self) -> Result<Option<Finalized>> {
+        Err(CheckoutError::Chain("node down".into()))
+    }
 }
 
 fn open_invoice(store: &mut Store, id: &str, amount: u64, tip_at_creation: u64) {
@@ -140,6 +166,7 @@ fn open_invoice(store: &mut Store, id: &str, amount: u64, tip_at_creation: u64) 
         expires_in_blocks: 100,
         webhook_url: PUBLIC_HOOK.into(),
     };
+    store.ledger_mut().addresses.insert(hex::encode(MERCHANT));
     let inv = Invoice::open(id.into(), MERCHANT, &req, tip_at_creation).unwrap();
     store.insert(inv).unwrap();
 }
@@ -157,7 +184,7 @@ async fn payment_is_detected_confirmed_and_delivered_with_a_verifiable_signature
         ..Default::default()
     };
 
-    run_once(&store, &chain, &sender, SECRET, 3, NOW)
+    run_once(&store, &chain, &sender, SECRET, NOW)
         .await
         .unwrap();
 
@@ -194,20 +221,20 @@ async fn payment_is_detected_confirmed_and_delivered_with_a_verifiable_signature
 }
 
 #[tokio::test]
-async fn a_payment_below_the_confirmation_depth_is_not_delivered_yet() {
+async fn a_payment_not_yet_finalized_is_not_delivered() {
     let path = temp_ledger("depth.json");
     let mut store = Store::open(&path).unwrap();
     store.ledger_mut().scanned_to = Some(0);
     open_invoice(&mut store, "inv1", 500, 0);
     let store = Mutex::new(store);
-    // Payment in block 5, tip 6, depth 3: needs tip >= 7.
-    let chain = chain_with_payment(6, 5, 500);
+    // Payment in block 5, newest checkpoint at 4: in a block, not final.
+    let chain = chain_with_payment(6, 5, 500).final_at(Some(4));
     let sender = RecordingSender {
         status: 200,
         ..Default::default()
     };
 
-    run_once(&store, &chain, &sender, SECRET, 3, NOW)
+    run_once(&store, &chain, &sender, SECRET, NOW)
         .await
         .unwrap();
 
@@ -231,7 +258,7 @@ async fn a_failing_shop_is_retried_on_the_backoff_schedule_then_marked_failed() 
         ..Default::default()
     };
 
-    run_once(&store, &chain, &sender, SECRET, 1, NOW)
+    run_once(&store, &chain, &sender, SECRET, NOW)
         .await
         .unwrap();
     {
@@ -272,7 +299,7 @@ async fn each_delivery_gets_a_fresh_nonce_so_a_replay_is_detectable() {
         status: 500,
         ..Default::default()
     };
-    run_once(&store, &chain, &sender, SECRET, 1, NOW)
+    run_once(&store, &chain, &sender, SECRET, NOW)
         .await
         .unwrap();
     deliver(&store, &sender, SECRET, NOW + 2 * backoff_secs(1))
@@ -304,7 +331,7 @@ async fn a_block_out_of_sequence_changes_nothing() {
     let store = Mutex::new(store);
     let mut chain = chain_with_payment(4, 2, 500);
     chain.blocks[1].height = 9; // node skips height 2 and says it is 9
-    let result = scan(&store, &chain, 1, NOW).await;
+    let result = scan(&store, &chain, NOW).await;
     assert!(matches!(result, Err(CheckoutError::Chain(_))));
     let guard = store.lock().await;
     assert_eq!(guard.ledger().scanned_to, Some(0));
@@ -319,7 +346,7 @@ async fn the_scan_position_survives_a_restart() {
     open_invoice(&mut store, "inv1", 500, 0);
     let store_mutex = Mutex::new(store);
     let chain = chain_with_payment(8, 3, 500);
-    scan(&store_mutex, &chain, 1, NOW).await.unwrap();
+    scan(&store_mutex, &chain, NOW).await.unwrap();
     drop(store_mutex);
 
     let reopened = Store::open(&path).unwrap();
@@ -351,7 +378,7 @@ async fn a_private_webhook_destination_is_never_contacted() {
         status: 200,
         ..Default::default()
     };
-    run_once(&store, &chain, &sender, SECRET, 1, NOW)
+    run_once(&store, &chain, &sender, SECRET, NOW)
         .await
         .unwrap();
     assert!(
@@ -371,10 +398,14 @@ async fn a_reorged_payment_is_unsettled_and_never_confirmed() {
     open_invoice(&mut store, "inv1", 500, 0);
     let store = Mutex::new(store);
 
-    // Confirmation depth 10: a payment at 5 with tip 12 is detected, not final.
-    scan(&store, &branch(12, u64::MAX, "a", Some((5, 500))), 10, NOW)
-        .await
-        .unwrap();
+    // Checkpoint at 3: a payment at 5 is detected, not final.
+    scan(
+        &store,
+        &branch(12, u64::MAX, "a", Some((5, 500))).final_at(Some(3)),
+        NOW,
+    )
+    .await
+    .unwrap();
     {
         let guard = store.lock().await;
         let inv = guard.find("inv1").unwrap();
@@ -382,7 +413,7 @@ async fn a_reorged_payment_is_unsettled_and_never_confirmed() {
         assert_eq!(inv.payment.as_ref().unwrap().block_id, "a5");
     }
 
-    scan(&store, &branch(14, 4, "b", None), 10, NOW)
+    scan(&store, &branch(14, 4, "b", None).final_at(Some(3)), NOW)
         .await
         .unwrap();
 
@@ -409,12 +440,20 @@ async fn a_payment_on_the_replacement_branch_is_detected_from_that_branch() {
     open_invoice(&mut store, "inv1", 500, 0);
     let store = Mutex::new(store);
 
-    scan(&store, &branch(12, u64::MAX, "a", Some((5, 500))), 10, NOW)
-        .await
-        .unwrap();
-    scan(&store, &branch(14, 4, "b", Some((6, 500))), 10, NOW)
-        .await
-        .unwrap();
+    scan(
+        &store,
+        &branch(12, u64::MAX, "a", Some((5, 500))).final_at(Some(3)),
+        NOW,
+    )
+    .await
+    .unwrap();
+    scan(
+        &store,
+        &branch(14, 4, "b", Some((6, 500))).final_at(Some(3)),
+        NOW,
+    )
+    .await
+    .unwrap();
 
     let guard = store.lock().await;
     let inv = guard.find("inv1").unwrap();
@@ -441,7 +480,6 @@ async fn a_failed_scan_does_not_stop_webhook_delivery() {
         &chain_with_payment(10, 2, 500),
         &down_shop,
         SECRET,
-        1,
         NOW,
     )
     .await
@@ -454,7 +492,7 @@ async fn a_failed_scan_does_not_stop_webhook_delivery() {
         status: 200,
         ..Default::default()
     };
-    let result = run_once(&store, &DownChain, &back_up, SECRET, 1, retry_at).await;
+    let result = run_once(&store, &DownChain, &back_up, SECRET, retry_at).await;
 
     assert!(
         matches!(result, Err(CheckoutError::Chain(_))),
@@ -478,8 +516,8 @@ async fn a_same_height_competing_branch_does_not_confirm() {
     open_invoice(&mut store, "inv1", 500, 0);
     let store = Mutex::new(store);
 
-    // Confirmation depth 6: the payment at 5 is final at tip 10.
-    scan(&store, &branch(10, u64::MAX, "a", Some((5, 500))), 6, NOW)
+    // Checkpoint at 10: the payment at 5 is final.
+    scan(&store, &branch(10, u64::MAX, "a", Some((5, 500))), NOW)
         .await
         .unwrap();
     assert_eq!(
@@ -488,7 +526,7 @@ async fn a_same_height_competing_branch_does_not_confirm() {
     );
 
     // Same tip height, different branch from height 5: the payment is gone.
-    scan(&store, &branch(10, 5, "b", None), 6, NOW)
+    scan(&store, &branch(10, 5, "b", None).final_at(Some(4)), NOW)
         .await
         .unwrap();
 
@@ -525,7 +563,6 @@ async fn a_reorg_after_delivery_flags_the_invoice_for_the_merchant() {
         &chain_with_payment(10, 5, 500),
         &sender,
         SECRET,
-        6,
         NOW,
     )
     .await
@@ -535,7 +572,7 @@ async fn a_reorg_after_delivery_flags_the_invoice_for_the_merchant() {
         Delivery::Delivered
     );
 
-    scan(&store, &branch(10, 5, "b", None), 6, NOW)
+    scan(&store, &branch(10, 5, "b", None).final_at(Some(4)), NOW)
         .await
         .unwrap();
 
@@ -576,7 +613,7 @@ async fn a_delivery_recorded_after_its_invoice_was_reverted_is_not_marked_delive
     store.ledger_mut().scanned_to = Some(0);
     open_invoice(&mut store, "inv1", 500, 0);
     let store = Arc::new(Mutex::new(store));
-    scan(&store, &chain_with_payment(10, 2, 500), 1, NOW)
+    scan(&store, &chain_with_payment(10, 2, 500), NOW)
         .await
         .unwrap();
     assert_eq!(
@@ -603,4 +640,127 @@ async fn a_delivery_recorded_after_its_invoice_was_reverted_is_not_marked_delive
         Delivery::Delivered,
         "a reverted invoice must not look delivered"
     );
+}
+
+/// HIGH finding: a node that serves no checkpoint (no DAG-BFT finality yet)
+/// confirms nothing, however many blocks sit on top of the payment.
+#[tokio::test]
+async fn without_a_checkpoint_nothing_is_confirmed_or_announced() {
+    let path = temp_ledger("no-checkpoint.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+    let sender = RecordingSender {
+        status: 200,
+        ..Default::default()
+    };
+    let chain = chain_with_payment(200, 5, 500).final_at(None);
+    run_once(&store, &chain, &sender, SECRET, NOW)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.lock().await.find("inv1").unwrap().status,
+        Status::Detected
+    );
+    assert!(sender.sent.lock().unwrap().is_empty());
+}
+
+/// HIGH finding: a payment seen in a block that is then reorged out before
+/// finality reverts the invoice to pending, and the settled webhook never fires,
+/// even after the replacement branch is final.
+#[tokio::test]
+async fn a_reorged_unfinalized_payment_never_fires_the_webhook() {
+    let path = temp_ledger("reorg-no-webhook.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+    let sender = RecordingSender {
+        status: 200,
+        ..Default::default()
+    };
+    let seen = branch(12, u64::MAX, "a", Some((5, 500))).final_at(Some(4));
+    run_once(&store, &seen, &sender, SECRET, NOW).await.unwrap();
+    assert_eq!(
+        store.lock().await.find("inv1").unwrap().status,
+        Status::Detected
+    );
+
+    // Branch `b` replaces height 5 up, carries no payment, and is final to 14.
+    let replaced = branch(14, 5, "b", None);
+    run_once(&store, &replaced, &sender, SECRET, NOW)
+        .await
+        .unwrap();
+
+    let guard = store.lock().await;
+    let inv = guard.find("inv1").unwrap();
+    assert_eq!(inv.status, Status::Pending);
+    assert!(inv.payment.is_none());
+    assert!(
+        sender.sent.lock().unwrap().is_empty(),
+        "a payment that never became final was announced"
+    );
+}
+
+/// Webhook replay: a retry carries the same `event_id` (the shop's dedupe key)
+/// but a fresh nonce and signature, and a captured delivery replayed after the
+/// tolerance window is refused as stale.
+#[tokio::test]
+async fn a_replayed_webhook_is_refused_and_a_retry_is_deduplicable() {
+    let path = temp_ledger("replay.json");
+    let mut store = Store::open(&path).unwrap();
+    store.ledger_mut().scanned_to = Some(0);
+    open_invoice(&mut store, "inv1", 500, 0);
+    let store = Mutex::new(store);
+    let sender = RecordingSender {
+        status: 500,
+        ..Default::default()
+    };
+    run_once(
+        &store,
+        &chain_with_payment(10, 2, 500),
+        &sender,
+        SECRET,
+        NOW,
+    )
+    .await
+    .unwrap();
+    let retry_at = NOW + 2 * backoff_secs(1);
+    deliver(&store, &sender, SECRET, retry_at).await.unwrap();
+
+    let sent = sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 2);
+    let header = |i: usize, name: &str| {
+        sent[i]
+            .0
+            .iter()
+            .find(|(k, _)| *k == name)
+            .unwrap()
+            .1
+            .clone()
+    };
+    let event = |i: usize| {
+        serde_json::from_slice::<serde_json::Value>(&sent[i].1).unwrap()["event_id"].clone()
+    };
+    assert_eq!(event(0), event(1), "retries share one event id");
+    assert_ne!(header(0, HEADER_NONCE), header(1, HEADER_NONCE));
+
+    // The first delivery, captured and replayed an hour later.
+    let ts: u64 = header(0, HEADER_TIMESTAMP).parse().unwrap();
+    assert!(
+        verify(
+            SECRET,
+            ts,
+            &header(0, HEADER_NONCE),
+            &sent[0].1,
+            &header(0, HEADER_SIGNATURE),
+            NOW + 3_600
+        )
+        .is_err()
+    );
+    // Replayed inside the window: the nonce cache refuses the second sight.
+    let mut receiver = NonceCache::default();
+    assert!(receiver.accept(&header(0, HEADER_NONCE), ts, NOW).is_ok());
+    assert!(receiver.accept(&header(0, HEADER_NONCE), ts, NOW).is_err());
 }

@@ -55,6 +55,16 @@ pub struct BlockOutputs {
     pub txs: Vec<TxOutputs>,
 }
 
+/// The newest DAG-BFT checkpoint (ADR-038): a quorum-attested block. It and
+/// every block below it on its branch are final.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Finalized {
+    /// Height of the attested block.
+    pub height: u64,
+    /// Hex id of the attested block, in the same form as [`BlockOutputs::id`].
+    pub block_id: String,
+}
+
 /// Anything that can report the tip and hand out blocks. The RPC client is one
 /// implementation; tests use an in-memory chain.
 #[async_trait]
@@ -64,6 +74,8 @@ pub trait ChainSource: Send + Sync {
     /// Up to `count` blocks from `from`. A short answer means the node has no
     /// more blocks yet, which is not an error.
     async fn blocks(&self, from: u64, count: u64) -> Result<Vec<BlockOutputs>>;
+    /// The newest checkpoint, or `None` when the node has none to serve.
+    async fn finalized(&self) -> Result<Option<Finalized>>;
 }
 
 #[derive(Deserialize)]
@@ -89,6 +101,14 @@ struct RawHeader {
 struct RawTx {
     txid: String,
     outputs: Vec<RawOutput>,
+}
+
+/// What `get_checkpoint` returns. The signatures are not checked here: the
+/// service already trusts its node for every block it reads.
+#[derive(Deserialize)]
+struct RawCheckpoint {
+    height: u64,
+    block: String,
 }
 
 #[derive(Deserialize)]
@@ -164,6 +184,18 @@ impl ChainSource for RpcChain {
             .await
             .map_err(|e| transport_err(e, &self.url))?;
         raw.into_iter().map(convert_block).collect()
+    }
+
+    async fn finalized(&self) -> Result<Option<Finalized>> {
+        let raw: Option<RawCheckpoint> = self
+            .client
+            .request("get_checkpoint", rpc_params![])
+            .await
+            .map_err(|e| transport_err(e, &self.url))?;
+        Ok(raw.map(|c| Finalized {
+            height: c.height,
+            block_id: c.block,
+        }))
     }
 }
 

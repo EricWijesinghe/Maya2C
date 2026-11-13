@@ -30,42 +30,55 @@ code. Three choices needed a written decision:
    scheme is invented. The `maya2c-wallet://pay` route named in the brief is
    not defined anywhere in the tree (checked 2026-11-10); when it is, it
    should carry these same fields and this ADR is amended.
-2. **Exact-amount binding, with a durable claim.** (Revised 2026-11-11 after
-   the PR #418 security review, finding C1: the earlier "at least the amount"
-   rule let a payment settle the wrong invoice.)
-   - An output settles an invoice only if it pays the invoice's recipient,
-     exactly the amount due, in a block above the invoice's creation height and
-     no later than its expiry height.
-   - Each live invoice holds its amount: pending and detected invoices, and
-     confirmed ones whose webhook is not yet delivered (a reorg can still revert
-     those to pending). A new invoice is quoted the requested amount, or the
-     next free base unit above it (24 decimals, ADR-068). The shop shows the
-     quoted `amount`, which is the key a payment is matched by. Nothing is
-     refused, so a stranger's open invoice at the shop's price cannot block
-     checkout. A quote can move at most `MAX_AMOUNT_OFFSET` (1,000) base units
-     above the request. This replaces the earlier refusal (409), which let one
-     unpaid invoice block every other customer at that price, and it closes the
-     reorg case where a reverted invoice could share an amount with a newer one.
-   - If more than one pending invoice fits an output, nothing settles. The
-     output is recorded as ambiguous.
-   - Every other payment to the merchant (over, under, late, early, or with no
-     invoice) is recorded as an `unmatched` payment, readable by the merchant
-     at `GET /v1/unmatched`. It never settles. Refunds and manual assignment
-     are the shop's decision.
+2. **A deposit address per invoice, exact amounts, a durable claim.**
+   (Revised 2026-11-13 after the second PR #418 security review, finding C1.
+   The first revision bound payments by a distinct quoted amount per invoice;
+   an amount is not a binding a payer controls, so that was replaced.)
+   - A transaction has no memo field (`crates/node/src/core/transaction.rs`
+     `TxOutput` is recipient and amount), and the node is frozen, so the
+     binding is the address. The wallet derives SLIP-0010 accounts with
+     hardened indices only (`apps/wallet-gui/core/src/hd.rs`), so there is no
+     watch-only key the service could derive addresses from. The merchant
+     derives a pool of accounts in the wallet and gives the service the public
+     addresses (`MAYA_CHECKOUT_ADDRESSES`, one Bech32m address per line). The
+     service holds no key.
+   - Each invoice is given a pool address no invoice has ever had. An address is
+     never given out again, not even after its invoice expires, so a late
+     payment still names its invoice. An exhausted pool refuses new invoices
+     (409) rather than reuse an address.
+   - An output is only ever considered for the invoice that owns its address.
+     It settles that invoice only if the invoice is pending, the amount is
+     exact, and the block is above the creation height and no later than the
+     expiry height. The invoice is quoted exactly the amount the shop asked.
+   - Every other payment to a merchant address is recorded as `unmatched`,
+     with its invoice id and a reason (`underpaid`, `overpaid`, `early`, `late`,
+     `already_settled`, or `unassigned` for a pool address with no invoice),
+     readable at `GET /v1/unmatched`. It never settles and is never applied to
+     another invoice. Refunds are the shop's decision.
    - Each output (`txid:index`) is claimed once, whatever it matched. The claim
      is written in the same commit as the scan position, so a restart cannot
      forget it.
-6. **Settlement waits for depth, and reorgs roll back.** (Finding H1.)
+6. **Settlement waits for DAG-BFT finality, and reorgs roll back.**
+   (Finding H1, revised 2026-11-13: confirmation depth replaced by finality.)
    - The scan records each block's id. A block whose parent id differs from
      the stored id at the height below it means that stored block was reorged
      out. The service rolls back over it: detected payments and unmatched
      records from that height go back to pending, and the scan resumes from
      below it.
-   - A payment is confirmed only when the chain has `confirmations - 1` blocks
-     on top of its block, and its block id still matches the stored id at that
-     height. Otherwise it is reverted.
+   - A payment is confirmed, and its webhook queued, only when its block is at
+     or below the node's newest checkpoint (`get_checkpoint`, ADR-038, the call
+     `apps/sentinel` reads finality with) and the checkpoint's block id equals
+     the id this service scanned at that height, so the checkpoint and the
+     payment are on one branch. The payment's own block id must also still
+     match. No checkpoint, a checkpoint above the scanned blocks or below the
+     retained ids, or a failed read: nothing confirms. The checkpoint is read
+     before the tip each cycle. Its signatures are not checked: the service
+     already trusts its node for every block it reads.
+   - A payment seen but not yet final that a reorg removes reverts the invoice
+     to pending, and its webhook is never sent.
    - A payment whose webhook was already delivered is not reverted. It is
-     logged as an error for the operator to resolve.
+     logged as an error for the operator to resolve. With confirmation at
+     finality this needs a finalized block to be replaced.
    - Each scan first compares the stored block at the scan position with the
      node's block at that height. Ids chain, so a match at the top covers every
      block below it. A same-height competing branch (tip unchanged, earlier
@@ -80,16 +93,13 @@ code. Three choices needed a written decision:
    - A reorg that removes an already-delivered payment flags the invoice
      `reorged` and logs an error. `GET /v1/alerts` (bearer token) lists flagged
      invoices. The webhook cannot be recalled, so the merchant resolves it.
-   - Reorg checks cover the last 256 blocks (`store::RETAIN_BLOCKS`). When the
-     stored parent id is missing, the batch's check is skipped and logged. Upgrade
-     path: anchor to the BFT checkpoint (`get_checkpoint`).
-   - A residual window remains: a reorg between a scan and the next webhook
-     send can still send a webhook for a payment that was reorged after that
-     scan. It is bounded by the poll interval, and the next scan reverts it.
-     Upgrade path: send only after a scan that verified the frontier.
+   - Block ids are kept for the last 256 blocks (`store::RETAIN_BLOCKS`). When
+     the stored parent id is missing, the batch's check is skipped and logged.
+     Because only finalized payments are announced, the earlier window (a reorg
+     between a scan and the webhook send) no longer reaches a webhook.
 3. **A detached service: `apps/checkout`, a workspace member.** It reads the
    chain only through public JSON-RPC (`get_chain_info`,
-   `get_blocks_by_height_range`) and links the address codec
+   `get_blocks_by_height_range`, `get_checkpoint`) and links the address codec
    (`crates/address`, no node dependency), never `crates/node`. It is a member
    so it shares the workspace's pinned dependencies (ADR-005) and its rules are
    built and tested with the rest. The node binary does not link it, so the
@@ -112,13 +122,13 @@ code. Three choices needed a written decision:
 
 ## Consequences
 
-- A payment without the shop's exact amount is not settled. The chain does not
-  say whose order it pays, so it is kept as an unmatched record for the shop
-  to handle by hand. Nothing is credited automatically.
-- Open invoices at one price are quoted different base units. The customer
-  pays the quoted amount, which the shop must show. The shop still decides how
-  many open orders it allows per customer: the service bounds the quote offset,
-  not the count of invoices.
+- A payment without the exact amount is not settled. It is kept as an
+  unmatched record naming its invoice, for the shop to refund by hand.
+  Nothing is credited automatically.
+- The merchant must keep the address pool topped up: one address per invoice,
+  never reused. Each pool address is a wallet account the merchant can spend.
+- Confirmation takes as long as finality does; a node without DAG-BFT
+  checkpoints confirms nothing.
 - Unmatched records are capped at `UNMATCHED_CAP` (1,000). The oldest is evicted
   and logged. Claims for unmatched outputs are released with their records.
   Invoices and their claims are not pruned yet (a pruned claim could let an old
@@ -129,22 +139,26 @@ code. Three choices needed a written decision:
   applies there until a trusted forwarded-address setting exists.
 - Windows durability: the directory is not fsynced there. Whether the rename is
   durable on Windows is NOT VERIFIED on the test host.
-- Reorgs deeper than the retained block window (256 blocks) are not detected.
-  Shortcut: depth-limited reorg check; upgrade by anchoring to the BFT
-  checkpoint (`get_checkpoint`).
-- Settlement is by confirmation depth, not by checkpoint, until the checkpoint
-  anchor lands.
+- A checkpoint more than 256 blocks below the scan position cannot be matched
+  to a stored id, so confirmation waits (fails closed) until finality catches up.
+- Expiry is decided at scan height, not at finality: an invoice expired and then
+  reorged so its payment lands inside the window records that payment as
+  `already_settled` for a refund, never as a settlement.
 - A split payment (two outputs that together cover the amount) is not
   summed. Upgrade path: sum per invoice, with the claim per output kept.
 - Mainnet is not assumed: the service reads the network from the node and
-  refuses a merchant address for another network at startup.
+  refuses a pool address for another network at startup.
 
 ## Alternatives considered
 
 - **Matching on a memo in the transaction.** Needs a consensus change to
   carry a memo. Not for this step.
-- **One address per invoice.** The protocol has no subaddresses or key
-  derivation for receive-only addresses that the service could hold without
-  the spend key.
+- **Deriving each invoice's address in the service.** The wallet's SLIP-0010
+  derivation is hardened only, so the service would need the seed, which puts
+  a spend key on a web-facing host. Rejected: the merchant loads a pool of
+  public addresses instead.
+- **Binding by a distinct quoted amount per invoice** (this ADR's first
+  revision). Any payer who sends another invoice's amount pays that invoice,
+  and quotes drift above the shop's price. Replaced 2026-11-13.
 - **Put the service in the node binary.** Would bring the webhook and HTTP
   surface under the frozen binary. Rejected.

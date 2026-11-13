@@ -1,41 +1,46 @@
 //! Matching chain outputs to invoices. Pure: no I/O, no clock.
 //!
 //! The rules, each with a test in `tests/payment_matching.rs`:
-//! - An output settles an invoice only if it goes to the merchant address, is
-//!   exactly the invoice amount, and sits in a block above `created_height` and
-//!   at or below `expires_at_height`.
-//! - Exactly one pending invoice must fit. Zero or several fit: the output is
-//!   recorded as unmatched, never settled by guesswork.
-//! - Every other payment to the merchant (over, under, late, early) is recorded
-//!   as unmatched for the merchant to refund or assign. It never settles.
+//! - Every invoice has its own deposit address, given to no other invoice. An
+//!   output is only ever considered for the one invoice its address belongs to.
+//! - It settles that invoice only if the invoice is pending, the amount is
+//!   exact, and the block is above `created_height` and at or below
+//!   `expires_at_height`.
+//! - Every other payment to a merchant address (over, under, late, early, a
+//!   second payment, an unassigned pool address) is recorded as unmatched,
+//!   naming its invoice, for the merchant to refund. It never settles, and it is
+//!   never applied to a different invoice.
 //! - One output is claimed once, whatever it matched (the claim is durable).
-//! - Settlement is recorded here; confirmation (and the webhook) is decided
-//!   by [`confirm`], which re-checks the block id before it counts.
+//! - Settlement is recorded here; confirmation (and the webhook) waits for
+//!   DAG-BFT finality in [`confirm`], which re-checks the block id first.
 
 use std::collections::BTreeMap;
 
-use crate::chain::{BlockOutputs, Output, TxOutputs};
+use crate::chain::{BlockOutputs, Finalized, Output, TxOutputs};
 use crate::invoice::{Delivery, Invoice, Payment, Status, UnmatchedPayment, UnmatchedReason};
 use crate::store::{Claim, Ledger, claim_key};
 
-/// Whether `output` in a block at `height` may settle `invoice`: exact amount,
-/// right recipient, pending, inside the window.
-fn eligible(invoice: &Invoice, height: u64, output: &Output) -> bool {
-    invoice.status == Status::Pending
-        && output.recipient == invoice.recipient
-        && output.amount == invoice.amount
-        && height > invoice.created_height
-        && height <= invoice.expires_at_height
-}
-
-/// Whether an output goes to the merchant: the configured address, or the
-/// address of any invoice the service has issued.
-fn is_merchant(ledger: &Ledger, recipient: &[u8; 32]) -> bool {
-    ledger.merchant.as_deref() == Some(hex::encode(recipient).as_str())
-        || ledger
-            .invoices
-            .iter()
-            .any(|inv| inv.recipient == *recipient)
+/// Whether `output` in a block at `height` settles `invoice`, or why not. The
+/// caller has already matched the output's address to this invoice.
+fn classify(
+    invoice: &Invoice,
+    height: u64,
+    output: &Output,
+) -> std::result::Result<(), UnmatchedReason> {
+    if invoice.status != Status::Pending {
+        return Err(UnmatchedReason::AlreadySettled);
+    }
+    if height <= invoice.created_height {
+        return Err(UnmatchedReason::Early);
+    }
+    if height > invoice.expires_at_height {
+        return Err(UnmatchedReason::Late);
+    }
+    match output.amount.cmp(&invoice.amount) {
+        std::cmp::Ordering::Less => Err(UnmatchedReason::Underpaid),
+        std::cmp::Ordering::Greater => Err(UnmatchedReason::Overpaid),
+        std::cmp::Ordering::Equal => Ok(()),
+    }
 }
 
 /// Settles pending invoices from one block's outputs. Returns the ids settled.
@@ -47,88 +52,83 @@ pub fn detect(ledger: &mut Ledger, block: &BlockOutputs) -> Vec<String> {
                 continue;
             };
             let key = claim_key(&tx.txid, index);
-            if ledger.claims.contains_key(&key) || !is_merchant(ledger, &output.recipient) {
+            if ledger.claims.contains_key(&key) {
                 continue;
             }
-            let fits: Vec<usize> = ledger
+            // Addresses are unique per invoice (Store::insert), so at most one.
+            let owner = ledger
                 .invoices
                 .iter()
-                .enumerate()
-                .filter(|(_, inv)| eligible(inv, block.height, output))
-                .map(|(at, _)| at)
-                .collect();
-            match fits.as_slice() {
-                [only] => {
-                    let id = ledger.invoices[*only].id.clone();
-                    settle(ledger, *only, &key, tx, index, block, output);
-                    settled.push(id);
+                .position(|inv| inv.recipient == output.recipient);
+            let found = Found {
+                key: &key,
+                tx,
+                index,
+                block,
+                output,
+            };
+            match owner {
+                Some(at) => match classify(&ledger.invoices[at], block.height, output) {
+                    Ok(()) => {
+                        settled.push(ledger.invoices[at].id.clone());
+                        settle(ledger, at, &found);
+                    }
+                    Err(reason) => {
+                        let id = ledger.invoices[at].id.clone();
+                        record_unmatched(ledger, &found, reason, Some(id));
+                    }
+                },
+                None if ledger.addresses.contains(&hex::encode(output.recipient)) => {
+                    record_unmatched(ledger, &found, UnmatchedReason::Unassigned, None);
                 }
-                [] => record_unmatched(
-                    ledger,
-                    &key,
-                    tx,
-                    index,
-                    block,
-                    output,
-                    UnmatchedReason::NoExactInvoice,
-                ),
-                _ => record_unmatched(
-                    ledger,
-                    &key,
-                    tx,
-                    index,
-                    block,
-                    output,
-                    UnmatchedReason::AmbiguousInvoices,
-                ),
+                None => {}
             }
         }
     }
     settled
 }
 
-fn settle(
-    ledger: &mut Ledger,
-    at: usize,
-    key: &str,
-    tx: &TxOutputs,
+/// One output, where it was found.
+struct Found<'a> {
+    key: &'a str,
+    tx: &'a TxOutputs,
     index: u32,
-    block: &BlockOutputs,
-    output: &Output,
-) {
+    block: &'a BlockOutputs,
+    output: &'a Output,
+}
+
+fn settle(ledger: &mut Ledger, at: usize, found: &Found<'_>) {
     let invoice = &mut ledger.invoices[at];
     invoice.status = Status::Detected;
     invoice.payment = Some(Payment {
-        txid: tx.txid.clone(),
-        index,
-        height: block.height,
-        block_id: block.id.clone(),
-        amount_paid: output.amount,
+        txid: found.tx.txid.clone(),
+        index: found.index,
+        height: found.block.height,
+        block_id: found.block.id.clone(),
+        amount_paid: found.output.amount,
     });
     ledger
         .claims
-        .insert(key.to_owned(), Claim::Invoice(invoice.id.clone()));
+        .insert(found.key.to_owned(), Claim::Invoice(invoice.id.clone()));
 }
 
 fn record_unmatched(
     ledger: &mut Ledger,
-    key: &str,
-    tx: &TxOutputs,
-    index: u32,
-    block: &BlockOutputs,
-    output: &Output,
+    found: &Found<'_>,
     reason: UnmatchedReason,
+    invoice_id: Option<String>,
 ) {
     ledger.unmatched.push(UnmatchedPayment {
-        txid: tx.txid.clone(),
-        index,
-        height: block.height,
-        block_id: block.id.clone(),
-        recipient: output.recipient,
-        amount: output.amount,
+        invoice_id,
+        txid: found.tx.txid.clone(),
+        index: found.index,
+        height: found.block.height,
+        block_id: found.block.id.clone(),
+        recipient: found.output.recipient,
+        amount: found.output.amount,
         reason,
     });
-    ledger.claims.insert(key.to_owned(), Claim::Unmatched);
+    ledger.claims.insert(found.key.to_owned(), Claim::Unmatched);
     while ledger.unmatched.len() > UNMATCHED_CAP {
         let evicted = ledger.unmatched.remove(0);
         ledger
@@ -145,25 +145,31 @@ fn record_unmatched(
 /// ledger without bound: the oldest records go first, and each eviction is logged.
 pub const UNMATCHED_CAP: usize = 1_000;
 
-/// Confirms detected payments that have `confirmations` blocks on top of them
-/// (the payment's own block counts as the first), and queues their webhooks.
+/// Confirms detected payments that DAG-BFT has finalized, and queues their
+/// webhooks. A payment is final when its block is at or below the newest
+/// checkpoint, and the checkpoint's block is the one this service scanned at
+/// that height (so the checkpoint and the payment are on one branch). With no
+/// checkpoint, or one that cannot be checked, nothing confirms.
 ///
 /// A payment whose block id no longer matches the node's block at that height
-/// is not confirmed: it is reverted to pending, so the output can be claimed
-/// again on the branch that is now canonical.
-pub fn confirm(
-    ledger: &mut Ledger,
-    tip_height: u64,
-    confirmations: u64,
-    now_unix: u64,
-) -> Vec<String> {
-    let depth = confirmations.saturating_sub(1);
+/// is reverted to pending, so the output can be claimed again on the branch
+/// that is now canonical.
+pub fn confirm(ledger: &mut Ledger, finalized: Option<&Finalized>, now_unix: u64) -> Vec<String> {
     let Ledger {
         invoices,
         claims,
         block_ids,
         ..
     } = ledger;
+    let final_height = finalized
+        .filter(|f| block_ids.get(&f.height) == Some(&f.block_id))
+        .map(|f| f.height);
+    if let (Some(f), None) = (finalized, final_height) {
+        tracing::info!(
+            height = f.height,
+            "checkpoint is not on the scanned chain yet; nothing confirms this cycle"
+        );
+    }
     let mut confirmed = Vec::new();
     for invoice in invoices.iter_mut() {
         if invoice.status != Status::Detected {
@@ -177,7 +183,7 @@ pub fn confirm(
             revert_to_pending(invoice, claims);
             continue;
         }
-        if tip_height >= height.saturating_add(depth) {
+        if final_height.is_some_and(|f| height <= f) {
             invoice.status = Status::Confirmed;
             invoice.delivery = Delivery::Due;
             invoice.next_attempt_unix = now_unix;
@@ -202,7 +208,8 @@ fn revert_to_pending(invoice: &mut Invoice, claims: &mut BTreeMap<String, Claim>
 /// blocks. Detected and not-yet-sent payments go back to pending; unmatched
 /// records are dropped and rediscovered on the new branch. A payment whose
 /// webhook was already delivered stays settled and is logged: the shop has
-/// acted on it, so this is for the operator to resolve.
+/// acted on it, so this is for the operator to resolve. (With confirmation at
+/// finality this means a finalized block was replaced, which BFT rules out.)
 ///
 /// Returns how many invoices were reverted.
 pub fn roll_back(ledger: &mut Ledger, height: u64) -> usize {

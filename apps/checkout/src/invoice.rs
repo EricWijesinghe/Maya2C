@@ -23,10 +23,11 @@ pub const MAX_EXPIRY_BLOCKS: u64 = 100_000;
 pub enum Status {
     /// Waiting for a payment.
     Pending,
-    /// A matching payment is in a block but has not reached the confirmation
-    /// depth yet.
+    /// A matching payment is in a block that DAG-BFT has not finalized yet.
+    /// A reorg can still remove it, so nothing is announced.
     Detected,
-    /// Paid and confirmed. The webhook is due or on its way.
+    /// Paid, and the payment's block is at or below the newest checkpoint.
+    /// The webhook is due or on its way.
     Confirmed,
     /// The window closed with no matching payment.
     Expired,
@@ -69,17 +70,27 @@ pub struct Payment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnmatchedReason {
-    /// No pending invoice asks for exactly this amount inside its window
-    /// (underpayment, overpayment, a late or early payment, or no invoice).
-    NoExactInvoice,
-    /// More than one pending invoice fits. Never settled by guesswork.
-    AmbiguousInvoices,
+    /// A pool address that no invoice has been given yet.
+    Unassigned,
+    /// Less than the invoice amount. Split payments are not summed.
+    Underpaid,
+    /// More than the invoice amount.
+    Overpaid,
+    /// In or before the block the invoice was created at.
+    Early,
+    /// After the invoice's last payable height.
+    Late,
+    /// The invoice is already paid, or expired.
+    AlreadySettled,
 }
 
 /// A payment to the merchant that settled nothing. Kept for the merchant to
-/// refund or assign by hand. Never settles an invoice on its own.
+/// refund by hand. Never settles an invoice, and never moves to another one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnmatchedPayment {
+    /// The invoice whose deposit address was paid, if one was.
+    #[serde(default)]
+    pub invoice_id: Option<String>,
     /// Hex transaction id.
     pub txid: String,
     /// Output index within the transaction.
@@ -104,17 +115,14 @@ pub struct Invoice {
     /// 128 random bits, hex. The id is a capability: anyone holding it can
     /// read the invoice, so it is never guessable.
     pub id: String,
-    /// Recipient address, 32 bytes, hex in storage.
+    /// This invoice's own deposit address, 32 bytes, hex in storage. No other
+    /// invoice is ever given it, so a payment to it can only be for this one.
     #[serde(with = "hex32")]
     pub recipient: [u8; 32],
-    /// Amount the customer must pay, base units: the requested amount plus a
-    /// small offset when another live invoice holds the same amount. Only an
-    /// output of exactly this amount settles the invoice.
+    /// Amount the customer must pay, base units. Only an output of exactly this
+    /// amount, to `recipient`, settles the invoice.
     #[serde(with = "amount")]
     pub amount: U256,
-    /// The amount the shop asked for, before any offset.
-    #[serde(with = "amount")]
-    pub requested_amount: U256,
     /// Set when a reorg removed the payment of a webhook that was already
     /// delivered. The shop acted on it; the merchant must resolve it.
     #[serde(default)]
@@ -178,7 +186,6 @@ impl Invoice {
             id,
             recipient,
             amount: req.amount,
-            requested_amount: req.amount,
             reorged: false,
             memo: req.memo.clone(),
             webhook_url: req.webhook_url.clone(),
