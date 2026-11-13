@@ -512,7 +512,7 @@ mod tests {
             let Step::Finished { best_w, .. } = end else {
                 panic!("{end:?}");
             };
-            assert!(best_w <= SIM_RANGE.default_w && best_w >= SIM_RANGE.min_w);
+            assert!((SIM_RANGE.min_w..=SIM_RANGE.default_w).contains(&best_w));
         }
     }
 
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn a_suggested_limit_that_does_not_read_back_is_not_measured() {
-        let mut sim = SimGpu::new();
+        let sim = SimGpu::new();
         let mut t = Tuner::new(SIM_RANGE, FLOOR_PCT_DEFAULT, CEILING, None);
         let first = (0..200)
             .map(|_| t.on_sample(sim.sample()))

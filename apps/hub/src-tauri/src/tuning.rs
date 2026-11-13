@@ -72,6 +72,25 @@ pub fn lock(state: &Mutex<Tuning>) -> MutexGuard<'_, Tuning> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Fails closed before a trial starts: without a trusted `nvidia-smi` the Hub
+/// has no temperature reading, so the thermal stop could never fire. Turning
+/// tuning off is always allowed. `require` is `driver_tool::require_telemetry`.
+///
+/// # Errors
+///
+/// `on` and no trusted tool: the reason, with the fix, for the card's note.
+pub fn require_telemetry_to_start(
+    on: bool,
+    require: impl FnOnce() -> Result<PathBuf, String>,
+) -> Result<(), String> {
+    if !on {
+        return Ok(());
+    }
+    require()
+        .map(drop)
+        .map_err(|why| format!("tuning refused: no temperature reading, so no thermal stop. {why}"))
+}
+
 /// The words and the limit to set for one phase.
 fn instruction(phase: Phase, range: Range, ceiling_c: f64) -> (String, Option<f64>) {
     let d = range.default_w.round();
@@ -606,6 +625,19 @@ mod tests {
             .set(&devices[0], true, 95.0, 80.0)
             .expect("GPU-b tunes normally");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tuning_without_a_trusted_driver_tool_is_refused_but_stopping_is_not() {
+        let missing = || Err::<PathBuf, _>("no nvidia-smi at /usr/bin/nvidia-smi".to_owned());
+        let refused = require_telemetry_to_start(true, missing).expect_err("fails closed");
+        assert!(
+            refused.contains("thermal stop") && refused.contains("nvidia-smi"),
+            "{refused}"
+        );
+        assert_eq!(require_telemetry_to_start(false, missing), Ok(()));
+        let found = || Ok(PathBuf::from("/usr/bin/nvidia-smi"));
+        assert_eq!(require_telemetry_to_start(true, found), Ok(()));
     }
 
     #[test]

@@ -126,6 +126,7 @@ async fn tune_set(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        tuning::require_telemetry_to_start(on, driver_tool::require_telemetry)?;
         let report = gpu::read();
         let dev = report
             .devices

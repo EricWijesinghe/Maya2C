@@ -264,7 +264,7 @@ mod tests {
             std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o777))
                 .expect("chmod");
             assert_eq!(
-                resolve_from(&[planted.clone()]),
+                resolve_from(std::slice::from_ref(&planted)),
                 None,
                 "a user-writable tool"
             );
