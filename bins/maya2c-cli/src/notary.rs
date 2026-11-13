@@ -309,7 +309,10 @@ pub fn decode_block(info: &BlockInfo) -> Result<Block> {
         );
     }
     if hex::encode(block.header.id()) != info.header.id {
-        bail!("block {} bytes are not the block the node named", info.height);
+        bail!(
+            "block {} bytes are not the block the node named",
+            info.height
+        );
     }
     Ok(block)
 }

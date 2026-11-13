@@ -132,7 +132,7 @@ fn decode_block_refuses_a_swapped_body_under_an_honest_header() {
     let mut info = BlockInfo::new(5, &forged);
     info.header.tx_root = hex::encode(forged.tx_root());
     assert_eq!(info.header.id, hex::encode(honest.header.id()));
-    let refused = format!("{:#}", decode_block(&info).unwrap_err());
+    let refused = format!("{:#}", decode_block(&info).expect_err("refused"));
     assert!(refused.contains("tx root"), "{refused}");
 }
 
@@ -142,8 +142,11 @@ fn decode_block_refuses_bytes_that_are_not_the_named_block() {
     let other = Block::new(header(2), vec![]);
     let mut info = BlockInfo::new(5, &block);
     info.header.id = hex::encode(other.header.id());
-    let refused = format!("{:#}", decode_block(&info).unwrap_err());
-    assert!(refused.contains("not the block the node named"), "{refused}");
+    let refused = format!("{:#}", decode_block(&info).expect_err("refused"));
+    assert!(
+        refused.contains("not the block the node named"),
+        "{refused}"
+    );
 }
 
 #[test]

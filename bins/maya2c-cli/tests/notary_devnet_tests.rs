@@ -56,14 +56,14 @@ async fn a_stamp_lands_in_a_block_and_verifies_with_a_receipt() {
     let url = format!("http://127.0.0.1:{RPC}");
     let genesis = client.get_network().await.unwrap().genesis;
 
-    setup(&keystore, DEV_PASSWORD, &url, Some(&genesis))
+    Box::pin(setup(&keystore, DEV_PASSWORD, &url, Some(&genesis)))
         .await
         .unwrap();
     wait_nonce(client, &address, 0, "register_did").await;
 
     let file = work.path().join("lease.txt");
     write(&file, b"lease agreement, page 1");
-    let txid = stamp(&keystore, DEV_PASSWORD, &url, Some(&genesis), &file)
+    let txid = Box::pin(stamp(&keystore, DEV_PASSWORD, &url, Some(&genesis), &file))
         .await
         .unwrap();
     wait_nonce(client, &address, 1, "the stamp").await;
