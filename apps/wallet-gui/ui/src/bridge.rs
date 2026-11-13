@@ -511,6 +511,27 @@ pub async fn broadcast(node_url: &str, raw_hex: &str) -> Result<String, String> 
     call("broadcast", &Args { node_url, raw_hex }).await
 }
 
+/// Holds a signed transfer for the undo window. The core enforces the window;
+/// nothing is broadcast until [`release_held`].
+pub async fn hold_transfer(txid: &str) -> Result<u64, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args<'a> {
+        txid: &'a str,
+    }
+    call("hold_transfer", &Args { txid }).await
+}
+
+/// The held transfer, once its window has closed. The caller broadcasts it.
+pub async fn release_held() -> Result<SignedTransfer, String> {
+    call("release_held", &NoArgs {}).await
+}
+
+/// Discards the held transfer. `false` when it was already released.
+pub async fn cancel_held() -> Result<bool, String> {
+    call("cancel_held", &NoArgs {}).await
+}
+
 /// Records a broadcast outcome in the session history.
 pub async fn record_outcome(
     txid: &str,

@@ -84,6 +84,9 @@ pub fn run() {
             commands::export_contacts,
             commands::import_contacts,
             commands::check_recipient,
+            commands::hold_transfer,
+            commands::release_held,
+            commands::cancel_held,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");

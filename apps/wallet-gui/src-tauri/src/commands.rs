@@ -35,7 +35,9 @@ use maya_wallet_core::networks;
 
 use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::hd::seed_from_mnemonic;
+use maya_wallet_core::payee::{PayeeCheck, payee_check, with_payee};
 use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
+use maya_wallet_core::undo::{UNDO_WINDOW_SECS, UndoHold};
 use maya_wallet_core::vault::{OsKeychain, Vault};
 use maya_wallet_core::wallet::{
     Account, ChainTag, PendingTransfer, SignTerms, TransferStatus, Wallet,
@@ -53,6 +55,8 @@ pub struct Session {
     name: Mutex<Option<String>>,
     /// True while a sign_transfer call holds the one native confirm screen.
     dialog_open: AtomicBool,
+    /// A signed send waiting out its undo window. Dropped (and zeroized) by cancel or lock.
+    hold: Mutex<Option<UndoHold>>,
 }
 
 /// Holds the single confirm-screen slot; releases it on every return path.
@@ -289,6 +293,7 @@ pub fn lock(session: tauri::State<'_, Session>) -> Result<(), String> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     *session.name.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    *session.hold.lock().unwrap_or_else(|p| p.into_inner()) = None;
     Ok(())
 }
 
@@ -625,7 +630,13 @@ pub async fn sign_transfer(
                 .to_string(),
         );
     }
-    if !approved_on_screen(&app, &window, &shown).await? {
+    let network = networks::address_network(&genesis);
+    let payee = session.with_book(&app, false, |book, paid| {
+        let address =
+            payment::decode_address_for(&recipient, network).map_err(|e| e.to_string())?;
+        Ok(payee_check(book, &address, network, paid))
+    })?;
+    if !approved_on_screen(&app, &window, &shown, &payee).await? {
         return Err("cancelled on the native confirm screen; nothing was signed".to_string());
     }
     session.with(|wallet| {
@@ -641,15 +652,10 @@ async fn approved_on_screen(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
     shown: &Confirmation,
+    payee: &PayeeCheck,
 ) -> Result<bool, String> {
-    native_ok(
-        app,
-        window,
-        "Confirm transfer",
-        approval_message(shown),
-        "Sign",
-    )
-    .await
+    let message = with_payee(payee, &approval_message(shown));
+    native_ok(app, window, "Confirm transfer", message, "Sign").await
 }
 
 /// A native OK/Cancel dialog with words the core wrote; `ok` labels the
@@ -714,6 +720,47 @@ pub fn record_outcome(
         wallet.record_outcome(&txid, status, detail.clone());
         Ok(())
     })
+}
+
+/// Holds a transfer this session signed for [`UNDO_WINDOW_SECS`] before it may
+/// be broadcast. Returns the Unix second it can be released. Nothing reaches a
+/// node until [`release_held`] is called after that second.
+#[tauri::command]
+pub fn hold_transfer(txid: String, session: tauri::State<'_, Session>) -> Result<u64, String> {
+    let now = unix_now()?;
+    let transfer = session.with(|wallet| {
+        wallet
+            .history()
+            .into_iter()
+            .find(|p| p.transfer.txid == txid && matches!(p.status, TransferStatus::Signed))
+            .map(|p| p.transfer)
+            .ok_or_else(|| "no signed transfer with that id in this session".to_string())
+    })?;
+    let mut slot = session.hold.lock().unwrap_or_else(|p| p.into_inner());
+    if slot.as_ref().is_some_and(UndoHold::is_held) {
+        return Err("another send is still held; cancel it or let it go first".to_string());
+    }
+    let hold = UndoHold::new(transfer, now, UNDO_WINDOW_SECS);
+    let release_at = hold.release_at();
+    *slot = Some(hold);
+    Ok(release_at)
+}
+
+/// Hands over the held transfer once its window has closed; the caller then
+/// broadcasts it. A call inside the window, or a second call, is refused.
+#[tauri::command]
+pub fn release_held(session: tauri::State<'_, Session>) -> Result<SignedTransfer, String> {
+    let now = unix_now()?;
+    let mut slot = session.hold.lock().unwrap_or_else(|p| p.into_inner());
+    let hold = slot.as_mut().ok_or("nothing is held to send")?;
+    hold.release(now).map_err(|e| e.to_string())
+}
+
+/// Discards the held transfer. Returns false when it was already released.
+#[tauri::command]
+pub fn cancel_held(session: tauri::State<'_, Session>) -> Result<bool, String> {
+    let mut slot = session.hold.lock().unwrap_or_else(|p| p.into_inner());
+    Ok(slot.as_mut().is_some_and(UndoHold::cancel))
 }
 
 /// Transfers signed this session, newest first.
