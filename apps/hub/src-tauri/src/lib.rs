@@ -3,6 +3,7 @@
 //! The webview draws; these commands do everything that touches the network,
 //! the GPU driver or a process. Each blocking call runs off the UI thread.
 
+mod energy;
 mod gpu;
 #[cfg(windows)]
 mod key_acl;
@@ -159,12 +160,17 @@ fn supervise(app: tauri::AppHandle) {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
         let miner = app.state::<Miner>();
+        let now = miner::now_ms();
         let temps = if tick.is_multiple_of(3) && miner.gpu_running() {
-            gpu::temperatures(&gpu::read())
+            let report = gpu::read();
+            // The same reading feeds the energy meter, so watts and shares
+            // are sampled together every third second.
+            miner.meter(now, &gpu::powers(&report));
+            gpu::temperatures(&report)
         } else {
             Vec::new()
         };
-        let raised = miner.tick(miner::now_ms(), &temps);
+        let raised = miner.tick(now, &temps);
         let notifier = app.state::<Mutex<Notifier>>();
         for alert in &raised {
             if notify::lock(&notifier).admit(alert) {

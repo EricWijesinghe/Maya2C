@@ -389,6 +389,15 @@ function updateRig(card, key, w, g) {
   setText(btn, w && w.running ? "Stop" : "Start");
 }
 
+// The label travels with the figure from energy.rs; it is never dropped here.
+function energyText(e) {
+  const minutes = Math.round(e.metered_ms / 60000);
+  const figure = e.joules_per_share == null
+    ? "Energy per accepted share: no share in a metered interval yet"
+    : `Energy per accepted share: ${Math.round(e.joules_per_share).toLocaleString()} J over ${e.shares} share${e.shares === 1 ? "" : "s"} and ${minutes} metered min`;
+  return `${figure} (${e.label}; from ${e.source}).`;
+}
+
 function showRig(key) {
   state.rig = key;
   const w = (state.miner ? state.miner.workers : []).find((x) => x.device === key) || null;
@@ -396,6 +405,7 @@ function showRig(key) {
   const parts = [`${phaseOf(w)[1]}.`];
   if (g && g.temp_c != null) parts.push(`Running at ${Math.round(g.temp_c)} °C. The Hub stops this GPU above ${w && w.ceiling_c ? w.ceiling_c : DEFAULT_CEILING_C} °C and restarts it 5 °C lower.`);
   if (w) parts.push(`Since start: ${w.accepted} shares accepted, ${w.rejected} rejected, ${w.restarts} automatic restart${w.restarts === 1 ? "" : "s"}.`);
+  if (w && w.energy) parts.push(energyText(w.energy));
   parts.push(key === "cpu" ? "Hashing on CPU threads." : "Hashing on this graphics card.");
   $("rig-detail").hidden = false;
   setText("rd-title", deviceLabel(key, g));

@@ -78,6 +78,17 @@ pub fn temperatures(report: &GpuReport) -> Vec<(u32, f64)> {
         .collect()
 }
 
+/// Each adapter's reported board power as `(index, W)`, for the energy meter.
+/// An adapter with no reading is left out, which ends its metered stretch.
+#[must_use]
+pub fn powers(report: &GpuReport) -> Vec<(u32, f64)> {
+    report
+        .devices
+        .iter()
+        .filter_map(|g| Some((g.index, g.power_w?)))
+        .collect()
+}
+
 /// Reads every NVIDIA adapter now.
 #[must_use]
 pub fn read() -> GpuReport {
@@ -139,6 +150,17 @@ mod tests {
             note: None,
         };
         assert_eq!(temperatures(&report), [(0, 61.0)]);
+        assert_eq!(powers(&report), [(0, 182.4), (1, 90.1)]);
+    }
+
+    #[test]
+    fn a_blank_power_reading_is_left_out_not_zero() {
+        let csv = "0, RTX A, 61, [N/A], 250.00, 97, 54, 9120, 12227, 2700\n";
+        let report = GpuReport {
+            devices: parse(csv),
+            note: None,
+        };
+        assert!(powers(&report).is_empty());
     }
 
     #[test]

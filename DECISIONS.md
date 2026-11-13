@@ -901,3 +901,12 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — Hub energy metric: joules per accepted share, GPU-reported and labelled unverified (Eric)
+
+Eric chose option A of founder audit question 29 ("I approve everything", Eric 2026-11-14, recommended option on every question). A wall-meter calibration (option B) costs money and comes later, if at all.
+
+- **Metric:** joules per accepted share per GPU, from `nvidia-smi power.draw` read with the Hub's existing temperature read (every third second while a GPU miner runs), integrated as a trapezoid. Intervals with a missing reading, no miner process, or a gap over 10 s are left out together with the shares found in them.
+- **Label:** every figure carries "GPU-reported, not wall-measured, unverified", in the UI and in the `miner_state` report. No green, zero-waste or efficiency wording.
+- **Scope:** Hub only (`apps/hub/src-tauri/src/energy.rs`). No consensus role, never touches a payout, NVIDIA only.
+- **Recorded in:** `docs/benchmarks/hub-energy-per-share.md`, the `maya2c-hub` entry in `features.toml`, `docs/ecosystem/CATALOG.md` (hub-energy-per-share).

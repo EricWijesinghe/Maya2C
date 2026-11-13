@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::energy::Energy;
 use crate::miner_guard::{self, PINNED_SUMS, PinnedMiner};
 use crate::pools;
 use crate::watchdog::{self, AfterExit, Supervisor, Thermal};
@@ -91,6 +92,9 @@ pub struct MinerState {
     /// Latest GPU temperature this worker's device reported.
     pub temp_c: Option<f64>,
     pub ceiling_c: Option<f64>,
+    /// Joules per accepted share from the driver's power reading; GPU
+    /// workers only, and labelled unverified (energy.rs).
+    pub energy: Option<Energy>,
     pub rates: VecDeque<RateSample>,
     pub events: VecDeque<Value>,
     /// Time of the last line from the miner, for the stall check.
@@ -282,6 +286,7 @@ impl Worker {
         let state = MinerState {
             device,
             ceiling_c: plan.device.map(|_| plan.ceiling_c),
+            energy: plan.device.map(|_| Energy::default()),
             ..MinerState::default()
         };
         Self {
@@ -512,6 +517,7 @@ impl Miner {
             *st = MinerState {
                 device,
                 ceiling_c: ceiling,
+                energy: ceiling.map(|_| Energy::default()),
                 started_ms: Some(now_ms()),
                 ..MinerState::default()
             };
@@ -562,6 +568,28 @@ impl Miner {
             push(&mut inner.alerts, alert.clone(), ALERT_HISTORY);
         }
         raised
+    }
+
+    /// Feeds one round of GPU power readings, `(index, W)`, to each GPU
+    /// worker's energy meter. A worker with no process (stopped, held hot,
+    /// waiting to restart) or no reading gets none, so idle watts are never
+    /// charged to its shares.
+    pub fn meter(&self, now: u64, powers: &[(u32, f64)]) {
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        for worker in inner.workers.values() {
+            let Some(index) = worker.plan.device else {
+                continue;
+            };
+            let watts = worker
+                .child
+                .as_ref()
+                .and_then(|_| powers.iter().find(|(d, _)| *d == index).map(|(_, w)| *w));
+            let mut st = lock_state(&worker.state);
+            let accepted = st.accepted;
+            if let Some(energy) = st.energy.as_mut() {
+                energy.sample(now, watts, accepted);
+            }
+        }
     }
 
     /// True when a GPU worker runs or is held hot, so the supervisor keeps
@@ -729,6 +757,29 @@ mod tests {
             device,
             ceiling_c: 80.0,
         }
+    }
+
+    #[test]
+    fn only_gpu_workers_carry_an_energy_meter_and_a_stopped_one_meters_nothing() {
+        let miner = Miner::default();
+        {
+            let mut inner = miner.inner.lock().unwrap();
+            inner
+                .workers
+                .insert("cpu".into(), Worker::new(plan(None), "cpu".into()));
+            let gpu = Worker::new(plan(Some(0)), "gpu0".into());
+            lock_state(&gpu.state).accepted = 3;
+            inner.workers.insert("gpu0".into(), gpu);
+        }
+        // No process: these readings must not be charged to the shares.
+        miner.meter(0, &[(0, 200.0)]);
+        miner.meter(3_000, &[(0, 200.0)]);
+        let report = miner.report();
+        let cpu = report.workers.iter().find(|w| w.device == "cpu").unwrap();
+        let gpu = report.workers.iter().find(|w| w.device == "gpu0").unwrap();
+        assert!(cpu.energy.is_none());
+        let e = gpu.energy.as_ref().expect("a GPU worker is metered");
+        assert_eq!((e.joules, e.shares, e.joules_per_share), (0.0, 0, None));
     }
 
     #[test]
