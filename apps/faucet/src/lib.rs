@@ -611,4 +611,22 @@ mod ledger_tests {
         f.request(ip, &"cc".repeat(32), at(90_000)).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn a_grant_the_ledger_cannot_record_is_not_granted() {
+        let path = std::env::temp_dir().join(format!("faucet-ro-{}.jsonl", std::process::id()));
+        std::fs::write(&path, "").unwrap();
+        let f = fresh(&path, at(0));
+        f.state.lock().unwrap().ledger = Some(ledger::Ledger::unwritable(&path));
+        let ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9));
+        // Unrecorded, a grant would be forgotten on restart and re-opened.
+        assert!(matches!(
+            f.request(ip, &"ee".repeat(32), at(0)),
+            Err(FaucetError::Ledger(_))
+        ));
+        assert_eq!(f.spent_today(), primitive_types::U256::zero());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        drop(f);
+        std::fs::remove_file(&path).unwrap();
+    }
 }

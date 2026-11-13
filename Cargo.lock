@@ -5167,6 +5167,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "primitive-types",
+ "proptest",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -6245,6 +6246,8 @@ dependencies = [
  "jsonrpsee",
  "leptos",
  "maya-address",
+ "maya-amount",
+ "maya-clear-sign",
  "maya-design-system",
  "maya-web-security",
  "primitive-types",
@@ -6399,6 +6402,7 @@ name = "maya-light-client"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "criterion",
  "custom-l1-node",
  "hex",
  "primitive-types",
@@ -6476,6 +6480,7 @@ name = "maya-parallel-exec"
 version = "0.1.0"
 dependencies = [
  "maya-loadgen",
+ "proptest",
 ]
 
 [[package]]
@@ -6982,8 +6987,10 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "maya-address",
  "maya-amount",
  "maya-clear-sign",
+ "primitive-types",
  "serde_json",
 ]
 
@@ -7026,12 +7033,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya2c-sdk"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "maya-address",
+ "primitive-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya2c-signer"
 version = "0.1.0"
 dependencies = [
  "maya-crypto-pq",
  "maya-signer",
  "serde_json",
+ "tempfile",
  "zeroize",
 ]
 
