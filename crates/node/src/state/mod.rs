@@ -40,6 +40,7 @@ pub mod mining_exec;
 pub mod oracle_exec;
 pub(crate) mod preview;
 pub mod proof;
+pub(crate) mod root_cache;
 pub mod rwa;
 pub mod rwa_exec;
 pub mod sealed_exec;

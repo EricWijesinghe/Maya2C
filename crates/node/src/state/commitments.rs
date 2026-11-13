@@ -101,6 +101,9 @@ pub const LOCAL_ONLY_PREFIXES: &[&[u8]] = &[
     crate::state::db::UNDO_PREFIX,
     BLOCK_STORE_PREFIX,
     crate::state::balance_changes::BALANCE_CHANGES_PREFIX,
+    // The sparse accounts root cache (ADR-062a): derived from `acct:`, so a
+    // node rebuilds it rather than trusting anyone else's.
+    crate::state::root_cache::ROOT_CACHE_PREFIX,
 ];
 
 /// Hashes one spent nullifier into its leaf of the nullifier layer.

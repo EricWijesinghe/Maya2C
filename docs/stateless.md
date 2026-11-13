@@ -167,9 +167,10 @@ crate-level test makes the same claim in under a second and runs by default.
    it or drop it — never treat it as an invalid transaction.
 4. **The lattice parameters,** if the research backend is ever to be more than
    a size comparison: an estimator run, and a reason to prefer it to a hash.
-5. **Root cost.** A full node rebuilds the sparse root from every account each
-   block, as it already does for the dense tree. Both are `O(N)`; an
-   incremental tree is a separate change.
+5. **Root cost.** Settled for the sparse tree by ADR-062a: staging updates a
+   persistent node cache (`state/root_cache.rs`) along the touched accounts'
+   paths, at most 256 nodes each, and `state_root()` keeps the full rebuild as
+   the reference. The dense tree used before activation is still `O(N)` a block.
 6. **The RPC method's cost.** `stateless_transaction_witness` scans every
    account per call and does not verify the transaction it is handed, the same
    cost `account_proof` already has. Dormant today — before activation it reads

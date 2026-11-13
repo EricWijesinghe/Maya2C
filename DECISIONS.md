@@ -901,3 +901,22 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — ADR-062a: incremental sparse accounts root built; genesis format unchanged (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ: "incremental root now". Built as an amendment to ADR-062
+(`crates/node/src/state/root_cache.rs`): a persistent, local-only (`smt:`) cache of every
+sparse-tree node holding two or more accounts, updated in the same `WriteBatch` as each commit
+and revert, withdrawn by any out-of-band account write, checked node by node against a full
+rebuild at `Chain::open`. Root value unchanged; `state_root()` stays the full rebuild.
+
+Two findings that contradict the brief, reported rather than worked around (Standing Order 9):
+
+1. The brief said the node "rebuilds the whole sparse root every block". It does not at genesis:
+   `STATELESS_ACTIVATION_HEIGHT = u64::MAX`, so the accounts root is the dense address-ordered
+   tree, which cannot be incremental at the same value (an insertion shifts every later leaf).
+   The cache only works once the sparse tree is active. Activating it at genesis is a separate
+   choice for Eric: it changes the genesis root format and retires the dense `account_proof`
+   that the light client's SPV path verifies.
+2. Record layers (DEX, sealed, governance, staking, ...), channels, contracts and nullifiers are
+   dense full rebuilds too and stay so (205-213 ms at 100k records, test profile). Not touched.
