@@ -100,6 +100,14 @@ The observation that would make this worth reopening.
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
+| [102](ADR-102-stealth-addresses-ml-kem.md) | Stealth addresses over ML-KEM-768: hash-committed one-time addresses, view tag, v10 spend frame; spend reveals the spend address | Proposed |
+| [103](ADR-103-native-fungible-tokens.md) | Native fungible tokens: optional mint authority and an immutable 256-bit cap on the existing asset record; fee in native coin | Proposed |
+| [104](ADR-104-unique-assets.md) | Unique assets (NFTs): metadata hash only under `n:`, royalties settled on on-chain sales | Proposed |
+| [105](ADR-105-name-service.md) | Name service under `nm:`: ASCII labels, commit-reveal, renewal and premium by height, owner-only reverse records | Proposed |
+| [106](ADR-106-sponsored-fees.md) | Sponsored fees: an outer v11 frame where a sponsor co-signs txid, ceiling and expiry under the chain tag | Proposed |
+| [107](ADR-107-smart-account-promotion.md) | Smart-account promotion: session keys and spending limits on the v9 frame through `verify_with_state` | Proposed |
+| [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
+| [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
 | [117](ADR-117-multisig-suite-diversity.md) | Multisig suite diversity: mixed suites already shipped in v8; a per-family approval floor in a v12 frame | Proposed |
 | [118](ADR-118-compressed-state-collections.md) | Compressed collections: one BLAKE3 sparse root on chain, items proven by witness, 64-block root history, one-way decompress | Proposed |
 | [119](ADR-119-data-carrier.md) | Data carrier: `TxKind::Data { tag, body }` with no state effect, 64 KiB cap, byte fee only, indexer convention by tag | Proposed |
@@ -108,3 +116,4 @@ The observation that would make this worth reopening.
 | [122](ADR-122-cross-chain-messaging.md) | Cross-chain messaging: inbound Ethereum events over the beacon light client and receipt proofs, ordered by nonce, delivered as timer-style calls; outbound record only | Proposed |
 | [123](ADR-123-blob-transactions-and-da-attestations.md) | Blobs: sidecar bytes, vote only after re-encoding the square, expiring `bl:c:` record under the state root as the attestation, second base fee | Proposed |
 | [124](ADR-124-inclusion-and-fair-ordering.md) | Inclusion and fair ordering: inclusion is structural under DAG-BFT (pinned by test); sender-keyed order inside each author's batch; needs two human reviewers | Proposed |
+| [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |

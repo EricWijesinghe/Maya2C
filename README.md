@@ -16,12 +16,17 @@
 <p align="center">
   <a href="https://status.maya2c.dev"><img alt="testnet height" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fstatus.maya2c.dev%2Fapi%2Fstatus&query=%24.height&label=testnet%20block&color=1fb5c2&style=for-the-badge&labelColor=0a161b"></a>
   <a href="reports/sessions/2026-10-28-testnet-stopped.md"><img alt="testnet soak: 7 days, zero halts" src="https://img.shields.io/badge/testnet%20soak-7%20days%2C%20zero%20halts-45e0a0?style=for-the-badge&labelColor=0a161b"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&style=for-the-badge&labelColor=0a161b"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="commit activity" src="https://img.shields.io/github/commit-activity/m/EricWijesinghe/Maya2C?label=commits&style=for-the-badge&color=1fb5c2&labelColor=0a161b"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?style=for-the-badge&color=1fb5c2&labelColor=0a161b"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/EricWijesinghe/Maya2C?style=for-the-badge&color=c9a86a&labelColor=0a161b"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-c9a86a?style=for-the-badge&labelColor=0a161b"></a>
   <img alt="Rust 1.88, edition 2024" src="https://img.shields.io/badge/rust-1.88%20%C2%B7%202024-e6b260?style=for-the-badge&logo=rust&labelColor=0a161b">
 </p>
 
 <p align="center">
   <a href="https://maya2c.dev/experience/"><b>✦ Experience it</b></a> &nbsp;·&nbsp;
+  <a href="https://maya2c.dev/stats/"><b>Live statistics</b></a> &nbsp;·&nbsp;
   <a href="https://maya2c.dev/guides/testnet/">Join the testnet</a> &nbsp;·&nbsp;
   <a href="https://explorer.maya2c.dev/">Explorer</a> &nbsp;·&nbsp;
   <a href="https://faucet.maya2c.dev/">Faucet</a> &nbsp;·&nbsp;
