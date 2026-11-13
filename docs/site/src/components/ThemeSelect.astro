@@ -49,9 +49,9 @@ const OPTIONS = [
 </script>
 
 <style>
-  .theme { display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 2px; border: 1px solid var(--border-control); border-radius: var(--r-md); background: var(--surface-2); }
+  .theme { display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
   .theme label { position: relative; display: grid; place-items: center; width: 30px; height: 28px; border-radius: var(--r-sm); color: var(--text-2); cursor: pointer; transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
-  .theme.touch label { width: 44px; height: 40px; }
+  .theme.touch label { width: 44px; height: 44px; }
   .theme label:hover { color: var(--text); }
   /* The radio stays in the accessibility tree and takes focus; the icon is its face. */
   .theme input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
@@ -59,6 +59,6 @@ const OPTIONS = [
   /* Lit from the head script's data-theme-pick, so the right icon shows on first paint. */
   :global(:root[data-theme-pick="system"]) .theme label[data-v="system"],
   :global(:root[data-theme-pick="light"]) .theme label[data-v="light"],
-  :global(:root[data-theme-pick="dark"]) .theme label[data-v="dark"] { background: var(--surface-1); color: var(--accent-text); box-shadow: var(--shadow-sm); }
+  :global(:root[data-theme-pick="dark"]) .theme label[data-v="dark"] { background: var(--surface-1); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--border-control), var(--shadow-sm); }
   @media (prefers-reduced-motion: reduce) { .theme label { transition: none; } }
 </style>

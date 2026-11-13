@@ -24,8 +24,8 @@ const path = Astro.url.pathname;
   {prefs && (
     <div class="menu__prefs">
       <a class="menu__gh" href={REPO} rel="noopener" target="_blank">
-        <Icon name="github" size="18px" />
-        GitHub<span class="ext" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
+        <Icon name="github" size="18px" class="menu__gh-icon" />
+        <span>GitHub<span class="ext" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></span>
       </a>
       <ThemeSelect name={name} size="touch" />
     </div>
@@ -41,6 +41,11 @@ const path = Astro.url.pathname;
   /* Colour restated: inside the docs sidebar, maya.css's `.sidebar-content a`
      would otherwise paint the label text-2 on the teal fill. */
   .menu .menu__cta, .menu .menu__cta:hover { height: 44px; margin-top: var(--space-2); font-size: var(--type-body-size); font-weight: var(--weight-semibold); text-decoration: none; color: var(--on-accent); background: var(--grad-cta); }
+  /* The bar's other icons are text-2; teal answers the hover, not the rest state. */
+  .menu__gh :global(.menu__gh-icon) { color: var(--text-2); transition: color var(--dur-1) var(--ease); }
+  .menu__gh:hover :global(.menu__gh-icon) { color: var(--accent-text); }
+  /* From 40rem the bar shows "Get started" itself; the menu never repeats it. */
+  @media (min-width: 40rem) { .menu .menu__cta { display: none; } }
   .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
   .menu__prefs { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--border); }
 </style>

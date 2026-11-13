@@ -24,4 +24,35 @@ export const START = { label: "Get started", href: "/guides/quickstart/" };
 
 export const REPO = "https://github.com/EricWijesinghe/Maya2C";
 
+// The footer's link columns, by reader journey, existing pages only (the same
+// groups as the docs sidebar in astro.config.mjs, cut to four rows each).
+// GitHub's private advisory form leads Trust: no mailto until the security@
+// mailbox is verified to receive.
+export const FOOTER: { title: string; links: NavItem[] }[] = [
+  { title: "Start", links: [
+    { label: "Tour", href: "/experience/" },
+    { label: "Quickstart", href: "/guides/quickstart/" },
+    { label: "FAQ", href: "/guides/faq/" },
+    { label: "Live statistics", href: "/stats/" },
+  ] },
+  { title: "Build", links: [
+    { label: "API reference", href: "/guides/api/" },
+    { label: "Wallet integration", href: "/guides/wallet/" },
+    { label: "Compiling a contract", href: "/guides/contracts/" },
+    { label: "Signatures, step by step", href: "/learn/signatures-live/" },
+  ] },
+  { title: "Run", links: [
+    { label: "Help run the network", href: "/guides/help-run/" },
+    { label: "Join the testnet", href: "/guides/testnet/" },
+    { label: "Start mining", href: "/guides/start-mining/" },
+    { label: "Run a validator", href: "/guides/validators/" },
+  ] },
+  { title: "Trust", links: [
+    { label: "Report a vulnerability privately", href: `${REPO}/security/advisories/new`, external: true },
+    { label: "Security Hall of Fame", href: "/guides/security-hall-of-fame/" },
+    { label: "Code-signing policy", href: "/guides/code-signing-policy/" },
+    { label: "Contribute", href: "/guides/contributors/" },
+  ] },
+];
+
 export const isCurrent = (item: NavItem, path: string) => item.match?.some((m) => path.startsWith(m)) ?? false;

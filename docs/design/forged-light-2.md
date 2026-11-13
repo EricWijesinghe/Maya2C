@@ -204,9 +204,10 @@ colours and fills are never series colours.
 | `--forge-grad-from` | `var(--bronze-text)` | `#c7802b` | Forge button (value actions: sign, stake), top stop (`--grad-forge`). |
 | `--forge-grad-to` | `#f5a04a` | `#bf702e` | Forge button, bottom stop. Both stops 3:1 on the ground and a card. |
 | `--on-forge` | `#2b1503` | `#2b1503` | Text on the forge stops. |
-| `--deco-teal` | `rgb(31 211 204 / 0.26)` | `rgb(10 117 104 / 0.12)` | Decorative only: the hero glow. Text over its brightest point is gated. |
-| `--deco-bronze` | `rgb(255 187 107 / 0.16)` | `rgb(181 103 34 / 0.12)` | Decorative only: backdrops. |
+| `--deco-teal` | `rgb(31 211 204 / 0.26)` | `rgb(0 200 190 / 0.24)` | Decorative only: the hero glow and the page wash. Light is its own luminous aqua, not dark's teal dimmed. Text over its brightest point is gated. |
+| `--deco-bronze` | `rgb(255 187 107 / 0.16)` | `rgb(255 168 56 / 0.22)` | Decorative only: backdrops and the page wash (warm amber in light). |
 | `--deco-blue` | `rgb(108 182 255 / 0.12)` | `rgb(47 85 184 / 0.08)` | Decorative only. |
+| `--deco-spark` | `#52e5dd` | `#00c2b2` | The one solid decorative accent: the forged rule, the active-nav underline, chart highlights. Never text, never the only cue, never a focus ring (focus stays `--accent`, 3:1). |
 | `--glass` | `rgb(22 48 61 / 0.8)` | `rgb(250 248 244 / 0.82)` | Header and command palette only, with `--glass-blur`. |
 | `--shadow-sm` | `0 1px 2px rgb(2 10 16 / 0.45)` | `0 1px 2px rgb(60 45 20 / 0.08)` | Contact shadow. |
 | `--shadow-md` | `0 1px 2px rgb(2 10 16 / 0.45), 0 8px 24px -8px rgb(2 10 16 / 0.55)` | `0 1px 2px rgb(60 45 20 / 0.08), 0 8px 24px -8px rgb(60 45 20 / 0.14)` | Raised: hover and selected. |

@@ -19,6 +19,9 @@ import MenuPanel from "./MenuPanel.astro";
 import { NAV, START, isCurrent } from "../data/site-nav";
 
 const path = Astro.url.pathname;
+// One filled primary per viewport: the home hero carries its own, so the bar's
+// button is the outlined variant there (design critique, L02).
+const ctaKind = path === "/" ? "ui-btn--secondary" : "ui-btn--primary";
 const { hasSidebar } = Astro.locals.starlightRoute;
 const showSearch =
   config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
@@ -38,7 +41,7 @@ const showSearch =
     ))}
   </nav>
   <div class="search print:hidden">{showSearch && <Search />}</div>
-  <a class="cta ui-btn ui-btn--primary print:hidden" href={START.href}>{START.label}</a>
+  <a class:list={["cta ui-btn print:hidden", ctaKind]} href={START.href}>{START.label}</a>
   <div class="right sl-hidden md:sl-flex print:hidden">
     <SocialIcons />
     <ThemeSelect name="bar" />
@@ -107,7 +110,7 @@ const showSearch =
   .primary a:hover { color: var(--text); background: var(--nav-hover); }
   /* The current entry: text colour and a short accent rule under it. */
   .primary a[aria-current="page"] { color: var(--text); }
-  .primary a[aria-current="page"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; border-radius: 2px; background: var(--accent); }
+  .primary a[aria-current="page"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--deco-spark)); }
   .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
   .search { flex: 1 1 auto; display: flex; justify-content: flex-end; min-width: 0; }
   .right { flex: none; align-items: center; gap: var(--space-3); }
@@ -142,7 +145,7 @@ const showSearch =
   @media (min-width: 40rem) { .cta { display: inline-flex; } }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
-  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); opacity: .6; }
+  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--deco-spark); opacity: .8; }
 
   .to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 90;
     width: 44px; height: 44px; border-radius: var(--r-md); display: grid; place-items: center; cursor: pointer;

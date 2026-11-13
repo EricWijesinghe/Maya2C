@@ -128,12 +128,19 @@ const onHealth = path === "/health/";
   const quiet = (secs: number) =>
     secs < 60 ? `${secs} s` : secs < 3600 ? `${Math.floor(secs / 60)} min` : `${Math.floor(secs / 3600)} h ${Math.floor((secs % 3600) / 60)} min`;
 
+  const valid = (j: unknown): Status | null => {
+    const o = j as Partial<Status> | null;
+    return o && typeof o.halted_now === "boolean" && Number.isFinite(o.height) && Number.isFinite(o.since_last_block) && o.since_last_block! >= 0
+      ? (o as Status) : null;
+  };
+
   async function check(el: HTMLElement) {
     let s: Status | null = null;
     try {
       const r = await fetch(STATUS_URL, { cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS) });
-      if (r.ok) s = (await r.json()) as Status;
-    } catch { /* unreachable: reported as the status host being down, below */ }
+      // A partial or malformed answer counts as no answer: never "NaN s".
+      if (r.ok) s = valid(await r.json());
+    } catch { /* unreachable or not JSON: reported as the status host being down, below */ }
     const head = el.querySelector("[data-notice-head]");
     const detail = el.querySelector("[data-notice-detail]");
     if (!s) {

@@ -31,13 +31,20 @@
     sieveQuantum: "s-sieveq",
     shor: "s-shor",
   };
+  // Short names drawn at each line's right end, so a phone needs no legend.
+  const NAME: Record<Series, string> = { brute: "brute", grover: "Grover", sieve: "sieve", sieveQuantum: "sieve q", shor: "Shor" };
   const W = 360;
   const H = 240;
-  const PAD = 28;
+  // Gutters: y ticks and the 2^128 label left, line names right, x ticks below.
+  const L = 48;
+  const R = 62;
+  const T = 18;
+  const B = 32;
   const S_MAX = 512;
   const Y_MAX = 540; // log2 ops; brute force at 512 bits is 512
-  const X = (s: number) => PAD + (s / S_MAX) * (W - PAD - 8);
-  const Y = (v: number) => H - PAD - (Math.min(v, Y_MAX) / Y_MAX) * (H - PAD - 8);
+  const LABEL_GAP = 11; // viewBox units between two line names
+  const X = (s: number) => L + (s / S_MAX) * (W - L - R);
+  const Y = (v: number) => H - B - (Math.min(v, Y_MAX) / Y_MAX) * (H - B - T);
 
   const root = document.querySelector<HTMLElement>("[data-attack]");
   if (root) mount(root);
@@ -54,22 +61,32 @@
       svg.appendChild(node);
       return node;
     }
+    const text = (x: number, y: number, label: string, cls: string, anchor = "start") =>
+      (el("text", { x: String(x), y: String(y), "text-anchor": anchor, class: cls }).textContent = label);
 
     function drawStatic() {
-      el("line", { x1: String(PAD), y1: String(H - PAD), x2: String(W - 8), y2: String(H - PAD), class: "axis" });
-      el("line", { x1: String(PAD), y1: "8", x2: String(PAD), y2: String(H - PAD), class: "axis" });
-      // 2^128: the classical security target most readers will recognise.
-      el("line", { x1: String(PAD), y1: String(Y(128)), x2: String(W - 8), y2: String(Y(128)), class: "ref", "stroke-dasharray": "4 4" });
-      el("text", { x: String(W - 10), y: String(Y(128) - 4), "text-anchor": "end", class: "lbl" })
-        .textContent = "2^128";
-      el("text", { x: String(PAD), y: "12", class: "lbl" }).textContent = "log2 work";
-      el("text", { x: String(W - 8), y: String(H - 8), "text-anchor": "end", class: "lbl" })
-        .textContent = "s";
+      const right = W - R;
+      el("line", { x1: String(L), y1: String(H - B), x2: String(right), y2: String(H - B), class: "axis" });
+      el("line", { x1: String(L), y1: String(T), x2: String(L), y2: String(H - B), class: "axis" });
+      // x ticks under the axis, the axis name centred below them.
+      for (const s of [0, 128, 256, 384, 512]) text(X(s), H - B + 13, String(s), "lbl tick", "middle");
+      text((L + right) / 2, H - 4, "size parameter s", "lbl", "middle");
+      // y: the axis name above the plot, ticks in the left gutter. 2^128, the
+      // classical target most readers know, is the gutter label of its own
+      // dashed line, so no label sits on the data.
+      text(L, T - 7, "log2 work", "lbl");
+      for (const v of [0, 256, 512]) text(L - 5, Y(v) + 3, String(v), "lbl tick", "end");
+      el("line", { x1: String(L), y1: String(Y(128)), x2: String(right), y2: String(Y(128)), class: "ref", "stroke-dasharray": "4 4" });
+      text(L - 5, Y(128) + 3, "2^128", "lbl ref-lbl", "end");
       for (const series of SERIES) {
         const points: string[] = [];
         for (let s = 8; s <= S_MAX; s += 8) points.push(`${X(s).toFixed(1)},${Y(log2Cost(series, s)).toFixed(1)}`);
         el("polyline", { points: points.join(" "), fill: "none", class: `series ${CLASS[series]}`, "stroke-width": "2" });
       }
+      // Line names at the right ends, pushed apart where two lines end close together.
+      const ends = SERIES.map((series) => ({ series, y: Y(log2Cost(series, S_MAX)) + 3 })).sort((a, b) => a.y - b.y);
+      for (let i = 1; i < ends.length; i++) ends[i].y = Math.max(ends[i].y, ends[i - 1].y + LABEL_GAP);
+      for (const e of ends) text(right + 5, Math.min(e.y, H - B + 3), NAME[e.series], `lbl end ${CLASS[e.series]}-lbl`);
     }
 
     function update() {
@@ -77,10 +94,10 @@
       out.textContent = String(s);
       svg.querySelectorAll("[data-marker]").forEach((n) => n.remove());
       // A soft accent wash up to the chosen size, behind every line.
-      const zone = el("rect", { x: String(PAD), y: "8", width: String(Math.max(0, X(s) - PAD)), height: String(H - PAD - 8), class: "zone" });
+      const zone = el("rect", { x: String(L), y: String(T), width: String(Math.max(0, X(s) - L)), height: String(H - B - T), class: "zone" });
       zone.setAttribute("data-marker", "");
       svg.prepend(zone);
-      const marker = el("line", { x1: String(X(s)), y1: "8", x2: String(X(s)), y2: String(H - PAD), class: "marker", "stroke-dasharray": "2 3" });
+      const marker = el("line", { x1: String(X(s)), y1: String(T), x2: String(X(s)), y2: String(H - B), class: "marker", "stroke-dasharray": "2 3" });
       marker.setAttribute("data-marker", "");
       const v = (series: Series) => log2Cost(series, s).toFixed(1);
       readout.textContent =
@@ -114,10 +131,18 @@
   .attack :global(.axis) { stroke: var(--chart-axis); }
   .attack :global(.ref) { stroke: var(--text-3); }
   .attack :global(.marker) { stroke: var(--accent); stroke-width: 2; }
-  .attack :global(.zone) { fill: var(--accent); fill-opacity: .1; }
+  .attack :global(.zone) { fill: var(--deco-spark); fill-opacity: .12; }
   /* Labels in viewBox units: 10 reads at desktop width; a 360 px phone draws
      the plot near 330 px wide, so the labels grow to stay about 11 px. */
-  .attack :global(.lbl) { fill: var(--text-2); font-family: var(--mono); font-size: 10px; }
+  /* A plot-coloured halo under every label, so a line passing behind never strikes it through. */
+  .attack :global(.lbl) { fill: var(--text-2); font-family: var(--mono); font-size: 10px; paint-order: stroke; stroke: var(--plot); stroke-width: 3px; stroke-linejoin: round; }
+  .attack :global(.tick) { fill: var(--text-3); }
+  .attack :global(.ref-lbl) { fill: var(--text); font-weight: var(--weight-semibold); }
+  /* Line names in each series' text-safe role (4.5:1 on the plot). */
+  .attack :global(.s-brute-lbl), .attack :global(.s-grover-lbl) { fill: var(--bronze-text); }
+  .attack :global(.s-sieve-lbl), .attack :global(.s-sieveq-lbl) { fill: var(--steel); }
+  .attack :global(.s-shor-lbl) { fill: var(--danger); }
+  /* Phones: the lines are named at their ends, so the five-row legend goes. */
   @media (max-width: 36rem) { .attack :global(.lbl) { font-size: 12px; } }
   .attack .legend { list-style: none; padding: 0; margin: 0.6rem 0; display: grid; gap: 0.2rem; font-size: 0.9rem; }
   .attack .sw { display: inline-block; width: 1.4rem; height: 0; border-top: 3px solid; margin-right: 0.45rem; vertical-align: 0.25rem; }
@@ -127,4 +152,7 @@
   .attack .sieveq { border-color: var(--steel); border-top-style: dashed; }
   .attack .shor { border-color: var(--danger); border-top-style: dotted; }
   .attack p { font-size: 0.92rem; }
+  /* Phones: the lines are named at their ends, so the five-row legend goes
+     (after the legend's own rule, which would otherwise win). */
+  @media (max-width: 36rem) { .attack .legend { display: none; } }
 </style>

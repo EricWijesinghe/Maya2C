@@ -2,7 +2,7 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import sitemap from "@astrojs/sitemap";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { unified } from "@astrojs/markdown-remark";
@@ -23,6 +23,16 @@ const { modified } = JSON.parse(
   readFileSync(new URL("./src/seo.generated.json", import.meta.url), "utf8"),
 );
 const LIVE_PAGES = new Set(["/stats/", "/health/"]);
+// softwareVersion: the newest node release note that is not a draft
+// (docs/releases/node-v*.md; a draft opens with "DRAFT. Not published."), so
+// the structured data follows each release instead of a hand-typed string.
+const RELEASES = new URL("../releases/", import.meta.url);
+const NODE_VERSION = readdirSync(RELEASES)
+  .filter((f) => /^node-v.+\.md$/.test(f) && !/DRAFT\. Not published/.test(readFileSync(new URL(f, RELEASES), "utf8").slice(0, 800)))
+  .map((f) => f.slice("node-v".length, -".md".length))
+  .sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
+  .at(-1);
+if (!NODE_VERSION) throw new Error("astro.config: no published node release note in docs/releases/");
 
 export default defineConfig({
   site: "https://maya2c.dev",
@@ -142,8 +152,7 @@ export default defineConfig({
                 applicationCategory: "DeveloperApplication",
                 // Only platforms with a released node: macOS waits for a Mac build (platform targets, 2026-10-12).
                 operatingSystem: "Linux, Windows",
-                // Matches the newest release tag (node-v0.1.0-testnet.4); bump with each release.
-                softwareVersion: "0.1.0-testnet.4",
+                softwareVersion: NODE_VERSION,
                 downloadUrl: "https://github.com/EricWijesinghe/Maya2C/releases",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
                 // The software is free to download. This prices the download,

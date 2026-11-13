@@ -1,8 +1,10 @@
 // Browser checks for the maya2c.dev shell (lane L02), against a built site.
 //
 //   cd docs/site && npm run build
-//   npm install --no-save --prefix design/visual playwright@1.56.1 axe-core@4
+//   npm install --no-save --prefix design/visual playwright@1.56.1 axe-core@4.10.2
 //   node design/visual/site-shell.mjs          checks + screenshots
+//   (or `npm run test:shell` in docs/site; CI runs it in the pinned
+//   mcr.microsoft.com/playwright:v1.56.1-noble container, job `site shell`)
 //
 // CHROMIUM_PATH picks a Chromium binary (as regress.mjs does). Exits 1 on any
 // failure and prints each one. What it proves, at real viewports in Chromium:
@@ -17,8 +19,11 @@
 //      the inline nav replaces it.
 //   3. No page of the site scrolls sideways at 360, 390 or 768 px, and no
 //      element pokes past the right edge outside a scroll container.
-//   4. axe-core finds no colour-contrast violation on /, /guides/faq/ and
-//      /learn/signatures-live/ in either theme.
+//   2c. At 390 px every visible link, button, summary and label in the open
+//      menu and in the footer is at least 44 px high (the owner's tap rule).
+//   4. axe-core (WCAG 2.0/2.1/2.2 A and AA rule tags, not contrast alone) finds
+//      no violation on /, /guides/faq/, /learn/signatures-live/, /404 and the
+//      open phone menu, in either theme.
 //   5. Every series, axis and marker colour of the attack-cost plot is at
 //      least 3:1 on the plot background, in both themes.
 // Screenshots (JPEG) land in design/visual/site/: pages at 360 and 1440, the
@@ -35,6 +40,8 @@ const dist = resolve(here, "..", "..", "docs", "site", "dist");
 const shots = join(here, "site");
 const THEME_KEY = "starlight-theme";
 const OVERFLOW_WIDTHS = [360, 390, 768];
+const MIN_TAP = 44;
+const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const MIN_GRAPHIC_CONTRAST = 3;
 const require = (await import("node:module")).createRequire(import.meta.url);
 const axeSource = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -161,6 +168,8 @@ for (const scheme of ["light", "dark"]) {
         continue;
       }
       if (which === "details.mnav > summary") {
+        // aria-expanded follows the <details> toggle event, which fires after the click.
+        await page.waitForFunction(() => document.querySelector("details.mnav > summary")?.getAttribute("aria-expanded") === "true", null, { timeout: 2000 }).catch(() => {});
         const r = await page.evaluate(() => {
           const s = document.querySelector("details.mnav > summary").getBoundingClientRect();
           const p = document.querySelector(".mnav__panel").getBoundingClientRect();
@@ -181,6 +190,36 @@ for (const scheme of ["light", "dark"]) {
     }
     await ctx.close();
   }
+}
+
+// --- 2c: tap targets in the phone menu and the footer --------------------------
+console.log("tap targets");
+for (const scheme of ["light", "dark"]) {
+  const ctx = await context({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+  const page = await ctx.newPage();
+  for (const path of ["/", "/guides/faq/"]) {
+    await page.goto(BASE + path, { waitUntil: "load" });
+    const which = await openMenu(page);
+    const small = await page.evaluate((min) => {
+      const panel = document.querySelector("details.mnav[open] .mnav__panel") ?? document.querySelector("#starlight__sidebar");
+      const out = [];
+      let n = 0;
+      for (const [where, box] of [["menu", panel], ["footer", document.querySelector("footer.maya-footer")]]) {
+        if (!box) { out.push(`${where}: not found`); continue; }
+        for (const el of box.querySelectorAll("a, button, summary, label")) {
+          const b = el.getBoundingClientRect();
+          const st = getComputedStyle(el);
+          if (b.width === 0 || b.height === 0 || st.visibility === "hidden" || el.closest(".sr-only, [hidden]")) continue;
+          n++;
+          if (b.height < min - 0.5) out.push(`${where} ${el.tagName.toLowerCase()} "${(el.textContent || el.getAttribute("aria-label") || "").trim().slice(0, 30)}" ${Math.round(b.height)} px`);
+        }
+      }
+      return { n, out };
+    }, MIN_TAP);
+    const tag = `390px ${scheme} ${path} (${which ?? "no menu"})`;
+    small.out.length ? fail(`${tag}: ${small.out.length} target(s) under ${MIN_TAP} px: ${small.out.slice(0, 6).join(" | ")}`) : pass(`${tag}: ${small.n} menu and footer targets all >= ${MIN_TAP} px`);
+  }
+  await ctx.close();
 }
 
 // --- screenshots: phones at 360, the charts and the footer at 360 and 1440 -----
@@ -243,17 +282,33 @@ for (const width of OVERFLOW_WIDTHS) {
   await ctx.close();
 }
 
-// --- 4: axe colour contrast ------------------------------------------------------
-console.log("contrast");
+// --- 4: axe, WCAG 2.x A and AA rules ---------------------------------------------
+console.log("axe (" + AXE_TAGS.join(", ") + ")");
+const axe = async (page, label) => {
+  // expressive-code gives a scrolling code block tabindex="0" from an idle
+  // callback after a debounced ResizeObserver; let it run before auditing.
+  await page.waitForFunction(() => [...document.querySelectorAll(".expressive-code pre")].every((p) => p.scrollWidth <= p.clientWidth || p.hasAttribute("tabindex")), null, { timeout: 3000 }).catch(() => {});
+  await page.addScriptTag({ content: axeSource });
+  const v = await page.evaluate(async (tags) => (await window.axe.run(document, { runOnly: { type: "tag", values: tags } })).violations, AXE_TAGS);
+  const nodes = v.flatMap((x) => x.nodes.map((n) => `${x.id} ${n.target.join(" ")}: ${(n.any[0] ?? n.all[0] ?? n.none[0])?.message ?? ""}`.slice(0, 180)));
+  const contrast = v.filter((x) => x.id === "color-contrast").reduce((a, x) => a + x.nodes.length, 0);
+  nodes.length ? fail(`${label}: ${nodes.length} violation(s): ${nodes.slice(0, 5).join(" | ")}`) : pass(`${label}: 0 violations (0 contrast)`);
+  return contrast;
+};
 for (const scheme of ["light", "dark"]) {
+  const phone = await context({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+  const pp = await phone.newPage();
+  for (const path of ["/", "/guides/faq/"]) {
+    await pp.goto(BASE + path, { waitUntil: "load" });
+    const which = await openMenu(pp);
+    await axe(pp, `${scheme} 390px ${path} menu open (${which})`);
+  }
+  await phone.close();
   const ctx = await context({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
   const page = await ctx.newPage();
-  for (const path of ["/", "/guides/faq/", "/learn/signatures-live/"]) {
+  for (const path of ["/", "/guides/faq/", "/learn/signatures-live/", "/404"]) {
     await page.goto(BASE + path, { waitUntil: "load" });
-    await page.addScriptTag({ content: axeSource });
-    const v = await page.evaluate(async () => (await window.axe.run(document, { runOnly: ["color-contrast"] })).violations);
-    const nodes = v.flatMap((x) => x.nodes.map((n) => `${n.target.join(" ")}: ${n.any[0]?.message ?? ""}`.slice(0, 160)));
-    nodes.length ? fail(`${scheme} ${path}: ${nodes.length} contrast violation(s): ${nodes.slice(0, 4).join(" | ")}`) : pass(`${scheme} ${path}: 0 contrast violations`);
+    await axe(page, `${scheme} ${path}`);
   }
   // --- 5: the attack-cost plot ----------------------------------------------------
   await page.goto(BASE + "/guides/signatures/", { waitUntil: "load" });

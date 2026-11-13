@@ -47,6 +47,12 @@ for (const page of ["index.html", "guides/faq/index.html", "404.html"]) {
   }
 }
 
+// An installed app's window chrome: the manifest carries the dark default's --bg.
+const manifest = JSON.parse(read(join(root, "public", "site.webmanifest")));
+for (const k of ["theme_color", "background_color"]) {
+  if (manifest[k]?.toLowerCase() !== bg.dark) fail(`site.webmanifest: ${k} ${manifest[k]} is not the dark --bg token ${bg.dark}`);
+}
+
 // --- 2. Structured data: crumbs that resolve, a free offer, no 404 article ---
 const fileFor = (urlPath) => {
   const clean = decodeURI(urlPath.split(/[?#]/)[0]);
@@ -114,8 +120,7 @@ const FUNC = /(?:^|[^\w-])((?:rgba?|hsla?|hwb|oklch|oklab|lab|lch)\(\s*[\d.])/gi
 const TOKENISED = [
   join(src, "styles"),
   ...["Head", "Header", "Footer", "SiteTitle", "Maintenance", "Banner", "CommandPalette", "Support", "DeliveryStates", "RoadmapTimeline", "ThemeSelect", "MenuPanel", "Sidebar"].map((n) => join(COMPONENTS, `${n}.astro`)),
-  join(COMPONENTS, "math", "AttackCost.astro"),
-  join(COMPONENTS, "math", "QuorumOverlap.astro"),
+  join(COMPONENTS, "math"),
   join(src, "pages", "learn", "signatures-live.astro"),
   join(src, "pages", "404.astro"),
 ];

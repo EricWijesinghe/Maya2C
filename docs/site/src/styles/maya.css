@@ -34,7 +34,7 @@
   --orb-lo: color-mix(in srgb, var(--accent) 14%, var(--surface-1));
   /* The forged rule: teal into bronze, under the header and over the footer.
      The brand's two metals in one line, in both themes. */
-  --forge-line: linear-gradient(90deg, var(--accent), var(--accent-hover) 45%, var(--bronze-display));
+  --forge-line: linear-gradient(90deg, var(--deco-spark), var(--accent) 45%, var(--bronze-display));
 
   /* Radii: the old soft scale clamped to the 12 px ceiling. */
   --r-s: var(--r-md);
@@ -84,6 +84,9 @@
   --orb-hi: color-mix(in srgb, var(--text) 13%, transparent);
   --orb-lo: color-mix(in srgb, var(--surface-1) 66%, transparent);
   --halo: color-mix(in srgb, var(--accent) 55%, transparent);
+  /* The bar leans teal rather than slate, so it reads as the brand's night
+     and not a grey slab over the page (opaque: no backdrop-filter, see below). */
+  --sl-color-bg-nav: color-mix(in srgb, var(--accent) 7%, var(--bg));
 }
 
 /* Light: paper cards. White surfaces lift off the page with the shadow
@@ -102,8 +105,8 @@ html {
   /* Paper or night, with the two metals breathing in at the top of every
      page: teal on the left, bronze on the right (decorative tokens only). */
   background:
-    radial-gradient(60rem 26rem at 10% -6rem, var(--deco-teal), transparent 70%) no-repeat,
-    radial-gradient(44rem 22rem at 95% -4rem, var(--deco-bronze), transparent 70%) no-repeat,
+    radial-gradient(72rem 34rem at 8% -8rem, var(--deco-teal), transparent 72%) no-repeat,
+    radial-gradient(52rem 28rem at 96% -6rem, var(--deco-bronze), transparent 72%) no-repeat,
     var(--void);
   /* Full-bleed sections are 100vw wide, which includes the scrollbar. */
   overflow-x: clip;
@@ -183,7 +186,7 @@ h1#_top {
 .sl-markdown-content h2:not(:where(.not-content *, .home-h2)) { font-size: var(--type-title-2-size); letter-spacing: var(--tracking-display); margin-top: 2em; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
 .sl-markdown-content h3 { font-size: var(--type-title-3-size); letter-spacing: -0.01em; margin-top: 1.75em; }
 .sl-markdown-content h4 { font-size: var(--type-body-lg-size); }
-.sl-markdown-content :is(p, li) { color: var(--lede); }
+.sl-markdown-content :is(p, li):not(:where(.not-content *)) { color: var(--lede); }
 .sl-markdown-content strong { color: var(--text); font-weight: var(--weight-semibold); }
 
 .sl-markdown-content a:not(:where(.not-content *, .card, .sl-link-button, .sl-link-card, .anchor-link)) {
@@ -243,6 +246,14 @@ starlight-toc a { color: var(--text-2); }
 starlight-toc a:hover { color: var(--text); }
 .sidebar-content a[aria-current="page"] { color: var(--text) !important; background: var(--surface-2) !important; font-weight: var(--weight-medium); box-shadow: inset 2px 0 0 var(--accent); }
 .sidebar-content .group-label .large { font: var(--weight-semibold) var(--type-label-size)/var(--line-body) var(--display); color: var(--text); }
+/* Phones: the docs tree is the main navigation, so its rows match the site
+   rows above it (MenuPanel.astro): 44 px targets at body-lg, not a desktop
+   sidebar shrunk onto a phone. */
+@media (max-width: 50rem) {
+  .sidebar-content a, .sidebar-content summary { min-height: 44px; display: flex; align-items: center; }
+  .sidebar-content a { font-size: var(--type-body-lg-size); }
+  .sidebar-content summary .caret { width: 20px; height: 20px; }
+}
 starlight-toc a[aria-current="true"] { color: var(--text) !important; font-weight: var(--weight-medium); }
 
 /* Previous / next: two flat cards; the border answers the hover. */
