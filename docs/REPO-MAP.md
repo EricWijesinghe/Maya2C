@@ -24,6 +24,7 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 | What could go wrong? | `RISKS.md`, `THREAT_MODEL.md` |
 | Is it ready to launch? | `LAUNCH.md` (gates), `READINESS.md` (generated), `docs/mainnet-readiness.md` |
 | How is the wire/state defined? | `spec/` |
+| How long is a block, in seconds? | `docs/block-time.md` (measured; every "days" count converts there) |
 | How do I build / run? | `docs/build.md`, `docs/environment.md`, `docs/runbooks/` |
 
 ## Source code
