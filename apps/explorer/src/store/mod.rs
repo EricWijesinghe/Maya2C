@@ -9,7 +9,8 @@
 //!
 //! `MemoryStore` proves the *logic*. It cannot prove the SQL: query syntax,
 //! index behaviour, and constraint enforcement are only exercised against a
-//! real PostgreSQL server.
+//! real PostgreSQL server, which `tests/postgres_store_tests.rs` does when
+//! `MAYA_EXPLORER_TEST_PG` names one (CI's nextest job does).
 
 pub mod memory;
 pub mod postgres;

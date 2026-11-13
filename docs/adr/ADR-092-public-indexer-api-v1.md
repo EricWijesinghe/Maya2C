@@ -49,8 +49,8 @@ cannot take that prefix.
    Anything above it is `max-age=5`. Live data is `no-cache` with an `ETag`
    over the body and `If-None-Match` returns 304.
 8. **Store.** The index gains `tx_outputs(txid, idx, recipient, amount)` and
-   `IndexedOutput`. The index generation is bumped to 3, which empties the
-   derived tables once so every block is re-read with outputs. Both stores
+   `IndexedOutput`. The index generation is bumped to 4 (master used 3
+   for the `explanation` column meanwhile), which empties the derived tables once so every block is re-read with outputs. Both stores
    gain keyset pages for blocks, transactions and transactions by address
    (sent, received or both), and `oldest_height`.
 9. **Spec.** The OpenAPI document is produced in code by `utoipa`. The golden
@@ -63,9 +63,16 @@ cannot take that prefix.
   `/api/v2`.
 - `tx_outputs` is written in the same SQL transaction as the block, so the
   index never shows a transaction without its outputs.
-- The Postgres SQL for the new queries is verified only by review in this
-  change. The repository has no PostgreSQL test harness, so those queries are
-  NOT VERIFIED against a server; the `MemoryStore` tests prove the logic.
+- The Postgres SQL runs against a real server in
+  `apps/explorer/tests/postgres_store_tests.rs`: one scenario (lookups, keyset
+  walks at several limits, address directions, hostile input, reorg and
+  rollback, restart and generation rebuild) is run on both `MemoryStore` and
+  `PostgresStore`, so the fake the API tests use and the SQL cannot drift. The
+  server comes from `MAYA_EXPLORER_TEST_PG`; CI's nextest job provides a
+  `postgres:17-alpine` service, and without the variable those tests print
+  SKIPPED. No new dependency: `sqlx` was already in the crate, and its 0.9
+  `query()` accepts only `'static` SQL, so a value cannot be spliced into a
+  statement without an explicit `AssertSqlSafe` (none in `src/`).
 - The golden file is JSON, which is valid YAML 1.2. Emitting block-style YAML
   would need a YAML serializer dependency, which is not in the lockfile.
 - SDKs are out of scope for this ADR.

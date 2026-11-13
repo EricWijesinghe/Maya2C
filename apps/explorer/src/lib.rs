@@ -10,6 +10,7 @@
 //!   implementations
 //! - [`model`] — the explorer's own denormalised view of chain data
 //! - [`ui`] — Leptos server-rendered components and pages
+//! - [`explain`] — per-block and per-transaction explanations via clear-sign
 //! - [`chart`] — inline SVG charts, pure functions from data to markup
 //! - [`server`] — routes, JSON API, and WebSocket endpoints
 //!
@@ -31,6 +32,7 @@
 pub mod api;
 pub mod chart;
 pub mod error;
+pub mod explain;
 pub mod indexer;
 pub mod model;
 pub mod plain;

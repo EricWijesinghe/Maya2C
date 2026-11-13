@@ -88,6 +88,7 @@ ALTER TABLE transactions ALTER COLUMN total_out TYPE TEXT USING total_out::text;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT '';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS careful BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS explanation TEXT NOT NULL DEFAULT '';
 
 -- Which schema generation filled the index. See INDEX_VERSION.
 CREATE TABLE IF NOT EXISTS meta (
@@ -102,9 +103,9 @@ CREATE TABLE IF NOT EXISTS meta (
 /// fill in what the node knew at the time: rows indexed before `kind` existed
 /// would show a blank kind forever, because the indexer resumes from the tip.
 /// Bumping this empties the derived tables once so the indexer re-reads the
-/// chain. v2: `kind`, `summary` and `careful` are populated. v3: `tx_outputs`
-/// is populated (ADR-092).
-pub const INDEX_VERSION: i64 = 3;
+/// chain. v2: `kind`, `summary` and `careful` are populated. v3: `explanation`.
+/// v4: `tx_outputs` is populated (ADR-092).
+pub const INDEX_VERSION: i64 = 4;
 
 /// A PostgreSQL-backed index.
 pub struct PostgresStore {
@@ -208,6 +209,7 @@ fn tx_from_row(row: &sqlx::postgres::PgRow) -> Result<IndexedTx> {
         kind: row.try_get("kind")?,
         summary: row.try_get("summary")?,
         careful: row.try_get("careful")?,
+        explanation: row.try_get("explanation")?,
         outputs: Vec::new(),
     })
 }
@@ -283,8 +285,8 @@ impl BlockStore for PostgresStore {
             sqlx::query(
                 "INSERT INTO transactions
                    (txid, height, sender, nonce, output_count, total_out, signed, position,
-                    kind, summary, careful)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    kind, summary, careful, explanation)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                  ON CONFLICT (txid) DO UPDATE SET
                    height = EXCLUDED.height,
                    sender = EXCLUDED.sender,
@@ -295,7 +297,8 @@ impl BlockStore for PostgresStore {
                    position = EXCLUDED.position,
                    kind = EXCLUDED.kind,
                    summary = EXCLUDED.summary,
-                   careful = EXCLUDED.careful",
+                   careful = EXCLUDED.careful,
+                   explanation = EXCLUDED.explanation",
             )
             .bind(&transaction.txid)
             .bind(transaction.height)
@@ -308,6 +311,7 @@ impl BlockStore for PostgresStore {
             .bind(&transaction.kind)
             .bind(&transaction.summary)
             .bind(transaction.careful)
+            .bind(&transaction.explanation)
             .execute(&mut *tx)
             .await?;
 

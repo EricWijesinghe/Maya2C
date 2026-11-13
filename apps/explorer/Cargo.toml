@@ -29,6 +29,10 @@ primitive-types.workspace = true
 maya-design-system = { path = "../../crates/design-system" }
 # ADR-081: addresses are shown as Bech32m text beside their hex id.
 maya-address = { path = "../../crates/address" }
+# W3-7: "explain this block" renders through the clear-signing renderer, so the
+# explorer prints the same words a wallet shows before signing.
+maya-clear-sign = { path = "../../crates/clear-sign" }
+maya-amount = { path = "../../crates/amount" }
 
 # SSR only. A hydrating build needs cargo-leptos and wasm-bindgen to produce a
 # client bundle; this renders on the server and pushes updates over WebSocket.
@@ -42,8 +46,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # instead.
 tower-http = { workspace = true, features = ["trace", "fs", "cors"] }
 maya-web-security = { path = "../../crates/web-security", features = ["rate-limit"] }
-# ADR-081: Bech32m address text for the v1 API, in and out.
-maya-address = { path = "../../crates/address" }
 # Per-client limiter layer for /api/v1 (the limiter itself is in web-security).
 tower_governor.workspace = true
 # Response ETags for live data (ADR-092).

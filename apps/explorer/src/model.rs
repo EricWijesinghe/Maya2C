@@ -99,6 +99,10 @@ pub struct IndexedTx {
     /// Whether signing it needs a closer look than a routine payment.
     #[serde(default)]
     pub careful: bool,
+    /// Plain-language explanation from the clear-sign renderer
+    /// ([`crate::explain::explain_tx`]). Empty in a row indexed before it.
+    #[serde(default)]
+    pub explanation: String,
     /// Each output, in order. Kept out of the existing `/api/*` JSON; the v1
     /// API reads them from the `tx_outputs` table.
     #[serde(default, skip_serializing)]
@@ -154,6 +158,7 @@ impl IndexedTx {
                 kind: tx.kind.clone(),
                 summary: tx.summary.clone(),
                 careful: tx.careful,
+                explanation: crate::explain::explain_tx(tx),
                 outputs: tx
                     .outputs
                     .iter()

@@ -2,9 +2,8 @@
 //!
 //! Requests go through `tower::ServiceExt::oneshot`, so no socket is bound and
 //! the node is a stand-in that counts calls and fails on demand. History comes
-//! from [`MemoryStore`], the same logic the Postgres store is held to by its
-//! own contract. The Postgres SQL is NOT covered here: the repository has no
-//! PostgreSQL harness.
+//! from [`MemoryStore`]; `postgres_store_tests.rs` holds the Postgres store to
+//! the same answers against a real server.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

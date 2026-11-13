@@ -33,7 +33,31 @@ writes the log. It needs no topic.
 
 Flags (defaults in brackets): `--poll-secs` [5], `--halt-secs` [30],
 `--unreachable-secs` [45], `--min-peers` [2], `--strand-blocks` [20],
-`--strand-secs` [120], `--log` [`maya2c-sentinel.log`], `--dry-run`.
+`--strand-secs` [120], `--finality-lag-blocks` [30], `--liveness-secs` [60],
+`--heartbeat PATH` [off], `--log` [`maya2c-sentinel.log`], `--dry-run`.
+
+## Dead-man heartbeat
+
+A sentinel that has crashed sends nothing, and silence looks like a healthy
+chain. Run it with `--heartbeat PATH`. It writes the Unix time to `PATH` after
+every poll. Then schedule a check every minute, **on a different machine if
+you can** (a down machine cannot page about itself):
+
+```text
+# cron: * * * * *   (Windows: Task Scheduler, every 1 minute)
+MAYA2C_SENTINEL_NTFY_TOPIC=<your-private-topic> \
+  maya2c-sentinel --check-heartbeat /var/lib/maya2c/sentinel.beat --max-age-secs 120
+```
+
+The check pushes **Maya2C sentinel stopped** (Critical) when the file is
+missing, unreadable or older than `--max-age-secs` [120], and exits 2. It
+writes `PATH.alerted` with the stamp it paged on, so it pages once per outage.
+`--dry-run` prints instead of pushing.
+
+- **Check:** is the sentinel process running (find it by PID, never by
+  image name)? Read the end of its `--log`.
+- **Act:** restart it. Until it runs again, nothing is watching the chain, so
+  check `get_chain_info` by hand.
 
 The process refuses to start live without a valid topic. A topic is 1 to 64
 letters, digits, `-` or `_`. Anything else is rejected, because a bad topic
@@ -143,7 +167,43 @@ stayed stuck.
 **Coverage.** The detector reads `get_mempool_info` (`{size, bytes}`, node-local,
 not forwarded by the public gateway). It runs for every node that answers. For a
 node that does not, the log carries `NOTE stranding idle for <node>` at start,
-and that node cannot raise this alert.
+and that node cannot raise this alert. Before ADR-101 the sentinel read a
+`pending` field the node never served, so stranding was idle on every node.
+
+### Sentinel blind (`blind`, Critical)
+
+None of the watched nodes has answered for 45 s (`--unreachable-secs`). Every
+other alert is silent now, and that silence means nothing.
+
+- **Check:** the sentinel machine's own network, tunnels and forwards first,
+  then the nodes from another machine.
+- **Act:** if the nodes answer from elsewhere, fix the sentinel's path to
+  them. If they do not, treat it as a halt (`chain-halt.md`).
+
+### Finality lagging (`finality-lag`, Warning)
+
+The highest tip is 30 blocks or more (`--finality-lag-blocks`) past the newest
+checkpoint (`get_checkpoint`) any watched node holds. Blocks are still being
+made, but `2f + 1` attestations are not forming, so a node that falls behind
+has nothing to catch up to (ADR-038).
+
+- **Check:** `get_checkpoint` and `get_bft_status` on every validator: is
+  each one in the committee, and is any of them a `follower`? Look for
+  attestation gossip errors in the validator logs.
+- **Act:** `fell-behind.md` for a validator that is not attesting. Do not
+  restart several validators at once (the 2026-10-18 halt).
+
+### Validator not proposing (`liveness:<node>`, Warning)
+
+A watched committee member's `round` has not changed for 60 s
+(`--liveness-secs`) while the network's committed round has moved. The push
+says if the node is following attested blocks instead of building.
+
+- **Check:** the node's `get_bft_status` (`validator`, `round`, `follower`),
+  its signer (`signer-unreachable.md`) and its peers.
+- **Act:** a follower that does not return to building: `fell-behind.md`. Only
+  nodes the sentinel polls are covered; a committee member it does not watch
+  cannot raise this alert.
 
 ### Resolved (`RESOLVED: <title>`, priority 3)
 
@@ -155,6 +215,8 @@ and check that the chain is producing blocks.
 - **Equivocation and slashing evidence.** Not exposed over RPC yet, so the
   sentinel cannot see it. Watch the validator logs and `get_validators` by hand.
 - **Anything inside one node that its RPC does not expose.**
+- **Supply audit (#454).** The `maya2c-audit supply` recompute is not wired
+  in yet; #454 was not merged when ADR-101 was written.
 
 ## Logs and files
 
@@ -167,4 +229,7 @@ outbound HTTPS and the topic, then read the log for the alert.
 ## Rehearsal
 
 `cargo test -p maya-sentinel` runs the detectors against scripted nodes,
-including the stranding replay (`apps/sentinel/tests/stranding_replay.rs`).
+including the stranding replay (`apps/sentinel/tests/stranding_replay.rs`)
+and the netfault scenarios (`apps/sentinel/tests/fault_scenarios.rs`: 2|2 and
+3|1 partition with heal, latency with jitter, bursty loss, lost attestations).
+Those replay modelled RPC answers; they are not a run of the relay.
