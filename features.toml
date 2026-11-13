@@ -2185,6 +2185,16 @@ status = "verified"
 tests = ["crates/light-client/tests/spv_tests.rs", "crates/light-client/tests/stateless_memory.rs", "crates/node/tests/consensus_tests.rs"]
 
 [[subsystem]]
+id = "finality-light-client"
+name = "Finality light client (DAG-BFT checkpoints, committee handoffs)"
+domain = "Kernel, networking and transport"
+paths = "`crates/light-client/src/finality.rs`, `crates/light-client/src/record.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/light-client/tests/finality_tests.rs"]
+
+[[subsystem]]
 id = "network-simulation-harness"
 name = "Network simulation harness"
 domain = "Kernel, networking and transport"
@@ -2338,6 +2348,50 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim kind 1 is unassigned, no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
+
+[[subsystem]]
+id = "hub-gpu-auto-tuner"
+name = "Hub GPU auto-tuner (power limit search with rollback)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-1); will live in `apps/hub/src-tauri/src/tuner.rs`"
+tier = "extended"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12. Planned means no code: the Hub reads GPU telemetry and writes no GPU setting today. First build is NVIDIA only and guided: the Hub suggests a lower power limit, the user sets it, the Hub measures; it writes nothing. Automatic mode needs an elevated helper and is gated on a release signing key and a per-machine install. AMD and Intel are not wired. Opt-in per device. Not consensus. No efficiency gain has been measured."
+
+[[subsystem]]
+id = "node-hardware-self-tuning"
+name = "Node hardware self-tuning (probe, tuning profile, manual override)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-2)"
+tier = "core"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12. Planned means no code. Changes the node binary, so the build is post-genesis. A profile may change thread counts and cache sizes and never a validity decision; the test that pins this (same decisions and state root under every profile) does not exist yet. No speed-up has been measured."
+
+[[subsystem]]
+id = "gpu-signature-verification"
+name = "GPU signature verification (wgpu, advisory to the CPU verifier)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-3); will live in `hal/wgpu-verify`"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12. Planned means no code. The CPU verifier stays authoritative at every approved stage: a GPU answer is compared with the CPU answer and discarded, and never admits, refuses, delays or caches anything. A GPU answer standing without a CPU check would be consensus-critical and is not approved. Whether a GPU is faster than the cached multi-core CPU path for ML-DSA-65 and SLH-DSA-SHA2-128s is unmeasured; no speed-up figure exists."
+
+[[subsystem]]
+id = "miner-inference-scheduling"
+name = "Inference jobs on miners (declared device class, Hub worker mode, scheduling around mining)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-4)"
+tier = "extended"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12; post-genesis. Planned means no code. Adds no consensus rule: records, claims and receipts are ADR-129's (proposed, PR #470) and the entry verifiable-compute-job-market covers ADR-079. Device class is declared plus calibration evidence, never attested; TEE attestation stays blocked. The first build step runs against a fake worker and is a SIM until ADR-129's worker exists."
 
 [[subsystem]]
 id = "confidential-federated-training"
@@ -3279,8 +3333,8 @@ paths = "`bins/maya2c-mcp`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs"]
-note = "Master Prompt 24 §5. Decode, clear-sign review, error explanation, node RPC; writes refused to non-loopback nodes. 10/10 task set."
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "crate:maya2c-mcp"]
+note = "Master Prompt 24 §5, ADR-084. Read-only: 6 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending."
 
 [[subsystem]]
 id = "interop-proof-routes"
@@ -3530,7 +3584,7 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = ["crate:maya-sentinel"]
-note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding. Stranding reads get_mempool_info (node RPC, added with this entry); a node that does not serve it is logged as idle, not silently skipped. Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
+note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
 id = "testnet-kit"
@@ -3553,3 +3607,25 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "xtask-attacknet"
+name = "Attacknet (cargo xtask attacknet)"
+domain = "Tooling and formal verification"
+paths = "`xtask/src/attacknet.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:xtask"]
+note = "The gate evidence: each run writes reports/attacknet/<date>-<n>.md (seven validators on one machine, loopback links). The crate:xtask unit tests cover only --trusted-block parsing; the attacks themselves are checked by running them, not by a test target."
+
+[[subsystem]]
+id = "attacknet-controller"
+name = "Attacknet lab controller"
+domain = "Tooling and formal verification"
+paths = "`bins/attacknet-controller`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["crate:attacknet-controller"]
+note = "Scaffold. Process kill (by data dir, zero matches is an error) and start are real; every other fault returns a not-implemented error since 2026-11-10 (before that, many logged Ok without acting). Its scenario verdicts and reports/attacknet/runs/ are not evidence; use cargo xtask attacknet."

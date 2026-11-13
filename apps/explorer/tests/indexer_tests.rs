@@ -663,3 +663,22 @@ async fn the_index_keeps_each_transactions_kind_summary_and_care_flag() {
         ]
     );
 }
+
+#[tokio::test]
+async fn each_indexed_transaction_carries_its_clear_sign_explanation() {
+    let chain = StubChain::new();
+    let store = Arc::new(MemoryStore::new());
+    chain.push(0, 0, 1);
+    indexer_from(&chain, &store)
+        .sync_once()
+        .await
+        .expect("sync");
+
+    let tx = &store.transactions_in_block(0).await.expect("query")[0];
+    assert!(
+        tx.explanation
+            .contains("Send 100 base units of the native coin to bbbb…bbbb"),
+        "{}",
+        tx.explanation
+    );
+}
