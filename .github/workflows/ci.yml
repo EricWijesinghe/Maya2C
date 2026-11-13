@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      state: ${{ steps.diff.outputs.state }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -51,7 +52,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"; echo "push: full run"; exit 0
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "state=true" >> "$GITHUB_OUTPUT"; echo "push: full run"; exit 0
           fi
           files=$(git diff --name-only "$BASE"...HEAD)
           echo "$files"
@@ -59,6 +60,13 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "code changed: full run"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"; echo "docs only: build and test jobs skipped"
+          fi
+          # Paths that cannot move a state root (golden-roots). Apps reach the
+          # node only as dev-dependencies of other tests.
+          if echo "$files" | grep -qvE '^(apps/|docs/|reports/|xtask/|scripts/|[^/]+\.md$|features\.toml$)'; then
+            echo "state=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=false" >> "$GITHUB_OUTPUT"; echo "no state-transition paths: golden-roots skipped"
           fi
 
   # ---------------------------------------------------------------------
@@ -365,9 +373,12 @@ jobs:
   golden-roots:
     name: golden roots (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.state == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # 150, as for `test`: a cold Windows or macOS build of the node and its
+    # RocksDB tree has no measured time yet, and a job cancelled at its limit
+    # keeps no log. NOT a required check yet (DECISIONS.md 2026-11-14).
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:

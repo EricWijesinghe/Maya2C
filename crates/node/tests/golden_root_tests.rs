@@ -6,37 +6,59 @@
 //! chain at the first block that hits it. Nothing else here would notice: the
 //! rest of the suite derives its expected roots on the machine it runs on.
 //!
-//! This test replays a committed chain — transfers, staking, DEX, a contract
-//! and a governance proposal carried through to execution — through
-//! `StateDB::apply_block_journaled`, the path `Chain` uses (invariant 24), and
-//! compares every block id and state root with committed golden values. CI
-//! runs it on Linux, Windows and macOS against the same two files, so the
-//! three agree with each other only by agreeing with the file.
+//! This test replays a committed chain — transfers paying the fee market,
+//! staking, DEX, a contract, a mining share, and a governance proposal carried
+//! through to execution — the way a DAG-BFT validator that derived each block
+//! applies it (`preview_root`, then `apply_block_journaled`, invariant 24), and
+//! compares every block id and state root with committed golden values. The
+//! fresh apply a catching-up node runs disagrees at a mining epoch boundary;
+//! an ignored test below pins that finding until the node is fixed. Each header carries a sealed `(epoch, round)`
+//! nonce with skipped anchor slots, as DAG-BFT blocks do, so the per-block
+//! participation count and both epoch payouts run on real input.
+//!
+//! What it does not cover: the context is `BlockContext::at_height`, not
+//! `Chain::context_at` (the same value for this genesis, which schedules no
+//! upgrade, suite sunset or shielded activation), and it runs in the `ci`
+//! profile with default features, not the validator's `--release
+//! --no-default-features --features production` build, so a divergence that
+//! shows only at opt-level 3 is not caught here.
 //!
 //! The block bytes are committed and replayed as bytes, so the replay does not
 //! depend on this file building the same transactions. A second test rebuilds
-//! the chain in code and compares it with the committed bytes: key derivation
-//! and both signature schemes are deterministic, so that pins them across
-//! platforms too. Regenerate both files with `MAYA_BLESS_GOLDEN=1` after a
-//! deliberate consensus change, and review the diff of `expected.txt`: every
-//! root that moved is a state transition that changed.
+//! the chain in code and compares it with the committed bytes: key derivation,
+//! both signature schemes and the share search are deterministic, so that
+//! pins them across platforms too. After a deliberate consensus change,
+//! regenerate both files with `MAYA_BLESS_GOLDEN=1` (only the build test
+//! writes; the replay test skips while blessing), run again without it, and
+//! review the diff of `expected.txt`: every root that moved is a state
+//! transition that changed.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use custom_l1_node::consensus::bft::seal as seal_nonce;
 use custom_l1_node::core::dex_payload::{
     AssetRegistration, LiquidityDeposit, PoolCreation, SwapRequest,
 };
 use custom_l1_node::core::governance_payload::{Ballot, ProposalSubmission, StakeLock};
+use custom_l1_node::core::mining_payload::MiningShare;
 use custom_l1_node::core::payload::{ContractCall, ContractDeploy, derive_contract_id};
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind, TxOutput};
+use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
+use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
+use custom_l1_node::crypto::pow::meets_target;
 use custom_l1_node::crypto::validator_keys as keys;
-use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
+use custom_l1_node::genesis::{
+    Allocation, BftGenesis, FeesGenesis, GenesisBond, GenesisConfig, StakingGenesis,
+};
 use custom_l1_node::governance::derive_proposal_id;
+use custom_l1_node::state::fees::FEE_COLLECTOR;
+use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis, share_header};
+use custom_l1_node::state::shielded::FEE_SINK;
 use custom_l1_node::state::staking::validator_id;
 use custom_l1_node::state::{
     BlockContext, Direction, NATIVE_ASSET, StateDB, derive_asset_id, derive_pair_id,
@@ -53,6 +75,14 @@ const GENESIS_VALIDATORS: u8 = 4;
 const EPOCH_BLOCKS: u64 = 4;
 const LP_FEE_BPS: u32 = 30;
 const GOLD: [u8; 8] = *b"GLD\0\0\0\0\0";
+/// Paid to the fee collector by every transaction but the share: well above
+/// the base fee (one unit per byte at the floor) times any transaction here.
+/// The excess is a tip, paid out to the committee at the epoch boundary.
+const FEE: u64 = 1_000_000;
+const RESERVE: u64 = 1_000_000_000;
+/// The height whose block carries the mining share: the first of epoch 1,
+/// since mining opens at the first epoch boundary (ADR-044).
+const SHARE_HEIGHT: u64 = EPOCH_BLOCKS + 1;
 
 /// One coin at 24 decimals: balances wide enough to exercise the U256 paths.
 fn coins(n: u64) -> U256 {
@@ -73,27 +103,36 @@ fn carol() -> HybridSigningKey {
     signing_key_from_seed(&[0xC3; 32]).unwrap()
 }
 
+/// Holds no coin: its share pays no fee, the path a new miner takes.
+fn miner() -> HybridSigningKey {
+    signing_key_from_seed(&[0x51; 32]).unwrap()
+}
+
 fn validator(i: u8) -> keys::SigningKey {
     keys::signing_key_from_seed(&[i + 1; 32]).unwrap()
 }
 
-/// A DAG-BFT genesis with stake-weighted staking: the shape mainnet launches
-/// with, minus fees and mining, which would make every transaction carry a
-/// fee output and is pinned by the fee-market and mining vectors instead.
+/// A DAG-BFT genesis with stake-weighted staking, the fee market and mining
+/// rewards: the shape mainnet launches with (ADR-029, ADR-040, ADR-044).
 fn genesis() -> GenesisConfig {
     let operator = hex::encode(alice().address());
+    let mut allocations: Vec<Allocation> = [alice(), bob(), carol()]
+        .iter()
+        .map(|k| Allocation {
+            address: hex::encode(k.address()),
+            balance: coins(1_000_000),
+        })
+        .collect();
+    allocations.push(Allocation {
+        address: hex::encode(MINING_RESERVE),
+        balance: U256::from(RESERVE),
+    });
     GenesisConfig {
         chain_id: "golden-root".to_string(),
         timestamp: 1_000_000,
         difficulty_bits: 0,
         pow_limit_bits: 0,
-        allocations: [alice(), bob(), carol()]
-            .iter()
-            .map(|k| Allocation {
-                address: hex::encode(k.address()),
-                balance: coins(1_000_000),
-            })
-            .collect(),
+        allocations,
         oracle: None,
         sealed: None,
         treasury: None,
@@ -108,8 +147,23 @@ fn genesis() -> GenesisConfig {
             anchor_timeout_ms: 1_000,
             batch_size: 100,
             round_interval_ms: 0,
-            fees: None,
-            mining: None,
+            fees: Some(FeesGenesis {
+                initial_base_fee: U256::one(),
+                min_base_fee: U256::one(),
+                target_block_bytes: 100_000,
+                change_denominator: 8,
+            }),
+            mining: Some(MiningGenesis {
+                initial_epoch_reward: U256::from(1_000_000),
+                halving_epochs: 100,
+                tail_epoch_reward: U256::zero(),
+                miner_share_bps: 7_000,
+                target_shares: 10,
+                max_shares_per_block: 2,
+                // Easy: the search below finds a share in a few dozen tries.
+                initial_target: hex::encode([0x0f_u8; 32]),
+                dag: DagProfile::Testing,
+            }),
             staking: Some(StakingGenesis {
                 epoch_blocks: EPOCH_BLOCKS,
                 bonds: (0..GENESIS_VALIDATORS)
@@ -140,8 +194,18 @@ fn seeded() -> (TempDir, StateDB, Block, [u8; 32]) {
     (dir, db, block, root)
 }
 
+fn fee() -> TxOutput {
+    TxOutput {
+        amount: U256::from(FEE),
+        recipient: FEE_COLLECTOR,
+    }
+}
+
+/// A payload transaction paying the fee; fee-only outputs are allowed beside
+/// a payload (ADR-029).
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey, chain: &ChainTag) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
+    tx.outputs.push(fee());
     tx.sign(key, chain).unwrap();
     tx
 }
@@ -158,9 +222,38 @@ fn transfer(
             amount: *amount,
             recipient: *recipient,
         })
+        .chain([fee()])
         .collect();
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.sign(key, chain).unwrap();
+    tx
+}
+
+/// A fee-free share for the current mining epoch: the lowest nonce whose DAG
+/// work meets the target, found against committed state the way a miner
+/// would, so it is the same share on every platform.
+fn share(db: &StateDB, chain: &ChainTag) -> Transaction {
+    let record = db.committed_mining().unwrap().unwrap();
+    let header = share_header(&chain.0, record.epoch, &record.anchor, &miner().address());
+    let params = record.dag.params();
+    let cache = CacheRegistry::new(DagConfig {
+        params,
+        activation_height: 0,
+        activation_target: [0xff; 32],
+    })
+    .cache_for_epoch(record.epoch * record.epoch_blocks / params.epoch_length.max(1))
+    .unwrap();
+    let nonce = (0..)
+        .find(|&n| meets_target(&hashimoto_light(&cache, &header, n).result, &record.target))
+        .unwrap();
+    let mut tx = Transaction::with_kind(
+        TxKind::MiningShare(MiningShare {
+            epoch: record.epoch,
+            nonce,
+        }),
+        0,
+    );
+    tx.sign(&miner(), chain).unwrap();
     tx
 }
 
@@ -333,16 +426,13 @@ fn scenario(chain: &ChainTag) -> Vec<(u64, Vec<Transaction>)> {
     ]
 }
 
-fn header(prev_hash: [u8; 32], timestamp: u64, difficulty_target: [u8; 32]) -> BlockHeader {
-    BlockHeader {
-        version: 0,
-        prev_hash,
-        state_root: [0; 32],
-        timestamp,
-        nonce: 0,
-        difficulty_target,
-        tx_root: [0; 32],
-    }
+/// The DAG-BFT nonce for `height`: the staking epoch the block lands in and
+/// anchor round `2 * height`. Rounds restart each epoch, so the first block of
+/// epoch 1 (round 10) and every later one skip anchor slots, which the
+/// participation count charges to their leaders.
+fn bft_nonce(db: &StateDB, height: u64) -> u64 {
+    let epoch = db.committed_staking().unwrap().unwrap().staking.epoch;
+    seal_nonce(epoch, 2 * height)
 }
 
 /// Seals `txs` at `height` on top of `prev`, declaring the root execution
@@ -355,7 +445,16 @@ fn seal(
     target: [u8; 32],
 ) -> Block {
     let context = BlockContext::at_height(height);
-    let mut block = Block::new(header(prev, 1_000_000 + height, target), txs);
+    let header = BlockHeader {
+        version: 0,
+        prev_hash: prev,
+        state_root: [0; 32],
+        timestamp: 1_000_000 + height,
+        nonce: bft_nonce(db, height),
+        difficulty_target: target,
+        tx_root: [0; 32],
+    };
+    let mut block = Block::new(header, txs);
     block.header.state_root = db.preview_root(&block, context).unwrap();
     db.apply_block_journaled(&block, &block.header.id(), context)
         .unwrap();
@@ -373,7 +472,11 @@ fn build() -> (String, String) {
 
     let mut sealed = Vec::new();
     let mut prev = genesis_id;
-    for (height, txs) in scenario(&chain) {
+    for (height, mut txs) in scenario(&chain) {
+        if height == SHARE_HEIGHT {
+            // Its work depends on the epoch's anchor, the block just sealed.
+            txs.push(share(&db, &chain));
+        }
         let block = seal(&db, prev, height, txs, target);
         prev = block.header.id();
         sealed.push((height, block));
@@ -422,18 +525,9 @@ fn build() -> (String, String) {
     (expected, blocks)
 }
 
-/// Under `MAYA_BLESS_GOLDEN=1`, rewrites both files, once per run: both
-/// tests call it first, so neither reads a half-written file.
-fn bless_once() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        if std::env::var_os(BLESS).is_some() {
-            let (expected, blocks) = build();
-            std::fs::create_dir_all(dir()).unwrap();
-            std::fs::write(dir().join("expected.txt"), expected).unwrap();
-            std::fs::write(dir().join("blocks.hex"), blocks).unwrap();
-        }
-    });
+/// `MAYA_BLESS_GOLDEN=1` exactly: `0` or an empty value does not rewrite.
+fn blessing() -> bool {
+    std::env::var(BLESS).is_ok_and(|v| v == "1")
 }
 
 fn read(name: &str) -> String {
@@ -441,12 +535,74 @@ fn read(name: &str) -> String {
         .unwrap_or_else(|e| panic!("{name} missing ({e}); run with {BLESS}=1"))
 }
 
+/// Applies `block` the way a live DAG-BFT validator does: it derives the
+/// block itself, staging it with a zero state root (`Chain::candidate_block`,
+/// `preview_root`), then applies it, and the apply takes that staged overlay
+/// (`state::preview`). The declared root is still checked (invariant 24).
+///
+/// Not a fresh apply: at a mining epoch boundary that path computes another
+/// root (see the ignored test below), so the goldens pin the derive path.
+fn derive(db: &StateDB, block: &Block, height: u64) -> [u8; 32] {
+    let context = BlockContext::at_height(height);
+    let mut staged = block.clone();
+    staged.header.state_root = [0; 32];
+    let previewed = db.preview_root(&staged, context).unwrap();
+    assert_eq!(
+        previewed, block.header.state_root,
+        "height {height}: preview"
+    );
+    db.apply_block_journaled(block, &block.header.id(), context)
+        .unwrap_or_else(|e| panic!("height {height}: {e}"))
+}
+
+/// The committed blocks with their heights.
+fn committed_blocks() -> Vec<(u64, Block)> {
+    read("expected.txt")
+        .lines()
+        .skip(1)
+        .zip(read("blocks.hex").lines())
+        .map(|(line, hex_block)| {
+            let height = line.split_whitespace().next().unwrap().parse().unwrap();
+            let block = Block::from_bytes(&hex::decode(hex_block.trim()).unwrap()).unwrap();
+            (height, block)
+        })
+        .collect()
+}
+
+/// A node that did not derive the block (catching up from a peer, a replay)
+/// applies it fresh, and must reach the root the deriving validators
+/// committed. Today it does not at a mining epoch boundary: `settle_mining`
+/// anchors the next epoch to `header.id()`, which covers `state_root`, so the
+/// derive path stages it with the zero-root header's id and a fresh apply
+/// with the sealed header's id. The two roots differ (found 2026-11-14 by
+/// this file; a node change, reported for the re-freeze, not fixed here).
+#[test]
+#[ignore = "fails until the mining anchor stops depending on the header's own state root"]
+fn a_fresh_apply_reproduces_the_derived_root_at_a_mining_boundary() {
+    let (_dir, db, _, _) = seeded();
+    for (height, block) in committed_blocks() {
+        if height < EPOCH_BLOCKS {
+            derive(&db, &block, height);
+            continue;
+        }
+        db.apply_block_journaled(&block, &block.header.id(), BlockContext::at_height(height))
+            .unwrap_or_else(|e| panic!("height {height}, fresh apply: {e}"));
+        return;
+    }
+}
+
 /// Rebuilds the chain in code: ML-DSA and SLH-DSA signing here are
 /// deterministic, so the same scenario must give the same bytes on every OS.
 #[test]
 fn the_scenario_builds_exactly_the_committed_blocks() {
-    bless_once();
     let (expected, blocks) = build();
+    // The only writer: nextest runs each test in its own process, so a second
+    // writer would race this one.
+    if blessing() {
+        std::fs::create_dir_all(dir()).unwrap();
+        std::fs::write(dir().join("expected.txt"), &expected).unwrap();
+        std::fs::write(dir().join("blocks.hex"), &blocks).unwrap();
+    }
     // Compared line by line: a CRLF checkout must not fail it, and a
     // mismatch should name the height, not dump 400 KB.
     for (i, (built, committed)) in expected
@@ -472,7 +628,11 @@ fn the_scenario_builds_exactly_the_committed_blocks() {
 
 #[test]
 fn the_committed_chain_reproduces_its_golden_ids_and_roots() {
-    bless_once();
+    if blessing() {
+        // The build test may be rewriting the files right now.
+        eprintln!("skipped while {BLESS}=1; run again without it");
+        return;
+    }
     let expected = read("expected.txt");
     let blocks = read("blocks.hex");
     let mut expected = expected
@@ -505,11 +665,25 @@ fn the_committed_chain_reproduces_its_golden_ids_and_roots() {
         );
         let id = block.header.id();
         assert_eq!(hex::encode(id), line[1], "height {height}: block id");
-        // Refuses a declared root that execution does not reproduce.
-        let root = db
-            .apply_block_journaled(&block, &id, BlockContext::at_height(height))
-            .unwrap_or_else(|e| panic!("height {height}: {e}"));
+        let root = derive(&db, &block, height);
         assert_eq!(hex::encode(root), line[2], "height {height}: state root");
+        if height == SHARE_HEIGHT {
+            // Round 10 opens epoch 1: rounds 2..=8 were skipped, so five
+            // slots are expected and one authored. A header nonce the count
+            // ignored (wrong epoch, a round not past the last) would leave
+            // both at zero and the roots alone would not say so.
+            let record = db.committed_staking().unwrap().unwrap();
+            let sum = |m: &std::collections::BTreeMap<[u8; 32], u64>| m.values().sum::<u64>();
+            assert_eq!(
+                (
+                    sum(&record.expected),
+                    sum(&record.authored),
+                    record.last_round
+                ),
+                (5, 1, 2 * SHARE_HEIGHT),
+                "height {height}: anchor slots counted"
+            );
+        }
         prev = id;
         applied += 1;
     }
@@ -537,5 +711,24 @@ fn the_committed_chain_reproduces_its_golden_ids_and_roots() {
     assert!(
         db.asset_balance(&asset, &bob().address()).unwrap() > U256::zero(),
         "the swap settled"
+    );
+    assert!(
+        db.get_account(&miner().address()).unwrap().balance > U256::zero(),
+        "the share was paid"
+    );
+    assert!(
+        db.get_account(&FEE_SINK).unwrap().balance > U256::zero(),
+        "base fees were burned"
+    );
+    // Epoch 1's leaders authored 3 of its ~1,440 slots, so the boundary at
+    // 1444 must have slashed or jailed someone; a payout that ignored the
+    // participation count would not.
+    let staking = db.committed_staking().unwrap().unwrap().staking;
+    assert!(
+        staking
+            .validators
+            .values()
+            .any(|v| matches!(v.status, maya_staking::Status::Jailed { .. })),
+        "downtime in epoch 1 jailed a validator"
     );
 }
