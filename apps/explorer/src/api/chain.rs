@@ -3,8 +3,6 @@
 use axum::extract::{Path, State};
 use axum::response::Response;
 use maya_address::Network;
-use serde::Serialize;
-use utoipa::ToSchema;
 
 use crate::api::address;
 use crate::api::dto::{self, Account, Counts, Status};

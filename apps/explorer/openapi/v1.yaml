@@ -628,7 +628,8 @@
           "rate_limited",
           "node_unavailable",
           "index_behind",
-          "no_staking"
+          "no_staking",
+          "internal"
         ]
       },
       "Counts": {

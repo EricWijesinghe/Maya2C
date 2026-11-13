@@ -239,6 +239,7 @@ mod tests {
             summary: String::new(),
             careful: false,
             explanation: String::new(),
+            outputs: Vec::new(),
         }
     }
 

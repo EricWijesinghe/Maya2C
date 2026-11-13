@@ -172,6 +172,7 @@ fn tx(height: i64, position: i64, sender: u8, outputs: &[(u8, &str)]) -> Indexed
         kind: "transfer".to_string(),
         summary: String::new(),
         careful: false,
+        explanation: String::new(),
         outputs,
     }
 }

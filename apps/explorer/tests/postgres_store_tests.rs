@@ -566,8 +566,11 @@ async fn postgres_store_counts_several_outputs_to_one_address_once() {
 /// fault rather than the table's size.
 const PLAN_ROWS: i64 = 20_000;
 
-/// EXPLAINs `sql` as a generic plan, the one a prepared statement reaches
-/// after a few executions, with `args` as the EXECUTE arguments.
+/// Runs `sql` under EXPLAIN ANALYZE as a generic plan, the one a prepared
+/// statement reaches after a few executions, with `args` as the EXECUTE
+/// arguments. ANALYZE, because a walk of the whole table through an index
+/// with a `Filter:` is no Seq Scan but reads every row all the same; its
+/// `Rows Removed by Filter` shows it.
 async fn generic_plan(pool: &PgPool, sql: &str, types: &str, args: &str) -> String {
     let mut conn = pool.acquire().await.unwrap();
     sqlx::raw_sql("SET plan_cache_mode = force_generic_plan")
@@ -579,7 +582,7 @@ async fn generic_plan(pool: &PgPool, sql: &str, types: &str, args: &str) -> Stri
         .execute(&mut *conn)
         .await
         .unwrap();
-    let explain = format!("EXPLAIN EXECUTE plan_probe({args})");
+    let explain = format!("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) EXECUTE plan_probe({args})");
     let rows = sqlx::query(AssertSqlSafe(explain))
         .fetch_all(&mut *conn)
         .await
@@ -660,10 +663,13 @@ async fn postgres_public_queries_never_walk_the_table() {
             ("received", ADDRESS_RECEIVED_SQL),
             ("both", ADDRESS_BOTH_SQL),
         ] {
-            // An address with no history: the case that used to read it all.
-            let args = format!("'nobody', {h}, {p}, 25");
-            let plan = generic_plan(pool, sql, "text, bigint, bigint, bigint", &args).await;
-            plans.push((name, plan));
+            // An address with no history (the case that used to read it all)
+            // and two with some on each side.
+            for who in ["nobody", "s7", "o7"] {
+                let args = format!("'{who}', {h}, {p}, 25");
+                let plan = generic_plan(pool, sql, "text, bigint, bigint, bigint", &args).await;
+                plans.push((name, plan));
+            }
         }
     }
     for (name, plan) in &plans {
@@ -674,6 +680,17 @@ async fn postgres_public_queries_never_walk_the_table() {
             );
         }
         assert!(plan.contains("Index"), "{name} uses no index:\n{plan}");
+        let filtered: u64 = plan
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("Rows Removed by Filter: "))
+            .map(|n| n.trim().parse::<u64>().unwrap())
+            .sum();
+        // A page reads its rows from an index range; it does not read past
+        // rows it then throws away.
+        assert!(
+            filtered <= 25,
+            "{name} reads and discards {filtered} rows:\n{plan}"
+        );
     }
     store.pool().close().await;
     db.drop_db().await;
