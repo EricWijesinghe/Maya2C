@@ -1,4 +1,4 @@
-# 3. State transition — v0.1.1
+# 3. State transition — v0.1.2
 
 The accounts-only transfer path. Reference: `crates/spec-ref/src/{stf,root}.rs`.
 Node: `StateDB::stage_transaction`, `StateDB::apply_block`,
@@ -23,6 +23,16 @@ order, and the first rule that fails is the result:
 - **ROOT-3** Leaves are paired left to right; an unpaired last node is promoted unchanged, not duplicated; this repeats until one node remains. With no leaves the root is 32 zero bytes. *(positive only: defines a value)*
 - **ROOT-4** Leaves are ordered by ascending address. With no other state layer present, the state root is this accounts root. *(positive only: defines a value)*
 - **ROOT-5** Each further layer (channels, notes, trading, governance, …) is folded in, in the order `state::proof::LAYER_ORDER` lists (the order `StateDB::state_layers` folds: channels, then the record layers in `RECORD_LAYERS` order, with stateless `sl:` before upgrade-schedule `up:`, then shielded, contracts, nullifiers; not the `StateLayer` declaration order), only once it holds a record, so a chain that never used a layer keeps the root it always had. *(positive only: defines a value)*
+
+## Security council
+
+Present only when genesis names a council. Node: `StateDB::apply_council`,
+`core::council_payload`. Constants: `crates/governance/src/limits.rs`.
+
+- **CNL-1** A council action lands only with at least `threshold` approvals from distinct members of the council in force at the block's height, each an ML-DSA-65 signature over the council domain, the chain tag, the action and the record's current nonce; a landed action advances the nonce by one. *(external vectors: crates/node/tests/council_pause_tests.rs)*
+- **CNL-2** A council pause or resume naming Governance (module tag 4) is refused. *(external vectors: crates/node/tests/council_pause_tests.rs)*
+- **CNL-3** A council pause of a module is refused before the end of the last council pause of that module plus `COUNCIL_RENEWAL_COOLDOWN_BLOCKS`; a council resume ends the pause at its own height. A council sunset is refused before the council's last sunset height plus the same cooldown. *(external vectors: crates/node/tests/council_pause_tests.rs)*
+- **CNL-4** A council rotation names 1 to 32 distinct valid ML-DSA-65 keys and a threshold above half of them and at most all of them, and an activation from `COUNCIL_ROTATION_LEAD_BLOCKS` to `MAX_SCHEDULE_HORIZON_BLOCKS` after the block that carries it. It replaces any pending rotation. From the activation height the new members and threshold are the council in force, and the nonce carries on. *(external vectors: crates/node/tests/council_pause_tests.rs)*
 
 ## Gaps
 

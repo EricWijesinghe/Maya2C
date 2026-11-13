@@ -96,6 +96,25 @@ pub const MIN_UPGRADE_LEAD_BLOCKS: u64 = 2_592_000;
 /// floor every later entry of its kind must clear (ADR-082, H1).
 pub const MAX_SCHEDULE_HORIZON_BLOCKS: u64 = 31_536_000;
 
+/// Fewest blocks between the end of one security-council pause of a module and
+/// the next council pause of that module, and between two council suite
+/// sunsets: one day at one block per second.
+///
+/// Without it a council renews its own bounded pause back to back and the
+/// bound means nothing; with it a module the council pauses is open at least
+/// this long between pauses. A council resume ends the pause, so the cooldown
+/// runs from the resume. Compiled, so no council action and no proposal
+/// shortens it (founder audit Q7, Eric 2026-11-14; ADR-082 amendment).
+pub const COUNCIL_RENEWAL_COOLDOWN_BLOCKS: u64 = 86_400;
+
+/// Fewest blocks between a council rotation landing and the new member set
+/// taking over: one day at one block per second.
+///
+/// The rotation sits in the council record, in the state root, for this long,
+/// so everybody sees the new keys before they can act. Compiled, like the
+/// cooldown (founder audit Q8, Eric 2026-11-14; ADR-082 amendment).
+pub const COUNCIL_ROTATION_LEAD_BLOCKS: u64 = 86_400;
+
 /// Whether an upgrade activation leads its execution by enough, for governance.
 #[must_use]
 pub const fn is_upgrade_lead_valid(execution: u64, activation: u64) -> bool {

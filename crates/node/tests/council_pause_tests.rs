@@ -10,15 +10,20 @@
 use std::sync::Arc;
 
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
-use custom_l1_node::core::council_payload::{CouncilAction, CouncilKind};
+use custom_l1_node::core::block::{Block, BlockHeader};
+use custom_l1_node::core::council_payload::{CouncilAction, CouncilKind, Rotation};
+use custom_l1_node::core::dex_payload::AssetRegistration;
 use custom_l1_node::core::governance_payload::StakeLock;
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::keys::{self, SigningKey};
+use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::genesis::{Allocation, CouncilGenesis, GenesisConfig};
+use custom_l1_node::state::BlockContext;
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::invariant_guard::Module;
+use maya_governance::limits::{COUNCIL_RENEWAL_COOLDOWN_BLOCKS, COUNCIL_ROTATION_LEAD_BLOCKS};
 use tempfile::TempDir;
 
 mod common;
@@ -33,8 +38,8 @@ fn member(i: u8) -> SigningKey {
     keys::signing_key_from_seed(&[0x70 + i; 32]).unwrap()
 }
 
-fn chain(dir: &TempDir) -> Chain {
-    let config = GenesisConfig {
+fn config() -> GenesisConfig {
+    GenesisConfig {
         chain_id: "council-rehearsal".into(),
         timestamp: 1_000_000,
         difficulty_bits: 0,
@@ -57,7 +62,11 @@ fn chain(dir: &TempDir) -> Chain {
         }),
         bft: None,
         shielded_activation_height: None,
-    };
+    }
+}
+
+fn chain(dir: &TempDir) -> Chain {
+    let config = config();
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
     config.seed_state(&state).unwrap();
     common::open_chain(
@@ -76,15 +85,27 @@ fn signed(kind: TxKind, outputs: Vec<TxOutput>, nonce: u64) -> Transaction {
 }
 
 fn council(kind: CouncilKind, nonce: u64, signers: &[u8], sender_nonce: u64) -> Transaction {
+    let pairs: Vec<(u8, u8)> = signers.iter().map(|i| (*i, *i)).collect();
+    council_with(kind, nonce, &pairs, sender_nonce)
+}
+
+/// A council action approved by `(member index, key seed)` pairs: after a
+/// rotation, index 0 is a different key from `member(0)`.
+fn council_with(
+    kind: CouncilKind,
+    nonce: u64,
+    approvals: &[(u8, u8)],
+    sender_nonce: u64,
+) -> Transaction {
     let mut action = CouncilAction {
         kind,
         nonce,
         approvals: vec![],
     };
     let message = action.signing_message(&common::test_chain());
-    action.approvals = signers
+    action.approvals = approvals
         .iter()
-        .map(|i| (*i, Box::new(member(*i).sign(&message).unwrap())))
+        .map(|(index, seed)| (*index, Box::new(member(*seed).sign(&message).unwrap())))
         .collect();
     signed(TxKind::Council(Box::new(action)), vec![], sender_nonce)
 }
@@ -94,6 +115,20 @@ fn lock(nonce: u64) -> Transaction {
         TxKind::LockStake(StakeLock {
             amount: primitive_types::U256::from(10),
             unlock_height: 1_000,
+        }),
+        vec![],
+        nonce,
+    )
+}
+
+/// A DEX transaction: what a pause of [`Module::Dex`] must refuse.
+fn register(nonce: u64) -> Transaction {
+    let mut symbol = [0u8; 8];
+    symbol[..4].copy_from_slice(b"TEST");
+    signed(
+        TxKind::RegisterAsset(AssetRegistration {
+            symbol,
+            total_supply: primitive_types::U256::from(1_000),
         }),
         vec![],
         nonce,
@@ -123,13 +158,13 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir);
     let mut nonce = 0;
-    mine(&mut c, vec![lock(nonce)]).unwrap();
+    mine(&mut c, vec![register(nonce)]).unwrap();
     nonce += 1;
 
     // One member alone is not a quorum.
     let lone = council(
         CouncilKind::Pause {
-            module: Module::Governance.tag(),
+            module: Module::Dex.tag(),
             blocks: 10,
         },
         0,
@@ -147,7 +182,7 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
         &mut c,
         vec![council(
             CouncilKind::Pause {
-                module: Module::Governance.tag(),
+                module: Module::Dex.tag(),
                 blocks: 10,
             },
             0,
@@ -157,15 +192,11 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
     )
     .unwrap();
     nonce += 1;
-    let record = c
-        .state()
-        .stored_breaker(Module::Governance)
-        .unwrap()
-        .unwrap();
+    let record = c.state().stored_breaker(Module::Dex).unwrap().unwrap();
     assert_eq!((record.tripped_at, record.until), (decided, decided + 10));
 
     // The module is closed; transfers are not.
-    let err = mine(&mut c, vec![lock(nonce)]).unwrap_err();
+    let err = mine(&mut c, vec![register(nonce)]).unwrap_err();
     assert!(err.contains("halted") || err.contains("Halted"), "{err}");
     mine(&mut c, vec![transfer(nonce)]).unwrap();
     nonce += 1;
@@ -173,7 +204,7 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
     // A replayed approval (old nonce) does nothing.
     let replay = council(
         CouncilKind::Resume {
-            module: Module::Governance.tag(),
+            module: Module::Dex.tag(),
         },
         0,
         &[0, 2],
@@ -187,7 +218,7 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
     // Longer than the council may impose: refused.
     let too_long = council(
         CouncilKind::Pause {
-            module: Module::Dex.tag(),
+            module: Module::Vm.tag(),
             blocks: MAX_PAUSE + 1,
         },
         1,
@@ -202,7 +233,7 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
         &mut c,
         vec![council(
             CouncilKind::Resume {
-                module: Module::Governance.tag(),
+                module: Module::Dex.tag(),
             },
             1,
             &[1, 2],
@@ -211,7 +242,7 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
     )
     .unwrap();
     nonce += 1;
-    mine(&mut c, vec![lock(nonce)]).unwrap();
+    mine(&mut c, vec![register(nonce)]).unwrap();
     println!(
         "pause rehearsal: quorum decided at height {decided} and the module closed in that block (0 blocks' \
          latency); transfers landed throughout; resumed at {resumed_at} after {} of the 10 paused blocks; \
@@ -228,7 +259,7 @@ fn a_pause_expires_without_anyone_acting() {
         &mut c,
         vec![council(
             CouncilKind::Pause {
-                module: Module::Governance.tag(),
+                module: Module::Dex.tag(),
                 blocks: 3,
             },
             0,
@@ -237,10 +268,10 @@ fn a_pause_expires_without_anyone_acting() {
         )],
     )
     .unwrap();
-    assert!(mine(&mut c, vec![lock(1)]).is_err());
+    assert!(mine(&mut c, vec![register(1)]).is_err());
     mine(&mut c, vec![]).unwrap();
     mine(&mut c, vec![]).unwrap();
-    mine(&mut c, vec![lock(1)]).expect("the pause expired after its three blocks");
+    mine(&mut c, vec![register(1)]).expect("the pause expired after its three blocks");
 }
 
 /// ADR-050 review finding (2026-10-19): a quorum's approvals for another
@@ -251,7 +282,7 @@ fn approvals_signed_for_another_chain_are_refused() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir);
     let kind = CouncilKind::Pause {
-        module: Module::Governance.tag(),
+        module: Module::Dex.tag(),
         blocks: 3,
     };
     let mut action = CouncilAction {
@@ -354,5 +385,271 @@ fn a_council_sunset_has_no_emergency_window_so_no_path_exits_a_frozen_vault_earl
             .entries()
             .next()
             .is_none()
+    );
+}
+
+// --- Council hardening (founder audit Q7 and Q8, Eric 2026-11-14) ---------
+//
+// The tests below drive a bare state database so a block can sit at any
+// height: the cooldown and the rotation lead are a day of blocks, and the
+// boundaries are what they pin.
+
+/// A state database seeded with the council genesis and bound to the test tag.
+fn bare(dir: &TempDir) -> StateDB {
+    let state = common::bound_state(dir.path());
+    config().seed_state(&state).unwrap();
+    state
+}
+
+/// Applies `txs` as the block at `height`.
+fn at(db: &StateDB, height: u64, txs: Vec<Transaction>) -> Result<(), String> {
+    let header = BlockHeader {
+        version: 0,
+        prev_hash: [0; 32],
+        state_root: [0; 32],
+        timestamp: 1_000_000 + height,
+        nonce: 0,
+        difficulty_target: target_from_leading_zero_bits(0),
+        tx_root: [0; 32],
+    };
+    db.apply_block(&Block::new(header, txs), BlockContext::at_height(height))
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+fn pause(module: Module, blocks: u64) -> CouncilKind {
+    CouncilKind::Pause {
+        module: module.tag(),
+        blocks,
+    }
+}
+
+fn rotation(activation: u64, threshold: u8, members: &[u8]) -> CouncilKind {
+    CouncilKind::Rotate(Rotation {
+        activation,
+        threshold,
+        members: members
+            .iter()
+            .map(|i| member(*i).verifying_key().to_bytes())
+            .collect(),
+    })
+}
+
+#[test]
+fn the_council_can_neither_pause_nor_resume_governance() {
+    // Q7 A: a council that could pause Governance could freeze the vote that
+    // would answer it.
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir);
+    let paused = mine(
+        &mut c,
+        vec![council(pause(Module::Governance, 10), 0, &[0, 1, 2], 0)],
+    )
+    .unwrap_err();
+    assert!(paused.contains("governance"), "{paused}");
+    let resumed = mine(
+        &mut c,
+        vec![council(
+            CouncilKind::Resume {
+                module: Module::Governance.tag(),
+            },
+            0,
+            &[0, 1, 2],
+            0,
+        )],
+    )
+    .unwrap_err();
+    assert!(resumed.contains("governance"), "{resumed}");
+    assert_eq!(c.state().stored_breaker(Module::Governance).unwrap(), None);
+    // Staking and votes go on.
+    mine(&mut c, vec![lock(0)]).unwrap();
+}
+
+#[test]
+fn a_council_pause_cannot_be_renewed_within_the_cooldown() {
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    at(&db, 1, vec![council(pause(Module::Dex, 3), 0, &[0, 1], 0)]).unwrap();
+
+    // While it holds: no extension.
+    let renewed = at(&db, 2, vec![council(pause(Module::Dex, 3), 1, &[0, 1], 1)]).unwrap_err();
+    assert!(renewed.contains("cooldown"), "{renewed}");
+
+    // Lifted early: the cooldown runs from the lift.
+    at(
+        &db,
+        2,
+        vec![council(
+            CouncilKind::Resume {
+                module: Module::Dex.tag(),
+            },
+            1,
+            &[0, 1],
+            1,
+        )],
+    )
+    .unwrap();
+    let open_again = 2 + COUNCIL_RENEWAL_COOLDOWN_BLOCKS;
+    let early = at(
+        &db,
+        open_again - 1,
+        vec![council(pause(Module::Dex, 3), 2, &[0, 1], 2)],
+    )
+    .unwrap_err();
+    assert!(early.contains("cooldown"), "{early}");
+
+    // Another module is not cooled down by this one.
+    at(
+        &db,
+        open_again - 1,
+        vec![council(pause(Module::Vm, 3), 2, &[0, 1], 2)],
+    )
+    .unwrap();
+
+    // At the cooldown's end: accepted.
+    at(
+        &db,
+        open_again,
+        vec![council(pause(Module::Dex, 3), 3, &[0, 1], 3)],
+    )
+    .unwrap();
+    let record = db.stored_breaker(Module::Dex).unwrap().unwrap();
+    assert_eq!(
+        (record.tripped_at, record.until),
+        (open_again, open_again + 3)
+    );
+}
+
+#[test]
+fn a_council_sunset_cannot_follow_another_within_the_cooldown() {
+    use custom_l1_node::state::upgrades::{COUNCIL_SUNSET_LEAD_BLOCKS, SunsetSpec};
+    use maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
+    use maya_crypto_pq::suite::SuiteId;
+
+    let sunset = |now: u64, suite: SuiteId| CouncilKind::SunsetSuites {
+        announced_at: now + COUNCIL_SUNSET_LEAD_BLOCKS,
+        sunsets: vec![SunsetSpec {
+            suite: suite.to_byte(),
+            sunset_height: now + COUNCIL_SUNSET_LEAD_BLOCKS + MIN_MIGRATION_WINDOW,
+            emergency: false,
+        }],
+    };
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    at(
+        &db,
+        1,
+        vec![council(sunset(1, SuiteId::MlDsa65), 0, &[0, 1], 0)],
+    )
+    .unwrap();
+
+    let next = 1 + COUNCIL_RENEWAL_COOLDOWN_BLOCKS;
+    let early = at(
+        &db,
+        next - 1,
+        vec![council(
+            sunset(next - 1, SuiteId::SlhDsaSha2_128s),
+            1,
+            &[0, 1],
+            1,
+        )],
+    )
+    .unwrap_err();
+    assert!(early.contains("cooldown"), "{early}");
+    at(
+        &db,
+        next,
+        vec![council(
+            sunset(next, SuiteId::SlhDsaSha2_128s),
+            1,
+            &[0, 1],
+            1,
+        )],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_rotation_with_too_few_approvals_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let kind = rotation(1 + COUNCIL_ROTATION_LEAD_BLOCKS, 2, &[3, 4, 5]);
+    let lone = at(&db, 1, vec![council(kind.clone(), 0, &[0], 0)]).unwrap_err();
+    assert!(lone.contains("approvals"), "{lone}");
+    // A member's approval counted twice is still one approval.
+    let twice = at(&db, 1, vec![council(kind, 0, &[0, 0], 0)]).unwrap_err();
+    assert!(twice.contains("approvals"), "{twice}");
+    let record = db.committed_council().unwrap().unwrap();
+    assert_eq!((record.nonce, record.pending), (0, None));
+}
+
+#[test]
+fn a_rotation_must_clear_the_lead_and_name_a_sound_set() {
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let lead = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    for (kind, why) in [
+        (rotation(lead - 1, 2, &[3, 4, 5]), "lead"),
+        // 2 of 4 is not a strict majority: half could act over the other half.
+        (rotation(lead, 2, &[3, 4, 5, 6]), "strict majority"),
+        (rotation(lead, 2, &[3, 3, 4]), "repeats"),
+        (rotation(lead, 0, &[]), "strict majority"),
+    ] {
+        let err = at(&db, 1, vec![council(kind, 0, &[0, 1], 0)]).unwrap_err();
+        assert!(err.contains(why), "wanted {why}: {err}");
+    }
+    assert_eq!(db.committed_council().unwrap().unwrap().pending, None);
+}
+
+#[test]
+fn a_rotation_takes_effect_at_its_height_and_not_before() {
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let activation = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    at(
+        &db,
+        1,
+        vec![council(rotation(activation, 2, &[3, 4, 5]), 0, &[0, 2], 0)],
+    )
+    .unwrap();
+    // Scheduled, and public in the record from the block that carried it.
+    let record = db.committed_council().unwrap().unwrap();
+    assert_eq!(record.nonce, 1);
+    assert_eq!(record.pending.as_ref().unwrap().activation, activation);
+    assert_eq!(record.members[0], member(0).verifying_key().to_bytes());
+
+    let resume = || CouncilKind::Resume {
+        module: Module::Vm.tag(),
+    };
+    // The new set signs as indices 0..3 of the rotated council.
+    let new_set = [(0u8, 3u8), (1, 4), (2, 5)];
+    // One block before: the new members are not yet the council; the old are.
+    let early = at(
+        &db,
+        activation - 1,
+        vec![council_with(resume(), 1, &new_set[..2], 1)],
+    )
+    .unwrap_err();
+    assert!(early.contains("approvals"), "{early}");
+    at(&db, activation - 1, vec![council(resume(), 1, &[0, 1], 1)]).unwrap();
+
+    // At the height: the old members are no longer the council; the new are.
+    let old = at(&db, activation, vec![council(resume(), 2, &[0, 1], 2)]).unwrap_err();
+    assert!(old.contains("approvals"), "{old}");
+    at(
+        &db,
+        activation,
+        vec![council_with(resume(), 2, &new_set[1..], 2)],
+    )
+    .unwrap();
+    let record = db.committed_council().unwrap().unwrap();
+    assert_eq!(record.pending, None);
+    assert_eq!(record.nonce, 3);
+    assert_eq!(
+        record.members,
+        [3u8, 4, 5]
+            .iter()
+            .map(|i| member(*i).verifying_key().to_bytes())
+            .collect::<Vec<_>>()
     );
 }

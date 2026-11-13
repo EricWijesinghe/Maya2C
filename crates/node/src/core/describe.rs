@@ -470,6 +470,15 @@ pub fn describe_kind(kind: &TxKind) -> Description {
                 ),
                 Careful,
             ),
+            CouncilKind::Rotate(rotation) => Description::new(
+                format!(
+                    "Council: hand over to {} new member key(s), {} needed, from height {}.",
+                    rotation.members.len(),
+                    rotation.threshold,
+                    rotation.activation
+                ),
+                Careful,
+            ),
         },
         TxKind::Vault(action) => describe_vault(action),
         TxKind::MiningShare(m) => Description::new(

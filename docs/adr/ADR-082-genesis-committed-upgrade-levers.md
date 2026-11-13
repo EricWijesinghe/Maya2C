@@ -204,3 +204,71 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   compiled into `limits.rs` like the other governance bounds (invariant 12).
 - **One version per feature** (the rules epoch and the feature share a number).
   Rejected: it forces every dark feature to wait for the one before it.
+
+## Amendment 2026-11-14: council hardening (founder audit Q7, Q8)
+
+**Status:** Accepted, 2026-11-14. Eric chose the recommended option on every
+founder-audit question ("I approve everything, proceed"): Q7 A plus a cooldown,
+Q8 A. Pre-genesis: it changes the council action wire format and the council
+record, so it ships in the re-freeze binary.
+
+The audit found three gaps in the council this ADR made the fast path for
+sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
+
+1. **The council could pause Governance.** `Module::Governance` covers stake,
+   proposals and votes, so a council pause could freeze the vote that would
+   answer the council. **Decision:** a council action that names Governance,
+   pause or resume, is refused. Governance is never council-paused. The
+   automatic breaker never named it either (its two checks gate the DEX and the
+   shielded pool), so Governance is now ungated. `MODULES` keeps Governance: it
+   lists every module tag, and tags are permanent.
+   *Trade-off, recorded in the audit:* the council can no longer slow an attack
+   on governance itself. That defence now rests on governance's own floors
+   (invariant 12) and the 30-day upgrade lead.
+2. **Renewals were unbounded.** A 2-of-3 quorum could renew a bounded pause
+   back to back, so the bound meant nothing. **Decision:**
+   `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` (86,400 blocks, one day at one block per
+   second; `crates/governance/src/limits.rs`). A council pause of a module is
+   refused while the last council pause of that module holds, and for the
+   cooldown after it ends. A council resume ends a pause, so the cooldown runs
+   from the resume. A council sunset is refused within the cooldown of the
+   council's last sunset (`last_sunset_at` in the record). The breaker record
+   already carries the pause's end, so the pause rule needs no new state.
+3. **The council could not rotate.** If a key was lost or compromised, the
+   only way to recover was re-genesis. **Decision:** a new action,
+   `CouncilKind::Rotate` (wire kind 3). A quorum of the council *in force*
+   signs a new member set and threshold under the same rules genesis applies:
+   1 to `MAX_COUNCIL_MEMBERS` (32, one approval each must fit in
+   `MAX_APPROVALS`) distinct, valid ML-DSA-65 keys, and a strict-majority
+   threshold. The new set takes over at an activation height at least
+   `COUNCIL_ROTATION_LEAD_BLOCKS` (86,400) after the block that carries it and
+   no more than `MAX_SCHEDULE_HORIZON_BLOCKS` after it. Until then it sits in
+   the council record as `pending`, which is in the state root, so the handover
+   is public for the whole lead. A later rotation replaces a pending one, and
+   it must clear the lead again from its own block. That is how a mistaken
+   rotation is withdrawn. The nonce carries on across the handover, so no
+   approval from before the handover is valid after it. The handover is applied
+   when the record is next read at or past the activation height:
+   `CouncilRecord::at(height)` is a pure function of the record and the height,
+   so every node agrees on the council in force at every height, and no
+   per-block hook was added to the apply path. *Event:* this chain has no
+   event log apart from the VM's. The rotation is recorded by the transaction
+   that carries it and by the `pending` field in the record (readable through
+   `StateDB::committed_council`). A separate event stream is not built.
+
+**Record format.** The council record gains a version 2 that adds
+`last_sunset_at` and `pending`. A council that has never sunset or rotated
+still encodes as version 1, byte for byte. Its genesis root is unchanged.
+Version 2 with both fields empty does not decode, so each value has one form.
+
+**What this does not fix.** The council keys are still one operator's three
+devices (DECISIONS.md 2026-10-18; audit Q9, the owner's decision). Rotation
+lets those keys be replaced. It does not make the holders independent.
+
+Pinned by `crates/node/tests/council_pause_tests.rs`:
+`the_council_can_neither_pause_nor_resume_governance`,
+`a_council_pause_cannot_be_renewed_within_the_cooldown`,
+`a_council_sunset_cannot_follow_another_within_the_cooldown`,
+`a_rotation_with_too_few_approvals_is_refused`,
+`a_rotation_must_clear_the_lead_and_name_a_sound_set`,
+`a_rotation_takes_effect_at_its_height_and_not_before`.

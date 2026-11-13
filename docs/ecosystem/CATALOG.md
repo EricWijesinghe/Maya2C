@@ -143,7 +143,7 @@ named chains are only those in
 | 256-bit amounts at 24 decimals: no ceiling to outgrow | ADR-046, ADR-068 |
 | Every state prefix under the state root; an uncovered key is caught | invariant 25, `uncovered_keys` (#395) |
 | Network-prefixed, checksummed addresses | ADR-081 |
-| A security council bounded by compiled rules: it can pause one module for at most `max_pause_blocks` (the pause expires by itself), or schedule a suite sunset no sooner than `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about 13.6 days); it cannot move funds, mint, or schedule a version. It has no term limit | `crates/node/src/state/council.rs`, `CouncilGenesis` in `crates/node/src/genesis.rs`, invariant 34 (ADR-082) |
+| A security council bounded by compiled rules: it can pause one module other than Governance for at most `max_pause_blocks` (the pause expires by itself, and the council cannot renew it within a day, `COUNCIL_RENEWAL_COOLDOWN_BLOCKS`), rotate its own keys to a new strict-majority set no sooner than a day after it lands (`COUNCIL_ROTATION_LEAD_BLOCKS`), or schedule a suite sunset no sooner than `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about 13.6 days); it cannot move funds, mint, or schedule a version. It has no term limit | `crates/node/src/state/council.rs`, `CouncilGenesis` in `crates/node/src/genesis.rs`, invariant 34 (ADR-082) |
 
 **Gaps, stated plainly.** These are the places where another chain is ahead
 today:

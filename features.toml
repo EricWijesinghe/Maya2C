@@ -3415,13 +3415,14 @@ note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wi
 
 [[subsystem]]
 id = "security-council-pause"
-name = "Security council bounded module pause"
+name = "Security council bounded module pause and key rotation"
 domain = "Governance"
 paths = "`crates/node/src/state/council.rs`, `crates/node/src/core/council_payload.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/council_pause_tests.rs"]
+note = "ADR-050, ADR-082 amendment 2026-11-14 (founder audit Q7 A + cooldown, Q8 A; Eric 2026-11-14): Governance is not council-pausable; a council pause or sunset is refused within COUNCIL_RENEWAL_COOLDOWN_BLOCKS (86,400) of the last; CouncilKind::Rotate hands over to a new strict-majority key set no sooner than COUNCIL_ROTATION_LEAD_BLOCKS (86,400). Holders are still one operator's devices (audit Q9, open)."
 
 [[subsystem]]
 id = "eth-beacon-light-client"

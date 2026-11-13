@@ -1,10 +1,14 @@
 //! Security-council actions (Master Prompts 9 and 16): pause one module for a
-//! bounded number of blocks, or resume it early.
+//! bounded number of blocks, resume it early, retire suites (ADR-082), or
+//! rotate the council's own keys (ADR-082 amendment, 2026-11-14).
 //!
 //! ```text
 //! action   = kind nonce:u64 n:u64 (member:u8 sig[3309])*n
 //! kind     = 0 module:u8 blocks:u64      pause
 //!          | 1 module:u8                 resume
+//!          | 2 announced_at:u64 n:u64 (suite:u8 sunset:u64 emergency:u8)*n
+//!          | 3 rotation                  rotate
+//! rotation = activation:u64 threshold:u8 n:u64 key[1952]*n
 //! ```
 //!
 //! Authority is the approvals, never the sender: any account may carry a
@@ -15,7 +19,7 @@
 //! whose council shares a key (ADR-050 review finding, 2026-10-19).
 
 use crate::core::codec::ByteReader;
-use crate::crypto::SIGNATURE_LENGTH;
+use crate::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 use crate::error::{NodeError, Result};
 use crate::state::upgrades::SunsetSpec;
 
@@ -31,6 +35,11 @@ pub const MAX_APPROVALS: usize = 32;
 const PAUSE: u8 = 0;
 const RESUME: u8 = 1;
 const SUNSET_SUITES: u8 = 2;
+const ROTATE: u8 = 3;
+
+/// Most members a council may have: one approval each must fit in
+/// [`MAX_APPROVALS`], or a strict majority of a larger council could never act.
+pub const MAX_COUNCIL_MEMBERS: usize = MAX_APPROVALS;
 
 /// Most suites one council sunset may retire: one per registered suite.
 const MAX_SUNSETS: usize = crate::core::governance_payload::MAX_SUNSETS;
@@ -59,6 +68,55 @@ pub enum CouncilKind {
         /// Suites retired, each at its own sunset height.
         sunsets: Vec<SunsetSpec>,
     },
+    /// Replace the council's members and threshold from a later height.
+    Rotate(Rotation),
+}
+
+/// A new council member set, and the height it takes over at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rotation {
+    /// First height at which the new set is the council.
+    pub activation: u64,
+    /// Approvals an action needs under the new set.
+    pub threshold: u8,
+    /// The new members' ML-DSA-65 keys, by index.
+    pub members: Vec<[u8; PUBLIC_KEY_LEN]>,
+}
+
+impl Rotation {
+    /// Appends the encoding: also the form the council record stores.
+    pub fn encode_into(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.activation.to_le_bytes());
+        buf.push(self.threshold);
+        buf.extend_from_slice(&(self.members.len() as u64).to_le_bytes());
+        for key in &self.members {
+            buf.extend_from_slice(key);
+        }
+    }
+
+    /// Decodes a rotation. The member set's soundness (a strict majority,
+    /// distinct, valid keys) is checked where it is applied, not here.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] for more than [`MAX_COUNCIL_MEMBERS`] or
+    /// truncation.
+    pub fn decode(r: &mut ByteReader<'_>) -> Result<Self> {
+        let activation = r.read_u64()?;
+        let threshold = r.read_u8()?;
+        let n = r.read_collection_len(PUBLIC_KEY_LEN)?;
+        if n > MAX_COUNCIL_MEMBERS {
+            return Err(NodeError::Decode(format!(
+                "a council of {n} members exceeds {MAX_COUNCIL_MEMBERS}"
+            )));
+        }
+        let members = (0..n).map(|_| r.read_array()).collect::<Result<_>>()?;
+        Ok(Self {
+            activation,
+            threshold,
+            members,
+        })
+    }
 }
 
 /// One council action and its approvals.
@@ -96,6 +154,10 @@ impl CouncilAction {
                     buf.extend_from_slice(&sunset.sunset_height.to_le_bytes());
                     buf.push(u8::from(sunset.emergency));
                 }
+            }
+            CouncilKind::Rotate(rotation) => {
+                buf.push(ROTATE);
+                rotation.encode_into(buf);
             }
         }
         buf.extend_from_slice(&self.nonce.to_le_bytes());
@@ -157,6 +219,7 @@ impl CouncilAction {
                     sunsets,
                 }
             }
+            ROTATE => CouncilKind::Rotate(Rotation::decode(r)?),
             t => return Err(NodeError::Decode(format!("council action kind {t}"))),
         };
         let nonce = r.read_u64()?;
@@ -212,6 +275,15 @@ mod tests {
                 blocks: 50,
             },
             CouncilKind::Resume { module: 2 },
+            CouncilKind::Rotate(Rotation {
+                activation: 9,
+                threshold: 2,
+                members: vec![
+                    [4; PUBLIC_KEY_LEN],
+                    [5; PUBLIC_KEY_LEN],
+                    [6; PUBLIC_KEY_LEN],
+                ],
+            }),
         ] {
             let a = CouncilAction {
                 kind,
@@ -234,5 +306,18 @@ mod tests {
             let other = crate::core::ChainTag::from_genesis([2; 32]);
             assert_ne!(a.signing_message(&chain), a.signing_message(&other));
         }
+    }
+
+    #[test]
+    fn a_rotation_naming_more_members_than_approvals_can_reach_is_refused() {
+        let mut buf = vec![ROTATE];
+        buf.extend_from_slice(&9u64.to_le_bytes());
+        buf.push(17);
+        buf.extend_from_slice(&((MAX_COUNCIL_MEMBERS + 1) as u64).to_le_bytes());
+        buf.resize(buf.len() + (MAX_COUNCIL_MEMBERS + 1) * PUBLIC_KEY_LEN, 7);
+        buf.extend_from_slice(&0u64.to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes());
+        let err = CouncilAction::decode(&mut ByteReader::new(&buf)).unwrap_err();
+        assert!(err.to_string().contains("exceeds"), "{err}");
     }
 }
