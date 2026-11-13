@@ -33,3 +33,16 @@ export function unreachableLabel(last: Reading | null): string {
   const at = last.at.toISOString().slice(0, 16).replace("T", " ");
   return `unreachable, last known ${last.value} ${at} UTC`;
 }
+
+/** Every calendar day (UTC, YYYY-MM-DD) the run touched, first and last included: one bar each in the uptime strip. */
+export function runDays(from: string, to: string): string[] {
+  const days: string[] = [];
+  const end = Date.parse(`${to}T00:00:00Z`);
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= end; t += 86_400_000) days.push(new Date(t).toISOString().slice(0, 10));
+  return days;
+}
+
+/** The finality scale ends at the next whole second above the figure, so the marker never sits on the edge. */
+export function finalityScaleSeconds(p50Ms: number): number {
+  return Math.max(1, Math.floor(p50Ms / 1000) + 1);
+}

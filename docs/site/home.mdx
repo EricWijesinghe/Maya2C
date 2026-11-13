@@ -7,6 +7,11 @@ head:
   # people search with. "Maya2C | Maya2C" said nothing.
   - tag: title
     content: "Maya2C: post-quantum layer-1 blockchain"
+  # The share card's text matches the tab title; the home page is a site, not an article.
+  - tag: meta
+    attrs: { property: "og:title", content: "Maya2C: post-quantum layer-1 blockchain" }
+  - tag: meta
+    attrs: { property: "og:type", content: "website" }
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
@@ -35,21 +40,23 @@ import FearsFaq from "../../components/FearsFaq.astro";
 
 <section class="home-code" aria-labelledby="code-title">
 <h2 id="code-title" class="home-h2">Read the chain in a few lines</h2>
-<p class="home-lede">Each snippet talks to a chain on your own machine: the <a href="/guides/quickstart/">local devnet</a> serves JSON-RPC on 127.0.0.1:8545, and the gateway in front of it listens on 127.0.0.1:8080. No SDK is on a package registry yet, so each tab builds from source. Signing happens client-side; the gateway holds no keys. <a href="/reference/sdk/">SDK reference</a></p>
+<p class="home-lede">Each snippet talks to a chain on your own machine: the <a href="/guides/quickstart/">local devnet</a> serves JSON-RPC on 127.0.0.1:8545, and the gateway in front of it listens on 127.0.0.1:8080. Signing happens client-side; the gateway holds no keys. <a href="/reference/sdk/">SDK reference</a></p>
+
+<p class="home-note">Every tab is built from source: no SDK is on a package registry yet.</p>
 
 <Tabs>
-<TabItem label="Rust · from source">
+<TabItem label="Rust">
 
-```rust title="sdks/rust (gateway client)"
+```rust title="sdks/rust (gateway client)" wrap
 let client = maya2c_sdk::Client::new("http://127.0.0.1:8080")?;
 let balance = client.balance("maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f")?;
 println!("{} units, next nonce {}", balance.balance, balance.nonce);
 ```
 
 </TabItem>
-<TabItem label="TypeScript · from source">
+<TabItem label="TypeScript">
 
-```ts title="sdks/sdk-js (gateway client)"
+```ts title="sdks/sdk-js (gateway client)" wrap
 import { MayaClient } from "maya2c.js";
 
 const client = new MayaClient("http://127.0.0.1:8080");
@@ -60,9 +67,9 @@ const block   = await client.getBlock(1);
 ```
 
 </TabItem>
-<TabItem label="Python · from source">
+<TabItem label="Python">
 
-```python title="sdks/python (node JSON-RPC)"
+```python title="sdks/python (node JSON-RPC)" wrap
 from maya2c_sdk import Client, Wallet
 
 client = Client("http://127.0.0.1:8545")

@@ -115,8 +115,8 @@ export default defineConfig({
                 applicationCategory: "DeveloperApplication",
                 // Only platforms with a released node: macOS waits for a Mac build (platform targets, 2026-10-12).
                 operatingSystem: "Linux, Windows",
-                // Matches the newest release tag (node-v0.1.0-testnet.4); bump with each release.
-                softwareVersion: "0.1.0-testnet.4",
+                // No softwareVersion: the repository has no published release (gh api .../releases
+                // returned 0 on 2026-11-14). Add it back from the newest release tag once one exists.
                 downloadUrl: "https://github.com/EricWijesinghe/Maya2C/releases",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
                 publisher: { "@id": "https://maya2c.dev/#org" },

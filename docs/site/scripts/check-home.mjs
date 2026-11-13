@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { testnet } from "../src/data/network-state.ts";
+import { finalityScaleSeconds } from "../src/data/home.ts";
 
 const site = fileURLToPath(new URL("..", import.meta.url));
 const dist = join(site, "dist");
@@ -86,7 +87,11 @@ add("network-state.ts testnet.last (stop report)", run.height.toLocaleString("en
 add("network-state.ts testnet.since", testnet.since);
 add("progress.json gates", progress.gates?.met, progress.gates?.total);
 add("progress.json proofs", progress.proofs?.kani_harnesses?.toLocaleString("en-US"), progress.proofs?.conformance_vectors?.toLocaleString("en-US"));
-if (progress.finality) add("progress.json finality (committed bench report)", progress.finality.p50_ms.toLocaleString("en-US"), progress.finality.validators);
+if (progress.finality) {
+  add("progress.json finality (committed bench report)", progress.finality.p50_ms.toLocaleString("en-US"), progress.finality.validators);
+  add("finality scale end, the next whole second above p50 (home.ts finalityScaleSeconds)", finalityScaleSeconds(progress.finality.p50_ms));
+  if (!sources.has("0")) add("finality scale start", "0");
+}
 add("health.json ledger (features.toml)", health.ledger?.by_status?.verified ?? 0, health.ledger?.total);
 // Names that contain digits but state no measurement.
 add("technical name", "ML-DSA-65", "ML-KEM-1024", "ML-KEM-768", "layer-1", "Maya2C", "SHA256SUMS", "Apache-2.0", "ChaCha20-Poly1305", "Argon2id", "maya-testnet-1", "127.0.0.1:8545", "127.0.0.1:8080", "204", "205", "p50", "status.maya2c.dev");

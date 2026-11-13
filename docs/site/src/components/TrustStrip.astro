@@ -21,18 +21,26 @@ const items = [
 ---
 
 <ul class="trust" aria-label="Project facts">
+  <li class="audit-item"><a class="audit" href="/guides/faq/#is-the-code-open-source-and-is-it-audited"><span class="mark" aria-hidden="true"></span>External audit pending</a></li>
   {items.map((i) => (
     <li><a href={i.href}><b>{i.value}</b> {i.label}</a></li>
   ))}
-  <li><a class="audit" href="/guides/faq/#is-the-code-open-source-and-is-it-audited"><span class="mark" aria-hidden="true"></span>External audit pending</a></li>
 </ul>
 
 <style>
-  .trust { list-style: none; margin: var(--space-5) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-5); }
-  .trust li { margin: 0; }
-  .trust a { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 44px; padding: 0; font-size: var(--type-body-sm-size); color: var(--text-2); text-decoration: none; transition: color var(--dur-1) var(--ease); }
+  /* Phone: the audit pill on its own row, then a two-column grid. From 960 px: one line. */
+  .trust { list-style: none; margin: var(--space-6) 0 0; padding: var(--space-4) 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1) var(--space-4); align-items: center; }
+  .trust li { margin: 0; min-width: 0; }
+  .audit-item { grid-column: 1 / -1; }
+  .trust a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0; font-size: var(--type-body-sm-size); color: var(--text-2); text-decoration: none; transition: color var(--dur-1) var(--ease); }
   .trust a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
-  .trust b { font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--text); }
-  .audit { color: var(--text) !important; }
-  .mark { width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 22%, transparent); }
+  .trust li:not(.audit-item) a { flex-wrap: wrap; column-gap: var(--space-1); row-gap: 0; padding-block: var(--space-1); }
+  .trust b { white-space: nowrap; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--text); }
+  .audit { padding: 0 var(--space-4) !important; border: 1px solid color-mix(in srgb, var(--bronze) 55%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 12%, transparent); color: var(--text) !important; font-weight: var(--weight-semibold); }
+  .mark { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 22%, transparent); }
+  @media (min-width: 960px) {
+    .trust { display: flex; flex-wrap: nowrap; gap: var(--space-6); }
+    .audit-item { margin-inline-end: var(--space-2); }
+    .trust a { white-space: nowrap; }
+  }
 </style>

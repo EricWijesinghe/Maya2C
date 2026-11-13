@@ -1,62 +1,87 @@
 ---
-// The homepage proof row: four figures, each with where it comes from. Two
-// are the network as its public services report it (read in the visitor's
-// browser; while the testnet is paused, the last reading from the stop report,
-// dated), two are the repository as this build counted it. Nothing is
-// estimated and nothing is simulated (Standing Orders 1-2).
+// The homepage proof row: four figures, each drawn as a small graphic from the
+// same value and each with where it comes from. Uptime is the network as its
+// public status service reported it (read in the visitor's browser; while the
+// testnet is paused, the last reading from the stop report, dated). Gates,
+// verified subsystems and finality are the repository as this build counted
+// it. Nothing is estimated and nothing is simulated (Standing Orders 1-2): a
+// graphic only redraws a figure that is already on the tile.
 import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
 import { testnet } from "../data/network-state";
-import { uptimePercent } from "../data/home";
+import { uptimePercent, runDays, finalityScaleSeconds } from "../data/home";
 
-const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality ?? null;
+const p = progress as { gates?: { met: number; total: number } | null; finality?: { p50_ms: number; validators: number } | null };
+const gates = p.gates ?? null;
+const finality = p.finality ?? null;
 const s = health.ledger.by_status as Record<string, number>;
+const verified = s.verified ?? 0;
+const total = health.ledger.total;
 const paused = testnet.paused;
 const run = testnet.last;
 const haltRule = `a halt is any gap over ${run.haltSeconds} s`;
-const stats = [
-  {
-    id: "height", label: paused ? "Last block" : "Block height",
-    value: paused ? run.height.toLocaleString("en-US") : null,
-    note: paused ? `${run.at}, then paused on purpose` : "maya-testnet-1, from the explorer",
-    src: paused ? "status.maya2c.dev /api/status, last reading before the stop, quoted in the stop report" : "Explorer /api/stats",
-    href: paused ? testnet.report : undefined,
-  },
-  {
-    id: "uptime", label: paused ? "Uptime, 7-day run" : "Uptime since genesis",
-    value: paused ? uptimePercent(run.uptime) : null,
-    note: paused ? `${run.from} to ${run.to}, ${run.halts} halts; ${haltRule}` : `since genesis; ${haltRule}`,
-    src: paused ? "status.maya2c.dev /api/status before the stop, in the stop report" : "status.maya2c.dev /api/status",
-    href: paused ? testnet.report : "https://status.maya2c.dev/api/status",
-  },
-  {
-    id: "finality", label: "Finality p50",
-    value: finality ? `${finality.p50_ms.toLocaleString("en-US")} ms` : "MISSING",
-    note: finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed",
-    src: finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed",
-    href: "/stats/#finality",
-  },
-  {
-    id: "verified", label: "Verified subsystems",
-    value: `${s.verified ?? 0} / ${health.ledger.total}`,
-    note: "each names a test CI runs",
-    src: "features.toml, status = verified, counted at build by scripts/gen-health.mjs",
-    href: "/health/",
-  },
-];
+// One bar per day of the run. All bars are filled only when the run had no halt;
+// with halts the per-day split is not in the report, so one proportional bar is drawn instead.
+const days = paused ? runDays(run.from, run.to) : [];
+const perDay = paused && run.halts === 0;
+const scale = finality ? finalityScaleSeconds(finality.p50_ms) : 0;
+// The gates ring: one arc per gate, filled for each one met (pathLength 100).
+const seg = gates ? 100 / gates.total : 0;
 ---
 
 <section class="not-content proof" aria-label="Proof numbers" data-proof data-paused={paused ? "" : undefined}>
-  <dl>
-    {stats.map((t) => (
-      <div class="cell">
-        <dt>{t.label}</dt>
-        <dd data-live={t.value === null ? t.id : undefined}>{t.value ?? "…"}</dd>
-        <dd class="note">{t.note} <SourceTip text={t.src} href={t.href} /></dd>
-      </div>
-    ))}
-  </dl>
+  <ul class="tiles">
+    <li class="tile tone-teal">
+      <p class="lbl">{paused ? "Uptime, 7-day run" : "Uptime since genesis"}</p>
+      <p class="val" data-live={paused ? undefined : "uptime"}>{paused ? uptimePercent(run.uptime) : "…"}</p>
+      {perDay ? (
+        <div class="days" role="img" aria-label={`One bar per day of the run, ${run.from} to ${run.to}, no halt on any day`}>
+          {days.map(() => <span class="day" />)}
+        </div>
+      ) : (
+        <div class="meter" aria-hidden="true"><span data-uptime-bar style={paused ? `width:${Math.floor(run.uptime * 100)}%` : "width:0"} /></div>
+      )}
+      <p class="note">
+        {paused ? <>{run.from} to {run.to}, {run.halts} {run.halts === 1 ? "halt" : "halts"}, last block {run.height.toLocaleString("en-US")}; {haltRule}</> : <>block <span data-live="height">…</span>; {haltRule}</>}
+        <SourceTip text={paused ? "status.maya2c.dev /api/status before the stop, in the stop report" : "status.maya2c.dev /api/status and the explorer /api/stats"} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} />
+      </p>
+    </li>
+
+    <li class="tile tone-bronze">
+      <p class="lbl">Mainnet gates met</p>
+      <p class="val">{gates ? `${gates.met} / ${gates.total}` : "MISSING"}</p>
+      {gates && (
+        <svg class="ring" viewBox="0 0 64 64" role="img" aria-label={`${gates.met} of ${gates.total} gates met`}>
+          {Array.from({ length: gates.total }, (_, i) => (
+            <circle cx="32" cy="32" r="26" pathLength="100" class={i < gates.met ? "arc on" : "arc"} stroke-dasharray={`${seg - 2.5} ${100 - seg + 2.5}`} stroke-dashoffset={`${-i * seg}`} />
+          ))}
+        </svg>
+      )}
+      <p class="note">launch gates in the mainnet plan <SourceTip text="The mainnet launch plan, read into public/progress.json at build" href="/reference/mainnet-v1-plan/" /></p>
+    </li>
+
+    <li class="tile tone-steel">
+      <p class="lbl">Verified subsystems</p>
+      <p class="val">{verified} / {total}</p>
+      <div class="meter" role="img" aria-label={`${verified} of ${total} subsystems verified`}><span style={`width:${total ? (verified / total) * 100 : 0}%`} /></div>
+      <p class="note">each names a test CI runs <SourceTip text="features.toml, status = verified, counted at build by scripts/gen-health.mjs" href="/health/" /></p>
+    </li>
+
+    <li class="tile tone-teal">
+      <p class="lbl">Finality p50</p>
+      <p class="val">{finality ? `${finality.p50_ms.toLocaleString("en-US")} ms` : "MISSING"}</p>
+      {finality && (
+        <div class="scale" role="img" aria-label={`Marker at ${finality.p50_ms.toLocaleString("en-US")} ms on a scale from 0 to ${scale} s`}>
+          <span class="track" />
+          <span class="mark" style={`left:${(finality.p50_ms / (scale * 1000)) * 100}%`} />
+          <span class="end end-0" aria-hidden="true">0</span>
+          <span class="end end-1" aria-hidden="true">{scale} s</span>
+        </div>
+      )}
+      <p class="note">{finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed"} <SourceTip text={finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed"} href="/stats/#finality" /></p>
+    </li>
+  </ul>
 </section>
 
 <script>
@@ -76,10 +101,13 @@ const stats = [
       else if (++t.fails >= FAILS_BEFORE_UNREACHABLE) { el.textContent = unreachableLabel(t.last); el.classList.add("stale"); }
       tiles.set(id, t);
     };
+    const bar = root.querySelector<HTMLElement>("[data-uptime-bar]");
     const poll = async () => {
       const [st, u] = await Promise.all([explorerStats(), uptime()]);
       report("height", st ? fmt(st.height) : null);
-      report("uptime", u && typeof u.uptime === "number" ? uptimePercent(u.uptime) : null);
+      const ok = u && typeof u.uptime === "number";
+      report("uptime", ok ? uptimePercent(u.uptime) : null);
+      if (ok && bar) bar.style.width = `${Math.floor(u.uptime * 100)}%`;
     };
     poll();
     setInterval(() => { if (!document.hidden) poll(); }, 15000);
@@ -87,19 +115,47 @@ const stats = [
 </script>
 
 <style>
-  .proof { margin: var(--space-12) 0 0; }
-  dd.stale { font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
-  dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); overflow: visible; }
-  .cell { display: grid; gap: var(--space-1); align-content: start; padding: var(--space-5); min-width: 0; }
-  .cell + .cell { border-inline-start: 1px solid var(--border); }
-  dt { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
-  dd:not(.note) { margin: 0; text-align: start; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
-  dd.note { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
-  @media (max-width: 760px) {
-    dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .cell:nth-child(3) { border-inline-start: 0; }
-    .cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
-    .cell { padding: var(--space-4); }
-    dd:not(.note) { font-size: var(--type-title-3-size); }
+  .proof { margin: var(--space-8) 0 0; }
+  .tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+  .tile {
+    --tone: var(--accent);
+    position: relative; margin: 0; min-width: 0; display: grid; gap: var(--space-2); align-content: start;
+    padding: var(--space-4); border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border)); border-radius: var(--r-lg);
+    background: linear-gradient(170deg, color-mix(in srgb, var(--tone) 14%, var(--surface-1)), var(--surface-1) 75%);
+    overflow: hidden;
   }
+  /* A coloured top rule per tone. */
+  .tile::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--tone); }
+  .tone-bronze { --tone: var(--bronze); }
+  .tone-steel { --tone: color-mix(in srgb, var(--steel) 55%, var(--accent)); }
+  .tile p { margin: 0; }
+  .lbl { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
+  .val { font: var(--weight-semibold) var(--type-title-3-size)/1.15 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
+  .val.stale { font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
+  .note { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+
+  /* Uptime: one bar per day of the run. */
+  .days { display: flex; gap: 3px; height: 28px; align-items: end; }
+  .day { flex: 1; height: 100%; border-radius: 3px; background: linear-gradient(180deg, var(--tone), color-mix(in srgb, var(--tone) 55%, transparent)); }
+  /* Verified, and uptime while live: a meter. */
+  .meter { height: 10px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--tone) 16%, transparent); overflow: hidden; }
+  .meter span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 70%, transparent), var(--tone)); }
+  /* Gates: one arc per gate. */
+  .ring { width: 64px; height: 64px; transform: rotate(-90deg); }
+  .arc { fill: none; stroke: color-mix(in srgb, var(--tone) 20%, transparent); stroke-width: 7; }
+  .arc.on { stroke: var(--tone); }
+  /* Finality: a marker on a short scale, 0 to the next whole second. */
+  .scale { position: relative; height: 34px; }
+  .track { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: var(--r-pill); background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 60%, transparent), color-mix(in srgb, var(--tone) 12%, transparent)); }
+  .scale .mark { position: absolute; top: 2px; width: 16px; height: 16px; margin-left: -8px; border-radius: var(--r-pill); background: var(--tone); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 25%, transparent); }
+  .end { position: absolute; top: 18px; font: 500 12px/1.3 var(--font-mono, monospace); color: var(--text-2); }
+  .end-0 { left: 0; }
+  .end-1 { right: 0; }
+
+  @media (min-width: 960px) {
+    .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+    .tile { padding: var(--space-5); }
+    .val { font-size: var(--type-title-2-size); }
+  }
+  @media (max-width: 420px) { .tile { padding: var(--space-3); } }
 </style>

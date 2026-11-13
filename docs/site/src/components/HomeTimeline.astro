@@ -36,7 +36,7 @@ const stops = [
       <li class={`stop stop-${s.state}`}>
         <a href={s.href} aria-current={s.state === "now" ? "step" : undefined}>
           <span class="pin" aria-hidden="true"></span>
-          <span class="t">{s.title}</span>
+          <span class="t">{s.title}{s.state === "now" && <span class="now">now</span>}<span class="go" aria-hidden="true">→</span></span>
           <span class="l">{s.line}</span>
         </a>
       </li>
@@ -46,29 +46,39 @@ const stops = [
 
 <style>
   .tl { margin: 0; }
-  ol { --rail: var(--border-strong); list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+  ol { --rail: color-mix(in srgb, var(--steel) 45%, transparent); --done: linear-gradient(var(--accent), var(--bronze)); list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
   .stop { position: relative; margin: 0; }
-  /* The rail: a line through every pin, solid where the network has been. */
-  .stop::before { content: ""; position: absolute; left: 11px; top: 0; bottom: 0; width: 2px; background: var(--rail); }
-  .stop:first-child::before { top: 24px; }
-  .stop:last-child::before { bottom: calc(100% - 24px); }
-  .stop-done::before { background: linear-gradient(var(--accent), var(--bronze)); }
-  a { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: var(--space-4); align-items: start; min-height: 44px; padding: var(--space-3) var(--space-3) var(--space-3) 0; border-radius: var(--r-md); color: inherit; text-decoration: none; transition: background-color var(--dur-2) var(--ease); }
-  a:hover { background: var(--surface-2); }
-  .pin { grid-row: span 2; justify-self: center; margin-top: 4px; width: 16px; height: 16px; border-radius: var(--r-pill); border: 2px solid var(--rail); background: var(--bg); }
-  .stop-done .pin { border-color: var(--accent); background: var(--accent); }
-  .stop-now .pin { border-color: var(--bronze); background: var(--bg); box-shadow: 0 0 0 5px color-mix(in srgb, var(--bronze) 22%, transparent); }
-  .t { font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  /* The rail: a line through every pin, filled up to the current stop, dashed after it. */
+  .stop::before { content: ""; position: absolute; left: 15px; top: 0; bottom: 0; width: 3px; background: repeating-linear-gradient(180deg, var(--rail) 0 6px, transparent 6px 11px); }
+  .stop:first-child::before { top: 26px; }
+  .stop:last-child::before { bottom: calc(100% - 26px); }
+  .stop-done::before { background: var(--done); }
+  /* The segment into the current stop is filled too: the network has reached it. */
+  .stop-now::before { background: linear-gradient(180deg, var(--bronze) 0 26px, transparent 26px), repeating-linear-gradient(180deg, var(--rail) 0 6px, transparent 6px 11px); }
+  a { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: var(--space-4); align-items: start; min-height: 44px; padding: var(--space-3) var(--space-3) var(--space-3) 0; border-radius: var(--r-md); color: inherit; text-decoration: none; transition: background-color var(--dur-2) var(--ease); }
+  a:hover, a:focus-visible { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  a:hover .t, a:focus-visible .t { text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--accent); }
+  .pin { grid-row: span 2; justify-self: center; margin-top: 4px; width: 18px; height: 18px; border-radius: var(--r-pill); border: 2px dashed var(--rail); background: var(--bg); }
+  .stop-done .pin { border: 2px solid var(--accent); background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }
+  .stop-now .pin { margin-top: 0; width: 28px; height: 28px; border: 3px solid var(--bronze); background: color-mix(in srgb, var(--bronze) 30%, var(--bg)); box-shadow: 0 0 0 6px color-mix(in srgb, var(--bronze) 22%, transparent), 0 0 24px color-mix(in srgb, var(--bronze) 50%, transparent); }
+  .t { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  .now { padding: 1px var(--space-2); border-radius: var(--r-pill); background: var(--bronze); color: var(--bg); font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+  .go { color: var(--accent); transition: transform var(--dur-2) var(--ease); }
+  a:hover .go { transform: translateX(3px); }
   .l { font-size: var(--type-body-sm-size); line-height: 1.45; color: var(--text-2); }
   .stop-next .t { color: var(--text-2); }
 
   @media (min-width: 760px) {
     ol { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .stop::before { left: 0; right: 0; top: 19px; bottom: auto; width: auto; height: 2px; }
-    .stop:first-child::before { left: 50%; top: 19px; }
+    .stop::before { left: 0; right: 0; top: 26px; bottom: auto; width: auto; height: 3px; background: repeating-linear-gradient(90deg, var(--rail) 0 6px, transparent 6px 11px); }
+    .stop:first-child::before { left: 50%; top: 26px; }
     .stop:last-child::before { right: 50%; bottom: auto; }
     .stop-done::before { background: linear-gradient(90deg, var(--accent), var(--bronze)); }
+    .stop-now::before { background: linear-gradient(90deg, var(--bronze) 0 50%, transparent 50%), repeating-linear-gradient(90deg, var(--rail) 0 6px, transparent 6px 11px); }
     a { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; row-gap: var(--space-1); padding: var(--space-3) var(--space-2); }
-    .pin { grid-row: auto; margin: 0 0 var(--space-2); }
+    .t { justify-content: center; }
+    .pin { grid-row: auto; margin: 8px 0 var(--space-2); }
+    .stop-now .pin { margin: 3px 0 var(--space-1); }
   }
+  @media (prefers-reduced-motion: reduce) { .go { transition: none; } }
 </style>
