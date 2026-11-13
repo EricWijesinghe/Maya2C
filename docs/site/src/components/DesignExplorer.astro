@@ -1,0 +1,166 @@
+---
+// Explorer for the proposed designs ADR-102..ADR-134. Data and wording live in
+// src/data/design-proposals.ts. Every card is a proposal, never a feature.
+import { proposals, categories, prUrl } from "../data/design-proposals";
+const total = proposals.length;
+const awaiting = proposals.filter((p) => p.needsDecision).length;
+const asProposal = proposals.filter((p) => p.status === "proposed").length;
+const asOptions = total - asProposal;
+const R = 40;
+const C = 2 * Math.PI * R;
+const awaitLen = (awaiting / total) * C;
+const countIn = (k: string) => proposals.filter((p) => p.category === k).length;
+const catLabel = Object.fromEntries(categories.map((c) => [c.key, c.label]));
+---
+
+<section class="not-content dz" data-dz aria-label="Proposed designs explorer">
+  <div class="dz-ring-row">
+    <svg class="dz-ring" viewBox="0 0 100 100" role="img" aria-label={`${total} designs, ${awaiting} awaiting a decision`}>
+      <circle cx="50" cy="50" r={R} class="track" />
+      <circle cx="50" cy="50" r={R} class="rest" />
+      <circle cx="50" cy="50" r={R} class="wait" stroke-dasharray={`${awaitLen} ${C}`} transform="rotate(-90 50 50)" />
+      <text x="50" y="50" class="big" text-anchor="middle" dominant-baseline="central">{total}</text>
+      <text x="50" y="64" class="sm" text-anchor="middle">designs</text>
+    </svg>
+    <ul class="dz-legend">
+      <li><i class="sw rest"></i><b>{asProposal}</b> written as proposals</li>
+      <li><i class="sw opt"></i><b>{asOptions}</b> written as options to choose between</li>
+      <li><i class="sw wait"></i><b>{awaiting}</b> awaiting the owner's decision</li>
+    </ul>
+  </div>
+
+  <div class="dz-filters" role="group" aria-label="Show designs by category">
+    <button type="button" data-cat="all" aria-pressed="true">All <b>{total}</b></button>
+    {categories.map((c) => <button type="button" data-cat={c.key} aria-pressed="false">{c.label} <b>{countIn(c.key)}</b></button>)}
+  </div>
+  <p class="dz-count" aria-live="polite"><span data-shown>{total}</span> of {total} shown</p>
+
+  <ul class="dz-grid">
+    {proposals.map((p) => (
+      <li data-cat={p.category}>
+        <button type="button" class={`card ${p.status}${p.needsDecision ? " wait" : ""}`} data-open={p.id}>
+          <span class="top"><span class="adr">ADR-{p.id}</span>
+            {p.needsDecision && <span class="tag wait">Needs decision</span>}
+            <span class="tag">{p.status === "options" ? "Options" : "Proposed"}</span></span>
+          <span class="ti">{p.title}</span>
+          <span class="gv">{p.gives}</span>
+          <span class="cat">{catLabel[p.category]}</span>
+        </button>
+      </li>
+    ))}
+  </ul>
+
+  <dialog class="dz-panel" aria-labelledby="dz-title">
+    <form method="dialog"><button class="x" aria-label="Close details">Close</button></form>
+    {proposals.map((p) => (
+      <article data-detail={p.id} hidden>
+        <p class="meta"><span class="adr">ADR-{p.id}</span> <span class="tag">{p.status === "options" ? "Options for the owner" : "Proposed"}</span> {p.needsDecision && <span class="tag wait">Needs owner decision</span>} <span class="cat">{catLabel[p.category]}</span></p>
+        <h2 id={`dz-t-${p.id}`}>{p.title}</h2>
+        <p class="lead">{p.gives}</p>
+        <h3>What changes for you</h3>
+        <p>{p.changes}</p>
+        <h3>What is not decided</h3>
+        <p>{p.open}</p>
+        <h3>Similar facilities elsewhere</h3>
+        <p>{p.comparable}</p>
+        <a class="go" href={prUrl(p.pr)} rel="noopener">Read the proposal in PR #{p.pr} →</a>
+      </article>
+    ))}
+  </dialog>
+</section>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-dz]")) {
+    const cards = [...root.querySelectorAll<HTMLLIElement>(".dz-grid li")];
+    const chips = [...root.querySelectorAll<HTMLButtonElement>(".dz-filters button")];
+    const shown = root.querySelector<HTMLElement>("[data-shown]")!;
+    const panel = root.querySelector<HTMLDialogElement>("dialog")!;
+    const details = [...panel.querySelectorAll<HTMLElement>("[data-detail]")];
+    let opener: HTMLElement | null = null;
+
+    chips.forEach((c) =>
+      c.addEventListener("click", () => {
+        const want = c.dataset.cat!;
+        chips.forEach((x) => x.setAttribute("aria-pressed", String(x === c)));
+        let n = 0;
+        cards.forEach((li) => {
+          const on = want === "all" || li.dataset.cat === want;
+          li.hidden = !on;
+          if (on) n++;
+        });
+        shown.textContent = String(n);
+      }),
+    );
+
+    root.querySelectorAll<HTMLButtonElement>("[data-open]").forEach((b) =>
+      b.addEventListener("click", () => {
+        opener = b;
+        details.forEach((d) => (d.hidden = d.dataset.detail !== b.dataset.open));
+        panel.setAttribute("aria-labelledby", `dz-t-${b.dataset.open}`);
+        panel.showModal();
+      }),
+    );
+    // A click on the dimmed backdrop closes the panel; focus returns to the card.
+    panel.addEventListener("click", (e) => { if (e.target === panel) panel.close(); });
+    panel.addEventListener("close", () => opener?.focus());
+  }
+</script>
+
+<style>
+  .dz { margin: 1.5rem auto 2.5rem; max-width: 62rem; }
+  .dz-ring-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.25rem; margin-bottom: 1.25rem; }
+  .dz-ring { width: 9.5rem; height: 9.5rem; flex: none; }
+  .dz-ring circle { fill: none; stroke-width: 9; }
+  .dz-ring .track { stroke: var(--glass-edge); }
+  .dz-ring .rest { stroke: var(--cherenkov); opacity: 0.85; }
+  .dz-ring .wait { stroke: var(--gold); stroke-linecap: butt; animation: sweep 1.1s ease-out both; }
+  .dz-ring .big { fill: var(--sl-color-white); font-size: 22px; font-weight: 800; }
+  .dz-ring .sm { fill: var(--muted); font-size: 7px; }
+  .dz-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+  .dz-legend li { margin: 0; color: var(--lede); font-size: 0.92rem; }
+  .dz-legend b { color: var(--cherenkov-hi); margin-right: 0.25rem; }
+  .sw { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; margin-right: 0.5rem; border: 2px solid; }
+  .sw.rest { background: var(--cherenkov); border-color: var(--cherenkov); }
+  .sw.opt { border-color: var(--gold); border-style: dashed; }
+  .sw.wait { background: var(--gold); border-color: var(--gold); }
+
+  .dz-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+  .dz-filters button { background: var(--glass); border: 1px solid var(--glass-edge); color: var(--sl-color-text); border-radius: 999px; padding: 0.4rem 0.9rem; font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 44px; min-width: 44px; }
+  .dz-filters button[aria-pressed="true"] { border-color: var(--cherenkov); box-shadow: 0 0 0 1px var(--cherenkov) inset; }
+  .dz-filters b { color: var(--cherenkov-hi); margin-left: 0.25rem; }
+  .dz-count { text-align: center; color: var(--muted); font-size: 0.8rem; margin: 0.6rem 0 1rem; }
+
+  .dz-grid { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr; gap: 0.75rem; }
+  .dz-grid li { margin: 0; min-width: 0; }
+  .dz-grid li[hidden] { display: none; }
+  .card { width: 100%; min-height: 44px; display: grid; gap: 0.35rem; text-align: left; padding: 0.85rem 0.95rem; background: var(--glass); border: 2px solid rgba(31, 181, 194, 0.45); border-radius: 1rem; color: var(--sl-color-text); font: inherit; cursor: pointer; overflow-wrap: anywhere;
+    transition: transform 0.3s cubic-bezier(.34,1.56,.64,1), box-shadow 0.3s; }
+  .card.options { border-style: dashed; border-color: rgba(201, 168, 106, 0.6); }
+  .card.wait { border-color: rgba(201, 168, 106, 0.75); }
+  .card:hover, .card:focus-visible { transform: translateY(-2px); box-shadow: 0 0 1.25rem rgba(31, 181, 194, 0.4); }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+  .adr { font-family: var(--sl-font-mono); font-size: 0.72rem; color: var(--cherenkov-hi); }
+  .tag { font-size: 0.68rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--muted); color: var(--muted); }
+  .tag.wait { border-color: var(--gold); color: var(--gold); }
+  .ti { font-weight: 700; font-size: 1rem; }
+  .gv { font-size: 0.85rem; color: var(--lede); }
+  .cat { font-size: 0.72rem; color: var(--muted); }
+
+  .dz-panel { width: min(36rem, calc(100vw - 2rem)); max-height: 85vh; overflow: auto; padding: 1.1rem 1.2rem 1.25rem; border-radius: 1.1rem; border: 1px solid var(--glass-edge); background: var(--sl-color-bg-nav, #0c1a1f); color: var(--sl-color-text); box-sizing: border-box; }
+  .dz-panel::backdrop { background: rgba(2, 12, 16, 0.65); }
+  .dz-panel[open] { animation: rise 0.3s ease-out; }
+  .dz-panel form { display: flex; justify-content: flex-end; margin: 0; }
+  .x { min-height: 44px; min-width: 44px; padding: 0 1rem; border-radius: 999px; border: 1px solid var(--glass-edge); background: var(--glass); color: var(--sl-color-text); font: inherit; cursor: pointer; }
+  .dz-panel h2 { margin: 0.25rem 0 0.5rem; font-size: 1.3rem; }
+  .dz-panel h3 { margin: 0.9rem 0 0.2rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .dz-panel p { margin: 0.2rem 0; color: var(--lede); }
+  .dz-panel .meta { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  .dz-panel .lead { font-size: 1.02rem; color: var(--sl-color-text); }
+  .dz-panel a.go { display: inline-flex; align-items: center; margin-top: 1rem; padding: 0 1.1rem; min-height: 44px; border-radius: 999px; background: var(--accent-fill); color: var(--on-accent) !important; font-weight: 700; text-decoration: none; }
+
+  @media (min-width: 560px) { .dz-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 900px) { .dz-grid { grid-template-columns: repeat(3, 1fr); } }
+  @keyframes sweep { from { stroke-dasharray: 0 400; } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  @media (prefers-reduced-motion: reduce) { .dz-ring .wait, .dz-panel[open] { animation: none !important; } .card { transition: none; } .card:hover, .card:focus-visible { transform: none; } }
+</style>
