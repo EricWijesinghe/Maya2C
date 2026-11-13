@@ -494,6 +494,10 @@ tower = "0.5"
 # Per-client rate limiting for the public gateway (api-gateway/src/limit.rs).
 governor = { version = "0.10", default-features = false, features = ["std", "dashmap", "quanta", "jitter"] }
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
+# OpenAPI documents generated from handler annotations: api-gateway's `/v1`
+# and the explorer's `/api/v1` (ADR-092). Vetted as an exemption in
+# supply-chain/config.toml.
+utoipa = "5.5"
 tower-http = "0.6"
 tracing = "0.1"
 tracing-subscriber = "0.3"

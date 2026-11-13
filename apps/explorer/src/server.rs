@@ -21,6 +21,10 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 
+use maya_web_security::rate_limit::RateLimit;
+
+use crate::api::node::{NoNode, NodeSource, RpcNode};
+use crate::api::{self, ApiState, LiveCache};
 use crate::error::{ExplorerError, Result};
 use crate::indexer::IndexEvent;
 use crate::model::{HashratePoint, NetworkStats, average_block_time, estimate_hashrate};
@@ -58,6 +62,12 @@ pub struct AppState {
     /// a mounted route over a missing directory would only make the failure
     /// harder to find.
     pub assets: Option<PathBuf>,
+    /// How `/api/v1` identifies a client for its rate limit (ADR-092).
+    ///
+    /// Behind a Cloudflare tunnel every request arrives from loopback, so the
+    /// socket address would put all visitors in one bucket: deployments behind
+    /// a proxy pass `CfConnectingIp` or `XForwardedForLast`.
+    pub api_client_ip: maya_web_security::rate_limit::ClientIp,
 }
 
 /// Renders an HTML response.
@@ -97,8 +107,26 @@ impl IntoResponse for ExplorerError {
 }
 
 /// Builds the router.
+///
+/// # Panics
+///
+/// Never in practice: the API's rate limit is a constant that
+/// [`api::default_rate_limit`] keeps valid.
+#[allow(clippy::expect_used)]
 pub fn router(state: AppState) -> Router {
+    let api_state = ApiState {
+        store: Arc::clone(&state.store),
+        node: node_for(state.node_rpc.as_deref()),
+        live: Arc::new(LiveCache::default()),
+    };
+    let limit = RateLimit {
+        client_ip: state.api_client_ip,
+        ..api::default_rate_limit()
+    };
+    let v1 = api::router(api_state, &limit).expect("default API rate limit is valid");
+
     let router = Router::new()
+        .merge(v1)
         .route("/", get(dashboard))
         .route("/blocks", get(blocks))
         .route("/blocks/{height}", get(block_detail))
@@ -137,7 +165,10 @@ pub fn router(state: AppState) -> Router {
     // there are no credentials, and it is how maya2c.dev shows the network live.
     // GET only. `MAYA2C_CORS_ALLOWED_ORIGINS` locks it to listed origins.
     let cors = maya_web_security::cors_from_env([axum::http::Method::GET]);
-    let router = router.merge(maya_web_security::security_txt()).layer(cors);
+    let router = router
+        .merge(maya_web_security::security_txt())
+        .layer(axum::middleware::from_fn(api::respond::legacy_api))
+        .layer(cors);
     maya_web_security::secure(router, CONTENT_SECURITY_POLICY).with_state(state)
 }
 
@@ -147,6 +178,19 @@ pub fn router(state: AppState) -> Router {
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
 style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; \
 object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/// The node the v1 API queries. Without a usable URL every live route answers
+/// `node_unavailable` and history keeps working.
+fn node_for(url: Option<&str>) -> Arc<dyn NodeSource> {
+    match url.map(RpcNode::connect) {
+        Some(Ok(node)) => Arc::new(node),
+        Some(Err(error)) => {
+            eprintln!("api: node endpoint unusable, live routes disabled: {error}");
+            Arc::new(NoNode)
+        }
+        None => Arc::new(NoNode),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // data assembly
@@ -371,7 +415,7 @@ fn parse_address(input: &str) -> std::result::Result<([u8; 32], Option<Network>)
 
 /// The network the node serves, from its chain id. `None` for a chain id that
 /// has no registered text form.
-async fn fetch_network(url: &str) -> Result<Option<Network>> {
+pub async fn fetch_network(url: &str) -> Result<Option<Network>> {
     use jsonrpsee::core::client::ClientT;
     use jsonrpsee::http_client::HttpClientBuilder;
     use jsonrpsee::rpc_params;
@@ -609,7 +653,10 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
         .local_addr()
         .map_err(|e| ExplorerError::Server(format!("resolving local address: {e}")))?;
 
-    let app = router(state);
+    // Connect info gives the /api/v1 limiter the peer address: without it every
+    // request in socket mode, and every request missing the proxy header in
+    // cf/xff mode, has no client key and fails.
+    let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, app).await {
             eprintln!("explorer server stopped: {error}");

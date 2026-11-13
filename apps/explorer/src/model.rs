@@ -103,19 +103,49 @@ pub struct IndexedTx {
     /// ([`crate::explain::explain_tx`]). Empty in a row indexed before it.
     #[serde(default)]
     pub explanation: String,
+    /// Each output, in order. Kept out of the existing `/api/*` JSON; the v1
+    /// API reads them from the `tx_outputs` table.
+    #[serde(default, skip_serializing)]
+    pub outputs: Vec<IndexedOutput>,
+}
+
+/// One output of a transaction, indexed by recipient for the address queries.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IndexedOutput {
+    /// Hex-encoded transaction id.
+    pub txid: String,
+    /// Position of the output within its transaction.
+    pub idx: i32,
+    /// Lowercase hex recipient address.
+    pub recipient: String,
+    /// Amount as an exact decimal string (256-bit, ADR-046).
+    pub amount: String,
+}
+
+/// Which side of a transaction an address-history query returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    /// Transactions the address sent.
+    Sent,
+    /// Transactions with an output to the address.
+    Received,
+    /// Either.
+    Both,
 }
 
 impl IndexedTx {
-    /// Extracts every transaction from an RPC block.
+    /// Extracts every transaction from an RPC block; `network` is the text form
+    /// the explanation writes recipients in.
     #[must_use]
-    pub fn from_block(block: &BlockInfo) -> Vec<Self> {
+    pub fn from_block(block: &BlockInfo, network: maya_address::Network) -> Vec<Self> {
+        let height = clamp_i64(block.height);
         block
             .transactions
             .iter()
             .map(|tx| Self {
                 txid: tx.txid.clone(),
-                height: clamp_i64(block.height),
-                sender: tx.sender.clone(),
+                height,
+                sender: tx.sender.to_ascii_lowercase(),
                 nonce: clamp_i64(tx.nonce),
                 output_count: tx.outputs.len().min(i32::MAX as usize) as i32,
                 total_out: tx
@@ -129,7 +159,18 @@ impl IndexedTx {
                 kind: tx.kind.clone(),
                 summary: tx.summary.clone(),
                 careful: tx.careful,
-                explanation: crate::explain::explain_tx(tx),
+                explanation: crate::explain::explain_tx(tx, network),
+                outputs: tx
+                    .outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, o)| IndexedOutput {
+                        txid: tx.txid.clone(),
+                        idx: idx.min(i32::MAX as usize) as i32,
+                        recipient: o.recipient.to_ascii_lowercase(),
+                        amount: o.amount.to_string(),
+                    })
+                    .collect(),
             })
             .collect()
     }

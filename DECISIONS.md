@@ -901,3 +901,7 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — Public indexer API v1 proposed for `/api/v1` (ADR-092, PR #414)
+
+Under Eric's general approval ("I approve everything, proceed", Eric 2026-11-14), the explorer's public indexer API (ADR-092) goes forward as a normal, non-node PR: `/api/v1` is read-only and rate limited, cursors only page the list that issued them, and every list is an index range read whatever the client sends, because an address with no history used to cost a walk of the whole `transactions` table. The ADR stays Proposed until the PR merges. Deploying it resets the explorer index (generation 3 to 4), so it goes out against an archive node or at re-genesis, never against a pruned node, which could not rebuild the history it lost.

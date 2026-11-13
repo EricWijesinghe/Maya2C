@@ -9,7 +9,8 @@
 //!
 //! `MemoryStore` proves the *logic*. It cannot prove the SQL: query syntax,
 //! index behaviour, and constraint enforcement are only exercised against a
-//! real PostgreSQL server.
+//! real PostgreSQL server, which `tests/postgres_store_tests.rs` does when
+//! `MAYA_EXPLORER_TEST_PG` names one (CI's nextest job does).
 
 pub mod memory;
 pub mod postgres;
@@ -17,7 +18,19 @@ pub mod postgres;
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::model::{IndexedBlock, IndexedTx};
+use crate::model::{Direction, IndexedBlock, IndexedOutput, IndexedTx};
+
+/// A keyset position: a page continues strictly before this row.
+///
+/// Rows order by `(height, position)`, `position` being the transaction's
+/// index within its block. Block pages use the height alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Seek {
+    /// Block height.
+    pub height: i64,
+    /// Transaction index within the block; zero for block pages.
+    pub position: i64,
+}
 
 /// Read and write access to indexed chain data.
 ///
@@ -48,11 +61,45 @@ pub trait BlockStore: Send + Sync {
     /// A transaction by hex id.
     async fn transaction(&self, txid: &str) -> Result<Option<IndexedTx>>;
 
+    /// A transaction by hex id with its stored `(height, position)` key, so
+    /// the position is the one the index holds rather than one re-derived.
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>>;
+
     /// Transactions in a block, in inclusion order.
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>>;
 
     /// Transactions sent by an address, newest first.
     async fn transactions_by_sender(&self, sender: &str, limit: i64) -> Result<Vec<IndexedTx>>;
+
+    /// Blocks strictly below `before` (or from the tip when `None`), newest
+    /// first, at most `limit`.
+    async fn blocks_page(&self, before: Option<Seek>, limit: i64) -> Result<Vec<IndexedBlock>>;
+
+    /// Transactions strictly before `before` in `(height, position)` order,
+    /// newest first, at most `limit`. Each comes with its own position, which
+    /// is the cursor for the page after it.
+    async fn transactions_page(
+        &self,
+        before: Option<Seek>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>>;
+
+    /// Transactions an address sent, received or both, newest first, keyset
+    /// paged as [`BlockStore::transactions_page`]. A transaction that is both
+    /// appears once.
+    async fn transactions_by_address(
+        &self,
+        address: &str,
+        direction: Direction,
+        before: Option<Seek>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>>;
+
+    /// The outputs of a transaction, in output order.
+    async fn outputs_of(&self, txid: &str) -> Result<Vec<IndexedOutput>>;
+
+    /// The lowest indexed height, or `None` when nothing is indexed.
+    async fn oldest_height(&self) -> Result<Option<i64>>;
 
     /// Total indexed blocks.
     async fn block_count(&self) -> Result<i64>;

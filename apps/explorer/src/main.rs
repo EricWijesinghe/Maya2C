@@ -17,10 +17,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use maya_explorer::indexer::{Indexer, RpcSource};
-use maya_explorer::server::{AppState, serve};
+use maya_explorer::server::{AppState, fetch_network, serve};
 use maya_explorer::store::BlockStore;
 use maya_explorer::store::memory::MemoryStore;
 use maya_explorer::store::postgres::PostgresStore;
+use maya_web_security::rate_limit::ClientIp;
 
 struct Args {
     node_rpc: String,
@@ -36,6 +37,8 @@ struct Args {
     /// moment somebody started it from anywhere but the repository root, with
     /// nothing in the logs to say why.
     assets: PathBuf,
+    /// How `/api/v1` identifies clients for rate limiting (ADR-092).
+    api_client_ip: ClientIp,
 }
 
 impl Default for Args {
@@ -46,7 +49,18 @@ impl Default for Args {
             database_url: std::env::var("DATABASE_URL").ok(),
             max_connections: 5,
             assets: PathBuf::from("assets"),
+            api_client_ip: ClientIp::Socket,
         }
+    }
+}
+
+/// Parses `--api-client-ip`.
+fn client_ip(text: &str) -> Result<ClientIp, Box<dyn Error>> {
+    match text {
+        "socket" => Ok(ClientIp::Socket),
+        "cf" => Ok(ClientIp::CfConnectingIp),
+        "xff" => Ok(ClientIp::XForwardedForLast),
+        other => Err(format!("--api-client-ip must be socket, cf or xff, not {other}").into()),
     }
 }
 
@@ -62,6 +76,7 @@ fn print_usage() {
          then to an in-memory index\n  \
          --max-connections <N>  database pool size (default 5)\n  \
          --assets <DIR>         branding assets directory (default ./assets)\n  \
+         --api-client-ip <MODE> /api/v1 client identity: socket (default), cf, xff\n  \
          -h, --help             show this message"
     );
 }
@@ -81,6 +96,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--database-url" => args.database_url = Some(value()?),
             "--max-connections" => args.max_connections = value()?.parse()?,
             "--assets" => args.assets = PathBuf::from(value()?),
+            "--api-client-ip" => args.api_client_ip = client_ip(&value()?)?,
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -110,7 +126,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let source = Arc::new(RpcSource::connect(&args.node_rpc)?);
     println!("node:   {}", args.node_rpc);
 
-    let indexer = Indexer::new(source, Arc::clone(&store));
+    let network = match fetch_network(&args.node_rpc).await {
+        Ok(Some(network)) => network,
+        Ok(None) => maya_address::Network::Devnet,
+        Err(e) => {
+            eprintln!("node:   chain id unavailable ({e}); explanations use devnet addresses");
+            maya_address::Network::Devnet
+        }
+    };
+    println!("text:   {} addresses", network.hrp());
+
+    let indexer = Indexer::new(source, Arc::clone(&store)).with_network(network);
     let events = indexer.events();
 
     // Checked once, at startup. Mounting the route over a directory that is not
@@ -133,6 +159,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         events,
         node_rpc: Some(args.node_rpc.clone()),
         assets,
+        api_client_ip: args.api_client_ip,
     };
 
     let server = serve(args.listen, state).await?;

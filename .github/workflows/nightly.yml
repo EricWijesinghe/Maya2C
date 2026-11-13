@@ -279,6 +279,18 @@ jobs:
     name: coverage floors
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # ADR-092: under CI, apps/explorer/tests/postgres_store_tests.rs fails
+    # rather than skips without a server, so this job needs one as ci.yml does.
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065
+        env:
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Free runner disk
@@ -301,6 +313,8 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Test coverage
+        env:
+          MAYA_EXPLORER_TEST_PG: postgres://postgres:ci-only@localhost:5432/postgres
         run: cargo llvm-cov --workspace --summary-only
 
       - name: Documentation coverage

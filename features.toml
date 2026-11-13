@@ -3587,6 +3587,17 @@ tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
+id = "public-api"
+name = "Public indexer API v1 (/api/v1, rate limited, golden OpenAPI)"
+domain = "Developer platform"
+paths = "`apps/explorer/src/api/`, `crates/web-security/src/rate_limit.rs`, `apps/explorer/openapi/v1.yaml`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["apps/explorer/tests/api_v1_tests.rs", "apps/explorer/tests/postgres_store_tests.rs", "crate:maya-explorer"]
+note = "ADR-092. Read-only GET under /api/v1. History from the index (tx_outputs added, index generation 4); live values from the node through a TTL single-flight cache (supply 30 s). Bech32m addresses, cursor pages, RFC 9457 problem codes, per-client 10 rps / burst 30 limit, finality-aware Cache-Control. Postgres SQL is tested against a real server by postgres_store_tests.rs (same scenario on MemoryStore and PostgresStore; server from MAYA_EXPLORER_TEST_PG, a service container in CI nextest and nightly coverage; SKIPPED without it locally, a failure under CI). The same file EXPLAINs every public list statement as a generic plan and fails on a sequential scan. Cursors carry the list that issued them. tests/server_tests.rs drives /api/v1 through the real serve() socket (200, then 429). Deploying resets the explorer index (generation 3 to 4): archive node or re-genesis only. The golden spec is JSON in a .yaml file."
+
+[[subsystem]]
 id = "testnet-kit"
 name = "Testnet kit: local devnet, explorer, faucet and attack lab (`cargo xtask kit`)"
 domain = "Developer and operator tooling"

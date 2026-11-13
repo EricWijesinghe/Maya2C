@@ -29,6 +29,7 @@
 
 #![warn(missing_docs)]
 
+pub mod api;
 pub mod chart;
 pub mod error;
 pub mod explain;

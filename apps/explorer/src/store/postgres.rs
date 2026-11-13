@@ -27,8 +27,8 @@ use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 use crate::error::{ExplorerError, Result};
-use crate::model::{IndexedBlock, IndexedTx};
-use crate::store::BlockStore;
+use crate::model::{Direction, IndexedBlock, IndexedOutput, IndexedTx};
+use crate::store::{BlockStore, Seek};
 
 /// Schema applied at startup.
 ///
@@ -65,8 +65,32 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- ON DELETE cascade is done in application code rather than a foreign key:
 -- rollback_from deletes by height range, and a cascading constraint would make
 -- the delete order significant.
-CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions (height);
-CREATE INDEX IF NOT EXISTS transactions_sender_idx ON transactions (sender, height DESC);
+--
+-- ADR-092: every public list pages newest first by (height, position), so the
+-- indexes carry both columns and a page is an index range, not a sort. An
+-- ascending index read backwards serves the descending order; the row
+-- comparisons the keyset queries use are index conditions on it.
+DROP INDEX IF EXISTS transactions_height_idx;
+DROP INDEX IF EXISTS transactions_sender_idx;
+CREATE INDEX IF NOT EXISTS transactions_order_idx ON transactions (height, position);
+CREATE INDEX IF NOT EXISTS transactions_sender_order_idx
+    ON transactions (sender, height, position);
+
+-- ADR-092: one row per output, so an address's received transactions are a
+-- lookup rather than a scan of every transaction's outputs. Height and
+-- position are copied from the transaction so the received side pages in
+-- index order too; put_block keeps them in step with the transaction row.
+CREATE TABLE IF NOT EXISTS tx_outputs (
+    txid      TEXT NOT NULL,
+    idx       INTEGER NOT NULL,
+    recipient TEXT NOT NULL,
+    amount    TEXT NOT NULL,
+    height    BIGINT NOT NULL,
+    position  INTEGER NOT NULL,
+    PRIMARY KEY (txid, idx)
+);
+CREATE INDEX IF NOT EXISTS tx_outputs_recipient_order_idx
+    ON tx_outputs (recipient, height, position);
 
 -- ADR-046: a table created before amounts were 256-bit held a BIGINT. A no-op
 -- once the column is already TEXT.
@@ -93,7 +117,82 @@ CREATE TABLE IF NOT EXISTS meta (
 /// would show a blank kind forever, because the indexer resumes from the tip.
 /// Bumping this empties the derived tables once so the indexer re-reads the
 /// chain. v2: `kind`, `summary` and `careful` are populated. v3: `explanation`.
-pub const INDEX_VERSION: i64 = 3;
+/// v4: `tx_outputs` is populated, with each output's height and position
+/// (ADR-092). Moving to v4 empties a v3 index, so the explorer must point at a
+/// node that still holds the history it wants indexed (an archive node).
+pub const INDEX_VERSION: i64 = 4;
+
+/// The keyset queries' bound when there is no cursor: every indexed key sorts
+/// before it. One statement then serves both cases, and its generic plan keeps
+/// the `(height, position)` index condition that `$n IS NULL OR ...` loses.
+const FROM_TIP: Seek = Seek {
+    height: i64::MAX,
+    position: i64::MAX,
+};
+
+// The statements are public so `tests/postgres_store_tests.rs` can EXPLAIN the
+// exact SQL that ships. All of them bind every value; none is formatted.
+
+/// `blocks_page`: `$1` height bound, `$2` limit.
+pub const BLOCKS_PAGE_SQL: &str =
+    "SELECT * FROM blocks WHERE height < $1 ORDER BY height DESC LIMIT $2";
+
+/// `transactions_page`: `$1, $2` the `(height, position)` bound, `$3` limit.
+pub const TRANSACTIONS_PAGE_SQL: &str = "SELECT * FROM transactions
+     WHERE (height, position) < ($1::BIGINT, $2::BIGINT)
+     ORDER BY height DESC, position DESC LIMIT $3";
+
+// Address branches, as macros so the three statements stay `&'static str`.
+// `$1` address, `$2, $3` the bound, `$4` limit. Each branch is an index range
+// read newest first and stopped at the limit, so an address with no history
+// costs two empty index probes rather than a walk of the table.
+macro_rules! sent_branch {
+    () => {
+        "SELECT t.* FROM transactions t
+         WHERE t.sender = $1 AND (t.height, t.position) < ($2::BIGINT, $3::BIGINT)
+         ORDER BY t.height DESC, t.position DESC LIMIT $4"
+    };
+}
+// DISTINCT ON collapses several outputs of one transaction to the same
+// address; without it they would count twice against the limit and end a
+// page early, which the API reads as the last page.
+macro_rules! received_branch {
+    () => {
+        "SELECT t.* FROM (
+             SELECT DISTINCT ON (o.height, o.position) o.txid, o.height, o.position
+             FROM tx_outputs o
+             WHERE o.recipient = $1 AND (o.height, o.position) < ($2::BIGINT, $3::BIGINT)
+             ORDER BY o.height DESC, o.position DESC LIMIT $4
+         ) r JOIN transactions t ON t.txid = r.txid"
+    };
+}
+
+/// Transactions the address sent.
+pub const ADDRESS_SENT_SQL: &str = sent_branch!();
+/// Transactions that paid the address.
+pub const ADDRESS_RECEIVED_SQL: &str = concat!(
+    received_branch!(),
+    " ORDER BY t.height DESC, t.position DESC"
+);
+/// Both. UNION, not UNION ALL: a transaction that sends from and pays the
+/// same address is one row.
+pub const ADDRESS_BOTH_SQL: &str = concat!(
+    "SELECT * FROM ((",
+    sent_branch!(),
+    ") UNION (",
+    received_branch!(),
+    ")) u ORDER BY height DESC, position DESC LIMIT $4"
+);
+
+/// The address statement for `direction`.
+#[must_use]
+pub const fn address_sql(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Sent => ADDRESS_SENT_SQL,
+        Direction::Received => ADDRESS_RECEIVED_SQL,
+        Direction::Both => ADDRESS_BOTH_SQL,
+    }
+}
 
 /// A PostgreSQL-backed index.
 pub struct PostgresStore {
@@ -155,7 +254,7 @@ async fn rebuild_if_stale(pool: &PgPool) -> Result<()> {
     }
 
     let mut tx = pool.begin().await?;
-    sqlx::query("TRUNCATE blocks, transactions")
+    sqlx::query("TRUNCATE blocks, transactions, tx_outputs")
         .execute(&mut *tx)
         .await?;
     sqlx::query(
@@ -198,6 +297,26 @@ fn tx_from_row(row: &sqlx::postgres::PgRow) -> Result<IndexedTx> {
         summary: row.try_get("summary")?,
         careful: row.try_get("careful")?,
         explanation: row.try_get("explanation")?,
+        outputs: Vec::new(),
+    })
+}
+
+/// Reads a transaction row together with its `(height, position)` key.
+fn placed_tx_from_row(row: &sqlx::postgres::PgRow) -> Result<(Seek, IndexedTx)> {
+    let seek = Seek {
+        height: row.try_get("height")?,
+        position: i64::from(row.try_get::<i32, _>("position")?),
+    };
+    Ok((seek, tx_from_row(row)?))
+}
+
+/// Reads an output row.
+fn output_from_row(row: &sqlx::postgres::PgRow) -> Result<IndexedOutput> {
+    Ok(IndexedOutput {
+        txid: row.try_get("txid")?,
+        idx: row.try_get("idx")?,
+        recipient: row.try_get("recipient")?,
+        amount: row.try_get("amount")?,
     })
 }
 
@@ -234,7 +353,16 @@ impl BlockStore for PostgresStore {
         .await?;
 
         // Clear first: a reorg can replace a height with a block holding fewer
-        // transactions, and a pure upsert would leave the surplus behind.
+        // transactions, and a pure upsert would leave the surplus behind. The
+        // outputs go with them, or a surplus output would still match an
+        // address query.
+        sqlx::query(
+            "DELETE FROM tx_outputs WHERE txid IN
+               (SELECT txid FROM transactions WHERE height = $1)",
+        )
+        .bind(block.height)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM transactions WHERE height = $1")
             .bind(block.height)
             .execute(&mut *tx)
@@ -273,6 +401,26 @@ impl BlockStore for PostgresStore {
             .bind(&transaction.explanation)
             .execute(&mut *tx)
             .await?;
+
+            for output in &transaction.outputs {
+                sqlx::query(
+                    "INSERT INTO tx_outputs (txid, idx, recipient, amount, height, position)
+                     VALUES ($1, $2, $3, $4, $5, $6)
+                     ON CONFLICT (txid, idx) DO UPDATE SET
+                       recipient = EXCLUDED.recipient,
+                       amount = EXCLUDED.amount,
+                       height = EXCLUDED.height,
+                       position = EXCLUDED.position",
+                )
+                .bind(&output.txid)
+                .bind(output.idx)
+                .bind(&output.recipient)
+                .bind(&output.amount)
+                .bind(transaction.height)
+                .bind(position as i32)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
         tx.commit().await?;
@@ -318,6 +466,14 @@ impl BlockStore for PostgresStore {
         row.as_ref().map(tx_from_row).transpose()
     }
 
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>> {
+        let row = sqlx::query("SELECT * FROM transactions WHERE txid = $1")
+            .bind(txid)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(placed_tx_from_row).transpose()
+    }
+
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>> {
         let rows =
             sqlx::query("SELECT * FROM transactions WHERE height = $1 ORDER BY position ASC")
@@ -339,6 +495,66 @@ impl BlockStore for PostgresStore {
         rows.iter().map(tx_from_row).collect()
     }
 
+    async fn blocks_page(&self, before: Option<Seek>, limit: i64) -> Result<Vec<IndexedBlock>> {
+        let before = before.unwrap_or(FROM_TIP);
+        let rows = sqlx::query(BLOCKS_PAGE_SQL)
+            .bind(before.height)
+            .bind(limit.max(0))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(block_from_row).collect()
+    }
+
+    async fn transactions_page(
+        &self,
+        before: Option<Seek>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        let before = before.unwrap_or(FROM_TIP);
+        let rows = sqlx::query(TRANSACTIONS_PAGE_SQL)
+            .bind(before.height)
+            .bind(before.position)
+            .bind(limit.max(0))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(placed_tx_from_row).collect()
+    }
+
+    async fn transactions_by_address(
+        &self,
+        address: &str,
+        direction: Direction,
+        before: Option<Seek>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        let before = before.unwrap_or(FROM_TIP);
+        let rows = sqlx::query(address_sql(direction))
+            .bind(address)
+            .bind(before.height)
+            .bind(before.position)
+            .bind(limit.max(0))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(placed_tx_from_row).collect()
+    }
+
+    async fn outputs_of(&self, txid: &str) -> Result<Vec<IndexedOutput>> {
+        let rows = sqlx::query(
+            "SELECT txid, idx, recipient, amount FROM tx_outputs WHERE txid = $1 ORDER BY idx",
+        )
+        .bind(txid)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(output_from_row).collect()
+    }
+
+    async fn oldest_height(&self) -> Result<Option<i64>> {
+        let row = sqlx::query("SELECT MIN(height) AS height FROM blocks")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.try_get::<Option<i64>, _>("height")?)
+    }
+
     async fn block_count(&self) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) AS count FROM blocks")
             .fetch_one(&self.pool)
@@ -356,6 +572,13 @@ impl BlockStore for PostgresStore {
     async fn rollback_from(&self, height: i64) -> Result<u64> {
         let mut tx = self.pool.begin().await?;
 
+        sqlx::query(
+            "DELETE FROM tx_outputs WHERE txid IN
+               (SELECT txid FROM transactions WHERE height >= $1)",
+        )
+        .bind(height)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM transactions WHERE height >= $1")
             .bind(height)
             .execute(&mut *tx)
