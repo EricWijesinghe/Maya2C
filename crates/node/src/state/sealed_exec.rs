@@ -57,8 +57,8 @@ use crate::core::sealed_payload::{
 use crate::error::{NodeError, Result};
 use crate::sealed::{
     COMMITTEE_KEY, CommitteeRecord, EnvelopeRecord, MAX_REVEAL_DELAY, MAX_REVEAL_SHARES_PER_BLOCK,
-    MAX_SEALED_PER_BLOCK, MIN_REVEAL_DELAY, envelope_height_prefix, envelope_key,
-    share_envelope_prefix, share_key,
+    MAX_SEALED_PER_BLOCK, MAX_SEALED_PER_REVEAL_HEIGHT, MIN_REVEAL_DELAY, envelope_height_prefix,
+    envelope_key, share_envelope_prefix, share_key,
 };
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
@@ -124,15 +124,17 @@ impl StateDB {
     /// The ciphertext is not decrypted, inspected, or validated beyond its
     /// shape — there is nothing here that could inspect it, which is the point.
     /// What *is* checked is everything visible: that a committee exists, that
-    /// the reveal height is in the future and not too far into it, and that the
-    /// block has not already accepted more envelopes than it may.
+    /// the reveal height is in the future and not too far into it, and that
+    /// neither the block nor the reveal height already holds as many envelopes
+    /// as it may.
     ///
     /// # Errors
     ///
     /// - [`NodeError::SealedCommitteeUnset`] on a chain with no committee.
     /// - [`NodeError::SealedRevealWindow`] for a reveal height in this block,
     ///   in the past, or beyond [`MAX_REVEAL_DELAY`].
-    /// - [`NodeError::SealedBlockLimit`] past [`MAX_SEALED_PER_BLOCK`].
+    /// - [`NodeError::SealedBlockLimit`] past [`MAX_SEALED_PER_BLOCK`], or
+    ///   past [`MAX_SEALED_PER_REVEAL_HEIGHT`] waiting for the same height.
     /// - [`NodeError::SealedEnvelopeExists`] for a repeated identifier.
     pub(crate) fn stage_envelope(
         &self,
@@ -182,6 +184,19 @@ impl StateDB {
         let key = envelope_key(envelope.reveal_height, &id);
         if self.record(overlay, &key)?.is_some() {
             return Err(NodeError::SealedEnvelopeExists(hex::encode(id)));
+        }
+
+        // Bounded by the cap itself: the height never holds more to read.
+        let queued = self
+            .merged_records(overlay, &envelope_height_prefix(envelope.reveal_height))?
+            .len();
+        if queued >= MAX_SEALED_PER_REVEAL_HEIGHT {
+            return Err(NodeError::SealedBlockLimit {
+                reason: format!(
+                    "reveal height {} already holds {MAX_SEALED_PER_REVEAL_HEIGHT} envelopes",
+                    envelope.reveal_height
+                ),
+            });
         }
 
         StateDB::put_record(

@@ -211,7 +211,7 @@ impl StateDB {
             }
             absorb(&key, &value)?;
         }
-        for (key, value) in &overlay.records {
+        for (key, value) in overlay.records_under(FEED_PREFIX) {
             if let Some(bytes) = value {
                 absorb(key, bytes)?;
             }
