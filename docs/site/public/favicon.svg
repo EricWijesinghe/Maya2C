@@ -1,0 +1,24 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Header mark: the emblem reduced to what still reads below 48 px, with no
+       lettering and no smoke. Bronze glyph ring, steel inner ring, the teal
+       crystal at the centre. Solid colours that hold on paper and on
+       near-black, so one file serves both themes. -->
+  <defs>
+    <linearGradient id="bronze" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e2b177"/>
+      <stop offset=".5" stop-color="#b07a3f"/>
+      <stop offset="1" stop-color="#7c5223"/>
+    </linearGradient>
+    <linearGradient id="crystal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8ff3e3"/>
+      <stop offset=".45" stop-color="#2fbfab"/>
+      <stop offset="1" stop-color="#0a6158"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="27" fill="none" stroke="url(#bronze)" stroke-width="6" stroke-dasharray="11.2 2.93" transform="rotate(-84 32 32)"/>
+  <circle cx="32" cy="32" r="20.5" fill="#0f1a1c" stroke="#8a9bb0" stroke-width="1.6"/>
+  <path d="M32 13 45 32 32 51 19 32Z" fill="url(#crystal)"/>
+  <path d="M32 13 32 51 19 32Z" fill="#ffffff" opacity=".22"/>
+  <path d="M32 13 45 32H19Z" fill="#ffffff" opacity=".18"/>
+  <path d="M32 13 45 32 32 51 19 32Z" fill="none" stroke="#c9fff6" stroke-width="1" stroke-linejoin="round" opacity=".7"/>
+</svg>

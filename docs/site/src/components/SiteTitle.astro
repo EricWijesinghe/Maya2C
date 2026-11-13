@@ -1,35 +1,26 @@
 ---
-// The real Maya2C emblem (logo-assets/print, cropped to its edges) and the
-// wordmark, one word. Astro emits AVIF and WebP at the two sizes a header
-// needs; the 384 px source never reaches a browser.
-import { Picture } from "astro:assets";
-import emblem from "../assets/emblem.png";
+// The mark and the wordmark, one word. Below 48 px the emblem's lettering and
+// its dark smoke cannot be read, and in light mode the smoke printed a grey
+// halo, so the header draws the lettering-free orb (public/brand/orb-sm.svg,
+// about 1.4 KB, the same file in both themes) instead of a 306 KB PNG source.
+// The full emblem is kept for sizes where it reads: the link-preview cards
+// (scripts/gen-og.mjs) draw it from src/assets/emblem.png.
 const { siteTitleHref } = Astro.locals.starlightRoute;
 ---
 
 <a href={siteTitleHref} class="brand" aria-label="Maya2C home">
-  <Picture
-    src={emblem}
-    formats={["avif", "webp"]}
-    widths={[48, 96, 144]}
-    sizes="48px"
-    width={48}
-    height={48}
-    alt=""
-    class="emblem"
-    loading="eager"
-    fetchpriority="high"
-  />
+  <img src="/brand/orb-sm.svg" width="36" height="36" alt="" class="mark" decoding="async" fetchpriority="high" />
   <span class="word" translate="no">Maya2C</span>
 </a>
 
 <style>
-  .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; min-width: 0; border-radius: var(--r-md); padding: 2px 8px 2px 2px; }
-  .brand :global(.emblem) { width: 44px; height: 44px; flex: none; filter: drop-shadow(0 0 10px var(--brand-glow)); transition: transform .6s var(--spring), filter .4s var(--glide); }
-  .word {
-    font: 800 22px/1 var(--display); letter-spacing: -0.01em; white-space: nowrap;
-    background: var(--brand-word); -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-  @media (max-width: 30rem) { .word { font-size: 19px; } .brand :global(.emblem) { width: 38px; height: 38px; } }
-  @media (prefers-reduced-motion: reduce) { .brand :global(.emblem) { transition: none; } }
+  .brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; min-width: 0; border-radius: var(--r-md); padding: 2px 8px 2px 2px; }
+  .mark { width: 36px; height: 36px; flex: none; transition: transform var(--dur-3) var(--ease); }
+  .brand:hover .mark { transform: rotate(-12deg) scale(1.04); }
+  /* One word in the text colour: no gradient, no split styling of any part of it. */
+  .word { font: 700 21px/1 var(--display); letter-spacing: -0.015em; white-space: nowrap; color: var(--text); }
+  /* Dark only: the orb's teal lifts off the near-black bar. Light keeps it flat. */
+  :global(:root[data-theme="dark"]) .mark { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 35%, transparent)); }
+  @media (max-width: 30rem) { .word { font-size: 19px; } .mark { width: 32px; height: 32px; } }
+  @media (prefers-reduced-motion: reduce) { .mark { transition: none; } .brand:hover .mark { transform: none; } }
 </style>

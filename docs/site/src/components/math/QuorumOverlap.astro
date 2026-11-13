@@ -6,7 +6,7 @@
     <input type="range" min="1" max="100" value="7" data-n aria-describedby="quorum-readout" />
   </label>
   <label class="legacy"><input type="checkbox" data-legacy /> Use the retired 2f + 1 rule instead</label>
-  <svg viewBox="0 0 320 120" role="img" aria-label="Dots for each validator: the first quorum in blue, the second in orange, their overlap in teal, faulty members ringed." data-svg></svg>
+  <svg viewBox="0 0 320 120" role="img" aria-label="Dots for each validator: the first quorum in steel, the second in bronze, their overlap in teal, validators in neither as open rings, faulty members ringed in red." data-svg></svg>
   <p id="quorum-readout" aria-live="polite" data-readout></p>
 </figure>
 
@@ -82,12 +82,14 @@
   .quorum label { display: block; margin: 0.4rem 0; }
   .quorum input[type="range"] { width: 100%; min-height: 44px; }
   .quorum .legacy { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; }
-  .quorum svg { width: 100%; height: auto; background: var(--sl-color-gray-6, #0e1a20); border-radius: 0.5rem; }
-  .quorum circle { stroke: none; }
-  .quorum .only-a { fill: var(--sl-color-blue, #3b82f6); }
-  .quorum .only-b { fill: var(--sl-color-orange, #d97706); }
-  .quorum .both { fill: var(--sl-color-accent-high, #5eead4); }
-  .quorum .idle { fill: var(--sl-color-gray-4, #3a4d57); }
-  .quorum .faulty { fill: none; stroke: #f87171; stroke-width: 2.5; }
+  /* The dots are created by the script, so they carry no scope attribute:
+     :global() reaches them. Token colours follow a theme switch without a redraw. */
+  .quorum svg { width: 100%; height: auto; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); }
+  .quorum :global(circle) { stroke: none; }
+  .quorum :global(.only-a) { fill: var(--steel); }
+  .quorum :global(.only-b) { fill: var(--bronze); }
+  .quorum :global(.both) { fill: var(--accent); }
+  .quorum :global(.idle) { fill: none; stroke: var(--text-3); stroke-width: 1.5; }
+  .quorum :global(.faulty) { fill: none; stroke: var(--danger); stroke-width: 2.5; }
   .quorum p { font-size: 0.92rem; }
 </style>

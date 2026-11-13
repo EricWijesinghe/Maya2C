@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      site: ${{ steps.diff.outputs.site }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -51,10 +52,13 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"; echo "push: full run"; exit 0
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "site=true" >> "$GITHUB_OUTPUT"; echo "push: full run"; exit 0
           fi
           files=$(git diff --name-only "$BASE"...HEAD)
           echo "$files"
+          if echo "$files" | grep -qE '^(docs/|design/(tokens\.json|visual/site-shell\.mjs))'; then
+            echo "site=true" >> "$GITHUB_OUTPUT"
+          fi
           if echo "$files" | grep -qvE '^(docs/(site|brand|master-prompts|releases)/|README\.md$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "code changed: full run"
           else
@@ -162,6 +166,37 @@ jobs:
         with:
           name: visual-diff
           path: design/visual/out/
+
+  # The maya2c.dev shell in a real browser (lane L02): first-paint theme,
+  # persistence, the phone menu, 44 px tap targets, no sideways scroll at
+  # 360/390/768 on every page, axe WCAG 2.x A/AA and the chart contrast. Same
+  # pinned container as `visual`; the screenshots are uploaded every run so a
+  # reviewer sees the phone and desktop shells without building the site.
+  site-shell:
+    name: site shell
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install site dependencies (no lifecycle scripts)
+        working-directory: docs/site
+        run: npm ci --ignore-scripts
+      - name: Build the site
+        working-directory: docs/site
+        run: npm run build
+      - name: Install the matching Playwright package and axe-core
+        run: npm install --no-save --prefix design/visual playwright@1.56.1 axe-core@4.10.2
+      - name: Shell checks
+        working-directory: docs/site
+        run: npm run test:shell
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: site-shell-screens
+          path: design/visual/site/
 
   fmt:
     name: rustfmt

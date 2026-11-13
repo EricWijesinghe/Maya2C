@@ -23,21 +23,14 @@ const slhPk = 2 * n;
 ---
 
 <StarlightPage frontmatter={{ title: "Post-quantum signatures, step by step", description: "One Maya2C transaction carries an ML-DSA-65 and an SLH-DSA signature. This page walks through each check, with the real parameter sizes from FIPS 204 and FIPS 205.", template: "splash" }}>
-  <section class="sg" aria-label="Signature walkthrough">
+  {/* not-content: Starlight's prose rhythm (a top margin on every sibling)
+      misaligned the step chips and padded the cards; this page lays itself out.
+      The page title is Starlight's h1; "Two locks" is the lede, not a second heading. */}
+  <section class="sg not-content" aria-label="Signature walkthrough">
     <header class="sg-head">
-      <p class="sg-kicker">maya-testnet-1 · signatures</p>
-      <h2 class="sg-title">Two locks on every transaction</h2>
-      <p class="sg-sub">A transaction is written only if both signatures check out. This walks through each check, with the real sizes.</p>
+      <p class="sg-kicker">Two locks on every transaction</p>
+      <p class="sg-sub">A transaction is written only if both signatures check out. Four steps, with the real sizes.</p>
     </header>
-
-    <form class="sg-lookup" id="lookup" aria-describedby="lookup-note">
-      <label for="txh">Transaction hash</label>
-      <div class="sg-row">
-        <input id="txh" name="txh" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="paste a transaction hash" />
-        <button type="submit" class="btn">Look up</button>
-      </div>
-      <p class="sg-note" id="lookup-note" role="status">The public gateway has no transaction lookup method (its public methods are listed in crates/node/src/rpc/server.rs). So a hash cannot be fetched here. The walkthrough below uses the parameters for any transaction.</p>
-    </form>
 
     <nav class="sg-steps" aria-label="Steps">
       <button type="button" data-step="0" aria-current="step">1 · Message</button>
@@ -89,6 +82,10 @@ const slhPk = 2 * n;
       <p class="sg-note"><strong>Not done on this page:</strong> no client-side verification. Nothing in this page checks a signature, and no cryptography runs in the browser. The implementations are tested against NIST known-answer vectors in <code>crates/crypto-pq/tests/acvp_tests.rs</code>.</p>
     </article>
 
+    {/* No lookup form until the public gateway has a method for it: a field the
+        page itself says cannot work reads as broken (design critique, L02). */}
+    <p class="sg-note">Looking up a transaction by hash is not available yet: the public gateway has no method for it (<a href="/guides/api/">API reference</a>).</p>
+
     <p class="sg-foot"><a href="/guides/signatures/">The guide to signatures</a> · <a href="/reference/hybrid-signatures/">Hybrid signatures</a> · <a href="/health/">Live health</a></p>
   </section>
 
@@ -100,43 +97,37 @@ const slhPk = 2 * n;
       buttons.forEach((b, k) => { if (k === i) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
     }
     buttons.forEach((b) => b.addEventListener("click", () => show(Number(b.dataset.step))));
-    const form = document.getElementById("lookup") as HTMLFormElement;
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      // The gateway cannot return a transaction by hash, so the form says so
-      // and shows the parameter walkthrough instead of inventing a result.
-      show(0);
-    });
   </script>
 
   <style>
     .sg { max-width: 920px; margin: 0 auto; display: grid; gap: 28px; padding: 8px 0 64px; color: var(--text); }
     .sg-kicker { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--gold); margin: 0; }
-    .sg .sg-title { font: 700 clamp(32px, 4vw, 46px)/1.1 var(--display); margin: 10px 0 0; }
-    .sg-sub, .sg-note { font: 400 14px/1.55 var(--sans); color: var(--muted); margin: 8px 0 0; }
-    .sg code { font: 500 12.5px var(--mono); color: var(--gold); }
-    .sg-lookup { display: grid; gap: 8px; padding: 18px; border: 1px solid var(--glass-edge); border-radius: var(--r-m); background: var(--glass); }
-    .sg-lookup label { font: 600 14px var(--sans); }
-    .sg-row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .sg-row input { flex: 1 1 260px; font: 400 14px var(--mono); padding: 12px 14px; border-radius: var(--r-s); border: 1px solid var(--glass-edge); background: var(--deep); color: var(--text); }
-    .sg-row .btn { font: 600 14px var(--sans); padding: 12px 18px; border-radius: var(--r-pill); border: 1px solid var(--glass-edge); background: var(--deep); color: var(--text); cursor: pointer; }
-    .sg-steps { display: flex; gap: 8px; flex-wrap: wrap; }
-    .sg-steps button { font: 600 13px var(--sans); padding: 10px 14px; border-radius: var(--r-pill); border: 1px solid var(--glass-edge); background: var(--glass); color: var(--muted); cursor: pointer; }
-    .sg-steps button[aria-current="step"] { color: var(--text); border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
-    .sg-panel { padding: clamp(20px, 3vw, 30px); border-radius: var(--r-l); border: 1px solid var(--glass-edge); background: var(--glass); }
-    .sg-panel h2 { font: 650 22px/1.2 var(--display); margin: 0 0 12px; }
+    .sg-sub { font: 400 var(--type-body-lg-size)/1.55 var(--sans); color: var(--text-2); margin: 8px 0 0; max-width: 60ch; }
+    .sg-note { font: 400 14px/1.55 var(--sans); color: var(--muted); margin: 8px 0 0; }
+    .sg-note a { color: var(--accent-text); }
+    .sg code { font: 500 12.5px var(--mono); color: var(--accent-text); }
+    /* One height for every chip; the current one is marked by fill and ring only. */
+    .sg-steps { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .sg-steps button { box-sizing: border-box; height: 44px; margin: 0; font: 600 13px var(--sans); padding: 0 14px; border-radius: var(--r-pill); border: 1px solid var(--border-control, var(--text-3)); background: var(--surface-1); color: var(--text-2); cursor: pointer; transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+    .sg-steps button:hover { color: var(--text); }
+    .sg-steps button[aria-current="step"] { color: var(--text); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-subtle); }
+    .sg-panel { padding: clamp(20px, 3vw, 30px); border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface-1); box-shadow: var(--shadow-md); }
+    .sg-panel h2 { font: 650 22px/1.2 var(--display); margin: 0 0 12px; color: var(--text); }
+    .sg-panel > :first-child { margin-top: 0; }
     .sg-panel p { font: 400 15px/1.6 var(--sans); color: var(--lede); margin: 8px 0; }
     .bars { display: grid; gap: 8px; margin: 18px 0; }
     .bar-label { font: 500 12px var(--mono); color: var(--muted); margin: 6px 0 0 !important; }
     .bar { display: flex; width: 100%; min-height: 40px; border-radius: var(--r-s); overflow: hidden; border: 1px solid var(--glass-edge); }
-    .seg { display: flex; align-items: center; justify-content: center; padding: 0 6px; font: 500 11.5px/1.2 var(--mono); color: #02161a; text-align: center; min-width: 0; overflow: hidden; white-space: nowrap; }
-    .seg.a { background: #7eeaf0; }
-    .seg.b { background: #2fb9c3; }
-    .seg.c { background: #d9b97a; }
+    /* Each segment pairs a fill with a label colour measured on it in both
+       themes: text on the pale teal, on-accent on teal, the page bg on bronze. */
+    .seg { display: flex; align-items: center; justify-content: center; padding: 0 6px; font: 500 11.5px/1.2 var(--mono); text-align: center; min-width: 0; overflow: hidden; white-space: nowrap; }
+    .seg.a { background: color-mix(in srgb, var(--accent) 22%, var(--surface-1)); color: var(--text); }
+    .seg.b { background: var(--accent); color: var(--on-accent); }
+    .seg.c { background: var(--bronze); color: var(--bg); }
     .tree { display: grid; gap: 6px; margin: 18px 0; max-width: 520px; }
-    .tree > div { padding: 10px 14px; border-radius: var(--r-s); border: 1px solid var(--glass-edge); background: var(--deep); font: 500 12.5px var(--mono); color: var(--text); }
-    .tree .fors { background: rgba(217, 185, 122, .18); }
-    .tree .layer { margin-left: 24px; background: rgba(47, 185, 195, .12); }
+    .tree > div { padding: 10px 14px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-1); font: 500 12.5px var(--mono); color: var(--text); }
+    .tree .fors { background: color-mix(in srgb, var(--bronze) 16%, var(--surface-1)); }
+    .tree .layer { margin-left: 24px; background: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); }
     .sg-checks { margin: 12px 0; padding-left: 20px; font: 400 15px/1.7 var(--sans); color: var(--lede); }
     .sg-foot { font: 500 13px var(--sans); color: var(--muted); }
     .sg-foot a { color: var(--cherenkov-hi); }

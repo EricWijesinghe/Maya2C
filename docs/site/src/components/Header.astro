@@ -1,63 +1,59 @@
 ---
-// Starlight's header, rearranged: emblem and wordmark, one entry per audience
-// (try it, build on it, run a node) and the live services, with the current
-// one lit, then search, GitHub and theme. Testnet and Validators sit under
-// "Run a node" since 2026-11-10: three entries led to the same journey.
-// Two page-wide controls ride along because every page renders the header:
-// a reading-progress hairline and a back-to-top button.
+// Starlight's header, rearranged: emblem and wordmark, the main entries
+// (src/data/site-nav.ts) with the current one underlined, then search, the
+// one call to action, GitHub and the theme. Two page-wide controls ride along
+// because every page renders the header: a reading-progress hairline and a
+// back-to-top button.
+//
+// One menu button per page, always at the right edge beside search (design
+// critique, L02): on a docs page below 50rem that is Starlight's button,
+// which opens the sidebar with the site menu on top (Sidebar.astro); on a
+// splash page, and on any page from 50rem until the inline nav fits at 60rem,
+// it is this header's own menu.
 import config from "virtual:starlight/user-config";
 import Search from "virtual:starlight/components/Search";
 import SiteTitle from "virtual:starlight/components/SiteTitle";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
-import { testnet } from "../data/network-state";
+import MenuPanel from "./MenuPanel.astro";
+import { NAV, START, isCurrent } from "../data/site-nav";
 
 const path = Astro.url.pathname;
-const nav = [
-  { label: "Experience", href: "/experience/", match: ["/experience"] },
-  { label: "Build", href: "/guides/quickstart/", match: ["/guides/quickstart", "/guides/api", "/guides/wallet", "/guides/contracts"] },
-  { label: "Run a node", href: "/guides/help-run/", match: ["/guides/help-run", "/guides/testnet", "/guides/validators", "/guides/mining", "/guides/start-mining"] },
-  // While the testnet is paused the explorer and status hosts are down (HTTP
-  // 530): point at the site's own pages instead of a Cloudflare error (W-03).
-  ...(testnet.paused
-    ? [{ label: "Stats", href: "/stats/", match: ["/stats"] }, { label: "Status", href: "/health/", match: ["/health"] }]
-    : [{ label: "Explorer", href: "https://explorer.maya2c.dev/", external: true }, { label: "Status", href: "https://status.maya2c.dev/", external: true }]),
-  { label: "Built by Eric", href: "https://eric.maya2c.dev/", external: true },
-];
+// One filled primary per viewport: the home hero carries its own, so the bar's
+// button is the outlined variant there (design critique, L02).
+const ctaKind = path === "/" ? "ui-btn--secondary" : "ui-btn--primary";
+const { hasSidebar } = Astro.locals.starlightRoute;
 const showSearch =
   config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
 ---
 
-<div class="bar">
+<div class="bar" data-sidebar={hasSidebar ? "" : undefined}>
   <div class="title"><SiteTitle /></div>
-  <nav class="primary" aria-label="Main">
-    {nav.map((n) => (
+  <nav class="primary" aria-label="Site">
+    {NAV.map((n) => (
       <a
         href={n.href}
-        aria-current={n.match?.some((m) => path.startsWith(m)) ? "page" : undefined}
+        aria-current={isCurrent(n, path) ? "page" : undefined}
         {...(n.external ? { rel: "noopener", target: "_blank" } : {})}
       >
         {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}{n.external && <span class="sr-only"> (opens in a new tab)</span>}
       </a>
     ))}
   </nav>
-  {/* Below 72rem the main nav folds into this menu (design critique, U3): the
-      docs template's own button opens the sidebar, not these entries. No script. */}
-  <details class="mnav print:hidden">
-    <summary aria-label="Main menu">Menu</summary>
-    <nav aria-label="Main, compact">
-      {nav.map((n) => (
-        <a href={n.href} aria-current={n.match?.some((m) => path.startsWith(m)) ? "page" : undefined} {...(n.external ? { rel: "noopener", target: "_blank" } : {})}>
-          {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}
-        </a>
-      ))}
-    </nav>
-  </details>
   <div class="search print:hidden">{showSearch && <Search />}</div>
+  <a class:list={["cta ui-btn print:hidden", ctaKind]} href={START.href}>{START.label}</a>
   <div class="right sl-hidden md:sl-flex print:hidden">
     <SocialIcons />
-    <ThemeSelect />
+    <ThemeSelect name="bar" />
   </div>
+  <details class="mnav print:hidden" data-mnav>
+    <summary aria-label="Main menu" aria-expanded="false">
+      <svg class="i-open" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+      <svg class="i-close" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+    </summary>
+    <div class="mnav__scrim" aria-hidden="true"></div>
+    <div class="mnav__panel"><MenuPanel name="header" /></div>
+  </details>
 </div>
 
 <div class="progress" aria-hidden="true"><span id="maya-progress"></span></div>
@@ -68,6 +64,7 @@ const showSearch =
 <script>
   const bar = document.getElementById("maya-progress");
   const top = document.getElementById("maya-top");
+  const mnav = document.querySelector<HTMLDetailsElement>("[data-mnav]");
   let queued = false;
   const update = () => {
     queued = false;
@@ -76,7 +73,10 @@ const showSearch =
     if (bar) bar.style.transform = `scaleX(${max > 0 ? Math.min(1, y / max) : 0})`;
     top?.classList.toggle("on", y > innerHeight * 0.8);
   };
-  addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
+  addEventListener("scroll", () => {
+    if (mnav?.open) mnav.open = false;
+    if (!queued) { queued = true; requestAnimationFrame(update); }
+  }, { passive: true });
   addEventListener("resize", update);
   update();
   top?.addEventListener("click", () => {
@@ -84,34 +84,71 @@ const showSearch =
     scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
     (document.querySelector("main") as HTMLElement | null)?.focus({ preventScroll: true });
   });
+  // The menu is a <details>, so it opens without script; this closes it the
+  // way a menu is expected to: outside tap, Escape, or following a link.
+  if (mnav) {
+    const summary = mnav.querySelector("summary")!;
+    const panel = mnav.querySelector(".mnav__panel")!;
+    mnav.addEventListener("toggle", () => summary.setAttribute("aria-expanded", String(mnav.open)));
+    document.addEventListener("click", (e) => {
+      const t = e.target as Node;
+      if (mnav.open && !panel.contains(t) && !summary.contains(t)) mnav.open = false;
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && mnav.open) { mnav.open = false; summary.focus(); }
+    });
+    panel.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => { mnav.open = false; }));
+  }
   // "/" and Ctrl/Cmd+K open the command palette (CommandPalette.astro, the Search override).
 </script>
 
 <style>
-  .bar { display: flex; align-items: center; gap: clamp(12px, 2vw, 28px); height: 100%; }
+  .bar { display: flex; align-items: center; gap: clamp(8px, 1.6vw, 24px); height: 100%; }
   .title { flex: none; min-width: 0; }
   .primary { display: none; align-items: center; gap: 2px; }
   .primary a { position: relative; padding: 8px 10px; border-radius: var(--r-sm); font: var(--weight-medium) var(--type-body-size)/1 var(--sans); color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease); }
   .primary a:hover { color: var(--text); background: var(--nav-hover); }
-  .primary a[aria-current="page"] { color: var(--text); background: var(--surface-2); }
+  /* The current entry: text colour and a short accent rule under it. */
+  .primary a[aria-current="page"] { color: var(--text); }
+  .primary a[aria-current="page"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--deco-spark)); }
   .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
   .search { flex: 1 1 auto; display: flex; justify-content: flex-end; min-width: 0; }
-  .right { flex: none; align-items: center; gap: 1rem; }
+  .right { flex: none; align-items: center; gap: var(--space-3); }
+
   .mnav { position: relative; flex: none; }
-  .mnav summary { list-style: none; display: inline-flex; align-items: center; height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-1); color: var(--text); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--sans); cursor: pointer; }
+  /* Docs pages on phones use Starlight's button (Sidebar.astro carries the menu). */
+  .bar[data-sidebar] .mnav { display: none; }
+  @media (min-width: 50rem) { .bar[data-sidebar] .mnav { display: block; } }
+  @media (min-width: 60rem) { .bar .mnav, .bar[data-sidebar] .mnav { display: none; } .primary { display: flex; } }
+  @media (min-width: 72rem) { .search { flex: 0 1 240px; margin-left: auto; } }
+
+  /* Icon only, 44 x 44, the same face as Starlight's docs button (maya.css). */
+  .mnav summary { list-style: none; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border-control); border-radius: var(--r-md); background: var(--surface-1); color: var(--text); cursor: pointer; }
   .mnav summary::-webkit-details-marker { display: none; }
-  .mnav[open] summary { background: var(--surface-2); }
-  .mnav nav { position: absolute; left: 0; top: calc(100% + var(--space-2)); z-index: 50; min-width: 14rem; display: grid; padding: var(--space-1); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-lg); }
-  .mnav nav a { display: flex; align-items: center; min-height: 44px; padding: 0 var(--space-3); border-radius: var(--r-md); color: var(--text-2); text-decoration: none; font: var(--weight-medium) var(--type-body-size)/1 var(--sans); }
-  .mnav nav a:hover, .mnav nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); }
-  @media (min-width: 72rem) { .mnav { display: none; } }
-  @media (min-width: 72rem) { .primary { display: flex; } .search { flex: 0 1 240px; margin-left: auto; } }
+  .mnav summary:hover { background: var(--surface-2); }
+  .mnav .i-close, .mnav[open] .i-open { display: none; }
+  .mnav[open] .i-close { display: block; }
+  .mnav[open] summary { background: var(--surface-2); border-color: var(--accent); }
+  .mnav__scrim { position: fixed; inset: var(--sl-nav-height) 0 0 0; z-index: 49; background: color-mix(in srgb, var(--bg) 60%, transparent); }
+  /* Under the button: full width less the gutters on a phone; from 50rem a
+     20rem panel whose right edge lines up with the button's. */
+  .mnav__panel { position: fixed; left: var(--sl-nav-pad-x); right: var(--sl-nav-pad-x); top: calc(var(--sl-nav-height) + var(--space-1)); z-index: 50; max-height: calc(100dvh - var(--sl-nav-height) - var(--space-4)); overflow-y: auto; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-lg); }
+  @media (min-width: 50rem) {
+    .mnav__panel { left: auto; width: 20rem; }
+    /* The bar shows GitHub and the theme from here on. */
+    .mnav__panel :global(.menu__prefs) { display: none; }
+  }
+
+  /* The one primary action, the kit's button (one class, so it cannot drift
+     from the hero's). Hidden on phones, where it leads the menu instead. */
+  .cta { display: none; flex: none; font-weight: var(--weight-semibold); text-decoration: none; }
+  @media (min-width: 40rem) { .cta { display: inline-flex; } }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
-  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); opacity: .6; }
+  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--deco-spark); opacity: .8; }
 
   .to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 90;
-    width: 40px; height: 40px; border-radius: var(--r-md); display: grid; place-items: center; cursor: pointer;
+    width: 44px; height: 44px; border-radius: var(--r-md); display: grid; place-items: center; cursor: pointer;
     color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-md); opacity: 0; transform: translateY(4px); pointer-events: none;
     transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), border-color var(--dur-1) var(--ease); }

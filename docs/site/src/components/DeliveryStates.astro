@@ -1,6 +1,12 @@
 ---
 // What the sender of a Maya2C Chat message sees, from the outbox (ADR-074).
 // Each stage is a state the app really shows; nothing is simulated.
+//
+// One grid with shared rows (node, title, description), so the titles share a
+// baseline at every width; below about 420 px it turns into a vertical
+// timeline. "Expired" branches off step 2, the only stage a message can
+// expire from. not-content: Starlight's prose rhythm would give each title a
+// different top margin.
 const stages = [
   { name: "Sending", line: "held in your outbox", tone: "wait" },
   { name: "Waiting", line: "a relay has it, no receipt yet", tone: "wait" },
@@ -8,7 +14,7 @@ const stages = [
 ];
 ---
 
-<figure class="delivery" aria-label="Delivery states of a sent Maya2C Chat message">
+<figure class="delivery not-content" aria-label="Delivery states of a sent Maya2C Chat message">
   <ol class="track">
     {stages.map((s, i) => (
       <li class={`stage tone-${s.tone}`}>
@@ -18,26 +24,39 @@ const stages = [
       </li>
     ))}
   </ol>
-  <div class="branch">
+  <p class="branch">
     <span class="fork" aria-hidden="true"></span>
-    <span class="stage tone-expired"><b>Expired</b><small>past its time limit, dismissable</small></span>
-  </div>
+    <span class="stage tone-expired"><b>Expired</b> <small>from step 2: past its time limit, dismissable</small></span>
+  </p>
   <figcaption>
     Receipts are optional: off for everyone, or per contact. The recipient still gets the message.
   </figcaption>
 </figure>
 
 <style>
-  .delivery { margin: 0; display: grid; gap: 14px; }
-  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; position: relative; }
-  .track::before { content: ""; position: absolute; left: 16px; right: 16px; top: 15px; height: 2px; background: linear-gradient(90deg, #3fd2e0, #e0b46a); opacity: .5; }
-  .stage { position: relative; display: grid; gap: 4px; justify-items: start; }
-  .node { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #0b1a20; border: 2px solid #3fd2e0; color: #e8f3f5; font: 600 13px/1 monospace; }
-  .tone-done .node { background: #3fd2e0; color: #04161b; }
-  .stage b { font-weight: 600; }
-  .stage small, .delivery figcaption { color: #7d95a0; font-size: 12.5px; line-height: 1.4; }
-  .branch { display: flex; align-items: center; gap: 12px; padding-left: 16px; }
-  .fork { width: 28px; height: 0; border-top: 2px dashed #e0b46a; opacity: .7; }
-  .tone-expired b { color: #e0b46a; }
-  .delivery figcaption { margin: 0; }
+  .delivery { margin: 0; display: grid; gap: 6px; container-type: inline-size; }
+  /* Three columns, three shared rows: every node, title and line on one baseline. */
+  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto auto; column-gap: 10px; row-gap: 4px; position: relative; }
+  .track::before { content: ""; position: absolute; left: 16px; right: 16px; top: 15px; height: 2px; background: linear-gradient(90deg, var(--accent), var(--bronze)); opacity: .6; }
+  .stage { position: relative; display: grid; grid-row: span 3; grid-template-rows: subgrid; align-items: start; justify-items: start; min-width: 0; margin: 0; }
+  .node { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-1); border: 2px solid var(--accent); color: var(--text); font: 600 13px/1 var(--mono); }
+  .tone-done .node { background: var(--accent); color: var(--on-accent); }
+  .stage b { font-weight: 600; color: var(--text); }
+  .stage small, .delivery figcaption { color: var(--text-2); font-size: 12.5px; line-height: 1.4; }
+  /* The branch hangs from step 2's node: column 2 starts a third of the way in. */
+  .branch { display: flex; align-items: flex-end; gap: 8px; margin: 0 0 8px calc((100% - 20px) / 3 + 10px + 15px); }
+  .fork { flex: none; width: 22px; height: 22px; margin-top: -4px; border-left: 2px dashed var(--bronze); border-bottom: 2px dashed var(--bronze); border-bottom-left-radius: 8px; }
+  .branch .stage { display: block; transform: translateY(8px); }
+  .tone-expired b { color: var(--bronze); }
+  .delivery figcaption { margin: 8px 0 0; }
+
+  /* Narrow: one column, the rail runs down the nodes, text to their right. */
+  @container (max-width: 26rem) {
+    .track { grid-template-columns: 1fr; grid-template-rows: none; row-gap: 14px; }
+    .track::before { left: 15px; right: auto; top: 16px; bottom: 16px; width: 2px; height: auto; background: linear-gradient(180deg, var(--accent), var(--bronze)); }
+    .stage { grid-row: auto; grid-template-rows: none; grid-template-columns: 32px 1fr; column-gap: 12px; row-gap: 2px; }
+    .stage .node { grid-row: span 2; }
+    .branch { margin-left: 15px; align-items: flex-start; }
+    .branch .stage { transform: none; }
+  }
 </style>

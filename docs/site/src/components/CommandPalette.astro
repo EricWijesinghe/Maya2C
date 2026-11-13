@@ -5,18 +5,29 @@
 // into /pagefind/, loaded on first open. A native modal <dialog> gives the
 // focus trap and Escape; the input is an ARIA 1.2 combobox driving a listbox
 // through aria-activedescendant, so focus never leaves the input.
+import { testnet } from "../data/network-state";
+
 const quick = [
   { title: "Quickstart", url: "/guides/quickstart/", hint: "Guide" },
   { title: "API reference", url: "/guides/api/", hint: "Guide" },
   { title: "Run a node", url: "/guides/help-run/", hint: "Guide" },
   { title: "Design system", url: "/design-system/", hint: "Reference" },
-  { title: "Explorer", url: "https://explorer.maya2c.dev/", hint: "Service" },
-  { title: "Network status", url: "https://status.maya2c.dev/", hint: "Service" },
+  // Same rule as the header (W-03): while paused the explorer and status hosts
+  // answer with an error page, so the palette offers the site's own pages.
+  ...(testnet.paused
+    ? [
+        { title: "Live statistics (last reading)", url: "/stats/", hint: "Page" },
+        { title: "Network health", url: "/health/", hint: "Page" },
+      ]
+    : [
+        { title: "Explorer", url: "https://explorer.maya2c.dev/", hint: "Service" },
+        { title: "Network status", url: "https://status.maya2c.dev/", hint: "Service" },
+      ]),
 ];
 ---
 
 <maya-palette data-quick={JSON.stringify(quick)}>
-  <button type="button" class="cmdk-trigger" data-palette-open aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
+  <button type="button" class="cmdk-trigger" data-palette-open aria-label="Search docs" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     <span class="cmdk-trigger__label">Search docs</span>
     <kbd class="cmdk-trigger__kbd"><span data-mod>Ctrl</span> K</kbd>
@@ -28,7 +39,7 @@ const quick = [
         class="cmdk__input"
         type="text"
         role="combobox"
-        aria-expanded="true"
+        aria-expanded="false"
         aria-controls="cmdk-list"
         aria-autocomplete="list"
         aria-label="Search pages"
@@ -86,7 +97,10 @@ const quick = [
       }
       this.#trigger.addEventListener("click", () => this.open());
       this.#dialog.addEventListener("click", (e) => { if (e.target === this.#dialog) this.#dialog.close(); });
-      this.#dialog.addEventListener("close", () => this.#trigger.focus());
+      this.#dialog.addEventListener("close", () => {
+        this.#input.setAttribute("aria-expanded", "false");
+        this.#trigger.focus();
+      });
       this.#input.addEventListener("input", () => this.#search(this.#input.value.trim()));
       this.#input.addEventListener("keydown", (e) => this.#onKey(e));
       addEventListener("keydown", (e) => {
@@ -103,6 +117,7 @@ const quick = [
 
     open() {
       this.#dialog.showModal();
+      this.#input.setAttribute("aria-expanded", "true");
       this.#input.select();
       this.#search(this.#input.value.trim());
     }
@@ -216,10 +231,13 @@ const quick = [
     padding: 3px 5px; border: 1px solid var(--border); border-radius: var(--r-xs);
     background: var(--surface-2); color: var(--text-2);
   }
-  @media (max-width: 50rem) {
+  /* Icon only until the bar has room for the label (the inline nav needs it
+     from 60rem); a full 44 px target on touch-width screens. */
+  @media (max-width: 72rem) {
     .cmdk-trigger { width: var(--control-h); padding: 0; justify-content: center; }
     .cmdk-trigger__label, .cmdk-trigger__kbd { display: none; }
   }
+  @media (max-width: 50rem) { .cmdk-trigger { width: 44px; height: 44px; } }
 
   .cmdk {
     width: min(40rem, calc(100vw - 2 * var(--space-4)));

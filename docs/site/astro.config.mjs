@@ -1,7 +1,8 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
-import { readFileSync } from "node:fs";
+import sitemap from "@astrojs/sitemap";
+import { readFileSync, readdirSync } from "node:fs";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { unified } from "@astrojs/markdown-remark";
@@ -14,6 +15,24 @@ import { codeThemes, codeStyleOverrides } from "./src/lib/code-theme.mjs";
 const reference = JSON.parse(
   readFileSync(new URL("./src/sidebar.generated.json", import.meta.url), "utf8"),
 );
+// Last commit date per page, from the same ingest run (audit W-13). The
+// sitemap's lastmod comes from it, so a crawler re-reads what changed and
+// nothing else. /stats/ and /health/ are rebuilt from live data on every
+// deploy, so a commit date would be wrong for them: they get none.
+const { modified } = JSON.parse(
+  readFileSync(new URL("./src/seo.generated.json", import.meta.url), "utf8"),
+);
+const LIVE_PAGES = new Set(["/stats/", "/health/"]);
+// softwareVersion: the newest node release note that is not a draft
+// (docs/releases/node-v*.md; a draft opens with "DRAFT. Not published."), so
+// the structured data follows each release instead of a hand-typed string.
+const RELEASES = new URL("../releases/", import.meta.url);
+const NODE_VERSION = readdirSync(RELEASES)
+  .filter((f) => /^node-v.+\.md$/.test(f) && !/DRAFT\. Not published/.test(readFileSync(new URL(f, RELEASES), "utf8").slice(0, 800)))
+  .map((f) => f.slice("node-v".length, -".md".length))
+  .sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
+  .at(-1);
+if (!NODE_VERSION) throw new Error("astro.config: no published node release note in docs/releases/");
 
 export default defineConfig({
   site: "https://maya2c.dev",
@@ -58,6 +77,11 @@ export default defineConfig({
           // reads one localStorage key, compares tab textContent, toggles hidden/aria/tabindex;
           // no eval, fetch, innerHTML or remote code.
           "sha256-j066YyZLmxi7hThtvu2oKJArg82wWVur6pfnklFFLH0=",
+          // src/components/Head.astro theme script (L02, 2026-11-14): reads the
+          // starlight-theme key and prefers-color-scheme, sets data-theme and the
+          // two theme-color metas and data-theme-pick, observes data-theme, reads
+          // one sessionStorage key. No fetch, eval, innerHTML or remote code.
+          "sha256-3S1QMCmYLlWxHDulnRlYQ7iNDjlJLrrjFsp3h6qMIJ8=",
         ],
       },
       directives: [
@@ -76,14 +100,27 @@ export default defineConfig({
     },
   },
   integrations: [
+    // Listed before Starlight, which then skips adding its own copy.
+    sitemap({
+      serialize(item) {
+        const path = new URL(item.url).pathname;
+        const date = LIVE_PAGES.has(path) ? null : modified[path];
+        return date ? { ...item, lastmod: new Date(date).toISOString() } : item;
+      },
+    }),
     starlight({
       title: "Maya2C",
-      favicon: "/favicon.ico",
+      // The lettering-free mark as SVG; the .ico stays for browsers without SVG icons.
+      favicon: "/favicon.svg",
+      // Our own 404 (src/pages/404.astro): the mark, one line, search, three ways on.
+      disable404Route: true,
       // Bing Webmaster Tools ownership check for maya2c.dev.
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
-        // Link-preview images are per section, set in src/components/Head.astro.
-        { tag: "meta", attrs: { name: "theme-color", content: "#08090b" } },
+        { tag: "link", attrs: { rel: "icon", href: "/favicon.ico", sizes: "32x32" } },
+        { tag: "link", attrs: { rel: "manifest", href: "/site.webmanifest" } },
+        // Link-preview images are per section, and the two theme-color metas
+        // (one per OS scheme), are set in src/components/Head.astro.
         // Structured data, so search engines know what the site is about:
         // the project, its source, and that the software is free.
         {
@@ -115,10 +152,12 @@ export default defineConfig({
                 applicationCategory: "DeveloperApplication",
                 // Only platforms with a released node: macOS waits for a Mac build (platform targets, 2026-10-12).
                 operatingSystem: "Linux, Windows",
-                // Matches the newest release tag (node-v0.1.0-testnet.4); bump with each release.
-                softwareVersion: "0.1.0-testnet.4",
+                softwareVersion: NODE_VERSION,
                 downloadUrl: "https://github.com/EricWijesinghe/Maya2C/releases",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
+                // The software is free to download. This prices the download,
+                // never a coin: testnet coins have no value (audit §5).
+                offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
                 publisher: { "@id": "https://maya2c.dev/#org" },
                 description:
                   "Post-quantum layer-1 blockchain node: DAG-BFT finality and hybrid ML-DSA + SLH-DSA signatures.",
@@ -172,11 +211,18 @@ export default defineConfig({
         Header: "./src/components/Header.astro",
         // No second h1 on the homepage, whose hero headline is the h1.
         PageTitle: "./src/components/PageTitle.astro",
-        // Per-page structured data: breadcrumbs and a TechArticle.
+        // Per-page structured data (breadcrumbs, TechArticle), the theme-color
+        // metas and the theme script that runs before the first paint.
         Head: "./src/components/Head.astro",
+        // Starlight's banner plus the network notice on network-dependent pages.
+        Banner: "./src/components/Banner.astro",
         // The command palette replaces the stock search button and its dialog;
         // it reads the same Pagefind index.
         Search: "./src/components/CommandPalette.astro",
+        // System / Light / Dark as three icon buttons, not a native select.
+        ThemeSelect: "./src/components/ThemeSelect.astro",
+        // The site menu on top of the sidebar on phones: one menu button per page.
+        Sidebar: "./src/components/Sidebar.astro",
       },
       // Code blocks: Shiki themes built from design/tokens.json; frames give
       // the filename tab and the copy button with its "Copied!" feedback.
@@ -187,29 +233,55 @@ export default defineConfig({
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
       ],
+      // Grouped by the reader's journey (L02): start, understand, run, build,
+      // trust. Existing pages only; check-seo fails the build on a dead link.
       sidebar: [
         {
-          label: "Guides",
+          label: "Start here",
           items: [
-            { label: "Experience Maya2C", link: "/experience/" },
-            { label: "Live statistics", link: "/stats/" },
-            { label: "FAQ", link: "/guides/faq" },
-            { label: "Help run the network (easy)", link: "/guides/help-run" },
-            { label: "Join the testnet", link: "/guides/testnet" },
+            { label: "Tour Maya2C", link: "/experience/" },
             { label: "Quickstart", link: "/guides/quickstart" },
+            { label: "FAQ", link: "/guides/faq" },
+            { label: "Live statistics", link: "/stats/" },
+          ],
+        },
+        {
+          label: "Understand it",
+          items: [
             { label: "How a transaction works", link: "/guides/transactions" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },
+            { label: "Signatures, step by step", link: "/learn/signatures-live/" },
             { label: "Consensus and finality", link: "/guides/consensus" },
+            { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
+          ],
+        },
+        {
+          label: "Run the network",
+          items: [
+            { label: "Help run the network (easy)", link: "/guides/help-run" },
+            { label: "Join the testnet", link: "/guides/testnet" },
+            { label: "Start mining", link: "/guides/start-mining" },
             { label: "Mining and validators", link: "/guides/mining" },
             { label: "Run a validator", link: "/guides/validators" },
-            { label: "Break it", link: "/guides/break-it" },
-            { label: "Security Hall of Fame", link: "/guides/security-hall-of-fame" },
-            { label: "Contributors & badges", link: "/guides/contributors" },
+          ],
+        },
+        {
+          label: "Build on it",
+          items: [
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
             { label: "Passkey unlock", link: "/guides/passkey-unlock" },
             { label: "Compiling a contract", link: "/guides/contracts" },
-            { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
+          ],
+        },
+        {
+          label: "Trust and community",
+          items: [
+            { label: "Break it", link: "/guides/break-it" },
+            { label: "Security Hall of Fame", link: "/guides/security-hall-of-fame" },
+            { label: "Code-signing policy", link: "/guides/code-signing-policy" },
+            { label: "Contributors & badges", link: "/guides/contributors" },
+            { label: "Support Maya2C", link: "/guides/support" },
             { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },
           ],
         },
