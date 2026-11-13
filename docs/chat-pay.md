@@ -15,13 +15,21 @@ built yet; use test amounts on testnet only.
   signs a transaction.
 - **Confirm.** The payer's chat sends a receipt: the request id and the
   transaction id, signed by the payer's chat identity.
-- **Check.** The payee accepts the receipt only if the chain shows a
-  transaction with that id paying the payee at least the amount. A receipt
-  alone is never enough.
+- **Check.** The payee accepts the receipt only if the chain shows that
+  transaction, sent by the payer, after the request was made, in a finalized
+  block, paying the payee at least the amount. A receipt alone is never
+  enough. The request and the receipt are both signed for one chain, and
+  are refused on any other.
+- **No double pay.** The payer's chat makes a wallet link only for a request
+  it received, before it expires, and not after it has sent a receipt for it.
 
 ## What chat never does
 
-- It never holds a wallet key or funds.
+- It never holds the payer's wallet key, and never signs a transaction.
+- Today the payee's receiving account is its chat identity's own account, so
+  money received through chat is controlled by the chat identity key. A
+  wallet-signed receiving address is planned (ADR-088 decision 1); until
+  then, move received money to your wallet.
 - It never sends money.
 - A link from outside (a wallet return link) fills in a receipt. It never
   sends one on its own.
@@ -29,8 +37,9 @@ built yet; use test amounts on testnet only.
 ## Limits
 
 - A request names only the account of the person who sends it.
-- A note with control characters, line breaks or text-direction marks is
-  refused.
+- A note with control characters, line breaks, text-direction marks or
+  other invisible formatting characters is refused.
+- At most 64 open requests per contact in each direction.
 - A payment request can be sent only in a chat where a message has already
   been exchanged. The first message in a new chat must be text.
 - Not yet: refunds, partial payments, several payees, group requests, the

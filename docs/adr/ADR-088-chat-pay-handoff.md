@@ -30,9 +30,16 @@ field is what the payer needs to check, and the only one in which the
 payee can verify the payment itself. A request for money to a **third**
 address is refused by construction: the signer's address must equal `to`.
 That closes "phishing request names someone else's account" without a
-policy engine. Shortcut: a payee cannot request to a second account it
-owns. Upgrade when a user asks for it, with a separate signature over
-that account.
+policy engine.
+
+The receiving account is its own signed field, `pay_to`, checked in one
+place (`pay::check_pay_to`). Today it must equal the signer, so money
+requested through chat lands in the account whose key is the chat identity
+seed. **Open decision (PR #441 review, H2):** that contradicts "chat never
+holds wallet keys". The planned answer is a wallet-signed binding, "chat id
+X may request to wallet account A", carried with the request and checked in
+`check_pay_to` instead of the equality. Until Eric decides, the equality
+stands and this risk is stated, not hidden.
 
 ### 2. Three messages, all inside the session AEAD
 
@@ -42,8 +49,8 @@ cannot pose as a request or a receipt.
 
 | Marker | Sent by | Carries | Signed by |
 |---|---|---|---|
-| `\0maya-chat pay v1\0` | payee | `to`, amount, memo, expires, nonce | payee identity |
-| `\0maya-chat paid v1\0` | payer | request id, tx id | payer identity |
+| `\0maya-chat pay v1\0` | payee | payee, `pay_to`, chain tag, expires, nonce, amount, memo | payee identity |
+| `\0maya-chat paid v1\0` | payer | request id, tx id (the chain tag is signed, not sent) | payer identity |
 
 The chat's own session already authenticates the sender, so the identity
 signature is what makes a request **transferable evidence**: the signed
@@ -51,16 +58,26 @@ statement is what the payee keeps as the request record.
 
 ### 3. Request fields and limits
 
-- `to`: 32-byte chain address. Text form (`maya1…`, `tmaya1…`) only in the
+- `chain`: the 32-byte chain tag, the genesis block id that `get_chain_info`
+  serves and chain signatures commit to (ADR-036). Signed in both the
+  request and the receipt; a client refuses either for a chain other than
+  the one set with `Client::set_pay_chain`, and the payee's node must report
+  the same genesis before anything settles.
+- `pay_to` (the `to` of the link): 32-byte chain address. Text form (`maya1…`, `tmaya1…`) only in the
   URI and the UI, decoded by `maya-address` with the expected network. A
   wrong-network address is refused by name (ADR-081).
 - `amount`: decimal base units (ADR-046, 256-bit). Digits only, no leading
   zero, nonzero, at most 78 digits, and not above the U256 maximum. Kept as a
   string on the wire so the chat crate needs no big-integer dependency.
 - `memo`: at most 140 bytes of UTF-8. No C0/C1 control characters, no
-  newline, no bidirectional controls (U+202A–U+202E, U+2066–U+2069) and no
-  zero-width or direction marks (U+200B–U+200F). It is shown as text only
-  (`textContent`), never as HTML, and it is labelled as the payee's claim.
+  Unicode format (`Cf`) character (bidirectional controls and isolates,
+  zero-width and direction marks, U+061C, U+2060–U+2064, soft hyphen, tag
+  characters), no line or paragraph separator, no variation selector and no
+  Hangul filler. It is shown as text only (`textContent`), never as HTML,
+  labelled as the payee's claim, and never rendered next to the amount,
+  which the UI takes from the signed field.
+- `amount` must also fit the link's 40-character whole-coin field, so every
+  request that can be signed can be paid through a link.
 - `expires_at`: must be in the future, and at most 24 hours from issue. The
   24-hour cap is a policy choice, not a measurement; it bounds how long a
   pay button stays live.
@@ -77,35 +94,52 @@ payer's ledger on the request id.
 
 After the wallet returns a transaction id, the payer's chat posts a `paid`
 message: request id, tx id, signed by the payer's identity over the payer,
-the payee, the request id and the tx id.
+the payee, the chain tag, the request id and the tx id. The payer's chat
+sends it only for a request it received from that payee and has not already
+marked paid (`Ledger::mark_paid`); it builds the wallet link only for a
+received, unexpired, unpaid request (`Client::pay_link`).
 
-The payee accepts it only if all of these hold:
+On arrival the payee keeps the receipt only if the signature verifies
+against the session peer's key and the request id is one it issued **to that
+peer** and has not settled (`Ledger::check_receipt`). It then settles only
+with chain evidence, and `Ledger::settle` checks every binding (PR #441
+review, H1, M2, L4):
 
-1. the signature verifies against the session peer's key, whose address is
-   the peer (`Client::open_frame`);
-2. the request id is one the payee issued and has not settled (the ledger);
-3. the tx id has not settled another request (the ledger);
-4. **on the chain**: the canonical block containing the tx id has an output
-   to the payee whose amount is at least the requested amount. The payee
-   scans canonical blocks from the height it recorded at issue, up to the
-   tip, through `get_block_by_height`. Scanning is bounded
-   (`pay::MAX_SCAN_BLOCKS`); a request whose payment is not found inside the
-   bound stays open.
+1. the receipt comes from the payer the request was issued to;
+2. the evidence is for the tx id the receipt names;
+3. the transaction's **sender** is the payer's account. The payer's chat
+   address is its chain account (Context); if a wallet binding replaces that
+   (decision 1), it names the paying account here;
+4. the block is **above the tip height recorded at issue**
+   (`queue_request` takes it), so an older transaction cannot pay a newer
+   request, and a swept settled entry cannot be reused;
+5. the block is **final**: at or below the newest quorum-attested checkpoint
+   (`get_checkpoint`, ADR-038), the signal the explorer reads;
+6. an output pays the request's `pay_to` at least the amount;
+7. the tx id has not settled another request. Settled tx ids are kept for
+   twice the 24-hour cap after settling, longer than any request issued
+   before that transaction can stay open.
 
-The receipt is a claim. The chain check is the authority. A forged receipt
-with a real tx id for another payee fails step 4, because the output is to
-the wrong recipient.
+The evidence type (`pay::FinalTx`) is made only by `pay::chain::find_final`,
+which asks the node for `get_chain_info` (genesis must equal the request's
+chain), `get_checkpoint` and `get_block_by_height` (all three public through
+the API gateway), and searches upward from one above the issue height, at
+most `pay::MAX_SCAN_BLOCKS` per call, returning where to resume.
 
-Shortcut: step 4 accepts any canonical block, with no finality depth yet.
-Upgrade when the chain exposes a finality check that the chat can call
-(`get_bft_status` or the checkpoint method).
+Trust: the node is trusted for what it reports; the checkpoint's validator
+signatures are not verified by the chat. Point it at a node you run.
+
+The chain has no memo field, so the request id is not carried in the
+transaction. Binding is by sender, height window, amount and receiving
+account. A payer who sends the payee two equal payments in the window can
+name either; that is the payer's own money.
 
 ### 5. The URI contract: deep links carry prefill, never authority
 
 Outbound (chat to wallet):
 
 ```text
-maya2c-wallet://pay?to=<bech32m>&amount=<whole coins, decimal>&request=<64 lowercase hex>
+maya2c-wallet://pay?to=<bech32m>&amount=<whole coins, decimal>&request=<64 lowercase hex>&chain=<64 lowercase hex>
 ```
 
 Return (wallet to chat):
@@ -115,9 +149,12 @@ maya2c-chat://paid?request=<64 lowercase hex>&tx=<64 lowercase hex>
 ```
 
 The amount is in whole coins, as the wallet's route reads it (decimal, at
-most `maya_amount::COIN_DECIMALS` places, nonzero). The memo and the expiry
-are not in the link: the memo is shown on the chat card, and the expiry is
-enforced by the payer's chat before it sends the receipt. The wallet's
+most `maya_amount::COIN_DECIMALS` places, nonzero, no leading zero before
+the point). The memo and the expiry are not in the link: the memo is shown
+on the chat card, and the expiry is enforced by the payer's chat when it
+builds the link. The wallet must refuse a `chain` that is not its own
+genesis id, and should refuse a `request` id it has already paid: chat
+cannot stop the same link being opened twice outside it. The wallet's
 clear-sign view shows the recipient and the amount.
 
 Parsing is strict. Each key appears once, the key set is exact, the link is
@@ -156,28 +193,52 @@ against its parser before merge.
 
 | Threat | Control | Test |
 |---|---|---|
-| Spoofed request: `to` swapped | `to` signed; a changed `to` fails | `pay_tests::address_swap_fails_the_signature` |
-| Request names a third party | signer address must equal `to` | `pay_tests::request_to_a_third_party_is_refused` |
-| Forged sender | ML-DSA check against the session peer's key | `pay_tests::request_from_another_identity_is_refused` |
-| Replay of a request | ledger refuses a request id seen before | `pay_tests::a_replayed_request_is_refused` |
-| Stale request | expiry checked; TTL capped at 24 h | `pay_tests::expired_and_too_long_requests_are_refused` |
-| Amount tampering | amount signed; malformed amounts refused | `pay_tests::amount_tampering_fails` and `pay_tests::malformed_amounts_are_refused` |
-| Phishing text in memo | length and character rules; text only | `pay_tests::memo_with_controls_or_bidi_is_refused` |
-| Replayed `paid` receipt | request settled once | `pay_tests::a_replayed_paid_receipt_is_refused` |
-| Tx reused for two requests | txid recorded once | `pay_tests::one_transaction_cannot_settle_two_requests` |
-| Receipt for a payment to someone else | on-chain output must be to the payee | `pay_tests::payment_to_another_address_does_not_settle` |
-| Deep-link injection | strict keys, duplicate and unknown keys refused, length cap | `pay_link` unit tests |
-| User text posing as a request | markers refused in `queue` | `pay_tests::typed_text_cannot_pose_as_a_request` |
-| Wrong-network address | `maya-address` decodes for the expected network | `pay_tests::wrong_network_address_is_refused` |
+Unit tests are in `apps/chat/src/pay/mod.rs` (`pay::tests`),
+`pay/ledger.rs` (`ledger::tests`), `pay/chain.rs` (`chain::tests`) and
+`pay_link.rs` (`pay_link::tests`); whole exchanges in
+`apps/chat/tests/pay_tests.rs`.
+
+| Threat | Control | Test |
+|---|---|---|
+| Spoofed request: payee swapped | payee signed; a changed payee fails | `pay::tests::an_address_swap_fails_the_signature` |
+| Request names another account | `pay_to` must equal the signer (decision 1) | `pay::tests::a_swapped_receiving_account_is_refused`, `pay_tests::a_payee_cannot_send_a_request_signed_for_another_account` |
+| Forged or relayed sender | ML-DSA check against the session peer's key; sender must be the payee | `pay::tests::a_request_from_another_identity_key_is_refused`, `pay::tests::a_relayed_request_is_refused_when_its_sender_is_not_the_payee` |
+| Replay of a request | ledger refuses a request id seen before | `ledger::tests::a_replayed_request_is_refused`, `pay_tests::a_replayed_envelope_is_refused_and_not_shown_twice` |
+| Stale request | expiry checked; TTL capped at 24 h | `pay::tests::expired_and_too_long_requests_are_refused`, `pay_tests::an_expired_request_is_refused_on_arrival` |
+| Amount tampering | amount signed; malformed amounts refused | `pay::tests::amount_tampering_fails_the_signature`, `pay::tests::malformed_amounts_are_refused` |
+| Phishing text in memo | length and character rules; text only | `pay::tests::memo_with_controls_format_or_direction_marks_is_refused` |
+| Request or receipt from another chain | chain tag signed; node genesis checked | `pay::tests::a_request_for_another_chain_is_refused`, `pay_tests::a_request_for_another_chain_is_refused_on_arrival`, `chain::tests::a_node_on_another_chain_is_refused` |
+| Someone else's payment to the payee named as ours (H1) | tx sender must be the payer | `ledger::tests::someone_elses_payment_to_the_payee_does_not_settle`, `pay_tests::a_public_payment_to_the_payee_from_someone_else_does_not_settle` |
+| Old tx reused for a new request | block must be above the issue height | `ledger::tests::a_transaction_from_before_the_request_does_not_settle`, `pay_tests::a_payment_from_before_the_request_is_not_searched_or_settled` |
+| Unfinalized tx later dropped (M2) | block at or below the checkpoint | `ledger::tests::an_unfinalized_transaction_does_not_settle`, `chain::tests::a_payment_above_the_checkpoint_is_not_final_yet` |
+| Replayed `paid` receipt | request settled once | `ledger::tests::a_final_payment_from_the_payer_settles_once` |
+| Tx reused for two requests | txid recorded, kept 48 h after settling | `ledger::tests::one_transaction_cannot_settle_two_requests`, `ledger::tests::a_settled_transaction_is_remembered_longer_than_any_request_it_could_pay` |
+| Payment short or to another account | output to `pay_to`, at least the amount | `ledger::tests::a_short_or_misdirected_payment_does_not_settle` |
+| Receipt from another contact (L4) | receipt sender must be the request's payer | `ledger::tests::a_receipt_from_another_contact_does_not_settle`, `pay_tests::a_receipt_from_someone_other_than_the_payer_is_refused_on_arrival` |
+| Payer pays twice, late, or unasked (M3) | payer ledger: received, unexpired, unpaid | `ledger::tests::the_payer_cannot_pay_twice_late_or_unasked`, `pay_tests::the_payer_cannot_pay_twice_or_pay_an_expired_request`, `pay_tests::a_receipt_for_a_request_never_issued_to_that_payer_is_refused` |
+| Crash loses a receipt or an issued request (M4) | pay inbox and ledger saved with the sessions | `pay_tests::payment_state_survives_a_restart_before_it_is_taken` |
+| One contact fills the ledger (M5) | 64 open entries per contact, inbox capped at 256 | `ledger::tests::one_contact_cannot_fill_the_ledger_for_everyone` |
+| Deep-link injection | strict keys, duplicate and unknown keys refused, length cap | `pay_link::tests::a_memo_or_any_other_key_is_refused_not_ignored`, `pay_link::tests::wrong_scheme_spaces_and_oversized_links_are_refused` |
+| Unparseable or non-canonical link amount (L2, L3) | canonical whole coins; signable implies linkable | `pay_link::tests::whole_coin_text_is_refused_when_the_wallet_would_refuse_it`, `pay_link::tests::every_amount_the_link_accepts_round_trips_and_larger_ones_are_refused` |
+| User text posing as a request | markers refused in `queue` | `pay_tests::typed_text_cannot_pose_as_a_request_or_a_receipt` |
+| Wrong-network address | `maya-address` decodes for the expected network | `pay_link::tests::a_pay_link_for_another_network_is_refused` |
 
 ## Consequences
 
-- The chat gains two message types and a small persisted ledger (issued
-  request ids, settled tx ids, seen incoming ids). The ledger is bounded: at
-  most `pay::MAX_LEDGER` entries, oldest settled entries dropped first.
-- The payee's chat makes RPC reads at settlement time, not at send time.
-- The chat crate gains one path dependency, `maya-address` (thiserror only,
-  already in the workspace). No new external crate.
+- The chat gains two message types, a persisted ledger (issued requests with
+  their payer, receiving account, amount and issue height; settled tx ids;
+  received requests and whether they were paid) and a persisted inbox of
+  opened payment frames. Bounds: `pay::MAX_LEDGER` per direction,
+  `pay::MAX_PER_PEER` per contact, `client::MAX_PAY_INBOX` frames. Entries
+  past their window are swept; nothing is evicted early to make room, a
+  full ledger refuses instead.
+- Save rule: the caller saves the client after every payment call and
+  before it sends from the outbox or ends the pass.
+- The payee's chat makes RPC reads at settlement time, not at send time,
+  plus one tip read when it issues a request.
+- The chat crate gains path dependencies `maya-address` and `maya-amount`,
+  and `reqwest` (rustls) plus `serde_json` for the RPC, both already in the
+  workspace.
 - A chat user who never pays or requests is unaffected: no new traffic.
 
 ## Not done
@@ -187,4 +248,7 @@ against its parser before merge.
 - OS registration of `maya2c-wallet` and `maya2c-chat` schemes, and the
   deep-link plugin. ADR-083 requires its dependency review first.
 - Refunds, partial payments, multiple payees, group requests.
-- Finality depth for the on-chain check (see decision 4).
+- Verifying the checkpoint's validator signatures in the chat (decision 4,
+  trust).
+- The wallet-signed receiving binding (decision 1, open decision H2).
+- A caller: no GUI calls `find_final` or `settle` yet.

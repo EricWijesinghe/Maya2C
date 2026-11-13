@@ -2815,13 +2815,13 @@ note = "ADR-031. ADR-083 decision 4 (feat/hub-launch, 2026-11-10): `maya2c-chat:
 id = "chat-pay"
 name = "Maya Chat payments: signed request, wallet hand-off, on-chain settlement (ADR-088)"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`apps/chat/src/pay.rs`, `apps/chat/src/pay_link.rs`, `apps/chat/src/client.rs`, `apps/chat/tests/pay_tests.rs`"
+paths = "`apps/chat/src/pay/mod.rs`, `apps/chat/src/pay/ledger.rs`, `apps/chat/src/pay/chain.rs`, `apps/chat/src/pay_link.rs`, `apps/chat/src/client/payments.rs`, `apps/chat/tests/pay_tests.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-chat", "apps/chat/tests/pay_tests.rs"]
-gate = "cargo test -p maya-chat (101 tests: 32 lib, 5 cli, 1 bot_e2e, 7 envelope_wire, 5 net_e2e, 14 outbox, 8 pay, 9 relay, 3 send_failure, 17 session; all pass)"
-note = "ADR-088. Payee-signed request (own account, amount, memo, expiry, nonce) and payer-signed receipt inside the chat session; payee checks the canonical chain before settling (pay::settles_on_chain). Ledger refuses replay and reused tx ids. Deep-link contract in pay_link.rs. Desktop Pay card, chat-gui RPC check and wallet route are not built. Unaudited."
+gate = "cargo test -p maya-chat (125 tests: 49 lib, 5 cli, 1 bot_e2e, 7 envelope_wire, 5 net_e2e, 14 outbox, 15 pay, 9 relay, 3 send_failure, 17 session; all pass, 2026-11-13)"
+note = "ADR-088. Payee-signed request (chain tag, receiving account, amount, memo, expiry, nonce) and payer-signed receipt (chain tag signed) inside the chat session. Settlement needs chain evidence from pay::chain::find_final (get_chain_info genesis, get_checkpoint finality, get_block_by_height) and Ledger::settle checks payer, tx id, sender, height above issue, finality, amount to pay_to, tx not reused. Payer ledger refuses double pay; pay inbox and ledger persist; per-contact caps. HttpRpc not run against a live node; checkpoint signatures not verified by chat. Receiving account = chat identity account pending Eric's decision (PR #441 H2). Desktop Pay card and wallet route are not built. Unaudited."
 
 [[subsystem]]
 id = "chat-stickers"
