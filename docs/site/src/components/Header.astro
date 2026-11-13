@@ -1,6 +1,8 @@
 ---
-// Starlight's header, rearranged: emblem and wordmark, the five places most
-// visitors want (with the current one lit), search, then GitHub and theme.
+// Starlight's header, rearranged: emblem and wordmark, one entry per audience
+// (try it, build on it, run a node) and the live services, with the current
+// one lit, then search, GitHub and theme. Testnet and Validators sit under
+// "Run a node" since 2026-11-10: three entries led to the same journey.
 // Two page-wide controls ride along because every page renders the header:
 // a reading-progress hairline and a back-to-top button.
 import config from "virtual:starlight/user-config";
@@ -11,10 +13,9 @@ import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 
 const path = Astro.url.pathname;
 const nav = [
-  { label: "Experience", href: "/experience/", match: "/experience" },
-  { label: "Docs", href: "/guides/quickstart/", match: "/guides/quickstart" },
-  { label: "Testnet", href: "/guides/testnet/", match: "/guides/testnet" },
-  { label: "Validators", href: "/guides/validators/", match: "/guides/validators" },
+  { label: "Experience", href: "/experience/", match: ["/experience"] },
+  { label: "Build", href: "/guides/quickstart/", match: ["/guides/quickstart", "/guides/api", "/guides/wallet", "/guides/contracts"] },
+  { label: "Run a node", href: "/guides/help-run/", match: ["/guides/help-run", "/guides/testnet", "/guides/validators", "/guides/mining", "/guides/start-mining"] },
   { label: "Explorer", href: "https://explorer.maya2c.dev/", external: true },
   { label: "Status", href: "https://status.maya2c.dev/", external: true },
   { label: "Built by Eric", href: "https://eric.maya2c.dev/", external: true },
@@ -29,10 +30,10 @@ const showSearch =
     {nav.map((n) => (
       <a
         href={n.href}
-        aria-current={n.match && path.startsWith(n.match) ? "page" : undefined}
+        aria-current={n.match?.some((m) => path.startsWith(m)) ? "page" : undefined}
         {...(n.external ? { rel: "noopener", target: "_blank" } : {})}
       >
-        {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}
+        {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}{n.external && <span class="sr-only"> (opens in a new tab)</span>}
       </a>
     ))}
   </nav>

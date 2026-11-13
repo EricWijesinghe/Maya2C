@@ -11,7 +11,7 @@
 - **2026-11-07/08 — pre-freeze drift sweep (docs PR, Bech32m mainnet id); #383 open, re-freeze still ahead.**
   - **Merged:** #370, #372-#382. **Open:** #383 (consensus frames dropped under load: byte budget freed once read). This sweep's PR is open, not merged.
   - **Decided:** `--supply 0`, no premine (ADR-044, Eric 2026-11-07). Genesis = keyless reserve (lifetime emission) + 7 disclosed min-self-bonds of 1,000 coins each, one per genesis validator (7,000 coins, about 0.036% of the 19.69M era issuance). The bond equals the `genesis-check` floor, decided 2026-11-08 (DECISIONS). The draft's 100-coin figure is withdrawn. Tail ~1.07%/yr at 1 s block time accepted (DECISIONS 2026-11-07). Upgrade authority on chain under compiled leads (ADR-082, invariant 34). Bech32m: `maya-mainnet` registered, HRP `maya` (ADR-081).
-  - **History rewrite:** done 2026-11-08 to remove OWNER_PLAN.md from git history; the file is absent from every branch because of it. Rulesets re-enabled. Eric must send the GitHub Support purge request; Claude does not.
+  - **History rewrite:** done 2026-11-08 to remove OWNER_PLAN.md from git history. Checked 2026-11-11: no remote branch, tag or open PR head contains it, but GitHub still serves the pre-rewrite commit by SHA (`gh api .../commits/1909075e` returns 200), so the purge is not complete until GitHub Support drops it. Eric must send that request; Claude does not. Old local refs still reach that commit; a local pre-push hook refuses any push that does. Rulesets re-enabled.
   - **Bench at 6029a4ba:** consensus frames dropped under load (fixed in #383). After the fix, one machine, localhost: 1000x4 4000/4000 at 319.4/s; 3000x2 6000/6000 at 434.9/s; 32x40 206.3/s. The run output is not yet in `reports/bench/`; commit the report before citing these.
   - **Fuzz:** 8 decoders, about 462M execs, 0 bugs. Report not yet in the repo either.
   - **Verified by reading code:** the undo journal records prior values of `up:` writes (`capture_undo` covers every overlay record). No consensus bug found.
@@ -219,7 +219,10 @@
     watcher is fixed. Eric confirmed Cloudflare is clear.
   - Harness settings restored, and the non-existent MCP entries removed.
   - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
-    - attacknet faults are now honest;
+    - attacknet faults: kill fixed (by data dir); pause, latency, loss and
+      bandwidth `bail!`. Correction 2026-11-10: restart, protocol, resource
+      and net-mangle faults were still no-ops logging Ok; they now fail
+      loudly (branch `fix/attacknet-honesty`);
     - the broken lab scripts are quarantined;
     - the property tests are fixed;
     - lint debt is 794.
@@ -432,7 +435,10 @@ un-node.cmd` at 02:35; neither was touched.
     watcher is fixed. Eric confirmed Cloudflare is clear.
   - Harness settings restored, and the non-existent MCP entries removed.
   - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
-    - attacknet faults are now honest;
+    - attacknet faults: kill fixed (by data dir); pause, latency, loss and
+      bandwidth `bail!`. Correction 2026-11-10: restart, protocol, resource
+      and net-mangle faults were still no-ops logging Ok; they now fail
+      loudly (branch `fix/attacknet-honesty`);
     - the broken lab scripts are quarantined;
     - the property tests are fixed;
     - lint debt is 794.

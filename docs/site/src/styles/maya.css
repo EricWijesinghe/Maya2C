@@ -92,12 +92,15 @@
   --muted: #53656b;
   --cherenkov: #0b7d89;
   --cherenkov-hi: #0b7d89;
-  --signal: #b06d0f;
+  /* Signal, gold and the accent fill were darkened 2026-11-10 to reach WCAG AA
+     (4.5:1) for small text on --void and --deep; the old values measured
+     3.94, 4.07 and 3.05 (white on #12a3b0). AUDIT-2026-11-10.md has the table. */
+  --signal: #96590a;
   --verified: #0d8659;
-  --gold: #9a7330;
+  --gold: #85622a;
   --accent-text: #0a6f7a;
   --on-accent: #ffffff;
-  --accent-fill: linear-gradient(135deg, #12a3b0, #0b7280);
+  --accent-fill: linear-gradient(135deg, #0b7d89, #0b7280);
   --lede: #34474d;
   --pop-bg: rgba(255, 255, 255, 0.95);
   --orb-hi: rgba(255, 255, 255, 0.98);
