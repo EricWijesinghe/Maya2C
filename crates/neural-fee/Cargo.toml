@@ -1,0 +1,24 @@
+[package]
+name = "maya-neural-fee"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The neural base-fee gain: an integer network and its rule. RESEARCH, not linked by the node"
+
+# Moved out of `maya-fee-market` before genesis (ADR-029 amendment, Eric
+# 2026-11-14) so the launch binary carries no model: `custom-l1-node` must not
+# depend on this crate, and `cargo tree -p custom-l1-node -i maya-neural-fee`
+# is the check. Only `maya-fee-market` (for the linear rule and the ceiling)
+# and `maya-amount`, both dependency-free, so Kani still compiles the
+# envelope proof against a small graph (ADR-048).
+[dependencies]
+maya-amount = { path = "../amount" }
+maya-fee-market = { path = "../fee-market" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

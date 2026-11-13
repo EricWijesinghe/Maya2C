@@ -14,4 +14,4 @@ Reference: `crates/spec-ref/src/fees.rs`. Node: `crates/fee-market`.
 ## Gaps
 
 - FEE-5 has no vector yet.
-- The neural gain rule (`FeeRule::Neural`, `MODEL_V1`) is dark behind a second activation height and is specified by `crates/fee-market/src/model/` and its pinned weight digest.
+- No neural gain rule is part of this spec. The RESEARCH model (`crates/neural-fee`) is not linked by the node (ADR-029 amendment 2026-11-14); adopting it would be a hard fork with its own section and vectors.

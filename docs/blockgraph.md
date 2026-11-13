@@ -151,9 +151,8 @@ map consensus, those inputs would split the chain.
 
 Two things stay fixed:
 
-- `shard_of` and its 64 prefixes. `crates/node/src/neural_gas/features.rs` computes a fee
-  feature from it, and a feature that moved with each node's load would differ
-  between nodes.
+- `shard_of` and its 64 prefixes. An assignment that moved with each node's
+  load would differ between nodes.
 - The access-set contract above. The guarantee is only as good as the access
   sets, and `core::batch::access_for_transaction` names the sender and the
   outputs and nothing a payload touches — pool records, contract storage,

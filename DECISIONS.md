@@ -901,3 +901,15 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — The neural fee model is deleted from the launch binary
+
+Eric 2026-11-14 ("I approve everything, proceed"; founder-brief audit Q19,
+recommended option A). The neural base-fee gain sat in `maya-fee-market`
+and the node's `neural_gas` module at activation `u64::MAX`: dormant, but
+compiled into the binary genesis freezes, against the rule that models never
+sit on consensus. The model and its rule moved to `crates/neural-fee`
+(RESEARCH, linked only by `neural-gas-trainer`); `FeeConfig` lost its neural
+switch; the node's feature extractor, its join test and its bench are
+deleted. Fee behaviour is unchanged on every network. ADR-029 amendment
+2026-11-14.

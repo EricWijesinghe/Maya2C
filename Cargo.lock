@@ -6470,10 +6470,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-neural-fee"
+version = "0.1.0"
+dependencies = [
+ "maya-amount",
+ "maya-fee-market",
+ "proptest",
+]
+
+[[package]]
 name = "maya-neural-gas-trainer"
 version = "0.1.0"
 dependencies = [
  "maya-fee-market",
+ "maya-neural-fee",
 ]
 
 [[package]]

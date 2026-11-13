@@ -1,18 +1,22 @@
 # Neural base-fee gain
 
-**Status: RESEARCH.** Nothing in consensus calls it. The fee market it extends
-is itself switched on nowhere (`FeeConfig::DISABLED`, [fee-market.md](fee-market.md)),
-and the neural rule has a second switch, `neural_activation_height`, which is
-`u64::MAX` in every shipped configuration.
+**Status: RESEARCH, not linked by the node.** Until 2026-11-14 the model sat in
+`maya-fee-market` behind a second switch, `neural_activation_height`, at
+`u64::MAX`, and the node extracted block features for it. Both were removed
+from the launch binary before genesis (ADR-029 amendment, founder audit Q19):
+the model and rule now live in `crates/neural-fee`, which only the trainer
+depends on, and `cargo tree -p custom-l1-node -i maya-neural-fee` finds no
+path. Reviving it is a hard fork: a new ADR, the dependency, a feature
+extractor and an activation height in the upgrade schedule.
 
 | Piece | Where |
 |---|---|
-| The integer network, the six features' order, compiled weights | `crates/fee-market/src/model/` |
-| The rule and its envelope | `crates/fee-market/src/rule.rs`, Kani proof in `crates/fee-market/src/proofs.rs` |
-| Extracting features from a block | `crates/node/src/neural_gas/` |
+| The integer network, the six features' order, compiled weights | `crates/neural-fee/src/model/` |
+| The rule and its envelope | `crates/neural-fee/src/rule.rs`, Kani proof in `crates/neural-fee/src/proofs.rs` |
+| Extracting features from a block | deleted 2026-11-14; was `crates/node/src/neural_gas/` (history at `3735252d`) |
 | Demand simulator, training, quantization, evaluation | `neural-gas-trainer` (never linked by the node) |
-| Constants shared across the two halves | `crates/node/tests/neural_fee_tests.rs` |
-| Cost | `crates/node/benches/gas_predictor.rs` |
+| Constants shared across the two halves | deleted with the extractor; was `crates/node/tests/neural_fee_tests.rs` |
+| Cost | deleted with the extractor; was `crates/node/benches/gas_predictor.rs` |
 
 ## What the brief assumed, and what is true
 
@@ -81,7 +85,7 @@ follows from the types, and a test drives every weight to its extreme.
 ## Training
 
 `cargo run --release -p maya-neural-gas-trainer` regenerates
-`crates/fee-market/src/model/weights_v1.rs` deterministically (SplitMix64, fixed
+`crates/neural-fee/src/model/weights_v1.rs` deterministically (SplitMix64, fixed
 seed, single-threaded float arithmetic). `--check` fails if the committed file
 differs from a fresh run — exact on the platform that generated it; the file,
 not the float run, is what consensus would read.
@@ -133,7 +137,7 @@ instead of shipping quietly.
 
 ## Measured (2026-09-14)
 
-`cargo bench --bench gas_predictor -- --quick`, release, one machine. Quick
+`cargo bench --bench gas_predictor -- --quick` (bench deleted 2026-11-14; figures kept as history), release, one machine. Quick
 mode takes few samples, so read the last row as "no difference visible",
 not as a ranking.
 

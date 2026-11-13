@@ -238,6 +238,76 @@ fn the_fee_market_is_reached_only_through_its_genesis_gate() {
 }
 
 #[test]
+fn the_launch_binary_carries_no_neural_fee_model() {
+    // ADR-029 amendment (Eric 2026-11-14, founder audit Q19 option A): the
+    // dormant neural gain left the consensus path before genesis. Its model
+    // lives in `maya-neural-fee`, which the node must not link, and the node
+    // no longer extracts block features for it. Reviving it is a hard fork
+    // with an ADR, not a flag. The dependency half walks `Cargo.lock`, so a
+    // path through any crate the node links fails it, not only a direct one.
+    let node = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let lock = std::fs::read_to_string(node.join("../../Cargo.lock")).expect("workspace lock");
+    for root in ["custom-l1-node", "maya2c-node"] {
+        let reached = lock_closure(&lock, root);
+        // A parse that found nothing would pass the check below vacuously.
+        assert!(reached.contains("maya-fee-market"), "{root}: lock walk is broken");
+        for banned in ["maya-neural-fee", "maya-neural-gas-trainer"] {
+            assert!(!reached.contains(banned), "{root} reaches {banned}");
+        }
+    }
+    assert!(
+        !node.join("src/neural_gas").exists(),
+        "src/neural_gas still extracts features for a neural fee rule"
+    );
+    let fee_market = node.join("../fee-market/src");
+    assert!(
+        !fee_market.join("model").exists() && !fee_market.join("rule.rs").exists(),
+        "maya-fee-market, which the node links, still carries the neural model"
+    );
+}
+
+#[test]
+fn the_lock_walk_follows_a_transitive_path() {
+    let lock = "[[package]]\nname = \"a\"\ndependencies = [\n \"b 1.0.0\",\n]\n\n\
+                [[package]]\nname = \"b\"\ndependencies = [\n \"c\",\n]\n\n\
+                [[package]]\nname = \"c\"\n\n[[package]]\nname = \"d\"\n";
+    let reached = lock_closure(lock, "a");
+    assert!(reached.contains("c"), "{reached:?}");
+    assert!(!reached.contains("d"), "{reached:?}");
+}
+
+/// Every package name `root` reaches in `Cargo.lock`. The lock lists normal,
+/// build and dev dependencies alike, so this over-approximates what the
+/// binary links: absent here is absent from `cargo tree`.
+fn lock_closure(lock: &str, root: &str) -> std::collections::BTreeSet<String> {
+    let mut deps: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    for block in lock.split("[[package]]").skip(1) {
+        let Some(name) = block
+            .lines()
+            .find_map(|l| l.strip_prefix("name = \"")?.strip_suffix('"'))
+        else {
+            continue;
+        };
+        let list = block
+            .split_once("dependencies = [")
+            .map_or("", |(_, rest)| rest.split(']').next().unwrap_or(""));
+        // An entry is `"name"` or `"name version"` when two versions coexist.
+        let names = list.split('"').skip(1).step_by(2);
+        deps.entry(name)
+            .or_default()
+            .extend(names.map(|d| d.split(' ').next().unwrap_or(d)));
+    }
+    let mut reached = std::collections::BTreeSet::new();
+    let mut stack = vec![root];
+    while let Some(name) = stack.pop() {
+        if reached.insert(name.to_owned()) {
+            stack.extend(deps.get(name).into_iter().flatten());
+        }
+    }
+    reached
+}
+
+#[test]
 fn a_max_fill_attack_cannot_price_out_a_one_coin_account() {
     // ADR-076: six hundred blocks at 64 times the target, then a one-coin
     // account pays for a standard transfer of its real encoded size. Before

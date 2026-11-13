@@ -13,8 +13,8 @@
 //!   that the linear rule does not already know.
 //! - **Blocks** carry at most twice the target.
 
-use maya_fee_market::model::{FEATURE_ONE, INPUTS};
-use maya_fee_market::{Feature, Features};
+use maya_neural_fee::model::{FEATURE_ONE, INPUTS};
+use maya_neural_fee::{Feature, Features};
 
 use crate::rng::SplitMix64;
 

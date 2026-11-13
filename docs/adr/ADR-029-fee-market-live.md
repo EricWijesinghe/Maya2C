@@ -63,3 +63,42 @@ transaction before relaying it.
 transfer are refused; a paid transfer lands, burns exactly `base_fee × size`,
 leaves the tip in the collector, and conserves value; empty blocks walk the
 base fee down and never below its floor.
+
+## Amendment 2026-11-14: the neural fee model leaves the launch binary
+
+**Decision (Eric 2026-11-14, founder-brief audit Q19, option A).** The neural
+base-fee gain is no longer "not adopted but present"; it is out of the node.
+Until this amendment `maya-fee-market` carried the 6-16-1 integer model
+(`src/model/`), the one-sided rule (`src/rule.rs`) and a second switch,
+`FeeConfig::neural_activation_height`, at `u64::MAX` in every configuration,
+and the node carried the block-feature extractor (`src/neural_gas/`). None of
+it ran, but all of it was compiled into the binary a genesis freezes.
+
+- The model, the rule, their Kani envelope proof and their tests moved to a
+  new crate, `crates/neural-fee` (`maya-neural-fee`), class RESEARCH. Its
+  only dependant is `bins/neural-gas-trainer`, which writes its weight file.
+- `FeeConfig` lost `neural_activation_height`, `TESTING_NEURAL` and
+  `is_neural_active`; `apply_block_fees_with_features` and
+  `FeeError::MissingFeatures` are gone. `apply_block_fees` computes the
+  linear step directly, as it always did on every network.
+- The node's `neural_gas` module, `tests/neural_fee_tests.rs` and the
+  `gas_predictor` bench are deleted. They are in history at `3735252d`.
+- Check: `cargo tree -p custom-l1-node -i maya-neural-fee` finds no path, and
+  `tests/fee_market_tests.rs::the_launch_binary_carries_no_neural_fee_model`
+  fails if the node manifest names the crate or either half comes back.
+
+**Why.** "Models never on consensus" is the owner's identity rule, and
+dormant code at `u64::MAX` is still code a reviewer of the launch binary has
+to read, a field the genesis config must carry, and an attack surface if a
+schedule ever named the height. Removing it costs nothing at launch: the
+linear rule is the only one any network has run.
+
+**Behaviour.** Unchanged. No network ever set the height, `FeeConfig` has no
+serialized form, and no state record or wire type named the field, so no
+state root, vector or encoding moves. The fee-market tests and the node's
+fee tests pass as before.
+
+**Reviving it** is a hard fork: a new ADR, the dependency added back to the
+node, a feature extractor, and an activation height in the upgrade schedule
+(invariant 34) — plus a model trained on real traffic, which ADR-016 already
+required.
