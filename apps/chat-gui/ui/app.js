@@ -60,6 +60,8 @@ function drawLine(line) {
   if (line.sticker) {
     li.classList.add("is-sticker");
     text = Stickers.line(line, line.peer);
+  } else if (line.pay) {
+    text = Wallet.bubble(line);
   } else {
     text = document.createElement("span");
     text.textContent = line.text;
@@ -132,6 +134,10 @@ async function openPeer(addr) {
   $("text").disabled = false;
   $("send").disabled = false;
   $("sticker-toggle").disabled = false;
+  $("request-toggle").disabled = false;
+  $("apps-toggle").disabled = false;
+  $("request-toggle").onclick = () => Wallet.request(addr);
+  $("apps-toggle").onclick = () => Wallet.apps(addr);
   drawContacts();
   $("lines").replaceChildren();
   try {

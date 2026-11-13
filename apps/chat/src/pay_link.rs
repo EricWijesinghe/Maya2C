@@ -7,7 +7,10 @@
 //! is strict: each key once, the key set exact, printable ASCII only, every
 //! value checked, amounts canonical (no leading zeros).
 
-use maya_address::{Network, decode, encode};
+/// Re-exported so a host (the desktop app) names the network without its own
+/// dependency on `maya-address`.
+pub use maya_address::Network;
+use maya_address::{decode, encode};
 use maya_amount::COIN_DECIMALS;
 
 use crate::Address;
@@ -53,12 +56,26 @@ pub struct PaidLink {
 /// receiving account written for `network`.
 #[must_use]
 pub fn pay_uri(network: Network, due: &Due, request_id: &[u8; 32]) -> String {
+    pay_uri_to(network, &due.pay_to, &due.amount, request_id, &due.chain)
+}
+
+/// The outbound link for a payment of `amount` base units to `to` on
+/// `chain`, tagged with `request_id`. A mini-app's payment (ADR-138) has no
+/// signed [`crate::pay::Request`]; its id is the bridge's intent id.
+#[must_use]
+pub fn pay_uri_to(
+    network: Network,
+    to: &Address,
+    amount: &str,
+    request_id: &[u8; 32],
+    chain: &ChainTag,
+) -> String {
     format!(
         "{PAY_PREFIX}to={}&amount={}&request={}&chain={}",
-        encode(network, &due.pay_to),
-        base_to_whole(&due.amount),
+        encode(network, to),
+        base_to_whole(amount),
         hex::encode(request_id),
-        hex::encode(due.chain),
+        hex::encode(chain),
     )
 }
 
@@ -175,7 +192,8 @@ fn hex32(text: &str) -> Result<[u8; 32], ChatError> {
 
 /// Base units to whole coins, exact: `1` becomes `0.000…001` with
 /// [`COIN_DECIMALS`] places. The input is a checked canonical decimal.
-fn base_to_whole(base: &str) -> String {
+#[must_use]
+pub fn base_to_whole(base: &str) -> String {
     let padded = format!("{base:0>width$}", width = COIN_DECIMALS + 1);
     let (int, frac) = padded.split_at(padded.len() - COIN_DECIMALS);
     let int = match int.trim_start_matches('0') {
@@ -193,7 +211,11 @@ fn base_to_whole(base: &str) -> String {
 /// Whole coins to base units, as the wallet's parser reads them: digits with
 /// at most one point, a digit on each side of it, at most [`COIN_DECIMALS`]
 /// places, nonzero, within 256 bits, and no leading zero before the point.
-fn whole_to_base(text: &str) -> Result<String, ChatError> {
+///
+/// # Errors
+///
+/// [`ChatError::Refused`] for any other text.
+pub fn whole_to_base(text: &str) -> Result<String, ChatError> {
     let refuse = ChatError::Refused("amount is not a whole-coin decimal");
     let shaped = !text.is_empty()
         && text.len() <= MAX_AMOUNT_TEXT

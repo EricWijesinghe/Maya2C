@@ -142,6 +142,7 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
         at,
         sticker: Some(StickerRef { id, format: item.format, pack, title }),
         outbox: Some(hex::encode(sent)),
+        pay: None,
     };
     remember(&mut s.profile, line.clone());
     app.save(s)?;
@@ -206,6 +207,7 @@ pub(crate) async fn receive(
                 at: now(),
                 sticker: Some(StickerRef { id, format, pack, title }),
                 outbox: None,
+                pay: None,
             })
         }
         Content::PackRequest { pack } => {
@@ -229,6 +231,7 @@ pub(crate) async fn receive(
                 at: now(),
                 sticker: None,
                 outbox: None,
+                pay: None,
             })
         }
     }

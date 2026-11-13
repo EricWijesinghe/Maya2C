@@ -2890,6 +2890,18 @@ gate = "cargo test -p maya-chat (125 tests: 49 lib, 5 cli, 1 bot_e2e, 7 envelope
 note = "ADR-088. Payee-signed request (chain tag, receiving account, amount, memo, expiry, nonce) and payer-signed receipt (chain tag signed) inside the chat session. Settlement needs chain evidence from pay::chain::find_final (get_chain_info genesis, get_checkpoint finality, get_block_by_height) and Ledger::settle checks payer, tx id, sender, height above issue, finality, amount to pay_to, tx not reused. Payer ledger refuses double pay; pay inbox and ledger persist; per-contact caps. HttpRpc not run against a live node; checkpoint signatures not verified by chat. Amendment 1 (H2): requests and receipts carry a wallet-signed binding (hybrid ML-DSA-65+SLH-DSA key of the account; chain, chat id, expiry <= 90 d; newest per chat id kept, revocation frame); pay_to and the settling sender are bound wallet accounts, never chat addresses. Wallet core signs bindings (chat_pay) and keeps a paid list; wallet pay route takes request+chain. Desktop Pay card and a wallet binding screen are not built. Unaudited."
 
 [[subsystem]]
+id = "chat-mini-apps"
+name = "Maya Chat mini-apps and in-chat wallet bubbles (ADR-138, P-45)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/miniapp.rs`, `apps/chat/src/miniapp_bridge.rs`, `apps/chat-gui/src-tauri/src/miniapp_cmds.rs`, `apps/chat-gui/src-tauri/src/pay_cmds.rs`, `apps/chat-gui/ui/wallet.js`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["apps/chat/tests/miniapp_tests.rs", "apps/chat-gui/src-tauri/src/miniapp_cmds.rs", "apps/chat-gui/src-tauri/src/pay_cmds.rs"]
+gate = "CI-first: not compiled locally; CI is the first compile (cargo test -p maya-chat; cargo test --lib in apps/chat-gui/src-tauri)"
+note = "ADR-138. Hybrid-signed (0x30) CBOR manifest pinning icon and entry HTML by BLAKE3; permission allow-list of three (read-address, request-payment, send-message) checked before the signature; served on a miniapp: scheme with its own no-network CSP into a sandbox=allow-scripts iframe; postMessage accepted only from that frame and forwarded with a per-frame token; every payment needs the user's yes on a confirm text, then a wallet link; the app never signs. Request/pay/receipt bubbles in chat-gui reuse ADR-088 pay::Request and pay::Paid. Shortcuts: own confirm-text format until PR #446's renderer lands, wallet link shown to copy (no opener), testnet only, no chain check of 'says it paid' in the GUI. No live desktop launch recorded. Unaudited."
+
+[[subsystem]]
 id = "chat-stickers"
 name = "Maya Chat stickers and sticker packs (Lottie/TGS, WebM, WebP, PNG, GIF, SVG; picker, emoji suggestions, pack maker, pack sharing)"
 domain = "Supplement (not in architecture-vision.md)"

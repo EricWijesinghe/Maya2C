@@ -51,6 +51,30 @@ pub struct Line {
     /// tracked. Cleared once the user dismisses an expired one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbox: Option<String>,
+    /// Set when the line is a payment request, a payment claim or a receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pay: Option<PayBubble>,
+}
+
+/// What a payment line shows (ADR-088, ADR-138).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PayBubble {
+    /// `request`, `paid` (a peer says it paid ours) or `receipt` (we said so).
+    pub kind: String,
+    /// Whole coins.
+    pub amount: String,
+    pub memo: String,
+    /// Hex request id.
+    pub request: String,
+    /// For a request we received: the wallet link, shown only after `confirm`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    /// For a request we received: the text the user confirms first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirm: Option<String>,
+    /// Hex transaction id, for `paid` and `receipt`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx: Option<String>,
 }
 
 /// The sticker a line shows.
@@ -74,6 +98,9 @@ pub struct Profile {
     /// Recently sent sticker ids, newest first.
     #[serde(default)]
     pub recent: Vec<String>,
+    /// The node payments read the chain tip from (ADR-088), set in payment settings.
+    #[serde(default)]
+    pub pay_node: Option<String>,
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -232,7 +259,7 @@ mod tests {
         let profile = Profile {
             relay: "/dns4/seed1.maya2c.dev/tcp/4001/p2p/x".into(),
             contacts: vec![Contact { name: "Ann".into(), address: "ab".repeat(32) }],
-            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None, outbox: None }],
+            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None, outbox: None, pay: None }],
             ..Profile::default()
         };
         files.save_profile(&[1; 32], &profile).unwrap();
