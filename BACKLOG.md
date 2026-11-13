@@ -5,6 +5,29 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — frozen-node findings (CATALOG §M research, 2026-11-10)
+
+Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
+**Decision for Eric: re-freeze vs fix outside the node.**
+
+- **F1 — `get_supply` counts the keyless mining reserve as circulating.**
+  `crates/node/src/rpc/market.rs:48` `NON_CIRCULATING` lists only `FEE_SINK`;
+  `MINING_RESERVE` (`crates/node/src/state/mining.rs:41`, no key derives it) is
+  funded at genesis with `--mining-reserve 122753829695359067419575633036805965021648`
+  base units (`deploy/genesis/mainnet/README.md:46`). `get_supply`,
+  `/api/v1/supply` and aggregator endpoints would report it as circulating on
+  day one. Not consensus. Smaller, same file: the sums use `saturating_add`
+  (`market.rs:95,97,108`), so an overflow would understate silently. Outside-node
+  option: correct the figure in the explorer/status/aggregator layer and in
+  J `supply-recompute`.
+- **F2 — wallet description of `Propose` ignores the upgrade (blind signing).**
+  `crates/node/src/core/describe.rs:336-344` describes `TxKind::Propose` by
+  parameter count only and never reads `ProposalSubmission.upgrade`
+  (`crates/node/src/core/governance_payload.rs:156`); an upgrade-only proposal
+  reads "Propose changing 0 parameters…". The no-wildcard match does not catch a
+  new field inside an existing variant. Outside-node option: render the upgrade
+  section in the wallet/CLI from the decoded payload until `describe.rs` can change.
+
 ## P5 — ADR-082 follow-ups (genesis upgrade levers, 2026-11-07)
 
 - **Suite account migration.** `crates/crypto-pq/src/agility/migration.rs` is

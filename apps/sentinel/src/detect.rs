@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use primitive_types::U256;
 
+use crate::liveness::{self, Liveness};
+pub use crate::liveness::{DEFAULT_FINALITY_LAG_BLOCKS, DEFAULT_LIVENESS_MS};
 use crate::obs::{NodeObs, Sample, Supply};
 
 /// Default halt gap: 30 s with no new block, at a 1 block/s target.
@@ -58,6 +60,10 @@ pub struct Thresholds {
     pub strand_blocks: u64,
     /// Transactions waiting this long with no block carrying one.
     pub strand_ms: u64,
+    /// Tip this many blocks past the newest checkpoint is a finality lag.
+    pub finality_lag_blocks: u64,
+    /// A committee member with no new round for this long is not live.
+    pub liveness_ms: u64,
 }
 
 impl Default for Thresholds {
@@ -68,6 +74,8 @@ impl Default for Thresholds {
             min_peers: DEFAULT_MIN_PEERS,
             strand_blocks: DEFAULT_STRAND_BLOCKS,
             strand_ms: DEFAULT_STRAND_MS,
+            finality_lag_blocks: DEFAULT_FINALITY_LAG_BLOCKS,
+            liveness_ms: DEFAULT_LIVENESS_MS,
         }
     }
 }
@@ -83,6 +91,7 @@ pub struct Detector {
     last_strand_height: Option<u64>,
     strand_streak: u64,
     strand_since: Option<u64>,
+    liveness: Liveness,
 }
 
 impl Detector {
@@ -97,6 +106,7 @@ impl Detector {
             last_strand_height: None,
             strand_streak: 0,
             strand_since: None,
+            liveness: Liveness::default(),
         }
     }
 
@@ -112,6 +122,15 @@ impl Detector {
         out.extend(self.supply(&ups));
         out.extend(peers(&ups, self.limits.min_peers));
         out.extend(self.stranding(now, &ups));
+        out.extend(
+            self.liveness
+                .blind(now, samples, self.limits.unreachable_ms),
+        );
+        out.extend(liveness::finality_lag(
+            &ups,
+            self.limits.finality_lag_blocks,
+        ));
+        out.extend(self.liveness.validators(now, &ups, self.limits.liveness_ms));
         out
     }
 

@@ -23,11 +23,18 @@ custom-l1-node = { path = "../node" }
 primitive-types.workspace = true
 hex.workspace = true
 thiserror.workspace = true
+# The finality client re-derives a staking record's leaf (ADR-089, src/record.rs).
+# The node keeps its copy `pub(crate)`. Already in the graph through the node.
+blake3.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-# Account addresses for `tests/stateless_memory.rs`.
-blake3.workspace = true
+criterion.workspace = true
+
+[[bench]]
+# Finality verification at 7 and 100 members (ADR-089). Criterion, not libtest.
+name = "finality"
+harness = false
 
 [lints]
 workspace = true

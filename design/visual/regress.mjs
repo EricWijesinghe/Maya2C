@@ -14,7 +14,7 @@
 //   UPDATE_BASELINE=1 node design/visual/regress.mjs   rewrite baselines
 
 import { chromium } from 'playwright';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -84,6 +84,41 @@ for (const id of ids) {
     console.log(`${id}: ok (${(r.ratio * 100).toFixed(3)}% of pixels changed)`);
   }
 }
+// Explorer pages: golden HTML written by apps/explorer/tests/fixture_tests.rs.
+// Unlike the specimen, a missing baseline fails here. A first run must not bless
+// whatever it happens to draw; baselines come from UPDATE_BASELINE=1 in the
+// pinned container and are committed.
+const explorerDir = resolve(here, 'explorer');
+const explorerBaselines = join(baselineDir, 'explorer');
+mkdirSync(explorerBaselines, { recursive: true });
+const explorerPages = readdirSync(explorerDir).filter((f) => f.endsWith('.html')).sort();
+await page.emulateMedia({ reducedMotion: 'reduce' });
+for (const file of explorerPages) {
+  const id = 'explorer-' + file.replace(/\.html$/, '');
+  await page.goto('file://' + join(explorerDir, file));
+  const shot = await page.screenshot({ fullPage: true });
+  const base = join(explorerBaselines, id + '.png');
+  if (update) {
+    writeFileSync(base, shot);
+    console.log(`${id}: baseline written`);
+    continue;
+  }
+  if (!existsSync(base)) {
+    failed++;
+    console.log(`${id}: FAIL no baseline; run UPDATE_BASELINE=1 in the pinned container and commit it`);
+    continue;
+  }
+  const r = await diff(shot, readFileSync(base));
+  if (r.sizeChanged || r.ratio > MAX_DIFF_RATIO) {
+    failed++;
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, id + '.png'), shot);
+    console.log(`${id}: FAIL ${r.sizeChanged ?? (r.ratio * 100).toFixed(3) + '% of pixels changed'}`);
+  } else {
+    console.log(`${id}: ok (${(r.ratio * 100).toFixed(3)}% of pixels changed)`);
+  }
+}
+
 await browser.close();
-console.log(`${ids.length} sections, ${failed} failed`);
+console.log(`${ids.length} sections and ${explorerPages.length} explorer pages, ${failed} failed`);
 process.exit(failed ? 1 : 0);

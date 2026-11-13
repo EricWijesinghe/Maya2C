@@ -22,17 +22,26 @@ use crate::metrics::LabMetrics;
 /// Scenario category
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScenarioCategory {
+    /// Category 1: attacks on consensus.
     ConsensusAdversary = 1,
+    /// Category 2: attacks on the network layer.
     NetworkAdversary = 2,
+    /// Category 3: attacks on transactions.
     TransactionAdversary = 3,
+    /// Category 4: attacks on the RPC API.
     ApiAdversary = 4,
+    /// Category 5: attacks on the VM and contracts.
     VmContractAdversary = 5,
+    /// Category 6: attacks on storage.
     StorageAdversary = 6,
+    /// Category 7: operational failures.
     OperationalAdversary = 7,
+    /// Category 8: compromise of test keys.
     TestKeyCompromise = 8,
 }
 
 impl ScenarioCategory {
+    /// Maps the numeric category (1 to 8, as stored in `Scenario::category`) to a variant. Other numbers give `None`.
     pub fn from_u8(n: u8) -> Option<Self> {
         match n {
             1 => Some(ScenarioCategory::ConsensusAdversary),
@@ -66,15 +75,25 @@ impl ScenarioCategory {
 /// A single scenario definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scenario {
+    /// Unique scenario identifier. Also the directory name the evidence is written under.
     pub id: String,
+    /// Human-readable name.
     pub name: String,
+    /// Category number; see `ScenarioCategory`.
     pub category: u8,
+    /// What the scenario does.
     pub description: String,
+    /// The behaviour the network is expected to show if it is correct.
     pub expected_behavior: String,
+    /// Faults to inject, and how long to wait after injecting them.
     pub fault_spec: FaultSpec,
+    /// Human-readable pass conditions. The strings are not parsed: `verify_success_criteria` checks for forks and runs checks keyed by `id`.
     pub success_criteria: Vec<String>,
+    /// Severity recorded on the finding when the run fails.
     pub severity_if_failed: Severity,
+    /// Expected run length, in seconds. Informational; the run waits on `fault_spec.duration`.
     pub duration_estimate_secs: u64,
+    /// Whether the fault behind this scenario is implemented. Set in the definitions; no code in this crate checks it before running.
     pub implemented: bool,
 }
 
@@ -88,6 +107,7 @@ pub struct ScenarioRunner<'a> {
 }
 
 impl<'a> ScenarioRunner<'a> {
+    /// Creates a runner over `lab` and registers the built-in scenario matrix.
     pub fn new(lab: &'a Lab) -> Self {
         let config = lab.config.clone();
         let evidence_collector = Arc::new(Mutex::new(EvidenceCollector::new(
@@ -768,9 +788,9 @@ impl<'a> ScenarioRunner<'a> {
     }
 
     async fn verify_quorum_behavior(&self) -> Result<bool> {
-        // For quorum edge conditions, we verify the scenario ran correctly
-        // The actual behavior is verified in the existing attacknet
-        Ok(true)
+        // This returned Ok(true) unconditionally, so scenario 1.8 always
+        // "passed". The f / f+1 behaviour is checked by `cargo xtask attacknet`.
+        anyhow::bail!("quorum-edge verification not implemented; use cargo xtask attacknet")
     }
 
     async fn check_for_forks(&self) -> Result<bool> {
@@ -849,6 +869,7 @@ impl<'a> ScenarioRunner<'a> {
 
     async fn collect_scenario_metrics(&self) -> Result<ScenarioMetrics> {
         let mut metrics = ScenarioMetrics::default();
+        let client = reqwest::Client::new();
 
         // Collect from each validator
         for name in self.lab.config.validator_names() {
@@ -856,7 +877,15 @@ impl<'a> ScenarioRunner<'a> {
                 continue;
             };
 
-            if let Ok(resp) = reqwest::get(&format!("{}/get_tip_height", v.rpc_url())).await
+            // The RPC is JSON-RPC over POST; the old `GET /get_tip_height`
+            // never answered, so blocks_finalized was always 0.
+            let request = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "get_tip_height",
+                "params": []
+            });
+            if let Ok(resp) = client.post(v.rpc_url()).json(&request).send().await
                 && let Ok(json) = resp.json::<serde_json::Value>().await
                 && let Some(h) = json.get("result").and_then(|r| r.as_u64())
             {
