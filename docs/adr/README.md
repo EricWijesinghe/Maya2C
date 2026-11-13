@@ -100,7 +100,16 @@ The observation that would make this worth reopening.
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
+| [102](ADR-102-stealth-addresses-ml-kem.md) | Stealth addresses over ML-KEM-768: hash-committed one-time addresses, view tag, v10 spend frame; spend reveals the spend address | Proposed |
+| [103](ADR-103-native-fungible-tokens.md) | Native fungible tokens: optional mint authority and an immutable 256-bit cap on the existing asset record; fee in native coin | Proposed |
+| [104](ADR-104-unique-assets.md) | Unique assets (NFTs): metadata hash only under `n:`, royalties settled on on-chain sales | Proposed |
+| [105](ADR-105-name-service.md) | Name service under `nm:`: ASCII labels, commit-reveal, renewal and premium by height, owner-only reverse records | Proposed |
+| [106](ADR-106-sponsored-fees.md) | Sponsored fees: an outer v11 frame where a sponsor co-signs txid, ceiling and expiry under the chain tag | Proposed |
+| [107](ADR-107-smart-account-promotion.md) | Smart-account promotion: session keys and spending limits on the v9 frame through `verify_with_state` | Proposed |
+| [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
+| [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
 | [131](ADR-131-state-rent-or-storage-deposit.md) | State pricing: none / rent / refundable storage deposit / expiry with revival; recommendation is a deposit on new records, post-genesis; existing accounts untouched | Options for Eric |
 | [132](ADR-132-shared-security-export-and-restaking.md) | Shared-security export: none / internal opt-in duties with capped slashing / external restaking / stake pointer; recommendation is none at launch, external restaking refused (invariants 11, 12, ADR-096) | Options for Eric |
 | [133](ADR-133-paid-storage-market-with-possession-proofs.md) | Storage market: none / paid blob retention extension / provider market with `CellProof` challenges from `crates/da` / endowment (refused: needs a forecast); recommendation is extension after ADR-123 | Options for Eric |
 | [134](ADR-134-appchains-secured-by-maya2c-validators.md) | Appchains: none / registered chains with anchored checkpoints and a continuous fee (Avalanche L1 shape) / opt-in validator subset / replicated execution (refused); recommendation is none at launch, anchoring post-genesis | Options for Eric |
+| [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |

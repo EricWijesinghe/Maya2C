@@ -41,6 +41,17 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
 - [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
 - [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [Stealth addresses over ML-KEM (ADR-102)](stealth-addresses.md) — searched 2026-11-12
+- [User-issued fungible tokens with a cap (ADR-103)](fungible-tokens.md) — searched 2026-11-12
+- [NFTs: metadata hash and royalties (ADR-104)](nfts.md) — searched 2026-11-12
+- [Name service (ADR-105)](name-service.md) — searched 2026-11-12
+- [Sponsored fees / paymaster (ADR-106)](sponsored-fees.md) — searched 2026-11-12
+- [Account abstraction: session keys and limits (ADR-107)](account-abstraction.md) — partially searched 2026-11-12
+- [Liquid staking receipt token (ADR-108)](liquid-staking.md) — searched 2026-11-12
+- [Scheduled and recurring payments (ADR-109)](scheduled-payments.md) — partially searched 2026-11-12
+- [GPU auto-tuning in a miner GUI (ADR-137 HW-1)](gpu-auto-tuning.md) — partially searched 2026-11-12
+- [Node hardware self-tuning (ADR-137 HW-2)](node-hardware-self-tuning.md) — not searched
+- [GPU batch verification of post-quantum signatures (ADR-137 HW-3)](gpu-signature-verification.md) — partially searched 2026-11-12
 - [State rent, storage deposits and state expiry (state-rent)](state-rent.md) — searched 2026-11-12
 - [Restaking and shared-security export (restaking)](restaking.md) — searched 2026-11-12
 - [Paid storage markets with possession proofs (storage-market)](storage-market.md) — searched 2026-11-12
