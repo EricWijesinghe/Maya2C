@@ -58,6 +58,7 @@ mod spec_coverage;
 mod starter_stickers;
 mod status;
 mod sweep;
+mod trust_facts;
 mod up;
 mod verify_release;
 
@@ -97,6 +98,7 @@ fn main() -> ExitCode {
         "ceremony-rehearsal" => ceremony_rehearsal::run(rest),
         "proving" => proving::proving(rest),
         "proof-ratchet" => proof_ratchet::run(rest),
+        "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
@@ -162,9 +164,10 @@ cargo xtask <command>
   starter-stickers      Draw the 12 starter stickers into apps/chat-gui/src-tauri/stickers/starter/.
   brand-assets [--check]
                         Copy the logo pack favicons and wordmarks into each app.
-  design-tokens [--check]
+  design-tokens [--check | --literals <dir>]
                         Generate tokens.css from design/tokens.json into every
-                        surface; `--check` fails if a copy drifted.
+                        surface; `--check` fails if a copy drifted; `--literals`
+                        fails on a hex or rgb() colour written outside tokens.css.
   og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
   kheavyhash [--fetch]  Regenerate the kHeavyHash reference module and fixture from upstream.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
@@ -195,6 +198,9 @@ cargo xtask <command>
                         named gap for each one that needs chain data.
   proof-ratchet         Kani harnesses, conformance vectors, exploit replays and
                         fuzz targets may grow, never fall [--check | --update].
+  trust-facts           Run go-no-go, readiness, coverage and proof-ratchet into
+                        reports/trust-facts.{{md,json}}: evidence or GAP per line
+                        [--out <dir>].
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
