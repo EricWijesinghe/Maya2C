@@ -3615,9 +3615,9 @@ domain = "Developer experience"
 paths = "`bins/maya2c-cli/src/notary.rs`, `docs/ecosystem/notary.md`"
 tier = "extended"
 class = "RESEARCH"
-status = "stub"
-tests = ["bins/maya2c-cli/tests/notary_tests.rs"]
-note = "ADR-094. Unit tests pass (7/7); live stamp not yet confirmed on a devnet: the RegisterDid and stamp transactions were accepted, but the stamp was not seen in any block. Status stays stub until the e2e passes. Uses the existing AnchorAttestation payload (tag 34, schema notary-v1); no node change. Verify scans blocks (no txid lookup RPC) and checks the block tx root against its header; finality trusts the node's checkpoint (signatures not verified yet)."
+status = "working"
+tests = ["bins/maya2c-cli/tests/notary_tests.rs", "bins/maya2c-cli/tests/notary_devnet_tests.rs"]
+note = "ADR-094. Unit tests (7) plus a devnet e2e (`notary_devnet_tests.rs`): a one-validator dev node, the CLI's own setup (RegisterDid) and stamp, the stamp found in a block by verify, the receipt checked against that block's id, timestamp and transaction list, and one changed byte refused. Uses the existing AnchorAttestation payload (tag 34, schema notary-v1); no node change. Verify scans blocks (no txid lookup RPC) and checks the block tx root against its header; finality trusts the node's checkpoint (signatures not verified yet)."
 
 [[subsystem]]
 id = "xtask-attacknet"
