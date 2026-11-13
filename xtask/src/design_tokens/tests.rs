@@ -74,6 +74,22 @@ fn a_missing_required_pair_is_reported() {
             "[\"chart-6\", \"surface-1\", \"non-text\"],",
             "[\"chart-6\", \"surface-1\", \"non-text\"]",
         ),
+        (
+            "[\"chart-3\", \"surface-2\", \"non-text\"],",
+            "[\"chart-3\", \"surface-2\", \"non-text\"]",
+        ),
+        (
+            "[\"border-control\", \"surface-3\", \"non-text\"],",
+            "[\"border-control\", \"surface-3\", \"non-text\"]",
+        ),
+        (
+            "[\"on-fill\", \"danger-fill\", \"text\"],",
+            "[\"on-fill\", \"danger-fill\", \"text\"]",
+        ),
+        (
+            "[\"surface-3\", \"bg\", \"separation\", \"dark\"],",
+            "[\"surface-3\", \"bg\", \"separation\", \"dark\"]",
+        ),
     ] {
         let missing = missing_pairs(&edited(line, "")).unwrap();
         assert_eq!(missing, vec![want.to_owned()], "{line}");
@@ -108,24 +124,27 @@ fn text_3_is_body_text_on_every_surface() {
 }
 
 #[test]
-fn dark_panels_separate_from_the_ground_without_a_hairline() {
+fn selected_panels_separate_without_a_hairline_in_both_themes() {
     let measured = pair_ratios(&real()).unwrap();
     let sep: Vec<_> = measured
         .iter()
         .filter(|m| m.usage == Use::Separation)
+        .map(|m| (m.theme, m.fg.as_str(), m.bg.as_str(), m.ratio))
         .collect();
-    assert_eq!(sep.len(), 1, "dark only: {sep:?}");
-    assert_eq!(
-        (sep[0].theme, sep[0].fg.as_str(), sep[0].bg.as_str()),
-        ("dark", "surface-3", "bg")
-    );
-    assert!(sep[0].ratio >= 1.25, "{}", sep[0]);
+    assert_eq!(sep.len(), 2, "{sep:?}");
+    for want in [
+        ("dark", "surface-3", "bg"),
+        ("light", "surface-3", "surface-1"),
+    ] {
+        let found = sep.iter().find(|s| (s.0, s.1, s.2) == want);
+        assert!(found.is_some_and(|s| s.3 >= 1.25), "{want:?} in {sep:?}");
+    }
 }
 
 #[test]
 fn a_pair_below_its_minimum_is_reported() {
     // Dark text-2 darkened to #3a4448: about 2:1 on the dark bg.
-    let failures = below_minimum(&edited("#bcd0d7", "#3a4448"));
+    let failures = below_minimum(&edited("#c2d5dc", "#3a4448"));
     assert!(
         failures
             .iter()
@@ -161,7 +180,7 @@ fn a_decorative_role_is_never_measured_as_text() {
 #[test]
 fn chart_series_stay_apart_under_colour_blind_vision() {
     let tokens = real();
-    let min = chart_min(&tokens).unwrap();
+    let min = min_distance(&tokens, CHART).unwrap();
     let worst = chart_worst(&tokens).unwrap();
     assert_eq!(worst.len(), THEMES.len() * Vision::ALL.len());
     for w in &worst {
@@ -175,7 +194,7 @@ fn series_that_collapse_only_for_deuteranopes_fail() {
     // #9fe870 (a green) is far from every series in normal vision and lands
     // on bronze #ffbb6b for a deuteranope.
     let tokens = edited("\"chart-6\": \"#d97f4f\"", "\"chart-6\": \"#9fe870\"");
-    let min = chart_min(&tokens).unwrap();
+    let min = min_distance(&tokens, CHART).unwrap();
     let close: Vec<_> = chart_worst(&tokens)
         .unwrap()
         .into_iter()
@@ -194,6 +213,60 @@ fn series_that_collapse_only_for_deuteranopes_fail() {
 }
 
 #[test]
+fn meaning_roles_stay_apart() {
+    let tokens = real();
+    let min = min_distance(&tokens, ROLES).unwrap();
+    let worst = role_worst(&tokens).unwrap();
+    // Two sets under normal vision, two cvd pairs under every model.
+    assert_eq!(worst.len(), THEMES.len() * (2 + 2 * Vision::ALL.len()));
+    for w in &worst {
+        println!("{w}");
+        assert!(w.distance >= min, "{w} below {min}");
+    }
+}
+
+#[test]
+fn a_warning_the_colour_of_a_coin_amount_fails() {
+    // Light warn set to the light bronze: one colour, two meanings.
+    let tokens = edited("\"warn\": \"#796300\"", "\"warn\": \"#782d00\"");
+    let min = min_distance(&tokens, ROLES).unwrap();
+    let close: Vec<_> = role_worst(&tokens)
+        .unwrap()
+        .into_iter()
+        .filter(|w| w.distance < min)
+        .collect();
+    assert!(
+        close
+            .iter()
+            .any(|w| w.theme == "light" && w.vision == Vision::Normal),
+        "{close:?}"
+    );
+}
+
+#[test]
+fn bronze_and_warn_must_stay_apart_for_deuteranopes_too() {
+    // #a33f00 clears every role under normal vision and lands on the light
+    // warn #796300 for a deuteranope; only the cvd pair catches it.
+    let tokens = edited("\"bronze\": \"#782d00\"", "\"bronze\": \"#a33f00\"");
+    let min = min_distance(&tokens, ROLES).unwrap();
+    let close: Vec<_> = role_worst(&tokens)
+        .unwrap()
+        .into_iter()
+        .filter(|w| w.distance < min)
+        .collect();
+    assert!(
+        close.iter().any(|w| w.theme == "light"
+            && w.vision == Vision::Deuteranopia
+            && (w.a.as_str(), w.b.as_str()) == ("bronze", "warn")),
+        "{close:?}"
+    );
+    assert!(
+        close.iter().all(|w| w.vision != Vision::Normal),
+        "{close:?}"
+    );
+}
+
+#[test]
 fn the_design_doc_table_equals_the_tokens() {
     let mismatches = doc::mismatches(&real_doc(), &real()).unwrap();
     assert!(mismatches.is_empty(), "{mismatches:#?}");
@@ -203,12 +276,12 @@ fn the_design_doc_table_equals_the_tokens() {
 fn a_token_the_doc_does_not_match_is_reported() {
     let changed = doc::mismatches(
         &real_doc(),
-        &edited("\"bg\": \"#081c28\"", "\"bg\": \"#081c29\""),
+        &edited("\"bg\": \"#06202c\"", "\"bg\": \"#06202d\""),
     )
     .unwrap();
     assert_eq!(
         changed,
-        vec!["`--bg` dark is `#081c28` in the doc, `#081c29` in the tokens".to_owned()]
+        vec!["`--bg` dark is `#06202c` in the doc, `#06202d` in the tokens".to_owned()]
     );
     let doc = real_doc().replacen("| `--info` |", "| `--infox` |", 1);
     let rows = doc::mismatches(&doc, &real()).unwrap();
@@ -221,7 +294,7 @@ fn a_token_the_doc_does_not_match_is_reported() {
 
 #[test]
 fn violet_and_quantum_roles_are_refused() {
-    let tokens = edited("\"info\": \"#6cb6ff\"", "\"violet\": \"#6cb6ff\"");
+    let tokens = edited("\"info\": \"#71b0ff\"", "\"violet\": \"#71b0ff\"");
     assert!(render(&tokens).unwrap_err().contains("deferred to Eric"));
 }
 
@@ -252,8 +325,8 @@ fn the_stylesheet_has_both_themes_the_os_fallback_and_reduced_motion() {
         "@media (prefers-color-scheme: light) {\n  :root {\n    color-scheme: light;",
         "[data-theme=\"dark\"] {\n  color-scheme: dark;",
         "[data-theme=\"light\"] {\n  color-scheme: light;",
-        "--bg: #081c28;",
-        "--bg: #faf8f4;",
+        "--bg: #06202c;",
+        "--bg: #f7f3ec;",
         "--chart-1: #1fd3cc;",
         "--chart-1: #089192;",
         "--type-display-1-size: 56px;",
@@ -288,7 +361,7 @@ fn composed_tokens_are_declared_in_every_theme_block() {
 
 #[test]
 fn themes_must_name_the_same_roles() {
-    let tokens = edited("\"steel\": \"#4a5a70\",", "");
+    let tokens = edited("\"steel\": \"#42546b\",", "");
     assert!(render(&tokens).unwrap_err().contains("steel"));
 }
 
@@ -318,7 +391,7 @@ fn check_reports_each_drifted_or_missing_copy() {
         fs::write(path, &css).unwrap();
     }
     assert!(stale(&root, &css).is_empty());
-    fs::write(root.join(TARGETS[3]), css.replace("#081c28", "#081c29")).unwrap();
+    fs::write(root.join(TARGETS[3]), css.replace("#06202c", "#06202d")).unwrap();
     fs::remove_file(root.join(TARGETS[1])).unwrap();
     let mut found = stale(&root, &css);
     found.sort();
@@ -349,7 +422,8 @@ fn literals_are_found_outside_tokens_css_only() {
     );
     write(
         "ui/index.html",
-        "<p>&#8212; &#x2014;</p>\n<a href=\"#top\">top</a> <a href=\"#cafe\">x</a>\n<meta name=\"theme-color\" content=\"#081c28\"> <!-- tokens:allow-literal -->\n",
+        // Only the theme-color meta is exempt; the old opt-out marker hides nothing.
+        "<p>&#8212; &#x2014;</p>\n<a href=\"#top\">top</a> <a href=\"#cafe\">x</a>\n<meta name=\"theme-color\" content=\"#081c28\">\n<p style=\"color:#123456\"> <!-- tokens:allow-literal -->\n",
     );
     write(
         "src/main.rs",
@@ -366,6 +440,7 @@ fn literals_are_found_outside_tokens_css_only() {
             "ui/app.css:1: #FF0000".to_owned(),
             "ui/app.css:2: rgb(1".to_owned(),
             "ui/index.html:2: #cafe".to_owned(),
+            "ui/index.html:4: #123456".to_owned(),
         ]
     );
     assert!(literals::run(&root).is_err());

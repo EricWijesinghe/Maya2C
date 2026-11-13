@@ -2,9 +2,10 @@
 //! colour written by hand outside `tokens.css`.
 //!
 //! The token file only helps if surfaces name its roles. Each later UI lane
-//! (U2–U7) runs this on its own folder and drives the count to zero; a line
-//! that must hold a literal (`<meta name="theme-color">` cannot read a custom
-//! property) carries `tokens:allow-literal`.
+//! (U2–U7) runs this on its own folder and drives the count to zero. The one
+//! exception is a `<meta name="theme-color">` line: the browser reads it
+//! before any stylesheet, so it cannot name a custom property. There is no
+//! general opt-out marker, so nothing else can hide a literal.
 
 use std::fs;
 use std::path::Path;
@@ -12,8 +13,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// Marks a line whose literal is required by the platform.
-const ALLOW: &str = "tokens:allow-literal";
+/// The only line whose literal the platform requires.
+const THEME_COLOR: &str = "name=\"theme-color\"";
 
 /// Files that carry styles or markup. Markdown, SVG assets and images are not
 /// scanned: a logo keeps its own colours.
@@ -55,8 +56,7 @@ pub(super) fn run(dir: &Path) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "{} colour literal(s) outside tokens.css in {}: name a role from design/tokens.json, \
-         or mark a line the platform forces with `{ALLOW}`",
+        "{} colour literal(s) outside tokens.css in {}: name a role from design/tokens.json",
         found.len(),
         dir.display()
     ))
@@ -105,7 +105,7 @@ fn visit(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
             .to_string_lossy()
             .replace('\\', "/");
         for (n, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
-            if line.contains(ALLOW) {
+            if line.contains(THEME_COLOR) {
                 continue;
             }
             for re in [&*HEX, &*FUNC] {

@@ -162,9 +162,10 @@ cargo xtask <command>
   starter-stickers      Draw the 12 starter stickers into apps/chat-gui/src-tauri/stickers/starter/.
   brand-assets [--check]
                         Copy the logo pack favicons and wordmarks into each app.
-  design-tokens [--check]
+  design-tokens [--check | --literals <dir>]
                         Generate tokens.css from design/tokens.json into every
-                        surface; `--check` fails if a copy drifted.
+                        surface; `--check` fails if a copy drifted; `--literals`
+                        fails on a hex or rgb() colour written outside tokens.css.
   og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
   kheavyhash [--fetch]  Regenerate the kHeavyHash reference module and fixture from upstream.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an

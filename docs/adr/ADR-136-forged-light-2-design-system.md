@@ -87,15 +87,17 @@ Values: `design/tokens.json`; the table and its reasoning:
   blue = information or research; steel = reference. A colour that means
   one thing everywhere needs no legend.
 - **The dark ground is lifted and tinted** from a hue-free near-black
-  (`#08090b`) to deep teal-navy (`#081c28`), with the three surfaces stepped
+  (`#08090b`) to deep teal-navy (`#06202c`; the plan's `#081c28`, lifted
+  after review), with the three surfaces stepped
   up in the same hue. A ground with no hue reads as a screen that is off, and
   forces every accent to be very bright to register; a tinted ground carries
   the brand before any accent is drawn. Panels separate without a hairline:
   `surface-3` against `bg` is gated at 1.25:1 or more in dark (a house rule,
   `Use::Separation`, not WCAG). Accents gain chroma at equal or better
   contrast.
-- **Light is warm paper** (`#faf8f4`, warm hairlines and shadows, no inset
-  highlight), not a grey inversion of dark.
+- **Light is warm paper** (`#f7f3ec`, warm hairlines and shadows, no inset
+  highlight), not a grey inversion of dark; white cards sit on it and
+  `surface-3` is gated at 1.25:1 against a card.
 - **Roles restored or added:** `bronze-text`, `info`, `border-control`
   (3:1 input edge, SC 1.4.11), the forge stops and `on-forge`, composed
   gradients `grad-cta`, `grad-forge`, `grad-hero`, and a decorative tier
@@ -113,11 +115,56 @@ Values: `design/tokens.json`; the table and its reasoning:
   outside `tokens.css`; U2–U7 drive their folder to zero.
 - **Colour-blind rule:** colour is never the only carrier of a state. Every
   status chip carries an icon and a word; every chart series a label.
-- Two plan values were lifted in lightness only, same hue, because the gate
-  measured them below 4.5:1 on `surface-3`: dark `text-3` `#8fa9b3` →
-  `#91abb5`, dark `danger` `#ff7183` → `#ff7f8f`. The chart orders given
-  per theme were aligned to one hue order, and dark gained a sixth series.
+- The chart orders given per theme were aligned to one hue order, and dark
+  gained a sixth series.
 - A seventh generated copy, `apps/status/src/tokens.css`, joins the six;
   the status page does not consume it yet.
-- No violet or quantum role is added; the generator refuses those names
-  until Eric decides.
+- No role named violet or quantum is added, and the generator refuses those
+  names. `chart-5` (dark `#c58cff`, light `#7c3aed`) is a purple chart
+  series, not a role; whether it stays is an open question for Eric
+  (forged-light-2.md §8).
+
+### Amended after review (2026-11-14, same revision, before merge)
+
+A design review of the first draft of this revision found the light theme
+heavier rather than brighter, and two meanings sharing one colour. Changes:
+
+- **Two tiers per meaning.** One token per role had to pass 4.5:1 as text on
+  the light `surface-3`, which forced every light colour to the same dark,
+  muddy lightness (OKLCH L 0.43 to 0.51). Each meaning now has a text tier
+  (the plain role: `accent-text`, `bronze`, `success`, `warn`, `danger`,
+  `info`, `steel`), unchanged in purpose, and a vivid fill tier
+  (`bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill`)
+  for chip and badge grounds under one dark ink `on-fill` (gated at 4.5:1),
+  alert edges and dots. The fills are the same in both themes. In dark this
+  also gives `danger` a saturated red fill; the text-safe coral alone read
+  soft for "irreversible". The existing names keep their text meaning
+  because the wallet and explorer already use `var(--danger)` and
+  `var(--warn)` as text colours.
+- **Role distinctness is gated.** `role-distinctness` in `tokens.json`
+  requires every two roles of the text tier, and of the fill tier with
+  `accent`, to be at least `min-distance` (OKLab) apart under normal vision,
+  and `bronze`/`warn` and their fills also under deuteranopia and protanopia,
+  because no icon-and-word rule separates a coin amount from a warning. The
+  first draft had light `bronze` and `warn` 0.021 apart.
+- **Hue moved, not only lightness.** The lane rule was "lightness only".
+  Separating the roles needed hue: light `bronze` to a deep copper
+  (`#782d00`), light `warn` to a yellower amber (`#796300`), light `danger` to
+  crimson (`#cb0040`), dark `bronze` to copper-orange (`#ff9c47`), dark
+  `steel` greyer (`#a1afb9`). Light `accent` moved from a forest green back
+  to the brand teal hue (`#00827d`, the brightest teal that keeps 4.5:1 under
+  white ink). This is a deviation from the plan, recorded here.
+- **Surfaces.** Dark `surface-1` was 1.12:1 against the ground; the ladder is
+  now `#06202c` / `#0b2d3b` / `#123948` / `#1a4657`, and `text-3`,
+  `border-control`, `steel`, `info` and `danger` were lightened to hold their
+  minimums on the lifted `surface-3`. Light paper is a little deeper
+  (`#f7f3ec`) so a white card reads as paper on paper.
+- **Matrix additions:** `border-control` as non-text on `surface-3` (a
+  checkbox in a selected row), chart series on `surface-2` (dark `chart-3`
+  lightened to `#4e74ff` for it, still clear of `chart-5` under protanopia),
+  `on-fill` on every fill, and the light separation pair.
+- **CTA gradient narrowed** (dark `#3fdcd4` to `#19c4bd`, highlight 12%):
+  the first draft read as a glossy gel button.
+- `--literals` has no opt-out marker any more; only a
+  `<meta name="theme-color">` line is exempt, because the browser reads it
+  before any stylesheet.

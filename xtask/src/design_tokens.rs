@@ -7,7 +7,8 @@
 //! generator, byte-identical copies, and `--check` in CI is what keeps them in
 //! step. Both modes refuse a token file whose listed pairs miss their minimum,
 //! that leaves out a pair of the required matrix, whose chart series collapse
-//! under colour-blind vision, or that the design doc's colour table no longer
+//! under colour-blind vision, where two meanings (bronze value and amber
+//! warning, say) share one colour, or that the design doc's colour table no longer
 //! matches, so a colour change cannot land without its measured evidence.
 //! `--literals <dir>` is the other half: it finds the colours a surface still
 //! writes by hand instead of naming a role.
@@ -74,10 +75,18 @@ const ON_FILLS: &[(&str, &str)] = &[
     ("on-accent", "accent-grad-to"),
     ("on-forge", "forge-grad-from"),
     ("on-forge", "forge-grad-to"),
+    ("on-fill", "bronze-fill"),
+    ("on-fill", "success-fill"),
+    ("on-fill", "warn-fill"),
+    ("on-fill", "danger-fill"),
+    ("on-fill", "info-fill"),
 ];
 
+/// Grounds a chart may be drawn on: never the pressed or selected surface-3.
+const CHART_SURFACES: [&str; 3] = ["bg", "surface-1", "surface-2"];
+
 /// The minimum set of pairs the token file must list, as (fg, bg, use,
-/// theme or `None` for both). Chart series on `bg` and `surface-1` are added
+/// theme or `None` for both). Chart series on [`CHART_SURFACES`] are added
 /// from `chart-distinctness.series`.
 fn required(series: &[String]) -> Vec<(String, String, &'static str, Option<&'static str>)> {
     let mut out = Vec::new();
@@ -91,17 +100,19 @@ fn required(series: &[String]) -> Vec<(String, String, &'static str, Option<&'st
     }
     for bg in SURFACES {
         add("accent", bg, "non-text", None);
+        // A checkbox inside a selected row sits on surface-3 (SC 1.4.11).
+        add("border-control", bg, "non-text", None);
     }
     for &(ink, fill) in ON_FILLS {
         add(ink, fill, "text", None);
     }
-    for bg in ["bg", "surface-1"] {
-        add("border-control", bg, "non-text", None);
+    for bg in CHART_SURFACES {
         for s in series {
             add(s.as_str(), bg, "non-text", None);
         }
     }
     add("surface-3", "bg", "separation", Some("dark"));
+    add("surface-3", "surface-1", "separation", Some("light"));
     out
 }
 
@@ -143,14 +154,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
 }
 
 /// Prints every measurement and fails on any pair below its minimum, a
-/// missing required pair, chart series too close, or a doc table mismatch.
+/// missing required pair, chart series or meaning roles too close, or a doc
+/// table mismatch.
 fn gate(root: &Path, tokens: &Json) -> Result<(), String> {
     let measured = pair_ratios(tokens)?;
     for m in &measured {
         println!("{m}");
     }
     let chart = chart_worst(tokens)?;
-    for c in &chart {
+    let roles = role_worst(tokens)?;
+    for c in chart.iter().chain(&roles) {
         println!("{c}");
     }
     let mut failures: Vec<String> = measured
@@ -163,13 +176,15 @@ fn gate(root: &Path, tokens: &Json) -> Result<(), String> {
             .into_iter()
             .map(|p| format!("required pair not listed: {p}")),
     );
-    let min = chart_min(tokens)?;
-    failures.extend(
-        chart
-            .iter()
-            .filter(|c| c.distance < min)
-            .map(|c| format!("chart series too close (min {min}): {c}")),
-    );
+    for (group_name, found) in [(CHART, &chart), (ROLES, &roles)] {
+        let min = min_distance(tokens, group_name)?;
+        failures.extend(
+            found
+                .iter()
+                .filter(|c| c.distance < min)
+                .map(|c| format!("{group_name} too close (min {min}): {c}")),
+        );
+    }
     let doc_path = root.join(DOC);
     let doc_text =
         fs::read_to_string(&doc_path).map_err(|e| format!("{}: {e}", doc_path.display()))?;
@@ -404,32 +419,62 @@ fn missing_pairs(tokens: &Json) -> Result<Vec<String>, String> {
         .collect())
 }
 
-fn chart_series(tokens: &Json) -> Result<Vec<String>, String> {
-    group(tokens, "chart-distinctness")?
-        .get("series")
-        .and_then(Json::as_array)
-        .ok_or("chart-distinctness.series: expected an array")?
-        .iter()
+/// The two distinctness groups in `tokens.json`.
+const CHART: &str = "chart-distinctness";
+const ROLES: &str = "role-distinctness";
+
+/// A list of at least two role names.
+fn names(v: &Json, what: &str) -> Result<Vec<String>, String> {
+    let list = v
+        .as_array()
+        .ok_or_else(|| format!("{what}: expected an array of role names"))?;
+    if list.len() < 2 {
+        return Err(format!("{what}: at least two roles"));
+    }
+    list.iter()
         .map(|s| {
             s.as_str()
                 .map(str::to_owned)
-                .ok_or_else(|| "chart-distinctness.series: role names".to_owned())
+                .ok_or_else(|| format!("{what}: role names"))
         })
         .collect()
 }
 
-fn chart_min(tokens: &Json) -> Result<f64, String> {
-    group(tokens, "chart-distinctness")?
+/// An array of name lists under `group_name.key`.
+fn name_sets(tokens: &Json, group_name: &str, key: &str) -> Result<Vec<Vec<String>>, String> {
+    let what = format!("{group_name}.{key}");
+    group(tokens, group_name)?
+        .get(key)
+        .and_then(Json::as_array)
+        .ok_or_else(|| format!("{what}: expected an array"))?
+        .iter()
+        .map(|set| names(set, &what))
+        .collect()
+}
+
+fn chart_series(tokens: &Json) -> Result<Vec<String>, String> {
+    let what = format!("{CHART}.series");
+    names(
+        group(tokens, CHART)?
+            .get("series")
+            .ok_or_else(|| format!("{what}: missing"))?,
+        &what,
+    )
+}
+
+fn min_distance(tokens: &Json, group_name: &str) -> Result<f64, String> {
+    group(tokens, group_name)?
         .get("min-distance")
         .and_then(Json::as_str)
         .and_then(|s| s.parse::<f64>().ok())
         .filter(|m| m.is_finite() && *m > 0.0)
-        .ok_or_else(|| "chart-distinctness.min-distance: a positive number as a string".into())
+        .ok_or_else(|| format!("{group_name}.min-distance: a positive number as a string"))
 }
 
-/// The closest two series in one theme under one vision model.
+/// The closest two roles of one set in one theme under one vision model.
 #[derive(Debug)]
-struct ChartWorst {
+struct Closest {
+    group: &'static str,
     theme: &'static str,
     vision: Vision,
     a: String,
@@ -437,12 +482,13 @@ struct ChartWorst {
     distance: f64,
 }
 
-impl std::fmt::Display for ChartWorst {
+impl std::fmt::Display for Closest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:>5} chart {:<12} closest {} / {} OKLab {:.3}",
+            "{:>5} {} {:<12} closest {} / {} OKLab {:.3}",
             self.theme,
+            self.group,
             self.vision.name(),
             self.a,
             self.b,
@@ -451,29 +497,32 @@ impl std::fmt::Display for ChartWorst {
     }
 }
 
-fn chart_worst(tokens: &Json) -> Result<Vec<ChartWorst>, String> {
-    let series = chart_series(tokens)?;
-    if series.len() < 2 {
-        return Err("chart-distinctness.series: at least two series".into());
-    }
+/// The closest pair of `set`, per theme and per vision model in `visions`.
+fn closest(
+    group_name: &'static str,
+    tokens: &Json,
+    set: &[String],
+    visions: &[Vision],
+) -> Result<Vec<Closest>, String> {
     let mut out = Vec::new();
     for theme_name in THEMES {
         let roles = theme(tokens, theme_name)?;
-        let colours = series
+        let colours = set
             .iter()
             .map(|s| colour(&roles, theme_name, s))
             .collect::<Result<Vec<_>, _>>()?;
-        for vision in Vision::ALL {
-            let mut worst: Option<ChartWorst> = None;
-            for i in 0..series.len() {
-                for j in i + 1..series.len() {
+        for &vision in visions {
+            let mut worst: Option<Closest> = None;
+            for i in 0..set.len() {
+                for j in i + 1..set.len() {
                     let d = distance(colours[i], colours[j], vision);
                     if worst.as_ref().is_none_or(|w| d < w.distance) {
-                        worst = Some(ChartWorst {
+                        worst = Some(Closest {
+                            group: group_name,
                             theme: theme_name,
                             vision,
-                            a: series[i].clone(),
-                            b: series[j].clone(),
+                            a: set[i].clone(),
+                            b: set[j].clone(),
                             distance: d,
                         });
                     }
@@ -481,6 +530,23 @@ fn chart_worst(tokens: &Json) -> Result<Vec<ChartWorst>, String> {
             }
             out.extend(worst);
         }
+    }
+    Ok(out)
+}
+
+fn chart_worst(tokens: &Json) -> Result<Vec<Closest>, String> {
+    closest(CHART, tokens, &chart_series(tokens)?, &Vision::ALL)
+}
+
+/// Meaning roles: each set under normal vision, each cvd pair under every
+/// model.
+fn role_worst(tokens: &Json) -> Result<Vec<Closest>, String> {
+    let mut out = Vec::new();
+    for set in name_sets(tokens, ROLES, "sets")? {
+        out.extend(closest(ROLES, tokens, &set, &[Vision::Normal])?);
+    }
+    for pair in name_sets(tokens, ROLES, "cvd-pairs")? {
+        out.extend(closest(ROLES, tokens, &pair, &Vision::ALL)?);
     }
     Ok(out)
 }
