@@ -902,21 +902,25 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
 
-## 2026-11-14 — S-033 committee floor: already in the freeze; residual recorded (Eric 2026-11-14)
+## 2026-11-14 — S-033 committee floor: in the freeze, but open at mainnet bonds (Eric 2026-11-14)
 
 Founder-brief audit question 17. Eric 2026-11-14 ("I approve everything, proceed") took the
 recommended option A, "merge the fix before the freeze".
 
-- **The fix is already merged and frozen.** ADR-070's floor merged as #246 (e28f1f25,
-  2026-10-30) and is in the frozen node commit bb4e0940. The audit read a stale
-  `docs/audit/FINDINGS.md` row (`pending`, `open`). Option A therefore costs no re-freeze
-  and no proving run. The row now reads `fixed`, with the PR and the tests.
-- **Pinned on the node as well as in staking**: a four-validator mesh test runs attack 7
-  and fails without the floor (ADR-070, amendment 2026-11-14).
-- **The residual is a BFT limit, not an open fix**: with more than f seated validators
-  gone for good, no quorum exists to reseat anyone. Recovery is the social re-genesis
-  (KNOWN_ISSUES #18).
+- **The floor is merged and frozen**: ADR-070 merged as #246 (46a97a61, 2026-10-30), an
+  ancestor of the frozen node commit bb4e0940.
+- **It does not protect a mainnet validator.** Mainnet bonds equal `min_self_bond` exactly
+  (`xtask genesis-check`), and the 1% downtime slash runs before the floor's count, so a down
+  validator is ineligible and always jailed. S-033 stays `open` in `docs/audit/FINDINGS.md`.
+  This contradicts the brief's premise that a fix only needed merging (Standing Order 9), so it
+  is reported to Eric, not worked around. The fix is a consensus rule or a genesis decision;
+  the options are in the ADR-070 amendment 2026-11-14, and none is chosen here.
+- **Pinned on the node**: two in-process tests with the shape of attack 7 (not the attacknet
+  harness). At bonds ten times the minimum the floor-kept validator is judged down (bond 1%
+  lower), stays seated, and its restart ends the halt; the test fails without the floor. At
+  bonds equal to the minimum the same test fails today (`#[ignore]`d). Output:
+  `reports/sessions/2026-11-14-s033-floor.md`.
+- **Beyond any fix**: more than f seated validators gone for good leaves no quorum to reseat
+  anyone (the 2f + 1 rule); recovery is the social re-genesis (`docs/audit/KNOWN_ISSUES.md` #18).
 - **Not decided here**: `cargo xtask go-no-go` counts every self-run `high` row that is not
-  `closed` as a NO-GO, and `closed` needs an independent re-review. S-033 now stands with
-  S-011 and S-034, both `fixed` and not `closed`. Whether the 2026-10-25 waiver covers
-  these rows is still Eric's question (audit §4, conflict 7).
+  `closed` as a NO-GO. S-033 is one of them either way.

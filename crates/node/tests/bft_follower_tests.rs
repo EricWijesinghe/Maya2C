@@ -48,7 +48,12 @@ fn validator_key(i: usize) -> Arc<SigningKey> {
     Arc::new(keys::signing_key_from_seed(&[u8::try_from(i).unwrap() + 1; 32]).unwrap())
 }
 
-fn genesis_config() -> GenesisConfig {
+/// The test bond: ten times `MIN_SELF_BOND`, so a 1% downtime slash leaves it
+/// eligible. Mainnet bonds exactly the minimum (`xtask genesis-check`).
+const BOND: u64 = 10_000;
+const MIN_SELF_BOND: u64 = 1_000;
+
+fn genesis_config(bond: u64) -> GenesisConfig {
     let validators = (0..VALIDATORS)
         .map(|i| hex::encode(validator_key(i).verifying_key().to_bytes()))
         .collect();
@@ -81,11 +86,11 @@ fn genesis_config() -> GenesisConfig {
                 bonds: (0..VALIDATORS)
                     .map(|_| GenesisBond {
                         operator: op.clone(),
-                        bond: primitive_types::U256::from(10_000),
+                        bond: primitive_types::U256::from(bond),
                         commission_bps: 0,
                     })
                     .collect(),
-                min_self_bond: primitive_types::U256::from(1_000),
+                min_self_bond: primitive_types::U256::from(MIN_SELF_BOND),
                 max_validators: 100,
                 min_delegation: primitive_types::U256::from(10),
                 stake_weighted: false,
@@ -123,8 +128,12 @@ fn open_chain(config: &GenesisConfig, state_dir: &PathBuf) -> Chain {
 
 impl Mesh {
     fn new() -> Self {
+        Self::with_bond(BOND)
+    }
+
+    fn with_bond(bond: u64) -> Self {
         let root = TempDir::new().unwrap();
-        let config = genesis_config();
+        let config = genesis_config(bond);
         let committee: Arc<[VerifyingKey]> = config
             .bft
             .as_ref()
@@ -482,15 +491,15 @@ fn one_follower_plus_a_crashed_validator_halts_then_recovers_when_the_crashed_on
     assert_eq!(mesh.equivocations, 0);
 }
 
-/// Pre-audit S-033 (attacknet 2026-10-29-2, attack 7) on the node: member 3
-/// is down for all of epoch 0, then member 2 fails. Jailing member 3 at the
-/// boundary would leave three seats, and the second failure would halt them
-/// for good: the healthy member 3 could return only at an epoch boundary the
-/// halted chain never reaches. The committee floor (ADR-070) keeps member 3
-/// seated, slashed and unpaid, so restarting it ends the halt.
-#[test]
-fn a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts() {
-    let mut mesh = Mesh::new();
+/// Pre-audit S-033, in-process with the shape of attacknet attack 7
+/// (`reports/attacknet/2026-10-29-2.md`): member 3 is down for all of epoch 0,
+/// then member 2 fails. Jailing member 3 at the boundary would leave three
+/// seats, and the second failure would halt them for good: the healthy
+/// member 3 could return only at an epoch boundary the halted chain never
+/// reaches. The committee floor (ADR-070) keeps member 3 judged down,
+/// slashed and seated, so restarting it ends the halt.
+fn the_floor_kept_validator_ends_the_halt(bond: u64) {
+    let mut mesh = Mesh::with_bond(bond);
     mesh.hold_out(3);
     mesh.run_until(|m| m.epoch(0).is_some_and(|e| e >= 1));
     assert!(mesh.epoch(0).is_some_and(|e| e >= 1), "no epoch boundary");
@@ -502,12 +511,14 @@ fn a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts() {
         .unwrap()
         .staking;
     let down = validator_id(&validator_key(3).verifying_key().to_bytes());
-    let up = validator_id(&validator_key(0).verifying_key().to_bytes());
-    assert_ne!(
-        record.validators[&down].self_bond, record.validators[&up].self_bond,
+    // Judged down: the 1% downtime slash (`Params::DEVNET`, which mainnet
+    // keeps) burned exactly bond / 100.
+    assert_eq!(
+        record.validators[&down].self_bond,
+        maya_ledger_math::Amount::from_u64(bond - bond / 100),
         "the down validator was not judged down, so the floor was never tested"
     );
-    assert_eq!(record.active.len(), VALIDATORS);
+    assert_eq!(record.active.len(), VALIDATORS, "jailed below the floor");
     assert!(record.active.contains(&down), "jailed below the floor");
 
     mesh.hold_out(2);
@@ -523,6 +534,21 @@ fn a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts() {
         "the floor-kept validator came back and the chain stayed halted"
     );
     assert_eq!(mesh.equivocations, 0);
+}
+
+#[test]
+fn a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts() {
+    the_floor_kept_validator_ends_the_halt(BOND);
+}
+
+/// The same scenario at mainnet bonds: every seat bonds exactly
+/// `min_self_bond`. The slash drops the down validator below the minimum, so
+/// it is ineligible and jailed whatever the floor says, and the boundary seats
+/// three. S-033 residual, open until a re-freeze fix (docs/audit/FINDINGS.md).
+#[test]
+#[ignore = "S-033 residual: at bond == min_self_bond the floor does not hold (FINDINGS.md)"]
+fn at_mainnet_bonds_the_committee_floor_ends_the_halt_when_it_restarts() {
+    the_floor_kept_validator_ends_the_halt(MIN_SELF_BOND);
 }
 
 #[test]
