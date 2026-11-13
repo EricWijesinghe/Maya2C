@@ -40,8 +40,19 @@
 //! addresses nobody chose, and up to 256 for addresses an attacker lines up
 //! along one path, each such branch costing the attacker an account.
 //!
-//! A block that touches enough keys is cheaper as a from-scratch build over
-//! every account (`worth_walking`). Both give the same root.
+//! A valid cache is always walked, whatever the block touches. The walk visits
+//! at most the union of the touched paths, so never more than the N − 1
+//! branches a build would hash, and it writes only the branches that changed.
+//! A first revision switched to a build over every account above a threshold
+//! (touched × (bits(N) + 1) × 2 > N); that build rewrote all N − 1 branches
+//! and a range tombstone in the block's batch (about 105 MB at 1M accounts),
+//! and was the slower path in its own measurement at 1M accounts (PR #540
+//! review, MEDIUM). A build now runs only when there is no valid cache: the
+//! first commit after activation, after a withdrawal, or as a repair.
+//!
+//! The bound is for valid blocks. A block whose declared root the cache does
+//! not give costs a full rebuild before it is refused
+//! (`StateDB::check_declared_root`), as every block did before ADR-062a.
 //!
 //! ## When it is trusted
 //!
@@ -58,6 +69,9 @@
 //! - a commit whose post-state is not sparse deletes it;
 //! - `verify_root_cache`, run when a chain opens, compares it with a full
 //!   rebuild and rebuilds on any difference;
+//! - a block preview (what a producer, and every DAG-BFT validator, puts in a
+//!   header) runs the same comparison once at every height that is a multiple
+//!   of [`CONFIRM_EVERY`], and stages a rebuild on a difference;
 //! - a block whose declared root matches the full rebuild but not the cache
 //!   is accepted on the full rebuild, and the cache is withdrawn
 //!   (`StateDB::check_declared_root`).
@@ -94,16 +108,13 @@ const NODE_KEY_LEN: usize = PREFIX_LEN + KEY_BYTES + 1;
 /// The marker's value: the root, then the account count, little-endian.
 const MARKER_LEN: usize = HASH_LEN + 8;
 
-/// One seek's cost in accounts of a full rebuild. `root_cost_by_state_size`
-/// (test profile) measured 1.3-1.4 µs a seek against 1.06-1.09 µs an account
-/// at 100k and 1M accounts. Rounded up to 2: the rebuild's cost does not
-/// depend on which addresses a block touches, the walk's does.
-const SEEK_COST_IN_ACCOUNTS: u64 = 2;
-
-/// Below this many accounts a block always walks: either path then costs a
-/// few milliseconds, and walking keeps the incremental path exercised on small
-/// chains and in every test that runs one.
-const ALWAYS_WALK_BELOW: u64 = 1 << 12;
+/// Heights between two checks of the cache against a full rebuild on the
+/// preview path. A wrong cache there puts a wrong root in this node's own
+/// headers, which no later check of its own refutes, so the check bounds how
+/// long that lasts. It detects, it does not prevent: blocks committed before
+/// it keep their roots. Each check is a `holds` (O(N) reads, hashes and
+/// memory, a little more than one rebuild), paid once per 256 heights.
+pub(crate) const CONFIRM_EVERY: u64 = 256;
 
 type Digest = [u8; HASH_LEN];
 type NodeKey = [u8; NODE_KEY_LEN];
@@ -166,13 +177,6 @@ fn snapshot_leaves(snapshot: &SnapshotWithThreadMode<'_, DB>) -> Result<Vec<(Key
     Ok(leaves)
 }
 
-/// Whether walking `touched` keys beats rebuilding over `accounts`.
-fn worth_walking(touched: usize, accounts: u64) -> bool {
-    let depth = u64::from(u64::BITS - accounts.leading_zeros()) + 1;
-    accounts < ALWAYS_WALK_BELOW
-        || to_u64(touched).saturating_mul(depth * SEEK_COST_IN_ACCOUNTS) <= accounts
-}
-
 /// What the cache did, counted per database, so an operator sees it going
 /// wrong: `repaired` rises only when a cache was found disagreeing with the
 /// accounts it described.
@@ -180,8 +184,8 @@ fn worth_walking(touched: usize, accounts: u64) -> bool {
 pub struct RootCacheStats {
     /// Roots computed from the cache, rehashing touched paths only.
     pub walked: u64,
-    /// Roots computed by a build over every account: no cache yet, a block
-    /// too large to walk, or a repair.
+    /// Roots computed by a build over every account: no cache yet, or a
+    /// repair.
     pub built: u64,
     /// Caches found wrong and rebuilt or withdrawn.
     pub repaired: u64,
@@ -193,6 +197,8 @@ pub(crate) struct Counters {
     walked: AtomicU64,
     built: AtomicU64,
     repaired: AtomicU64,
+    /// The last height `confirm_due` answered yes for.
+    confirmed: AtomicU64,
 }
 
 impl Counters {
@@ -208,6 +214,14 @@ impl Counters {
     pub(crate) fn note_repair(&self, what: &str) {
         let count = self.repaired.fetch_add(1, Ordering::Relaxed) + 1;
         eprintln!("state: sparse root cache {what}; rebuilding it (repair #{count}, ADR-062a)");
+    }
+
+    /// Whether a preview at `height` checks the cache: once per height that
+    /// is a multiple of [`CONFIRM_EVERY`], however many times a builder
+    /// previews it.
+    pub(crate) fn confirm_due(&self, height: u64) -> bool {
+        height.is_multiple_of(CONFIRM_EVERY)
+            && self.confirmed.swap(height, Ordering::Relaxed) != height
     }
 }
 
@@ -241,11 +255,24 @@ impl Plan {
     pub(crate) fn fits(&self, generation: u64, changes: &[Change]) -> bool {
         self.generation == generation && self.changes == changes
     }
+
+    /// The same plan from a build over every account: a repair, staged as a
+    /// replacement of the whole cache.
+    pub(crate) fn rebuilt(self, db: &DB, counters: &Counters) -> Result<Self> {
+        counters.built.fetch_add(1, Ordering::Relaxed);
+        build_plan(&db.snapshot(), self.generation, self.changes)
+    }
+
+    /// Cache writes this plan stages, for the tests that bound them.
+    #[cfg(test)]
+    pub(crate) fn writes(&self) -> usize {
+        self.delta.len()
+    }
 }
 
 /// Plans the root after `changes` (sorted, distinct) from the cache when it is
-/// valid and the block small enough, else from every account. `generation` is
-/// the write generation read before this call.
+/// valid, else from every account. `generation` is the write generation read
+/// before this call.
 pub(crate) fn plan(
     db: &DB,
     generation: u64,
@@ -253,9 +280,7 @@ pub(crate) fn plan(
     counters: &Counters,
 ) -> Result<Plan> {
     let snapshot = db.snapshot();
-    if let Some((root, accounts)) = read_marker(&snapshot)?
-        && worth_walking(changes.len(), accounts)
-    {
+    if let Some((root, accounts)) = read_marker(&snapshot)? {
         match walk(&snapshot, &changes, root, accounts) {
             Ok((root, accounts, delta)) => {
                 counters.walked.fetch_add(1, Ordering::Relaxed);
@@ -293,8 +318,10 @@ fn walk(
     }
     let mut walk = Walk::new(snapshot);
     let root = walk.update(0, [0; KEY_BYTES], changes)?.at(0);
-    let accounts = (accounts + walk.added)
-        .checked_sub(walk.removed)
+    // The count comes from disk: a corrupted one is a stale cache, not a panic.
+    let accounts = accounts
+        .checked_add(walk.added)
+        .and_then(|sum| sum.checked_sub(walk.removed))
         .ok_or(WalkError::Stale)?;
     Ok((root, accounts, walk.delta))
 }
@@ -416,7 +443,6 @@ thread_local! {
 }
 
 /// Whether debug builds compare every planned root with the full rebuild.
-#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub(crate) fn cross_checked() -> bool {
     #[cfg(test)]
     {
@@ -428,8 +454,15 @@ pub(crate) fn cross_checked() -> bool {
     }
 }
 
+/// Called when the debug cross-check finds the cache wrong: unit tests stop,
+/// so a cache bug fails them; every other build goes on to repair.
+pub(crate) fn cross_check_failed() {
+    #[cfg(test)]
+    panic!("the sparse root cache disagrees with a full rebuild (ADR-062a)");
+}
+
 /// The root after `changes` from the cache, and the seeks it took; `None`
-/// without a valid cache. For the scaling tests: no crossover, no writes.
+/// without a valid cache. For the scaling tests: no writes.
 #[cfg(test)]
 pub(crate) fn root_after(db: &DB, changes: &[Change]) -> Result<Option<(Digest, u64)>> {
     let snapshot = db.snapshot();

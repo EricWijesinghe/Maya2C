@@ -22,7 +22,7 @@ use super::{
 };
 use crate::state::account::{Account, Address};
 use crate::state::commitments::{LOCAL_ONLY_PREFIXES, is_committed};
-use crate::state::db::{Overlay, StateDB};
+use crate::state::db::{Overlay, RootSource, StateDB};
 use crate::state::stateless::SPARSE_ACCOUNTS_KEY;
 
 fn sparse_db(dir: &TempDir) -> StateDB {
@@ -290,7 +290,7 @@ fn a_wrong_cache_costs_a_rebuild_not_the_block() {
     rng.fill_bytes(&mut fresh);
     overlay.accounts.insert(fresh, account(&mut rng));
     let from_cache = db.root_with_overlay(&mut overlay).expect("preview");
-    let (full, _) = db.root_from(&overlay, false).expect("full");
+    let (full, _) = db.root_from(&overlay, RootSource::Full).expect("full");
     assert_ne!(from_cache, full, "the damage reaches the root");
 
     // A block declaring some third root is still refused.
@@ -521,6 +521,161 @@ fn neighbour_addresses_cost_one_branch_each_not_a_spine() {
     assert!(reads < 64, "a touched pair took {reads} seeks");
 }
 
+#[test]
+fn a_busy_block_walks_and_writes_its_paths_not_the_whole_cache() {
+    // Above the first revision's 4,096-account floor and past its crossover
+    // (touched x (bits(N) + 1) x 2 > N), where it built over every account
+    // and rewrote all N - 1 branches in the block's batch (PR #540 review).
+    const COUNT: u32 = 5_000;
+    const TOUCHED: u32 = 250;
+    let bits = u64::from(u32::BITS - COUNT.leading_zeros());
+    assert!(u64::from(TOUCHED) * (bits + 1) * 2 > u64::from(COUNT));
+
+    let dir = TempDir::new().expect("tempdir");
+    let db = seeded(&dir, COUNT);
+    let mut overlay = Overlay::new();
+    for (address, value) in touch(COUNT, TOUCHED) {
+        overlay
+            .accounts
+            .insert(address, Account::decode(&value.unwrap()).unwrap());
+    }
+    let predicted = db.root_with_overlay(&mut overlay).expect("preview");
+    let plan = overlay.root_plan.clone().expect("a plan");
+    assert!(plan.walked(), "a valid cache is walked, whatever the block");
+    let writes = u64::try_from(plan.writes()).unwrap();
+    // A branch per level on each touched path, at most.
+    assert!(
+        writes <= u64::from(TOUCHED) * (bits + 2),
+        "{writes} cache writes for {TOUCHED} touched keys"
+    );
+    assert!(writes < u64::from(COUNT) - 1, "{writes}: the whole cache");
+
+    db.commit_journaled(&overlay, &[0xB5; 32], |_| ())
+        .expect("commit");
+    assert_eq!(db.state_root().expect("root"), predicted);
+    assert_exact(&db);
+}
+
+#[test]
+fn a_plan_read_while_a_write_is_landing_is_not_staged() {
+    let dir = TempDir::new().expect("tempdir");
+    let db = sparse_db(&dir);
+    let mut rng = ChaCha20Rng::seed_from_u64(21);
+    let mut known = Vec::new();
+    for step in 0..4_u8 {
+        commit(&db, random_overlay(&mut rng, &mut known), &[step; 32]);
+    }
+    assert_exact(&db);
+
+    // A writer has taken the guard (the generation moved) but not written.
+    // The plan reads that generation and a snapshot from before the write.
+    let mut overlay = random_overlay(&mut rng, &mut known);
+    let writing = db.begin_write_for_test();
+    db.root_with_overlay(&mut overlay).expect("preview");
+    // The write lands: an account outside any commit path, withdrawing the
+    // cache as `put_account` does.
+    let mut batch = WriteBatch::default();
+    let mut key = b"acct:".to_vec();
+    key.extend_from_slice(&[0x5C; 32]);
+    batch.put(&key, account(&mut rng).encode());
+    batch.delete(MARKER);
+    db.raw_db().write(batch).expect("write");
+    drop(writing);
+
+    // The commit must not stage the plan: its delta misses that account, and
+    // its marker would vouch for a cache that does not describe the state.
+    db.commit_journaled(&overlay, &[0x5D; 32], |_| ())
+        .expect("commit");
+    assert_exact(&db);
+}
+
+#[test]
+fn a_damaged_cache_is_caught_at_a_confirm_height_before_a_header_carries_it() {
+    let dir = TempDir::new().expect("tempdir");
+    let db = sparse_db(&dir);
+    let mut rng = ChaCha20Rng::seed_from_u64(31);
+    let mut known = Vec::new();
+    for step in 0..8_u8 {
+        commit(&db, random_overlay(&mut rng, &mut known), &[step; 32]);
+    }
+    UNCHECKED.with(|unchecked| unchecked.set(true));
+    for (key, _) in stored_nodes(&db) {
+        db.raw_put_for_test(&key, &[0xCD; 64]).expect("damage");
+    }
+
+    let mut overlay = Overlay::new();
+    let mut fresh = [0; 32];
+    rng.fill_bytes(&mut fresh);
+    overlay.accounts.insert(fresh, account(&mut rng));
+    // Unchecked, the damage reaches the root a producer would publish.
+    let (full, _) = db.root_from(&overlay, RootSource::Full).expect("full");
+    let (wrong, _) = db.root_from(&overlay, RootSource::Cache).expect("cache");
+    assert_ne!(wrong, full);
+
+    // Checked, the plan is a rebuild and the root the full one.
+    let (root, plan) = db
+        .root_from(&overlay, RootSource::Confirmed)
+        .expect("confirmed");
+    assert_eq!(root, full);
+    assert!(!plan.as_ref().unwrap().walked());
+    assert_eq!(db.root_cache_stats().repaired, 1);
+    overlay.root_plan = plan;
+    db.commit_journaled(&overlay, &[0x31; 32], |_| ())
+        .expect("commit");
+    assert_eq!(db.state_root().expect("root"), full);
+    assert_exact(&db);
+    UNCHECKED.with(|unchecked| unchecked.set(false));
+}
+
+#[test]
+fn a_preview_checks_the_cache_once_at_each_confirm_height() {
+    use super::{CONFIRM_EVERY, Counters};
+    use crate::core::{Block, BlockHeader};
+    use crate::state::context::BlockContext;
+
+    let counters = Counters::default();
+    assert!(counters.confirm_due(CONFIRM_EVERY));
+    assert!(
+        !counters.confirm_due(CONFIRM_EVERY),
+        "a builder's re-preview"
+    );
+    assert!(!counters.confirm_due(CONFIRM_EVERY + 1));
+    assert!(counters.confirm_due(2 * CONFIRM_EVERY));
+
+    // Through `preview_root`: a damaged cache is repaired at a confirm height
+    // and not between them.
+    let dir = TempDir::new().expect("tempdir");
+    let db = sparse_db(&dir);
+    let mut rng = ChaCha20Rng::seed_from_u64(41);
+    let mut known = Vec::new();
+    for step in 0..4_u8 {
+        commit(&db, random_overlay(&mut rng, &mut known), &[step; 32]);
+    }
+    UNCHECKED.with(|unchecked| unchecked.set(true));
+    for (key, _) in stored_nodes(&db) {
+        db.raw_put_for_test(&key, &[0xCD; 64]).expect("damage");
+    }
+    let empty = Block::new(
+        BlockHeader {
+            version: 0,
+            prev_hash: [1; 32],
+            state_root: [0; 32],
+            timestamp: 1_790_000_000,
+            nonce: 0,
+            difficulty_target: [0xFF; 32],
+            tx_root: [0; 32],
+        },
+        Vec::new(),
+    );
+    db.preview_root(&empty, BlockContext::at_height(CONFIRM_EVERY + 1))
+        .expect("preview");
+    assert_eq!(db.root_cache_stats().repaired, 0, "not a confirm height");
+    db.preview_root(&empty, BlockContext::at_height(CONFIRM_EVERY))
+        .expect("preview");
+    assert_eq!(db.root_cache_stats().repaired, 1);
+    UNCHECKED.with(|unchecked| unchecked.set(false));
+}
+
 fn median(mut samples: Vec<Duration>) -> Duration {
     samples.sort();
     samples[samples.len() / 2]
@@ -618,11 +773,23 @@ fn root_cost_by_state_size() {
             let rebuilt = time(1, || {
                 super::build_plan(&snapshot, 0, block_changes.clone()).unwrap();
             });
+            // What the block's batch carries for the cache, as `plan` stages it.
+            let plan = super::plan(
+                db.raw_db(),
+                0,
+                block_changes.clone(),
+                &super::Counters::default(),
+            )
+            .unwrap();
+            assert!(plan.walked(), "a valid cache always walks");
+            let mut batch = WriteBatch::default();
+            super::stage(&mut batch, &plan);
             println!(
                 "accounts={count:>8} max block ({} neighbour outputs): walk={walked:?} \
-                 rebuild={rebuilt:?} (the plan takes the rebuild: {})",
+                 rebuild={rebuilt:?} cache-writes={} batch-bytes={}",
                 block_changes.len(),
-                !super::worth_walking(block_changes.len(), accounts)
+                plan.writes(),
+                batch.size_in_bytes(),
             );
         }
     }

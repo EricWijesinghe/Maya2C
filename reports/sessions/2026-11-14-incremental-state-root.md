@@ -3,6 +3,13 @@
 Brief: "incremental root now" (Eric 2026-11-14 MCQ), re-freeze bundle 2. Branch
 `feat/incremental-state-root` from `origin/master` 3735252d.
 
+> **Superseded in part.** "What was built", "Red, then green", "Measured" and
+> "Other runs" describe the first run. The revision below replaced its layout
+> (branches only, not every node with two or more accounts), carried the plan to
+> the commit instead of computing the delta twice, and made the "visited nodes"
+> figures obsolete. The second revision at the end removed the crossover. Read
+> the revisions for the current design.
+
 ## What was built
 
 `crates/node/src/state/root_cache.rs`: a persistent cache of the sparse accounts
@@ -226,5 +233,79 @@ now calls `plan` directly.
 - **Release-profile timings:** not run.
 - **A producer with a wrong cache** in a release build accepts its own block
   and forks off; `check_tip_state` then refuses to open the database on
-  restart. There is no periodic deep check.
+  restart. There is no periodic deep check. *(Second revision: a periodic
+  check now runs every 256 heights on the preview path; see below.)*
 - `cargo xtask coverage --verify-targets` and workspace clippy: left to CI.
+
+## Second revision after the PR #540 re-review (same day)
+
+Changed: no crossover (a valid cache is always walked); the write generation
+moves on entry to and exit from every write (`preview::WriteGuard`); a
+`holds()` check on the preview path once per height that is a multiple of
+`CONFIRM_EVERY` (256); debug builds outside unit tests repair instead of
+panicking; checked add on the on-disk account count; invariant 24 amended;
+the cost asymmetry for invalid blocks written into ADR-062a. Not changed: the
+root value, the genesis format, Eric's (a)/(b) decision (still open).
+
+### Red (two mutations, then reverted)
+
+The `Drop` bump in `WriteGuard` commented out, and the first revision's
+crossover put back in `plan`:
+
+```
+test state::root_cache::tests::a_plan_read_while_a_write_is_landing_is_not_staged ... FAILED
+test state::root_cache::tests::a_busy_block_walks_and_writes_its_paths_not_the_whole_cache ... FAILED
+---- state::root_cache::tests::a_plan_read_while_a_write_is_landing_is_not_staged stdout ----
+panicked at crates\node\src\state\root_cache_tests.rs:70:5:
+assertion `left == right` failed   (marker claims 10 accounts, state holds 11)
+---- state::root_cache::tests::a_busy_block_walks_and_writes_its_paths_not_the_whole_cache stdout ----
+panicked at crates\node\src\state\root_cache_tests.rs:544:5:
+a valid cache is walked, whatever the block
+test result: FAILED. 12 passed; 2 failed; 1 ignored; 0 measured; 543 filtered out; finished in 6.76s
+```
+
+### Green
+
+```
+cargo test -p custom-l1-node --lib -- root_cache state::preview
+test result: ok. 17 passed; 0 failed; 1 ignored; 0 measured; 540 filtered out; finished in 6.20s
+
+cargo test -p custom-l1-node --test root_cache_chain_tests --test stateless_equivalence \
+  --test restart_tests --test pruned_node_tests --test consensus_tests --test consensus_conformance
+consensus_conformance  test result: ok. 1 passed; 0 failed
+consensus_tests        test result: ok. 31 passed; 0 failed
+pruned_node_tests      test result: ok. 19 passed; 0 failed
+restart_tests          test result: ok. 4 passed; 0 failed
+root_cache_chain_tests test result: ok. 2 passed; 0 failed
+stateless_equivalence  test result: ok. 11 passed; 0 failed
+
+cargo xtask spec-coverage --strict
+62 rules, 164 vectors; 59 consensus rules covered, 0 gaps:
+```
+
+`cargo clippy -p custom-l1-node --lib --tests`: no warning in
+`state/root_cache*` or `state/preview.rs`; the two in `state/db.rs` (lines 177
+and 929, `storage_err` and `write_overlay`) are on master's code.
+
+### Measured (test profile, this PC, one run each, at the branch head)
+
+`cargo test -p custom-l1-node --lib root_cost_by_state_size -- --ignored --nocapture`
+
+```
+accounts=    1000 touched=100: walk median=590.5µs (523 seeks) plan+stage+write=1.5909ms full-rebuild median=962.6µs verify-at-open=2.1444ms seed+cache-build=42.5503ms
+accounts=   10000 touched=100: walk median=1.0309ms (875 seeks) plan+stage+write=2.9275ms full-rebuild median=9.2222ms verify-at-open=21.7044ms seed+cache-build=45.1331ms
+accounts=  100000 touched=100: walk median=1.6089ms (1144 seeks) plan+stage+write=4.9257ms full-rebuild median=112.0122ms verify-at-open=259.5042ms seed+cache-build=436.4529ms
+accounts=  100000 max block (81920 neighbour outputs): walk=1.5570192s rebuild=1.4174393s cache-writes=140124 batch-bytes=14572955
+accounts= 1000000 touched=100: walk median=3.1318ms (1520 seeks) plan+stage+write=6.8865ms full-rebuild median=1.234321s verify-at-open=4.5281202s seed+cache-build=4.8006468s
+accounts= 1000000 max block (81920 neighbour outputs): walk=1.9371057s rebuild=2.4825714s cache-writes=251275 batch-bytes=26132659
+```
+
+- A maximal block now always walks: 140,124 cache writes (14.6 MB of batch)
+  at 100k accounts and 251,275 (26.1 MB) at 1M. The crossover's build would
+  have staged all N − 1 branches plus a range tombstone (the review's
+  estimate: about 105 MB at 1M; not re-measured, the path is gone).
+- At 100k the walk of that block was 1.10× the rebuild (1.56 s against
+  1.42 s); at 1M it was 0.78× (1.94 s against 2.48 s).
+- The 1M `verify-at-open` was 4.53 s this run (3.9 s in the first revision's
+  run): one sample each on a shared machine.
+- Release profile: NOT MEASURED.

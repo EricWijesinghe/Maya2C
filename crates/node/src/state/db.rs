@@ -178,6 +178,21 @@ fn storage_err(e: rocksdb::Error) -> NodeError {
     NodeError::Storage(e.to_string())
 }
 
+/// Where `StateDB::root_from` takes a sparse accounts root from (ADR-062a).
+/// Every source gives the same value; they differ in cost and in what checks
+/// the cache.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RootSource {
+    /// A build over every account: the reference.
+    Full,
+    /// The root cache when it is valid.
+    Cache,
+    /// The root cache, after checking it node by node against a full
+    /// rebuild: a preview at a height `root_cache::Counters::confirm_due`
+    /// picks.
+    Confirmed,
+}
+
 /// `overlay`'s account writes as root-cache changes, in address order.
 fn account_changes(overlay: &Overlay) -> Vec<root_cache::Change> {
     overlay
@@ -515,7 +530,8 @@ impl StateDB {
     /// Always the full rebuild, never the root cache (ADR-062a): this is the
     /// reference the cache is checked against, at chain open and in tests.
     pub fn state_root(&self) -> Result<[u8; HASH_LEN]> {
-        self.root_from(&Overlay::new(), false).map(|(root, _)| root)
+        self.root_from(&Overlay::new(), RootSource::Full)
+            .map(|(root, _)| root)
     }
 
     /// Computes the state root that *would* result from applying `overlay`,
@@ -527,7 +543,11 @@ impl StateDB {
     /// writes it implies are kept in `overlay.root_plan` for the commit
     /// (ADR-062a).
     pub(crate) fn root_with_overlay(&self, overlay: &mut Overlay) -> Result<[u8; HASH_LEN]> {
-        let (root, plan) = self.root_from(overlay, true)?;
+        self.root_into(overlay, RootSource::Cache)
+    }
+
+    fn root_into(&self, overlay: &mut Overlay, source: RootSource) -> Result<[u8; HASH_LEN]> {
+        let (root, plan) = self.root_from(overlay, source)?;
         overlay.root_plan = plan;
         Ok(root)
     }
@@ -538,44 +558,31 @@ impl StateDB {
         &self.db
     }
 
-    /// The root after `overlay`, and, when `cached` and the accounts are
-    /// sparse, the root-cache plan its accounts root came from.
+    /// A committed write's guard, for the tests that land a write under it.
+    #[cfg(test)]
+    pub(crate) fn begin_write_for_test(&self) -> crate::state::preview::WriteGuard<'_> {
+        self.preview.begin_write()
+    }
+
+    /// The root after `overlay`, and, unless `source` is [`RootSource::Full`]
+    /// and when the accounts are sparse, the root-cache plan its accounts root
+    /// came from.
     pub(crate) fn root_from(
         &self,
         overlay: &Overlay,
-        cached: bool,
+        source: RootSource,
     ) -> Result<([u8; HASH_LEN], Option<root_cache::Plan>)> {
         // Which tree is a fact about the state itself — the `sl:` marker — not
         // about a height, so `state_root()` answers without knowing one.
         let mut plan = None;
         let accounts_root = if self.sparse_accounts(overlay)? {
-            if cached {
-                // The generation is read before the plan's snapshot, so any
-                // write after it makes the plan unfit for the commit.
-                let made = root_cache::plan(
-                    &self.db,
-                    self.preview.generation(),
-                    account_changes(overlay),
-                    &self.root_cache,
-                )?;
-                // Every debug build, so every test that runs the sparse tree,
-                // checks the cache against the full rebuild (O(N) a block).
-                #[cfg(debug_assertions)]
-                if root_cache::cross_checked() {
-                    let full = crate::state::stateless::sparse_accounts_root(
-                        &self.merged_accounts(overlay)?,
-                    )?;
-                    assert_eq!(
-                        made.root(),
-                        full,
-                        "the sparse root cache disagrees with a full rebuild (ADR-062a)"
-                    );
-                }
+            if source == RootSource::Full {
+                crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?
+            } else {
+                let made = self.checked_plan(overlay, source == RootSource::Confirmed)?;
                 let root = made.root();
                 plan = Some(made);
                 root
-            } else {
-                crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?
             }
         } else {
             let leaves: Vec<[u8; HASH_LEN]> = self
@@ -605,6 +612,44 @@ impl StateDB {
         }
 
         Ok((root, plan))
+    }
+
+    /// The root-cache plan for `overlay`, checked against a full rebuild when
+    /// `confirm` (the cache, node by node) or in a debug build (the root), and
+    /// rebuilt from every account on a difference (ADR-062a). Unit tests panic
+    /// on a root difference instead, so a cache bug fails them; a debug node
+    /// repairs, as a release node does at its periodic check.
+    fn checked_plan(&self, overlay: &Overlay, confirm: bool) -> Result<root_cache::Plan> {
+        // The generation is read before the plan's snapshot, and it moves on
+        // entry to and exit from every write, so any write that lands after
+        // the snapshot makes the plan unfit for the commit.
+        let made = root_cache::plan(
+            &self.db,
+            self.preview.generation(),
+            account_changes(overlay),
+            &self.root_cache,
+        )?;
+        if !made.walked() {
+            return Ok(made);
+        }
+        if confirm && !root_cache::holds(&self.db)? {
+            self.root_cache
+                .note_repair("failed its periodic check against a full rebuild");
+            return made.rebuilt(&self.db, &self.root_cache);
+        }
+        // Every debug build, so every test that runs the sparse tree, checks
+        // the cache against the full rebuild (O(N) a block).
+        if cfg!(debug_assertions) && root_cache::cross_checked() {
+            let full =
+                crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?;
+            if made.root() != full {
+                root_cache::cross_check_failed();
+                self.root_cache
+                    .note_repair("disagrees with a full rebuild (debug cross-check)");
+                return made.rebuilt(&self.db, &self.root_cache);
+            }
+        }
+        Ok(made)
     }
 
     /// Committed accounts with `overlay`'s written over them, in address order.
@@ -704,6 +749,16 @@ impl StateDB {
     /// withdrawn and the block accepted on the rebuild's root. A wrong cache
     /// then costs one rebuild, not a validator that refuses every honest block
     /// (PR #540 review).
+    ///
+    /// The cost is asymmetric: accepting a valid block costs its touched
+    /// paths, refusing one whose root the cache does not give costs a full
+    /// rebuild first (what every block cost before ADR-062a). What bounds how
+    /// often a peer can make a node pay that is the header check that runs
+    /// before execution: `Chain::insert_block_inner` checks proof of work
+    /// before `apply_body` on a chain with `verify_pow`. A DAG-BFT chain
+    /// (`ChainConfig::dag_bft`, `verify_pow = false`) builds every block it
+    /// applies itself (`consensus::bft::builder::build_block`), so the
+    /// declared root is its own preview's.
     pub(crate) fn check_declared_root(
         &self,
         overlay: &mut Overlay,
@@ -718,7 +773,7 @@ impl StateDB {
             .as_ref()
             .is_some_and(root_cache::Plan::walked)
         {
-            let (full, _) = self.root_from(overlay, false)?;
+            let (full, _) = self.root_from(overlay, RootSource::Full)?;
             if full == *declared {
                 self.root_cache
                     .note_repair("gave a root that the full rebuild and the block refute");
@@ -1464,7 +1519,15 @@ impl StateDB {
         let staging = self.preview.begin_preview();
         let generation = self.preview.generation();
         let mut overlay = self.stage_block(block, context)?;
-        let root = self.root_with_overlay(&mut overlay)?;
+        // The root this node puts in its own header: nothing it does later
+        // refutes it, so the cache is checked here every `CONFIRM_EVERY`
+        // heights (ADR-062a).
+        let source = if self.root_cache.confirm_due(context.height) {
+            RootSource::Confirmed
+        } else {
+            RootSource::Cache
+        };
+        let root = self.root_into(&mut overlay, source)?;
         drop(staging);
         self.preview.keep(block, context, generation, overlay, root);
         Ok(root)

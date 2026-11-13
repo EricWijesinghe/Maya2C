@@ -148,6 +148,11 @@ phase that did it.
     never from `state_root()`, which is the *pre*-block root. Before this, one
     block id could carry two transaction lists (`crates/node/tests/chaos_simulator.rs`
     replays that attack). Do not add an unchecked apply path to `Chain`.
+    Since ADR-062a the comparison is `StateDB::check_declared_root`: a sparse
+    accounts root may come from the local root cache, and a declaration the
+    cache does not give is re-checked against the full rebuild before it is
+    refused. The full rebuild (`state_root()`, `RootSource::Full`) is the
+    reference; the cache only ever computes the same value faster.
 25. **Every persisted consensus record is under the state root; everything
     else is on an explicit local-only list.** `state::commitments` holds the
     lists:

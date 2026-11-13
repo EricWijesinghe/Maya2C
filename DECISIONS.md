@@ -906,7 +906,8 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 
 Eric 2026-11-14 MCQ: "incremental root now". Built as an amendment to ADR-062
 (`crates/node/src/state/root_cache.rs`): a persistent, local-only (`smt:`) cache of every
-sparse-tree node holding two or more accounts, updated in the same `WriteBatch` as each commit
+sparse-tree node holding two or more accounts (layout superseded by the revision below: branches
+only), updated in the same `WriteBatch` as each commit
 and revert, withdrawn by any out-of-band account write, checked node by node against a full
 rebuild at `Chain::open`. Root value unchanged; `state_root()` stays the full rebuild.
 
@@ -931,7 +932,8 @@ Two findings that contradict the brief, reported rather than worked around (Stan
   memory. Pinned by `neighbour_addresses_cost_one_branch_each_not_a_spine`.
 - **One walk a block, and a crossover.** The plan made with the root is carried to the commit in
   the overlay and staged if the write generation is unchanged. A block touching enough keys
-  (touched × (bits(N) + 1) × 2 > N, N ≥ 4,096) builds from every account instead.
+  (touched × (bits(N) + 1) × 2 > N, N ≥ 4,096) builds from every account instead. (Crossover
+  removed by the second revision below.)
 - **A wrong cache no longer stalls a validator.** A declared root that the full rebuild matches
   and the cache does not is accepted on the full rebuild, and the cache is withdrawn; repairs are
   counted (`root_cache_stats`). Debug builds cross-check every planned root.
@@ -939,3 +941,19 @@ Two findings that contradict the brief, reported rather than worked around (Stan
   Eric's: (a) activate `FeatureSet::STATELESS` at genesis (genesis root format, `spec/03-state.md`
   rule and vectors for the sparse root, light-client SPV moved off the dense `account_proof`), or
   (b) keep ADR-062a dark and accept that mainnet's per-block accounts cost is unchanged by it.
+
+### Second revision after the PR #540 re-review (Eric 2026-11-14 MCQ, same item)
+
+- **No crossover: a valid cache is always walked.** The crossover's build rewrote all N − 1
+  branches plus a range tombstone in the block's batch (about 105 MB at 1M accounts) and was the
+  slower path at 1M in its own measurement. The walk is bounded by the union of the touched paths
+  and writes only changed branches. A build runs only without a valid cache.
+- **Generation moves on entry and exit of every write** (`preview::WriteGuard`), so a plan read
+  without the lock mid-write never fits a commit. The chain mutex no longer carries that.
+- **Periodic check on the preview path:** `holds()` every 256 heights (`CONFIRM_EVERY`), once per
+  height; on a difference the header gets the full rebuild's root and the commit replaces the
+  cache. Detection, not prevention, between two checks (ADR-062a, net 3).
+- **Debug nodes repair instead of panicking**; only unit tests panic on a cross-check difference.
+- **Invariant 24** now names `check_declared_root` and the full rebuild as the reference.
+- **Still open, for Eric:** (a) or (b) above. Not decided by this revision. Until (a), the
+  brief's per-block cost goal is not delivered on the genesis chain.
