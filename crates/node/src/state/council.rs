@@ -174,6 +174,12 @@ impl StateDB {
         if dark {
             return Err(NodeError::Decode(format!("unknown module {module_tag}")));
         }
+        // Tag 13 (ADR-135 P-7) is unknown to a pre-v4 binary, which refuses
+        // it at the line above; refusing it here until bit 46 activates keeps
+        // both binaries agreeing on every earlier block.
+        if module == Module::Scheduled && !context.scheduled_active() {
+            return Err(NodeError::Decode(format!("unknown module {module_tag}")));
+        }
         let record = match action.kind {
             // Returned above; refused here rather than trusted to stay that way.
             CouncilKind::SunsetSuites { .. } => return refuse("a sunset is not a pause".into()),

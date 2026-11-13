@@ -18,6 +18,7 @@ pub mod nft_payload;
 pub mod oracle_payload;
 pub mod payload;
 pub mod rwa_payload;
+pub mod schedule_payload;
 pub mod sealed_payload;
 pub mod sponsor_tx;
 pub mod staking_payload;

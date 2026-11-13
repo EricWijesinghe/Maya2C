@@ -54,7 +54,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1 |
 | pos-terminal | Point of sale on an Android phone: QR request, wait for finality, receipt | merchant-checkout, light client | none | M | W2 |
-| recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys | consensus review if a new state prefix is needed | M | W2 |
+| recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys; chain side: ADR-135 P-7 scheduled payments (`sp:`, bit 46), stub, draft PR (V4-I6, post-genesis) | consensus review if a new state prefix is needed | M | W2 |
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
 | flash-payments | Instant off-chain payment channels for small, frequent payments | `crates/l2-flash` | ADR (watchtower model) | L | W2 |
 | exchange-ui | Swap and order-book GUI; must pass the B38 ship gate (`min_out` from a quote, 1% default) | `crates/dex`, `compose_swap` | B38 gate, slippage tests | M | W2 |

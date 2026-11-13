@@ -2685,6 +2685,17 @@ tests = ["crates/node/tests/sponsored_fee_tests.rs", "crates/node/tests/sponsore
 note = "ADR-135 P-4 (PROPOSED), post-genesis. Off: feature bit 44, SPONSORED_FEES_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Wire v13 (0x0D) wraps one v5-v8 frame; the sponsor pays required(outer_len) <= max_fee, no protocol surcharge (Eric O-4). No state prefix: the debit is an account move. Mempool defaults 64 pending per sponsor and an 86,400-block window are node policy. CI-first: not compiled locally when added."
 
 [[subsystem]]
+id = "scheduled-payments"
+name = "Scheduled payments (v4 P-7)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/state/scheduled.rs`, `crates/node/src/core/schedule_payload.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/scheduled_payment_tests.rs", "crates/node/tests/schedule_conformance.rs"]
+note = "ADR-135 P-7 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 46, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 67-68, layer sp: (StateLayer 21), breaker module 16, ScheduleRunFee governance tag 16 (ADR-135 allocation table); RUN_FEE defaults to a small non-zero governed value, one minimal transfer's byte fee (Eric 2026-11-12). End-of-block step capped at MAX_DUE_PER_BLOCK = 256 with carry-over. CI-first: not compiled locally, so stub until CI and a fix wave run the tests."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

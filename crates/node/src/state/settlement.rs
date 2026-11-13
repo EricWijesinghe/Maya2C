@@ -167,6 +167,9 @@ impl StateDB {
             }
             TxKind::Nft(action) => self.apply_nft(overlay, &sender, nonce, action, context),
             TxKind::Name(action) => self.apply_name(overlay, &sender, action, context),
+            TxKind::Schedule(action) => {
+                self.apply_schedule(overlay, &sender, nonce, action, context)
+            }
             TxKind::TransferAsset(transfer) => self.transfer_asset(overlay, &sender, transfer),
             TxKind::CreatePool(creation) => self.create_pool(overlay, &sender, creation),
             TxKind::AddLiquidity(deposit) => self.add_liquidity(overlay, &sender, deposit),

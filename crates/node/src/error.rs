@@ -569,6 +569,25 @@ pub enum NodeError {
         reason: &'static str,
     },
 
+    /// A scheduled-payment form (tags 67-68) before feature bit 46 activates
+    /// (ADR-135 P-7). Refused on admission and on apply by the same check.
+    #[error("scheduled payments are not active at height {height} (from {activation})")]
+    ScheduleInactive {
+        /// Height the transaction was judged at.
+        height: u64,
+        /// First height at which the forms execute; `u64::MAX` means never.
+        activation: u64,
+    },
+
+    /// A scheduled-payment form broke one of its rules (ADR-135 P-7). The
+    /// sender's own refusal; a due run never raises it (a short escrow is a
+    /// counted miss).
+    #[error("schedule refused: {reason}")]
+    ScheduleRefused {
+        /// The rule that failed.
+        reason: &'static str,
+    },
+
     /// A registration landed on an identifier that already exists.
     ///
     /// Requires the same sender, nonce, and symbol, so it is unreachable while

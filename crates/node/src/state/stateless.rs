@@ -23,6 +23,7 @@
 //! | `settle_trading` | pairs this block's DEX transactions touched | no transaction is a DEX kind |
 //! | `settle_oracle` | the authority registry (`o:`) | the oracle layer is absent |
 //! | `settle_governance` | every proposal (`g:`) | the governance layer is absent |
+//! | `settle_schedules` | due rows (`sp:d:`) | the scheduled layer is absent |
 //! | `check_anomalies` | pool records and the shielded pool the block wrote | no transaction is a DEX or shielded kind |
 //!
 //! Conservation holds by construction for transfers — a debit of exactly the
@@ -65,10 +66,13 @@ pub const SPARSE_ACCOUNTS_KEY: &[u8] = b"sl:accounts-sparse";
 
 /// Layers whose records an end-of-block pass may act on without a transaction
 /// naming them. See the module table.
-const PASS_LAYERS: [StateLayer; 3] = [
+const PASS_LAYERS: [StateLayer; 4] = [
     StateLayer::Sealed,
     StateLayer::Oracle,
     StateLayer::Governance,
+    // ADR-135 P-7: a due run moves balances with no transaction naming it,
+    // so a transfer-only block over `sp:` rows is unverifiable, never Invalid.
+    StateLayer::Scheduled,
 ];
 
 /// What a stateless node needs beside a block: the touched accounts, their
@@ -378,4 +382,21 @@ fn check_eligible(
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_layer_an_end_of_block_pass_acts_on_is_listed() {
+        for layer in [
+            StateLayer::Sealed,
+            StateLayer::Oracle,
+            StateLayer::Governance,
+            StateLayer::Scheduled,
+        ] {
+            assert!(PASS_LAYERS.contains(&layer), "{}", layer.label());
+        }
+    }
 }

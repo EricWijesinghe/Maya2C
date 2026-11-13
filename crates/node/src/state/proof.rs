@@ -116,6 +116,10 @@ pub enum StateLayer {
     /// Names with commit-reveal under `nm:` (ADR-135 P-3). Folded after `Nft`;
     /// absent until a name is committed or registered.
     Names,
+    /// Scheduled payments under `sp:` (ADR-135 P-7). A new tag, folded after
+    /// `Vault`, and absent on a chain that never creates a schedule, so it
+    /// moves no existing root.
+    Scheduled,
 }
 
 /// Every layer, in fold order.
@@ -140,6 +144,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     // order (#447's account authority, then NFT, names, scheduled payments).
     StateLayer::Nft,
     StateLayer::Names,
+    StateLayer::Scheduled,
     StateLayer::Stateless,
     StateLayer::UpgradeSchedule,
     StateLayer::Shielded,
@@ -175,6 +180,7 @@ impl StateLayer {
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
             Self::Nft => "maya nft state root v1",
             Self::Names => "maya names state root v1",
+            Self::Scheduled => "maya scheduled payments state root v1",
         }
     }
 
@@ -201,6 +207,7 @@ impl StateLayer {
             Self::UpgradeSchedule => 17,
             Self::Nft => 19,
             Self::Names => 20,
+            Self::Scheduled => 21,
         }
     }
 
@@ -227,6 +234,7 @@ impl StateLayer {
             17 => Some(Self::UpgradeSchedule),
             19 => Some(Self::Nft),
             20 => Some(Self::Names),
+            21 => Some(Self::Scheduled),
             _ => None,
         }
     }
@@ -260,6 +268,7 @@ impl StateLayer {
             Self::Iot => "iot",
             Self::Staking => "staking",
             Self::Vault => "vault",
+            Self::Scheduled => "scheduled",
             Self::UpgradeSchedule => "upgrade-schedule",
             Self::Nft => "nft",
             Self::Names => "names",

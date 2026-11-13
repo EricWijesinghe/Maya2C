@@ -120,6 +120,9 @@ pub enum Module {
     /// Names: commit, register and update (ADR-135 P-3). A renewal belongs to
     /// no module — see [`Module::of`].
     Names,
+    /// Scheduled payments: create, cancel, and the end-of-block step, which a
+    /// tripped breaker skips (ADR-135 P-7).
+    Scheduled,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -140,6 +143,7 @@ pub const MODULES: &[Module] = &[
     Module::Vault,
     Module::Nft,
     Module::Names,
+    Module::Scheduled,
 ];
 
 impl Module {
@@ -162,6 +166,7 @@ impl Module {
             Self::Vault => 12,
             Self::Nft => 14,
             Self::Names => 15,
+            Self::Scheduled => 16,
         }
     }
 
@@ -184,6 +189,7 @@ impl Module {
             12 => Some(Self::Vault),
             14 => Some(Self::Nft),
             15 => Some(Self::Names),
+            16 => Some(Self::Scheduled),
             _ => None,
         }
     }
@@ -207,6 +213,7 @@ impl Module {
             Self::Vault => "vault",
             Self::Nft => "unique assets",
             Self::Names => "names",
+            Self::Scheduled => "scheduled payments",
         }
     }
 
@@ -251,6 +258,11 @@ impl Module {
             // HTLC-claim reasoning). Everything else in names can wait.
             TxKind::Name(crate::core::name_payload::NameAction::Renew { .. }) => None,
             TxKind::Name(_) => Some(Self::Names),
+
+            // ADR-135 P-7: its own breaker, which also skips the end-of-block
+            // step. A cancel is halted too: nothing is lost while it waits,
+            // the escrow stays prepaid, and a cancel bug needs stopping.
+            TxKind::Schedule(_) => Some(Self::Scheduled),
 
             TxKind::Shielded(_) => Some(Self::Shielded),
 

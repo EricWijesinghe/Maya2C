@@ -45,6 +45,7 @@ pub(crate) mod preview;
 pub mod proof;
 pub mod rwa;
 pub mod rwa_exec;
+pub mod scheduled;
 pub mod sealed_exec;
 pub mod settlement;
 pub mod shielded;

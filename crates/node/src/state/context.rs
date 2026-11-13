@@ -2,7 +2,10 @@
 
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::crypto::suites::SuiteSunsets;
-use crate::state::upgrades::{ASSET_MINT_ACTIVATION_HEIGHT, SPONSORED_FEES_ACTIVATION_HEIGHT};
+use crate::state::upgrades::{
+    ASSET_MINT_ACTIVATION_HEIGHT, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT,
+    SPONSORED_FEES_ACTIVATION_HEIGHT,
+};
 use crate::upgrade::FeatureActivations;
 
 /// Chain facts a transaction may depend on while executing.
@@ -92,6 +95,10 @@ pub struct BlockContext {
     /// context. Set from the upgrade schedule by [`Self::with_features`];
     /// tests set it with [`Self::with_sponsored_fees_activation`].
     pub sponsored_fees_activation: u64,
+    /// First height at which scheduled payments (tags 67-68 and the
+    /// end-of-block step) execute (ADR-135 P-7, bit 46).
+    /// [`SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT`] by default.
+    pub scheduled_activation: u64,
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
@@ -225,6 +232,7 @@ impl BlockContext {
             nft_activation: crate::state::upgrades::NFT_ACTIVATION_HEIGHT,
             names_activation: crate::state::upgrades::NAMES_ACTIVATION_HEIGHT,
             sponsored_fees_activation: SPONSORED_FEES_ACTIVATION_HEIGHT,
+            scheduled_activation: SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
@@ -286,6 +294,7 @@ impl BlockContext {
     pub const fn with_sponsored_fees_activation(self, height: u64) -> Self {
         Self {
             sponsored_fees_activation: height,
+            scheduled_activation: features.scheduled,
             ..self
         }
     }
@@ -294,6 +303,21 @@ impl BlockContext {
     #[must_use]
     pub const fn sponsored_fees_active(self) -> bool {
         self.height >= self.sponsored_fees_activation
+    }
+
+    /// The same context with scheduled payments active from `height` on.
+    #[must_use]
+    pub const fn with_scheduled_activation(self, height: u64) -> Self {
+        Self {
+            scheduled_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether scheduled payments execute in this block.
+    #[must_use]
+    pub const fn scheduled_active(self) -> bool {
+        self.height >= self.scheduled_activation
     }
 
     /// The same context with capped-asset mint and burn active from `height` on.

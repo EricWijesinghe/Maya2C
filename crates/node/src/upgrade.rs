@@ -31,7 +31,7 @@ use crate::state::context::{
 };
 use crate::state::upgrades::{
     ASSET_MINT_ACTIVATION_HEIGHT, NAMES_ACTIVATION_HEIGHT, NFT_ACTIVATION_HEIGHT,
-    SPONSORED_FEES_ACTIVATION_HEIGHT,
+    SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT, SPONSORED_FEES_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
@@ -69,8 +69,16 @@ impl FeatureSet {
     pub const NAMES: u64 = 1 << 43;
     /// Wire-v13 sponsored fees (ADR-135 P-4).
     pub const SPONSORED_FEES: u64 = 1 << 44;
+    /// Scheduled payments, tags 67-68 and the end-of-block step (ADR-135 P-7).
+    /// Bits 42-45 are ADR-135's other features, defined on their own branches.
+    pub const SCHEDULED_PAYMENTS: u64 = 1 << 46;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT | Self::NFT | Self::NAMES | Self::SPONSORED_FEES;
+    pub const KNOWN: u64 = ((1 << 8) - 1)
+        | Self::ASSET_MINT
+        | Self::NFT
+        | Self::NAMES
+        | Self::SPONSORED_FEES
+        | Self::SCHEDULED_PAYMENTS;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -116,6 +124,8 @@ pub struct FeatureActivations {
     pub names: u64,
     /// Wire-v13 sponsored fees (bit 44).
     pub sponsored_fees: u64,
+    /// Scheduled payments (bit 46).
+    pub scheduled: u64,
 }
 
 impl Default for FeatureActivations {
@@ -134,6 +144,7 @@ impl Default for FeatureActivations {
             nft: NFT_ACTIVATION_HEIGHT,
             names: NAMES_ACTIVATION_HEIGHT,
             sponsored_fees: SPONSORED_FEES_ACTIVATION_HEIGHT,
+            scheduled: SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -247,6 +258,7 @@ impl UpgradeSchedule {
             nft: at(FeatureSet::NFT, never.nft),
             names: at(FeatureSet::NAMES, never.names),
             sponsored_fees: at(FeatureSet::SPONSORED_FEES, never.sponsored_fees),
+            scheduled: at(FeatureSet::SCHEDULED_PAYMENTS, never.scheduled),
         }
     }
 
@@ -406,6 +418,19 @@ mod tests {
         );
         // Bit 45 is reserved for smart-account policy (ADR-135 I5, not built).
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 45)]).is_err());
+    }
+
+    #[test]
+    fn scheduled_payments_are_dark_until_an_entry_names_bit_46() {
+        assert_eq!(FeatureActivations::default().scheduled, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 66, FeatureSet::SCHEDULED_PAYMENTS)]).unwrap();
+        assert_eq!(s.features().scheduled, 66);
+        assert_eq!(
+            s.features().asset_mint,
+            u64::MAX,
+            "bit 46 switches on nothing else"
+        );
+        assert!(UpgradeSchedule::new(vec![with(2, 66, 1 << 47)]).is_err());
     }
 
     #[test]
