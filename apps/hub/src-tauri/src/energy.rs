@@ -18,6 +18,10 @@ pub const SOURCE: &str = "nvidia-smi power.draw";
 /// a stopped process, a clock jump) is left out, and so are the shares
 /// accepted inside it, so joules and shares always cover the same time.
 pub const MAX_GAP_MS: u64 = 10_000;
+/// Highest board power taken as a reading. Above it the number is garbage
+/// (a corrupt `nvidia-smi` line), and summing two such readings could
+/// overflow to infinity. No single card the Hub supports draws this much.
+pub const MAX_WATTS: f64 = 2_000.0;
 const MS_PER_S: f64 = 1_000.0;
 
 /// One power reading and the worker's accepted-share count at that moment.
@@ -62,12 +66,14 @@ impl Default for Energy {
 
 impl Energy {
     /// Folds one reading in. `watts` is `None` when the driver gave no
-    /// number or the worker was not hashing, which ends the metered stretch
-    /// instead of guessing across it. `accepted` is the worker's running
+    /// number or the worker was not on work (no process, or the miner's last
+    /// event was `idle` or `error`), which ends the metered stretch instead
+    /// of guessing across it. A reading that is not finite, negative or
+    /// above [`MAX_WATTS`] counts as none. `accepted` is the worker's running
     /// count of accepted shares.
     pub fn sample(&mut self, t_ms: u64, watts: Option<f64>, accepted: u64) {
         let reading = watts
-            .filter(|w| w.is_finite() && *w >= 0.0)
+            .filter(|w| (0.0..=MAX_WATTS).contains(w))
             .map(|watts| Reading {
                 t_ms,
                 watts,
@@ -87,6 +93,13 @@ impl Energy {
             }
         }
         self.last = reading;
+    }
+
+    /// Ends the metered stretch: the next reading starts a new one. Called
+    /// whenever the worker's process ends, so a crash, a stop or a thermal
+    /// hold is never integrated, however soon the next reading comes.
+    pub fn break_stretch(&mut self) {
+        self.last = None;
     }
 }
 
@@ -165,6 +178,33 @@ mod tests {
             (9_000, Some(f64::INFINITY), 2),
         ]);
         assert_eq!((e.joules, e.shares), (0.0, 0));
+    }
+
+    #[test]
+    fn a_reading_above_the_ceiling_is_no_reading() {
+        let e = run(&[
+            (0, Some(200.0), 0),
+            (3_000, Some(f64::MAX), 1),
+            (6_000, Some(f64::MAX), 2),
+            (9_000, Some(MAX_WATTS + 1.0), 3),
+        ]);
+        assert_eq!((e.joules, e.shares, e.metered_ms), (0.0, 0, 0));
+        assert!(e.joules.is_finite());
+    }
+
+    #[test]
+    fn a_process_exit_and_relaunch_between_readings_is_not_integrated() {
+        // Reading at 0 s, the process exits at 1 s and is relaunched at 2 s,
+        // next reading at 3 s: none of 0..3 s is metered.
+        let mut e = Energy::default();
+        e.sample(0, Some(200.0), 0);
+        e.break_stretch(); // exit at 1 s
+        e.break_stretch(); // relaunch at 2 s
+        e.sample(3_000, Some(200.0), 0);
+        assert_eq!((e.joules, e.shares, e.metered_ms), (0.0, 0, 0));
+        // The stretch restarts from the 3 s reading.
+        e.sample(6_000, Some(200.0), 1);
+        assert_eq!((e.joules, e.shares, e.metered_ms), (600.0, 1, 3_000));
     }
 
     #[test]

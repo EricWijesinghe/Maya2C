@@ -160,17 +160,17 @@ fn supervise(app: tauri::AppHandle) {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
         let miner = app.state::<Miner>();
-        let now = miner::now_ms();
         let temps = if tick.is_multiple_of(3) && miner.gpu_running() {
             let report = gpu::read();
             // The same reading feeds the energy meter, so watts and shares
-            // are sampled together every third second.
-            miner.meter(now, &gpu::powers(&report));
+            // are sampled together every third second. Stamped after the
+            // read returns, so a slow nvidia-smi does not shift the interval.
+            miner.meter(miner::now_ms(), &gpu::powers(&report));
             gpu::temperatures(&report)
         } else {
             Vec::new()
         };
-        let raised = miner.tick(now, &temps);
+        let raised = miner.tick(miner::now_ms(), &temps);
         let notifier = app.state::<Mutex<Notifier>>();
         for alert in &raised {
             if notify::lock(&notifier).admit(alert) {
