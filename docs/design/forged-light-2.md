@@ -10,7 +10,7 @@ not yet. The evidence is in
 
 Forged Light (2026-10-05) chose the right materials: the emblem's teal,
 bronze and steel on an abyss ground, Manrope for display, Inter for reading,
-JetBrains Mono for data. Five surfaces then each wrote their own stylesheet
+JetBrains Mono for data (the display face is open again, §8 item 6). Five surfaces then each wrote their own stylesheet
 from those materials, and the result reads as five products. Forged Light 2
 keeps the materials and replaces the five stylesheets with one token file and
 one component kit, then rebuilds each surface's key screen on them.
@@ -55,41 +55,39 @@ one component kit, then rebuilds each surface's key screen on them.
 |---|---|
 | The emblem, everywhere, as the mark | The wordmark is plain `--text` next to it on every surface: no gradient text, no letter-spacing, no "Hub" in gold |
 | Teal / bronze / steel / abyss, from the emblem | Named roles (§3.1) replace ~580 colour literals; Tailwind reds, greens, violets and the explorer's cyan/indigo and calm/command green are deleted |
-| Manrope + Inter + JetBrains Mono, self-hosted | The explorer loads them (today it names Inter and never loads it); mono is reserved for hashes, addresses, code and tabular figures |
+| Self-hosted Inter + JetBrains Mono (Manrope for display: open, §8 item 6) | The explorer loads them (today it names Inter and never loads it); mono is reserved for hashes, addresses, code and tabular figures |
 | "Maya2C" one word | App names become `Maya2C Hub`, `Maya2C Wallet`, `Maya2C Chat` (decision for Eric) |
 | Real numbers, `—` when missing | A missing number also gets a one-line reason (`testnet paused`, with the date the status source reports; `explorer unreachable`), in muted text, never in the hero slot |
 | Graphics over text: 3D hero, orbs, journey, map, gauge | Orb rows only for 4 or 6 items; longer lists are tile grids; one chart palette; the stack diagram drops the hue wheel |
 | Dark as the brand's home theme | Light is a first-class theme on all five surfaces, including the Tauri apps and the explorer (its toggle works or goes) |
 | Soft geometry, glass with depth | Four radii instead of fifteen; glass only on floating chrome (header, popovers); cards are solid surfaces so text never sits on blur |
-| Spring easing on interaction | Infinite sweeps on rules and dividers, the explorer scan line and arcs, and scroll-driven reveals are removed |
+| Short motion on interaction (120–240 ms, one easing, no spring) | Infinite sweeps on rules and dividers, the explorer scan line and arcs, and scroll-driven reveals are removed |
 | Reduced-motion honoured | One technique everywhere: durations to 1 ms (the wallet's), not `animation: none` (which breaks `animation-fill-mode: both` end states) |
 | Starlight for docs | Reading pages get a plain background; motifs only on home, status and experience |
 
 ## 3. Tokens
 
-The source will be `design/tokens.json` (U1), generated into `tokens.css` and
-copied into each UI by `cargo xtask design-tokens` with a CI drift check. The
-existing `crates/design-system` and `design/tokens.css` (calm/command, green)
-are replaced, not extended: nothing consumes them except the explorer's base
-layer and `design/specimen.html`, both of which U1/U6 rewrite.
+The source is `design/tokens.json`, generated into `tokens.css` in every
+surface by `cargo xtask design-tokens`, with `--check` in CI as the drift
+gate. The old `crates/design-system` palette (calm/command, green) is gone;
+the crate now holds the contrast maths and the specimen.
 
 Names are role names. No surface may add a colour outside this list; a new
 role is a tokens.json change with a measured ratio. `cargo xtask
 design-tokens --literals <dir>` lists every colour a folder still writes by
 hand.
 
-§3.1 and §3.7 are current (token revision 2, 2026-11-13). §3.2 to §3.6 are
-the first proposal; where they differ from `design/tokens.json` (Inter only,
-radii 4/6/8/12, motion 120/180/240 ms on one easing), the token file and
-ADR-136's revisions win.
+Every section of §3 describes the token file as it is (revision 2,
+2026-11-13, values re-derived on 2026-11-14). Where this text and
+`design/tokens.json` ever disagree, the token file wins, and for §3.1 the
+generator refuses the disagreement.
 
 ### 3.1 Colour
 
 Dark is the brand's home theme and the default when the OS states no
 preference (Eric, 2026-11-12); the OS preference applies otherwise, and an
 explicit `data-theme` wins over both. The values below are
-`design/tokens.json`, revision 2 (2026-11-13, amended after review on
-2026-11-14; ADR-136). `cargo xtask design-tokens --check` compares this table
+`design/tokens.json`. `cargo xtask design-tokens --check` compares this table
 with the token file and fails on any difference, so the table cannot drift
 from what ships.
 
@@ -106,39 +104,54 @@ everywhere without a legend:
 | Blue (`info`) | Information, research status | A link (links are `accent-text`) |
 | Steel (`steel`) | Reference: hashes, heights, secondary figures | State |
 
-The rule is gated, not only written: `role-distinctness` in the token file
-requires every two of these roles to be at least 0.10 apart in OKLab under
-normal vision, in both themes, and bronze and amber also under deuteranopia
-and protanopia (no icon-and-word rule separates a coin amount from a
-warning). The first draft of this revision failed it: light bronze `#8a5a1f`
-and light amber `#855600` were 0.021 apart, the same brown.
+The rule is gated, not only written. `role-distinctness` requires every two
+meaning roles of a set to be at least 0.10 apart in OKLab under normal
+vision, in both themes; steel must also stay 0.04 from `text-2` and `text-3`,
+so reference figures do not read as captions. The solid fills of bronze and
+amber are also checked under deuteranopia and protanopia, because no
+icon-and-word rule separates a coin amount from a warning.
 
-**Two tiers per meaning.** A colour dark enough to be 4.5:1 body text on
-light paper is too dark to look bright, and one token per role forced every
-light colour to the same muddy lightness. So each meaning has a *text tier*,
-the plain role (`accent-text`, `bronze`, `success`, `warn`, `danger`,
-`info`, `steel`), safe as body text on every surface, and a *fill tier*
-(`bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill`),
-vivid, for chip and badge grounds under the dark ink `--on-fill`, for alert
-edges and for dots. The fills are the same in both themes, so a verified chip
-is the same green on paper and at night. A fill never stands alone: it sits
-beside its icon and word, and text never takes a fill colour.
+One pair is separated by a rule instead of by colour: body-size bronze and
+body-size amber. At 4.5:1 on paper both must be dark, and the brief's light
+bronze `#8a5a1f` and amber `#855600` are 0.021 apart, the same brown. Moving
+bronze to copper (the first draft of this revision) breaks the hue it shares
+with the emblem; moving amber far enough turns it olive. So amber is never
+set as bare text: it always appears as a chip or an alert, with its icon,
+its word and its `warn-subtle` ground, and the text-tier sets measure bronze
+and amber each against the other meanings, not against each other.
+
+**Tiers per meaning.** A colour dark enough for body text on paper is too
+dark to look bright, so each meaning has tiers, each with one job:
+
+| Tier | Tokens | Job |
+|---|---|---|
+| Text | `accent-text`, `bronze`, `bronze-text`, `success`, `warn`, `danger`, `info`, `steel` | Body-size text on every surface, a chip's word and edge. 4.5:1. |
+| Chip ground | `bronze-subtle`, `success-subtle`, `warn-subtle`, `danger-subtle`, `info-subtle`, `accent-subtle` | A translucent tint under the text tier: tint + 1 px role edge + role ink + icon and word. |
+| Solid | `bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill` | Dots, alert edges and counters under `on-fill` only. 3:1 on the ground and a card. Never a chip ground. |
+| Display | `bronze-display` | Bronze for figures of 24 px and up (3:1, large text), so a balance can be bright on paper. |
+
+**Bronze is one ramp.** Each theme's bronze steps are the role, the text
+tone, the display tone, the solid, the two forge stops and chart series 2;
+where two of them are the same colour, one names the other with `var()`, and
+the gate measures the step it names. The `hue-families` gate holds every
+meaning (teal, bronze, green, amber, coral, blue, steel) to a 20° OKLCh hue
+spread across its tiers and both themes, so a value that fails a contrast
+pair is fixed by lightness, not by drifting to a neighbouring hue.
 
 **Why the ground was lifted and tinted.** Revision 1 used a hue-free near-black
 (`#08090b`) with grey text and a muted teal. Eric's reading was "too dark,
 dull". A ground with no hue reads as a switched-off screen, and on a
 near-black every accent has to be very bright to register, which is where the
 dullness came from: little contrast between the ground and the cards, and
-colour that looked dimmed. Revision 2 puts the ground at a deep teal-navy
-(`#06202c`), so the brand hue is present before any accent is drawn; steps
-the three surfaces up in the same hue, further than the first draft (a card
-was 1.12:1 against the ground there, 1.16:1 now) so a panel separates from
-the ground without a hairline (the gate requires `surface-3` against `bg` at
-1.25:1 or more in dark); and gives the accents more chroma at the same or
-better contrast. Light is warm paper (`#f7f3ec`) with warm hairlines and
-shadows, not a grey inversion of dark, so the light theme carries the same
-warmth as the bronze instead of a cool office grey; white cards sit on it,
-and `surface-3` is gated at 1.25:1 against a card.
+colour that looked dimmed. The ground is now a deep teal-navy (`#081c28`), so
+the brand hue is present before any accent is drawn; a card is lifted 1.25:1
+off it and the pressed `surface-3` further, both gated, so a panel separates
+without a hairline; and the hero is a tight teal glow from the top rather than
+a wide wash. Light is warm paper (`#faf8f4`) with warm hairlines and shadows,
+not a grey inversion of dark. On paper every input and secondary button is a
+white `surface-1` with a `border-control` edge, never a beige fill (which
+reads as disabled), and a selected row is the teal `accent-subtle` over a
+card, not a darker beige.
 
 **Colour-blind rule.** Colour is never the only carrier of a state. Every
 status chip shows an icon and a word ("✓ Verified", "! Testnet paused",
@@ -149,175 +162,183 @@ Fernandes 2009, severity 1.0) and fails when the two closest series fall
 below `chart-distinctness.min-distance` (OKLab) in either theme. Status
 colours and fills are never series colours.
 
-| `--bg` | `#06202c` | `#f7f3ec` | Page ground. The only place motifs and the 3D field paint. |
-| `--surface-1` | `#0b2d3b` | `#ffffff` | Cards, panels, table body, inputs. |
-| `--surface-2` | `#123948` | `#f2ede4` | Raised control, hover row, inline code. |
-| `--surface-3` | `#1a4657` | `#ebe4d8` | Pressed or selected. 1.25:1 or more against `bg` (dark) and a card (light). |
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `--bg` | `#081c28` | `#faf8f4` | Page ground. The only place motifs and the 3D field paint. |
+| `--surface-1` | `#16303d` | `#ffffff` | Cards, panels, table body; every input and secondary button. 1.25:1 against `bg` in dark. |
+| `--surface-2` | `#1a3a49` | `#f4f1eb` | Hover row, inline code. |
+| `--surface-3` | `#1e4455` | `#e9e5dd` | Pressed. 1.25:1 or more against `bg` (dark) and a card (light). |
 | `--border` | `rgb(150 210 225 / 0.14)` | `rgb(60 45 20 / 0.14)` | Hairlines and card edges. Not a control edge. |
-| `--border-strong` | `#77a2b1` | `rgb(60 45 20 / 0.26)` | Dividers that must be seen, table header rule. |
-| `--border-control` | `#6a93a2` | `#888277` | Input, checkbox and select edges: 3:1 on all four grounds (SC 1.4.11). |
+| `--border-strong` | `#6f9aa9` | `rgb(60 45 20 / 0.26)` | Dividers that must be seen, table header rule. |
+| `--border-control` | `#6f9aa9` | `#878176` | Input, checkbox and select edges: 3:1 on all four grounds and a selected row (SC 1.4.11). |
 | `--text` | `#f2f9fa` | `#14201f` | Headlines, values, body. |
-| `--text-2` | `#c2d5dc` | `#3d4a49` | Running text, ledes, table cells. |
-| `--text-3` | `#9bb3bc` | `#5b6765` | Labels, captions, timestamps, sources. Body-size text: 4.5:1 on every surface. |
-| `--accent` | `#1fd3cc` | `#00827d` | Focus ring, live dot, selected state, icons; the light primary button. Non-text. |
-| `--accent-hover` | `#52e5dd` | `#00716d` | Hover of an accent control. |
-| `--accent-subtle` | `rgb(31 211 204 / 0.14)` | `rgb(0 130 125 / 0.1)` | Selected row, accent chip fill. |
-| `--accent-text` | `#52e5dd` | `#00716d` | Links and accent labels at any size. |
-| `--accent-grad-from` | `#3fdcd4` | `#00827d` | Primary button, top stop (`--grad-cta`). |
-| `--accent-grad-to` | `#19c4bd` | `#00736e` | Primary button, bottom stop. |
+| `--text-2` | `#bcd0d7` | `#3d4a49` | Running text, ledes, table cells. |
+| `--text-3` | `#96b1bb` | `#5d6967` | Labels, captions, timestamps, sources. Body-size text: 4.5:1 on every surface. Never on the hero. |
+| `--accent` | `#1fd3cc` | `#0a7568` | Focus ring, live dot, checked box, icons. Non-text. |
+| `--accent-hover` | `#52e5dd` | `#075c52` | Hover of an accent control. |
+| `--accent-subtle` | `rgb(31 211 204 / 0.14)` | `rgb(10 117 104 / 0.1)` | Selected row, accent chip ground. |
+| `--accent-text` | `#52e5dd` | `#075c52` | Links and accent labels at any size. |
+| `--accent-grad-from` | `#52e5dd` | `#0a7568` | Primary button, top stop (`--grad-cta`). |
+| `--accent-grad-to` | `#0bb5b3` | `#086356` | Primary button, bottom stop. |
 | `--accent-highlight` | `rgb(255 255 255 / 0.12)` | `rgb(255 255 255 / 0.14)` | The 1 px inner top edge of the primary button. |
 | `--on-accent` | `#04222a` | `#ffffff` | Text on `--accent`, `--accent-hover` and the CTA stops. |
-| `--bronze` | `#ff9c47` | `#782d00` | Value: amounts, coins, proofs. Text-safe on every surface. |
-| `--bronze-text` | `#ffcf9e` | `#782d00` | Bronze for long runs of text. |
-| `--steel` | `#a1afb9` | `#42546b` | Reference figures: hashes, heights, IDs. |
-| `--success` | `#4ade80` | `#00752c` | Verified, confirmed, delivered. Text tier. |
-| `--warn` | `#ffd43b` | `#796300` | Needs a look: testnet, paused, pending. Never an error. Text tier. |
-| `--danger` | `#ff8b90` | `#cb0040` | Error, failed, irreversible. Text tier. |
-| `--info` | `#71b0ff` | `#1e5dd8` | Information, research status. Text tier. |
-| `--bronze-fill` | `#ff8505` | `#ff8505` | Value chip or badge ground, coin dot. Fill tier, under `--on-fill`. |
-| `--success-fill` | `#3ccf6e` | `#3ccf6e` | Verified chip ground, alert edge, dot. Fill tier. |
-| `--warn-fill` | `#ffc61a` | `#ffc61a` | Needs-a-look chip ground, alert edge, dot. Fill tier. |
-| `--danger-fill` | `#ff4d5a` | `#ff4d5a` | Error chip ground, alert edge, dot. Fill tier. |
-| `--info-fill` | `#4f9bff` | `#4f9bff` | Information chip ground, alert edge, dot. Fill tier. |
-| `--on-fill` | `#0b1a1f` | `#0b1a1f` | Ink on every `*-fill`: 4.5:1 on each. |
-| `--forge-grad-from` | `#ffd39b` | `#ffd39b` | Forge button (value actions: send, stake), top stop (`--grad-forge`). |
-| `--forge-grad-to` | `#f5a04a` | `#f5a04a` | Forge button, bottom stop. |
+| `--bronze` | `#ffbb6b` | `#8a5a1f` | Value: amounts, coins, proofs at body size. |
+| `--bronze-text` | `#ffd39b` | `#6f4612` | Bronze for long runs of text; the deepest step. |
+| `--bronze-display` | `var(--bronze)` | `#b56722` | Bronze figures of 24 px and up: 3:1 on every surface. |
+| `--steel` | `#accff2` | `#445469` | Reference figures: hashes, heights, IDs. |
+| `--success` | `#4ade80` | `#015728` | Verified, confirmed, delivered. Text tier. |
+| `--warn` | `#ffd43b` | `#855600` | Needs a look: testnet, paused, pending. Never an error, never bare text. |
+| `--danger` | `#ff8994` | `#b3261e` | Error, failed, irreversible. Text tier. |
+| `--info` | `#6cb6ff` | `#2f55b8` | Information, research status. Text tier. |
+| `--bronze-subtle` | `rgb(233 138 19 / 0.12)` | `rgb(181 103 34 / 0.12)` | Value chip ground. |
+| `--success-subtle` | `rgb(60 207 110 / 0.12)` | `rgb(34 163 90 / 0.12)` | Verified chip ground. |
+| `--warn-subtle` | `rgb(248 202 6 / 0.12)` | `rgb(255 198 26 / 0.12)` | Needs-a-look chip and alert ground. |
+| `--danger-subtle` | `rgb(255 77 90 / 0.12)` | `rgb(229 72 77 / 0.12)` | Error chip and alert ground. |
+| `--info-subtle` | `rgb(79 155 255 / 0.12)` | `rgb(59 130 246 / 0.12)` | Information chip ground. |
+| `--bronze-fill` | `#e98a13` | `var(--bronze-text)` | Coin dot, value counter. Solid tier, under `--on-fill`. |
+| `--success-fill` | `#3ccf6e` | `#015a2a` | Verified dot, alert edge, counter. |
+| `--warn-fill` | `#f8ca06` | `#a06b00` | Needs-a-look dot, alert edge, counter. |
+| `--danger-fill` | `#ff4d5a` | `#ec0209` | Error dot, alert edge, counter. |
+| `--info-fill` | `#4f9bff` | `#1e4fff` | Information dot, alert edge, counter. |
+| `--on-fill` | `#0b1a1f` | `#ffffff` | Ink on every `*-fill`: 4.5:1 on each. |
+| `--forge-grad-from` | `var(--bronze-text)` | `#c7802b` | Forge button (value actions: sign, stake), top stop (`--grad-forge`). |
+| `--forge-grad-to` | `#f5a04a` | `#bf702e` | Forge button, bottom stop. Both stops 3:1 on the ground and a card. |
 | `--on-forge` | `#2b1503` | `#2b1503` | Text on the forge stops. |
-| `--deco-teal` | `rgb(31 211 204 / 0.22)` | `rgb(0 130 125 / 0.12)` | Decorative only: large glows in `--grad-hero`. Never text, never meaning. |
-| `--deco-bronze` | `rgb(255 156 71 / 0.16)` | `rgb(255 133 5 / 0.12)` | Decorative only. |
-| `--deco-blue` | `rgb(113 176 255 / 0.12)` | `rgb(30 93 216 / 0.08)` | Decorative only. |
-| `--glass` | `rgb(11 45 59 / 0.8)` | `rgb(247 243 236 / 0.82)` | Header and command palette only, with `--glass-blur`. |
+| `--deco-teal` | `rgb(31 211 204 / 0.26)` | `rgb(10 117 104 / 0.12)` | Decorative only: the hero glow. Text over its brightest point is gated. |
+| `--deco-bronze` | `rgb(255 187 107 / 0.16)` | `rgb(181 103 34 / 0.12)` | Decorative only: backdrops. |
+| `--deco-blue` | `rgb(108 182 255 / 0.12)` | `rgb(47 85 184 / 0.08)` | Decorative only. |
+| `--glass` | `rgb(22 48 61 / 0.8)` | `rgb(250 248 244 / 0.82)` | Header and command palette only, with `--glass-blur`. |
 | `--shadow-sm` | `0 1px 2px rgb(2 10 16 / 0.45)` | `0 1px 2px rgb(60 45 20 / 0.08)` | Contact shadow. |
 | `--shadow-md` | `0 1px 2px rgb(2 10 16 / 0.45), 0 8px 24px -8px rgb(2 10 16 / 0.55)` | `0 1px 2px rgb(60 45 20 / 0.08), 0 8px 24px -8px rgb(60 45 20 / 0.14)` | Raised: hover and selected. |
 | `--shadow-lg` | `0 2px 4px rgb(2 10 16 / 0.45), 0 24px 48px -12px rgb(2 10 16 / 0.65)` | `0 2px 4px rgb(60 45 20 / 0.1), 0 24px 48px -12px rgb(60 45 20 / 0.18)` | Floating: header, palette. |
 | `--shadow-inset` | `inset 0 1px 0 rgb(255 255 255 / 0.06)` | `inset 0 0 0 0 transparent` | Top-edge light on dark cards; none on paper (written as a zero shadow so it still composes in a `box-shadow` list). |
 | `--chart-1` | `#1fd3cc` | `#089192` | Series 1, teal. |
-| `--chart-2` | `#ffbb6b` | `#b56722` | Series 2, bronze. |
-| `--chart-3` | `#4e74ff` | `#123f99` | Series 3, blue (§3.7). |
-| `--chart-4` | `#f2f9fa` | `#06202a` | Series 4, neutral. |
-| `--chart-5` | `#c58cff` | `#7c3aed` | Series 5, purple: a chart series, not a role (§8). |
-| `--chart-6` | `#d97f4f` | `#733f1c` | Series 6, copper. |
+| `--chart-2` | `var(--bronze)` | `var(--bronze-display)` | Series 2, bronze (the ramp's bright step). |
+| `--chart-3` | `#4e74ff` | `#056190` | Series 3, blue (§3.7). |
+| `--chart-4` | `#f2f9fa` | `#06202a` | Series 4, neutral ink: the one ink series per theme. |
+| `--chart-5` | `#c58cff` | `#7c3aed` | Series 5, purple: a chart series, not a role. Unused until Eric decides (§8). |
+| `--chart-6` | `#d97f4f` | `#8b3f03` | Series 6, copper. |
 
 Composed tokens, declared in each theme block because a `var()` resolves where
 it is declared (a nested `data-theme` must re-declare them): `--grad-cta`
 (the two accent stops, top to bottom), `--grad-forge` (the two forge stops),
-`--grad-hero` (a teal glow from the top and a bronze one from the lower
-right over `--surface-1` to `--bg`), `--chart-grid` (`--border`) and
-`--chart-axis` (`--text-3`).
+`--grad-hero` (a tight `--deco-teal` glow from the top centre over
+`--surface-1` fading to `--bg`; no bronze wash), `--chart-grid` (`--border`)
+and `--chart-axis` (`--text-3`).
 
 Every measured pair is listed in `contrast-pairs` and checked in both themes
-on every generator run, which prints each ratio. The generator also refuses a
-file that leaves out a pair of its required matrix: every text role
-(`text`, `text-2`, `text-3`, `accent-text`, `bronze`, `bronze-text`,
-`steel`, `success`, `warn`, `danger`, `info`) as body text (4.5:1) on all
-four grounds; `accent` and `border-control` as non-text (3:1) on all four;
-`on-accent` on the accent, its hover and both CTA stops; `on-forge` on both
-forge stops; `on-fill` on every fill; every chart series as non-text on
-`bg`, `surface-1` and `surface-2`; and the two separation pairs. Ratios are
-not copied here: the gate's output is the record. The chart series in the
-2026-11-13 plan were given in two different orders per theme; they are
-stored in one order (teal, bronze, blue, neutral, purple, copper) so a series
-keeps its hue family when the theme changes, and dark gained `#d97f4f` so
-both themes have six.
+on every generator run, which prints each ratio. A background written
+`a over b` is measured as a browser paints it: the translucent `a`
+composited over `b`. The generator refuses a file that leaves out a pair of
+its required matrix: every text role as body text (4.5:1) on the four grounds
+and on a selected row; `bronze-display` as large text (3:1) there and on the
+hero; `text`, `text-2`, `accent-text` and `bronze-text` on the hero's
+brightest point; each chip's role on its own `*-subtle` ground over `bg`,
+`surface-1` and `surface-2`; `accent` and `border-control` as non-text on the
+four grounds and a selected row; `on-accent`, `on-forge` and `on-fill` on
+their grounds; every solid and both forge stops as non-text on `bg` and a
+card; every chart series on `bg`, `surface-1` and `surface-2`; and three
+separation pairs (dark card and dark `surface-3` against `bg`, light
+`surface-3` against a card). Ratios are not copied here: the gate's output is
+the record, and the PR that changes a value pastes it.
 
-Where the values differ from the 2026-11-13 plan: the plan's values were
-adjusted in lightness wherever the gate measured them below their minimum on
-the lifted `surface-3` (dark `text-3`, `border-control`, `danger`, `info`;
-light `text-3`, `border-control`), and in hue where two meanings collided or
-the light accent no longer read as the brand teal (light `accent` back to
-teal hue 190, light `bronze` to copper, light `warn` to a yellower amber,
-light `danger` to crimson, dark `bronze` to copper-orange, dark `steel`
-greyer). The hue moves break the plan's "lightness only" rule and are
-recorded in ADR-136. No role named violet or quantum exists; whether
-`chart-5` keeps its purple hue is Eric's decision (§8).
+Where the values differ from the 2026-11-13 brief, each row is in ADR-136
+(second revision, deviation table) with the gate that forced it. In short:
+lightness only, same hue, wherever a pair failed (dark `surface-1`/`-2`/`-3`,
+`text-3`, `danger`, `steel`, `chart-3`; light `surface-3`, `text-3`,
+`border-control`, `success`, `steel`), new tokens the brief did not have
+(`bronze-display`, the `*-subtle` chip grounds, per-theme solids), and two
+chart series on paper replaced because three of the brief's six were
+near-black (`chart-3`, `chart-6`). No role named violet or quantum exists;
+whether `chart-5` keeps its purple hue is Eric's decision (§8).
 
 ### 3.2 Type
 
-Self-hosted variable fonts on every surface (`@fontsource-variable` on the
-site; the Hub's `fonts/` layout on the apps and the explorer).
+Self-hosted variable fonts on every surface. Today the token file names one
+reading face for everything (`--font-sans`, Inter) and JetBrains Mono for
+data; whether Manrope returns as the display face is open (§8, item 6), and
+no surface lane picks a display font until Eric answers.
 
 | Token | Value |
 |---|---|
-| `--font-display` | `"Manrope Variable", "Manrope", system-ui, sans-serif` |
-| `--font-body` | `"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif` |
+| `--font-sans` | `"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif` |
 | `--font-mono` | `"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Consolas, monospace` |
+| `--font-numeric` | `tabular-nums` |
 
-Scale (px; line-height; weight; face). One scale for all surfaces; the apps
-use the same steps with the body at 15.
+One scale for every surface (px), weights 400 / 500 / 600 only, body line
+1.5, headings 1.2, display sizes tracked -0.02em:
 
-| Step | Size / line | Weight | Face | Used for |
-|---|---|---|---|---|
-| `display-1` | 56 / 1.04, phones 40 | 720 | display | Website hero h1 only |
-| `display-2` | 40 / 1.1, phones 30 | 650 | display | Section titles, wallet hero amount, Hub gauge value (tabular) |
-| `title-1` | 28 / 1.2 | 650 | display | Page titles in apps, h2 in docs |
-| `title-2` | 20 / 1.3 | 620 | display | Card titles, h3, clear-sign sentence (24 on the confirm screen) |
-| `body-lg` | 17 / 1.7 | 400 | body | Documentation body (unchanged) |
-| `body` | 15 / 1.55 | 400 | body | App body, site UI copy |
-| `body-sm` | 13 / 1.5 | 400 | body | Hints, sources, table cells |
-| `label` | 12 / 1.2 | 600 | body | Caps labels: `letter-spacing: .08em; text-transform: uppercase` |
-| `mono` | 13 / 1.5 | 450 | mono | Hashes, addresses, code, log lines |
-| `num` | inherits | 600 | display | Any figure: `font-variant-numeric: tabular-nums` |
+| Step | Size, phones | Weight | Used for |
+|---|---|---|---|
+| `type-display-1` | 56, 40 | 600 | Website hero h1 only |
+| `type-display-2` | 40, 32 | 600 | Section titles, wallet hero amount |
+| `type-title-1` | 32, 24 | 600 | Page titles |
+| `type-title-2` | 24 | 600 | Card titles, the clear-sign sentence |
+| `type-title-3` | 20 | 600 | Sub-heads |
+| `type-body-lg` | 16 | 400 | Documentation body |
+| `type-body` | 14 | 400 | App body, site UI copy |
+| `type-body-sm` | 13 | 400 | Hints, sources, table cells |
+| `type-label` | 12 | 500 | Labels |
+| `type-mono` | 13 | 400 | Hashes, addresses, code, log lines |
 
-Rules: no text under 12 px; `label` is the only uppercase style; weight 300
-is retired (today's 300-weight 54 px section titles and 26 px tile values
-read thin on dark); headings get `text-wrap: balance`; running text 65–72
-characters.
+Rules: no text under 12 px; headings get `text-wrap: balance`; running text
+65–72 characters; any figure uses `--font-numeric`.
 
 ### 3.3 Spacing
 
-4 px base. `--space-1` 4, `-2` 8, `-3` 12, `-4` 16, `-5` 24, `-6` 32, `-7` 48,
-`-8` 64, `-9` 96. Card padding `-5`; tile padding `-4` `-5`; grid gap `-4`
-(phones `-3`); section gap `-9` desktop / `-7` phone; page gutter
-`max(16px, 4vw)`; app content max width 1180; docs column 72 ch; wallet column
-34 rem.
+4 px base; the step number is px / 4: `--space-1` 4, `-2` 8, `-3` 12, `-4`
+16, `-5` 20, `-6` 24, `-8` 32, `-10` 40, `-12` 48, `-16` 64, `-20` 80, `-24`
+96. Page gutter `max(16px, 4vw)` (16 px at phone width); content max width
+1180 px; docs column 72 ch; wallet column 34 rem; controls 34 px high
+(`--control-h`), 28 px small (`--control-h-sm`).
 
 ### 3.4 Radius
 
-`--r-1` 8 (inputs, chips, inline code), `--r-2` 12 (tiles, buttons, table
-cards), `--r-3` 20 (cards, dialogs, panels), `--r-pill` 999 (status chips,
-the single primary pill on the website hero). Nothing else. The explorer's 4
-and 6 px and the chat's five rem values go.
+`--r-xs` 4, `--r-sm` 6, `--r-md` 8 (buttons, inputs), `--r-lg` 12 (cards,
+panels, dialogs). Nothing above 12. `--r-pill` 999 is for status dots and
+chips only, never a button or a card.
 
 ### 3.5 Elevation
 
-Three levels: `flat` (surface + line, the default for every card),
-`raised` (surface + `--shadow-1`, hover and selected), `floating` (`--glass`
-+ `--shadow-2`, header, popovers, the confirm dialog, the back-to-top
-button). One hero card per screen may use `floating` at rest.
+Three levels: `flat` (surface + `--border`, every card), `raised`
+(`--shadow-md` + `--shadow-inset`, hover and selected), `floating`
+(`--glass` + `--glass-blur` + `--shadow-lg`, the header and the command
+palette only). Text never sits on blur.
 
 ### 3.6 Motion
 
 | Token | Value | Use |
 |---|---|---|
 | `--dur-1` | 120 ms | Hover, focus, chip toggles |
-| `--dur-2` | 240 ms | Entrance of a card or row, tab switch |
-| `--dur-3` | 480 ms | The one hero entrance per screen, the sent tick |
-| `--ease-out` | `cubic-bezier(.22, 1, .36, 1)` | Everything |
-| `--ease-spring` | `cubic-bezier(.34, 1.56, .64, 1)` | Buttons and chips on press only |
+| `--dur-2` | 180 ms | Entrance of a card or row, tab switch |
+| `--dur-3` | 240 ms | The one hero entrance per screen, the sent tick |
+| `--ease` | `cubic-bezier(.2, 0, 0, 1)` | Everything: short, no spring, no overshoot |
 
-Permitted loops: one live dot per screen (`pulse`, 2.4 s), the Hub gauge
-needle, the 3D hero orbit, the explorer finality pulse. Everything else runs
-once from a visible resting state. Under `prefers-reduced-motion: reduce` all
-durations become 1 ms (so end states still apply) and the loops stop.
+Permitted loops: one live dot per screen, the Hub gauge needle, the 3D hero
+orbit, the explorer finality pulse. Everything else runs once from a visible
+resting state. Under `prefers-reduced-motion: reduce` every duration becomes
+0 ms, so end states still apply, and the loops stop.
 
 ### 3.7 Chart palette
 
 Series in order: `--chart-1` to `--chart-6` (§3.1), the same hue family in
 both themes. A chart is drawn on `--bg`, `--surface-1` or `--surface-2`,
 never on the pressed or selected `--surface-3`; each series is 3:1 or more on
-those three, and the closest two stay apart under normal vision,
-deuteranopia and protanopia (the generator fails otherwise). Fills at
-`--chart-fill-alpha` (16 %) of the stroke. Grid lines `--chart-grid`; axis
-text `--chart-axis` at `body-sm`; the emphasised endpoint is a 3 px dot in
-the series colour with a `--bg` ring. Status colours and their fills
-(success / warn / danger / info) are never series colours. `--chart-3` is
-blue, the family of `--info`, by exception: a series never appears as a chip,
-and `info` always carries its icon and word, so the two are not read for each
-other.
+those three, the closest two stay apart under normal vision, deuteranopia and
+protanopia, and at most one series per theme is an ink series near the text
+colour (OKLab L below 0.45 on paper, above 0.92 on the dark ground); the
+generator fails otherwise. Fills at `--chart-fill-alpha` (16 %) of the
+stroke. Grid lines `--chart-grid`; axis text `--chart-axis` at
+`type-body-sm`; the emphasised endpoint is a 3 px dot in the series colour
+with a `--bg` ring. Status colours and their fills (success / warn / danger /
+info) are never series colours. `--chart-3` is blue, the family of `--info`,
+by exception: a series never appears as a chip, and `info` always carries its
+icon and word, so the two are not read for each other. `--chart-5` is not
+drawn on any surface until Eric decides its hue.
 Every series is labelled at its end or in a legend, so colour is never the
 only key. Empty chart: the plot area keeps its height, draws the grid, and
-prints one `body-sm` line in `--text-3` naming why (`No blocks in the window
-since 12:41`).
+prints one `type-body-sm` line in `--text-3` naming why (`No blocks in the
+window since 12:41`).
 
 ## 4. Component kit (U2)
 
@@ -326,11 +347,11 @@ themes. Names are the class names.
 
 | Component | Variants | Notes |
 |---|---|---|
-| `button` | primary (accent fill, on-accent text), secondary (surface + line), ghost (text only), danger; sizes md 40 px / lg 48 px; icon-only | One primary per screen. `--r-2`; the website hero's primary may be `--r-pill`. |
-| `card` | flat (default), raised, floating, hero | Padding `--space-5`, radius `--r-3`, title `title-2`. |
+| `button` | primary (accent fill, on-accent text), secondary (surface + line), ghost (text only), danger; heights `--control-h` 34 px / `--control-h-sm` 28 px; icon-only; hover, focus and disabled states | One primary per screen. `--r-md`, never a pill. Secondary is `surface-1` + `border-control`. |
+| `card` | flat (default), raised, floating, hero | Padding `--space-5`, radius `--r-lg`, title `type-title-2`. |
 | `stat` | value + label + source; sizes md (28 px value) / lg (40 px); states live / stale / missing | Replaces 6 tile styles. Missing shows `—` and a `body-sm` reason. Value in `num`. |
 | `chip` (status) | live, pending, verified, warning, danger, research, neutral; with optional dot | One vocabulary across surfaces: `live · paused · pending · verified · in review · queued · research · planned · shipped`. |
-| `table` | default, dense, with sticky head | Card wrapper `--r-2`, row hover `--raised`, numeric columns tabular and right-aligned. |
+| `table` | default, dense, with sticky head | Card wrapper `--r-lg`, row hover `--raised`, numeric columns tabular and right-aligned. |
 | `tabs` | underline (docs OS switch), segmented (filters) | 44 px targets; used by `InstallPicker` and Starlight tabs alike. |
 | `toast` | info, success, danger | Bottom centre, `floating`, auto-dismiss 6 s, `role="status"`. |
 | `empty` / `loading` / `error` states | with icon slot | One shape for "no data", "loading", "unreachable"; never a hero slot. |
@@ -443,5 +464,5 @@ gradient wordmark, mono preview flag, gradient power button, no light theme.
 2. **Website: dark-first or light-first?** Recommendation: keep dark as the brand's home theme and the default for first visits with no OS preference, follow the OS otherwise, remember the choice. All five surfaces get a working light theme either way.
 3. **Footer contact (`Footer.astro:26`)**: keep the personal email, or replace it with `security@maya2c.dev` (for disclosures, already implied by the Hall of Fame) plus GitHub, with Facebook/Instagram moved to `eric.maya2c.dev`? Recommendation: replace.
 4. **App names**: `Maya2C Wallet`, `Maya2C Chat` (today `Maya Wallet`, `Maya Chat`), matching `Maya2C Hub`? Recommendation: yes, and the installers and store listings follow.
-5. **Chart series 5 (open, 2026-11-14).** `--chart-5` is purple (dark `#c58cff`, light `#7c3aed`). It is a chart series, not a role, and no role named violet or quantum exists. Keep it, or replace it with a non-purple series hue? Recommendation: keep until a chart needs more than four series, then decide with the real chart in front of you.
+5. **Chart series 5 (open, 2026-11-14).** `--chart-5` is purple (dark `#c58cff`, light `#7c3aed`). It is a chart series, not a role, and no role named violet or quantum exists. Keep it, or replace it with a non-purple series hue? Recommendation: keep until a chart needs more than four series, then decide with the real chart in front of you. Until then no surface draws it.
 6. **Manrope (open, 2026-11-14).** The brand rule names Manrope + Inter, self-hosted; the token file (revision 1 of ADR-136) says Inter for everything and Manrope retired. Which is the rule? This lane changed colour only and left the fonts as they are.

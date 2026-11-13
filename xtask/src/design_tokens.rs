@@ -13,7 +13,9 @@
 //! `--literals <dir>` is the other half: it finds the colours a surface still
 //! writes by hand instead of naming a role.
 
+mod distinct;
 mod doc;
+mod families;
 mod literals;
 
 use std::collections::BTreeSet;
@@ -21,10 +23,15 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
-use maya_design_system::contrast::{Rgb, Use, Vision, distance, ratio};
+#[cfg(test)]
+use maya_design_system::contrast::Vision;
+use maya_design_system::contrast::{Rgb, Use, ratio};
 use sha2::{Digest, Sha256};
 
 use crate::ordered_json::Json;
+use distinct::{CHART, chart_series, chart_worst, role_worst};
+#[cfg(test)]
+use distinct::{ROLES, min_distance};
 
 /// The single source.
 const SOURCE: &str = "design/tokens.json";
@@ -32,16 +39,29 @@ const SOURCE: &str = "design/tokens.json";
 /// The design doc whose §3.1 table must equal the theme tokens.
 const DOC: &str = "docs/design/forged-light-2.md";
 
-/// Every generated copy. `design/` holds the specimen's copy
-/// (`crates/design-system/src/specimen.rs` inlines it).
-const TARGETS: &[&str] = &[
-    "design/tokens.css",
-    "docs/site/src/styles/tokens.css",
-    "apps/explorer/assets/tokens.css",
-    "apps/hub/ui/tokens.css",
-    "apps/chat-gui/ui/tokens.css",
-    "apps/wallet-gui/ui/tokens.css",
-    "apps/status/src/tokens.css",
+/// Every generated copy, with the token-name prefixes it leaves out. `design/`
+/// holds the specimen's full copy (`crates/design-system/src/specimen.rs`
+/// inlines it).
+const TARGETS: &[(&str, &[&str])] = &[
+    ("design/tokens.css", &[]),
+    ("docs/site/src/styles/tokens.css", &[]),
+    // The explorer inlines its tokens into every page under a byte budget
+    // (apps/explorer budget_tests) and draws no hero, forge button or token
+    // chart yet; the lane that adds one removes its prefix here.
+    ("apps/explorer/assets/tokens.css", EXPLORER_OMITS),
+    ("apps/hub/ui/tokens.css", &[]),
+    ("apps/chat-gui/ui/tokens.css", &[]),
+    ("apps/wallet-gui/ui/tokens.css", &[]),
+    ("apps/status/src/tokens.css", &[]),
+];
+
+const EXPLORER_OMITS: &[&str] = &[
+    "deco-",
+    "grad-hero",
+    "grad-forge",
+    "forge-",
+    "on-forge",
+    "chart-",
 ];
 
 /// Theme names in `tokens.json`; the first is the default.
@@ -85,26 +105,65 @@ const ON_FILLS: &[(&str, &str)] = &[
 /// Grounds a chart may be drawn on: never the pressed or selected surface-3.
 const CHART_SURFACES: [&str; 3] = ["bg", "surface-1", "surface-2"];
 
+/// A selected row: the teal tint over a card, not a darker neutral.
+const SELECTED: &str = "accent-subtle over surface-1";
+
+/// The hero's brightest point, where its glow is strongest under the text.
+const HERO: &str = "deco-teal over surface-1";
+
+/// What the hero may set as body text; text-3 is never used on it.
+const HERO_TEXT: [&str; 4] = ["text", "text-2", "accent-text", "bronze-text"];
+
+/// Meanings shown as a chip: role ink and edge on `<role>-subtle`.
+const CHIPS: [&str; 5] = ["bronze", "success", "warn", "danger", "info"];
+
+/// Solid colours drawn as a dot, an alert edge or a button face: 3:1 on the
+/// ground and on a card.
+const SOLIDS: [&str; 7] = [
+    "bronze-fill",
+    "success-fill",
+    "warn-fill",
+    "danger-fill",
+    "info-fill",
+    "forge-grad-from",
+    "forge-grad-to",
+];
+
+type Required = (String, String, &'static str, Option<&'static str>);
+
 /// The minimum set of pairs the token file must list, as (fg, bg, use,
 /// theme or `None` for both). Chart series on [`CHART_SURFACES`] are added
 /// from `chart-distinctness.series`.
-fn required(series: &[String]) -> Vec<(String, String, &'static str, Option<&'static str>)> {
+fn required(series: &[String]) -> Vec<Required> {
     let mut out = Vec::new();
     let mut add = |fg: &str, bg: &str, usage: &'static str, theme: Option<&'static str>| {
         out.push((fg.to_owned(), bg.to_owned(), usage, theme));
     };
-    for &fg in TEXT_ON_EVERY_SURFACE {
-        for bg in SURFACES {
+    for bg in SURFACES.into_iter().chain([SELECTED]) {
+        for &fg in TEXT_ON_EVERY_SURFACE {
             add(fg, bg, "text", None);
         }
-    }
-    for bg in SURFACES {
+        add("bronze-display", bg, "large-text", None);
         add("accent", bg, "non-text", None);
-        // A checkbox inside a selected row sits on surface-3 (SC 1.4.11).
+        // A checkbox inside a selected row (SC 1.4.11).
         add("border-control", bg, "non-text", None);
+    }
+    for fg in HERO_TEXT {
+        add(fg, HERO, "text", None);
+    }
+    add("bronze-display", HERO, "large-text", None);
+    for role in CHIPS {
+        for bg in CHART_SURFACES {
+            add(role, &format!("{role}-subtle over {bg}"), "text", None);
+        }
     }
     for &(ink, fill) in ON_FILLS {
         add(ink, fill, "text", None);
+    }
+    for solid in SOLIDS {
+        for bg in ["bg", "surface-1"] {
+            add(solid, bg, "non-text", None);
+        }
     }
     for bg in CHART_SURFACES {
         for s in series {
@@ -112,6 +171,7 @@ fn required(series: &[String]) -> Vec<(String, String, &'static str, Option<&'st
         }
     }
     add("surface-3", "bg", "separation", Some("dark"));
+    add("surface-1", "bg", "separation", Some("dark"));
     add("surface-3", "surface-1", "separation", Some("light"));
     out
 }
@@ -133,9 +193,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
     let tokens = load(&root)?;
     gate(&root, &tokens)?;
-    let css = render(&tokens)?;
+    let copies = copies(&tokens)?;
     if check {
-        let stale = stale(&root, &css);
+        let stale = stale(&root, &copies);
         if !stale.is_empty() {
             for path in &stale {
                 eprintln!("stale or missing: {path}");
@@ -145,9 +205,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("tokens.css current in {} surfaces", TARGETS.len());
         return Ok(());
     }
-    for target in TARGETS {
+    for (target, css) in &copies {
         let path = root.join(target);
-        fs::write(&path, &css).map_err(|e| format!("{}: {e}", path.display()))?;
+        fs::write(&path, css).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     println!("wrote tokens.css to {} surfaces", TARGETS.len());
     Ok(())
@@ -176,14 +236,18 @@ fn gate(root: &Path, tokens: &Json) -> Result<(), String> {
             .into_iter()
             .map(|p| format!("required pair not listed: {p}")),
     );
-    for (group_name, found) in [(CHART, &chart), (ROLES, &roles)] {
-        let min = min_distance(tokens, group_name)?;
-        failures.extend(
-            found
-                .iter()
-                .filter(|c| c.distance < min)
-                .map(|c| format!("{group_name} too close (min {min}): {c}")),
-        );
+    failures.extend(
+        chart
+            .iter()
+            .chain(&roles)
+            .filter(|c| c.distance < c.min)
+            .map(|c| format!("{} too close (min {}): {c}", c.group, c.min)),
+    );
+    for line in families::report(tokens)? {
+        println!("{}", line.text);
+        if let Some(f) = line.failure {
+            failures.push(f);
+        }
     }
     let doc_path = root.join(DOC);
     let doc_text =
@@ -318,11 +382,17 @@ fn check_name(name: &str) -> Result<(), String> {
 }
 
 /// The value lands verbatim inside a declaration, so nothing that could end it,
-/// open a block or close the header comment is accepted.
+/// open a block or close the header comment is accepted, and nothing that
+/// makes a page fetch: every surface is self-hosted, and a token is not where
+/// a request belongs.
 fn check_value(name: &str, v: &str) -> Result<(), String> {
+    let lower = v.to_ascii_lowercase();
     let bad = v.trim().is_empty()
         || v.contains(['{', '}', ';', '<', '\\', '\n', '\r'])
-        || v.contains("*/");
+        || v.contains("*/")
+        || lower.contains("url(")
+        || lower.contains("@import")
+        || lower.contains("image-set(");
     if bad {
         Err(format!("--{name}: value `{v}` is not a plain CSS value"))
     } else {
@@ -336,18 +406,76 @@ fn theme(tokens: &Json, name: &str) -> Result<Decls, String> {
     Ok(out)
 }
 
-/// A theme role as `#rrggbb`.
+/// A theme role's raw value.
+fn value<'a>(roles: &'a Decls, role: &str) -> Result<&'a str, String> {
+    roles
+        .iter()
+        .find(|(n, _)| n == role)
+        .map(|(_, v)| v.as_str())
+        .ok_or_else(|| format!("unknown role `{role}`"))
+}
+
+/// A theme role as `#rrggbb`, following `var(--x)` to x (a ramp step named
+/// by reference is measured as the step).
 fn colour(roles: &Decls, theme_name: &str, role: &str) -> Result<Rgb, String> {
     if role.starts_with("deco-") {
         return Err(format!(
             "`{role}` is decorative: it is never text or a measured edge"
         ));
     }
-    let (_, v) = roles
-        .iter()
-        .find(|(n, _)| n == role)
-        .ok_or_else(|| format!("unknown role `{role}`"))?;
-    Rgb::hex(v).ok_or_else(|| format!("{theme_name} {role} = {v}: a measured role needs #rrggbb"))
+    let mut name = role;
+    for _ in 0..4 {
+        let v = value(roles, name)?;
+        match v.strip_prefix("var(--").and_then(|r| r.strip_suffix(')')) {
+            Some(next) => name = next,
+            None => {
+                return Rgb::hex(v).ok_or_else(|| {
+                    format!("{theme_name} {role} = {v}: a measured role needs #rrggbb")
+                });
+            }
+        }
+    }
+    Err(format!("{theme_name} {role}: var() chain deeper than four"))
+}
+
+/// `rgb(r g b / a)` as the colour and its alpha.
+fn rgba(v: &str) -> Option<(Rgb, f64)> {
+    let inner = v.strip_prefix("rgb(")?.strip_suffix(')')?;
+    let (rgb, alpha) = inner.split_once('/')?;
+    let channels: Vec<u8> = rgb
+        .split_whitespace()
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .ok()?;
+    let alpha: f64 = alpha.trim().parse().ok()?;
+    match channels.as_slice() {
+        &[red, green, blue] if (0.0..=1.0).contains(&alpha) => Some((Rgb(red, green, blue), alpha)),
+        _ => None,
+    }
+}
+
+/// A measured ground: a role, or `a over b`, the translucent role a
+/// composited over the opaque ground b in 8-bit sRGB, as a browser paints it.
+fn ground(roles: &Decls, theme_name: &str, name: &str) -> Result<Rgb, String> {
+    let Some((top, under)) = name.split_once(" over ") else {
+        return colour(roles, theme_name, name);
+    };
+    let raw = value(roles, top)?;
+    let (over, alpha) = rgba(raw)
+        .ok_or_else(|| format!("{theme_name} {top} = {raw}: an overlay needs rgb(r g b / a)"))?;
+    let base = colour(roles, theme_name, under)?;
+    // In range: a weighted mean of two bytes.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let mix = |top: u8, low: u8| {
+        alpha
+            .mul_add(f64::from(top), (1.0 - alpha) * f64::from(low))
+            .round() as u8
+    };
+    Ok(Rgb(
+        mix(over.0, base.0),
+        mix(over.1, base.1),
+        mix(over.2, base.2),
+    ))
 }
 
 /// A listed pair: foreground, background, use, and the one theme it applies
@@ -396,7 +524,7 @@ fn pair_ratios(tokens: &Json) -> Result<Vec<Measured>, String> {
                 usage,
                 ratio: ratio(
                     colour(&roles, theme_name, fg)?,
-                    colour(&roles, theme_name, bg)?,
+                    ground(&roles, theme_name, bg)?,
                 ),
             });
         }
@@ -419,139 +547,26 @@ fn missing_pairs(tokens: &Json) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// The two distinctness groups in `tokens.json`.
-const CHART: &str = "chart-distinctness";
-const ROLES: &str = "role-distinctness";
-
-/// A list of at least two role names.
-fn names(v: &Json, what: &str) -> Result<Vec<String>, String> {
-    let list = v
-        .as_array()
-        .ok_or_else(|| format!("{what}: expected an array of role names"))?;
-    if list.len() < 2 {
-        return Err(format!("{what}: at least two roles"));
-    }
-    list.iter()
-        .map(|s| {
-            s.as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| format!("{what}: role names"))
-        })
-        .collect()
-}
-
-/// An array of name lists under `group_name.key`.
-fn name_sets(tokens: &Json, group_name: &str, key: &str) -> Result<Vec<Vec<String>>, String> {
-    let what = format!("{group_name}.{key}");
-    group(tokens, group_name)?
-        .get(key)
-        .and_then(Json::as_array)
-        .ok_or_else(|| format!("{what}: expected an array"))?
-        .iter()
-        .map(|set| names(set, &what))
-        .collect()
-}
-
-fn chart_series(tokens: &Json) -> Result<Vec<String>, String> {
-    let what = format!("{CHART}.series");
-    names(
-        group(tokens, CHART)?
-            .get("series")
-            .ok_or_else(|| format!("{what}: missing"))?,
-        &what,
-    )
-}
-
-fn min_distance(tokens: &Json, group_name: &str) -> Result<f64, String> {
-    group(tokens, group_name)?
-        .get("min-distance")
-        .and_then(Json::as_str)
-        .and_then(|s| s.parse::<f64>().ok())
-        .filter(|m| m.is_finite() && *m > 0.0)
-        .ok_or_else(|| format!("{group_name}.min-distance: a positive number as a string"))
-}
-
-/// The closest two roles of one set in one theme under one vision model.
-#[derive(Debug)]
-struct Closest {
-    group: &'static str,
-    theme: &'static str,
-    vision: Vision,
-    a: String,
-    b: String,
-    distance: f64,
-}
-
-impl std::fmt::Display for Closest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:>5} {} {:<12} closest {} / {} OKLab {:.3}",
-            self.theme,
-            self.group,
-            self.vision.name(),
-            self.a,
-            self.b,
-            self.distance
-        )
-    }
-}
-
-/// The closest pair of `set`, per theme and per vision model in `visions`.
-fn closest(
-    group_name: &'static str,
-    tokens: &Json,
-    set: &[String],
-    visions: &[Vision],
-) -> Result<Vec<Closest>, String> {
-    let mut out = Vec::new();
-    for theme_name in THEMES {
-        let roles = theme(tokens, theme_name)?;
-        let colours = set
-            .iter()
-            .map(|s| colour(&roles, theme_name, s))
-            .collect::<Result<Vec<_>, _>>()?;
-        for &vision in visions {
-            let mut worst: Option<Closest> = None;
-            for i in 0..set.len() {
-                for j in i + 1..set.len() {
-                    let d = distance(colours[i], colours[j], vision);
-                    if worst.as_ref().is_none_or(|w| d < w.distance) {
-                        worst = Some(Closest {
-                            group: group_name,
-                            theme: theme_name,
-                            vision,
-                            a: set[i].clone(),
-                            b: set[j].clone(),
-                            distance: d,
-                        });
-                    }
-                }
-            }
-            out.extend(worst);
-        }
-    }
-    Ok(out)
-}
-
-fn chart_worst(tokens: &Json) -> Result<Vec<Closest>, String> {
-    closest(CHART, tokens, &chart_series(tokens)?, &Vision::ALL)
-}
-
-/// Meaning roles: each set under normal vision, each cvd pair under every
-/// model.
-fn role_worst(tokens: &Json) -> Result<Vec<Closest>, String> {
-    let mut out = Vec::new();
-    for set in name_sets(tokens, ROLES, "sets")? {
-        out.extend(closest(ROLES, tokens, &set, &[Vision::Normal])?);
-    }
-    for pair in name_sets(tokens, ROLES, "cvd-pairs")? {
-        out.extend(closest(ROLES, tokens, &pair, &Vision::ALL)?);
-    }
-    Ok(out)
-}
-
+/// The full stylesheet, as the specimen and most surfaces take it.
+#[cfg(test)]
 fn render(tokens: &Json) -> Result<String, String> {
+    render_omitting(tokens, &[])
+}
+
+/// Each target's stylesheet: the full one less the target's omitted prefixes.
+fn copies(tokens: &Json) -> Result<Vec<(&'static str, String)>, String> {
+    TARGETS
+        .iter()
+        .map(|&(t, omit)| Ok((t, render_omitting(tokens, omit)?)))
+        .collect()
+}
+
+fn render_omitting(tokens: &Json, omit: &[&str]) -> Result<String, String> {
+    let keep = |d: Decls| -> Decls {
+        d.into_iter()
+            .filter(|(n, _)| !omit.iter().any(|p| n.starts_with(p)))
+            .collect()
+    };
     let dark = theme(tokens, THEMES[0])?;
     let light = theme(tokens, THEMES[1])?;
     let names = |d: &Decls| d.iter().map(|(n, _)| n.clone()).collect::<BTreeSet<_>>();
@@ -583,15 +598,38 @@ fn render(tokens: &Json) -> Result<String, String> {
         return Err(format!("reduced-motion overrides unknown token --{n}"));
     }
 
-    // Every selector has one class's specificity, so a surface's own sheet,
-    // loaded after this one, still wins on a shared name; the attribute blocks
-    // come after the media query, so an explicit choice beats the OS.
+    let (dark, light, global) = (keep(dark), keep(light), keep(global));
+    for (n, v) in dark.iter().chain(&light).chain(&global) {
+        for (_, rest) in v.match_indices("var(--").map(|(i, _)| v.split_at(i + 6)) {
+            let used = rest.split(')').next().unwrap_or_default();
+            if omit.iter().any(|p| used.starts_with(p)) {
+                return Err(format!("--{n} uses --{used}, which this copy omits"));
+            }
+        }
+    }
+
+    // The dark block serves :root and an explicit dark theme at once; the OS
+    // light block skips a root that chose dark, and the explicit light block
+    // comes last. Every selector has one class's specificity (:where() adds
+    // none), so a surface's own sheet, loaded after this one, still wins on a
+    // shared name, and an explicit choice beats the OS.
     let mut body = String::new();
-    block(&mut body, "", ":root", Some("dark"), &dark);
+    block(
+        &mut body,
+        "",
+        ":root, [data-theme=\"dark\"]",
+        Some("dark"),
+        &dark,
+    );
     body.push_str("@media (prefers-color-scheme: light) {\n");
-    block(&mut body, "  ", ":root", Some("light"), &light);
+    block(
+        &mut body,
+        "  ",
+        ":root:where(:not([data-theme=\"dark\"]))",
+        Some("light"),
+        &light,
+    );
     body.push_str("}\n");
-    block(&mut body, "", "[data-theme=\"dark\"]", Some("dark"), &dark);
     block(
         &mut body,
         "",
@@ -604,8 +642,13 @@ fn render(tokens: &Json) -> Result<String, String> {
     block(&mut body, "  ", ":root", None, &reduced);
     body.push_str("}\n");
     let digest = hex::encode(Sha256::digest(body.as_bytes()));
+    let subset = if omit.is_empty() {
+        String::new()
+    } else {
+        format!("\n   Omits: {}", omit.join(" "))
+    };
     Ok(format!(
-        "/* Generated by `cargo xtask design-tokens` from {SOURCE}; do not edit.\n   sha256:{digest} */\n{body}"
+        "/* Generated by `cargo xtask design-tokens` from {SOURCE}; do not edit.{subset}\n   sha256:{digest} */\n{body}"
     ))
 }
 
@@ -620,12 +663,13 @@ fn block(out: &mut String, indent: &str, selector: &str, scheme: Option<&str>, d
     let _ = writeln!(out, "{indent}}}");
 }
 
-/// Targets under `root` whose bytes differ from `css` (or that are missing).
-fn stale(root: &Path, css: &str) -> Vec<String> {
-    TARGETS
+/// Targets under `root` whose bytes differ from their copy (or that are
+/// missing).
+fn stale(root: &Path, copies: &[(&str, String)]) -> Vec<String> {
+    copies
         .iter()
-        .filter(|t| fs::read(root.join(t)).ok().as_deref() != Some(css.as_bytes()))
-        .map(|t| (*t).to_owned())
+        .filter(|(t, css)| fs::read(root.join(t)).ok().as_deref() != Some(css.as_bytes()))
+        .map(|(t, _)| (*t).to_owned())
         .collect()
 }
 
