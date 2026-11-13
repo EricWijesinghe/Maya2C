@@ -2,6 +2,7 @@
 // Ecosystem roadmap: the catalog by wave, the horizon ideas, and the comparison.
 // Everything is read from docs/ecosystem at build time (src/data/ecosystem.ts).
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import RoadmapTimeline from "../../components/RoadmapTimeline.astro";
 import RoadmapWaves from "../../components/RoadmapWaves.astro";
 import RoadmapHorizon from "../../components/RoadmapHorizon.astro";
 import RoadmapCompare from "../../components/RoadmapCompare.astro";
@@ -17,6 +18,7 @@ const eco = loadEcosystem();
       <code>features.toml</code>. Every entry comes from the catalog at build time, so the page follows the docs.
     </p>
   </div>
+  <RoadmapTimeline />
   <RoadmapWaves eco={eco} />
   <RoadmapHorizon eco={eco} />
   <RoadmapCompare eco={eco} />

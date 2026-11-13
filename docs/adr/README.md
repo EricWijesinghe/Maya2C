@@ -100,4 +100,13 @@ The observation that would make this worth reopening.
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
+| [102](ADR-102-stealth-addresses-ml-kem.md) | Stealth addresses over ML-KEM-768: hash-committed one-time addresses, view tag, v10 spend frame; spend reveals the spend address | Proposed |
+| [103](ADR-103-native-fungible-tokens.md) | Native fungible tokens: optional mint authority and an immutable 256-bit cap on the existing asset record; fee in native coin | Proposed |
+| [104](ADR-104-unique-assets.md) | Unique assets (NFTs): metadata hash only under `n:`, royalties settled on on-chain sales | Proposed |
+| [105](ADR-105-name-service.md) | Name service under `nm:`: ASCII labels, commit-reveal, renewal and premium by height, owner-only reverse records | Proposed |
+| [106](ADR-106-sponsored-fees.md) | Sponsored fees: an outer v11 frame where a sponsor co-signs txid, ceiling and expiry under the chain tag | Proposed |
+| [107](ADR-107-smart-account-promotion.md) | Smart-account promotion: session keys and spending limits on the v9 frame through `verify_with_state` | Proposed |
+| [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
+| [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
 | [135](ADR-135-v4-umbrella.md) | v4 umbrella: tokens mint/burn, NFTs, names, sponsored fees (wire v13), smart-account policy, scheduled payments as one fork; bits 41-46; threat models and cut list | Proposed |
+| [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |

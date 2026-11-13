@@ -76,16 +76,20 @@ curl https://gateway.example.com/v1/accounts/a71cf0…
 # {"balance":8400000000,"nonce":3}
 
 curl https://gateway.example.com/v1/supply
-# {"total":21000000000,"circulating":20999998400,"shielded":0,"burned":1600}
+# {"circulating":"20999998400000000000000000000000","total":"21000000000000000000000000000000"}
 ```
 
-`total` and `circulating` differ because fees are burned to an unspendable
-address rather than paid to a miner — the chain has no coinbase mechanism. Units
-at that address still exist, so `total` is conserved and `circulating` falls.
+Both figures are decimal strings of base units: amounts are 256-bit
+([ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md)),
+wider than a JSON number can carry exactly. The values above show the shape,
+not real chain figures.
 
-`shielded` is the amount inside the shielded pool. It is included in
-`circulating` and broken out because it is the figure an auditor most wants and
-the one a transparent scan cannot recover.
+`total` counts every unit that exists, including units that can never move;
+`circulating` counts the units that can. For the breakdown, ask the node's
+`get_supply` JSON-RPC method: it also reports `shielded` (units inside the
+shielded pool, already included in `circulating`) and `burned` (units at
+addresses that can never spend them). The gateway's `/v1/supply` returns only
+the two headline figures.
 
 ## Submitting
 
