@@ -910,4 +910,14 @@ The chain makes about one block a second (`docs/block-time.md`), and four compil
 - **`MIN_MIGRATION_WINDOW`** 172,800 -> 2,592,000 (30 d) and **`MIN_EMERGENCY_WINDOW`** 17,280 -> 259,200 (3 d), `crates/crypto-pq/src/agility/mod.rs`. This replaces the 2026-11-08 "2-day migration window stays".
 - **Council sunset lead** follows, being derived: 1,172,800 -> 3,592,000 blocks (about 41.6 d), replacing the 13.6 d recorded on 2026-11-08 (ADR-082 H3).
 - **The rate is pinned:** a `maya-mainnet` genesis must set `bft.round_interval_ms = 500`, refused otherwise by `GenesisConfig::validate` and `cargo xtask genesis-check`.
-- **Not changed, flagged:** `MAX_VOTING_BLOCKS`, `MAX_TIMELOCK_BLOCKS` and `EXECUTION_GRACE_BLOCKS` are still 15 s-sized (27.8 h, 55.6 h, 27.8 h at 1 s). They are ceilings, so not a safety hole; left for Eric.
+- **Not changed, flagged:** `MAX_VOTING_BLOCKS`, `MAX_TIMELOCK_BLOCKS` and `EXECUTION_GRACE_BLOCKS` are still 15 s-sized (27.8 h, 55.6 h, 27.8 h at 1 s). They are ceilings, so not a safety hole; left for Eric. (Superseded the same day: see "Eric: governance caps x15" below.)
+
+## 2026-11-13 — Eric: governance caps x15 (re-freeze bundle, PR #500)
+
+Eric chose (MCQ, recommended option) to scale the three governance ceilings x15 so they keep the wall-clock durations their 15 s sizes meant, now that the chain makes one block a second. `crates/governance/src/limits.rs`:
+
+- **`MAX_VOTING_BLOCKS`** 100,000 -> 1,500,000 (about 17.4 d).
+- **`MAX_TIMELOCK_BLOCKS`** 200,000 -> 3,000,000 (about 34.7 d).
+- **`EXECUTION_GRACE_BLOCKS`** 100,000 -> 1,500,000 (about 17.4 d).
+
+Floors unchanged and still under their ceilings (7,200 <= 1,500,000; 14,400 <= 3,000,000; the `const` block in `limits_tests.rs` fails the build otherwise). The schedule horizon (`MAX_SCHEDULE_HORIZON_BLOCKS`, 31,536,000) is measured from `expires_after`, so a longer grace does not shrink it at proposal time; the stake-lock requirement is `executable_from`, unaffected by grace. All schedule arithmetic is `saturating_add` on `u64`. Pinned by `the_ceilings_keep_their_15_second_era_durations_at_one_block_per_second`.

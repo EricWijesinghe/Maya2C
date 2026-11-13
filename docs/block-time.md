@@ -109,12 +109,14 @@ ADR-068 tail rate (`:49-55`), ADR-135's `QUARTER_BLOCKS = 7,776,000` and
 (PR #500): the floors are 7,200 / 14,400 blocks, `MIN_MIGRATION_WINDOW` is
 2,592,000 and `MIN_EMERGENCY_WINDOW` 259,200, and both the node's
 `GenesisConfig::validate` and `xtask genesis-check` refuse a mainnet
-`round_interval_ms` other than 500. Items 3 and 5-8 stay open. Not in the list
-and still sized at 15 s: `MAX_VOTING_BLOCKS` 100,000 (27.8 h at 1 s),
-`MAX_TIMELOCK_BLOCKS` 200,000 (55.6 h) and `EXECUTION_GRACE_BLOCKS` 100,000
-(27.8 h), all in `crates/governance/src/limits.rs`. They are ceilings, so they
-make governance stricter rather than unsafe, but a passed proposal nobody
-executes inside 27.8 h expires.
+`round_interval_ms` other than 500. Items 3 and 5-8 stay open. Not in the list,
+and also done in the bundle (Eric, 2026-11-13): the governance ceilings in
+`crates/governance/src/limits.rs` were scaled x15 so they keep the wall-clock
+durations their 15 s sizes meant: `MAX_VOTING_BLOCKS` 100,000 -> 1,500,000
+(about 17.4 d), `MAX_TIMELOCK_BLOCKS` 200,000 -> 3,000,000 (about 34.7 d) and
+`EXECUTION_GRACE_BLOCKS` 100,000 -> 1,500,000 (about 17.4 d). Pinned by
+`the_ceilings_keep_their_15_second_era_durations_at_one_block_per_second`
+(`crates/governance/tests/limits_tests.rs`).
 
 1. **Pin the convention.** Make 1 block/s the written rule: add a line to
    invariant 34's text, and have `xtask genesis-check` refuse a mainnet

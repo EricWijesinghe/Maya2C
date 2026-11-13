@@ -80,6 +80,32 @@ fn the_floors_are_ordered_so_a_valid_schedule_exists() {
     }
 }
 
+/// The mainnet rate: one block per second (`round_interval_ms` 500, an anchor
+/// every 2 rounds; `docs/block-time.md`, pinned by `xtask genesis-check`).
+const SECONDS_PER_BLOCK: u64 = 1;
+/// The block spacing the ceilings were first sized at (15 s proof of work).
+const POW_SECONDS_PER_BLOCK: u64 = 15;
+
+#[test]
+fn the_ceilings_keep_their_15_second_era_durations_at_one_block_per_second() {
+    // Eric, 2026-11-13: the ceilings were sized as 100,000 / 200,000 / 100,000
+    // blocks of 15 s. At 1 block/s they must still mean the same wall-clock
+    // time, or a proposal nobody executes inside 27.8 h expires.
+    let designed = |pow_blocks: u64| pow_blocks * POW_SECONDS_PER_BLOCK;
+    // About 17.4 d, 34.7 d and 17.4 d.
+    assert_eq!(MAX_VOTING_BLOCKS * SECONDS_PER_BLOCK, designed(100_000));
+    assert_eq!(MAX_TIMELOCK_BLOCKS * SECONDS_PER_BLOCK, designed(200_000));
+    let grace_seconds = EXECUTION_GRACE_BLOCKS * SECONDS_PER_BLOCK;
+    assert_eq!(grace_seconds, designed(100_000));
+
+    // Every floor still sits under its ceiling, at the same rate; a build
+    // that inverted one fails to compile.
+    const {
+        assert!(MIN_VOTING_BLOCKS <= MAX_VOTING_BLOCKS);
+        assert!(MIN_TIMELOCK_BLOCKS <= MAX_TIMELOCK_BLOCKS);
+    }
+}
+
 #[test]
 fn every_refusal_says_something_specific() {
     // A refusal that renders as an empty string, or as the same string as

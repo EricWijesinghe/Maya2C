@@ -223,7 +223,7 @@ fatal:
 | `MAX_GOVERNANCE_TX_PER_BLOCK` | 32 | Every proposal opened is one the end-of-block pass visits for life |
 | `MAX_AUTHORITIES`-style ceilings | see table | Each parameter's own range |
 | `MAX_WEIGHT` | `u64::MAX` | Keeps every tally product far inside `u128` |
-| `EXECUTION_GRACE_BLOCKS` | 100,000 | A stale change landing into a chain that moved on |
+| `EXECUTION_GRACE_BLOCKS` | 1,500,000 (about 17.4 d at 1 block/s) | A stale change landing into a chain that moved on |
 
 ---
 
