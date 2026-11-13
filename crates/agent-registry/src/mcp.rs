@@ -35,7 +35,7 @@ pub fn tools() -> Vec<Value> {
                    "quote": {"type": "object"}, "payee_card": {"type": "object"},
                    "payer": {"type": "string", "description": "your agent id, 64 hex characters"}},
                    "required": ["quote", "payee_card", "payer"]}}),
-        json!({"name": "agent_verify_receipt", "description": "Check that a payee-signed receipt describes a given transfer (txid, memo, to, amount, height). The transfer is taken as given: this does not look it up on chain, so confirm the txid with get_transaction first.",
+        json!({"name": "agent_verify_receipt", "description": "Check that a payee-signed receipt describes a given transfer (txid, memo, to, amount, height). The transfer is taken as given: this does not look it up on chain, so confirm the txid with get_tx (at the transfer's height) first.",
                "inputSchema": {"type": "object", "properties": {
                    "receipt": {"type": "object"}, "payee_card": {"type": "object"}, "transfer": {"type": "object"}},
                    "required": ["receipt", "payee_card", "transfer"]}}),
