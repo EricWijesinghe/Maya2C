@@ -7,7 +7,7 @@
 //! kind     = 0 module:u8 blocks:u64      pause
 //!          | 1 module:u8                 resume
 //!          | 2 announced_at:u64 n:u64 (suite:u8 sunset:u64 emergency:u8)*n
-//!          | 3 rotation                  rotate
+//!          | 3 rotation acceptance[3309]*n   rotate (n = the rotation's members)
 //! rotation = activation:u64 threshold:u8 n:u64 key[1952]*n
 //! ```
 //!
@@ -17,6 +17,12 @@
 //! the council's current nonce so an approval cannot be replayed, and the
 //! chain's genesis (ADR-036 tag) so it cannot be replayed on another chain
 //! whose council shares a key (ADR-050 review finding, 2026-10-19).
+//!
+//! A rotation also carries one acceptance per new member: that member's
+//! signature over [`Rotation::acceptance_message`]. It proves each new key has
+//! a holder, so a typo or a hostile transaction builder cannot hand the
+//! council to keys nobody holds (review of PR #544, 2026-11-14). The
+//! acceptances are part of the kind, so the approvals sign them too.
 
 use crate::core::codec::ByteReader;
 use crate::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
@@ -28,6 +34,10 @@ use crate::state::upgrades::SunsetSpec;
 /// v2 since 2026-10-19: the message gained the chain tag. A new domain, not
 /// only a longer message, so no v1 approval can be read as a v2 one.
 pub const COUNCIL_DOMAIN: &[u8] = b"maya2c/security-council/v2";
+
+/// Domain of a new member's acceptance of a rotation: never a valid approval,
+/// and no approval is ever a valid acceptance.
+pub const ROTATION_ACCEPT_DOMAIN: &[u8] = b"maya2c/security-council/rotation-accept/v1";
 
 /// Most approvals one action may carry: well above any sane council.
 pub const MAX_APPROVALS: usize = 32;
@@ -69,7 +79,13 @@ pub enum CouncilKind {
         sunsets: Vec<SunsetSpec>,
     },
     /// Replace the council's members and threshold from a later height.
-    Rotate(Rotation),
+    Rotate {
+        /// The new set and when it takes over.
+        rotation: Rotation,
+        /// One per new member, in member order: its signature over
+        /// [`Rotation::acceptance_message`].
+        acceptances: Vec<Box<[u8; SIGNATURE_LENGTH]>>,
+    },
 }
 
 /// A new council member set, and the height it takes over at.
@@ -92,6 +108,17 @@ impl Rotation {
         for key in &self.members {
             buf.extend_from_slice(key);
         }
+    }
+
+    /// What each new member signs to accept a seat: the domain, the chain's
+    /// tag and the rotation. No nonce: an acceptance is of this exact set at
+    /// this exact height, and only a council quorum can land it.
+    #[must_use]
+    pub fn acceptance_message(&self, chain: &crate::core::ChainTag) -> Vec<u8> {
+        let mut m = ROTATION_ACCEPT_DOMAIN.to_vec();
+        m.extend_from_slice(chain.as_bytes());
+        self.encode_into(&mut m);
+        m
     }
 
     /// Decodes a rotation. The member set's soundness (a strict majority,
@@ -155,9 +182,15 @@ impl CouncilAction {
                     buf.push(u8::from(sunset.emergency));
                 }
             }
-            CouncilKind::Rotate(rotation) => {
+            CouncilKind::Rotate {
+                rotation,
+                acceptances,
+            } => {
                 buf.push(ROTATE);
                 rotation.encode_into(buf);
+                for sig in acceptances {
+                    buf.extend_from_slice(sig.as_slice());
+                }
             }
         }
         buf.extend_from_slice(&self.nonce.to_le_bytes());
@@ -219,7 +252,16 @@ impl CouncilAction {
                     sunsets,
                 }
             }
-            ROTATE => CouncilKind::Rotate(Rotation::decode(r)?),
+            ROTATE => {
+                let rotation = Rotation::decode(r)?;
+                let acceptances = (0..rotation.members.len())
+                    .map(|_| Ok(Box::new(r.read_array()?)))
+                    .collect::<Result<_>>()?;
+                CouncilKind::Rotate {
+                    rotation,
+                    acceptances,
+                }
+            }
             t => return Err(NodeError::Decode(format!("council action kind {t}"))),
         };
         let nonce = r.read_u64()?;
@@ -275,15 +317,18 @@ mod tests {
                 blocks: 50,
             },
             CouncilKind::Resume { module: 2 },
-            CouncilKind::Rotate(Rotation {
-                activation: 9,
-                threshold: 2,
-                members: vec![
-                    [4; PUBLIC_KEY_LEN],
-                    [5; PUBLIC_KEY_LEN],
-                    [6; PUBLIC_KEY_LEN],
-                ],
-            }),
+            CouncilKind::Rotate {
+                rotation: Rotation {
+                    activation: 9,
+                    threshold: 2,
+                    members: vec![
+                        [4; PUBLIC_KEY_LEN],
+                        [5; PUBLIC_KEY_LEN],
+                        [6; PUBLIC_KEY_LEN],
+                    ],
+                },
+                acceptances: (0..3u8).map(|i| Box::new([i; SIGNATURE_LENGTH])).collect(),
+            },
         ] {
             let a = CouncilAction {
                 kind,
@@ -319,5 +364,37 @@ mod tests {
         buf.extend_from_slice(&0u64.to_le_bytes());
         let err = CouncilAction::decode(&mut ByteReader::new(&buf)).unwrap_err();
         assert!(err.to_string().contains("exceeds"), "{err}");
+    }
+
+    #[test]
+    fn a_rotation_missing_an_acceptance_does_not_decode_and_accepting_is_not_approving() {
+        let rotation = Rotation {
+            activation: 9,
+            threshold: 1,
+            members: vec![[4; PUBLIC_KEY_LEN]],
+        };
+        let action = CouncilAction {
+            kind: CouncilKind::Rotate {
+                rotation: rotation.clone(),
+                acceptances: vec![],
+            },
+            nonce: 0,
+            approvals: vec![],
+        };
+        let mut buf = Vec::new();
+        action.encode_into(&mut buf);
+        // One member and no acceptance: the nonce and the approval count are
+        // read as the acceptance, and the reader runs short.
+        assert!(CouncilAction::decode(&mut ByteReader::new(&buf)).is_err());
+        let chain = crate::core::ChainTag::from_genesis([1; 32]);
+        assert_ne!(
+            rotation.acceptance_message(&chain),
+            action.signing_message(&chain)
+        );
+        assert!(
+            rotation
+                .acceptance_message(&chain)
+                .starts_with(ROTATION_ACCEPT_DOMAIN)
+        );
     }
 }

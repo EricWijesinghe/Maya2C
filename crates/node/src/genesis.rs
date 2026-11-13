@@ -165,8 +165,10 @@ impl CouncilGenesis {
     ///
     /// # Errors
     ///
-    /// A malformed key, a duplicate member, or a threshold that is not a
-    /// strict majority (a minority could pause over the majority's head).
+    /// A malformed key, a duplicate member, a threshold that is not a strict
+    /// majority (a minority could pause over the majority's head), or more
+    /// than `MAX_COUNCIL_MEMBERS` (32) members: a new bound since 2026-11-14,
+    /// because a strict majority of 33 would not fit in `MAX_APPROVALS`.
     pub fn record(&self) -> Result<crate::state::council::CouncilRecord> {
         let mut members = Vec::with_capacity(self.members.len());
         for (i, m) in self.members.iter().enumerate() {
@@ -189,6 +191,7 @@ impl CouncilGenesis {
             members,
             pending: None,
             last_sunset_at: None,
+            last_pause_end: std::collections::BTreeMap::new(),
         })
     }
 }

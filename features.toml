@@ -3420,9 +3420,9 @@ domain = "Governance"
 paths = "`crates/node/src/state/council.rs`, `crates/node/src/core/council_payload.rs`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = ["crates/node/tests/council_pause_tests.rs"]
-note = "ADR-050, ADR-082 amendment 2026-11-14 (founder audit Q7 A + cooldown, Q8 A; Eric 2026-11-14): Governance is not council-pausable; a council pause or sunset is refused within COUNCIL_RENEWAL_COOLDOWN_BLOCKS (86,400) of the last; CouncilKind::Rotate hands over to a new strict-majority key set no sooner than COUNCIL_ROTATION_LEAD_BLOCKS (86,400). Holders are still one operator's devices (audit Q9, open)."
+note = "ADR-050, ADR-082 amendment 2026-11-14 (founder audit Q7 A + cooldown, Q8 A; Eric 2026-11-14): Governance is not council-pausable; a council pause is refused within COUNCIL_RENEWAL_COOLDOWN_BLOCKS (86,400) after the last council pause of that module ends, a council sunset within the same after the last; CouncilKind::Rotate, with an acceptance signed by every new member, hands over to a new strict-majority key set no sooner than COUNCIL_ROTATION_LEAD_BLOCKS (86,400), and needs a live quorum. Status working, not verified, until CI is green on PR #544: local runs are in reports/sessions/2026-11-14-council-hardening.md. Holders are still one operator's devices (audit Q9, open)."
 
 [[subsystem]]
 id = "eth-beacon-light-client"

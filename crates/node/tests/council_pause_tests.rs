@@ -23,7 +23,9 @@ use custom_l1_node::genesis::{Allocation, CouncilGenesis, GenesisConfig};
 use custom_l1_node::state::BlockContext;
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::invariant_guard::Module;
-use maya_governance::limits::{COUNCIL_RENEWAL_COOLDOWN_BLOCKS, COUNCIL_ROTATION_LEAD_BLOCKS};
+use maya_governance::limits::{
+    COUNCIL_RENEWAL_COOLDOWN_BLOCKS, COUNCIL_ROTATION_LEAD_BLOCKS, MAX_SCHEDULE_HORIZON_BLOCKS,
+};
 use tempfile::TempDir;
 
 mod common;
@@ -424,15 +426,24 @@ fn pause(module: Module, blocks: u64) -> CouncilKind {
     }
 }
 
+/// A rotation to `members` (key seeds), each of whom signs its acceptance.
 fn rotation(activation: u64, threshold: u8, members: &[u8]) -> CouncilKind {
-    CouncilKind::Rotate(Rotation {
+    let rotation = Rotation {
         activation,
         threshold,
         members: members
             .iter()
             .map(|i| member(*i).verifying_key().to_bytes())
             .collect(),
-    })
+    };
+    let accepted = rotation.acceptance_message(&common::test_chain());
+    CouncilKind::Rotate {
+        acceptances: members
+            .iter()
+            .map(|i| Box::new(member(*i).sign(&accepted).unwrap()))
+            .collect(),
+        rotation,
+    }
 }
 
 #[test]
@@ -579,7 +590,7 @@ fn a_rotation_with_too_few_approvals_is_refused() {
     // A member's approval counted twice is still one approval.
     let twice = at(&db, 1, vec![council(kind, 0, &[0, 0], 0)]).unwrap_err();
     assert!(twice.contains("approvals"), "{twice}");
-    let record = db.committed_council().unwrap().unwrap();
+    let record = db.committed_council(1).unwrap().unwrap();
     assert_eq!((record.nonce, record.pending), (0, None));
 }
 
@@ -598,7 +609,7 @@ fn a_rotation_must_clear_the_lead_and_name_a_sound_set() {
         let err = at(&db, 1, vec![council(kind, 0, &[0, 1], 0)]).unwrap_err();
         assert!(err.contains(why), "wanted {why}: {err}");
     }
-    assert_eq!(db.committed_council().unwrap().unwrap().pending, None);
+    assert_eq!(db.committed_council(1).unwrap().unwrap().pending, None);
 }
 
 #[test]
@@ -613,7 +624,7 @@ fn a_rotation_takes_effect_at_its_height_and_not_before() {
     )
     .unwrap();
     // Scheduled, and public in the record from the block that carried it.
-    let record = db.committed_council().unwrap().unwrap();
+    let record = db.committed_council(1).unwrap().unwrap();
     assert_eq!(record.nonce, 1);
     assert_eq!(record.pending.as_ref().unwrap().activation, activation);
     assert_eq!(record.members[0], member(0).verifying_key().to_bytes());
@@ -642,7 +653,7 @@ fn a_rotation_takes_effect_at_its_height_and_not_before() {
         vec![council_with(resume(), 2, &new_set[1..], 2)],
     )
     .unwrap();
-    let record = db.committed_council().unwrap().unwrap();
+    let record = db.committed_council(activation).unwrap().unwrap();
     assert_eq!(record.pending, None);
     assert_eq!(record.nonce, 3);
     assert_eq!(
@@ -652,4 +663,176 @@ fn a_rotation_takes_effect_at_its_height_and_not_before() {
             .map(|i| member(*i).verifying_key().to_bytes())
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn a_council_pause_that_expires_unresumed_cools_down_from_its_end() {
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    at(&db, 1, vec![council(pause(Module::Dex, 3), 0, &[0, 1], 0)]).unwrap();
+    // Nobody resumes; the pause ends at 4 on its own.
+    let open_at = 1 + 3 + COUNCIL_RENEWAL_COOLDOWN_BLOCKS;
+    let early = at(
+        &db,
+        open_at - 1,
+        vec![council(pause(Module::Dex, 3), 1, &[0, 1], 1)],
+    )
+    .unwrap_err();
+    assert!(early.contains("cooldown"), "{early}");
+    at(
+        &db,
+        open_at,
+        vec![council(pause(Module::Dex, 3), 1, &[0, 1], 1)],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_rotation_past_the_schedule_horizon_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let beyond = 1 + MAX_SCHEDULE_HORIZON_BLOCKS + 1;
+    let err = at(
+        &db,
+        1,
+        vec![council(rotation(beyond, 2, &[3, 4, 5]), 0, &[0, 1], 0)],
+    )
+    .unwrap_err();
+    assert!(err.contains("horizon"), "{err}");
+    // The horizon itself is inside.
+    at(
+        &db,
+        1,
+        vec![council(rotation(beyond - 1, 2, &[3, 4, 5]), 0, &[0, 1], 0)],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_rotation_naming_a_key_nobody_signed_for_is_refused() {
+    // A typo or a hostile builder must not hand the council to a key with no
+    // holder: every new member signs its acceptance.
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let activation = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    let CouncilKind::Rotate {
+        rotation: set,
+        mut acceptances,
+    } = rotation(activation, 2, &[3, 4, 5])
+    else {
+        unreachable!()
+    };
+    // Member 5's seat accepted by member 6's key: not member 5.
+    let wrong = member(6)
+        .sign(&set.acceptance_message(&common::test_chain()))
+        .unwrap();
+    acceptances[2] = Box::new(wrong);
+    let kind = CouncilKind::Rotate {
+        rotation: set.clone(),
+        acceptances: acceptances.clone(),
+    };
+    let err = at(&db, 1, vec![council(kind, 0, &[0, 1], 0)]).unwrap_err();
+    assert!(err.contains("acceptance"), "{err}");
+    // An acceptance for another chain is not one for this chain.
+    let elsewhere = custom_l1_node::core::ChainTag::from_genesis([0xEE; 32]);
+    acceptances[2] = Box::new(member(5).sign(&set.acceptance_message(&elsewhere)).unwrap());
+    let kind = CouncilKind::Rotate {
+        rotation: set.clone(),
+        acceptances: acceptances.clone(),
+    };
+    let err = at(&db, 1, vec![council(kind, 0, &[0, 1], 0)]).unwrap_err();
+    assert!(err.contains("acceptance"), "{err}");
+    // One acceptance short.
+    acceptances.pop();
+    let kind = CouncilKind::Rotate {
+        rotation: set,
+        acceptances,
+    };
+    let err = at(&db, 1, vec![council(kind, 0, &[0, 1], 0)]).unwrap_err();
+    assert!(err.contains("acceptance"), "{err}");
+    assert_eq!(db.committed_council(1).unwrap().unwrap().pending, None);
+}
+
+#[test]
+fn a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again() {
+    // How a mistaken rotation is withdrawn (ADR-082 amendment).
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let first = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    at(
+        &db,
+        1,
+        vec![council(rotation(first, 2, &[3, 4, 5]), 0, &[0, 1], 0)],
+    )
+    .unwrap();
+    // The replacement must clear the lead from its own block, 10, so the
+    // first one's activation height is too early for it.
+    let early = at(
+        &db,
+        10,
+        vec![council(rotation(first, 1, &[6]), 1, &[0, 1], 1)],
+    )
+    .unwrap_err();
+    assert!(early.contains("lead"), "{early}");
+    let second = 10 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    at(
+        &db,
+        10,
+        vec![council(rotation(second, 1, &[6]), 1, &[0, 1], 1)],
+    )
+    .unwrap();
+    let record = db.committed_council(10).unwrap().unwrap();
+    assert_eq!(record.nonce, 2);
+    let pending = record.pending.unwrap();
+    assert_eq!((pending.activation, pending.threshold), (second, 1));
+    assert_eq!(pending.members, vec![member(6).verifying_key().to_bytes()]);
+    // At the first one's height nothing changes: it was replaced.
+    let still_old = db.committed_council(first).unwrap().unwrap();
+    assert_eq!(still_old.members[0], member(0).verifying_key().to_bytes());
+    assert_eq!(still_old.threshold, 2);
+}
+
+#[test]
+fn the_committed_council_read_after_activation_is_the_new_one() {
+    // No council action between the activation and the read: the stored
+    // record still holds the rotation as pending, and the read applies it.
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let activation = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    at(
+        &db,
+        1,
+        vec![council(rotation(activation, 2, &[3, 4, 5]), 0, &[0, 1], 0)],
+    )
+    .unwrap();
+    let before = db.committed_council(activation - 1).unwrap().unwrap();
+    assert_eq!(before.members[0], member(0).verifying_key().to_bytes());
+    assert!(before.pending.is_some());
+    let after = db.committed_council(activation).unwrap().unwrap();
+    assert_eq!(after.members[0], member(3).verifying_key().to_bytes());
+    assert_eq!((after.pending, after.nonce), (None, 1));
+}
+
+#[test]
+fn a_genesis_council_of_more_than_32_members_is_refused() {
+    // The genesis rule a rotation shares: before 2026-11-14 genesis had no
+    // upper bound, and a strict majority of 33 could never fit in
+    // MAX_APPROVALS (32) approvals.
+    let council = |n: u8| CouncilGenesis {
+        members: (0..n)
+            .map(|i| {
+                hex::encode(
+                    keys::signing_key_from_seed(&[i; 32])
+                        .unwrap()
+                        .verifying_key()
+                        .to_bytes(),
+                )
+            })
+            .collect(),
+        threshold: n / 2 + 1,
+        max_pause_blocks: MAX_PAUSE,
+    };
+    council(32).record().unwrap();
+    let err = council(33).record().unwrap_err().to_string();
+    assert!(err.contains("32"), "{err}");
 }

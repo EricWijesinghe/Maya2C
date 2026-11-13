@@ -9,23 +9,31 @@
 //!   the council itself — so the chain keeps finalizing, value keeps moving,
 //!   and the vote that would answer the council stays open (founder audit Q7);
 //! - it expires on its own after at most `max_pause_blocks`, and the council
-//!   cannot renew it until `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` after it ends;
+//!   cannot renew it until `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` after it ends.
+//!   The end is kept in the council record (`last_pause_end`), not read back
+//!   from the breaker record, because an automatic trip overwrites that one;
 //!   every action advances the nonce;
 //! - it is recorded under the governance prefix, so it is in the state root
 //!   and every node enforces it identically.
 //!
-//! A rotation (founder audit Q8) waits in the record, public, for at least
-//! `COUNCIL_ROTATION_LEAD_BLOCKS`; [`CouncilRecord::at`] makes it the council
-//! from its activation height (ADR-082 amendment, 2026-11-14).
+//! A rotation (founder audit Q8) needs a quorum of the council in force and an
+//! acceptance signed by every new member. It waits in the record, public, for
+//! at least `COUNCIL_ROTATION_LEAD_BLOCKS`; [`CouncilRecord::at`] makes it the
+//! council from its activation height (ADR-082 amendment, 2026-11-14). It
+//! cannot recover a council that has lost its quorum: that still takes a
+//! re-genesis.
 //!
 //! Present only when genesis names a council; otherwise council actions are
 //! refused and no record exists.
 
+use std::collections::BTreeMap;
+
+use crate::core::ChainTag;
 use crate::core::codec::ByteReader;
 use crate::core::council_payload::{CouncilAction, CouncilKind, MAX_COUNCIL_MEMBERS, Rotation};
 use crate::core::governance_payload::read_flag;
-use crate::crypto::PUBLIC_KEY_LEN;
 use crate::crypto::keys::VerifyingKey;
+use crate::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 use crate::error::{NodeError, Result};
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
@@ -57,18 +65,23 @@ pub struct CouncilRecord {
     pub pending: Option<Rotation>,
     /// Height of the council's last suite sunset, for the renewal cooldown.
     pub last_sunset_at: Option<u64>,
+    /// End of the council's last pause of each module (by module tag), for
+    /// the renewal cooldown; a resume sets it to the resume's height.
+    pub last_pause_end: BTreeMap<u8, u64>,
 }
 
 impl CouncilRecord {
     /// Encodes the record.
     ///
-    /// Version 1 when neither later field is set, so a council that never
-    /// rotated or sunset keeps the bytes (and the genesis root) it always had;
-    /// version 2 otherwise. One form per value: a version 2 record with both
-    /// fields empty does not decode.
+    /// Version 1 when none of the later fields is set, so a council that never
+    /// acted keeps the bytes (and the genesis root) it always had; version 2
+    /// otherwise. One form per value: a version 2 record with every later
+    /// field empty does not decode.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let extended = self.pending.is_some() || self.last_sunset_at.is_some();
+        let extended = self.pending.is_some()
+            || self.last_sunset_at.is_some()
+            || !self.last_pause_end.is_empty();
         let mut out = vec![if extended { 2u8 } else { 1 }, self.threshold];
         out.extend_from_slice(&self.max_pause_blocks.to_le_bytes());
         out.extend_from_slice(&self.nonce.to_le_bytes());
@@ -82,6 +95,11 @@ impl CouncilRecord {
             out.push(u8::from(self.pending.is_some()));
             if let Some(rotation) = &self.pending {
                 rotation.encode_into(&mut out);
+            }
+            out.extend_from_slice(&(self.last_pause_end.len() as u64).to_le_bytes());
+            for (tag, end) in &self.last_pause_end {
+                out.push(*tag);
+                out.extend_from_slice(&end.to_le_bytes());
             }
         }
         out
@@ -104,6 +122,7 @@ impl CouncilRecord {
         let n = r.read_collection_len(PUBLIC_KEY_LEN)?;
         let members = (0..n).map(|_| r.read_array()).collect::<Result<_>>()?;
         let (mut last_sunset_at, mut pending) = (None, None);
+        let mut last_pause_end = BTreeMap::new();
         if version == 2 {
             let has_sunset = read_flag(&mut r)?;
             let height = r.read_u64()?;
@@ -117,7 +136,21 @@ impl CouncilRecord {
             if read_flag(&mut r)? {
                 pending = Some(Rotation::decode(&mut r)?);
             }
-            if last_sunset_at.is_none() && pending.is_none() {
+            for _ in 0..r.read_collection_len(1 + 8)? {
+                let tag = r.read_u8()?;
+                // Ascending and known: one form per record.
+                if Module::from_tag(tag).is_none()
+                    || last_pause_end
+                        .last_key_value()
+                        .is_some_and(|(t, _)| *t >= tag)
+                {
+                    return Err(NodeError::Decode(format!(
+                        "council record: pause end for module {tag} out of order or unknown"
+                    )));
+                }
+                last_pause_end.insert(tag, r.read_u64()?);
+            }
+            if last_sunset_at.is_none() && pending.is_none() && last_pause_end.is_empty() {
                 return Err(NodeError::Decode("council record: empty version 2".into()));
             }
         }
@@ -129,6 +162,7 @@ impl CouncilRecord {
             members,
             pending,
             last_sunset_at,
+            last_pause_end,
         })
     }
 
@@ -177,14 +211,17 @@ pub fn check_member_set(
 }
 
 impl StateDB {
-    /// The committed council, for RPC and operators.
+    /// The committed council as it is in force at `height`, for RPC and
+    /// operators: a rotation whose activation has come is applied, although
+    /// the stored record holds it as pending until the council's next action
+    /// writes the record back.
     ///
     /// # Errors
     ///
     /// Storage failure or a damaged record.
-    pub fn committed_council(&self) -> Result<Option<CouncilRecord>> {
+    pub fn committed_council(&self, height: u64) -> Result<Option<CouncilRecord>> {
         self.raw_get(COUNCIL_KEY)?
-            .map(|b| CouncilRecord::decode(&b))
+            .map(|b| CouncilRecord::decode(&b).map(|c| c.at(height)))
             .transpose()
     }
 
@@ -209,7 +246,8 @@ impl StateDB {
         if action.nonce != council.nonce {
             return refuse(format!("nonce {} is not {}", action.nonce, council.nonce));
         }
-        let message = action.signing_message(self.get_chain_tag()?);
+        let chain = self.get_chain_tag()?;
+        let message = action.signing_message(chain);
         let mut approved = std::collections::BTreeSet::new();
         for (member, sig) in &action.approvals {
             let Some(key) = council.members.get(usize::from(*member)) else {
@@ -240,8 +278,18 @@ impl StateDB {
                     context,
                 );
             }
-            CouncilKind::Rotate(rotation) => {
-                return Self::schedule_rotation(overlay, council, rotation, context);
+            CouncilKind::Rotate {
+                rotation,
+                acceptances,
+            } => {
+                return Self::schedule_rotation(
+                    overlay,
+                    council,
+                    rotation,
+                    acceptances,
+                    chain,
+                    context,
+                );
             }
         };
         let module = Module::from_tag(module_tag)
@@ -252,7 +300,7 @@ impl StateDB {
         }
         let record = match action.kind {
             // Returned above; refused here rather than trusted to stay that way.
-            CouncilKind::SunsetSuites { .. } | CouncilKind::Rotate(_) => {
+            CouncilKind::SunsetSuites { .. } | CouncilKind::Rotate { .. } => {
                 return refuse("a sunset is not a pause".into());
             }
             CouncilKind::Pause { blocks, .. } => {
@@ -262,13 +310,10 @@ impl StateDB {
                         council.max_pause_blocks
                     ));
                 }
-                // A resume writes an expired council pause, so the cooldown
-                // runs from it too. An automatic breaker sets no cooldown.
-                if let Some(last) = self
-                    .breaker(overlay, module)?
-                    .filter(|b| b.invariant == Invariant::CouncilPause)
-                {
-                    let open_at = last.until.saturating_add(COUNCIL_RENEWAL_COOLDOWN_BLOCKS);
+                // Read from the council record: an automatic trip overwrites
+                // the breaker record and must not reset the council's clock.
+                if let Some(end) = council.last_pause_end.get(&module_tag) {
+                    let open_at = end.saturating_add(COUNCIL_RENEWAL_COOLDOWN_BLOCKS);
                     if context.height < open_at {
                         return refuse(format!(
                             "{} is in its renewal cooldown until height {open_at}",
@@ -293,6 +338,7 @@ impl StateDB {
             },
         };
         StateDB::put_record(overlay, guard_key(module), record.encode().to_vec());
+        council.last_pause_end.insert(module_tag, record.until);
         council.nonce = council.nonce.saturating_add(1);
         StateDB::put_record(overlay, COUNCIL_KEY.to_vec(), council.encode());
         Ok(())
@@ -352,11 +398,14 @@ impl StateDB {
     }
 
     /// Records a rotation the council in force approved (founder audit Q8).
-    /// It replaces any pending one, and must clear the lead from this block.
+    /// Every new member must have signed its acceptance. It replaces any
+    /// pending one, and must clear the lead from this block.
     fn schedule_rotation(
         overlay: &mut Overlay,
         mut council: CouncilRecord,
         rotation: &Rotation,
+        acceptances: &[Box<[u8; SIGNATURE_LENGTH]>],
+        chain: &ChainTag,
         context: BlockContext,
     ) -> Result<()> {
         let refuse = |why: String| {
@@ -366,6 +415,24 @@ impl StateDB {
         };
         if let Err(why) = check_member_set(rotation.threshold, &rotation.members) {
             return refuse(why);
+        }
+        if acceptances.len() != rotation.members.len() {
+            return refuse(format!(
+                "{} acceptances for {} members",
+                acceptances.len(),
+                rotation.members.len()
+            ));
+        }
+        let accepted = rotation.acceptance_message(chain);
+        for (i, (key, sig)) in rotation.members.iter().zip(acceptances).enumerate() {
+            if VerifyingKey::from_bytes(key)?
+                .verify(&accepted, sig)
+                .is_err()
+            {
+                return refuse(format!(
+                    "members[{i}] did not sign its acceptance: nobody is shown to hold that key"
+                ));
+            }
         }
         let earliest = context.height.saturating_add(COUNCIL_ROTATION_LEAD_BLOCKS);
         let latest = context.height.saturating_add(MAX_SCHEDULE_HORIZON_BLOCKS);
@@ -400,6 +467,7 @@ mod tests {
             ],
             pending: None,
             last_sunset_at: None,
+            last_pause_end: BTreeMap::new(),
         };
         assert_eq!(CouncilRecord::decode(&r.encode()).unwrap(), r);
         assert_eq!(r.encode()[0], 1, "no rotation, no sunset: version 1 bytes");
@@ -410,6 +478,7 @@ mod tests {
                 members: vec![[4; PUBLIC_KEY_LEN]],
             }),
             last_sunset_at: Some(7),
+            last_pause_end: BTreeMap::from([(Module::Dex.tag(), 40), (Module::Vm.tag(), 41)]),
             ..r.clone()
         };
         assert_eq!(CouncilRecord::decode(&extended.encode()).unwrap(), extended);
@@ -417,8 +486,29 @@ mod tests {
         // version 1 record, and is refused.
         let mut empty_v2 = r.encode();
         empty_v2[0] = 2;
-        empty_v2.extend_from_slice(&[0; 1 + 8 + 1]);
+        empty_v2.extend_from_slice(&[0; 1 + 8 + 1 + 8]);
         assert!(CouncilRecord::decode(&empty_v2).is_err());
+        // Flag 0 with a non-zero height would be a second form too.
+        let only_pause = CouncilRecord {
+            last_pause_end: BTreeMap::from([(Module::Dex.tag(), 40)]),
+            ..r.clone()
+        };
+        let mut stray = only_pause.encode();
+        assert_eq!(stray[0], 2);
+        let flag = r.encode().len();
+        assert_eq!(stray[flag], 0, "no sunset");
+        stray[flag + 1] = 5;
+        let err = CouncilRecord::decode(&stray).unwrap_err();
+        assert!(err.to_string().contains("stray"), "{err}");
+        // Pause ends out of order, repeated, or for an unknown module.
+        let pause_at = stray.len() - 9;
+        for tag in [u8::MAX, Module::Dex.tag()] {
+            let mut bad = only_pause.encode();
+            bad.splice(pause_at - 8..pause_at, 2u64.to_le_bytes());
+            bad.push(tag);
+            bad.extend_from_slice(&41u64.to_le_bytes());
+            assert!(CouncilRecord::decode(&bad).is_err(), "tag {tag}");
+        }
     }
 
     #[test]
@@ -438,11 +528,67 @@ mod tests {
                 members: vec![[9; PUBLIC_KEY_LEN]],
             }),
             last_sunset_at: None,
+            last_pause_end: BTreeMap::new(),
         };
         assert_eq!(r.clone().at(49), r);
         let rotated = r.at(50);
         assert_eq!(rotated.threshold, 1);
         assert_eq!(rotated.members, vec![[9; PUBLIC_KEY_LEN]]);
         assert_eq!((rotated.pending, rotated.nonce), (None, 3));
+    }
+
+    /// An automatic trip rewrites the module's breaker record. Before
+    /// 2026-11-14's review the cooldown was read from that record, so a trip
+    /// during the cooldown let the council pause again at once.
+    #[test]
+    fn an_automatic_trip_does_not_reset_the_council_renewal_cooldown() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = StateDB::open(dir.path()).unwrap();
+        let chain = ChainTag::from_genesis([7; 32]);
+        db.bind_chain(chain).unwrap();
+        let keys: Vec<_> = (0..3u8)
+            .map(|i| crate::crypto::keys::signing_key_from_seed(&[0x40 + i; 32]).unwrap())
+            .collect();
+        let mut overlay = Overlay::default();
+        let council = CouncilRecord {
+            threshold: 2,
+            max_pause_blocks: 10,
+            nonce: 0,
+            members: keys.iter().map(|k| k.verifying_key().to_bytes()).collect(),
+            pending: None,
+            last_sunset_at: None,
+            last_pause_end: BTreeMap::new(),
+        };
+        StateDB::put_record(&mut overlay, COUNCIL_KEY.to_vec(), council.encode());
+        let pause = |nonce: u64| {
+            let mut action = CouncilAction {
+                kind: CouncilKind::Pause {
+                    module: Module::Dex.tag(),
+                    blocks: 10,
+                },
+                nonce,
+                approvals: vec![],
+            };
+            let message = action.signing_message(&chain);
+            action.approvals = (0..2u8)
+                .map(|i| (i, Box::new(keys[usize::from(i)].sign(&message).unwrap())))
+                .collect();
+            action
+        };
+        db.apply_council(&mut overlay, &pause(0), BlockContext::at_height(1))
+            .unwrap();
+        // The council pause ends at 11; an automatic trip lands at 20.
+        StateDB::trip_breaker(&mut overlay, Module::Dex, Invariant::PoolValuePerShare, 20);
+        let open_at = 11 + COUNCIL_RENEWAL_COOLDOWN_BLOCKS;
+        let err = db
+            .apply_council(
+                &mut overlay,
+                &pause(1),
+                BlockContext::at_height(open_at - 1),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("cooldown"), "{err}");
+        db.apply_council(&mut overlay, &pause(1), BlockContext::at_height(open_at))
+            .unwrap();
     }
 }

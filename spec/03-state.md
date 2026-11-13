@@ -29,12 +29,19 @@ order, and the first rule that fails is the result:
 Present only when genesis names a council. Node: `StateDB::apply_council`,
 `core::council_payload`. Constants: `crates/governance/src/limits.rs`.
 
+These rules are node-tested only. `spec-ref` does not model the council, so
+no reference-generated vector in `tests/` exercises them; the cited file is
+the node's own test suite, and `spec-coverage` checks only that it exists
+(see Gaps).
+
 - **CNL-1** A council action lands only with at least `threshold` approvals from distinct members of the council in force at the block's height, each an ML-DSA-65 signature over the council domain, the chain tag, the action and the record's current nonce; a landed action advances the nonce by one. *(external vectors: crates/node/tests/council_pause_tests.rs)*
 - **CNL-2** A council pause or resume naming Governance (module tag 4) is refused. *(external vectors: crates/node/tests/council_pause_tests.rs)*
-- **CNL-3** A council pause of a module is refused before the end of the last council pause of that module plus `COUNCIL_RENEWAL_COOLDOWN_BLOCKS`; a council resume ends the pause at its own height. A council sunset is refused before the council's last sunset height plus the same cooldown. *(external vectors: crates/node/tests/council_pause_tests.rs)*
-- **CNL-4** A council rotation names 1 to 32 distinct valid ML-DSA-65 keys and a threshold above half of them and at most all of them, and an activation from `COUNCIL_ROTATION_LEAD_BLOCKS` to `MAX_SCHEDULE_HORIZON_BLOCKS` after the block that carries it. It replaces any pending rotation. From the activation height the new members and threshold are the council in force, and the nonce carries on. *(external vectors: crates/node/tests/council_pause_tests.rs)*
+- **CNL-3** A council pause of a module is refused before the end of the last council pause of that module plus `COUNCIL_RENEWAL_COOLDOWN_BLOCKS`; a council resume ends the pause at its own height. That end is the one the council record keeps for the module; an automatic breaker trip of the module does not change it. A council sunset is refused before the council's last sunset height plus the same cooldown. *(external vectors: crates/node/tests/council_pause_tests.rs)*
+- **CNL-4** A council rotation names 1 to 32 distinct valid ML-DSA-65 keys and a threshold above half of them and at most all of them, and an activation from `COUNCIL_ROTATION_LEAD_BLOCKS` to `MAX_SCHEDULE_HORIZON_BLOCKS` after the block that carries it. It carries one acceptance per new member, in member order: that member's signature over the rotation-accept domain, the chain tag and the rotation; one that does not verify refuses the rotation. It replaces any pending rotation. From the activation height the new members and threshold are the council in force, and the nonce carries on. *(external vectors: crates/node/tests/council_pause_tests.rs)*
 
 ## Gaps
+
+- CNL-1 to CNL-4 have no reference-crate vectors: `spec-ref` has no council model, and the node tests cited are the only evidence. They were added in 0.1.2, before genesis, without a MIP; `spec/mips/` holds no MIP for any rule yet, and the process starts with the first change after genesis.
 
 - ROOT-5 is pinned by the accounts-only vectors: the node folds every layer it has and must still reproduce the reference's accounts-only root. No vector yet populates a layer.
 - The end-of-block passes (sealed swaps, trading, oracle, governance,
