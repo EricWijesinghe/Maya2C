@@ -117,7 +117,11 @@ mod tests {
         assert!(check.contact.is_none());
         let lines = payee_lines(&check);
         assert!(lines.contains(&"Payee: not in your contacts".to_string()));
-        assert!(lines.iter().any(|l| l.starts_with("First payment to this address")));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("First payment to this address"))
+        );
     }
 
     #[test]
@@ -143,13 +147,22 @@ mod tests {
         // Assert
         assert_eq!(check.look_alike_of.as_deref(), Some("Alice"));
         assert!(check.contact.is_none());
-        assert!(payee_lines(&check).iter().any(|l| l.starts_with("Looks like Alice")));
+        assert!(
+            payee_lines(&check)
+                .iter()
+                .any(|l| l.starts_with("Looks like Alice"))
+        );
     }
 
     #[test]
     fn with_payee_puts_the_payee_above_the_message() {
         // Arrange
-        let check = payee_check(&AddressBook::default(), &[0x55; 32], Network::Testnet, &BTreeSet::new());
+        let check = payee_check(
+            &AddressBook::default(),
+            &[0x55; 32],
+            Network::Testnet,
+            &BTreeSet::new(),
+        );
         // Act
         let text = with_payee(&check, "Amount: 1 MAYA");
         // Assert

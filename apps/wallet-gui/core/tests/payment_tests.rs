@@ -638,7 +638,8 @@ fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
         "ab".repeat(32)
     ))
     .expect("request");
-    let svg = maya_wallet_core::payment::payment_qr_svg(&request, maya_address::Network::Testnet).expect("svg");
+    let svg = maya_wallet_core::payment::payment_qr_svg(&request, maya_address::Network::Testnet)
+        .expect("svg");
     assert!(svg.contains("<svg"), "{}", &svg[..svg.len().min(80)]);
     assert!(svg.contains("#05070f") && svg.contains("#ffffff"));
     // The UI injects this SVG under `style-src 'self'` (no 'unsafe-inline'),
@@ -647,7 +648,8 @@ fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
     // Deterministic: the same request draws the same code.
     assert_eq!(
         svg,
-        maya_wallet_core::payment::payment_qr_svg(&request, maya_address::Network::Testnet).expect("svg")
+        maya_wallet_core::payment::payment_qr_svg(&request, maya_address::Network::Testnet)
+            .expect("svg")
     );
 }
 
@@ -659,8 +661,8 @@ use maya_address::Network;
 
 #[test]
 fn an_old_hex_uri_still_parses_and_names_no_network() {
-    let request = PaymentRequest::parse(&format!("maya:{}?amount=5&label=Old", address(20)))
-        .expect("parse");
+    let request =
+        PaymentRequest::parse(&format!("maya:{}?amount=5&label=Old", address(20))).expect("parse");
     assert_eq!(request.recipient, address(20));
     assert_eq!(request.network, None);
     assert!(request.check(Network::Testnet, 0).is_ok());
@@ -746,9 +748,10 @@ fn a_repeated_parameter_is_refused() {
 #[test]
 fn label_and_message_are_capped_and_stripped_of_invisible_characters() {
     let base = address(26);
-    let request =
-        PaymentRequest::parse(&format!("maya:{base}?label=%E2%80%AEShop%C2%AD&message=Hi%E2%80%8B"))
-            .expect("parse");
+    let request = PaymentRequest::parse(&format!(
+        "maya:{base}?label=%E2%80%AEShop%C2%AD&message=Hi%E2%80%8B"
+    ))
+    .expect("parse");
     assert_eq!(request.label.as_deref(), Some("Shop"));
     assert_eq!(request.message.as_deref(), Some("Hi"));
     let long = "x".repeat(maya_wallet_core::payment::MAX_LABEL_CHARS + 1);
