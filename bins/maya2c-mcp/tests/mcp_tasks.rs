@@ -26,8 +26,9 @@ const BASE_FEE: u64 = 1000;
 const BALANCE: &str = "10000000000000000000000000";
 const NONCE: u64 = 3;
 /// Mirrors `READ_METHODS` in `src/node.rs`: the only methods the server may send.
-const READ_METHODS: [&str; 7] = [
+const READ_METHODS: [&str; 8] = [
     "get_chain_info",
+    "get_tip_height",
     "get_balance",
     "get_balance_at_height",
     "get_block_by_height",

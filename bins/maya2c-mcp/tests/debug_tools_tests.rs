@@ -255,6 +255,52 @@ fn a_real_refusal_from_the_node_is_explained() {
 }
 
 #[test]
+fn a_replay_above_the_cap_is_refused_before_any_fetch() {
+    let dir = tempfile::tempdir().unwrap();
+    let genesis = dir.path().join("genesis.json");
+    std::fs::write(&genesis, "{}").unwrap();
+    // Port 1 never listens: a refusal that mentions the cap came before any fetch.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_maya2c-mcp"))
+        .args(["--rpc", "127.0.0.1:1", "--genesis"])
+        .arg(&genesis)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "replay_block", "arguments": {"height": 10_001}}});
+    writeln!(child.stdin.take().unwrap(), "{msg}").unwrap();
+    let line = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .next()
+        .unwrap()
+        .unwrap();
+    child.wait().unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["result"]["isError"], true);
+    let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("capped at height 10000"), "{text}");
+}
+
+#[test]
+fn replay_fetches_only_through_the_allowlisted_client() {
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/debug_tools.rs"))
+        .unwrap();
+    // Each of these opens its own connection, past `Node::call`'s allowlist
+    // and rate limiter.
+    for bypass in [
+        "RpcBootstrapSource",
+        "fork::replay(",
+        "fork::copy(",
+        "replay(&",
+        "TcpStream",
+    ] {
+        assert!(!src.contains(bypass), "debug_tools.rs uses {bypass}");
+    }
+    assert!(src.contains("call_paced"));
+}
+
+#[test]
 fn no_debugging_tool_reaches_a_write_method() {
     let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/debug_tools.rs"))
         .unwrap();

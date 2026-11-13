@@ -69,7 +69,7 @@ fn call_tool(
     args: &Value,
 ) -> Result<Value, String> {
     match name {
-        "replay_block" => debug_tools::replay_block(config, args),
+        "replay_block" => debug_tools::replay_block(node, config, args),
         "trace_transaction" => debug_tools::trace_transaction(args),
         "explain_refusal" => refusal::explain_refusal(args),
         "compare_account" => debug_tools::compare_account(node, args),

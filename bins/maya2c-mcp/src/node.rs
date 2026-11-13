@@ -10,8 +10,9 @@ use serde_json::{Value, json};
 
 /// The only JSON-RPC methods this server sends. Each one reads state: none
 /// signs, submits or changes anything. A test pins this list.
-pub const READ_METHODS: [&str; 7] = [
+pub const READ_METHODS: [&str; 8] = [
     "get_chain_info",
+    "get_tip_height",
     "get_balance",
     "get_balance_at_height",
     "get_block_by_height",
@@ -29,6 +30,8 @@ const BURST: f64 = 100.0;
 /// error for the assistant to report, not a hang.
 // shortcut: fixed 10 s, no retry; raise if a validator on a slow link needs it.
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a paced call sleeps between token checks: one token's refill time.
+const PACE_SLEEP: Duration = Duration::from_millis(20);
 
 /// A token bucket with an injectable clock, so the limit is testable.
 pub struct Limiter {
@@ -89,6 +92,27 @@ impl Node {
         if !self.limiter.admit(Instant::now()) {
             return Err("rate limited: retry in a moment".into());
         }
+        self.send(method, params)
+    }
+
+    /// [`Self::call`] for a long read sequence (a replay's block fetches):
+    /// waits for a token instead of refusing, so the sequence holds the
+    /// node's sustained rate rather than failing after the burst.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Self::call`], except never "rate limited".
+    pub fn call_paced(&mut self, method: &str, params: &Value) -> Result<Value, String> {
+        if !READ_METHODS.contains(&method) {
+            return Err(format!("refused: {method} is not a read method"));
+        }
+        while !self.limiter.admit(Instant::now()) {
+            std::thread::sleep(PACE_SLEEP);
+        }
+        self.send(method, params)
+    }
+
+    fn send(&self, method: &str, params: &Value) -> Result<Value, String> {
         let addr = self.addr.clone()?;
         let body =
             json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).to_string();

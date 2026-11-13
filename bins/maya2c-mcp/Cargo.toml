@@ -17,7 +17,6 @@ hex.workspace = true
 # The read-only debugging tools reuse `maya2c replay` and `maya2c debug`
 # through the CLI's library, rather than a second copy of either.
 maya2c-cli = { path = "../maya2c-cli" }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
 # The replay's scratch copy: unpredictable, removed on drop.
 tempfile.workspace = true
 

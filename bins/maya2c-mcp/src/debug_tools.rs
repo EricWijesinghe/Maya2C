@@ -1,15 +1,20 @@
 //! The read-only debugging tools (v3 P6): replay, trace, compare.
 //!
 //! Each one is a thin adapter over code a person already runs: `replay_block`
-//! is `maya2c replay` (`maya2c_cli::fork::replay`), `trace_transaction` is
+//! is `maya2c replay` (`maya2c_cli::fork::replay_from`, every fetch through
+//! the ADR-084 allowlist and rate limiter in [`Node`]), `trace_transaction` is
 //! `maya2c debug` (`maya2c_cli::record_spec`), and `compare_account` is two
 //! `get_balance_at_height` reads. None calls a state-changing RPC method,
 //! none takes a key, and none reads a file an assistant names: the genesis a
 //! replay needs is fixed by whoever started the server (`--genesis`).
 
-use custom_l1_node::core::Transaction;
+use std::sync::Mutex;
+
 use custom_l1_node::core::payload::{MAX_CONTRACT_CODE, TxKind};
-use maya2c_cli::fork::{Source, replay};
+use custom_l1_node::core::{Block, BlockHeader, Transaction};
+use custom_l1_node::error::{NodeError, Result as NodeResult};
+use custom_l1_node::state_pruner::snapshot::{BootstrapSource, SnapshotManifest};
+use maya2c_cli::fork::{Source, replay_from};
 use maya2c_cli::{CallSpec, parse_caller, parse_hex, record_spec};
 use primitive_types::U256;
 use serde_json::{Value, json};
@@ -46,6 +51,59 @@ const DEFAULT_GAS: u64 = 10_000_000;
 const MAX_TRACE_GAS: u64 = 100_000_000;
 /// Steps returned; a longer recording is cut and says so.
 const MAX_STEPS: usize = 10_000;
+/// Highest block a replay may target. A replay fetches every block below it
+/// (full sync), paced at the limiter's 50 per second: 10,000 blocks is about
+/// 200 s of node reads, the most one assistant request may cost.
+// shortcut: full sync only; a snapshot-based replay needs get_headers and the
+// snapshot methods allowlisted too — add them when a chain outgrows the cap.
+pub const MAX_REPLAY_HEIGHT: u64 = 10_000;
+
+/// The replay's view of the node: [`BootstrapSource`] over [`Node::call_paced`],
+/// so a replay sends nothing the allowlist refuses and never outruns the
+/// limiter. Only the full-sync methods are served.
+struct Allowlisted<'a>(Mutex<&'a mut Node>);
+
+impl Allowlisted<'_> {
+    fn call(&self, method: &str, params: &Value) -> NodeResult<Value> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .call_paced(method, params)
+            .map_err(NodeError::Network)
+    }
+}
+
+impl BootstrapSource for Allowlisted<'_> {
+    fn tip_height(&self) -> NodeResult<u64> {
+        self.call("get_tip_height", &json!([]))?
+            .as_u64()
+            .ok_or_else(|| NodeError::Decode("get_tip_height: not a height".into()))
+    }
+    fn headers(&self, _: u64, _: u64) -> NodeResult<Vec<BlockHeader>> {
+        Err(NodeError::Network(
+            "replay_block does a full sync; no headers".into(),
+        ))
+    }
+    fn snapshot_manifest(&self) -> NodeResult<SnapshotManifest> {
+        Err(NodeError::Network(
+            "replay_block does a full sync; no snapshot".into(),
+        ))
+    }
+    fn snapshot_chunk(&self, _: usize) -> NodeResult<Vec<u8>> {
+        Err(NodeError::Network(
+            "replay_block does a full sync; no snapshot".into(),
+        ))
+    }
+    fn block(&self, height: u64) -> NodeResult<Block> {
+        let info = self.call("get_block_by_height", &json!([height]))?;
+        let raw = info["raw"]
+            .as_str()
+            .ok_or_else(|| NodeError::Decode(format!("block {height}: no raw bytes")))?;
+        Block::from_bytes(
+            &hex::decode(raw).map_err(|e| NodeError::Decode(format!("block {height}: {e}")))?,
+        )
+    }
+}
 
 /// `replay_block {height, txid?}`: a fresh local copy up to `height - 1`, then
 /// that block executed here. Success *is* the proof the state root reproduced.
@@ -54,28 +112,28 @@ const MAX_STEPS: usize = 10_000;
 ///
 /// No `--rpc` or `--genesis`, a bootstrap failure, or a block whose root local
 /// execution does not reproduce.
-pub fn replay_block(config: Config<'_>, args: &Value) -> Result<Value, String> {
-    let rpc = config
-        .rpc
-        .ok_or("no node configured: start with --rpc HOST:PORT")?;
+pub fn replay_block(node: &mut Node, config: Config<'_>, args: &Value) -> Result<Value, String> {
     let genesis = config
         .genesis
         .ok_or("replay needs the network's genesis: start with --genesis FILE")?;
     let height = args["height"].as_u64().ok_or("height is required")?;
-    // A fresh, unpredictable directory: `fork::copy` wipes whatever is at
-    // `dir`, so it is never a path an assistant chose. Removed on drop, panic
-    // included.
+    if height > MAX_REPLAY_HEIGHT {
+        return Err(format!(
+            "replay re-executes every block from genesis, so it is capped at height {MAX_REPLAY_HEIGHT}; use `maya2c replay --snapshot-depth N` for deeper blocks"
+        ));
+    }
+    // A fresh, unpredictable directory: `fork::copy_from` wipes whatever is
+    // at `dir`, so it is never a path an assistant chose. Removed on drop,
+    // panic included.
     let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
     let source = Source {
-        url: format!("http://{rpc}"),
+        url: String::new(),
         genesis: genesis.into(),
         dir: scratch.path().join("copy"),
         snapshot_depth: None,
     };
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    let result = replay(&source, height, runtime.handle().clone());
-    // Dropped before the copy is removed: RocksDB holds its files open.
-    drop(runtime);
+    // Every fetch goes through `Node`: the ADR-084 allowlist and the limiter.
+    let result = replay_from(&source, &Allowlisted(Mutex::new(node)), height);
     drop(scratch);
     let r = result.map_err(|e| format!("{e:#}"))?;
     let txid = args["txid"].as_str();
