@@ -33,3 +33,22 @@ ties by id, so every node chooses the same ones.
   "running" until an attacknet passes on this rule.
 - Consensus-visible: the jailed set and therefore the committee and the state root change.
   Re-genesis only.
+
+## Amendment 2026-11-14: pinned on the node; the residual is a BFT limit
+
+Founder-brief audit question 17 (Eric 2026-11-14 chose option A, "merge the fix before
+the freeze") found the S-033 row still `open` with a `pending` fix. The fix had already
+merged as #246 (e28f1f25, 2026-10-30) and is in the frozen node commit bb4e0940, so
+option A needs no re-freeze. The row was stale.
+
+The floor is now also pinned on the node, not only in the staking crate:
+`a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts`
+(`crates/node/tests/bft_follower_tests.rs`) runs attack 7 on four validators. One is down
+for the whole first epoch, is slashed and stays seated, and a second then fails. The chain
+halts, and it resumes when the floor-kept validator restarts by certificate replay. With
+`MIN_COMMITTEE` set to 0 the test fails, because the boundary seats three.
+
+The "still open" line above is not a missing fix. If more than f seated validators are
+gone for good, no quorum exists that could sign a change of committee. Any rule that let
+fewer sign one would let a minority fork the chain. Recovery stays the social re-genesis
+in `docs/runbooks/chain-halt.md` (KNOWN_ISSUES #18, "recovery open").

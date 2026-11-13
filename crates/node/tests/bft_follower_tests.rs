@@ -31,6 +31,7 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
+use custom_l1_node::state::staking::validator_id;
 use maya_dag_bft::{Authenticator, Certificate, Message, Params, SignContext, SignKind};
 use tempfile::TempDir;
 
@@ -478,6 +479,49 @@ fn one_follower_plus_a_crashed_validator_halts_then_recovers_when_the_crashed_on
         );
     }
     mesh.agree();
+    assert_eq!(mesh.equivocations, 0);
+}
+
+/// Pre-audit S-033 (attacknet 2026-10-29-2, attack 7) on the node: member 3
+/// is down for all of epoch 0, then member 2 fails. Jailing member 3 at the
+/// boundary would leave three seats, and the second failure would halt them
+/// for good: the healthy member 3 could return only at an epoch boundary the
+/// halted chain never reaches. The committee floor (ADR-070) keeps member 3
+/// seated, slashed and unpaid, so restarting it ends the halt.
+#[test]
+fn a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts() {
+    let mut mesh = Mesh::new();
+    mesh.hold_out(3);
+    mesh.run_until(|m| m.epoch(0).is_some_and(|e| e >= 1));
+    assert!(mesh.epoch(0).is_some_and(|e| e >= 1), "no epoch boundary");
+    let record = mesh.members[0]
+        .chain
+        .state()
+        .committed_staking()
+        .unwrap()
+        .unwrap()
+        .staking;
+    let down = validator_id(&validator_key(3).verifying_key().to_bytes());
+    let up = validator_id(&validator_key(0).verifying_key().to_bytes());
+    assert_ne!(
+        record.validators[&down].self_bond, record.validators[&up].self_bond,
+        "the down validator was not judged down, so the floor was never tested"
+    );
+    assert_eq!(record.active.len(), VALIDATORS);
+    assert!(record.active.contains(&down), "jailed below the floor");
+
+    mesh.hold_out(2);
+    mesh.run_ticks(20);
+    let halted = mesh.height(0);
+    mesh.run_ticks(60);
+    assert_eq!(mesh.height(0), halted, "two of four must not advance");
+
+    mesh.restart_from_certificates(3, 0);
+    mesh.run_until(|m| m.height(0) >= halted + 3);
+    assert!(
+        mesh.height(0) >= halted + 3,
+        "the floor-kept validator came back and the chain stayed halted"
+    );
     assert_eq!(mesh.equivocations, 0);
 }
 
