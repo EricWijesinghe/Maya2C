@@ -42,7 +42,7 @@ anyhow = "1"
 # JSON-RPC -- one endpoint with the method named in the body -- which OpenAPI
 # cannot describe usefully. A generated client would get a single `post`
 # function and no type safety.
-utoipa = { version = "5", features = ["axum_extras"] }
+utoipa = { workspace = true, features = ["axum_extras"] }
 
 [[bin]]
 name = "maya2c-gateway"
@@ -56,7 +56,7 @@ async-trait.workspace = true
 # JSON-RPC -- one endpoint with the method named in the body -- which OpenAPI
 # cannot describe usefully. A generated client would get a single `post`
 # function and no type safety.
-utoipa = { version = "5", features = ["axum_extras"] }
+utoipa = { workspace = true, features = ["axum_extras"] }
 serde_json.workspace = true
 
 [lints]

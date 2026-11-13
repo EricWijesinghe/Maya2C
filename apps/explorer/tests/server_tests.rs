@@ -823,3 +823,32 @@ async fn the_block_and_tx_pages_explain_themselves() {
         "{body}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// public API v1 over the real listener (ADR-092)
+// ---------------------------------------------------------------------------
+
+/// The v1 limiter keys on the peer address, which only the real listener
+/// supplies. A router driven by `oneshot` with connect info inserted by hand
+/// cannot catch a `serve()` that forgot it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn api_v1_is_served_and_rate_limited_over_the_real_socket() {
+    let h = harness(3).await;
+    let (status, body) = get(&format!("{}/api/v1/status", h.base)).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("indexed_height"), "{body}");
+
+    // The default burst is 30 at 10 a second; 60 back-to-back requests from
+    // one address outrun it.
+    let mut limited = None;
+    for _ in 0..60 {
+        let (status, body) = get(&format!("{}/api/v1/status", h.base)).await;
+        assert!(status == 200 || status == 429, "{status}: {body}");
+        if status == 429 {
+            limited = Some(body);
+            break;
+        }
+    }
+    let body = limited.expect("the burst was never used up");
+    assert!(body.contains("\"code\":\"rate_limited\""), "{body}");
+}

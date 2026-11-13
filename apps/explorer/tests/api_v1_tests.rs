@@ -528,6 +528,27 @@ async fn cursor_from_another_block_is_refused() {
 }
 
 #[tokio::test]
+async fn a_block_list_cursor_cannot_page_transactions() {
+    let app = build_app(seeded(3).await, Arc::new(FakeNode::default()));
+    let blocks = get(&app, "/api/v1/blocks?limit=1").await;
+    let cursor = blocks.body["next_cursor"]
+        .as_str()
+        .expect("full page")
+        .to_string();
+    for list in ["/api/v1/transactions", "/api/v1/blocks/2/transactions"] {
+        let reply = get(&app, &format!("{list}?cursor={cursor}")).await;
+        assert_eq!(reply.code(), "invalid_cursor", "{list}");
+    }
+    let txs = get(&app, "/api/v1/transactions?limit=1").await;
+    let cursor = txs.body["next_cursor"]
+        .as_str()
+        .expect("full page")
+        .to_string();
+    let reply = get(&app, &format!("/api/v1/blocks?cursor={cursor}")).await;
+    assert_eq!(reply.code(), "invalid_cursor");
+}
+
+#[tokio::test]
 async fn addresses_must_be_bech32m_for_this_network() {
     let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     let hex_form = get(&app, &format!("/api/v1/accounts/{}", addr_hex(1))).await;
@@ -573,6 +594,16 @@ async fn burst_plus_one_is_limited_with_retry_headers() {
     assert_eq!(limited.headers["ratelimit-remaining"], "0");
     assert!(limited.headers.contains_key("ratelimit-reset"));
     assert_eq!(limited.headers["content-type"], "application/problem+json");
+}
+
+#[tokio::test]
+async fn a_request_with_no_client_key_is_a_problem_500_not_plain_text() {
+    let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
+    // No connect info and no proxy header: the limiter has nothing to key on.
+    let reply = send(&app, "/api/v1/status", None, &[]).await;
+    assert_eq!(reply.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(reply.code(), "internal");
+    assert_eq!(reply.headers["content-type"], "application/problem+json");
 }
 
 #[tokio::test]

@@ -3595,7 +3595,7 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = ["apps/explorer/tests/api_v1_tests.rs", "apps/explorer/tests/postgres_store_tests.rs", "crate:maya-explorer"]
-note = "ADR-092. Read-only GET under /api/v1. History from the index (tx_outputs added, index generation 4); live values from the node through a TTL single-flight cache (supply 30 s). Bech32m addresses, cursor pages, RFC 9457 problem codes, per-client 10 rps / burst 30 limit, finality-aware Cache-Control. Postgres SQL is tested against a real server by postgres_store_tests.rs (same scenario on MemoryStore and PostgresStore; server from MAYA_EXPLORER_TEST_PG, a service container in CI nextest; SKIPPED without it). The golden spec is JSON in a .yaml file."
+note = "ADR-092. Read-only GET under /api/v1. History from the index (tx_outputs added, index generation 4); live values from the node through a TTL single-flight cache (supply 30 s). Bech32m addresses, cursor pages, RFC 9457 problem codes, per-client 10 rps / burst 30 limit, finality-aware Cache-Control. Postgres SQL is tested against a real server by postgres_store_tests.rs (same scenario on MemoryStore and PostgresStore; server from MAYA_EXPLORER_TEST_PG, a service container in CI nextest and nightly coverage; SKIPPED without it locally, a failure under CI). The same file EXPLAINs every public list statement as a generic plan and fails on a sequential scan. Cursors carry the list that issued them. tests/server_tests.rs drives /api/v1 through the real serve() socket (200, then 429). Deploying resets the explorer index (generation 3 to 4): archive node or re-genesis only. The golden spec is JSON in a .yaml file."
 
 [[subsystem]]
 id = "testnet-kit"

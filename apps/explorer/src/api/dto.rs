@@ -5,7 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::api::address;
-use crate::api::query::encode_cursor;
+use crate::api::query::{CursorKind, encode_cursor};
 use crate::model::{IndexedBlock, IndexedOutput, IndexedTx};
 use crate::store::Seek;
 
@@ -19,12 +19,14 @@ pub struct Page<T> {
 }
 
 impl<T> Page<T> {
-    /// Builds a page from rows and their keys. A full page may have more
-    /// behind it; a short one is the last.
-    pub fn new<K>(rows: Vec<(K, T)>, limit: i64, key: impl Fn(&K) -> Seek) -> Self {
+    /// Builds a page from rows and their keys, with a cursor only `kind`'s
+    /// list accepts. A full page may have more behind it; a short one is the
+    /// last.
+    #[must_use]
+    pub fn new(rows: Vec<(Seek, T)>, limit: i64, kind: CursorKind) -> Self {
         let full = i64::try_from(rows.len()).is_ok_and(|n| n == limit);
         let next_cursor = match rows.last() {
-            Some((last, _)) if full => Some(encode_cursor(key(last))),
+            Some((last, _)) if full => Some(encode_cursor(kind, *last)),
             _ => None,
         };
         Self {

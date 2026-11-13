@@ -28,6 +28,8 @@ pub enum Code {
     IndexBehind,
     /// The network has no staking, so there is no validator set.
     NoStaking,
+    /// The server could not handle the request; not the client's fault.
+    Internal,
 }
 
 impl Code {
@@ -42,6 +44,7 @@ impl Code {
             Self::NotFound | Self::NoStaking => StatusCode::NOT_FOUND,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::NodeUnavailable | Self::IndexBehind => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -58,6 +61,7 @@ impl Code {
             Self::NodeUnavailable => "node_unavailable",
             Self::IndexBehind => "index_behind",
             Self::NoStaking => "no_staking",
+            Self::Internal => "internal",
         }
     }
 }

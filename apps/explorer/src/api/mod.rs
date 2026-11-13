@@ -148,6 +148,14 @@ fn rate_limited(burst: u32, error: GovernorError) -> Response {
             let detail = format!("too many requests; retry after {wait_time} s");
             problem_response(Code::RateLimited, &detail, headers)
         }
+        // No peer address and no proxy header: a serving bug (the listener
+        // was started without connect info), so a problem 500 rather than
+        // tower_governor's plain-text one.
+        GovernorError::UnableToExtractKey => problem_response(
+            Code::Internal,
+            "the server could not identify the client for its rate limit",
+            HeaderMap::new(),
+        ),
         other => Response::from(other),
     }
 }

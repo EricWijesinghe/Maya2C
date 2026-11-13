@@ -653,7 +653,10 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
         .local_addr()
         .map_err(|e| ExplorerError::Server(format!("resolving local address: {e}")))?;
 
-    let app = router(state);
+    // Connect info gives the /api/v1 limiter the peer address: without it every
+    // request in socket mode, and every request missing the proxy header in
+    // cf/xff mode, has no client key and fails.
+    let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
     let handle = tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, app).await {
             eprintln!("explorer server stopped: {error}");

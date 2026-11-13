@@ -13,7 +13,7 @@ use crate::api::address;
 use crate::api::chain::index_error;
 use crate::api::dto::{Block, Output, Page, Transaction, TransactionDetail};
 use crate::api::problem::{ApiError, Code};
-use crate::api::query::{self, BlockRef};
+use crate::api::query::{self, BlockRef, CursorKind};
 use crate::api::respond::{self, Freshness, Meta};
 use crate::api::{ApiState, chain_meta, finalized_height, network_of};
 use crate::model::{IndexedBlock, IndexedTx};
@@ -76,7 +76,7 @@ pub async fn blocks(
     Query(params): Query<ListParams>,
 ) -> Result<Response, ApiError> {
     let limit = query::limit(params.limit.as_deref())?;
-    let before = query::cursor(params.cursor.as_deref())?;
+    let before = query::cursor(CursorKind::Blocks, params.cursor.as_deref())?;
     let rows = state
         .store
         .blocks_page(before, limit)
@@ -92,7 +92,7 @@ pub async fn blocks(
             (seek, Block::from(block))
         })
         .collect();
-    let page = Page::new(keyed, limit, |seek| *seek);
+    let page = Page::new(keyed, limit, CursorKind::Blocks);
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&page, Freshness::Short, meta))
 }
@@ -146,7 +146,7 @@ pub async fn block_transactions(
 ) -> Result<Response, ApiError> {
     let reference = query::block_ref(&reference)?;
     let limit = query::limit(params.limit.as_deref())?;
-    let after = query::cursor(params.cursor.as_deref())?;
+    let after = query::cursor(CursorKind::BlockTransactions, params.cursor.as_deref())?;
     let block = find_block(&state, &reference).await?;
     if after.is_some_and(|seek| seek.height != block.height) {
         return Err(ApiError::new(
@@ -165,7 +165,7 @@ pub async fn block_transactions(
         .filter(|(seek, _)| after.is_none_or(|a| seek.position > a.position))
         .take(usize::try_from(limit).unwrap_or(0))
         .collect();
-    let page = Page::new(keyed, limit, |seek| *seek);
+    let page = Page::new(keyed, limit, CursorKind::BlockTransactions);
     let freshness = respond::for_height(block.height, finalized_height(&state).await);
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&page, freshness, meta))
@@ -204,7 +204,7 @@ pub async fn transactions(
     Query(params): Query<ListParams>,
 ) -> Result<Response, ApiError> {
     let limit = query::limit(params.limit.as_deref())?;
-    let before = query::cursor(params.cursor.as_deref())?;
+    let before = query::cursor(CursorKind::Transactions, params.cursor.as_deref())?;
     let network = network_of(&state).await;
     let rows = state
         .store
@@ -215,7 +215,7 @@ pub async fn transactions(
         .iter()
         .map(|(seek, tx)| (*seek, Transaction::new(*seek, tx, network)))
         .collect();
-    let page = Page::new(keyed, limit, |seek| *seek);
+    let page = Page::new(keyed, limit, CursorKind::Transactions);
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&page, Freshness::Short, meta))
 }
@@ -237,25 +237,12 @@ pub async fn transaction(
     Path(raw): Path<String>,
 ) -> Result<Response, ApiError> {
     let txid = query::txid(&raw)?;
-    let tx = state
+    let (seek, tx) = state
         .store
-        .transaction(&txid)
+        .transaction_placed(&txid)
         .await
         .map_err(|e| index_error(&e))?
         .ok_or_else(|| ApiError::new(Code::NotFound, "no indexed transaction with that id"))?;
-    let block_txs = state
-        .store
-        .transactions_in_block(tx.height)
-        .await
-        .map_err(|e| index_error(&e))?;
-    let position = block_txs
-        .iter()
-        .position(|other| other.txid == txid)
-        .unwrap_or(0);
-    let seek = Seek {
-        height: tx.height,
-        position: i64::try_from(position).unwrap_or(i64::MAX),
-    };
     let network = network_of(&state).await;
     let outputs = state
         .store
@@ -299,7 +286,7 @@ pub async fn account_transactions(
     let id = address::parse(&raw, network)?;
     let limit = query::limit(params.limit.as_deref())?;
     let direction = query::direction(params.direction.as_deref())?;
-    let before = query::cursor(params.cursor.as_deref())?;
+    let before = query::cursor(CursorKind::Transactions, params.cursor.as_deref())?;
     let rows = state
         .store
         .transactions_by_address(&hex::encode(id), direction, before, limit)
@@ -309,7 +296,7 @@ pub async fn account_transactions(
         .iter()
         .map(|(seek, tx)| (*seek, Transaction::new(*seek, tx, network)))
         .collect();
-    let page = Page::new(keyed, limit, |seek| *seek);
+    let page = Page::new(keyed, limit, CursorKind::Transactions);
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&page, Freshness::Short, meta))
 }

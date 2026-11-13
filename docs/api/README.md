@@ -14,20 +14,23 @@ The contract is [`apps/explorer/openapi/v1.yaml`](../../apps/explorer/openapi/v1
 - **Timestamps** are unix seconds.
 - **Lists** return `{items, next_cursor}`. `limit` is 1 to 100, default 25.
   Pass `next_cursor` back as `cursor`; a `null` cursor ends the walk.
-  Cursors are opaque: do not construct or edit them.
+  Cursors are opaque: do not construct or edit them. A cursor pages only the
+  list that issued it (`/transactions` and an address's transactions share
+  one order, so their cursors are interchangeable); any other is `invalid_cursor`.
 - **Errors** are RFC 9457 `application/problem+json`. Branch on `code`:
 
 | code | status | meaning |
 |---|---|---|
 | `invalid_address` | 400 | not a Bech32m address (hex included) |
 | `wrong_network` | 400 | a valid address for another network |
-| `invalid_cursor` | 400 | cursor not issued by this API |
+| `invalid_cursor` | 400 | cursor not issued by this list |
 | `invalid_param` | 400 | malformed or out-of-range parameter |
 | `not_found` | 404 | no indexed block or transaction under that reference |
 | `no_staking` | 404 | the network has no validator set |
 | `rate_limited` | 429 | too many requests; see `Retry-After` |
 | `node_unavailable` | 503 | a live value needs the node, which did not answer |
 | `index_behind` | 503 | the index cannot answer right now; retry |
+| `internal` | 500 | the server could not handle the request; not the client's fault |
 
 ## Headers
 

@@ -51,7 +51,7 @@ tower_governor.workspace = true
 # Response ETags for live data (ADR-092).
 sha2.workspace = true
 # OpenAPI document, generated from the v1 handlers (ADR-092).
-utoipa = "5"
+utoipa.workspace = true
 
 # Runtime queries, not the `query!` macros: those need a live DATABASE_URL at
 # build time (or committed offline metadata), which would make the crate

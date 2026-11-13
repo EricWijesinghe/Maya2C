@@ -61,6 +61,10 @@ pub trait BlockStore: Send + Sync {
     /// A transaction by hex id.
     async fn transaction(&self, txid: &str) -> Result<Option<IndexedTx>>;
 
+    /// A transaction by hex id with its stored `(height, position)` key, so
+    /// the position is the one the index holds rather than one re-derived.
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>>;
+
     /// Transactions in a block, in inclusion order.
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>>;
 

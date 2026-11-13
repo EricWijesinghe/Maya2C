@@ -145,6 +145,12 @@ impl BlockStore for MemoryStore {
             .cloned())
     }
 
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>> {
+        Ok(tx_page(&self.read(), None, i64::MAX, |tx| tx.txid == txid)
+            .into_iter()
+            .next())
+    }
+
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>> {
         Ok(self
             .read()

@@ -12,23 +12,34 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
-/// Entries above this count trigger a sweep of expired ones, so a stream of
-/// distinct addresses cannot grow the table without bound.
-const SWEEP_AT: usize = 1024;
+/// Hard cap on cached keys. A stream of distinct addresses cannot grow the
+/// table past it; a key that arrives while the table is full and nothing has
+/// expired is fetched without being cached.
+pub const MAX_SLOTS: usize = 1024;
 
 /// One key's value and when it was fetched. Its own lock is the single-flight
 /// gate: holders of the lock are the only ones fetching that key.
 type Slot<V> = Arc<Mutex<Option<(Instant, V)>>>;
 
+struct Table<V> {
+    slots: HashMap<String, Slot<V>>,
+    /// When a full table was last swept. A sweep is O(n) under the table
+    /// lock, so a full table is swept at most once per TTL, not per new key.
+    swept: Option<Instant>,
+}
+
 /// A cache of `V` by string key, each entry valid for a fixed time.
 pub struct TtlCache<V> {
-    slots: Mutex<HashMap<String, Slot<V>>>,
+    table: Mutex<Table<V>>,
 }
 
 impl<V: Clone + Send> Default for TtlCache<V> {
     fn default() -> Self {
         Self {
-            slots: Mutex::new(HashMap::new()),
+            table: Mutex::new(Table {
+                slots: HashMap::new(),
+                swept: None,
+            }),
         }
     }
 }
@@ -73,18 +84,33 @@ impl<V: Clone + Send> TtlCache<V> {
         Ok((value, Source::Miss))
     }
 
-    /// The slot for `key`, created if absent. Sweeps expired slots when the
-    /// table is large; a slot being fetched right now is never swept.
+    /// The slot for `key`, created if absent. A full table is swept of expired
+    /// slots (never one being fetched right now); if it is still full, the
+    /// caller gets a private slot that is not cached.
     async fn slot(&self, key: &str, ttl: Duration) -> Slot<V> {
-        let mut slots = self.slots.lock().await;
-        if slots.len() >= SWEEP_AT && !slots.contains_key(key) {
-            slots.retain(|_, slot| {
-                slot.try_lock().map_or(true, |entry| {
-                    entry.as_ref().is_some_and(|(at, _)| at.elapsed() < ttl)
-                })
-            });
+        let mut table = self.table.lock().await;
+        if let Some(slot) = table.slots.get(key) {
+            return Arc::clone(slot);
         }
-        Arc::clone(slots.entry(key.to_string()).or_default())
+        if table.slots.len() >= MAX_SLOTS {
+            if table.swept.is_none_or(|at| at.elapsed() >= ttl) {
+                table.slots.retain(|_, slot| {
+                    slot.try_lock().map_or(true, |entry| {
+                        entry.as_ref().is_some_and(|(at, _)| at.elapsed() < ttl)
+                    })
+                });
+                table.swept = Some(Instant::now());
+            }
+            if table.slots.len() >= MAX_SLOTS {
+                return Slot::default();
+            }
+        }
+        Arc::clone(table.slots.entry(key.to_string()).or_default())
+    }
+
+    #[cfg(test)]
+    async fn cached_keys(&self) -> usize {
+        self.table.lock().await.slots.len()
     }
 }
 
@@ -149,6 +175,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!((value, source), (3, Source::Miss));
+    }
+
+    #[tokio::test]
+    async fn a_full_table_stops_growing_and_still_answers() {
+        let cache = TtlCache::<usize>::default();
+        let long = Duration::from_secs(60);
+        for n in 0..MAX_SLOTS + 50 {
+            let (value, _) = cache
+                .get_or_fetch(&format!("addr{n}"), long, || async { Ok::<_, ()>(n) })
+                .await
+                .unwrap();
+            assert_eq!(value, n);
+        }
+        assert_eq!(cache.cached_keys().await, MAX_SLOTS);
+        // A key cached before the table filled is still served from cache.
+        let (_, source) = cache
+            .get_or_fetch("addr0", long, || async { Ok::<_, ()>(0) })
+            .await
+            .unwrap();
+        assert_eq!(source, Source::Hit);
+        // Once entries expire, the next new key sweeps them and is cached.
+        let (_, source) = cache
+            .get_or_fetch("fresh", Duration::ZERO, || async { Ok::<_, ()>(1) })
+            .await
+            .unwrap();
+        assert_eq!(source, Source::Miss);
+        assert_eq!(cache.cached_keys().await, 1);
     }
 
     #[tokio::test]

@@ -9,7 +9,8 @@
 //! `postgres://user:password@host:port/postgres`, no query string. Each test
 //! creates and drops its own database. CI's nextest job provides one as a
 //! service container. When the variable is unset the Postgres tests print
-//! `SKIPPED` and return, and only the in-memory half has run.
+//! `SKIPPED` and return, and only the in-memory half has run, except under
+//! `CI`, where a missing variable fails the test.
 //!
 //! Local run:
 //!
@@ -49,6 +50,12 @@ impl PgDb {
     /// A fresh, empty database, or `None` when no server is configured.
     async fn create(label: &str) -> Option<Self> {
         let Ok(admin) = std::env::var(PG_ENV) else {
+            // CI provides the server; a job that lost it must fail, not pass
+            // having checked no SQL.
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "{PG_ENV} is not set under CI, so `{label}` would check no SQL"
+            );
             eprintln!(
                 "SKIPPED: {PG_ENV} is not set, so the Postgres half of `{label}` did not run"
             );
@@ -296,6 +303,23 @@ async fn lookups(store: &dyn BlockStore) {
         "every tx column round-trips"
     );
     assert_eq!(store.transaction(&txid(9, 9)).await.unwrap(), None);
+    let (at, placed) = store
+        .transaction_placed(&txid(2, 1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (at, placed.txid),
+        (
+            Seek {
+                height: 2,
+                position: 1
+            },
+            txid(2, 1)
+        ),
+        "the stored position, not a re-derived one"
+    );
+    assert_eq!(store.transaction_placed(&txid(9, 9)).await.unwrap(), None);
 
     let in_block: Vec<String> = store
         .transactions_in_block(2)
@@ -492,9 +516,167 @@ async fn contract(store: &dyn BlockStore) {
 // tests
 // ---------------------------------------------------------------------------
 
+/// Two outputs of one transaction to the same address are one history row,
+/// on every page size: counted twice, they would fill a page with a duplicate.
+async fn several_outputs_to_one_address_count_once(store: &dyn BlockStore) {
+    let txs = vec![
+        tx(1, 0, 1, &[(9, "1")]),
+        tx(1, 1, 1, &[(9, "2"), (9, "3")]),
+        tx(1, 2, 9, &[(9, "4"), (9, "5")]),
+    ];
+    store
+        .put_block(&block(1, 1, txs.len()), &txs)
+        .await
+        .unwrap();
+    let newest_first = vec![txid(1, 2), txid(1, 1), txid(1, 0)];
+    for limit in 1..=3 {
+        for direction in [Direction::Received, Direction::Both] {
+            assert_eq!(
+                walk_address(store, &addr(9), direction, limit).await,
+                newest_first,
+                "{direction:?} limit {limit}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn memory_store_meets_the_contract() {
     contract(&MemoryStore::new()).await;
+}
+
+#[tokio::test]
+async fn memory_store_counts_several_outputs_to_one_address_once() {
+    several_outputs_to_one_address_count_once(&MemoryStore::new()).await;
+}
+
+#[tokio::test]
+async fn postgres_store_counts_several_outputs_to_one_address_once() {
+    let Some(db) = PgDb::create("outputs").await else {
+        return;
+    };
+    let store = db.store().await;
+    several_outputs_to_one_address_count_once(&store).await;
+    store.pool().close().await;
+    db.drop_db().await;
+}
+
+/// Rows in the plan test. Enough that a table walk costs more than an index
+/// range in the planner's model, so a plan that still scans is the query's
+/// fault rather than the table's size.
+const PLAN_ROWS: i64 = 20_000;
+
+/// EXPLAINs `sql` as a generic plan, the one a prepared statement reaches
+/// after a few executions, with `args` as the EXECUTE arguments.
+async fn generic_plan(pool: &PgPool, sql: &str, types: &str, args: &str) -> String {
+    let mut conn = pool.acquire().await.unwrap();
+    sqlx::raw_sql("SET plan_cache_mode = force_generic_plan")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let prepare = format!("PREPARE plan_probe({types}) AS {sql}");
+    sqlx::raw_sql(AssertSqlSafe(prepare))
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let explain = format!("EXPLAIN EXECUTE plan_probe({args})");
+    let rows = sqlx::query(AssertSqlSafe(explain))
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::raw_sql("DEALLOCATE plan_probe")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    rows.iter()
+        .map(|row| row.try_get::<String, _>(0).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[tokio::test]
+async fn postgres_public_queries_never_walk_the_table() {
+    use maya_explorer::store::postgres::{
+        ADDRESS_BOTH_SQL, ADDRESS_RECEIVED_SQL, ADDRESS_SENT_SQL, BLOCKS_PAGE_SQL,
+        TRANSACTIONS_PAGE_SQL,
+    };
+    let Some(db) = PgDb::create("plans").await else {
+        return;
+    };
+    let store = db.store().await;
+    let pool = store.pool();
+    // Ten transactions a block, fifty senders and recipients.
+    sqlx::query(
+        "INSERT INTO blocks (height, id, prev_hash, state_root, timestamp, nonce,
+                             difficulty_target, tx_count, work)
+         SELECT g, 'b' || g, 'p' || g, 'r', g, g, 'd', 10, '1'
+         FROM generate_series(0, $1 / 10) g",
+    )
+    .bind(PLAN_ROWS)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO transactions (txid, height, sender, nonce, output_count, total_out,
+                                   signed, position)
+         SELECT 't' || g, g / 10, 's' || (g % 50), g, 1, '1', TRUE, g % 10
+         FROM generate_series(0, $1 - 1) g",
+    )
+    .bind(PLAN_ROWS)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO tx_outputs (txid, idx, recipient, amount, height, position)
+         SELECT 't' || g, 0, 'o' || (g % 50), '1', g / 10, g % 10
+         FROM generate_series(0, $1 - 1) g",
+    )
+    .bind(PLAN_ROWS)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql("ANALYZE").execute(pool).await.unwrap();
+
+    let top = i64::MAX;
+    // From the tip, and from a client-crafted deep cursor at height 1.
+    let mut plans = Vec::new();
+    for (h, p) in [(top, top), (1, 0)] {
+        plans.push((
+            "blocks",
+            generic_plan(pool, BLOCKS_PAGE_SQL, "bigint, bigint", &format!("{h}, 25")).await,
+        ));
+        plans.push((
+            "transactions",
+            generic_plan(
+                pool,
+                TRANSACTIONS_PAGE_SQL,
+                "bigint, bigint, bigint",
+                &format!("{h}, {p}, 25"),
+            )
+            .await,
+        ));
+        for (name, sql) in [
+            ("sent", ADDRESS_SENT_SQL),
+            ("received", ADDRESS_RECEIVED_SQL),
+            ("both", ADDRESS_BOTH_SQL),
+        ] {
+            // An address with no history: the case that used to read it all.
+            let args = format!("'nobody', {h}, {p}, 25");
+            let plan = generic_plan(pool, sql, "text, bigint, bigint, bigint", &args).await;
+            plans.push((name, plan));
+        }
+    }
+    for (name, plan) in &plans {
+        for table in ["blocks", "transactions", "tx_outputs"] {
+            assert!(
+                !plan.contains(&format!("Seq Scan on {table}")),
+                "{name} walks {table}:\n{plan}"
+            );
+        }
+        assert!(plan.contains("Index"), "{name} uses no index:\n{plan}");
+    }
+    store.pool().close().await;
+    db.drop_db().await;
 }
 
 #[tokio::test]
