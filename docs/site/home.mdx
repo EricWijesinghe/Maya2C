@@ -1,63 +1,68 @@
 ---
 title: Maya2C
-description: Maya2C is a post-quantum layer-1 blockchain in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA and SLH-DSA. DAG-BFT finality.
+description: Maya2C is a post-quantum layer-1 blockchain in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA and SLH-DSA, and DAG-BFT makes each block final. Pre-mainnet; the 7-day testnet run is complete.
 template: splash
 head:
-  # The tab and search-result title. "Maya2C | Maya2C" said nothing about
-  # what the site is to someone searching for it.
+  # The tab and search-result title (L03): what the site is, in the words
+  # people search with. "Maya2C | Maya2C" said nothing.
   - tag: title
-    content: "Maya2C: Post-Quantum Layer-1 Blockchain, DAG-BFT Finality"
+    content: "Maya2C: post-quantum layer-1 blockchain"
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 import Hero from "../../components/Hero.astro";
+import HomeDoors from "../../components/HomeDoors.astro";
 import LiveStats from "../../components/LiveStats.astro";
-import FeatureGrid from "../../components/FeatureGrid.astro";
-import TrustStrip from "../../components/TrustStrip.astro";
+import TxPath from "../../components/TxPath.astro";
+import HomeTimeline from "../../components/HomeTimeline.astro";
 import FearsFaq from "../../components/FearsFaq.astro";
 
 {/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
 
-{/* U3 (2026-11-13): hero, proof row, feature grid, code, trust, FAQ. The
-    3D scenes, mining calculators and roadmap widgets that were here moved
-    out: their numbers are on /stats/ and /health/, the roadmap on /ecosystem/roadmap/. */}
+{/* L03 (2026-11-14): one strong graphic per screen. Hero (benefit, honest
+    doors, trust row, orbit), three audience doors, the proof row, the
+    transaction path, the network timeline, code, FAQ. */}
 
 <Hero />
 
+<HomeDoors />
+
 <LiveStats />
 
-<FeatureGrid />
+<TxPath />
+
+<HomeTimeline />
 
 <section class="home-code" aria-labelledby="code-title">
 <h2 id="code-title" class="home-h2">Read the chain in a few lines</h2>
-<p class="home-lede">The snippets are copied from each SDK's own README or doc comment. Signing happens client-side; the gateway holds no keys. <a href="/guides/api/">API reference</a></p>
+<p class="home-lede">Each snippet talks to a chain on your own machine: the <a href="/guides/quickstart/">local devnet</a> serves JSON-RPC on 127.0.0.1:8545, and the gateway in front of it listens on 127.0.0.1:8080. No SDK is on a package registry yet, so each tab builds from source. Signing happens client-side; the gateway holds no keys. <a href="/reference/sdk/">SDK reference</a></p>
 
 <Tabs>
-<TabItem label="Rust">
+<TabItem label="Rust · from source">
 
-```rust title="sdks/rust/src/lib.rs"
-let client = maya2c_sdk::Client::new("https://api.example.invalid")?;
+```rust title="sdks/rust (gateway client)"
+let client = maya2c_sdk::Client::new("http://127.0.0.1:8080")?;
 let balance = client.balance("maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f")?;
 println!("{} units, next nonce {}", balance.balance, balance.nonce);
 ```
 
 </TabItem>
-<TabItem label="TypeScript">
+<TabItem label="TypeScript · from source">
 
-```ts title="sdks/sdk-js/README.md"
+```ts title="sdks/sdk-js (gateway client)"
 import { MayaClient } from "maya2c.js";
 
-const client = new MayaClient({ baseUrl: "https://gateway.example.com" });
+const client = new MayaClient("http://127.0.0.1:8080");
 
 const balance = await client.getBalance("a71cf0…");
 const supply  = await client.getSupply();
-const block   = await client.getBlock(4200);
+const block   = await client.getBlock(1);
 ```
 
 </TabItem>
-<TabItem label="Python">
+<TabItem label="Python · from source">
 
-```python title="sdks/python/README.md"
+```python title="sdks/python (node JSON-RPC)"
 from maya2c_sdk import Client, Wallet
 
 client = Client("http://127.0.0.1:8545")
@@ -69,8 +74,6 @@ txid = wallet.transfer(recipient, 1_000)
 </Tabs>
 </section>
 
-<TrustStrip />
-
 <section class="home-faq" aria-labelledby="faq-title">
 <h2 id="faq-title" class="home-h2">Before you start</h2>
 
@@ -79,4 +82,4 @@ txid = wallet.transfer(recipient, 1_000)
 <p class="home-lede">More answers: <a href="/guides/faq/">FAQ</a>. Uptime and every halt: <a href="/health/">status</a>. Build and CI: <a href="/stats/#developers">developer transparency</a>.</p>
 </section>
 
-<p class="maya-footnote">No token is for sale, and nothing here is an offer of one. Every download is built from this source by CI and carries verifiable provenance: <a href="/guides/code-signing-policy/">code signing policy</a>.</p>
+<p class="maya-footnote">No token is for sale, and nothing here is an offer of one. Each release lists SHA256SUMS and a build attestation; Windows and macOS code signing is pending: <a href="/guides/code-signing-policy/">code signing policy</a>.</p>

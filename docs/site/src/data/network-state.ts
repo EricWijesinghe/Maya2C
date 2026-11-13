@@ -12,9 +12,14 @@ export const testnet = {
   last: {
     height: 393812,
     at: "2026-10-28 07:36 UTC",
+    // Genesis 1792511653 and last block 1793172992 in the same report.
+    from: "2026-10-20",
+    to: "2026-10-28",
     run: "7 d 15 h 42 min",
     halts: 0,
     uptime: 1.0,
+    // `threshold_seconds` in the same reading: a halt is any gap over this.
+    haltSeconds: 60,
   },
 } as const;
 

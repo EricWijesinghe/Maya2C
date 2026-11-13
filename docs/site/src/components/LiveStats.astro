@@ -8,28 +8,31 @@ import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
 import { testnet } from "../data/network-state";
+import { uptimePercent } from "../data/home";
 
 const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality ?? null;
 const s = health.ledger.by_status as Record<string, number>;
 const paused = testnet.paused;
+const run = testnet.last;
+const haltRule = `a halt is any gap over ${run.haltSeconds} s`;
 const stats = [
   {
     id: "height", label: paused ? "Last block" : "Block height",
-    value: paused ? testnet.last.height.toLocaleString("en-US") : null,
-    note: paused ? `${testnet.last.at}, then paused` : "maya-testnet-1, live",
+    value: paused ? run.height.toLocaleString("en-US") : null,
+    note: paused ? `${run.at}, then paused on purpose` : "maya-testnet-1, from the explorer",
     src: paused ? "status.maya2c.dev /api/status, last reading before the stop, quoted in the stop report" : "Explorer /api/stats",
     href: paused ? testnet.report : undefined,
   },
   {
-    id: "uptime", label: paused ? "Uptime, last run" : "Uptime since genesis",
-    value: paused ? `${(testnet.last.uptime * 100).toFixed(2)}%` : null,
-    note: paused ? `${testnet.last.run}, ${testnet.last.halts} halts` : "status.maya2c.dev",
+    id: "uptime", label: paused ? "Uptime, 7-day run" : "Uptime since genesis",
+    value: paused ? uptimePercent(run.uptime) : null,
+    note: paused ? `${run.from} to ${run.to}, ${run.halts} halts; ${haltRule}` : `since genesis; ${haltRule}`,
     src: paused ? "status.maya2c.dev /api/status before the stop, in the stop report" : "status.maya2c.dev /api/status",
-    href: paused ? testnet.report : undefined,
+    href: paused ? testnet.report : "https://status.maya2c.dev/api/status",
   },
   {
     id: "finality", label: "Finality p50",
-    value: finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : null,
+    value: finality ? `${finality.p50_ms.toLocaleString("en-US")} ms` : "MISSING",
     note: finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed",
     src: finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed",
     href: "/stats/#finality",
@@ -49,8 +52,8 @@ const stats = [
     {stats.map((t) => (
       <div class="cell">
         <dt>{t.label}</dt>
-        <dd data-live={t.value === null ? t.id : undefined}>{t.value ?? "—"}</dd>
-        <p class="note">{t.note} <SourceTip text={t.src} href={t.href} /></p>
+        <dd data-live={t.value === null ? t.id : undefined}>{t.value ?? "…"}</dd>
+        <dd class="note">{t.note} <SourceTip text={t.src} href={t.href} /></dd>
       </div>
     ))}
   </dl>
@@ -58,14 +61,25 @@ const stats = [
 
 <script>
   import { explorerStats, fmt, uptime } from "../scripts/live";
+  import { FAILS_BEFORE_UNREACHABLE, uptimePercent, unreachableLabel, type Reading } from "../data/home";
   const root = document.querySelector<HTMLElement>("[data-proof]");
   // Paused: every figure is already the dated last reading; nothing to fetch.
   if (root && !root.hasAttribute("data-paused")) {
-    const set = (id: string, v: string) => { const el = root.querySelector(`[data-live="${id}"]`); if (el) el.textContent = v; };
+    const tiles = new Map<string, { fails: number; last: Reading | null }>();
+    // A value is shown as current only while its source answers; after two
+    // misses in a row the tile says so and keeps the last value, dated.
+    const report = (id: string, value: string | null) => {
+      const el = root.querySelector(`[data-live="${id}"]`);
+      if (!el) return;
+      const t = tiles.get(id) ?? { fails: 0, last: null };
+      if (value !== null) { t.fails = 0; t.last = { value, at: new Date() }; el.textContent = value; el.classList.remove("stale"); }
+      else if (++t.fails >= FAILS_BEFORE_UNREACHABLE) { el.textContent = unreachableLabel(t.last); el.classList.add("stale"); }
+      tiles.set(id, t);
+    };
     const poll = async () => {
       const [st, u] = await Promise.all([explorerStats(), uptime()]);
-      if (st) set("height", fmt(st.height));
-      if (u && typeof u.uptime === "number") set("uptime", `${(u.uptime * 100).toFixed(2)}%`);
+      report("height", st ? fmt(st.height) : null);
+      report("uptime", u && typeof u.uptime === "number" ? uptimePercent(u.uptime) : null);
     };
     poll();
     setInterval(() => { if (!document.hidden) poll(); }, 15000);
@@ -74,17 +88,18 @@ const stats = [
 
 <style>
   .proof { margin: var(--space-12) 0 0; }
+  dd.stale { font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
   dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); overflow: visible; }
   .cell { display: grid; gap: var(--space-1); align-content: start; padding: var(--space-5); min-width: 0; }
   .cell + .cell { border-inline-start: 1px solid var(--border); }
   dt { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
-  dd { margin: 0; text-align: start; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
-  .note { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  dd:not(.note) { margin: 0; text-align: start; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
+  dd.note { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
   @media (max-width: 760px) {
     dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .cell:nth-child(3) { border-inline-start: 0; }
     .cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
     .cell { padding: var(--space-4); }
-    dd { font-size: var(--type-title-3-size); }
+    dd:not(.note) { font-size: var(--type-title-3-size); }
   }
 </style>
