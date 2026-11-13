@@ -73,3 +73,51 @@ contrast gate are unchanged.
   measures 3.50 to 3.99:1, so it is a non-text colour (rings, fills, the
   selected tab) and links use the added `accent-text` (#0a7468, 4.96:1 or
   more on every light surface).
+
+## Revision 2 2026-11-13: lifted, tinted palette
+
+Eric found the revision-1 colours "too dark", with "dull feelings". Colour
+only; the geometry above (4–12 px radii, 120–240 ms motion, Inter) is kept.
+Values: `design/tokens.json`; the table and its reasoning:
+`docs/design/forged-light-2.md` §3.1.
+
+- **One meaning per colour.** Teal = trust, secure, the primary action;
+  bronze = value, coins, proof, warmth; green = verified or confirmed;
+  amber = needs a look, testnet, paused; coral = error or irreversible;
+  blue = information or research; steel = reference. A colour that means
+  one thing everywhere needs no legend.
+- **The dark ground is lifted and tinted** from a hue-free near-black
+  (`#08090b`) to deep teal-navy (`#081c28`), with the three surfaces stepped
+  up in the same hue. A ground with no hue reads as a screen that is off, and
+  forces every accent to be very bright to register; a tinted ground carries
+  the brand before any accent is drawn. Panels separate without a hairline:
+  `surface-3` against `bg` is gated at 1.25:1 or more in dark (a house rule,
+  `Use::Separation`, not WCAG). Accents gain chroma at equal or better
+  contrast.
+- **Light is warm paper** (`#faf8f4`, warm hairlines and shadows, no inset
+  highlight), not a grey inversion of dark.
+- **Roles restored or added:** `bronze-text`, `info`, `border-control`
+  (3:1 input edge, SC 1.4.11), the forge stops and `on-forge`, composed
+  gradients `grad-cta`, `grad-forge`, `grad-hero`, and a decorative tier
+  (`deco-*`, translucent, refused by the gate as a measured role). Chart
+  series are per theme (`chart-1`–`chart-6`), declared in each theme block
+  because a `var()` resolves where it is declared.
+- **`text-3` is body text now**: listed as `text` (4.5:1) on all four
+  grounds in both themes, instead of large-text only.
+- **The gate grows from pairs to a matrix.** The generator refuses a token
+  file that leaves out a required pair (every text role on every ground,
+  accent and `border-control` as non-text, ink on every fill), whose chart
+  series fall below `chart-distinctness.min-distance` (OKLab) under normal
+  vision, deuteranopia or protanopia (Machado et al. 2009), or whose design
+  doc table differs from the tokens. `--literals <dir>` lists colour literals
+  outside `tokens.css`; U2–U7 drive their folder to zero.
+- **Colour-blind rule:** colour is never the only carrier of a state. Every
+  status chip carries an icon and a word; every chart series a label.
+- Two plan values were lifted in lightness only, same hue, because the gate
+  measured them below 4.5:1 on `surface-3`: dark `text-3` `#8fa9b3` →
+  `#91abb5`, dark `danger` `#ff7183` → `#ff7f8f`. The chart orders given
+  per theme were aligned to one hue order, and dark gained a sixth series.
+- A seventh generated copy, `apps/status/src/tokens.css`, joins the six;
+  the status page does not consume it yet.
+- No violet or quantum role is added; the generator refuses those names
+  until Eric decides.
