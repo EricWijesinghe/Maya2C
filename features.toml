@@ -2674,6 +2674,17 @@ tests = ["crates/node/tests/names_tests.rs", "crates/node/tests/names_conformanc
 note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed: 3/4-byte proposed defaults, 5+ = 1/100 of the 4-byte fee, non-zero (Eric 2026-11-12, O-3). Stale commitments pruned at end of block through the nm:x: expiry index, at most 1,024 per block with carry-over (M-11). maya2c held by the governed NameReservedLabels bit set (tag 15), released only by a passed proposal. Own breaker modules Nft (14) and Names (15), state layers 19 and 20 (13 and 18 reserved for #447); renewals never halted. Not built: stealth meta-addresses (ADR-102 encoding), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
 
 [[subsystem]]
+id = "sponsored-fees"
+name = "Sponsored fees / paymaster (v4 P-4)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/core/sponsor_tx.rs`, `crates/node/src/state/sponsor.rs`, `crates/node/src/network/mempool.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/sponsored_fee_tests.rs", "crates/node/tests/sponsored_conformance.rs"]
+note = "ADR-135 P-4 (PROPOSED), post-genesis. Off: feature bit 44, SPONSORED_FEES_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Wire v13 (0x0D) wraps one v5-v8 frame; the sponsor pays required(outer_len) <= max_fee, no protocol surcharge (Eric O-4). No state prefix: the debit is an account move. Mempool defaults 64 pending per sponsor and an 86,400-block window are node policy. CI-first: not compiled locally when added."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

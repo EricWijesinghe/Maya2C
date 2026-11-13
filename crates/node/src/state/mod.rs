@@ -48,6 +48,7 @@ pub mod rwa_exec;
 pub mod sealed_exec;
 pub mod settlement;
 pub mod shielded;
+pub mod sponsor;
 pub mod staking;
 pub mod staking_exec;
 pub mod stateless;

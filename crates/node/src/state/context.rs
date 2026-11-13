@@ -2,7 +2,7 @@
 
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::crypto::suites::SuiteSunsets;
-use crate::state::upgrades::ASSET_MINT_ACTIVATION_HEIGHT;
+use crate::state::upgrades::{ASSET_MINT_ACTIVATION_HEIGHT, SPONSORED_FEES_ACTIVATION_HEIGHT};
 use crate::upgrade::FeatureActivations;
 
 /// Chain facts a transaction may depend on while executing.
@@ -86,6 +86,12 @@ pub struct BlockContext {
     /// First height at which names (tags 63-66) and the name-fee parameters
     /// execute (ADR-135 P-3, bit 43).
     pub names_activation: u64,
+    /// First height at which wire-v13 sponsored frames apply (ADR-135 P-4).
+    ///
+    /// [`SPONSORED_FEES_ACTIVATION_HEIGHT`] everywhere the node builds a
+    /// context. Set from the upgrade schedule by [`Self::with_features`];
+    /// tests set it with [`Self::with_sponsored_fees_activation`].
+    pub sponsored_fees_activation: u64,
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
@@ -218,6 +224,7 @@ impl BlockContext {
             asset_mint_activation: ASSET_MINT_ACTIVATION_HEIGHT,
             nft_activation: crate::state::upgrades::NFT_ACTIVATION_HEIGHT,
             names_activation: crate::state::upgrades::NAMES_ACTIVATION_HEIGHT,
+            sponsored_fees_activation: SPONSORED_FEES_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
@@ -239,6 +246,7 @@ impl BlockContext {
             asset_mint_activation: features.asset_mint,
             nft_activation: features.nft,
             names_activation: features.names,
+            sponsored_fees_activation: features.sponsored_fees,
             ..self
         }
     }
@@ -271,6 +279,21 @@ impl BlockContext {
     #[must_use]
     pub const fn names_active(self) -> bool {
         self.height >= self.names_activation
+    }
+
+    /// The same context with wire-v13 sponsored frames active from `height` on.
+    #[must_use]
+    pub const fn with_sponsored_fees_activation(self, height: u64) -> Self {
+        Self {
+            sponsored_fees_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether wire-v13 sponsored frames apply in this block.
+    #[must_use]
+    pub const fn sponsored_fees_active(self) -> bool {
+        self.height >= self.sponsored_fees_activation
     }
 
     /// The same context with capped-asset mint and burn active from `height` on.

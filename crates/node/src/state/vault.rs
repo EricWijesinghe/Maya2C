@@ -189,6 +189,26 @@ fn refuse<T>(why: impl Into<String>) -> Result<T> {
     Err(NodeError::Vault(why.into()))
 }
 
+/// `vault` with `moved` charged to its instant window at `height`, opening a
+/// new window when the last one has run its delay; refused past the limit.
+fn charge_window(vault: VaultRecord, moved: U256, height: u64) -> Result<VaultRecord> {
+    let mut vault = vault.normalised(height);
+    let config = vault.config.clone();
+    if height >= vault.window_start.saturating_add(config.delay_blocks) {
+        vault.window_start = height;
+        vault.window_spent = U256::zero();
+    }
+    let spent = vault.window_spent.saturating_add(moved);
+    if spent > config.limit {
+        return refuse(format!(
+            "{moved} would take this window's outflow past the vault's instant limit {}                  ({} already used); request a delayed withdrawal",
+            config.limit, vault.window_spent
+        ));
+    }
+    vault.window_spent = spent;
+    Ok(vault)
+}
+
 fn validate(config: &VaultConfig) -> Result<()> {
     if !(1..=MAX_DELAY_BLOCKS).contains(&config.delay_blocks) {
         return refuse(format!(
@@ -271,21 +291,33 @@ impl StateDB {
             ));
         }
         let moved = self.vault_outflow(overlay, tx)?;
-        let mut vault = vault.normalised(height);
-        let config = vault.config.clone();
-        if height >= vault.window_start.saturating_add(config.delay_blocks) {
-            vault.window_start = height;
-            vault.window_spent = U256::zero();
-        }
-        let spent = vault.window_spent.saturating_add(moved);
-        if spent > config.limit {
-            return refuse(format!(
-                "{moved} would take this window's outflow past the vault's instant limit {}                  ({} already used); request a delayed withdrawal",
-                config.limit, vault.window_spent
-            ));
-        }
-        vault.window_spent = spent;
-        Ok(Some(vault))
+        charge_window(vault, moved, height).map(Some)
+    }
+
+    /// Charges a sponsor's fee debit (ADR-135 P-4) to `owner`'s vault window
+    /// and stores it; nothing for an ordinary account. The debit is an output
+    /// to the collector that no transaction of the owner's lists, so without
+    /// this a stolen vault key could pay strangers' fees past the instant
+    /// limit (invariant 32, threat model P-10). All of it counts: the
+    /// fee-headroom exemption is for the owner's own fee, not for others'.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Vault`] when the debit would pass the window's limit;
+    /// storage failure or a damaged record.
+    pub(crate) fn charge_vault_window(
+        &self,
+        overlay: &mut Overlay,
+        owner: &Address,
+        amount: U256,
+        height: u64,
+    ) -> Result<()> {
+        let Some(vault) = self.vault_record(overlay, owner)? else {
+            return Ok(());
+        };
+        let vault = charge_window(vault, amount, height)?;
+        StateDB::store_vault(overlay, owner, &vault);
+        Ok(())
     }
 
     /// Value `tx` moves out: every output, except that the collector outputs

@@ -31,6 +31,7 @@ use crate::state::context::{
 };
 use crate::state::upgrades::{
     ASSET_MINT_ACTIVATION_HEIGHT, NAMES_ACTIVATION_HEIGHT, NFT_ACTIVATION_HEIGHT,
+    SPONSORED_FEES_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
@@ -66,8 +67,10 @@ impl FeatureSet {
     pub const NFT: u64 = 1 << 42;
     /// Names with commit-reveal, tags 63-66, and the name-fee parameters (ADR-135 P-3).
     pub const NAMES: u64 = 1 << 43;
+    /// Wire-v13 sponsored fees (ADR-135 P-4).
+    pub const SPONSORED_FEES: u64 = 1 << 44;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT | Self::NFT | Self::NAMES;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT | Self::NFT | Self::NAMES | Self::SPONSORED_FEES;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -111,6 +114,8 @@ pub struct FeatureActivations {
     pub nft: u64,
     /// Names with commit-reveal (bit 43).
     pub names: u64,
+    /// Wire-v13 sponsored fees (bit 44).
+    pub sponsored_fees: u64,
 }
 
 impl Default for FeatureActivations {
@@ -128,6 +133,7 @@ impl Default for FeatureActivations {
             asset_mint: ASSET_MINT_ACTIVATION_HEIGHT,
             nft: NFT_ACTIVATION_HEIGHT,
             names: NAMES_ACTIVATION_HEIGHT,
+            sponsored_fees: SPONSORED_FEES_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -240,6 +246,7 @@ impl UpgradeSchedule {
             asset_mint: at(FeatureSet::ASSET_MINT, never.asset_mint),
             nft: at(FeatureSet::NFT, never.nft),
             names: at(FeatureSet::NAMES, never.names),
+            sponsored_fees: at(FeatureSet::SPONSORED_FEES, never.sponsored_fees),
         }
     }
 
@@ -377,7 +384,7 @@ mod tests {
         );
         // The neighbours of bit 41 are other ADRs' claims, not features here.
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 40)]).is_err());
-        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 44)]).is_err());
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 45)]).is_err());
         let names = UpgradeSchedule::new(vec![with(2, 99, FeatureSet::NAMES)]).unwrap();
         assert_eq!(names.features().names, 99);
         assert_eq!(names.features().nft, u64::MAX);
@@ -385,6 +392,20 @@ mod tests {
         let n = UpgradeSchedule::new(vec![with(2, 88, FeatureSet::NFT)]).unwrap();
         assert_eq!(n.features().nft, 88);
         assert_eq!(n.features().asset_mint, u64::MAX);
+    }
+
+    #[test]
+    fn sponsored_fees_are_dark_until_an_entry_names_bit_44() {
+        assert_eq!(FeatureActivations::default().sponsored_fees, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 77, FeatureSet::SPONSORED_FEES)]).unwrap();
+        assert_eq!(s.features().sponsored_fees, 77);
+        assert_eq!(
+            s.features().asset_mint,
+            u64::MAX,
+            "bit 44 switches on nothing else"
+        );
+        // Bit 45 is reserved for smart-account policy (ADR-135 I5, not built).
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 45)]).is_err());
     }
 
     #[test]
