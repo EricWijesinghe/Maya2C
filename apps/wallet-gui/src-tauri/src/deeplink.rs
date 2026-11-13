@@ -9,7 +9,8 @@ use std::sync::{Mutex, PoisonError};
 
 use maya_address::{Network, decode_any};
 use maya_wallet_core::amount::parse_display;
-use maya_wallet_core::payment::PaymentRequest;
+use maya_wallet_core::chat_pay::PaidRequests;
+use maya_wallet_core::payment::{ChatRequest, PaymentRequest};
 use primitive_types::U256;
 use tauri::{AppHandle, Manager, Runtime, State};
 
@@ -30,11 +31,17 @@ pub enum Route {
     Open,
     /// Prefill the Send form. `recipient` is lowercase hex of the 32-byte id.
     /// `amount` is in base units (ADR-068), parsed from a whole-coin decimal.
+    /// `chat` is the chat request it pays and its chain, from a link the
+    /// chat made (`request` and `chain`, both or neither; ADR-088).
     Pay {
         recipient: String,
         amount: Option<U256>,
+        chat: Option<ChatRequest>,
     },
 }
+
+/// The paid chat request ids, in the app's data directory.
+const PAID_FILE: &str = "chat-paid-requests.json";
 
 /// Why a link was refused. Carries no input text, so it is safe to log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +53,11 @@ pub enum RouteError {
     Query,
     Address,
     Amount,
+    /// A `request` or `chain` that is not 64 lowercase hex characters, or
+    /// one without the other.
+    ChatRequest,
+    /// A chat request this wallet has already paid.
+    AlreadyPaid,
 }
 
 /// Parses one link. Every rule is strict: a surprise is a refusal, not a guess.
@@ -78,10 +90,13 @@ pub fn parse(url: &str) -> Result<Route, RouteError> {
     }
 }
 
-/// Reads `to` (required) and `amount` (optional), each at most once.
+/// Reads `to` (required), `amount` (optional), and `request` with `chain`
+/// (both or neither), each at most once.
 fn parse_pay(query: &str) -> Result<Route, RouteError> {
     let mut to = None;
     let mut amount = None;
+    let mut request = None;
+    let mut chain = None;
     for pair in query.split('&') {
         let (key, value) = pair.split_once('=').ok_or(RouteError::Query)?;
         if value.is_empty() {
@@ -90,6 +105,8 @@ fn parse_pay(query: &str) -> Result<Route, RouteError> {
         let slot = match key {
             "to" => &mut to,
             "amount" => &mut amount,
+            "request" => &mut request,
+            "chain" => &mut chain,
             _ => return Err(RouteError::Query),
         };
         if slot.replace(value).is_some() {
@@ -99,7 +116,67 @@ fn parse_pay(query: &str) -> Result<Route, RouteError> {
     let to = to.ok_or(RouteError::Query)?;
     let recipient = recipient_hex(to)?;
     let amount = amount.map(parse_whole_coins).transpose()?;
-    Ok(Route::Pay { recipient, amount })
+    let chat = match (request, chain) {
+        (None, None) => None,
+        (Some(request), Some(chain)) if is_hex32(request) && is_hex32(chain) => Some(ChatRequest {
+            request: request.to_owned(),
+            chain: chain.to_owned(),
+        }),
+        _ => return Err(RouteError::ChatRequest),
+    };
+    Ok(Route::Pay {
+        recipient,
+        amount,
+        chat,
+    })
+}
+
+/// 64 lowercase hex characters: one spelling, as the chat writes it.
+fn is_hex32(text: &str) -> bool {
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The paid list, read from disk. A file that cannot be read refuses every
+/// chat request rather than forgetting what was paid.
+///
+/// # Errors
+///
+/// No data directory, or an unreadable file.
+pub fn paid_list<R: Runtime>(app: &AppHandle<R>) -> Result<PaidRequests, String> {
+    PaidRequests::load(&paid_path(app)?).map_err(|e| e.to_string())
+}
+
+/// Marks chat request `id` paid at `now`, on disk.
+///
+/// # Errors
+///
+/// No data directory, an unreadable or unwritable file, or an id already
+/// paid.
+pub fn record_paid<R: Runtime>(app: &AppHandle<R>, id: &[u8; 32], now: u64) -> Result<(), String> {
+    let path = paid_path(app)?;
+    let mut paid = PaidRequests::load(&path).map_err(|e| e.to_string())?;
+    paid.record(id, now).map_err(|e| e.to_string())?;
+    paid.save(&path).map_err(|e| e.to_string())
+}
+
+fn paid_path<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join(PAID_FILE))
+}
+
+/// Whether the wallet has already paid the chat request `chat` names.
+fn already_paid<R: Runtime>(app: &AppHandle<R>, chat: &ChatRequest) -> bool {
+    let Ok(bytes) = hex::decode(&chat.request) else {
+        return true;
+    };
+    let Ok(id) = <[u8; 32]>::try_from(bytes) else {
+        return true;
+    };
+    paid_list(app).map_or(true, |paid| paid.check(&id).is_err())
 }
 
 /// Checks a bech32m address and returns its 32-byte id as hex.
@@ -140,11 +217,20 @@ pub fn handle<R: Runtime, U: std::fmt::Display>(app: &AppHandle<R>, urls: &[U]) 
     for url in urls {
         match parse(&url.to_string()) {
             Ok(Route::Open) => {}
-            Ok(Route::Pay { recipient, amount }) => {
+            Ok(Route::Pay {
+                recipient,
+                amount,
+                chat,
+            }) => {
+                if chat.as_ref().is_some_and(|c| already_paid(app, c)) {
+                    eprintln!("deep link refused: {:?}", RouteError::AlreadyPaid);
+                    continue;
+                }
                 let request = PaymentRequest {
                     recipient,
                     amount,
                     label: None,
+                    chat,
                 };
                 let pending: State<'_, PendingPay> = app.state();
                 *pending.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(request);
@@ -203,6 +289,7 @@ mod tests {
             Ok(Route::Pay {
                 recipient: hex::encode([7u8; 32]),
                 amount: Some(expected),
+                chat: None,
             })
         );
     }
@@ -215,8 +302,43 @@ mod tests {
             Ok(Route::Pay {
                 recipient: hex::encode([7u8; 32]),
                 amount: None,
+                chat: None,
             })
         );
+    }
+
+    /// The link `maya-chat`'s `pay_link::pay_uri` writes.
+    #[test]
+    fn a_chat_pay_link_carries_its_request_and_chain() {
+        let request = "ab".repeat(32);
+        let chain = "c1".repeat(32);
+        let url = format!(
+            "{}&amount=2.5&request={request}&chain={chain}",
+            pay(&address(Network::Testnet))
+        );
+        let Ok(Route::Pay { chat, .. }) = parse(&url) else {
+            panic!("refused: {url}");
+        };
+        assert_eq!(chat, Some(ChatRequest { request, chain }));
+    }
+
+    #[test]
+    fn a_chat_request_needs_both_keys_in_their_one_spelling() {
+        let to = address(Network::Mainnet);
+        let id = "ab".repeat(32);
+        let cases = [
+            format!("{}&request={id}", pay(&to)),
+            format!("{}&chain={id}", pay(&to)),
+            format!("{}&request={}&chain={id}", pay(&to), id.to_uppercase()),
+            format!("{}&request={}&chain={id}", pay(&to), &id[1..]),
+            format!("{}&request={id}0&chain={id}", pay(&to)),
+            format!("{}&request={id}&chain={}", pay(&to), "zz".repeat(32)),
+        ];
+        for url in cases {
+            assert_eq!(parse(&url), Err(RouteError::ChatRequest), "accepted: {url}");
+        }
+        let twice = format!("{}&request={id}&request={id}&chain={id}", pay(&to));
+        assert_eq!(parse(&twice), Err(RouteError::Query));
     }
 
     #[test]
@@ -231,7 +353,10 @@ mod tests {
         assert_eq!(parse("https://pay?to=x"), Err(RouteError::Scheme));
         assert_eq!(parse("maya2c-chat://open"), Err(RouteError::Scheme));
         assert_eq!(parse("MAYA2C-WALLET://open"), Err(RouteError::Scheme));
-        assert_eq!(parse(&format!("maya2c-wallet:/pay?to={to}")), Err(RouteError::Scheme));
+        assert_eq!(
+            parse(&format!("maya2c-wallet:/pay?to={to}")),
+            Err(RouteError::Scheme)
+        );
     }
 
     #[test]
@@ -303,7 +428,9 @@ mod tests {
     #[test]
     fn amount_must_be_positive_whole_coins() {
         let to = address(Network::Mainnet);
-        let cases = ["0", "0.0", "-1", "1e3", "0x10", "1.5.5", "1,5", ".5", "1.", "+1"];
+        let cases = [
+            "0", "0.0", "-1", "1e3", "0x10", "1.5.5", "1,5", ".5", "1.", "+1",
+        ];
         for amount in cases {
             let url = format!("{}&amount={amount}", pay(&to));
             assert_eq!(parse(&url), Err(RouteError::Amount), "accepted: {amount}");

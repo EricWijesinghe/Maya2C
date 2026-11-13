@@ -52,7 +52,8 @@ with a random 16-byte token for the frame; the bridge drops any other token
 the fields, builds the confirm text (full Bech32m payee, amount in coins,
 memo, app name and publisher), and returns a wallet link only after the user
 says yes. The wallet then shows the payment again and signs. The link uses
-ADR-088's `maya2c-wallet://pay?` contract, with a bridge intent id in place
+ADR-088's `maya2c-wallet://pay?` contract (including `chain`, the chain set
+for payments; an app cannot open before it is set), with a bridge intent id in place
 of a signed request id.
 
 ### 5. App messages are labelled and cannot pose as payments

@@ -14,6 +14,7 @@ use maya_crypto_pq::suite::MasterSeed;
 const HTML: &[u8] = b"<!doctype html><p>split the bill</p>";
 const PAYEE: [u8; 32] = [7; 32];
 const USER: [u8; 32] = [9; 32];
+const CHAIN: [u8; 32] = [0xc1; 32];
 const ONE_COIN_BASE: &str = "1000000000000000000000000";
 
 fn publisher() -> MasterSeed {
@@ -40,7 +41,7 @@ fn verified() -> Verified {
 }
 
 fn bridge() -> Bridge {
-    Bridge::new(verified(), Network::Testnet, USER).unwrap()
+    Bridge::new(verified(), Network::Testnet, CHAIN, USER).unwrap()
 }
 
 fn pay_call() -> Call {
@@ -154,6 +155,10 @@ fn the_pay_flow_needs_user_confirmation() {
     let link = parse_pay_uri(&uri, Network::Testnet).unwrap();
     assert_eq!(link.to, PAYEE);
     assert_eq!(link.amount, ONE_COIN_BASE);
+    assert_eq!(
+        link.chain, CHAIN,
+        "the wallet refuses a link for another chain"
+    );
     let confirm = seen.last().unwrap();
     assert!(confirm.contains(&encode(Network::Testnet, &PAYEE)));
     assert!(confirm.contains("Amount: 1 "));
@@ -167,7 +172,7 @@ fn the_pay_flow_needs_user_confirmation() {
 #[test]
 fn an_undeclared_permission_is_refused_without_asking() {
     let m = Manifest::sign(&publisher(), "Read", [1; 32], [2; 32], &["read-address"]).unwrap();
-    let mut b = Bridge::new(m.verify().unwrap(), Network::Testnet, USER).unwrap();
+    let mut b = Bridge::new(m.verify().unwrap(), Network::Testnet, CHAIN, USER).unwrap();
     let (reply, seen) = drive(&mut b, pay_call(), |_| true);
     assert!(matches!(reply, Reply::Refused { .. }));
     assert!(seen.is_empty());

@@ -39,6 +39,19 @@ pub struct PaymentRequest {
     pub amount: Option<String>,
     /// Requester-supplied label. Untrusted text.
     pub label: Option<String>,
+    /// The chat request this pays, from a chat pay link. Handed back to
+    /// `sign_transfer`, which refuses another chain or a paid request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<ChatRequest>,
+}
+
+/// A chat request id and its chain, both hex (ADR-088).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ChatRequest {
+    /// The request id.
+    pub request: String,
+    /// The chain's genesis id.
+    pub chain: String,
 }
 
 /// A signed, broadcastable transaction.
@@ -326,6 +339,7 @@ pub async fn preview_transfer(
 /// `terms.collector` is the fee collector (`None` burns the fee, which only a
 /// chain without a fee market accepts) and `terms.genesis` the chain the
 /// signature is valid on; both come from [`fee_options`].
+#[allow(clippy::too_many_arguments)] // one per argument of the Tauri command
 pub async fn sign_transfer(
     index: u32,
     recipient: &str,
@@ -334,6 +348,7 @@ pub async fn sign_transfer(
     nonce: u64,
     terms: &FeeTerms,
     confirmed_hash: &str,
+    chat: Option<&ChatRequest>,
 ) -> Result<SignedTransfer, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -346,6 +361,7 @@ pub async fn sign_transfer(
         nonce: u64,
         genesis: &'a str,
         confirmed_hash: &'a str,
+        chat: Option<&'a ChatRequest>,
     }
     call(
         "sign_transfer",
@@ -358,6 +374,7 @@ pub async fn sign_transfer(
             nonce,
             genesis: &terms.genesis,
             confirmed_hash,
+            chat,
         },
     )
     .await

@@ -131,16 +131,16 @@ pub(crate) async fn miniapp_open(
     id: String,
 ) -> Result<String, String> {
     let (verified, html) = load(&base(&app)?, &id)?;
-    let me = {
+    let (me, chain) = {
         let guard = state.session.lock().await;
-        guard
-            .as_ref()
-            .ok_or("create an identity first")?
+        let s = guard.as_ref().ok_or("create an identity first")?;
+        let chain = s
             .client
-            .identity()
-            .address()
+            .pay_chain()
+            .ok_or("set up payments first: an app payment names the chain")?;
+        (s.client.identity().address(), chain)
     };
-    let bridge = Bridge::new(verified, NETWORK, me).map_err(|e| e.to_string())?;
+    let bridge = Bridge::new(verified, NETWORK, chain, me).map_err(|e| e.to_string())?;
     let token = hex::encode(bridge.token());
     *runner.0.lock().map_err(|_| "runner lock poisoned")? = Some(Running { bridge, html });
     Ok(token)

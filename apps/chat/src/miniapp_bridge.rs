@@ -17,7 +17,7 @@ use maya_address::{Network, decode, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::miniapp::{Permission, Verified};
-use crate::pay::{self, check_amount, check_memo};
+use crate::pay::{self, ChainTag, check_amount, check_memo};
 use crate::pay_link::{base_to_whole, pay_uri_to};
 use crate::{Address, ChatError};
 
@@ -99,6 +99,8 @@ pub struct Bridge {
     token: Token,
     app: Verified,
     network: Network,
+    /// The chain a payment link names (ADR-088): the wallet refuses another.
+    chain: ChainTag,
     user: Address,
     granted: BTreeSet<Permission>,
     pending: Option<(u64, Pending)>,
@@ -132,18 +134,25 @@ pub fn pay_confirm_text(
 }
 
 impl Bridge {
-    /// A bridge for `app`, run by `user` on `network`, with a fresh token.
+    /// A bridge for `app`, run by `user` on `network` and `chain`, with a
+    /// fresh token.
     ///
     /// # Errors
     ///
     /// [`ChatError::Entropy`].
-    pub fn new(app: Verified, network: Network, user: Address) -> Result<Self, ChatError> {
+    pub fn new(
+        app: Verified,
+        network: Network,
+        chain: ChainTag,
+        user: Address,
+    ) -> Result<Self, ChatError> {
         let mut token = [0u8; 16];
         getrandom::fill(&mut token).map_err(|_| ChatError::Entropy)?;
         Ok(Self {
             token,
             app,
             network,
+            chain,
             user,
             granted: BTreeSet::new(),
             pending: None,
@@ -279,6 +288,9 @@ impl Bridge {
             h.update(part);
         }
         let id = *h.finalize().as_bytes();
-        Ok((payee, pay_uri_to(self.network, &payee, amount, &id)))
+        Ok((
+            payee,
+            pay_uri_to(self.network, &payee, amount, &id, &self.chain),
+        ))
     }
 }

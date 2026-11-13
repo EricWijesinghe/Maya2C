@@ -77,6 +77,7 @@ pub fn run() {
             commands::fee_options,
             commands::network_status,
             commands::receive_request,
+            commands::chat_binding,
             deeplink::take_pending_pay,
         ])
         .run(with_automation_args(tauri::generate_context!()))

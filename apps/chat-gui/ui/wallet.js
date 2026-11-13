@@ -66,8 +66,23 @@ const Wallet = (() => {
       try {
         drawLine(await invoke("pay_request", { peer, amount: el("request-amount").value, memo: el("request-memo").value }));
         d.close();
-      } catch (e) { el("request-error").textContent = String(e); }
+      } catch (e) {
+        el("request-error").textContent = String(e);
+        if (/set up payments|set the node/.test(String(e))) await settings();
+      }
     };
+  }
+
+  // shortcut: three prompts; a settings form once the Pay card is designed.
+  async function settings() {
+    const chain = window.prompt("Chain genesis id (64 hex characters, from your wallet's network screen)");
+    if (!chain) return;
+    const node = window.prompt("Node RPC URL for the chain tip (one you run)");
+    if (!node) return;
+    const binding = window.prompt("Paste the binding from your wallet's 'Chat payment binding'");
+    if (!binding) return;
+    try { await invoke("pay_settings", { chain, node, binding }); el("request-error").textContent = "Payments set up. Send the request again."; }
+    catch (e) { el("request-error").textContent = String(e); }
   }
 
   function post(reply) {

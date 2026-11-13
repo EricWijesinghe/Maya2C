@@ -4,6 +4,9 @@ Status: **stub**. Not compiled or run on a desktop yet. Design: [ADR-138](adr/AD
 
 ## What a user sees
 
+- **Set up payments** (asked the first time you send a request): the chain
+  id, a node you run, and the binding your wallet signs under "Chat payment
+  binding". Money goes to that wallet account, never to your chat identity.
 - **Request** (₥ button in a chat): ask the other person for an amount in
   coins with an optional memo. They get a request bubble.
 - **Pay** on a request bubble: a confirm box shows who asks, the full payee

@@ -29,6 +29,10 @@ hex.workspace = true
 libp2p = { workspace = true, features = ["tokio", "tcp", "noise", "yamux", "request-response", "cbor", "ed25519", "macros", "dns", "websocket"] }
 serde = { workspace = true, features = ["derive"] }
 serde_bytes.workspace = true
+serde_json.workspace = true
+# The payee's finality check (pay::chain, ADR-088): JSON-RPC to a node.
+# rustls, not OpenSSL, as the other reqwest users in the tree.
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 # `serde` so saved sessions stay in `Zeroizing` from disk to use.

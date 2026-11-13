@@ -98,6 +98,9 @@ pub struct Profile {
     /// Recently sent sticker ids, newest first.
     #[serde(default)]
     pub recent: Vec<String>,
+    /// The node payments read the chain tip from (ADR-088), set in payment settings.
+    #[serde(default)]
+    pub pay_node: Option<String>,
 }
 
 fn keychain() -> Result<keyring::Entry, String> {

@@ -39,6 +39,7 @@
 
 pub mod airgap;
 pub mod amount;
+pub mod chat_pay;
 pub mod compose;
 pub mod confirm;
 pub mod error;
@@ -54,7 +55,7 @@ pub use compose::{CircuitTrust, ShieldedComposer, SwapOutcome};
 pub use error::{Result, WalletError};
 pub use hd::{DerivationPath, generate_mnemonic, seed_from_mnemonic, validate_mnemonic};
 pub use payment::{
-    FeeTier, PaymentRequest, SignedTransfer, check_fee_collector, priced_fee_tiers,
+    ChatRequest, FeeTier, PaymentRequest, SignedTransfer, check_fee_collector, priced_fee_tiers,
     scan_payment_request, transfer_size,
 };
 pub use vault::{MemoryStore, OsKeychain, SecretStore, Vault};
