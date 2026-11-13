@@ -575,7 +575,10 @@ mod tests {
         let mut ledger = issued();
         for height in [ISSUED_AT - 1, ISSUED_AT] {
             assert_eq!(
-                settle(&mut ledger, &found(height, tx(payer_wallet(), payee(), "1000"))),
+                settle(
+                    &mut ledger,
+                    &found(height, tx(payer_wallet(), payee(), "1000"))
+                ),
                 Err(refuse("transaction is older than the request")),
                 "height {height}"
             );
@@ -586,7 +589,10 @@ mod tests {
     fn an_unfinalized_transaction_does_not_settle() {
         let mut ledger = issued();
         assert_eq!(
-            settle(&mut ledger, &found(FINAL + 1, tx(payer_wallet(), payee(), "1000"))),
+            settle(
+                &mut ledger,
+                &found(FINAL + 1, tx(payer_wallet(), payee(), "1000"))
+            ),
             Err(refuse("transaction is not final"))
         );
     }
@@ -608,11 +614,18 @@ mod tests {
             full
         );
         assert_eq!(
-            settle(&mut ledger, &found(150, tx(payer_wallet(), payer(), "1000"))),
+            settle(
+                &mut ledger,
+                &found(150, tx(payer_wallet(), payer(), "1000"))
+            ),
             full
         );
         assert!(
-            settle(&mut ledger, &found(150, tx(payer_wallet(), payee(), "10000"))).is_ok(),
+            settle(
+                &mut ledger,
+                &found(150, tx(payer_wallet(), payee(), "10000"))
+            )
+            .is_ok(),
             "a longer number is larger"
         );
     }
@@ -729,7 +742,11 @@ mod tests {
     #[test]
     fn a_settled_transaction_is_remembered_longer_than_any_request_it_could_pay() {
         let mut ledger = issued();
-        settle(&mut ledger, &found(150, tx(payer_wallet(), payee(), "1000"))).unwrap();
+        settle(
+            &mut ledger,
+            &found(150, tx(payer_wallet(), payee(), "1000")),
+        )
+        .unwrap();
         // A request issued at the last moment before the transaction is open
         // until at most its expiry plus the grace window.
         let late = NOW + 2 * MAX_TTL - 1;

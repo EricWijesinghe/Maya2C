@@ -183,7 +183,12 @@ fn rebound(mut req: Request, binding: Binding) -> Request {
 }
 
 /// Queues `req` at the payee and opens it at the payer.
-fn send(payee: &mut Client, payer: &mut Client, req: &Request, now: u64) -> Result<Frame, ChatError> {
+fn send(
+    payee: &mut Client,
+    payer: &mut Client,
+    req: &Request,
+    now: u64,
+) -> Result<Frame, ChatError> {
     let out = payee
         .queue_request(payer_id().address(), req, TIP, NOW, 1)
         .unwrap();
@@ -583,7 +588,11 @@ fn a_revocation_reaches_contacts_and_old_requests_stop_being_payable() {
     let chat = payee_id().address();
     let revoke = wallet_signs(11, BindingKind::Revoke, CHAIN, chat, (NOW, NOW + DAY));
     payee.set_pay_binding(revoke.clone(), NOW).unwrap();
-    assert_eq!(payee.pay_binding(), None, "the payee stops naming the account");
+    assert_eq!(
+        payee.pay_binding(),
+        None,
+        "the payee stops naming the account"
+    );
     let out = payee
         .queue_binding(payer_id().address(), &revoke, NOW, 1)
         .unwrap();

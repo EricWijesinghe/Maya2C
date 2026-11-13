@@ -33,7 +33,7 @@ impl Inbound {
             Ok(Frame::Pay {
                 from: self.from,
                 id: request.id(me),
-                request,
+                request: Box::new(request),
             })
         } else if binding::is_binding(&self.plain) {
             let binding = Binding::parse_frame(&self.plain)?;
@@ -58,6 +58,12 @@ impl Client {
     /// it is set.
     pub fn set_pay_chain(&mut self, chain: ChainTag) {
         self.pay_chain = Some(chain);
+    }
+
+    /// The chain payments are for, once set.
+    #[must_use]
+    pub fn pay_chain(&self) -> Option<ChainTag> {
+        self.pay_chain
     }
 
     fn chain(&self) -> Result<ChainTag, ChatError> {

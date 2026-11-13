@@ -434,7 +434,11 @@ pub async fn chat_binding(
     let issued_at = unix_now()?;
     let life = days.map_or(chat_pay::DEFAULT_BINDING_TTL, |d| u64::from(d) * 24 * 3_600);
     let terms = BindingTerms {
-        kind: if revoke { BindingKind::Revoke } else { BindingKind::Bind },
+        kind: if revoke {
+            BindingKind::Revoke
+        } else {
+            BindingKind::Bind
+        },
         genesis,
         chat_id: chat,
         issued_at,

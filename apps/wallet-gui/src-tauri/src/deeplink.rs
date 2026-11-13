@@ -118,12 +118,10 @@ fn parse_pay(query: &str) -> Result<Route, RouteError> {
     let amount = amount.map(parse_whole_coins).transpose()?;
     let chat = match (request, chain) {
         (None, None) => None,
-        (Some(request), Some(chain)) if is_hex32(request) && is_hex32(chain) => {
-            Some(ChatRequest {
-                request: request.to_owned(),
-                chain: chain.to_owned(),
-            })
-        }
+        (Some(request), Some(chain)) if is_hex32(request) && is_hex32(chain) => Some(ChatRequest {
+            request: request.to_owned(),
+            chain: chain.to_owned(),
+        }),
         _ => return Err(RouteError::ChatRequest),
     };
     Ok(Route::Pay {
@@ -355,7 +353,10 @@ mod tests {
         assert_eq!(parse("https://pay?to=x"), Err(RouteError::Scheme));
         assert_eq!(parse("maya2c-chat://open"), Err(RouteError::Scheme));
         assert_eq!(parse("MAYA2C-WALLET://open"), Err(RouteError::Scheme));
-        assert_eq!(parse(&format!("maya2c-wallet:/pay?to={to}")), Err(RouteError::Scheme));
+        assert_eq!(
+            parse(&format!("maya2c-wallet:/pay?to={to}")),
+            Err(RouteError::Scheme)
+        );
     }
 
     #[test]
@@ -427,7 +428,9 @@ mod tests {
     #[test]
     fn amount_must_be_positive_whole_coins() {
         let to = address(Network::Mainnet);
-        let cases = ["0", "0.0", "-1", "1e3", "0x10", "1.5.5", "1,5", ".5", "1.", "+1"];
+        let cases = [
+            "0", "0.0", "-1", "1e3", "0x10", "1.5.5", "1,5", ".5", "1.", "+1",
+        ];
         for amount in cases {
             let url = format!("{}&amount={amount}", pay(&to));
             assert_eq!(parse(&url), Err(RouteError::Amount), "accepted: {amount}");

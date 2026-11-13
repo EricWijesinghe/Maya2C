@@ -94,6 +94,23 @@ pub enum Scan {
 #[derive(Deserialize)]
 struct ChainInfo {
     genesis: String,
+    #[serde(default)]
+    height: u64,
+}
+
+/// The node's tip height on `chain`: what a payee passes to
+/// [`crate::client::Client::queue_request`] as the request's issue height.
+///
+/// # Errors
+///
+/// [`ChatError::Refused`] if the node is on another chain;
+/// [`ChatError::Network`] for an RPC failure or a malformed answer.
+pub async fn tip_height<R: ChainRpc>(rpc: &R, chain: &ChainTag) -> Result<u64, ChatError> {
+    let info: ChainInfo = decode(rpc.call("get_chain_info", json!([])).await?)?;
+    if hex32(&info.genesis)? != *chain {
+        return Err(ChatError::Refused("node is on another chain"));
+    }
+    Ok(info.height)
 }
 
 #[derive(Deserialize)]
@@ -203,7 +220,7 @@ pub(crate) mod tests {
     impl ChainRpc for FakeNode {
         async fn call(&self, method: &str, params: Value) -> Result<Value, ChatError> {
             match method {
-                "get_chain_info" => Ok(json!({"genesis": hex::encode(self.genesis), "height": 0})),
+                "get_chain_info" => Ok(json!({"genesis": hex::encode(self.genesis), "height": 42})),
                 "get_checkpoint" => Ok(self.finalized.map_or(
                     Value::Null,
                     |h| json!({"epoch": 1, "height": h, "block": "", "signatures": []}),
@@ -298,5 +315,10 @@ pub(crate) mod tests {
             run(find_final(&other, &CHAIN, &TX, 1)),
             Err(ChatError::Refused("node is on another chain"))
         );
+        assert_eq!(
+            run(tip_height(&other, &CHAIN)),
+            Err(ChatError::Refused("node is on another chain"))
+        );
+        assert_eq!(run(tip_height(&node(Some(20)), &CHAIN)), Ok(42));
     }
 }

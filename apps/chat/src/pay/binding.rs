@@ -159,9 +159,7 @@ impl Binding {
         if self.chain != *chain {
             return Err(ChatError::Refused("binding is for another chain"));
         }
-        if self.expires_at <= self.issued_at
-            || self.expires_at - self.issued_at > MAX_BINDING_TTL
-        {
+        if self.expires_at <= self.issued_at || self.expires_at - self.issued_at > MAX_BINDING_TTL {
             return Err(ChatError::Refused("binding lifetime is over the limit"));
         }
         if now >= self.expires_at || self.issued_at > now.saturating_add(MAX_CLOCK_SKEW) {
@@ -401,7 +399,10 @@ mod tests {
         // Every signed field is covered.
         let mut moved = bind();
         moved.expires_at += 1;
-        assert_eq!(moved.verify(&chat(), &CHAIN, NOW), Err(ChatError::BadSignature));
+        assert_eq!(
+            moved.verify(&chat(), &CHAIN, NOW),
+            Err(ChatError::BadSignature)
+        );
     }
 
     #[test]
@@ -424,7 +425,10 @@ mod tests {
     #[test]
     fn an_expired_post_dated_or_over_long_binding_is_refused() {
         let b = bind();
-        assert_eq!(b.verify(&chat(), &CHAIN, NOW + 3_600), Err(ChatError::Expired));
+        assert_eq!(
+            b.verify(&chat(), &CHAIN, NOW + 3_600),
+            Err(ChatError::Expired)
+        );
         assert_eq!(
             b.verify(&chat(), &CHAIN, NOW - 10 - MAX_CLOCK_SKEW - 1),
             Err(ChatError::Expired)

@@ -54,7 +54,7 @@ pub enum Frame {
         /// The request id, as [`pay::Request::id`] gives it for this user.
         id: [u8; 32],
         /// The checked request.
-        request: pay::Request,
+        request: Box<pay::Request>,
     },
     /// A payer's receipt that it paid one of our requests, from the payer the
     /// request went to. Not yet checked against the chain: the caller finds
@@ -339,9 +339,7 @@ impl Client {
             Frame::Receipt { .. }
             | Frame::Pay { .. }
             | Frame::Paid { .. }
-            | Frame::Binding { .. } => {
-                Err(ChatError::NotText)
-            }
+            | Frame::Binding { .. } => Err(ChatError::NotText),
         }
     }
 

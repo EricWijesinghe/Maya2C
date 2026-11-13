@@ -84,7 +84,7 @@ pub fn binding_message(terms: &BindingTerms, account: &[u8; 32]) -> Vec<u8> {
 /// [`WalletError::Signing`] for a lifetime the chat would refuse, or a
 /// signing failure.
 pub fn sign_binding(key: &HybridSigningKey, terms: &BindingTerms) -> Result<Vec<u8>> {
-    let life = terms.expires_at.checked_sub(terms.issued_at).unwrap_or(0);
+    let life = terms.expires_at.saturating_sub(terms.issued_at);
     if life == 0 || life > MAX_BINDING_TTL {
         return Err(WalletError::Signing(format!(
             "a chat binding lasts between 1 second and {MAX_BINDING_TTL} seconds"
@@ -146,8 +146,7 @@ impl PaidRequests {
     /// ids are held.
     pub fn record(&mut self, id: &[u8; 32], now: u64) -> Result<()> {
         self.check(id)?;
-        self.paid
-            .retain(|_, at| at.saturating_add(PAID_KEEP) > now);
+        self.paid.retain(|_, at| at.saturating_add(PAID_KEEP) > now);
         if self.paid.len() >= MAX_PAID {
             return Err(WalletError::Signing(
                 "too many payment requests paid recently".to_string(),

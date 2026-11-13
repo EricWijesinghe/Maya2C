@@ -70,7 +70,10 @@ fn a_binding_the_chat_would_refuse_is_not_signed() {
             expires_at,
             ..vector_terms()
         };
-        assert!(sign_binding(&key, &terms).is_err(), "{issued_at}..{expires_at}");
+        assert!(
+            sign_binding(&key, &terms).is_err(),
+            "{issued_at}..{expires_at}"
+        );
     }
 }
 
