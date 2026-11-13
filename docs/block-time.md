@@ -105,6 +105,17 @@ ADR-068 tail rate (`:49-55`), ADR-135's `QUARTER_BLOCKS = 7,776,000` and
 
 ## 4. Open for Eric (consensus constants; not changed by this PR)
 
+**Status 2026-11-13:** items 1, 2 and 4 are done in the re-freeze bundle
+(PR #500): the floors are 7,200 / 14,400 blocks, `MIN_MIGRATION_WINDOW` is
+2,592,000 and `MIN_EMERGENCY_WINDOW` 259,200, and both the node's
+`GenesisConfig::validate` and `xtask genesis-check` refuse a mainnet
+`round_interval_ms` other than 500. Items 3 and 5-8 stay open. Not in the list
+and still sized at 15 s: `MAX_VOTING_BLOCKS` 100,000 (27.8 h at 1 s),
+`MAX_TIMELOCK_BLOCKS` 200,000 (55.6 h) and `EXECUTION_GRACE_BLOCKS` 100,000
+(27.8 h), all in `crates/governance/src/limits.rs`. They are ceilings, so they
+make governance stricter rather than unsafe, but a passed proposal nobody
+executes inside 27.8 h expires.
+
 1. **Pin the convention.** Make 1 block/s the written rule: add a line to
    invariant 34's text, and have `xtask genesis-check` refuse a mainnet
    genesis whose `round_interval_ms` is not 500 (today it only bounds

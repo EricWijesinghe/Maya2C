@@ -901,3 +901,13 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-13 — Governance and migration windows sized at 1 block/s (re-freeze bundle, Eric)
+
+The chain makes about one block a second (`docs/block-time.md`), and four compiled windows were sized at the 15 s PoW spacing, so each was 15x shorter in wall-clock than its comment said. Eric approved re-sizing them in the re-freeze bundle (PR #500):
+
+- **`MIN_VOTING_BLOCKS`** 480 -> 7,200 (2 h) and **`MIN_TIMELOCK_BLOCKS`** 960 -> 14,400 (4 h), `crates/governance/src/limits.rs` (invariant 12).
+- **`MIN_MIGRATION_WINDOW`** 172,800 -> 2,592,000 (30 d) and **`MIN_EMERGENCY_WINDOW`** 17,280 -> 259,200 (3 d), `crates/crypto-pq/src/agility/mod.rs`. This replaces the 2026-11-08 "2-day migration window stays".
+- **Council sunset lead** follows, being derived: 1,172,800 -> 3,592,000 blocks (about 41.6 d), replacing the 13.6 d recorded on 2026-11-08 (ADR-082 H3).
+- **The rate is pinned:** a `maya-mainnet` genesis must set `bft.round_interval_ms = 500`, refused otherwise by `GenesisConfig::validate` and `cargo xtask genesis-check`.
+- **Not changed, flagged:** `MAX_VOTING_BLOCKS`, `MAX_TIMELOCK_BLOCKS` and `EXECUTION_GRACE_BLOCKS` are still 15 s-sized (27.8 h, 55.6 h, 27.8 h at 1 s). They are ceilings, so not a safety hole; left for Eric.

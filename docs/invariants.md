@@ -265,6 +265,12 @@ phase that did it.
     as `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW`
     (1,000,000 + 2,592,000) so a vault withdrawal a sunset announcement starts can
     finish before the sunset height (ADR-082).
+    Every lead and window here is counted in blocks at one block per second, so
+    a `maya-mainnet` genesis must set `bft.round_interval_ms` to
+    `CANONICAL_ROUND_INTERVAL_MS` (500; an anchor every two rounds):
+    `GenesisConfig::validate` refuses anything else
+    (`a_value_bearing_genesis_refuses_a_round_interval_off_the_canonical_rate`),
+    and so does `cargo xtask genesis-check`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and

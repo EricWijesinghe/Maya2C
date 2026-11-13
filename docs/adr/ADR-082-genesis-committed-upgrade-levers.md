@@ -92,8 +92,9 @@ announced just before a withdrawal could freeze the funds past the sunset height
 unless the lead covers the delay. The migration window is the time users have to
 move to another suite. The lead is the sum, derived from the constants. The
 reviewer's figure of about 18.6 days assumed a 7-day migration window. The code's
-`MIN_MIGRATION_WINDOW` is 2,592,000 blocks (30 days at 1 block/s). The figure is
-recorded in DECISIONS.md, and the decision on the window is open before mainnet.
+`MIN_MIGRATION_WINDOW` is 2,592,000 blocks (30 days at 1 block/s), decided in
+the re-freeze bundle (DECISIONS.md, 2026-11-13), which replaces the 2-day window
+recorded on 2026-11-08.
 
 **Update 2026-11-12 (block-time fix A).** These are new value decisions at the
 canonical 1 block/s, not a unit fix: the earlier figures were already stated at
