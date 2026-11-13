@@ -86,12 +86,20 @@ impl PreviewCache {
     /// Starts a committed write: bumps the generation and returns a guard the
     /// caller holds until the write has landed.
     pub(crate) fn begin_write(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.begin_write_from().0
+    }
+
+    /// [`Self::begin_write`], also returning the generation it advanced from.
+    /// Anything computed from state read at that generation still describes
+    /// committed state while the guard is held: how a commit knows the root
+    /// cache's plan is fit to stage (ADR-062a).
+    pub(crate) fn begin_write_from(&self) -> (std::sync::MutexGuard<'_, ()>, u64) {
         let guard = self
             .serial
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.generation.fetch_add(1, Ordering::SeqCst);
-        guard
+        let before = self.generation.fetch_add(1, Ordering::SeqCst);
+        (guard, before)
     }
 
     /// Held for the whole of a preview's staging.

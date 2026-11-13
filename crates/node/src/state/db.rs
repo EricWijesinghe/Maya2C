@@ -161,6 +161,11 @@ pub(crate) struct Overlay {
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
+    /// The root-cache plan the accounts root came from (ADR-062a), so the
+    /// commit stages the writes it already computed rather than walking the
+    /// tree again. Set by `root_with_overlay`; checked against the write
+    /// generation and the account changes before it is used.
+    pub(crate) root_plan: Option<root_cache::Plan>,
 }
 
 impl Overlay {
@@ -263,6 +268,8 @@ pub struct StateDB {
     /// DAG caches for mining shares (ADR-044), built on the first share so a
     /// chain that does not mine never pays for one.
     pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
+    /// What the sparse root cache did since open (ADR-062a).
+    root_cache: root_cache::Counters,
 }
 
 impl StateDB {
@@ -319,6 +326,7 @@ impl StateDB {
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
             mining_dag: OnceLock::new(),
+            root_cache: root_cache::Counters::default(),
         })
     }
 
@@ -375,6 +383,9 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] on a write failure.
     pub fn put_account(&self, address: &Address, account: &Account) -> Result<()> {
         // Outside a commit path, so the root cache stops vouching for accounts.
+        // A write like any other, so a kept preview or root-cache plan made
+        // before it is not used after it.
+        let _writing = self.preview.begin_write();
         let mut batch = WriteBatch::default();
         batch.put(account_key(address), account.encode());
         root_cache::stage_invalidate(&mut batch);
@@ -504,7 +515,7 @@ impl StateDB {
     /// Always the full rebuild, never the root cache (ADR-062a): this is the
     /// reference the cache is checked against, at chain open and in tests.
     pub fn state_root(&self) -> Result<[u8; HASH_LEN]> {
-        self.root_from(&Overlay::new(), false)
+        self.root_from(&Overlay::new(), false).map(|(root, _)| root)
     }
 
     /// Computes the state root that *would* result from applying `overlay`,
@@ -512,9 +523,13 @@ impl StateDB {
     ///
     /// This is what allows a block's committed state root to be checked before
     /// the batch is durable. A sparse accounts root comes from the root cache
-    /// when it is valid, rehashing only the overlay's paths (ADR-062a).
-    pub(crate) fn root_with_overlay(&self, overlay: &Overlay) -> Result<[u8; HASH_LEN]> {
-        self.root_from(overlay, true)
+    /// when it is valid, rehashing only the overlay's paths, and the cache
+    /// writes it implies are kept in `overlay.root_plan` for the commit
+    /// (ADR-062a).
+    pub(crate) fn root_with_overlay(&self, overlay: &mut Overlay) -> Result<[u8; HASH_LEN]> {
+        let (root, plan) = self.root_from(overlay, true)?;
+        overlay.root_plan = plan;
+        Ok(root)
     }
 
     /// The database itself, for the root-cache tests.
@@ -523,20 +538,44 @@ impl StateDB {
         &self.db
     }
 
-    fn root_from(&self, overlay: &Overlay, cached: bool) -> Result<[u8; HASH_LEN]> {
+    /// The root after `overlay`, and, when `cached` and the accounts are
+    /// sparse, the root-cache plan its accounts root came from.
+    pub(crate) fn root_from(
+        &self,
+        overlay: &Overlay,
+        cached: bool,
+    ) -> Result<([u8; HASH_LEN], Option<root_cache::Plan>)> {
         // Which tree is a fact about the state itself — the `sl:` marker — not
         // about a height, so `state_root()` answers without knowing one.
+        let mut plan = None;
         let accounts_root = if self.sparse_accounts(overlay)? {
-            let from_cache = if cached {
-                root_cache::root_after(&self.db, &account_changes(overlay))?
-            } else {
-                None
-            };
-            match from_cache {
-                Some((root, _)) => root,
-                None => {
-                    crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?
+            if cached {
+                // The generation is read before the plan's snapshot, so any
+                // write after it makes the plan unfit for the commit.
+                let made = root_cache::plan(
+                    &self.db,
+                    self.preview.generation(),
+                    account_changes(overlay),
+                    &self.root_cache,
+                )?;
+                // Every debug build, so every test that runs the sparse tree,
+                // checks the cache against the full rebuild (O(N) a block).
+                #[cfg(debug_assertions)]
+                if root_cache::cross_checked() {
+                    let full = crate::state::stateless::sparse_accounts_root(
+                        &self.merged_accounts(overlay)?,
+                    )?;
+                    assert_eq!(
+                        made.root(),
+                        full,
+                        "the sparse root cache disagrees with a full rebuild (ADR-062a)"
+                    );
                 }
+                let root = made.root();
+                plan = Some(made);
+                root
+            } else {
+                crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?
             }
         } else {
             let leaves: Vec<[u8; HASH_LEN]> = self
@@ -565,7 +604,7 @@ impl StateDB {
             root = digest.layer.fold(&root, &digest.root);
         }
 
-        Ok(root)
+        Ok((root, plan))
     }
 
     /// Committed accounts with `overlay`'s written over them, in address order.
@@ -577,39 +616,51 @@ impl StateDB {
         Ok(merged)
     }
 
-    /// Every committed account as a sparse-tree leaf, in address order.
-    fn account_leaves(&self) -> Result<Vec<(Address, [u8; ACCOUNT_LEN])>> {
-        Ok(self
-            .all_accounts()?
-            .iter()
-            .map(|(address, account)| (*address, account.encode()))
-            .collect())
-    }
-
     /// Stages the root cache for a commit whose account writes are `changes`
-    /// (sorted, distinct), in the same batch (ADR-062a). A post-state that is
-    /// not sparse has no cache, so a later activation starts from a rebuild.
+    /// (sorted, distinct), in the same batch (ADR-062a): `planned` when it
+    /// was made at `generation` for the same changes, else a fresh plan. A
+    /// post-state that is not sparse has no cache, so a later activation
+    /// starts from a rebuild. The caller holds the write guard `generation`
+    /// came from, so nothing writes between the plan and the commit.
     fn stage_root_cache(
         &self,
         batch: &mut WriteBatch,
-        changes: &[root_cache::Change],
+        changes: Vec<root_cache::Change>,
         sparse_after: bool,
+        planned: Option<&root_cache::Plan>,
+        generation: u64,
     ) -> Result<()> {
         if !sparse_after {
             root_cache::stage_invalidate(batch);
             return Ok(());
         }
-        root_cache::stage(&self.db, batch, changes, || self.account_leaves()).map(|_| ())
+        if let Some(plan) = planned
+            && plan.fits(generation, &changes)
+        {
+            root_cache::stage(batch, plan);
+            return Ok(());
+        }
+        let plan = root_cache::plan(&self.db, generation, changes, &self.root_cache)?;
+        root_cache::stage(batch, &plan);
+        Ok(())
     }
 
     /// Stages `overlay`'s writes and the root cache that follows them: what
-    /// every apply path commits, besides its own journal.
-    fn stage_commit(&self, batch: &mut WriteBatch, overlay: &Overlay) -> Result<()> {
+    /// every apply path commits, besides its own journal. `generation` is what
+    /// the caller's write guard advanced from.
+    fn stage_commit(
+        &self,
+        batch: &mut WriteBatch,
+        overlay: &Overlay,
+        generation: u64,
+    ) -> Result<()> {
         self.write_overlay(batch, overlay);
         self.stage_root_cache(
             batch,
-            &account_changes(overlay),
+            account_changes(overlay),
             self.sparse_accounts(overlay)?,
+            overlay.root_plan.as_ref(),
+            generation,
         )
     }
 
@@ -617,22 +668,74 @@ impl StateDB {
     /// rebuilds it on any difference. Run when a chain opens, which is where a
     /// cache damaged on disk is caught. `true` when it held or was absent.
     ///
+    /// O(N) reads and hashes, and O(N) memory for the account list (about
+    /// 72 B an account), beside `check_tip_state`'s own full `state_root()`.
+    ///
     /// # Errors
     ///
     /// Returns [`NodeError::Storage`] on a read or write failure.
     pub fn verify_root_cache(&self) -> Result<bool> {
-        if root_cache::marker(&self.db)?.is_none() {
+        if root_cache::marker(&self.db)?.is_none() || root_cache::holds(&self.db)? {
             return Ok(true);
         }
-        let leaves = self.account_leaves()?;
-        if root_cache::holds(&self.db, &leaves)? {
-            return Ok(true);
-        }
-        eprintln!("state: sparse root cache disagrees with a full rebuild; rebuilding it");
+        self.root_cache
+            .note_repair("disagrees with a full rebuild at open");
+        // Straight to the database, not `write_batch`: the rebuild's
+        // `delete_range` would read as an account write and withdraw it.
+        let (writing, generation) = self.preview.begin_write_from();
+        let plan = root_cache::rebuild(&self.db, generation, &self.root_cache)?;
         let mut batch = WriteBatch::default();
-        root_cache::stage_rebuild(&self.db, &mut batch, &leaves);
-        self.write_batch(batch)?;
+        root_cache::stage(&mut batch, &plan);
+        let written = self.db.write(batch).map_err(storage_err);
+        drop(writing);
+        written?;
         Ok(false)
+    }
+
+    /// What the root cache has done since this database opened (ADR-062a).
+    #[must_use]
+    pub fn root_cache_stats(&self) -> root_cache::RootCacheStats {
+        self.root_cache.stats()
+    }
+
+    /// Compares the root a block declares with the one staging computed. When
+    /// they differ and the accounts root came from the cache, the full rebuild
+    /// decides: if it matches the declaration, the cache was wrong, so it is
+    /// withdrawn and the block accepted on the rebuild's root. A wrong cache
+    /// then costs one rebuild, not a validator that refuses every honest block
+    /// (PR #540 review).
+    pub(crate) fn check_declared_root(
+        &self,
+        overlay: &mut Overlay,
+        computed: [u8; HASH_LEN],
+        declared: &[u8; HASH_LEN],
+    ) -> Result<[u8; HASH_LEN]> {
+        if computed == *declared {
+            return Ok(computed);
+        }
+        if overlay
+            .root_plan
+            .as_ref()
+            .is_some_and(root_cache::Plan::walked)
+        {
+            let (full, _) = self.root_from(overlay, false)?;
+            if full == *declared {
+                self.root_cache
+                    .note_repair("gave a root that the full rebuild and the block refute");
+                let mut batch = WriteBatch::default();
+                root_cache::stage_invalidate(&mut batch);
+                let writing = self.preview.begin_write();
+                let written = self.db.write(batch).map_err(storage_err);
+                drop(writing);
+                written?;
+                overlay.root_plan = None;
+                return Ok(full);
+            }
+        }
+        Err(NodeError::StateRootMismatch {
+            expected: hex::encode(declared),
+            actual: hex::encode(computed),
+        })
     }
 
     /// Builds a proof that `address` holds what committed state says it holds.
@@ -1061,15 +1164,15 @@ impl StateDB {
     /// Returns the first validation error encountered, or
     /// [`NodeError::Storage`] if the final batch write fails.
     pub fn apply_block(&self, block: &Block, context: BlockContext) -> Result<[u8; HASH_LEN]> {
-        let overlay = self.stage_block(block, context)?;
+        let mut overlay = self.stage_block(block, context)?;
 
-        let new_root = self.root_with_overlay(&overlay)?;
+        let new_root = self.root_with_overlay(&mut overlay)?;
 
         // Single atomic write. Until this line runs, the database has not been
         // touched by this block at all.
+        let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
-        self.stage_commit(&mut batch, &overlay)?;
-        let writing = self.preview.begin_write();
+        self.stage_commit(&mut batch, &overlay, generation)?;
         let written = self.db.write(batch).map_err(storage_err);
         drop(writing);
         written?;
@@ -1360,8 +1463,8 @@ impl StateDB {
         // preview stale, and `keep` then declines it.
         let staging = self.preview.begin_preview();
         let generation = self.preview.generation();
-        let overlay = self.stage_block(block, context)?;
-        let root = self.root_with_overlay(&overlay)?;
+        let mut overlay = self.stage_block(block, context)?;
+        let root = self.root_with_overlay(&mut overlay)?;
         drop(staging);
         self.preview.keep(block, context, generation, overlay, root);
         Ok(root)
@@ -1427,15 +1530,15 @@ impl StateDB {
             overlay.accounts.get(address).map(|a| a.balance)
         });
 
+        let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
-        self.stage_commit(&mut batch, overlay)?;
+        self.stage_commit(&mut batch, overlay, generation)?;
         batch.put(undo_key(block_id), undo.encode());
         batch.put(
             balance_changes::balance_changes_key(block_id),
             balance_changes::encode(&moved),
         );
         extra(&mut batch);
-        let writing = self.preview.begin_write();
         let written = self.db.write(batch).map_err(storage_err);
         drop(writing);
         written
@@ -1563,12 +1666,12 @@ impl StateDB {
             Some(record) => record.previous.is_some(),
             None => self.sparse_accounts(&Overlay::new())?,
         };
-        self.stage_root_cache(&mut batch, &changes, sparse_after)?;
+        let (writing, generation) = self.preview.begin_write_from();
+        self.stage_root_cache(&mut batch, changes, sparse_after, None, generation)?;
 
         batch.delete(&key);
         batch.delete(balance_changes::balance_changes_key(block_id));
         extra(&mut batch);
-        let writing = self.preview.begin_write();
         let written = self.db.write(batch).map_err(storage_err);
         drop(writing);
         written?;
@@ -1622,9 +1725,9 @@ impl StateDB {
     ) -> Result<[u8; HASH_LEN]> {
         let (overlay, new_root) = self.stage_checked(block, context)?;
 
+        let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
-        self.stage_commit(&mut batch, &overlay)?;
-        let writing = self.preview.begin_write();
+        self.stage_commit(&mut batch, &overlay, generation)?;
         let written = self.db.write(batch).map_err(storage_err);
         drop(writing);
         written?;
@@ -1640,19 +1743,15 @@ impl StateDB {
         block: &Block,
         context: BlockContext,
     ) -> Result<(Overlay, [u8; HASH_LEN])> {
-        let (overlay, new_root) = if let Some(kept) = self.preview.take(block, context) {
+        let (mut overlay, computed) = if let Some(kept) = self.preview.take(block, context) {
             kept
         } else {
-            let overlay = self.stage_block(block, context)?;
-            let root = self.root_with_overlay(&overlay)?;
+            let mut overlay = self.stage_block(block, context)?;
+            let root = self.root_with_overlay(&mut overlay)?;
             (overlay, root)
         };
-        if new_root != block.header.state_root {
-            return Err(NodeError::StateRootMismatch {
-                expected: hex::encode(block.header.state_root),
-                actual: hex::encode(new_root),
-            });
-        }
+        let new_root =
+            self.check_declared_root(&mut overlay, computed, &block.header.state_root)?;
         Ok((overlay, new_root))
     }
 }

@@ -7,43 +7,70 @@
 //! attacker grows "all accounts" for the price of dust outputs
 //! (`reports/sessions/2026-11-13-per-block-scan-bounds.md`).
 //!
+//! ## Scope
+//!
+//! The accounts layer only, and only once the sparse tree is active
+//! (`FeatureSet::STATELESS`; `STATELESS_ACTIVATION_HEIGHT = u64::MAX`). While
+//! accounts are the dense tree no cache is kept, and the record layers are
+//! full rebuilds either way.
+//!
 //! ## What is cached
 //!
-//! The digest of every node of `maya-stateless-core`'s sparse tree whose
-//! subtree holds two or more accounts, under `smt:` + depth + the node's key
-//! bits. A subtree with one account *is* that account's leaf and one with none
-//! is the empty digest, so neither is stored: an absent entry means "at most
-//! one account below here", and the account (if any) is one `RocksDB` seek
-//! into the `acct:` range the node's bits spell. Updating a block's touched
-//! accounts rehashes only their paths, at most 256 nodes each, whatever the
-//! number of accounts. No bucket depth is fixed, because recipients are chosen
-//! freely: a fixed-depth cache is one an attacker fills a single bucket of.
+//! One entry per *branch*: a node of `maya-stateless-core`'s sparse tree with
+//! accounts on both sides. Key: `smt:` ‖ the node's key bits, zero-padded to
+//! 32 bytes ‖ its depth. Value: the digests of its two children as it sees
+//! them. A tree of N accounts has exactly N − 1 branches, whatever the
+//! addresses.
+//!
+//! Single-child levels are not stored. `sparse::subtree` hashes each one as
+//! `internal(child, empty)`, and the walk folds such a run in memory, at most
+//! 256 hashes and no read. Storing those levels let two addresses that differ
+//! only in their last bit cost about 240 entries each (PR #540 review, HIGH).
+//!
+//! Key order puts a node before everything below it (same padded bits,
+//! smaller depth; or smaller bits), so the topmost branch under a prefix is
+//! one seek. An absent branch means at most one account below, which is one
+//! seek into the `acct:` range the prefix spells.
+//!
+//! ## What a block costs
+//!
+//! Per touched key: one seek per branch on its path, and at most 2 × 256
+//! in-memory hashes. Untouched siblings cost nothing: their digests are in
+//! their parent's entry. Branches on a path number about log2(N) for
+//! addresses nobody chose, and up to 256 for addresses an attacker lines up
+//! along one path, each such branch costing the attacker an account.
+//!
+//! A block that touches enough keys is cheaper as a from-scratch build over
+//! every account (`worth_walking`). Both give the same root.
 //!
 //! ## When it is trusted
 //!
-//! The bare key `smt:` holds the committed accounts root the entries describe.
-//! It is present only while the cache matches committed state:
+//! The bare key `smt:` holds the committed root the entries describe and the
+//! number of accounts below it. It is present only while the cache matches
+//! committed state:
 //!
-//! - every commit path (`apply_block`, `apply_block_checked`,
-//!   `apply_journaled_with`, `revert_block_with`) stages the cache delta in the
-//!   same `WriteBatch` as the accounts it follows, so a crash leaves both or
-//!   neither (invariant 26's rule, applied to a derived record);
+//! - every commit path stages the cache's writes in the same `WriteBatch` as
+//!   the accounts they follow, so a crash leaves both or neither
+//!   (invariant 26);
 //! - every other write that can touch `acct:` (`put_account`, `raw_put`,
-//!   `write_batch`: genesis seeding, snapshot import, tests) deletes it, and
-//!   the next commit rebuilds the cache from scratch;
-//! - a commit whose post-state is not sparse deletes it, so a reorg across the
-//!   activation height cannot leave a stale cache waiting for the next one;
+//!   `write_batch`, which also treats an operation it cannot inspect as one)
+//!   deletes it, and the next commit rebuilds the cache;
+//! - a commit whose post-state is not sparse deletes it;
 //! - `verify_root_cache`, run when a chain opens, compares it with a full
-//!   rebuild and rebuilds on any difference.
+//!   rebuild and rebuilds on any difference;
+//! - a block whose declared root matches the full rebuild but not the cache
+//!   is accepted on the full rebuild, and the cache is withdrawn
+//!   (`StateDB::check_declared_root`).
 //!
 //! It is not state: two nodes with different caches compute the same root, and
 //! `smt:` is on `LOCAL_ONLY_PREFIXES` (invariant 25), so no snapshot carries it.
 //! The full rebuild (`StateDB::state_root`) stays the reference, and the root
 //! value is the full rebuild's, bit for bit.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use maya_stateless_core::params::KEY_BITS;
-use maya_stateless_core::sparse::bit;
-use maya_stateless_core::{Blake3, Compress, Key, Value};
+use maya_stateless_core::{Key, Value};
 use rocksdb::{DB, IteratorMode, SnapshotWithThreadMode, WriteBatch};
 
 use crate::error::{NodeError, Result};
@@ -54,326 +81,275 @@ use crate::state::merkle::HASH_LEN;
 /// Prefix of the cache. Local-only (invariant 25).
 pub(crate) const ROOT_CACHE_PREFIX: &[u8] = b"smt:";
 
-/// The marker: present iff the cache describes committed state. Its value is
-/// the committed sparse accounts root. Node keys are longer, so it is unique.
+/// The marker: present iff the cache describes committed state. Node keys are
+/// longer, so it is unique.
 const MARKER: &[u8] = ROOT_CACHE_PREFIX;
 
 /// First key after every node key (`;` follows `:`), for `delete_range`.
 const NODES_END: &[u8] = b"smt;";
 
+const PREFIX_LEN: usize = ROOT_CACHE_PREFIX.len();
+const KEY_BYTES: usize = KEY_BITS / 8;
+const NODE_KEY_LEN: usize = PREFIX_LEN + KEY_BYTES + 1;
+/// The marker's value: the root, then the account count, little-endian.
+const MARKER_LEN: usize = HASH_LEN + 8;
+
+/// One seek costs about as much as building this many accounts' share of a
+/// full rebuild. From `root_cost_by_state_size` at 1M accounts (test
+/// profile): ~1.9 µs a seek against ~1.1 µs an account rebuilt, so 2.
+const SEEK_COST_IN_ACCOUNTS: u64 = 2;
+
+/// Below this many accounts a block always walks: either path then costs a
+/// few milliseconds, and walking keeps the incremental path exercised on small
+/// chains and in every test that runs one.
+const ALWAYS_WALK_BELOW: u64 = 1 << 12;
+
 type Digest = [u8; HASH_LEN];
+type NodeKey = [u8; NODE_KEY_LEN];
+/// A stored branch: its left then right child's digest, as it sees them.
+type Children = [u8; 2 * HASH_LEN];
 
 /// One account change: `None` deletes the account (a revert).
 pub(crate) type Change = (Key, Option<Value>);
 
-/// A subtree as its parent sees it.
-#[derive(Clone, Copy)]
-enum Sub {
-    Empty,
-    Leaf(Digest),
-    Branch(Digest),
-}
+/// A cache write: `None` deletes the branch.
+type Write = (NodeKey, Option<Children>);
 
-impl Sub {
-    fn digest(self) -> Digest {
-        match self {
-            Self::Empty => Blake3.empty(),
-            Self::Leaf(digest) | Self::Branch(digest) => digest,
-        }
-    }
+mod walk;
 
-    /// `sparse::subtree`'s rule: one leaf is that leaf, two or more hash.
-    fn join(left: Self, right: Self) -> Self {
-        match (left, right) {
-            (Self::Empty, Self::Empty) => Self::Empty,
-            (Self::Leaf(d), Self::Empty) | (Self::Empty, Self::Leaf(d)) => Self::Leaf(d),
-            _ => Self::Branch(Blake3.internal(&left.digest(), &right.digest())),
-        }
-    }
-}
+use walk::{Walk, WalkError, WalkResult, node_key, storage_err, to_u64};
 
-/// The cache disagrees with the accounts it claims to describe.
-pub(crate) struct Stale;
-
-enum WalkError {
-    Stale,
-    Node(NodeError),
-}
-
-impl From<NodeError> for WalkError {
-    fn from(error: NodeError) -> Self {
-        Self::Node(error)
-    }
-}
-
-fn storage_err(error: &rocksdb::Error) -> WalkError {
-    WalkError::Node(NodeError::Storage(error.to_string()))
-}
-
-fn node_key(depth: usize, prefix: &Key) -> Vec<u8> {
-    let bytes = depth.div_ceil(8);
-    let mut key = Vec::with_capacity(ROOT_CACHE_PREFIX.len() + 1 + bytes);
-    key.extend_from_slice(ROOT_CACHE_PREFIX);
-    // A cached node holds two distinct keys, so it sits above depth 256.
-    key.push(u8::try_from(depth).unwrap_or(u8::MAX));
-    key.extend_from_slice(&prefix[..bytes]);
-    key
-}
-
-fn with_bit(mut prefix: Key, depth: usize) -> Key {
-    prefix[depth / 8] |= 0x80 >> (depth % 8);
-    prefix
-}
-
-/// Whether `key` agrees with `prefix` on its first `depth` bits.
-fn under(key: &Key, prefix: &Key, depth: usize) -> bool {
-    let whole = depth / 8;
-    let rest = depth % 8;
-    key[..whole] == prefix[..whole]
-        && (rest == 0 || (key[whole] ^ prefix[whole]) & !(0xFF >> rest) == 0)
-}
-
-/// Reads cache entries and accounts from one consistent snapshot and, when
-/// `delta` is on, records the cache writes the walk implies.
-struct Walk<'a> {
-    snapshot: SnapshotWithThreadMode<'a, DB>,
-    delta: Option<Vec<(Vec<u8>, Option<Digest>)>>,
-    /// When on, every node `build` produces is compared with the stored one,
-    /// and this counts the disagreements: the deep check at chain open.
-    mismatches: Option<u64>,
-    /// Nodes `build` found with two or more accounts.
-    branches: u64,
-    /// Nodes visited: what the scaling test counts.
-    visited: u64,
-}
-
-impl<'a> Walk<'a> {
-    fn new(db: &'a DB, record: bool) -> Self {
-        Self {
-            snapshot: db.snapshot(),
-            delta: record.then(Vec::new),
-            mismatches: None,
-            branches: 0,
-            visited: 0,
-        }
-    }
-
-    fn cached(
-        &self,
-        depth: usize,
-        prefix: &Key,
-    ) -> core::result::Result<Option<Digest>, WalkError> {
-        if depth >= KEY_BITS {
-            return Ok(None);
-        }
-        match self
-            .snapshot
-            .get(node_key(depth, prefix))
-            .map_err(|e| storage_err(&e))?
-        {
-            None => Ok(None),
-            Some(bytes) => Digest::try_from(bytes.as_slice())
-                .map(Some)
-                .map_err(|_| WalkError::Stale),
-        }
-    }
-
-    /// The one committed account under a node with no cache entry, if any.
-    /// A second one means the cache is stale.
-    fn lone_leaf(
-        &self,
-        depth: usize,
-        prefix: &Key,
-    ) -> core::result::Result<Option<(Key, Value)>, WalkError> {
-        let mut start = ACCOUNT_PREFIX.to_vec();
-        start.extend_from_slice(&prefix[..depth.div_ceil(8)]);
-        let mode = IteratorMode::From(start.as_slice(), rocksdb::Direction::Forward);
-        let mut found = None;
-        for item in self.snapshot.iterator(mode) {
-            let (key, value) = item.map_err(|e| storage_err(&e))?;
-            let Some(raw) = key.strip_prefix(ACCOUNT_PREFIX) else {
-                break;
-            };
-            let address = Key::try_from(raw).map_err(|_| WalkError::Stale)?;
-            if !under(&address, prefix, depth) {
-                break;
-            }
-            if found.is_some() {
-                return Err(WalkError::Stale);
-            }
-            let value = <[u8; ACCOUNT_LEN]>::try_from(&*value).map_err(|_| WalkError::Stale)?;
-            found = Some((address, value));
-        }
-        Ok(found)
-    }
-
-    fn put(&mut self, depth: usize, prefix: &Key, digest: Digest) {
-        if let Some(delta) = &mut self.delta {
-            delta.push((node_key(depth, prefix), Some(digest)));
-        }
-        if let Some(mismatches) = &mut self.mismatches {
-            // A read error counts as a disagreement: the answer is a rebuild,
-            // whose write then reports the storage fault itself.
-            let stored = self.snapshot.get(node_key(depth, prefix));
-            if !matches!(stored, Ok(Some(bytes)) if bytes == digest) {
-                *mismatches += 1;
-            }
-        }
-    }
-
-    fn delete(&mut self, depth: usize, prefix: &Key) {
-        if let Some(delta) = &mut self.delta {
-            delta.push((node_key(depth, prefix), None));
-        }
-    }
-
-    /// The post-state subtree at `depth`/`prefix`, given its sorted `changes`.
-    fn update(
-        &mut self,
-        depth: usize,
-        prefix: Key,
-        changes: &[Change],
-    ) -> core::result::Result<Sub, WalkError> {
-        self.visited += 1;
-        let cached = self.cached(depth, &prefix)?;
-        if changes.is_empty() {
-            return Ok(match cached {
-                Some(digest) => Sub::Branch(digest),
-                None => self
-                    .lone_leaf(depth, &prefix)?
-                    .map_or(Sub::Empty, |(key, value)| {
-                        Sub::Leaf(Blake3.leaf(&key, &value))
-                    }),
-            });
-        }
-        let Some(old) = cached else {
-            // At most one committed account below: the subtree after the block
-            // is that account, unless changed, plus the changes. Small, so built
-            // directly, and nothing below needs deleting.
-            let mut leaves: Vec<(Key, Value)> = changes
-                .iter()
-                .filter_map(|(key, value)| value.map(|value| (*key, value)))
-                .collect();
-            if let Some((key, value)) = self.lone_leaf(depth, &prefix)?
-                && changes
-                    .binary_search_by(|(changed, _)| changed.cmp(&key))
-                    .is_err()
-            {
-                let at = leaves.partition_point(|(other, _)| *other < key);
-                leaves.insert(at, (key, value));
-            }
-            return Ok(self.build(depth, prefix, &leaves));
-        };
-        let split = changes.partition_point(|(key, _)| !bit(key, depth));
-        let left = self.update(depth + 1, prefix, &changes[..split])?;
-        let right = self.update(depth + 1, with_bit(prefix, depth), &changes[split..])?;
-        let joined = Sub::join(left, right);
-        match joined {
-            Sub::Branch(digest) if digest == old => {}
-            Sub::Branch(digest) => self.put(depth, &prefix, digest),
-            Sub::Empty | Sub::Leaf(_) => self.delete(depth, &prefix),
-        }
-        Ok(joined)
-    }
-
-    /// `sparse::subtree` over sorted, distinct `leaves`, recording every node
-    /// that holds two or more.
-    fn build(&mut self, depth: usize, prefix: Key, leaves: &[(Key, Value)]) -> Sub {
-        self.visited += 1;
-        match leaves {
-            [] => Sub::Empty,
-            [(key, value)] => Sub::Leaf(Blake3.leaf(key, value)),
-            _ => {
-                let split = leaves.partition_point(|(key, _)| !bit(key, depth));
-                let left = self.build(depth + 1, prefix, &leaves[..split]);
-                let right = self.build(depth + 1, with_bit(prefix, depth), &leaves[split..]);
-                let digest = Blake3.internal(&left.digest(), &right.digest());
-                self.branches += 1;
-                self.put(depth, &prefix, digest);
-                Sub::Branch(digest)
-            }
-        }
-    }
-}
-
-fn walk_error(error: WalkError) -> core::result::Result<Stale, NodeError> {
-    match error {
-        WalkError::Stale => Ok(Stale),
-        WalkError::Node(error) => Err(error),
-    }
-}
-
-/// The committed root the cache claims, or `None` when it claims nothing.
-pub(crate) fn marker(db: &DB) -> Result<Option<Digest>> {
-    Ok(db
-        .get(MARKER)
-        .map_err(|e| NodeError::Storage(e.to_string()))?
-        .and_then(|bytes| Digest::try_from(bytes.as_slice()).ok()))
-}
-
-/// The sparse accounts root after `changes` (sorted, distinct), from the
-/// cache. `Ok(None)` when there is no valid cache to answer from; the caller
-/// then takes the full rebuild. Writes nothing.
-pub(crate) fn root_after(db: &DB, changes: &[Change]) -> Result<Option<(Digest, u64)>> {
-    if marker(db)?.is_none() {
+/// The root and account count the cache claims in `snapshot`, or `None` when
+/// it claims nothing.
+fn read_marker(snapshot: &SnapshotWithThreadMode<'_, DB>) -> Result<Option<(Digest, u64)>> {
+    let Some(bytes) = snapshot.get(MARKER).map_err(|e| storage_err(&e))? else {
         return Ok(None);
-    }
-    let mut walk = Walk::new(db, false);
-    match walk.update(0, [0; 32], changes) {
-        Ok(sub) => Ok(Some((sub.digest(), walk.visited))),
-        Err(error) => walk_error(error).map(|Stale| None),
-    }
+    };
+    let Ok(bytes) = <[u8; MARKER_LEN]>::try_from(bytes.as_slice()) else {
+        return Ok(None);
+    };
+    let mut root = [0; HASH_LEN];
+    root.copy_from_slice(&bytes[..HASH_LEN]);
+    let mut count = [0; 8];
+    count.copy_from_slice(&bytes[HASH_LEN..]);
+    Ok(Some((root, u64::from_le_bytes(count))))
 }
 
-/// Stages into `batch` the cache for the state `changes` (sorted, distinct)
-/// lead to: incrementally from a valid cache, otherwise rebuilt from every
-/// account in `all` (called only then). Returns the root it staged.
-pub(crate) fn stage(
-    db: &DB,
-    batch: &mut WriteBatch,
-    changes: &[Change],
-    all: impl FnOnce() -> Result<Vec<(Key, Value)>>,
-) -> Result<Digest> {
-    if marker(db)?.is_some() {
-        let mut walk = Walk::new(db, true);
-        match walk.update(0, [0; 32], changes) {
-            Ok(sub) => {
-                write_delta(batch, walk.delta.unwrap_or_default());
-                let root = sub.digest();
-                batch.put(MARKER, root);
-                return Ok(root);
-            }
-            Err(error) => {
-                let Stale = walk_error(error)?;
-                eprintln!("state: sparse root cache disagrees with accounts; rebuilding it");
-            }
+fn marker_value(root: &Digest, accounts: u64) -> [u8; MARKER_LEN] {
+    let mut value = [0; MARKER_LEN];
+    value[..HASH_LEN].copy_from_slice(root);
+    value[HASH_LEN..].copy_from_slice(&accounts.to_le_bytes());
+    value
+}
+
+/// The committed root and account count the cache claims, or `None`.
+pub(crate) fn marker(db: &DB) -> Result<Option<(Digest, u64)>> {
+    read_marker(&db.snapshot())
+}
+
+/// Every committed account in `snapshot`, in address order.
+fn snapshot_leaves(snapshot: &SnapshotWithThreadMode<'_, DB>) -> Result<Vec<(Key, Value)>> {
+    let mut leaves = Vec::new();
+    let mode = IteratorMode::From(ACCOUNT_PREFIX, rocksdb::Direction::Forward);
+    for item in snapshot.iterator(mode) {
+        let (key, value) = item.map_err(|e| storage_err(&e))?;
+        let Some(raw) = key.strip_prefix(ACCOUNT_PREFIX) else {
+            break;
+        };
+        let malformed =
+            || NodeError::Storage(format!("malformed account record {}", hex::encode(&key)));
+        let address = Key::try_from(raw).map_err(|_| malformed())?;
+        let value = <[u8; ACCOUNT_LEN]>::try_from(&*value).map_err(|_| malformed())?;
+        leaves.push((address, value));
+    }
+    Ok(leaves)
+}
+
+/// Whether walking `touched` keys beats rebuilding over `accounts`.
+fn worth_walking(touched: usize, accounts: u64) -> bool {
+    let depth = u64::from(u64::BITS - accounts.leading_zeros()) + 1;
+    accounts < ALWAYS_WALK_BELOW
+        || to_u64(touched).saturating_mul(depth * SEEK_COST_IN_ACCOUNTS) <= accounts
+}
+
+/// What the cache did, counted per database, so an operator sees it going
+/// wrong: `repaired` rises only when a cache was found disagreeing with the
+/// accounts it described.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RootCacheStats {
+    /// Roots computed from the cache, rehashing touched paths only.
+    pub walked: u64,
+    /// Roots computed by a build over every account: no cache yet, a block
+    /// too large to walk, or a repair.
+    pub built: u64,
+    /// Caches found wrong and rebuilt or withdrawn.
+    pub repaired: u64,
+}
+
+/// [`RootCacheStats`], as the database keeps it.
+#[derive(Debug, Default)]
+pub(crate) struct Counters {
+    walked: AtomicU64,
+    built: AtomicU64,
+    repaired: AtomicU64,
+}
+
+impl Counters {
+    pub(crate) fn stats(&self) -> RootCacheStats {
+        RootCacheStats {
+            walked: self.walked.load(Ordering::Relaxed),
+            built: self.built.load(Ordering::Relaxed),
+            repaired: self.repaired.load(Ordering::Relaxed),
         }
     }
-    let leaves = merge(all()?, changes);
-    Ok(stage_rebuild(db, batch, &leaves))
+
+    /// Records, and says on stderr (the node's log), that a cache was wrong.
+    pub(crate) fn note_repair(&self, what: &str) {
+        let count = self.repaired.fetch_add(1, Ordering::Relaxed) + 1;
+        eprintln!("state: sparse root cache {what}; rebuilding it (repair #{count}, ADR-062a)");
+    }
 }
 
-/// Whether the stored cache is exactly what a from-scratch build over
-/// `leaves` (every committed account, sorted) would store: the same root, the
-/// same digest at every node, and no other node. O(N) reads and hashes, no
-/// O(N) memory, so it can run at every chain open.
-pub(crate) fn holds(db: &DB, leaves: &[(Key, Value)]) -> Result<bool> {
-    let Some(claimed) = marker(db)? else {
+/// The sparse accounts root after a block's account changes and the cache
+/// writes that follow it, computed once with the root and staged at commit if
+/// committed state has not moved since.
+#[derive(Clone, Debug)]
+pub(crate) struct Plan {
+    /// The write generation read before the snapshot the plan came from.
+    generation: u64,
+    changes: Vec<Change>,
+    root: Digest,
+    accounts: u64,
+    /// From the cache (writes are a delta), not a build over every account
+    /// (writes replace the cache).
+    walked: bool,
+    delta: Vec<Write>,
+}
+
+impl Plan {
+    pub(crate) const fn root(&self) -> Digest {
+        self.root
+    }
+
+    pub(crate) const fn walked(&self) -> bool {
+        self.walked
+    }
+
+    /// Whether this plan still describes a commit of `changes` at
+    /// `generation`.
+    pub(crate) fn fits(&self, generation: u64, changes: &[Change]) -> bool {
+        self.generation == generation && self.changes == changes
+    }
+}
+
+/// Plans the root after `changes` (sorted, distinct) from the cache when it is
+/// valid and the block small enough, else from every account. `generation` is
+/// the write generation read before this call.
+pub(crate) fn plan(
+    db: &DB,
+    generation: u64,
+    changes: Vec<Change>,
+    counters: &Counters,
+) -> Result<Plan> {
+    let snapshot = db.snapshot();
+    if let Some((root, accounts)) = read_marker(&snapshot)?
+        && worth_walking(changes.len(), accounts)
+    {
+        match walk(&snapshot, &changes, root, accounts) {
+            Ok((root, accounts, delta)) => {
+                counters.walked.fetch_add(1, Ordering::Relaxed);
+                return Ok(Plan {
+                    generation,
+                    changes,
+                    root,
+                    accounts,
+                    walked: true,
+                    delta,
+                });
+            }
+            Err(WalkError::Node(error)) => return Err(error),
+            Err(WalkError::Stale) => counters.note_repair("disagrees with the accounts"),
+        }
+    }
+    counters.built.fetch_add(1, Ordering::Relaxed);
+    build_plan(&snapshot, generation, changes)
+}
+
+/// A from-scratch plan over every account, whatever the cache holds.
+pub(crate) fn rebuild(db: &DB, generation: u64, counters: &Counters) -> Result<Plan> {
+    counters.built.fetch_add(1, Ordering::Relaxed);
+    build_plan(&db.snapshot(), generation, Vec::new())
+}
+
+fn walk(
+    snapshot: &SnapshotWithThreadMode<'_, DB>,
+    changes: &[Change],
+    root: Digest,
+    accounts: u64,
+) -> WalkResult<(Digest, u64, Vec<Write>)> {
+    if changes.is_empty() {
+        return Ok((root, accounts, Vec::new()));
+    }
+    let mut walk = Walk::new(snapshot);
+    let root = walk.update(0, [0; KEY_BYTES], changes)?.at(0);
+    let accounts = (accounts + walk.added)
+        .checked_sub(walk.removed)
+        .ok_or(WalkError::Stale)?;
+    Ok((root, accounts, walk.delta))
+}
+
+fn build_plan(
+    snapshot: &SnapshotWithThreadMode<'_, DB>,
+    generation: u64,
+    changes: Vec<Change>,
+) -> Result<Plan> {
+    let leaves = merge(snapshot_leaves(snapshot)?, &changes);
+    let mut walk = Walk::new(snapshot);
+    let root = walk.build(&leaves).at(0);
+    Ok(Plan {
+        generation,
+        changes,
+        root,
+        accounts: to_u64(leaves.len()),
+        walked: false,
+        delta: walk.delta,
+    })
+}
+
+/// Stages `plan`'s cache writes and marker into `batch`.
+pub(crate) fn stage(batch: &mut WriteBatch, plan: &Plan) {
+    if !plan.walked {
+        batch.delete_range(node_key(0, &[0; KEY_BYTES]).as_slice(), NODES_END);
+    }
+    for (key, children) in &plan.delta {
+        match children {
+            Some(children) => batch.put(key, children),
+            None => batch.delete(key),
+        }
+    }
+    batch.put(MARKER, marker_value(&plan.root, plan.accounts));
+}
+
+/// Whether the stored cache is exactly what a from-scratch build over every
+/// committed account would store: the same root and count, the same children
+/// at every branch, and no other branch. O(N) reads and hashes, and O(N)
+/// memory for the accounts (about 72 B each), all read from one snapshot.
+pub(crate) fn holds(db: &DB) -> Result<bool> {
+    let snapshot = db.snapshot();
+    let Some((claimed, accounts)) = read_marker(&snapshot)? else {
         return Ok(false);
     };
-    let mut walk = Walk::new(db, false);
+    let leaves = snapshot_leaves(&snapshot)?;
+    let mut walk = Walk::new(&snapshot);
     walk.mismatches = Some(0);
-    let root = walk.build(0, [0; 32], leaves).digest();
-    if root != claimed || walk.mismatches != Some(0) {
+    let root = walk.build(&leaves).at(0);
+    if root != claimed || accounts != to_u64(leaves.len()) || walk.mismatches != Some(0) {
         return Ok(false);
     }
-    let start = node_key(0, &[0; 32]);
+    let start = node_key(0, &[0; KEY_BYTES]);
     let mut stored = 0_u64;
-    for item in walk.snapshot.iterator(IteratorMode::From(
-        start.as_slice(),
-        rocksdb::Direction::Forward,
-    )) {
-        let (key, _) = item.map_err(|e| NodeError::Storage(e.to_string()))?;
+    for item in snapshot.iterator(IteratorMode::From(&start, rocksdb::Direction::Forward)) {
+        let (key, _) = item.map_err(|e| storage_err(&e))?;
         if *key >= *NODES_END {
             break;
         }
@@ -382,28 +358,9 @@ pub(crate) fn holds(db: &DB, leaves: &[(Key, Value)]) -> Result<bool> {
     Ok(stored == walk.branches)
 }
 
-/// Stages a from-scratch cache over `leaves` (sorted, distinct).
-pub(crate) fn stage_rebuild(db: &DB, batch: &mut WriteBatch, leaves: &[(Key, Value)]) -> Digest {
-    let mut walk = Walk::new(db, true);
-    let root = walk.build(0, [0; 32], leaves).digest();
-    batch.delete_range(node_key(0, &[0; 32]), NODES_END.to_vec());
-    write_delta(batch, walk.delta.unwrap_or_default());
-    batch.put(MARKER, root);
-    root
-}
-
 /// Stages the cache's withdrawal: the next commit rebuilds it.
 pub(crate) fn stage_invalidate(batch: &mut WriteBatch) {
     batch.delete(MARKER);
-}
-
-fn write_delta(batch: &mut WriteBatch, delta: Vec<(Vec<u8>, Option<Digest>)>) {
-    for (key, digest) in delta {
-        match digest {
-            Some(digest) => batch.put(key, digest),
-            None => batch.delete(key),
-        }
-    }
 }
 
 /// `leaves` with `changes` applied; both sorted and distinct, and so is the
@@ -424,20 +381,66 @@ fn merge(leaves: Vec<(Key, Value)>, changes: &[Change]) -> Vec<(Key, Value)> {
     out
 }
 
-/// Whether any key `batch` writes is an account, which the cache follows.
+/// Whether `batch` may write an account, which the cache follows. An
+/// operation the iterator does not report (a `delete_range`, a `merge`) counts
+/// as one: the probe cannot see which keys it covers.
 pub(crate) fn touches_accounts(batch: &WriteBatch) -> bool {
-    struct Probe(bool);
+    struct Probe {
+        accounts: bool,
+        seen: usize,
+    }
     impl rocksdb::WriteBatchIterator for Probe {
         fn put(&mut self, key: &[u8], _: &[u8]) {
-            self.0 |= key.starts_with(ACCOUNT_PREFIX);
+            self.seen += 1;
+            self.accounts |= key.starts_with(ACCOUNT_PREFIX);
         }
         fn delete(&mut self, key: &[u8]) {
-            self.0 |= key.starts_with(ACCOUNT_PREFIX);
+            self.seen += 1;
+            self.accounts |= key.starts_with(ACCOUNT_PREFIX);
         }
     }
-    let mut probe = Probe(false);
+    let mut probe = Probe {
+        accounts: false,
+        seen: 0,
+    };
     batch.iterate(&mut probe);
-    probe.0
+    probe.accounts || probe.seen != batch.len()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Set by tests that hand the walk a damaged cache on purpose, so the
+    /// debug cross-check in `StateDB::root_from` lets the repair path run.
+    pub(crate) static UNCHECKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether debug builds compare every planned root with the full rebuild.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+pub(crate) fn cross_checked() -> bool {
+    #[cfg(test)]
+    {
+        !UNCHECKED.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
+/// The root after `changes` from the cache, and the seeks it took; `None`
+/// without a valid cache. For the scaling tests: no crossover, no writes.
+#[cfg(test)]
+pub(crate) fn root_after(db: &DB, changes: &[Change]) -> Result<Option<(Digest, u64)>> {
+    let snapshot = db.snapshot();
+    let Some(_) = read_marker(&snapshot)? else {
+        return Ok(None);
+    };
+    let mut walk = Walk::new(&snapshot);
+    match walk.update(0, [0; KEY_BYTES], changes) {
+        Ok(sub) => Ok(Some((sub.at(0), walk.reads))),
+        Err(WalkError::Stale) => Ok(None),
+        Err(WalkError::Node(error)) => Err(error),
+    }
 }
 
 #[cfg(test)]
