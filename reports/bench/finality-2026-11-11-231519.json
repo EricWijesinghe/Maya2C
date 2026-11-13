@@ -1,0 +1,23 @@
+{
+  "attempted": 200,
+  "command": "cargo xtask bench-finality --txs 200 --rate 20",
+  "commit": "e8f20ec4",
+  "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+  "finalized": 200,
+  "latency_ms": {
+    "max": 2188.9838,
+    "p50": 1544.9842999999998,
+    "p90": 2004.3418000000001,
+    "p99": 2157.7967
+  },
+  "logical_cores": 24,
+  "machine": "one machine, localhost, shared with other processes",
+  "mix": "single-output transfers of 1 base unit, one funded sender each, to one recipient; hybrid ML-DSA-65 + SLH-DSA",
+  "never_finalized": 0,
+  "os": "windows",
+  "poll_interval_ms": 20,
+  "refused": 0,
+  "stamp": "2026-11-11-231519",
+  "submit_rate_per_s": 20.0,
+  "validators": 4
+}
