@@ -901,3 +901,13 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-13 — Per-block work is bounded by caps, not by how much state exists (Claude, re-freeze bundle)
+
+A sweep of the apply path after PR #500's governance index measured every end-of-block pass against attacker-created records (ADR-062 amendment 2026-11-13, `reports/sessions/2026-11-13-per-block-scan-bounds.md`). Three were fixed with caps that refuse a transaction, never a block, and no key layout change:
+
+- **Sealed mempool:** at most 128 envelopes per reveal height (`MAX_SEALED_PER_REVEAL_HEIGHT`), so a reveal block does what the per-block cap was written to allow. 32,640 at one height cost 18.95 s before.
+- **DEX:** the books one block touches may hold 16,384 resting orders between them (`MAX_BOOK_ORDERS_PER_BLOCK`); the first book is always admitted. 16 full books cost 549 ms before.
+- **Staking:** the one-value record is capped at 1 MiB (was 8 MiB) and a block carries at most 16 staking transactions, slashing evidence exempt. A full 8 MiB record cost 289 ms every block and 152 ms per staking transaction.
+- `merged_records` and two sibling loops read the overlay by range instead of filtering every staged record; an equivalence test pins the output.
+- **Not fixed, for Eric:** the state root is O(all state) per block, and accounts cost fees alone to create (ADR-062a or a state-creation price); dust delegations at the default `min_delegation` (10 base units) can fill the staking record; the VM's `gas_limit` is uncapped (`state/context.rs` already says so) and `storage_set` carries no host charge.
