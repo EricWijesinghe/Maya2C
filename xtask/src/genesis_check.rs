@@ -546,7 +546,11 @@ mod tests {
                 "{refused}: {found:?}"
             );
         }
-        assert!(check(&with(CANONICAL_ROUND_INTERVAL_MS)).unwrap().is_empty());
+        assert!(
+            check(&with(CANONICAL_ROUND_INTERVAL_MS))
+                .unwrap()
+                .is_empty()
+        );
         // Absent means the node's default, which is the canonical rate.
         assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
     }
