@@ -21,6 +21,8 @@ pub mod relay;
 pub mod session;
 
 pub mod outbox;
+pub mod pay;
+pub mod pay_link;
 pub mod receipt;
 mod wire;
 

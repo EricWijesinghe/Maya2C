@@ -12,10 +12,14 @@ use zeroize::Zeroizing;
 
 use crate::identity::{Identity, PrekeyBundle};
 use crate::outbox::{self, Expired, Pending, Standing};
+use crate::pay;
 use crate::receipt;
 use crate::relay::{Envelope, MAX_ENVELOPE_VERSION, Payload};
 use crate::session::{self, MAX_HANDSHAKE_AGE, Session};
 use crate::{Address, ChatError};
+
+mod payments;
+pub use payments::MAX_PAY_INBOX;
 
 /// How long an envelope asks relays to keep it, seconds.
 pub const ENVELOPE_TTL: u64 = 7 * 24 * 3_600;
@@ -41,6 +45,28 @@ pub enum Frame {
         from: Address,
         /// The ids that left the outbox.
         ids: Vec<[u8; 32]>,
+    },
+    /// A payment request from `from` (ADR-088). Also queued for
+    /// [`Client::take_pay_frames`].
+    Pay {
+        /// The payee who asked.
+        from: Address,
+        /// The request id, as [`pay::Request::id`] gives it for this user.
+        id: [u8; 32],
+        /// The checked request.
+        request: pay::Request,
+    },
+    /// A payer's receipt that it paid one of our requests, from the payer the
+    /// request went to. Not yet checked against the chain: the caller finds
+    /// the transaction with [`pay::chain::find_final`], from one above
+    /// [`Client::issued_height`], and passes it to [`Client::settle`].
+    Paid {
+        /// The payer who reports it.
+        from: Address,
+        /// The request it claims to pay.
+        request_id: [u8; 32],
+        /// The transaction it claims.
+        tx_id: [u8; 32],
     },
 }
 
@@ -79,6 +105,12 @@ struct State {
     send_version: u8,
     #[serde(default)]
     expired: VecDeque<([u8; 32], Expired)>,
+    #[serde(default)]
+    pay: pay::Ledger,
+    #[serde(default)]
+    pay_inbox: Vec<payments::Inbound>,
+    #[serde(default)]
+    pay_chain: Option<pay::ChainTag>,
 }
 
 /// One identity's sessions, outbox and receipt state.
@@ -105,6 +137,13 @@ pub struct Client {
     /// Messages that expired unreceipted, newest last, at most
     /// [`outbox::MAX_EXPIRED`]. Kept for the user; not counted in the outbox.
     expired: VecDeque<([u8; 32], Expired)>,
+    /// Payment requests and receipts issued, settled and received (ADR-088).
+    pay: pay::Ledger,
+    /// Payment frames opened and not yet taken, saved with the session that
+    /// opened them, so a delivery receipt never acknowledges a lost one.
+    pay_inbox: Vec<payments::Inbound>,
+    /// The chain payments are for ([`Client::set_pay_chain`]).
+    pay_chain: Option<pay::ChainTag>,
 }
 
 impl Client {
@@ -121,6 +160,9 @@ impl Client {
             receipts_off: BTreeSet::new(),
             send_version: v1(),
             expired: VecDeque::new(),
+            pay: pay::Ledger::default(),
+            pay_inbox: Vec::new(),
+            pay_chain: None,
         }
     }
 
@@ -145,6 +187,9 @@ impl Client {
             receipts_off: self.receipts_off.clone(),
             send_version: self.send_version,
             expired: self.expired.clone(),
+            pay: self.pay.clone(),
+            pay_inbox: self.pay_inbox.clone(),
+            pay_chain: self.pay_chain,
         };
         let mut plain = Zeroizing::new(Vec::new());
         ciborium::into_writer(&state, &mut *plain).map_err(|_| ChatError::Encoding)?;
@@ -191,6 +236,9 @@ impl Client {
             receipts_off: state.receipts_off,
             send_version: state.send_version,
             expired: state.expired,
+            pay: state.pay,
+            pay_inbox: state.pay_inbox,
+            pay_chain: state.pay_chain,
         })
     }
 
@@ -226,11 +274,24 @@ impl Client {
         version: u8,
     ) -> Result<Envelope, ChatError> {
         // Refused before any state moves: receipts share the session's chain.
-        if receipt::is_receipt(text) {
+        if receipt::is_receipt(text) || pay::is_marked(text) {
             return Err(ChatError::Refused(
-                "text cannot start with the receipt marker",
+                "text cannot start with a protocol marker",
             ));
         }
+        self.seal_marked(to, bundle, text, now, version)
+    }
+
+    /// [`Client::seal_as`] without the user-text check, for the payment
+    /// messages that carry their own markers.
+    fn seal_marked(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+    ) -> Result<Envelope, ChatError> {
         let payload = if let Some(session) = self.sessions.get_mut(&to) {
             Payload::Chat(session.encrypt(text)?)
         } else {
@@ -259,7 +320,9 @@ impl Client {
     pub fn open(&mut self, envelope: &Envelope, now: u64) -> Result<Received, ChatError> {
         match self.open_frame(envelope, now)? {
             Frame::Text(received) => Ok(received),
-            Frame::Receipt { .. } => Err(ChatError::NotText),
+            Frame::Receipt { .. } | Frame::Pay { .. } | Frame::Paid { .. } => {
+                Err(ChatError::NotText)
+            }
         }
     }
 
@@ -283,8 +346,8 @@ impl Client {
                 }
                 let (mut session, from) = session::accept(&self.identity, handshake, now)?;
                 let text = session.decrypt(first)?;
-                if receipt::is_receipt(&text) {
-                    return Err(ChatError::Refused("a receipt cannot open a session"));
+                if receipt::is_receipt(&text) || pay::is_marked(&text) {
+                    return Err(ChatError::Refused("only text opens a session"));
                 }
                 self.accepted
                     .retain(|_, sent| now.saturating_sub(*sent) <= MAX_HANDSHAKE_AGE);
@@ -310,8 +373,13 @@ impl Client {
                     let ids = self.apply_receipt(&from, &peer_key, &message.session, &text)?;
                     return Ok(Frame::Receipt { from, ids });
                 }
+                let frame = if pay::is_marked(&text) {
+                    self.incoming_pay(from, &peer_key, &text, now)?
+                } else {
+                    Frame::Text(Received { from, text })
+                };
                 self.note_received(from, envelope.id()?);
-                Ok(Frame::Text(Received { from, text }))
+                Ok(frame)
             }
         }
     }
@@ -432,9 +500,25 @@ impl Client {
         now: u64,
         version: u8,
     ) -> Result<[u8; 32], ChatError> {
+        self.queue_with(to, bundle, text, now, version, true)
+    }
+
+    fn queue_with(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+        user: bool,
+    ) -> Result<[u8; 32], ChatError> {
         self.sweep(now);
         let had_session = self.sessions.contains_key(&to);
-        let envelope = self.seal_as(to, bundle, text, now, version)?;
+        let envelope = if user {
+            self.seal_as(to, bundle, text, now, version)?
+        } else {
+            self.seal_marked(to, bundle, text, now, version)?
+        };
         let size = envelope.encode()?.len();
         let id = envelope.id()?;
         if let Err(e) = outbox::check_room(self.outbox.len(), self.outbox_bytes(), size) {

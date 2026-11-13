@@ -2878,6 +2878,18 @@ gate = "ci.yml chat-gui (windows) and chat-gui (linux): cargo test --locked --li
 note = "ADR-031. ADR-083 decision 4 (feat/hub-launch, 2026-11-10): `maya2c-chat://open` registered via tauri-plugin-deep-link 2.6.3 and single-instance 2.5.5 in apps/chat-gui; the only route is `open` (strict parser and tests in apps/chat-gui/src-tauri/src/deeplink.rs). Installed-build registration not yet run; see docs/app-link-schemes.md. #285: a failed send no longer rewinds an established ratchet (the advanced chain is saved; the receiver skips up to MAX_SKIP 1000), pinned by apps/chat/tests/send_failure_tests.rs. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. ADR-074: sender outbox (sealed envelopes kept until a signed receipt, backoff retry, 1,000-entry bound, no eviction), delivery receipts signed by the recipient's ML-DSA-65 key and batched per pass with an opt-out, envelope v2 canonical byte strings with v1 kept readable, Request::Version negotiation. Transport stays on the v1-shaped encoding (cbor4ii). Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key. Each sent message shows its outbox state (sending, waiting for receipt, delivered, expired; Dismiss for expired) through read-only `deliveries` and `dismiss_delivery`, mapped and tested in apps/chat-gui/src-tauri/src/delivery.rs; `Client::standing` in apps/chat/src/client.rs."
 
 [[subsystem]]
+id = "chat-pay"
+name = "Maya Chat payments: signed request, wallet hand-off, on-chain settlement (ADR-088)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/pay/mod.rs`, `apps/chat/src/pay/ledger.rs`, `apps/chat/src/pay/chain.rs`, `apps/chat/src/pay_link.rs`, `apps/chat/src/client/payments.rs`, `apps/chat/tests/pay_tests.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-chat", "apps/chat/tests/pay_tests.rs"]
+gate = "cargo test -p maya-chat (125 tests: 49 lib, 5 cli, 1 bot_e2e, 7 envelope_wire, 5 net_e2e, 14 outbox, 15 pay, 9 relay, 3 send_failure, 17 session; all pass, 2026-11-13)"
+note = "ADR-088. Payee-signed request (chain tag, receiving account, amount, memo, expiry, nonce) and payer-signed receipt (chain tag signed) inside the chat session. Settlement needs chain evidence from pay::chain::find_final (get_chain_info genesis, get_checkpoint finality, get_block_by_height) and Ledger::settle checks payer, tx id, sender, height above issue, finality, amount to pay_to, tx not reused. Payer ledger refuses double pay; pay inbox and ledger persist; per-contact caps. HttpRpc not run against a live node; checkpoint signatures not verified by chat. Receiving account = chat identity account pending Eric's decision (PR #441 H2). Desktop Pay card and wallet route are not built. Unaudited."
+
+[[subsystem]]
 id = "chat-stickers"
 name = "Maya Chat stickers and sticker packs (Lottie/TGS, WebM, WebP, PNG, GIF, SVG; picker, emoji suggestions, pack maker, pack sharing)"
 domain = "Supplement (not in architecture-vision.md)"
