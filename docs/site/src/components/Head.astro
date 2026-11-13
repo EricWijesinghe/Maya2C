@@ -71,18 +71,21 @@ const card = pageCard ? `${site}/og/pages/${slug.replace(/\//g, "-")}.png` : sec
 const cardAlt = pageCard
   ? `${pageCard.title}: Maya2C link preview`
   : parts[0] && CARDS[parts[0]] ? `${title}: ${CARDS[parts[0]]} card for Maya2C` : "Maya2C: post-quantum layer-1 blockchain";
-const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }) : null;
+// "<" escaped, so no title, description or FAQ answer can close the script element.
+const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c") : null;
 ---
 
 <Default />
 {/* Browser chrome colour, one per OS scheme. The values are the two --bg
     tokens (scripts/check-shell.mjs fails the build if they drift); the script
     below points both at the saved theme when the reader picked one. */}
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfc" />
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#08090b" />
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf8f4" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#081c28" />
 {/* Before any stylesheet, so the first paint is already in the right theme:
     a saved choice wins, else the OS preference, else dark. Choosing "System"
-    leaves no key behind (Starlight writes an empty one). Same rule as
+    leaves no key behind (ThemeSelect.astro removes it; an empty key left by
+    Starlight's old picker is cleared here). data-theme-pick lights the theme
+    switch's current icon on first paint. Same rule as
     Starlight's ThemeProvider, which runs later and agrees. Hashed in
     astro.config.mjs for the CSP; check-csp fails the build if it changes. */}
 <script is:inline>
@@ -98,6 +101,7 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
     metas.forEach((m) => { m.content = pick ? metas[pick === "light" ? 0 : 1].dataset.bg : m.dataset.bg; });
   };
   root.dataset.theme = saved() ?? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  root.dataset.themePick = saved() ?? "system";
   sync();
   new MutationObserver(sync).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
   try { root.dataset.noticeDismissed = sessionStorage.getItem("maya-notice") ?? ""; } catch {}

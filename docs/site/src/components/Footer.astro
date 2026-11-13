@@ -24,7 +24,8 @@ const REPO = "https://github.com/EricWijesinghe/Maya2C";
     <p class="maya-footer__title">{testnet.paused ? "Network, last reading" : "Network, live"} <SourceTip text="Height: explorer /api/stats. Finality: the newest committed bench (one machine, not a network figure). Peers: status.maya2c.dev /api/live." href="/stats/" /></p>
     <dl>
       <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
-      <div><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
+      {/* A committed bench on one machine, not a network reading: the label says so. */}
+      <div><dt>Finality p50 (bench, one machine)</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
       <div><dt>Peers online</dt><dd data-fp-peers>{testnet.paused ? "paused" : "—"}</dd></div>
     </dl>
   </div>
@@ -78,7 +79,9 @@ const REPO = "https://github.com/EricWijesinghe/Maya2C";
     gap: 1rem 2rem;
     margin-top: 3rem;
     padding-top: 1.5rem;
-    border-top: 1px solid var(--sl-color-hairline);
+    /* The forged rule (maya.css), bronze-led here, where the header's is teal-led. */
+    border-top: 0;
+    background: linear-gradient(90deg, var(--bronze-display), var(--accent) 55%, transparent) top / 100% 2px no-repeat;
     font-size: var(--sl-text-sm);
     color: var(--sl-color-gray-3);
   }
@@ -87,7 +90,8 @@ const REPO = "https://github.com/EricWijesinghe/Maya2C";
   }
   .maya-footer .maya-footer__title {
     font-weight: 600;
-    color: var(--sl-color-white);
+    /* Bronze, the second metal: section heads only, never body text. */
+    color: var(--bronze-text);
     margin-bottom: 0.6rem;
   }
   .maya-footer__legal {

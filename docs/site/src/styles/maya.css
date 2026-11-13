@@ -27,14 +27,14 @@
   --nav-pill: var(--surface-1);
   --nav-hover: var(--surface-2);
 
-  /* Orb tints, the progress line and the glow, derived from tokens (L02):
-     no colour is written here. The wordmark gradient and the title gradient
-     are gone; the wordmark is plain var(--text). */
+  /* Orb tints, derived from tokens (L02): no colour is written here. The
+     wordmark is plain var(--text); the glow (--halo) is defined in the dark
+     theme only, and every use carries a transparent fallback. */
   --orb-hi: color-mix(in srgb, var(--surface-1) 85%, transparent);
   --orb-lo: color-mix(in srgb, var(--accent) 14%, var(--surface-1));
-  --brand-line: linear-gradient(90deg, var(--accent), var(--accent-hover) 60%, var(--bronze));
-  /* Glows exist only in the dark theme; light gets the shadow tokens instead. */
-  --halo: transparent;
+  /* The forged rule: teal into bronze, under the header and over the footer.
+     The brand's two metals in one line, in both themes. */
+  --forge-line: linear-gradient(90deg, var(--accent), var(--accent-hover) 45%, var(--bronze-display));
 
   /* Radii: the old soft scale clamped to the 12 px ceiling. */
   --r-s: var(--r-md);
@@ -54,7 +54,8 @@
   /* Starlight. Its grey ramp is semantic (white = strongest text, black =
      page), so mapping it to the token roles works in both themes. */
   --sl-color-bg: var(--bg);
-  --sl-color-bg-nav: var(--bg);
+  /* A tinted bar in both themes (teal-navy in dark, white on paper in light). */
+  --sl-color-bg-nav: var(--surface-1);
   --sl-color-bg-sidebar: var(--bg);
   --sl-color-bg-inline-code: var(--surface-2);
   --sl-color-hairline: var(--border);
@@ -75,6 +76,8 @@
   --sl-font: var(--font-sans);
   --sl-font-mono: var(--font-mono);
   --sl-nav-height: 3.75rem;
+  /* Starlight's docs menu button, at the 44 px phone target (styled below). */
+  --sl-menu-button-size: 44px;
 }
 
 :root[data-theme="dark"] {
@@ -96,7 +99,12 @@
 }
 
 html {
-  background: var(--void);
+  /* Paper or night, with the two metals breathing in at the top of every
+     page: teal on the left, bronze on the right (decorative tokens only). */
+  background:
+    radial-gradient(60rem 26rem at 10% -6rem, var(--deco-teal), transparent 70%) no-repeat,
+    radial-gradient(44rem 22rem at 95% -4rem, var(--deco-bronze), transparent 70%) no-repeat,
+    var(--void);
   /* Full-bleed sections are 100vw wide, which includes the scrollbar. */
   overflow-x: clip;
   scroll-behavior: smooth;
@@ -249,6 +257,17 @@ starlight-toc a[aria-current="true"] { color: var(--text) !important; font-weigh
 /* Solid-enough glass: no backdrop-filter on the header, because it would make
    the header the containing block of the fixed back-to-top button. */
 header.header { border-bottom: 1px solid var(--sl-color-hairline); }
+/* The forged rule along the bar's lower edge, over the hairline. */
+header.header::after { content: ""; position: absolute; inset: auto 0 -1px 0; height: 2px; background: var(--forge-line); opacity: .75; pointer-events: none; }
+
+/* Starlight's docs menu button (phones): the header menu's face, so the one
+   menu control looks the same on every page, at the right edge. */
+button.sl-menu-button { border: 1px solid var(--border-control); border-radius: var(--r-md); padding: 0; align-items: center; justify-content: center; background: var(--surface-1); color: var(--text); box-shadow: none; }
+button.sl-menu-button:hover { background: var(--surface-2); }
+button.sl-menu-button:has(~ :popover-open) { background: var(--surface-2); border-color: var(--accent); }
+button.sl-menu-button svg { width: 20px; height: 20px; }
+:root[data-theme="light"] button.sl-menu-button { background: var(--surface-1); color: var(--text); }
+:root[data-theme="light"] button.sl-menu-button:has(~ :popover-open) { background: var(--surface-2); }
 
 /* Docs reading width: prose lines stop near 72 characters (Stripe and
    Next.js docs sit there); code, tables and kit components keep the column. */

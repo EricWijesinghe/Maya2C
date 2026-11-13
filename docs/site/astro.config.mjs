@@ -69,9 +69,9 @@ export default defineConfig({
           "sha256-j066YyZLmxi7hThtvu2oKJArg82wWVur6pfnklFFLH0=",
           // src/components/Head.astro theme script (L02, 2026-11-14): reads the
           // starlight-theme key and prefers-color-scheme, sets data-theme and the
-          // two theme-color metas, observes data-theme, reads one sessionStorage
-          // key. No fetch, eval, innerHTML or remote code.
-          "sha256-+LN+rn/wLDajmMsXWiUt9LNmM1LjC/INCyCd22i/Xjk=",
+          // two theme-color metas and data-theme-pick, observes data-theme, reads
+          // one sessionStorage key. No fetch, eval, innerHTML or remote code.
+          "sha256-3S1QMCmYLlWxHDulnRlYQ7iNDjlJLrrjFsp3h6qMIJ8=",
         ],
       },
       directives: [
@@ -210,6 +210,10 @@ export default defineConfig({
         // The command palette replaces the stock search button and its dialog;
         // it reads the same Pagefind index.
         Search: "./src/components/CommandPalette.astro",
+        // System / Light / Dark as three icon buttons, not a native select.
+        ThemeSelect: "./src/components/ThemeSelect.astro",
+        // The site menu on top of the sidebar on phones: one menu button per page.
+        Sidebar: "./src/components/Sidebar.astro",
       },
       // Code blocks: Shiki themes built from design/tokens.json; frames give
       // the filename tab and the copy button with its "Copied!" feedback.

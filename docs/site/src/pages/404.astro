@@ -23,10 +23,14 @@ const ways = [
   <section class="nf not-content" aria-labelledby="nf-line">
     <div class="nf-mark" aria-hidden="true">
       <span class="nf-orbit"></span>
+      <span class="nf-orbit nf-orbit--bronze"></span>
       <img src="/brand/orb-sm.svg" width="96" height="96" alt="" />
     </div>
+    {/* The one visible headline. Starlight's h1 ("Page not found") stays for
+        screen readers but is hidden, so the page has one alignment and says it once. */}
+    <p class="nf-head" aria-hidden="true">Page not found</p>
     <p class="nf-line" id="nf-line">This page moved, or it never existed. Search, or take one of these.</p>
-    <button type="button" class="nf-search" data-nf-search>
+    <button type="button" class="ui-btn ui-btn--primary nf-search" data-nf-search>
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" /><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
       Search the docs
     </button>
@@ -45,14 +49,18 @@ const ways = [
   </script>
 
   <style>
-    .nf { max-width: 40rem; margin: var(--space-8) auto var(--space-16); display: grid; justify-items: center; gap: var(--space-6); text-align: center; }
-    .nf-mark { position: relative; width: 132px; height: 132px; display: grid; place-items: center; }
+    /* Starlight's title band, hidden but kept for screen readers (the home page does the same in maya.css). */
+    :global(.content-panel:has(+ .content-panel .nf)) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    :global(.content-panel:has(.nf)) { border-top: 0; }
+    .nf { max-width: 40rem; margin: var(--space-8) auto var(--space-8); display: grid; justify-items: center; gap: var(--space-5); text-align: center; }
+    .nf-mark { position: relative; width: 140px; height: 140px; display: grid; place-items: center; }
     .nf-mark img { width: 96px; height: 96px; }
-    /* A dashed orbit around the mark: the one moving thing on the page. */
-    .nf-orbit { position: absolute; inset: 0; border-radius: 50%; border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, var(--border)); animation: nf-spin 24s linear infinite; }
-    .nf-line { margin: 0; max-width: 32ch; font: var(--weight-medium) clamp(18px, 4.2vw, 22px)/1.4 var(--font-sans); color: var(--text); text-wrap: balance; }
-    .nf-search { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-5); border-radius: var(--r-md); border: 1px solid var(--accent-grad-to); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font: var(--weight-semibold) var(--type-body-size)/1 var(--font-sans); cursor: pointer; box-shadow: var(--shadow-sm); }
-    .nf-search:hover { filter: brightness(1.06); }
+    /* Two orbits, teal and bronze, turning against each other around the mark. */
+    .nf-orbit { position: absolute; inset: 0; border-radius: 50%; border: 2px dashed color-mix(in srgb, var(--accent) 65%, transparent); animation: nf-spin 9s linear infinite; }
+    .nf-orbit--bronze { inset: 10px; border: 1.5px dotted var(--bronze-display); animation-duration: 14s; animation-direction: reverse; }
+    .nf-head { margin: 0; font: var(--type-display-2-weight) clamp(var(--type-display-2-size-phone), 5vw, var(--type-display-2-size))/1.1 var(--font-sans); letter-spacing: -0.03em; color: var(--text); }
+    .nf-line { margin: 0; max-width: 34ch; font: var(--type-body-weight) var(--type-body-lg-size)/1.5 var(--font-sans); color: var(--text-2); text-wrap: balance; }
+    .nf-search { height: 44px; padding: 0 var(--space-5); font-weight: var(--weight-semibold); }
     .nf-ways { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--space-3); }
     .nf-ways a { display: grid; gap: var(--space-1); min-height: 44px; padding: var(--space-4); border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface-1); box-shadow: var(--shadow-sm); color: var(--text); text-decoration: none; text-align: start; transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
     .nf-ways a:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }

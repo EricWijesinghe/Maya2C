@@ -1,0 +1,64 @@
+---
+// The theme switch: three icon buttons (System, Light, Dark) in place of
+// Starlight's native select, which read "Auto" in browser chrome beside the
+// styled controls. Native radios, so arrow keys, the accessible names and the
+// group label come from the platform. The same storage key and rule as the
+// head script: a saved light/dark wins, System removes the key and follows
+// the OS. `size="touch"` gives 44 px targets (the phone menus).
+interface Props { name?: string; size?: "touch" | "bar" }
+const { name = "theme", size = "bar" } = Astro.props;
+const OPTIONS = [
+  { v: "system", label: "System", d: "M4 5h16v11H4zM9 20h6M12 16v4" },
+  { v: "light", label: "Light", d: "M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" },
+  { v: "dark", label: "Dark", d: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" },
+];
+---
+
+<fieldset class:list={["theme", size]} data-theme-switch>
+  <legend class="sr-only">Theme</legend>
+  {OPTIONS.map((o) => (
+    <label data-v={o.v} title={o.label}>
+      <input type="radio" name={`${name}-pick`} value={o.v} />
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d={o.d} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <span class="sr-only">{o.label}</span>
+    </label>
+  ))}
+</fieldset>
+
+<script>
+  const KEY = "starlight-theme";
+  type Pick = "system" | "light" | "dark";
+  const root = document.documentElement;
+  const light = matchMedia("(prefers-color-scheme: light)");
+  const read = (): Pick => {
+    try { const v = localStorage.getItem(KEY); return v === "light" || v === "dark" ? v : "system"; } catch { return "system"; }
+  };
+  const inputs = () => document.querySelectorAll<HTMLInputElement>("[data-theme-switch] input");
+  function apply(pick: Pick, store: boolean) {
+    if (store) {
+      // System leaves no key behind, so a later OS change is followed (acceptance: System clears the key).
+      try { if (pick === "system") localStorage.removeItem(KEY); else localStorage.setItem(KEY, pick); } catch { /* private mode: this page only */ }
+    }
+    root.dataset.theme = pick === "system" ? (light.matches ? "light" : "dark") : pick;
+    root.dataset.themePick = pick;
+    inputs().forEach((i) => { i.checked = i.value === pick; });
+  }
+  inputs().forEach((i) => i.addEventListener("change", () => apply(i.value as Pick, true)));
+  light.addEventListener("change", () => { if (read() === "system") apply("system", false); });
+  apply(read(), false);
+</script>
+
+<style>
+  .theme { display: inline-flex; align-items: center; gap: 2px; margin: 0; padding: 2px; border: 1px solid var(--border-control); border-radius: var(--r-md); background: var(--surface-2); }
+  .theme label { position: relative; display: grid; place-items: center; width: 30px; height: 28px; border-radius: var(--r-sm); color: var(--text-2); cursor: pointer; transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+  .theme.touch label { width: 44px; height: 40px; }
+  .theme label:hover { color: var(--text); }
+  /* The radio stays in the accessibility tree and takes focus; the icon is its face. */
+  .theme input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .theme label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* Lit from the head script's data-theme-pick, so the right icon shows on first paint. */
+  :global(:root[data-theme-pick="system"]) .theme label[data-v="system"],
+  :global(:root[data-theme-pick="light"]) .theme label[data-v="light"],
+  :global(:root[data-theme-pick="dark"]) .theme label[data-v="dark"] { background: var(--surface-1); color: var(--accent-text); box-shadow: var(--shadow-sm); }
+  @media (prefers-reduced-motion: reduce) { .theme label { transition: none; } }
+</style>

@@ -60,10 +60,10 @@
       el("line", { x1: String(PAD), y1: "8", x2: String(PAD), y2: String(H - PAD), class: "axis" });
       // 2^128: the classical security target most readers will recognise.
       el("line", { x1: String(PAD), y1: String(Y(128)), x2: String(W - 8), y2: String(Y(128)), class: "ref", "stroke-dasharray": "4 4" });
-      el("text", { x: String(W - 10), y: String(Y(128) - 4), "text-anchor": "end", class: "lbl", "font-size": "10" })
+      el("text", { x: String(W - 10), y: String(Y(128) - 4), "text-anchor": "end", class: "lbl" })
         .textContent = "2^128";
-      el("text", { x: String(PAD), y: "10", class: "lbl", "font-size": "10" }).textContent = "log2 work";
-      el("text", { x: String(W - 8), y: String(H - 8), "text-anchor": "end", class: "lbl", "font-size": "10" })
+      el("text", { x: String(PAD), y: "12", class: "lbl" }).textContent = "log2 work";
+      el("text", { x: String(W - 8), y: String(H - 8), "text-anchor": "end", class: "lbl" })
         .textContent = "s";
       for (const series of SERIES) {
         const points: string[] = [];
@@ -76,6 +76,10 @@
       const s = Number(range.value);
       out.textContent = String(s);
       svg.querySelectorAll("[data-marker]").forEach((n) => n.remove());
+      // A soft accent wash up to the chosen size, behind every line.
+      const zone = el("rect", { x: String(PAD), y: "8", width: String(Math.max(0, X(s) - PAD)), height: String(H - PAD - 8), class: "zone" });
+      zone.setAttribute("data-marker", "");
+      svg.prepend(zone);
       const marker = el("line", { x1: String(X(s)), y1: "8", x2: String(X(s)), y2: String(H - PAD), class: "marker", "stroke-dasharray": "2 3" });
       marker.setAttribute("data-marker", "");
       const v = (series: Series) => log2Cost(series, s).toFixed(1);
@@ -102,19 +106,23 @@
   .attack { --plot: var(--surface-2); }
   .attack svg { width: 100%; height: auto; background: var(--plot); border: 1px solid var(--border); border-radius: var(--r-md); }
   .attack :global(.series) { stroke-linejoin: round; }
-  .attack :global(.s-brute) { stroke: var(--bronze); }
-  .attack :global(.s-grover) { stroke: var(--bronze); stroke-dasharray: 6 4; }
+  .attack :global(.s-brute) { stroke: var(--chart-2); }
+  .attack :global(.s-grover) { stroke: var(--chart-2); stroke-dasharray: 6 4; }
   .attack :global(.s-sieve) { stroke: var(--steel); }
   .attack :global(.s-sieveq) { stroke: var(--steel); stroke-dasharray: 6 4; }
   .attack :global(.s-shor) { stroke: var(--danger); stroke-dasharray: 2 3; stroke-width: 2.5; }
   .attack :global(.axis) { stroke: var(--chart-axis); }
   .attack :global(.ref) { stroke: var(--text-3); }
-  .attack :global(.marker) { stroke: var(--accent); stroke-width: 1.5; }
-  .attack :global(.lbl) { fill: var(--text-2); font-family: var(--mono); }
+  .attack :global(.marker) { stroke: var(--accent); stroke-width: 2; }
+  .attack :global(.zone) { fill: var(--accent); fill-opacity: .1; }
+  /* Labels in viewBox units: 10 reads at desktop width; a 360 px phone draws
+     the plot near 330 px wide, so the labels grow to stay about 11 px. */
+  .attack :global(.lbl) { fill: var(--text-2); font-family: var(--mono); font-size: 10px; }
+  @media (max-width: 36rem) { .attack :global(.lbl) { font-size: 12px; } }
   .attack .legend { list-style: none; padding: 0; margin: 0.6rem 0; display: grid; gap: 0.2rem; font-size: 0.9rem; }
   .attack .sw { display: inline-block; width: 1.4rem; height: 0; border-top: 3px solid; margin-right: 0.45rem; vertical-align: 0.25rem; }
-  .attack .brute { border-color: var(--bronze); }
-  .attack .grover { border-color: var(--bronze); border-top-style: dashed; }
+  .attack .brute { border-color: var(--chart-2); }
+  .attack .grover { border-color: var(--chart-2); border-top-style: dashed; }
   .attack .sieve { border-color: var(--steel); }
   .attack .sieveq { border-color: var(--steel); border-top-style: dashed; }
   .attack .shor { border-color: var(--danger); border-top-style: dotted; }

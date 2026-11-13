@@ -1,17 +1,25 @@
 ---
-// Network notice: one dismissible strip at the top of the pages whose content
+// Network notice: one dismissible line at the top of the pages whose content
 // depends on the live testnet. It replaced a full-screen "down for
 // maintenance" overlay (L02): a blocked page hid the docs, the proof and the
 // downloads to say one thing, and on a phone it read as an error.
 //
-// Two states, both pointing at /health/ for the detail:
-//   paused  the testnet is stopped on purpose (src/data/network-state.ts).
-//           Rendered by the server, so it is there on first paint.
-//   halted  not paused, but status.maya2c.dev says no blocks, or does not
-//           answer. Shown by the script after a poll; hidden again when
-//           blocks flow, so nobody has to redeploy the site.
-// Dismissing hides it for the rest of the browser session; the inline head
-// script copies the dismissal onto <html> before paint, so it never flashes.
+// One pause message per page, in one look: the notice wears the home hero's
+// chip (pill, hairline, mono, a dot), and it is skipped on the pages that
+// carry their own pause card (/stats/, /health/) and on the home page, whose
+// hero chip already says it. On a phone it is one line with a "details" link.
+//
+// Three states, all pointing at /health/ for the detail:
+//   paused       the testnet is stopped on purpose (src/data/network-state.ts).
+//                Rendered by the server, so it is there on first paint.
+//   halted       not paused, and status.maya2c.dev says no blocks.
+//   unavailable  not paused, and status.maya2c.dev does not answer. That is an
+//                outage of the status host, not news about the chain, and the
+//                notice says so instead of reporting a halt.
+// The two live states are set by the script after a poll and hidden again when
+// blocks flow, so nobody has to redeploy the site. Dismissing hides it for the
+// rest of the browser session; the inline head script copies the dismissal
+// onto <html> before paint, so it never flashes.
 import { testnet } from "../data/network-state";
 
 // Pages that show live figures or tell the reader to connect to the testnet.
@@ -26,10 +34,11 @@ const NETWORK_PAGES = [
   "/guides/mining/",
   "/guides/validators/",
 ];
+// Pages that state the pause themselves (hero chip, "Paused on purpose" card).
+// A halt is still news there.
+const OWN_PAUSE_MESSAGE = ["/", "/stats/", "/health/"];
 const path = Astro.url.pathname.replace(/\/?$/, "/");
-// The home hero already states the pause in its own chip; a second line would
-// repeat it above the headline. A halt is still news there.
-const show = NETWORK_PAGES.includes(path) && !(testnet.paused && path === "/");
+const show = NETWORK_PAGES.includes(path) && !(testnet.paused && OWN_PAUSE_MESSAGE.includes(path));
 const onHealth = path === "/health/";
 ---
 
@@ -44,12 +53,12 @@ const onHealth = path === "/health/";
     <span class="maya-notice__dot" aria-hidden="true"></span>
     <p class="maya-notice__text" role="status">
       {testnet.paused ? (
-        <><b>Testnet paused</b> since <span class="maya-notice__date">{testnet.since}</span>. Figures on this page are the last reading.</>
+        <><b>Testnet paused</b> since <span class="maya-notice__date">{testnet.since}</span><span class="maya-notice__more">; figures here are the last reading</span></>
       ) : (
-        <><b>Testnet not producing blocks</b> <span data-notice-detail>right now</span>.</>
+        <><b data-notice-head>Testnet not producing blocks</b> <span class="maya-notice__more" data-notice-detail>right now</span></>
       )}
+      {!onHealth && <> · <a class="maya-notice__go" href="/health/">details</a></>}
     </p>
-    {!onHealth && <a class="maya-notice__go" href="/health/">Network health</a>}
     <button type="button" class="maya-notice__close" data-notice-close aria-label="Dismiss network notice">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
     </button>
@@ -58,44 +67,39 @@ const onHealth = path === "/health/";
 
 <style is:global>
   .maya-notice {
-    --tone: var(--bronze);
-    display: flex; align-items: center; gap: var(--space-3);
+    --tone: var(--bronze-display);
+    display: flex; align-items: center; gap: var(--space-2);
     /* Sits in <main> above the content panels: line up with their padding. */
-    margin: var(--space-3) var(--sl-content-pad-x, var(--space-4)) 0; padding: var(--space-1) var(--space-1) var(--space-1) var(--space-4);
-    border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border));
-    border-inline-start: 3px solid var(--tone);
-    border-radius: var(--r-md);
+    width: fit-content; max-width: calc(100% - 2 * var(--sl-content-pad-x, var(--space-4)));
+    margin: var(--space-3) var(--sl-content-pad-x, var(--space-4)) 0; padding: 0 0 0 var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--tone) 40%, var(--border));
+    border-radius: var(--r-pill);
     background: color-mix(in srgb, var(--tone) 8%, var(--surface-1));
-    box-shadow: var(--shadow-sm);
     color: var(--text-2);
-    font: var(--type-body-weight) var(--type-body-size)/var(--line-body) var(--font-sans);
+    font: var(--type-mono-weight) var(--type-body-sm-size)/1.4 var(--font-mono);
   }
   .maya-notice[data-notice="halted"] { --tone: var(--warn); }
+  .maya-notice[data-state="unavailable"] { --tone: var(--steel); }
   .maya-notice[hidden],
   :root[data-notice-dismissed="paused"] .maya-notice[data-notice="paused"],
   :root[data-notice-dismissed="halted"] .maya-notice[data-notice="halted"] { display: none; }
-  .maya-notice__dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--tone); }
-  .maya-notice[data-notice="halted"] .maya-notice__dot { background: var(--tone); animation: maya-notice-pulse 1.6s var(--ease) infinite; }
+  .maya-notice__dot { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--tone); }
+  .maya-notice[data-notice="halted"]:not([data-state="unavailable"]) .maya-notice__dot { animation: maya-notice-pulse 1.6s var(--ease) infinite; }
   .maya-notice__text { flex: 1 1 auto; min-width: 0; margin: 0 !important; padding-block: var(--space-2); }
-  .maya-notice__text b { color: var(--text); font-weight: var(--weight-semibold); }
+  .maya-notice__text b { color: var(--text); font-weight: var(--weight-medium); }
   .maya-notice__date { white-space: nowrap; font-variant-numeric: var(--font-numeric); }
-  .maya-notice__go {
-    flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-3);
-    border-radius: var(--r-md); color: var(--accent-text); font-weight: var(--weight-medium); text-decoration: none; white-space: nowrap;
-  }
-  .maya-notice__go:hover { background: var(--surface-2); }
+  .maya-notice__go { color: var(--accent-text); white-space: nowrap; }
   .maya-notice__close {
     flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
-    border: 0; border-radius: var(--r-md); background: transparent; color: var(--text-2); cursor: pointer;
+    border: 0; border-radius: var(--r-pill); background: transparent; color: var(--text-2); cursor: pointer;
   }
   .maya-notice__close:hover { background: var(--surface-2); color: var(--text); }
-  /* Phones: the text takes the first row, the two actions share the second. */
+  /* Phones: just "Testnet paused since <date> · details" and the close button
+     (one line from about 390 px; it wraps once on the narrowest screens rather
+     than cutting off the link). */
   @media (max-width: 36rem) {
-    .maya-notice { flex-wrap: wrap; row-gap: 0; padding-inline-start: var(--space-3); }
-    .maya-notice__text { flex-basis: calc(100% - 10px - 44px - 2 * var(--space-3)); }
-    .maya-notice__close { order: 2; }
-    /* A new flex line has no leading gap: 10 px (the dot) lines the label up with the text. */
-    .maya-notice__go { order: 3; margin-inline-start: 10px; }
+    .maya-notice { border-radius: var(--r-lg); }
+    .maya-notice__more { display: none; }
   }
   /* A ring leaving the dot: the check is live and still finding nothing. */
   @keyframes maya-notice-pulse { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tone) 55%, transparent); } to { box-shadow: 0 0 0 8px transparent; } }
@@ -129,11 +133,21 @@ const onHealth = path === "/health/";
     try {
       const r = await fetch(STATUS_URL, { cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS) });
       if (r.ok) s = (await r.json()) as Status;
-    } catch { /* unreachable: the host is down, which is itself the news */ }
-    const down = !s || Boolean(s.halted_now);
+    } catch { /* unreachable: reported as the status host being down, below */ }
+    const head = el.querySelector("[data-notice-head]");
     const detail = el.querySelector("[data-notice-detail]");
-    if (detail) detail.textContent = s ? `since block ${s.height.toLocaleString("en-US")}, quiet for ${quiet(s.since_last_block)}` : "and the status service does not answer";
-    el.hidden = !down;
+    if (!s) {
+      // The status host is down; that says nothing about whether blocks flow.
+      el.dataset.state = "unavailable";
+      if (head) head.textContent = "Network status unavailable";
+      if (detail) detail.textContent = "status.maya2c.dev does not answer";
+      el.hidden = false;
+      return;
+    }
+    delete el.dataset.state;
+    if (head) head.textContent = "Testnet not producing blocks";
+    if (detail) detail.textContent = `since block ${s.height.toLocaleString("en-US")}, quiet for ${quiet(s.since_last_block)}`;
+    el.hidden = !s.halted_now;
   }
 
   const dismissed = document.documentElement.dataset.noticeDismissed === state;

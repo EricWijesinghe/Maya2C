@@ -113,7 +113,7 @@ const HEX = /(?:^|[^&\w#])(#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4}))\
 const FUNC = /(?:^|[^\w-])((?:rgba?|hsla?|hwb|oklch|oklab|lab|lch)\(\s*[\d.])/gi;
 const TOKENISED = [
   join(src, "styles"),
-  ...["Head", "Header", "Footer", "SiteTitle", "Maintenance", "Banner", "CommandPalette", "Support", "DeliveryStates", "RoadmapTimeline"].map((n) => join(COMPONENTS, `${n}.astro`)),
+  ...["Head", "Header", "Footer", "SiteTitle", "Maintenance", "Banner", "CommandPalette", "Support", "DeliveryStates", "RoadmapTimeline", "ThemeSelect", "MenuPanel", "Sidebar"].map((n) => join(COMPONENTS, `${n}.astro`)),
   join(COMPONENTS, "math", "AttackCost.astro"),
   join(COMPONENTS, "math", "QuorumOverlap.astro"),
   join(src, "pages", "learn", "signatures-live.astro"),

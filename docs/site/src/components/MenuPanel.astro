@@ -1,0 +1,46 @@
+---
+// The phone menu's contents: the main entries, the one call to action, then
+// GitHub and the theme. Rendered in two places so a page never has two menu
+// buttons: the header's menu on splash pages (no sidebar), and the top of the
+// docs sidebar, which Starlight's own button opens below 50rem.
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+import { NAV, START, REPO, isCurrent } from "../data/site-nav";
+import { Icon } from "@astrojs/starlight/components";
+
+interface Props { name: string; prefs?: boolean }
+const { name, prefs = true } = Astro.props;
+const path = Astro.url.pathname;
+---
+
+<div class="menu" data-menu-panel>
+  <nav aria-label="Site, compact">
+    {NAV.map((n) => (
+      <a href={n.href} aria-current={isCurrent(n, path) ? "page" : undefined} {...(n.external ? { rel: "noopener", target: "_blank" } : {})}>
+        {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}{n.external && <span class="sr-only"> (opens in a new tab)</span>}
+      </a>
+    ))}
+    <a class="ui-btn ui-btn--primary menu__cta" href={START.href}>{START.label}</a>
+  </nav>
+  {prefs && (
+    <div class="menu__prefs">
+      <a class="menu__gh" href={REPO} rel="noopener" target="_blank">
+        <Icon name="github" size="18px" />
+        GitHub<span class="ext" aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span>
+      </a>
+      <ThemeSelect name={name} size="touch" />
+    </div>
+  )}
+</div>
+
+<style>
+  .menu { display: grid; gap: var(--space-1); }
+  .menu nav { display: grid; }
+  .menu a:not(.menu__cta) { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-3); border-radius: var(--r-md); color: var(--text-2); text-decoration: none; font: var(--weight-medium) var(--type-body-lg-size)/1 var(--sans); }
+  .menu a:not(.menu__cta):hover, .menu nav a[aria-current="page"] { background: var(--surface-2); color: var(--text); }
+  .menu nav a[aria-current="page"] { box-shadow: inset 3px 0 0 var(--accent); }
+  /* Colour restated: inside the docs sidebar, maya.css's `.sidebar-content a`
+     would otherwise paint the label text-2 on the teal fill. */
+  .menu .menu__cta, .menu .menu__cta:hover { height: 44px; margin-top: var(--space-2); font-size: var(--type-body-size); font-weight: var(--weight-semibold); text-decoration: none; color: var(--on-accent); background: var(--grad-cta); }
+  .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
+  .menu__prefs { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+</style>
