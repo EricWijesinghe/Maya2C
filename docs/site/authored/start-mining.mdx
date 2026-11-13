@@ -185,8 +185,8 @@ decided, it says so.
 | Fact | Value | Source |
 |---|---|---|
 | Algorithm | Maya2C DAG (BLAKE3) | `docs/dag-pow.md` |
-| Target block time | 15 seconds | node constant `TARGET_BLOCK_TIME` |
-| DAG epoch | 30,000 blocks, about 5.21 days at target | node constant `EPOCH_LENGTH` |
+| Block time | about 1 second, set by genesis `round_interval_ms` (measured 0.96–1.03 blocks/s) | `docs/block-time.md` |
+| DAG epoch | 30,000 blocks, about 8.3 hours at the measured rate | node constant `EPOCH_LENGTH` |
 | Dataset | 4 GiB, fixed size | `docs/dag-pow.md` |
 | Cache | 64 MiB | `docs/dag-pow.md` |
 | Reward model | Epoch budget split across shares, halving then a tail floor | ADR-044, ADR-068 |

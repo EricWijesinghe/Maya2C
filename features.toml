@@ -2350,6 +2350,50 @@ tests = []
 note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim kind 1 is unassigned, no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
 
 [[subsystem]]
+id = "hub-gpu-auto-tuner"
+name = "Hub GPU auto-tuner (power limit search with rollback)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-1); will live in `apps/hub/src-tauri/src/tuner.rs`"
+tier = "extended"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12. Planned means no code: the Hub reads GPU telemetry and writes no GPU setting today. First build is NVIDIA only and guided: the Hub suggests a lower power limit, the user sets it, the Hub measures; it writes nothing. Automatic mode needs an elevated helper and is gated on a release signing key and a per-machine install. AMD and Intel are not wired. Opt-in per device. Not consensus. No efficiency gain has been measured."
+
+[[subsystem]]
+id = "node-hardware-self-tuning"
+name = "Node hardware self-tuning (probe, tuning profile, manual override)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-2)"
+tier = "core"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12. Planned means no code. Changes the node binary, so the build is post-genesis. A profile may change thread counts and cache sizes and never a validity decision; the test that pins this (same decisions and state root under every profile) does not exist yet. No speed-up has been measured."
+
+[[subsystem]]
+id = "gpu-signature-verification"
+name = "GPU signature verification (wgpu, advisory to the CPU verifier)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-3); will live in `hal/wgpu-verify`"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12. Planned means no code. The CPU verifier stays authoritative at every approved stage: a GPU answer is compared with the CPU answer and discarded, and never admits, refuses, delays or caches anything. A GPU answer standing without a CPU check would be consensus-critical and is not approved. Whether a GPU is faster than the cached multi-core CPU path for ML-DSA-65 and SLH-DSA-SHA2-128s is unmeasured; no speed-up figure exists."
+
+[[subsystem]]
+id = "miner-inference-scheduling"
+name = "Inference jobs on miners (declared device class, Hub worker mode, scheduling around mining)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-137-hardware-intelligence.md` (HW-4)"
+tier = "extended"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-137, Proposed 2026-11-12; post-genesis. Planned means no code. Adds no consensus rule: records, claims and receipts are ADR-129's (proposed, PR #470) and the entry verifiable-compute-job-market covers ADR-079. Device class is declared plus calibration evidence, never attested; TEE attestation stays blocked. The first build step runs against a fake worker and is a SIM until ADR-129's worker exists."
+
+[[subsystem]]
 id = "confidential-federated-training"
 name = "Confidential federated training"
 domain = "AI and hardware integration"
