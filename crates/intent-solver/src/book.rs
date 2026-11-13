@@ -152,7 +152,7 @@ impl IntentBook {
         let open = self.open.get(id).ok_or(IntentError::UnknownIntent)?;
         let mut ranked: Vec<&(U256, Quote)> = open.quotes.values().collect();
         // Solver ids are unique keys, so (total, solver) is a total order.
-        ranked.sort_by(|a, b| (a.0, a.1.solver).cmp(&(b.0, b.1.solver)));
+        ranked.sort_by_key(|(total, quote)| (*total, quote.solver));
         Ok(ranked.into_iter().map(|(_, q)| q.clone()).collect())
     }
 
