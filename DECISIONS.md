@@ -901,3 +901,11 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — Cross-OS golden state roots in CI (Claude, Eric 2026-11-14 "I approve everything")
+
+Founder audit Q18: the validator host is Windows, and CI built the state transition on Linux only, so no test compared roots across operating systems.
+
+- `crates/node/tests/golden_root_tests.rs` replays a committed chain (`tests/fixtures/golden_chain/`) through `apply_block_journaled` and compares every block id and state root with committed values. Linux runs it in the `test` job; the new `golden-roots` job runs it on `windows-latest` and `macos-14` (aarch64). Ubuntu is not repeated there, because CI runners are the bottleneck.
+- The block bytes are committed and replayed as bytes. A second test rebuilds the chain in code and must produce the same bytes; key derivation, ML-DSA and SLH-DSA signing are deterministic here (two bless runs on Windows wrote identical files), so that pins signing across platforms as well. A deliberate consensus change regenerates both files with `MAYA_BLESS_GOLDEN=1`, and the diff of `expected.txt` shows which roots moved. The re-freeze bundle (incremental state root, gas and storage pricing, per-delegation staking, tx version byte) will move them; that is the test doing its job.
+- Fees and mining are left out of the scenario. Each would add a fee output or share to every transaction, and the fee-market and mining conformance vectors already pin that math.

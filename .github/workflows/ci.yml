@@ -352,6 +352,38 @@ jobs:
         run: cargo xtask disk
 
   # ---------------------------------------------------------------------
+  # Cross-OS determinism (founder audit Q18). The genesis validator runs on
+  # Windows, and every other job here builds the state transition on Linux
+  # only, so a platform-dependent root would surface first as a chain split.
+  # crates/node/tests/golden_root_tests.rs replays committed blocks against
+  # committed roots; Linux runs it inside the `test` job above (`-p
+  # custom-l1-node`), and this matrix runs the same test, against the same
+  # files, on Windows and on Apple silicon (aarch64: another CPU, libc and
+  # C++ toolchain under RocksDB). Ubuntu is not repeated here because CI
+  # runners are the bottleneck.
+  # ---------------------------------------------------------------------
+  golden-roots:
+    name: golden roots (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: golden-${{ matrix.os }}
+      - name: Golden state roots
+        run: cargo test --locked --profile ci -p custom-l1-node --test golden_root_tests
+
+  # ---------------------------------------------------------------------
   # Supply chain.
   #
   # `.github/workflows/security-audit.yml` runs the same check. That overlap

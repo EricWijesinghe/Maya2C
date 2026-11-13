@@ -2981,6 +2981,17 @@ tests = ["sim/tests/determinism.rs", "crate:maya-sim"]
 note = "Seeded multi-node simulator: virtual clock, network model (latency, loss, reordering, partitions), fault-injecting disk. Dependency-free so a replay has one source of decisions. class = SIM because that is what it is: nothing here may reach a production path. See docs/adr/ADR-006-simulation-harness.md."
 
 [[subsystem]]
+id = "golden-state-roots"
+name = "Cross-OS golden state roots"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`crates/node/tests/golden_root_tests.rs`, `crates/node/tests/fixtures/golden_chain/`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crates/node/tests/golden_root_tests.rs"]
+note = "Founder audit Q18. A committed DAG-BFT chain (transfers, staking register and delegate, asset + pool + swap + liquidity, a WASM contract deploy and call, a governance proposal voted and executed) is replayed through apply_block_journaled and every block id and state root is compared with committed golden values. CI: Linux in the test job, Windows and macOS (aarch64) in golden-roots. working, not verified, until the Windows and macOS legs have passed on CI. Fees and mining are not in the scenario. Regenerate with MAYA_BLESS_GOLDEN=1 after a deliberate consensus change."
+
+[[subsystem]]
 id = "workspace-automation-xtask"
 name = "Workspace automation (xtask)"
 domain = "Supplement (not in architecture-vision.md)"
