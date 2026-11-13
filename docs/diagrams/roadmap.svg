@@ -10,7 +10,7 @@
   .dot { fill: #0c171d; stroke: #2cc3cf; stroke-width: 2; }
   .gate { fill: #1d1709; stroke: #d9b97a; stroke-width: 2; }
 </style>
-<rect width="1200" height="340" fill="#050b0f"/>
+<rect x="1" y="1" width="1198" height="338" rx="22" fill="#050b0f" stroke="#2cc3cf" stroke-opacity=".35" stroke-width="2"/>
 <text x="30" y="38" font-size="20" font-weight="800">Milestone ladder</text>
 <text x="1170" y="38" text-anchor="end" class="s">order from docs/MISSION.md · where the project stands: STATE.md</text>
 <line x1="75" y1="130" x2="1125" y2="130" stroke="#2cc3cf" stroke-opacity=".4" stroke-width="3"/>

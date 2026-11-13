@@ -38,9 +38,10 @@ the [Contributors & badges](https://maya2c.dev/guides/contributors/) page.
 
 **How this repository is built.** One maintainer, working with AI coding
 assistants: much of the code is drafted by Claude under his direction and
-review, and the `claude` and `dependabot` entries in the contributors graph are
-exactly that. The same rules bind every author: a test that fails without the
-change, CI, and the maintainer's review before merge.
+review, and the `claude` entry in the contributors graph is that work. The
+`dependabot` entry is GitHub's automated dependency-update bot, not an AI
+coding assistant. The same rules bind every author: a test that fails without
+the change, CI, and the maintainer's review before merge.
 
 ## Your first contribution
 

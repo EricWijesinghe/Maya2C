@@ -15,7 +15,7 @@
 <defs>
   <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8a9ca3"/></marker>
 </defs>
-<rect width="1200" height="660" fill="#050b0f"/>
+<rect x="1" y="1" width="1198" height="658" rx="22" fill="#050b0f" stroke="#2cc3cf" stroke-opacity=".35" stroke-width="2"/>
 <text x="45" y="38" font-size="20" font-weight="800">System architecture</text>
 <text x="1155" y="38" text-anchor="end" class="s">names match the crates · source: docs/diagrams/README.md</text>
 

@@ -13,11 +13,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI status" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&labelColor=081c28"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/pulse"><img alt="commits per week" src="https://img.shields.io/github/commit-activity/w/EricWijesinghe/Maya2C?label=commits&color=1fd3cc&labelColor=081c28"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?color=1fd3cc&labelColor=081c28"></a>
-  <a href="Cargo.toml"><img alt="minimum Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FEricWijesinghe%2FMaya2C%2Fmaster%2FCargo.toml&query=%24.workspace.package%5B%27rust-version%27%5D&label=rust&color=96b8da&labelColor=081c28&logo=rust"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/EricWijesinghe/Maya2C?color=ffbb6b&labelColor=081c28"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI status" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&labelColor=06202c"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/pulse"><img alt="commits per week" src="https://img.shields.io/github/commit-activity/w/EricWijesinghe/Maya2C?label=commits&color=1fd3cc&labelColor=06202c"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?color=1fd3cc&labelColor=06202c"></a>
+  <a href="Cargo.toml"><img alt="minimum Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FEricWijesinghe%2FMaya2C%2Fmaster%2FCargo.toml&query=%24.workspace.package%5B%27rust-version%27%5D&label=rust&color=a1afb9&labelColor=06202c&logo=rust"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/EricWijesinghe/Maya2C?color=ff9c47&labelColor=06202c"></a>
 </p>
 
 <p align="center">
@@ -42,20 +42,24 @@
 
 ## What Maya2C is
 
-| | |
-|---|---|
-| **Signatures** | Every transaction is signed with **ML-DSA-65** (FIPS 204, lattice) and **SLH-DSA-SHA2-128s** (FIPS 205, hash-based) over the same bytes. A break of one family alone does not forge a transaction. |
-| **Consensus** | DAG-BFT: Narwhal + Bullshark, stake-weighted finality ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)). |
-| **Execution** | A metered WASM VM, an EIP-1559 fee market over bytes, and a state root every block must reproduce (invariant 24). |
-| **Transport** | libp2p over TCP and WebSocket, with ML-KEM-1024 (ML-KEM-768 as fallback) layered on Noise ([docs/pq-transport.md](docs/pq-transport.md)). |
-| **Money math** | 256-bit amounts in `ledger-math`, which keeps C and C++ out of its dependency graph so Kani can check it. |
-| **Apps** | Maya2C Wallet, Maya2C Chat, Maya2C Hub, an explorer, SDKs, and an MCP server for AI assistants that reads and drafts but never signs. |
+- **Signatures.** Every transaction is signed with **ML-DSA-65** (FIPS 204, lattice) and **SLH-DSA-SHA2-128s** (FIPS 205, hash-based) over the same bytes. A break of one family alone does not forge a transaction.
+- **Consensus.** DAG-BFT: Narwhal + Bullshark, stake-weighted finality ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)).
+- **Execution.** A metered WASM VM, an EIP-1559 fee market over bytes, and a state root every block must reproduce (invariant 24).
+- **Transport.** libp2p over TCP and WebSocket, with ML-KEM-1024 (ML-KEM-768 as fallback) layered on Noise ([docs/pq-transport.md](docs/pq-transport.md)).
+- **Money math.** 256-bit amounts in `ledger-math`, which keeps C and C++ out of its dependency graph so Kani can check it.
+- **Apps.** Maya2C Wallet, Maya2C Chat, Maya2C Hub, an explorer, SDKs, and an MCP server for AI assistants that reads and drafts but never signs.
 
 ## Architecture
 
-<p align="center"><img src="docs/diagrams/architecture.svg" width="100%" alt="Apps reach the API gateway and node RPC; inside the node the mempool feeds DAG-BFT, the WASM VM executes and state commits a root; libp2p with ML-KEM over Noise connects peers; ML-DSA-65, SLH-DSA and ledger-math sit underneath."></p>
+<p align="center"><picture>
+  <source media="(max-width: 600px)" srcset="docs/diagrams/architecture-mobile.svg">
+  <img src="docs/diagrams/architecture.svg" width="100%" alt="Apps reach the API gateway and node RPC; inside the node the mempool feeds DAG-BFT, the WASM VM executes and state commits a root; libp2p with ML-KEM over Noise connects peers; ML-DSA-65, SLH-DSA and ledger-math sit underneath.">
+</picture></p>
 
-<p align="center"><img src="docs/diagrams/tx-lifecycle.svg" width="100%" alt="Transaction lifecycle: sign with both schemes, submit, mempool admission verifies both, gossip, DAG-BFT ordering, execution verifies again and recomputes the state root, finalized in one batch. ML-DSA-65 verifies first, then SLH-DSA; either failure rejects."></p>
+<p align="center"><picture>
+  <source media="(max-width: 600px)" srcset="docs/diagrams/tx-lifecycle-mobile.svg">
+  <img src="docs/diagrams/tx-lifecycle.svg" width="100%" alt="Transaction lifecycle: sign with both schemes, submit, mempool admission verifies both, gossip, DAG-BFT ordering, execution verifies again and recomputes the state root, finalized in one batch. ML-DSA-65 verifies first, then SLH-DSA; either failure rejects.">
+</picture></p>
 
 Mermaid sources, and what each box was checked against: [docs/diagrams/](docs/diagrams/README.md).
 Every top-level directory: [docs/REPO-MAP.md](docs/REPO-MAP.md).
@@ -130,18 +134,15 @@ Build and test rules, with measured times: [docs/build.md](docs/build.md).
 
 <p align="center"><img src="docs/diagrams/ecosystem.svg" width="100%" alt="Ecosystem map: the chain at the centre with Maya2C Wallet, Maya2C Chat, Maya2C Hub, explorer, Ledger app, SDKs, MCP server and sentinel, each with its features.toml status."></p>
 
-Counts at this commit:
+Counts at this commit, generated from `features.toml` by
+`cargo xtask devlog counts`; CI fails when they drift:
 
-| | Total | verified | working | stub | planned | REAL | RESEARCH | SIM |
+<!-- counts:start: generated by `cargo xtask devlog counts` from features.toml -->
+| Ledger | Total | verified | working | stub | planned | REAL | RESEARCH | SIM |
 |---|---|---|---|---|---|---|---|---|
 | Subsystems `[[subsystem]]` | **173** | 61 | 80 | 4 | 28 | 88 | 81 | 4 |
 | Register `[[feature]]` | **164** | 50 | 0 | 0 | 114 | 50 | 114 | 0 |
-
-Regenerate it with no build:
-
-```sh
-awk '/^\[\[/{s=$1} /^(status|class) *=/{gsub(/[" ]/,"");split($0,a,"=");c[s" "a[2]]++} /^\[\[/{n[$1]++} END{for(k in n)print k,"total",n[k];for(k in c)print k,c[k]}' features.toml | sort
-```
+<!-- counts:end -->
 
 `cargo xtask coverage` prints the subsystem counts and checks every named
 test. Status meanings and the reasoning behind each subsystem:
@@ -192,7 +193,9 @@ gets merged as written. Questions go to
 Logo assets are in [`logo-assets/`](logo-assets/) and are the source of truth.
 `cargo xtask brand-assets --check` and `cargo xtask og-card --check` catch
 drift. The README banners and the social preview in `.github/assets/` embed
-the official emblem from `logo-assets/website/`, scaled, never redrawn. Brand rules: [BRAND.md](BRAND.md).
+the official emblem from `logo-assets/website/`, scaled, never redrawn; their
+colours are the Forged Light 2 tokens proposed in PR #521, which is not merged
+yet, so they follow that PR if its values change. Brand rules: [BRAND.md](BRAND.md).
 
 ## Author
 

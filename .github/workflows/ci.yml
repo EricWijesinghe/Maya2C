@@ -108,6 +108,10 @@ jobs:
       - name: Roadmap matches the catalog
         run: cargo xtask devlog roadmap --check
 
+      # The README's status table is generated from features.toml.
+      - name: README counts match the ledger
+        run: cargo xtask devlog counts --check
+
   # The protocol spec's conformance suite (spec/README.md). The node side,
   # crates/node/tests/conformance.rs, runs in the `test` job with the rest of
   # the workspace; this job checks the vectors are what the reference

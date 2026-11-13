@@ -6,7 +6,12 @@ Light palette (teal `#2cc3cf`, bronze `#d9b97a`, steel `#b9c6ca` on abyss
 renders and anyone can edit in a pull request.
 
 Every box names a real crate, file or function. When the code moves, change
-the Mermaid source and the SVG in the same pull request. The status chips in
+the Mermaid source and the SVG in the same pull request.
+
+`architecture-mobile.svg` and `tx-lifecycle-mobile.svg` are the same boxes and
+words stacked into a 420-unit-wide portrait layout, served by the README's
+`<picture>` below 600 px. The landscape drawings scale to about a quarter
+size on a phone, where their labels are unreadable. Change both forms together. The status chips in
 the ecosystem map are `features.toml` values; change them when the ledger
 changes, never ahead of it.
 

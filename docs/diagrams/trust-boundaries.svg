@@ -11,7 +11,7 @@
   .key { fill: #1d1709; stroke: #d9b97a; stroke-width: 1.4; }
   .wall { stroke: #d9b97a; stroke-width: 2; stroke-dasharray: 8 6; }
 </style>
-<rect width="1200" height="600" fill="#050b0f"/>
+<rect x="1" y="1" width="1198" height="598" rx="22" fill="#050b0f" stroke="#2cc3cf" stroke-opacity=".35" stroke-width="2"/>
 <text x="30" y="38" font-size="20" font-weight="800">Trust boundaries</text>
 <text x="1170" y="38" text-anchor="end" class="s">each dashed line is a boundary an input must cross; THREAT_MODEL.md lists the gaps</text>
 
