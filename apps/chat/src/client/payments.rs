@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Client, Frame};
 use crate::pay::ledger::Due;
-use crate::pay::{self, ChainTag, FinalTx, Paid, Request};
+use crate::pay::{self, Binding, BindingKind, ChainTag, FinalTx, Paid, Request, binding};
 use crate::pay_link;
 use crate::{Address, ChatError};
 
@@ -34,6 +34,12 @@ impl Inbound {
                 from: self.from,
                 id: request.id(me),
                 request,
+            })
+        } else if binding::is_binding(&self.plain) {
+            let binding = Binding::parse_frame(&self.plain)?;
+            Ok(Frame::Binding {
+                from: self.from,
+                revoked: binding.kind == BindingKind::Revoke,
             })
         } else {
             let paid = Paid::parse(&self.plain)?;
@@ -59,6 +65,44 @@ impl Client {
             .ok_or(ChatError::Refused("no chain set for payments"))
     }
 
+    /// Installs a binding the user's wallet signed for this identity on the
+    /// payment chain. A [`BindingKind::Bind`] becomes the binding requests
+    /// and receipts carry ([`Client::pay_binding`]); a revocation removes
+    /// it. Send either to contacts with [`Client::queue_binding`].
+    ///
+    /// # Errors
+    ///
+    /// No chain set, or the binding's refusals ([`Binding::verify`]).
+    pub fn set_pay_binding(&mut self, binding: Binding, now: u64) -> Result<(), ChatError> {
+        binding.verify(&self.identity.address(), &self.chain()?, now)?;
+        self.pay_binding = (binding.kind == BindingKind::Bind).then_some(binding);
+        Ok(())
+    }
+
+    /// The wallet binding this identity's requests and receipts carry.
+    #[must_use]
+    pub fn pay_binding(&self) -> Option<&Binding> {
+        self.pay_binding.as_ref()
+    }
+
+    /// Sends this identity's `binding` (a new one, or a revocation) to `to`
+    /// on its own, so `to` refuses every older binding from now on.
+    ///
+    /// # Errors
+    ///
+    /// A binding that is not this identity's on the payment chain, no
+    /// session, or an outbox refusal.
+    pub fn queue_binding(
+        &mut self,
+        to: Address,
+        binding: &Binding,
+        now: u64,
+        version: u8,
+    ) -> Result<[u8; 32], ChatError> {
+        binding.verify(&self.identity.address(), &self.chain()?, now)?;
+        self.queue_marked(to, &binding.frame(), now, version)
+    }
+
     /// Checks and holds a payment plaintext from `from`, returning its frame.
     pub(super) fn incoming_pay(
         &mut self,
@@ -76,12 +120,17 @@ impl Client {
             let request = Request::parse(plain)?;
             request.verify(&from, peer_key, &me, &chain, now)?;
             self.pay.remember_received(request.id(&me), &request, now)?;
+        } else if binding::is_binding(plain) {
+            let binding = Binding::parse_frame(plain)?;
+            binding.verify(&from, &chain, now)?;
+            self.pay.observe_binding(&binding, now)?;
         } else {
             let paid = Paid::parse(plain)?;
-            paid.verify(&from, peer_key, &me, &chain)?;
+            paid.verify(&from, peer_key, &me, &chain, now)?;
             // Only the payer the request went to may report it paid; a
             // duplicate of a settled one is refused here, not queued.
-            self.pay.check_receipt(&paid.request_id, &from)?;
+            self.pay
+                .note_receipt(&paid.request_id, &from, &paid.binding, now)?;
         }
         let inbound = Inbound {
             from,
@@ -189,7 +238,8 @@ impl Client {
         now: u64,
         version: u8,
     ) -> Result<[u8; 32], ChatError> {
-        self.chain()?;
+        paid.binding
+            .verify_bind(&self.identity.address(), &self.chain()?, now)?;
         self.pay.mark_paid(&paid.request_id, &to, paid.tx_id)?;
         self.queue_marked(to, &paid.encode(), now, version)
             .inspect_err(|_| self.pay.unmark_paid(&paid.request_id))

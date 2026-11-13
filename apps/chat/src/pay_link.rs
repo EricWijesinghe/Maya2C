@@ -232,7 +232,7 @@ mod tests {
         let payer = Identity::from_seed([2; 32]).address();
         let terms = Terms {
             chain: CHAIN,
-            pay_to: payee.address(),
+            binding: crate::pay::binding::test_wallet::bound([11; 32], payee.address()),
             amount: TWO_HALF,
             memo: "lunch",
             expires_at: NOW + 600,
@@ -287,7 +287,8 @@ mod tests {
         let link = link_for(Network::Testnet, &req, &payer);
         assert!(link.contains("amount=2.5&"), "{link}");
         let parsed = parse_pay_uri(&link, Network::Testnet).unwrap();
-        assert_eq!(parsed.to, req.payee);
+        assert_eq!(parsed.to, req.binding.account, "the payee's wallet");
+        assert_ne!(parsed.to, req.payee, "never the chat identity");
         assert_eq!(parsed.amount, TWO_HALF);
         assert_eq!(parsed.request_id, req.id(&payer));
         assert_eq!(parsed.chain, CHAIN);

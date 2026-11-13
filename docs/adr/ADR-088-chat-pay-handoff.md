@@ -33,13 +33,11 @@ That closes "phishing request names someone else's account" without a
 policy engine.
 
 The receiving account is its own signed field, `pay_to`, checked in one
-place (`pay::check_pay_to`). Today it must equal the signer, so money
-requested through chat lands in the account whose key is the chat identity
-seed. **Open decision (PR #441 review, H2):** that contradicts "chat never
-holds wallet keys". The planned answer is a wallet-signed binding, "chat id
-X may request to wallet account A", carried with the request and checked in
-`check_pay_to` instead of the equality. Until Eric decides, the equality
-stands and this risk is stated, not hidden.
+place (`pay::check_pay_to`). **Superseded by amendment 1 (2026-11-13,
+H2):** `pay_to` is the account of a wallet-signed binding the request
+carries, never the chat identity's own address, so the chat holds no
+spending key. "The signer's account" below now reads "the account the
+signer's wallet bound it to".
 
 ### 2. Three messages, all inside the session AEAD
 
@@ -107,9 +105,9 @@ review, H1, M2, L4):
 
 1. the receipt comes from the payer the request was issued to;
 2. the evidence is for the tx id the receipt names;
-3. the transaction's **sender** is the payer's account. The payer's chat
-   address is its chain account (Context); if a wallet binding replaces that
-   (decision 1), it names the paying account here;
+3. the transaction's **sender** is the payer's wallet account, as the
+   wallet binding in the payer's receipt names it (amendment 1). A payment
+   from the payer's chat address does not settle;
 4. the block is **above the tip height recorded at issue**
    (`queue_request` takes it), so an older transaction cannot pay a newer
    request, and a swept settled entry cannot be reused;
@@ -201,7 +199,13 @@ Unit tests are in `apps/chat/src/pay/mod.rs` (`pay::tests`),
 | Threat | Control | Test |
 |---|---|---|
 | Spoofed request: payee swapped | payee signed; a changed payee fails | `pay::tests::an_address_swap_fails_the_signature` |
-| Request names another account | `pay_to` must equal the signer (decision 1) | `pay::tests::a_swapped_receiving_account_is_refused`, `pay_tests::a_payee_cannot_send_a_request_signed_for_another_account` |
+| Request names another account | `pay_to` must be the account of the payee's wallet binding (amendment 1) | `pay::tests::a_swapped_receiving_account_is_refused`, `pay_tests::a_payee_cannot_send_a_request_signed_for_another_account` |
+| Forged wallet binding | hybrid signature by the key whose chain address is the account | `binding::tests::a_forged_binding_is_refused`, `pay::tests::a_request_with_a_forged_binding_is_refused`, `pay_tests::a_request_with_a_forged_binding_is_refused_on_arrival` |
+| Binding of another chat identity | binding's chat id must be the signer | `binding::tests::a_binding_for_another_chat_identity_is_refused`, `pay::tests::a_request_with_another_chat_identitys_binding_is_refused`, `pay_tests::a_request_carrying_another_chat_identitys_binding_is_refused_on_arrival` |
+| Binding for another chain | binding signs the genesis id | `binding::tests::a_binding_for_another_chain_is_refused`, `pay_tests::a_request_carrying_another_chains_binding_is_refused_on_arrival` |
+| Expired, revoked or superseded binding | expiry at most 90 days; newest binding per chat id kept by each contact; revocation frame | `binding::tests::an_expired_post_dated_or_over_long_binding_is_refused`, `ledger::tests::a_superseded_or_revoked_binding_is_refused_once_a_newer_one_is_seen`, `pay_tests::a_revocation_reaches_contacts_and_old_requests_stop_being_payable`, `pay_tests::a_request_whose_binding_expired_is_refused_on_arrival` |
+| Payment from the payer's chat address | sender must be the payer's bound wallet | `ledger::tests::a_payment_from_the_payers_chat_address_does_not_settle`, `pay_tests::a_payment_from_the_payers_chat_address_does_not_settle` |
+| Wallet pays a chat request twice, or for another chain | wallet's paid list on disk; link chain must be the signing genesis | `chat_binding_tests::a_paid_request_cannot_be_paid_again_even_after_a_restart`, `chat_binding_tests::a_pay_link_for_another_chain_is_refused` (wallet core) |
 | Forged or relayed sender | ML-DSA check against the session peer's key; sender must be the payee | `pay::tests::a_request_from_another_identity_key_is_refused`, `pay::tests::a_relayed_request_is_refused_when_its_sender_is_not_the_payee` |
 | Replay of a request | ledger refuses a request id seen before | `ledger::tests::a_replayed_request_is_refused`, `pay_tests::a_replayed_envelope_is_refused_and_not_shown_twice` |
 | Stale request | expiry checked; TTL capped at 24 h | `pay::tests::expired_and_too_long_requests_are_refused`, `pay_tests::an_expired_request_is_refused_on_arrival` |
@@ -243,12 +247,74 @@ Unit tests are in `apps/chat/src/pay/mod.rs` (`pay::tests`),
 
 ## Not done
 
-- The wallet route, its parser and the clear-sign view for a chat request
-  (wallet-gui; on `feat/hub-launch`).
 - OS registration of `maya2c-wallet` and `maya2c-chat` schemes, and the
   deep-link plugin. ADR-083 requires its dependency review first.
 - Refunds, partial payments, multiple payees, group requests.
 - Verifying the checkpoint's validator signatures in the chat (decision 4,
   trust).
-- The wallet-signed receiving binding (decision 1, open decision H2).
 - A caller: no GUI calls `find_final` or `settle` yet.
+- A wallet screen for bindings: the `chat_binding` command exists, the UI
+  button does not; the chat-gui has no "paste binding" step yet.
+
+## Amendment 1 (2026-11-13): the wallet signs a binding (H2)
+
+Eric's decision on review finding H2: the chat must never hold a spending
+key. Money is requested to, and paid from, wallet accounts only.
+
+**The binding.** The wallet signs, with the account's own hybrid key (suite
+`0x30`, ML-DSA-65 + SLH-DSA-SHA2-128s, the scheme every transaction uses):
+
+```text
+"maya2c wallet chat binding v1\0" ‖ kind (1 = bind, 2 = revoke) ‖ genesis id (32)
+  ‖ chat identity (32) ‖ account (32) ‖ issued_at (u64 LE) ‖ expires_at (u64 LE)
+```
+
+On the wire it is the fields without the domain, then the 1,984-byte public
+key, then the 11,165-byte signature (13,262 bytes). The account must be the
+chain address of the key (`blake3("custom-l1-node.address.v3" ‖ pk)`), so a
+binding is signed by the account it names and by nothing else. The domain
+cannot be confused with a transaction's signing bytes, which begin with the
+node's transaction domain. No new cryptography and no new dependency: the
+chat verifies with `maya-crypto-pq` (already its dependency), the wallet
+signs with the node's key code it already uses.
+
+**Carried by both messages.** A request carries the payee's binding and
+`pay_to` must be its account (`pay::check_pay_to`). A receipt carries the
+payer's binding, and settlement requires the transaction's sender to be its
+account (decision 4, point 3). Both bindings are inside the identity
+signature's digest. Each is checked for: valid signature, account = key's
+address, chat id = the message's signer, chain = the chain set for payments,
+kind = bind, and the time rules below.
+
+**Version, expiry, revocation.**
+
+- `issued_at` is the sequence. Each contact's ledger keeps the newest
+  binding seen per chat identity (`Ledger::observe_binding`) and refuses an
+  older one, or a different one with the same sequence.
+- Lifetime at most 90 days (`MAX_BINDING_TTL`, a policy bound; the wallet
+  offers 30 by default), issue time at most 10 minutes ahead of the
+  checker's clock. A binding nobody heard revoked still ends.
+- A revocation is a binding of kind 2, signed the same way. The chat sends
+  it to contacts as its own frame (`\0maya-chat binding v1\0`,
+  `Client::queue_binding`); a contact that records it refuses requests from
+  that identity, and refuses to build a pay link for a request it already
+  holds, until a newer kind-1 binding arrives. A newer kind-1 binding to a
+  new wallet supersedes the old one the same way.
+- Records are kept until `issued_at + MAX_BINDING_TTL`: every older binding
+  that still verifies has expired by then.
+
+What revocation does not do: a contact that never receives the revocation
+frame accepts the old binding until it expires. The owner's honest chat is
+the only carrier, so the 90-day cap is the backstop. A thief holding only
+the chat identity key can still direct payments only to the bound wallet,
+which pays the owner.
+
+**Wallet side.** `maya-wallet-core::chat_pay` builds the signed bytes from
+the terms it shows (never from bytes the chat hands it) and refuses a
+lifetime the chat would refuse. The Tauri command `chat_binding` shows the
+chat identity, the account and the lifetime on the native confirm screen,
+then returns the binding as hex for the chat (`Client::set_pay_binding`).
+The `pay` route accepts `request` and `chain` (both or neither, 64 lowercase
+hex each), refuses a request id in the wallet's paid list (kept on disk,
+seven days), and `sign_transfer` refuses a `chain` that is not the genesis
+it signs for, then records the id as paid.

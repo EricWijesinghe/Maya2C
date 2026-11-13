@@ -10,10 +10,16 @@
 //! Both messages sign the chain tag (the genesis block id, as `get_chain_info`
 //! serves it), so a request or receipt made for one chain is refused on
 //! another.
+//!
+//! Money moves between wallet accounts only. Each message carries its
+//! signer's [`Binding`], signed by the wallet account it names, so a request
+//! names its payee's wallet and a receipt its payer's (ADR-088 amendment 1).
 
+pub mod binding;
 pub mod chain;
 pub mod ledger;
 
+pub use binding::{Binding, Kind as BindingKind};
 pub use ledger::{ChainTx, FinalTx, Ledger, Output};
 
 use maya_crypto_pq::suite::{self, SuiteId};
@@ -138,20 +144,22 @@ fn check_expiry(expires_at: u64, now: u64) -> Result<(), ChatError> {
     Ok(())
 }
 
-/// Checks the account a request asks to be paid at, for a request signed by
-/// `signer`.
-///
-/// Today the only account allowed is the signer's own chat address, which is
-/// also its chain account (ADR-088 Context). That puts received money under
-/// the chat identity key; whether to accept that or require a wallet-signed
-/// binding ("chat id X may request to wallet account A") is an open design
-/// decision (PR #441 review, H2). A binding would be checked here and
-/// nowhere else: `pay_to` is already a separate signed field.
-fn check_pay_to(signer: &Address, pay_to: &Address) -> Result<(), ChatError> {
-    if signer == pay_to {
+/// Checks the account a request signed by `signer` asks to be paid at: the
+/// wallet account that bound `signer` on `chain` (ADR-088 amendment 1, H2).
+/// The chat identity's own address is never a receiving account, because the
+/// chat holds no spending key.
+fn check_pay_to(
+    signer: &Address,
+    pay_to: &Address,
+    binding: &Binding,
+    chain: &ChainTag,
+    now: u64,
+) -> Result<(), ChatError> {
+    binding.verify_bind(signer, chain, now)?;
+    if binding.account == *pay_to {
         Ok(())
     } else {
-        Err(refuse("a request names only its signer's account"))
+        Err(refuse("a request names only its bound wallet account"))
     }
 }
 
@@ -166,8 +174,8 @@ fn put(h: &mut blake3::Hasher, bytes: &[u8]) {
 pub struct Terms<'a> {
     /// The chain the payment is on.
     pub chain: ChainTag,
-    /// The account the money must reach. See [`Request::pay_to`].
-    pub pay_to: Address,
+    /// The payee's wallet binding; the money must reach its account.
+    pub binding: &'a Binding,
     /// Decimal base units.
     pub amount: &'a str,
     /// What the payment is for. Text, never markup.
@@ -177,15 +185,16 @@ pub struct Terms<'a> {
 }
 
 /// A payee's request for money from one payer. The signature covers the
-/// payee, the payer it was addressed to, the chain, the receiving account,
-/// the amount, the memo, the expiry and a nonce.
+/// payee, the payer it was addressed to, the chain, the receiving account and
+/// its binding, the amount, the memo, the expiry and a nonce.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     /// The payee: the signer.
     pub payee: Address,
-    /// The account the money must reach. Equal to `payee` until a wallet
-    /// binding exists (see `check_pay_to`).
+    /// The account the money must reach: `binding.account`.
     pub pay_to: Address,
+    /// The wallet's binding of `payee` to `pay_to`.
+    pub binding: Binding,
     /// The chain the payment is on.
     pub chain: ChainTag,
     /// Decimal base units.
@@ -218,7 +227,8 @@ impl Request {
         getrandom::fill(&mut nonce).map_err(|_| ChatError::Entropy)?;
         let mut request = Self {
             payee,
-            pay_to: terms.pay_to,
+            pay_to: terms.binding.account,
+            binding: terms.binding.clone(),
             chain: terms.chain,
             amount: terms.amount.to_owned(),
             memo: terms.memo.to_owned(),
@@ -236,7 +246,7 @@ impl Request {
         crate::pay_link::check_link_amount(&self.amount)?;
         check_memo(&self.memo)?;
         check_expiry(self.expires_at, now)?;
-        check_pay_to(&self.payee, &self.pay_to)
+        check_pay_to(&self.payee, &self.pay_to, &self.binding, &self.chain, now)
     }
 
     /// The request id as `recipient` sees it: the signed digest.
@@ -246,6 +256,7 @@ impl Request {
         put(&mut h, recipient);
         put(&mut h, &self.payee);
         put(&mut h, &self.pay_to);
+        put(&mut h, &self.binding.encode());
         put(&mut h, &self.chain);
         put(&mut h, &self.expires_at.to_le_bytes());
         put(&mut h, &self.nonce);
@@ -298,6 +309,7 @@ impl Request {
         out.extend_from_slice(&self.chain);
         out.extend_from_slice(&self.expires_at.to_le_bytes());
         out.extend_from_slice(&self.nonce);
+        out.extend_from_slice(&self.binding.encode());
         out.push(u8::try_from(amount.len()).unwrap_or(u8::MAX));
         out.extend_from_slice(amount);
         out.extend_from_slice(&u16::try_from(memo.len()).unwrap_or(u16::MAX).to_le_bytes());
@@ -321,6 +333,7 @@ impl Request {
         let chain = take::<32>(&mut rest)?;
         let expires_at = u64::from_le_bytes(take::<8>(&mut rest)?);
         let nonce = take::<NONCE_LEN>(&mut rest)?;
+        let binding = Binding::take(&mut rest)?;
         let amount_len = usize::from(take::<1>(&mut rest)?[0]);
         let amount = text(take_slice(&mut rest, amount_len)?)?;
         let memo_len = usize::from(u16::from_le_bytes(take::<2>(&mut rest)?));
@@ -333,6 +346,7 @@ impl Request {
         Ok(Self {
             payee,
             pay_to,
+            binding,
             chain,
             amount,
             memo,
@@ -368,6 +382,7 @@ fn text(bytes: &[u8]) -> Result<String, ChatError> {
 
 fn paid_digest(
     payer: &Address,
+    binding: &Binding,
     payee: &Address,
     chain: &ChainTag,
     request_id: &[u8; 32],
@@ -375,6 +390,7 @@ fn paid_digest(
 ) -> [u8; 32] {
     let mut h = blake3::Hasher::new_derive_key(PAID_DOMAIN);
     put(&mut h, payer);
+    put(&mut h, &binding.encode());
     put(&mut h, payee);
     put(&mut h, chain);
     put(&mut h, request_id);
@@ -383,9 +399,12 @@ fn paid_digest(
 }
 
 /// A payer's receipt that it paid a request. Signed by the payer's identity,
-/// over the chain as well as the ids.
+/// over the chain, the payer's wallet binding and the ids. The transaction
+/// must come from the binding's account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Paid {
+    /// The payer's wallet binding: the account the payment came from.
+    pub binding: Binding,
     /// The request this pays.
     pub request_id: [u8; 32],
     /// The transaction the wallet produced.
@@ -395,30 +414,35 @@ pub struct Paid {
 }
 
 impl Paid {
-    /// A receipt from `identity` (the payer) to `payee`, on `chain`.
+    /// A receipt from `identity` (the payer, bound to its wallet by
+    /// `binding`) to `payee`, on `chain`.
     ///
     /// # Errors
     ///
     /// [`ChatError::Signature`] if the signer refuses.
     pub fn sign(
         identity: &Identity,
+        binding: &Binding,
         payee: &Address,
         chain: &ChainTag,
         request_id: [u8; 32],
         tx_id: [u8; 32],
     ) -> Result<Self, ChatError> {
-        let digest = paid_digest(&identity.address(), payee, chain, &request_id, &tx_id);
+        let payer = identity.address();
+        let digest = paid_digest(&payer, binding, payee, chain, &request_id, &tx_id);
         Ok(Self {
+            binding: binding.clone(),
             request_id,
             tx_id,
             signature: identity.sign(&digest)?,
         })
     }
 
-    /// The plaintext: [`PAID_MAGIC`], the ids, the signature.
+    /// The plaintext: [`PAID_MAGIC`], the binding, the ids, the signature.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut out = PAID_MAGIC.to_vec();
+        out.extend_from_slice(&self.binding.encode());
         out.extend_from_slice(&self.request_id);
         out.extend_from_slice(&self.tx_id);
         out.extend_from_slice(&self.signature);
@@ -434,12 +458,14 @@ impl Paid {
         let mut rest = plain
             .strip_prefix(PAID_MAGIC)
             .ok_or(refuse("not a payment receipt"))?;
+        let binding = Binding::take(&mut rest)?;
         let request_id = take::<32>(&mut rest)?;
         let tx_id = take::<32>(&mut rest)?;
         if rest.is_empty() {
             return Err(refuse("payment receipt has no signature"));
         }
         Ok(Self {
+            binding,
             request_id,
             tx_id,
             signature: rest.to_vec(),
@@ -447,23 +473,32 @@ impl Paid {
     }
 
     /// Checks the receipt from `payer` (whose identity key is `signer_key`) to
-    /// `payee`, on `chain`.
+    /// `payee`, on `chain`, at `now`, with the payer's wallet binding.
     ///
     /// # Errors
     ///
     /// [`ChatError::BadSignature`] for any mismatch, a receipt for another
-    /// chain included.
+    /// chain included; the binding's refusals ([`Binding::verify_bind`]).
     pub fn verify(
         &self,
         payer: &Address,
         signer_key: &[u8],
         payee: &Address,
         chain: &ChainTag,
+        now: u64,
     ) -> Result<(), ChatError> {
         if signer_key.is_empty() || address_of(signer_key) != *payer {
             return Err(ChatError::BadSignature);
         }
-        let digest = paid_digest(payer, payee, chain, &self.request_id, &self.tx_id);
+        self.binding.verify_bind(payer, chain, now)?;
+        let digest = paid_digest(
+            payer,
+            &self.binding,
+            payee,
+            chain,
+            &self.request_id,
+            &self.tx_id,
+        );
         suite::verify(SuiteId::MlDsa65, signer_key, &digest, &self.signature)
             .map_err(|_| ChatError::BadSignature)
     }
@@ -484,7 +519,7 @@ pub fn is_paid(plain: &[u8]) -> bool {
 /// Whether user text would pose as a payment message.
 #[must_use]
 pub fn is_marked(plain: &[u8]) -> bool {
-    is_request(plain) || is_paid(plain)
+    is_request(plain) || is_paid(plain) || binding::is_binding(plain)
 }
 
 #[cfg(test)]
@@ -505,10 +540,21 @@ mod tests {
         Identity::from_seed(PAYER_SEED)
     }
 
+    const PAYEE_WALLET: [u8; 32] = [11; 32];
+    const PAYER_WALLET: [u8; 32] = [12; 32];
+
+    fn payee_binding() -> &'static Binding {
+        binding::test_wallet::bound(PAYEE_WALLET, payee().address())
+    }
+
+    fn payer_binding() -> &'static Binding {
+        binding::test_wallet::bound(PAYER_WALLET, payer().address())
+    }
+
     fn terms(amount: &str, expires_at: u64) -> Terms<'_> {
         Terms {
             chain: CHAIN,
-            pay_to: payee().address(),
+            binding: payee_binding(),
             amount,
             memo: "coffee",
             expires_at,
@@ -540,20 +586,92 @@ mod tests {
     }
 
     #[test]
+    fn a_request_pays_the_bound_wallet_not_the_chat_identity() {
+        let req = request();
+        assert_eq!(req.pay_to, payee_binding().account);
+        assert_ne!(req.pay_to, payee().address());
+    }
+
+    #[test]
     fn a_swapped_receiving_account_is_refused() {
         let mut req = request();
-        req.pay_to = payer().address();
+        req.pay_to = payee().address();
         assert_eq!(
             check(&req, &payee().address(), payee().public_key()),
             Err(ChatError::Refused(
-                "a request names only its signer's account"
-            ))
+                "a request names only its bound wallet account"
+            )),
+            "the chat identity's own address is not a receiving account"
         );
+    }
+
+    #[test]
+    fn a_request_with_a_forged_binding_is_refused() {
+        let mut forged = payee_binding().clone();
+        forged.signature[7] ^= 1;
         let mut fields = terms("5", NOW + 60);
-        fields.pay_to = payer().address();
-        assert!(
-            Request::sign(&payee(), &payer().address(), &fields, NOW).is_err(),
-            "signing for another account is refused too"
+        fields.binding = &forged;
+        assert_eq!(
+            Request::sign(&payee(), &payer().address(), &fields, NOW),
+            Err(ChatError::BadSignature),
+            "the payee cannot sign it"
+        );
+        let mut req = request();
+        req.binding = forged;
+        assert_eq!(
+            check(&req, &payee().address(), payee().public_key()),
+            Err(ChatError::BadSignature),
+            "nor can a payer accept it"
+        );
+        // An attacker's own wallet, relabelled with the victim's account.
+        let mut relabelled = binding::test_wallet::bound([13; 32], payee().address()).clone();
+        relabelled.account = payee_binding().account;
+        let mut req = request();
+        req.binding = relabelled;
+        assert_eq!(
+            check(&req, &payee().address(), payee().public_key()),
+            Err(ChatError::BadSignature)
+        );
+    }
+
+    #[test]
+    fn a_request_with_another_chat_identitys_binding_is_refused() {
+        let mut fields = terms("5", NOW + 60);
+        fields.binding = payer_binding();
+        assert_eq!(
+            Request::sign(&payee(), &payer().address(), &fields, NOW),
+            Err(ChatError::Refused("binding is for another chat identity"))
+        );
+        let mut req = request();
+        req.binding = payer_binding().clone();
+        req.pay_to = payer_binding().account;
+        assert_eq!(
+            check(&req, &payee().address(), payee().public_key()),
+            Err(ChatError::Refused("binding is for another chat identity"))
+        );
+    }
+
+    #[test]
+    fn a_request_with_an_expired_or_revoked_binding_is_refused() {
+        let req = request();
+        let after = payee_binding().expires_at;
+        assert_eq!(
+            Request::sign(&payee(), &payer().address(), &terms("5", after + 60), after),
+            Err(ChatError::Expired)
+        );
+        let revoke = binding::test_wallet::sign(
+            PAYEE_WALLET,
+            BindingKind::Revoke,
+            CHAIN,
+            payee().address(),
+            NOW,
+            NOW + 60,
+        );
+        let mut revoked = req;
+        revoked.binding = revoke;
+        assert_eq!(
+            check(&revoked, &payee().address(), payee().public_key()),
+            Err(ChatError::Refused("binding is a revocation"))
         );
     }
 
@@ -581,8 +699,8 @@ mod tests {
                 &other,
                 NOW
             ),
-            Err(ChatError::BadSignature),
-            "rewriting the chain field breaks the signature"
+            Err(ChatError::Refused("binding is for another chain")),
+            "rewriting the chain field leaves the wallet's binding on the old one"
         );
     }
 
@@ -619,7 +737,7 @@ mod tests {
     #[test]
     fn amount_tampering_fails_the_signature() {
         let mut bytes = request().encode();
-        let amount_at = MAGIC.len() + 32 * 3 + 8 + NONCE_LEN + 1;
+        let amount_at = MAGIC.len() + 32 * 3 + 8 + NONCE_LEN + Binding::encoded_len() + 1;
         bytes[amount_at] = b'9'; // "1000" becomes "9000"
         let tampered = Request::parse(&bytes).unwrap();
         assert_eq!(tampered.amount, "9000");
@@ -705,38 +823,63 @@ mod tests {
 
     #[test]
     fn a_paid_receipt_round_trips_and_verifies_for_its_payee_and_chain() {
-        let receipt = Paid::sign(&payer(), &payee().address(), &CHAIN, [4; 32], [5; 32]).unwrap();
+        let receipt = Paid::sign(
+            &payer(),
+            payer_binding(),
+            &payee().address(),
+            &CHAIN,
+            [4; 32],
+            [5; 32],
+        )
+        .unwrap();
         let parsed = Paid::parse(&receipt.encode()).unwrap();
         assert_eq!(parsed, receipt);
         let signer = payer();
         let key = signer.public_key();
+        let me = payee().address();
         assert!(
             parsed
-                .verify(&payer().address(), key, &payee().address(), &CHAIN)
+                .verify(&payer().address(), key, &me, &CHAIN, NOW)
                 .is_ok()
         );
         let other = Identity::from_seed([7; 32]).address();
         assert_eq!(
-            parsed.verify(&payer().address(), key, &other, &CHAIN),
+            parsed.verify(&payer().address(), key, &other, &CHAIN, NOW),
             Err(ChatError::BadSignature),
             "a receipt for another payee"
         );
         assert_eq!(
-            parsed.verify(&payer().address(), key, &payee().address(), &[0xc2; 32]),
-            Err(ChatError::BadSignature),
+            parsed.verify(&payer().address(), key, &me, &[0xc2; 32], NOW),
+            Err(ChatError::Refused("binding is for another chain")),
             "a receipt for another chain"
+        );
+        let mut moved = parsed;
+        moved.binding = payee_binding().clone();
+        assert_eq!(
+            moved.verify(&payer().address(), key, &me, &CHAIN, NOW),
+            Err(ChatError::Refused("binding is for another chat identity")),
+            "a receipt carrying someone else's wallet"
         );
     }
 
     #[test]
     fn a_receipt_signed_by_someone_else_is_refused() {
-        let forged = Paid::sign(&payee(), &payee().address(), &CHAIN, [4; 32], [5; 32]).unwrap();
+        let forged = Paid::sign(
+            &payee(),
+            payer_binding(),
+            &payee().address(),
+            &CHAIN,
+            [4; 32],
+            [5; 32],
+        )
+        .unwrap();
         assert_eq!(
             forged.verify(
                 &payer().address(),
                 payee().public_key(),
                 &payee().address(),
-                &CHAIN
+                &CHAIN,
+                NOW
             ),
             Err(ChatError::BadSignature)
         );
@@ -747,6 +890,7 @@ mod tests {
         assert!(is_request(&request().encode()));
         assert!(!is_paid(&request().encode()));
         assert!(is_marked(b"\0maya-chat paid v1\0x"));
+        assert!(is_marked(b"\0maya-chat binding v1\0x"));
         assert!(!is_marked(b"hello"));
     }
 }

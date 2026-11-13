@@ -186,6 +186,7 @@ fn a_uri_round_trips() {
         recipient: address(5),
         amount: Some(primitive_types::U256::from(42)),
         label: Some("Rent & Bills".to_string()),
+        chat: None,
     };
     let parsed = PaymentRequest::parse(&original.to_uri()).expect("parse");
     assert_eq!(parsed, original);

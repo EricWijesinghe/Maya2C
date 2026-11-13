@@ -163,7 +163,12 @@ pub async fn collect(
         match client.open_frame(envelope, now) {
             Ok(Frame::Text(received)) => out.push(Ok(received)),
             // Payment frames wait in the client's inbox (Client::take_pay_frames).
-            Ok(Frame::Receipt { .. } | Frame::Pay { .. } | Frame::Paid { .. }) => {}
+            Ok(
+                Frame::Receipt { .. }
+                | Frame::Pay { .. }
+                | Frame::Paid { .. }
+                | Frame::Binding { .. },
+            ) => {}
             Err(e) => out.push(Err(e)),
         }
     }

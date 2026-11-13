@@ -20,6 +20,7 @@ pub use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::Transaction;
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 
+use crate::chat_pay::{BindingTerms, sign_binding};
 use crate::confirm::{Confirmation, confirmation};
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
@@ -240,6 +241,19 @@ impl Wallet {
         });
 
         Ok(transfer)
+    }
+
+    /// Signs a chat binding (or revocation) for account `index`: see
+    /// [`crate::chat_pay`]. No network. It authorizes no transfer: it lets a
+    /// chat identity name this account as where payments to it go.
+    ///
+    /// # Errors
+    ///
+    /// Propagates derivation failures and [`crate::chat_pay::sign_binding`]'s.
+    pub fn chat_binding(&self, index: u32, terms: &BindingTerms) -> Result<Vec<u8>> {
+        let path = DerivationPath::account(0, index);
+        let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
+        sign_binding(&signing_key, terms)
     }
 
     /// Bytes a fee-paying transfer from account `index` will occupy.

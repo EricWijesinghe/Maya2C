@@ -705,6 +705,9 @@ pub mod send {
         );
         let fee = RwSignal::new(String::new());
         let label = request.label.clone();
+        // A chat request rides to the signer, which refuses another chain or
+        // a request already paid (ADR-088).
+        let chat = StoredValue::new(request.chat.clone());
         let preview = RwSignal::new(None::<Review>);
         let signed = RwSignal::new(None::<bridge::SignedTransfer>);
         let busy = RwSignal::new(false);
@@ -771,6 +774,7 @@ pub mod send {
                 return;
             };
             busy.set(true);
+            let chat = chat.get_value();
             spawn_local(async move {
                 let outcome = bridge::sign_transfer(
                     review.index,
@@ -780,6 +784,7 @@ pub mod send {
                     review.nonce,
                     &review.terms,
                     &review.confirmation.signing_hash,
+                    chat.as_ref(),
                 )
                 .await;
                 match outcome {

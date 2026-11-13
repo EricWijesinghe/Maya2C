@@ -8,15 +8,21 @@ built yet; use test amounts on testnet only.
 
 - **Ask for money.** A payee sends a request: an amount, a note (at most 140
   bytes of plain text), and an expiry no more than 24 hours away. The request
-  is signed by the payee's chat identity, and it names only that payee's own
-  account.
+  is signed by the payee's chat identity, and it names only the wallet
+  account the payee's wallet bound to that chat identity.
+- **Bind once.** In the wallet, "Chat payment binding" signs a statement,
+  with the account's own key: this chat identity may ask for payments to
+  this account, on this chain, for up to 90 days (30 by default). Paste it
+  into the chat. A newer binding replaces the old one; a revocation, sent
+  to your contacts, makes them refuse requests from you until you bind
+  again.
 - **Pay.** The payer's wallet pays the account the request names. The wallet
   shows its own full confirmation, and the user approves there. Chat never
   signs a transaction.
 - **Confirm.** The payer's chat sends a receipt: the request id and the
   transaction id, signed by the payer's chat identity.
 - **Check.** The payee accepts the receipt only if the chain shows that
-  transaction, sent by the payer, after the request was made, in a finalized
+  transaction, sent by the payer's bound wallet, after the request was made, in a finalized
   block, paying the payee at least the amount. A receipt alone is never
   enough. The request and the receipt are both signed for one chain, and
   are refused on any other.
@@ -25,18 +31,20 @@ built yet; use test amounts on testnet only.
 
 ## What chat never does
 
-- It never holds the payer's wallet key, and never signs a transaction.
-- Today the payee's receiving account is its chat identity's own account, so
-  money received through chat is controlled by the chat identity key. A
-  wallet-signed receiving address is planned (ADR-088 decision 1); until
-  then, move received money to your wallet.
+- It never holds a wallet key, and never signs a transaction. Money goes
+  from one wallet account to another; a chat identity's own address is
+  never a receiving account (ADR-088 amendment 1).
+- Your wallet refuses a chat payment link for another chain, and one it has
+  already paid.
 - It never sends money.
 - A link from outside (a wallet return link) fills in a receipt. It never
   sends one on its own.
 
 ## Limits
 
-- A request names only the account of the person who sends it.
+- A request names only the wallet account bound to the person who sends it.
+- A contact that never received your revocation accepts the old binding
+  until it expires.
 - A note with control characters, line breaks, text-direction marks or
   other invisible formatting characters is refused.
 - At most 64 open requests per contact in each direction.

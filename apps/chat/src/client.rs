@@ -68,6 +68,14 @@ pub enum Frame {
         /// The transaction it claims.
         tx_id: [u8; 32],
     },
+    /// A contact's wallet binding, sent on its own and recorded: every older
+    /// binding of `from` is refused from now on (ADR-088 amendment 1).
+    Binding {
+        /// The contact it binds.
+        from: Address,
+        /// A revocation: `from` names no account until a newer binding.
+        revoked: bool,
+    },
 }
 
 const STATE_DOMAIN: &str = "maya-chat 2026-09-28 local state v1";
@@ -111,6 +119,8 @@ struct State {
     pay_inbox: Vec<payments::Inbound>,
     #[serde(default)]
     pay_chain: Option<pay::ChainTag>,
+    #[serde(default)]
+    pay_binding: Option<pay::Binding>,
 }
 
 /// One identity's sessions, outbox and receipt state.
@@ -144,6 +154,9 @@ pub struct Client {
     pay_inbox: Vec<payments::Inbound>,
     /// The chain payments are for ([`Client::set_pay_chain`]).
     pay_chain: Option<pay::ChainTag>,
+    /// The wallet binding this identity's requests and receipts carry
+    /// ([`Client::set_pay_binding`]).
+    pay_binding: Option<pay::Binding>,
 }
 
 impl Client {
@@ -163,6 +176,7 @@ impl Client {
             pay: pay::Ledger::default(),
             pay_inbox: Vec::new(),
             pay_chain: None,
+            pay_binding: None,
         }
     }
 
@@ -190,6 +204,7 @@ impl Client {
             pay: self.pay.clone(),
             pay_inbox: self.pay_inbox.clone(),
             pay_chain: self.pay_chain,
+            pay_binding: self.pay_binding.clone(),
         };
         let mut plain = Zeroizing::new(Vec::new());
         ciborium::into_writer(&state, &mut *plain).map_err(|_| ChatError::Encoding)?;
@@ -239,6 +254,7 @@ impl Client {
             pay: state.pay,
             pay_inbox: state.pay_inbox,
             pay_chain: state.pay_chain,
+            pay_binding: state.pay_binding,
         })
     }
 
@@ -320,7 +336,10 @@ impl Client {
     pub fn open(&mut self, envelope: &Envelope, now: u64) -> Result<Received, ChatError> {
         match self.open_frame(envelope, now)? {
             Frame::Text(received) => Ok(received),
-            Frame::Receipt { .. } | Frame::Pay { .. } | Frame::Paid { .. } => {
+            Frame::Receipt { .. }
+            | Frame::Pay { .. }
+            | Frame::Paid { .. }
+            | Frame::Binding { .. } => {
                 Err(ChatError::NotText)
             }
         }
