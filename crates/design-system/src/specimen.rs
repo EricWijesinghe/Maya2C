@@ -4,9 +4,11 @@
 //!
 //! The tokens are the generated `design/tokens.css` (ADR-136), inlined so the
 //! page needs no request. Each section shows every colour role the palette
-//! defines (hero gradient, both button gradients, value, the four status fills
-//! with icon and word, control edges, a selected row and the chart series), so
-//! a palette change is visible in the baselines rather than only in the gate.
+//! defines (hero gradient, both button gradients with hover, focus and
+//! disabled states, a display-size value, tinted status chips with icon and
+//! word, solid dots and a counter, control edges, a selected row and the chart
+//! series), so a palette change is visible in the baselines rather than only in
+//! the gate. Each theme is shown at 720 px and at a 360 px phone width.
 
 use crate::i18n::{Key, dir, t};
 
@@ -19,6 +21,9 @@ const THEMES: [&str; 2] = ["dark", "light"];
 const COMPONENT_CSS: &str = r"
 body { margin:0; font:var(--type-body-size)/1.5 'DejaVu Sans',sans-serif; }
 section { background:var(--bg); color:var(--text); padding:var(--space-6); width:720px; }
+section.phone { width:360px; padding:var(--space-4); }
+section.phone .grid { grid-template-columns:1fr; }
+section.phone h1 { font-size:var(--type-display-2-size-phone); }
 p { margin:var(--space-3) 0; }
 .hero { background:var(--grad-hero); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--space-6); }
 .eyebrow { color:var(--accent-text); font-size:var(--type-label-size); font-weight:500; margin:0; }
@@ -31,33 +36,42 @@ h1 { font-size:var(--type-display-2-size); line-height:var(--line-heading); font
        box-shadow:inset 0 1px 0 var(--accent-highlight), var(--shadow-sm);
        height:var(--control-h); padding:0 var(--space-4); font:inherit; font-weight:500; }
 .btn.forge { background:var(--grad-forge); color:var(--on-forge); }
-.btn.secondary { background:var(--surface-2); color:var(--text); border:1px solid var(--border-strong); box-shadow:none; }
+.btn.hover { background:var(--accent-hover); }
+.btn.secondary { background:var(--surface-1); color:var(--text); border:1px solid var(--border-control); box-shadow:none; }
+.btn:disabled { opacity:.5; }
 .focus { outline:2px solid var(--accent); outline-offset:2px; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-4); margin:var(--space-4) 0; }
 .panel { background:var(--surface-1); border:1px solid var(--border); border-radius:var(--r-lg);
          box-shadow:var(--shadow-inset); padding:var(--space-4); margin:var(--space-4) 0; }
 .grid .panel { margin:0; }
 .label { display:block; color:var(--text-2); font-size:var(--type-label-size); margin-bottom:var(--space-1); }
-.figure { color:var(--bronze); font-size:var(--type-title-1-size); font-weight:600; font-variant-numeric:var(--font-numeric); }
+.figure { color:var(--bronze-display); font-size:var(--type-title-1-size); font-weight:600; font-variant-numeric:var(--font-numeric); }
 .unit { color:var(--bronze-text); font-size:var(--type-body-size); font-weight:500; }
 .field { box-sizing:border-box; width:100%; height:var(--control-h); border:1px solid var(--border-control);
-         border-radius:var(--r-md); background:var(--surface-2); color:var(--text); padding:0 var(--space-3); font:inherit; }
+         border-radius:var(--r-md); background:var(--surface-1); color:var(--text); padding:0 var(--space-3); font:inherit; }
 input[type=checkbox] { appearance:none; width:16px; height:16px; margin:0 var(--space-1); vertical-align:-3px;
          border:1px solid var(--border-control); border-radius:var(--r-xs); background:transparent; }
 input[type=checkbox]:checked { background:var(--accent); border-color:var(--accent);
          box-shadow:inset 0 0 0 3px var(--surface-1); }
 .chips { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2); }
-.chip { display:inline-flex; align-items:center; gap:var(--space-1); padding:2px var(--space-2);
-        border-radius:var(--r-pill); color:var(--on-fill); font-size:var(--type-label-size); font-weight:600; }
-.chip.ok { background:var(--success-fill); }
-.chip.caution { background:var(--warn-fill); }
-.chip.bad { background:var(--danger-fill); }
-.chip.note { background:var(--info-fill); }
-.chip.value { background:var(--bronze-fill); }
+.chip { display:inline-flex; align-items:center; gap:var(--space-1); padding:1px var(--space-2);
+        border:1px solid currentColor; border-radius:var(--r-pill); font-size:var(--type-label-size); font-weight:600; }
+.chip.ok { color:var(--success); background:var(--success-subtle); }
+.chip.caution { color:var(--warn); background:var(--warn-subtle); }
+.chip.bad { color:var(--danger); background:var(--danger-subtle); }
+.chip.note { color:var(--info); background:var(--info-subtle); }
+.chip.value { color:var(--bronze); background:var(--bronze-subtle); }
+.dot { display:inline-block; width:8px; height:8px; border-radius:var(--r-pill); }
+.dot.ok { background:var(--success-fill); } .dot.caution { background:var(--warn-fill); }
+.dot.bad { background:var(--danger-fill); } .dot.note { background:var(--info-fill); }
+.dot.value { background:var(--bronze-fill); }
+.count { display:inline-block; min-width:16px; padding:0 var(--space-1); border-radius:var(--r-pill);
+         background:var(--danger-fill); color:var(--on-fill); font-size:var(--type-label-size); font-weight:600; text-align:center; }
 .alert { border-inline-start:3px solid var(--border-strong); }
 .alert.bad { border-inline-start-color:var(--danger-fill); }
 .alert.bad .ico, .alert.bad strong { color:var(--danger); }
-.alert.caution { border-inline-start-color:var(--warn-fill); }
+.alert.bad { background:var(--danger-subtle); }
+.alert.caution { border-inline-start-color:var(--warn-fill); background:var(--warn-subtle); }
 .alert.caution .ico, .alert.caution strong { color:var(--warn); }
 td.ok { color:var(--success); }
 td.caution { color:var(--warn); }
@@ -66,7 +80,7 @@ table { width:100%; border-collapse:collapse; font-size:var(--type-body-sm-size)
 td,th { text-align:start; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); }
 td { font-variant-numeric:var(--font-numeric); }
 th { color:var(--text-2); font-weight:500; }
-tr.selected td { background:var(--surface-3); }
+tr.selected td { background:var(--accent-subtle); }
 .swatches { display:flex; align-items:center; gap:var(--space-2); }
 .swatches .label { margin:0 var(--space-2) 0 0; }
 .swatches i { display:inline-block; width:40px; height:12px; border-radius:var(--r-xs); }
@@ -77,28 +91,36 @@ tr.selected td { background:var(--surface-3); }
 /// Six chart swatches, one per series.
 const SWATCHES: &str = r#"<i class="c1"></i><i class="c2"></i><i class="c3"></i><i class="c4"></i><i class="c5"></i><i class="c6"></i>"#;
 
-fn section(theme: &str, locale: &str) -> String {
+fn section(theme: &str, locale: &str, phone: bool) -> String {
     let known = "0x1a2b…abcd";
     let d = dir(locale).attr();
+    let (class, id) = if phone {
+        (" class=\"phone\"", format!("{theme}-{locale}-360"))
+    } else {
+        ("", format!("{theme}-{locale}"))
+    };
     // The amount is a fixture, labelled as one; no figure here is a real value.
     format!(
-        r##"<section data-theme="{theme}" dir="{d}" lang="{locale}" id="{theme}-{locale}">
+        r##"<section data-theme="{theme}" dir="{d}" lang="{locale}" id="{id}"{class}>
 <div class="hero">
 <p class="eyebrow">Forged Light 2 · {theme}</p>
 <h1>Maya2C</h1>
 <p>Body text on the page background. <span class="muted">Secondary text.</span> <span class="dim">Tertiary text.</span></p>
 <p><button class="btn">{send}</button> <button class="btn forge">{sign}</button>
-<button class="btn secondary">{cancel}</button> <button class="btn focus">{review}</button></p>
+<button class="btn secondary">{cancel}</button></p>
+<p><button class="btn hover">hover</button> <button class="btn focus">{review}</button>
+<button class="btn" disabled>disabled</button></p>
 </div>
 <div class="grid">
 <div class="panel"><span class="label">Sample amount, not a real balance</span>
 <span class="figure">12.5 <span class="unit">MAYA</span></span>
-<p class="chips"><span class="chip value"><b aria-hidden="true">◆</b> Proof</span> <a class="link" href="#{theme}-{locale}">Learn more</a></p></div>
-<div class="panel"><label class="label" for="to-{theme}-{locale}">Recipient</label>
-<input class="field" id="to-{theme}-{locale}" value="{known}">
+<p class="chips"><span class="chip value"><b aria-hidden="true">◆</b> Proof</span> <a class="link" href="#{id}">Learn more</a></p></div>
+<div class="panel"><label class="label" for="to-{id}">Recipient</label>
+<input class="field" id="to-{id}" value="{known}">
 <p><label><input type="checkbox" checked> Saved contact</label> <label><input type="checkbox"> Remember</label></p></div>
 </div>
-<p class="chips"><span class="chip ok"><b aria-hidden="true">✓</b> Verified</span>
+<p class="chips"><span class="dot ok"></span><span class="dot caution"></span><span class="dot bad"></span><span class="dot note"></span><span class="dot value"></span> <span class="count">3</span>
+<span class="chip ok"><b aria-hidden="true">✓</b> Verified</span>
 <span class="chip caution"><b aria-hidden="true">!</b> Testnet paused</span>
 <span class="chip bad"><b aria-hidden="true">✕</b> Irreversible</span>
 <span class="chip note"><b aria-hidden="true">i</b> Research</span></p>
@@ -129,9 +151,12 @@ fn section(theme: &str, locale: &str) -> String {
 pub fn page() -> String {
     let mut body = String::new();
     for theme in THEMES {
-        body.push_str(&section(theme, "en"));
+        body.push_str(&section(theme, "en", false));
     }
-    body.push_str(&section("light", "ar"));
+    body.push_str(&section("light", "ar", false));
+    for theme in THEMES {
+        body.push_str(&section(theme, "en", true));
+    }
     format!(
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n<title>Maya2C design system specimen</title>\n<style>\n{TOKENS}{COMPONENT_CSS}</style></head>\n<body>\n{body}</body></html>\n"
     )
