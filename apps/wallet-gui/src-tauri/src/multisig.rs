@@ -7,13 +7,17 @@
 //! checks, the confirm text) is the wallet core's.
 
 use maya_wallet_core::confirm::{Confirmation, approval_message};
-use maya_wallet_core::multisig::{MemberKey, MultisigAccount, Proposal};
+use maya_wallet_core::multisig::{
+    MemberKey, MultisigAccount, Proposal, ProposalStatus as ProposalView,
+};
 use maya_wallet_core::networks;
 use maya_wallet_core::payment::SignedTransfer;
 use maya_wallet_core::wallet::SignTerms;
 use serde::Serialize;
 
-use crate::commands::{DialogSlot, Session, native_ok, parse_amount_arg, parse_genesis};
+use crate::commands::{
+    DialogSlot, FeeTerms, Session, native_ok, parse_amount_arg, parse_genesis, priced_fee_terms,
+};
 
 /// An account as the multisig screen shows it.
 #[derive(Serialize)]
@@ -30,19 +34,6 @@ pub struct AccountView {
     pub members: Vec<MemberKey>,
 }
 
-/// A proposal and how far its approval has got.
-#[derive(Serialize)]
-pub struct ProposalView {
-    /// The v8 transaction with the approvals so far, hex: what members pass on.
-    pub proposal_hex: String,
-    /// Positions of the members who have approved.
-    pub approved_by: Vec<u8>,
-    /// `m`.
-    pub threshold: usize,
-    /// True once the quorum is met and the spend can be finished.
-    pub complete: bool,
-}
-
 fn account_view(account: &MultisigAccount, genesis: &str) -> AccountView {
     let network = networks::address_network(genesis);
     AccountView {
@@ -55,12 +46,7 @@ fn account_view(account: &MultisigAccount, genesis: &str) -> AccountView {
 }
 
 fn proposal_view(proposal: &Proposal) -> ProposalView {
-    ProposalView {
-        proposal_hex: proposal.to_hex(),
-        approved_by: proposal.approved_by(),
-        threshold: proposal.account().threshold(),
-        complete: proposal.is_complete(),
-    }
+    proposal.status()
 }
 
 /// Account `index`'s member key, to give to whoever sets the account up.
@@ -90,7 +76,22 @@ pub fn multisig_open(account_hex: String, genesis: String) -> Result<AccountView
     Ok(account_view(&account, &genesis))
 }
 
-/// An unapproved spend from the account; `nonce` is the multisig account's.
+/// The fee presets for a spend from the account, priced for the finished v8
+/// frame (the policy and `m` approvals), not for a single-signature transfer.
+#[tauri::command]
+pub async fn multisig_fee_options(
+    node_url: String,
+    account_hex: String,
+) -> Result<FeeTerms, String> {
+    let account = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
+    priced_fee_terms(&node_url, |_, _| {
+        account.spend_size().map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// An unapproved spend from the account; `nonce` is the multisig account's,
+/// `base_fee` the node's per-byte rate ("0" where fees are off).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
 pub fn multisig_propose(
@@ -102,8 +103,10 @@ pub fn multisig_propose(
     fee_to: Option<String>,
     nonce: u64,
     genesis: String,
+    base_fee: String,
     session: tauri::State<'_, Session>,
 ) -> Result<ProposalView, String> {
+    let base_fee = parse_amount_arg("base fee", &base_fee)?;
     let account = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
     let chain = parse_genesis(&genesis)?;
     let amount = parse_amount_arg("amount", &amount)?;
@@ -115,10 +118,20 @@ pub fn multisig_propose(
         allow_high_fee: false,
     };
     session.with(|w| {
-        w.propose_multisig(index, &account, &recipient, amount, &terms)
+        w.propose_multisig(index, &account, &recipient, amount, &terms, base_fee)
             .map(|p| proposal_view(&p))
             .map_err(|e| e.to_string())
     })
+}
+
+/// How far the proposal in `proposal_hex` has got, read from that text alone,
+/// so the screen never shows another proposal's progress.
+#[tauri::command]
+pub fn multisig_status(proposal_hex: String, genesis: String) -> Result<ProposalView, String> {
+    let chain = parse_genesis(&genesis)?;
+    Proposal::from_hex(&proposal_hex, &chain)
+        .map(|p| proposal_view(&p))
+        .map_err(|e| e.to_string())
 }
 
 /// The confirm screen's content for approving a proposal. Signs nothing.
@@ -136,8 +149,10 @@ pub fn multisig_preview(
 }
 
 /// Adds account `index`'s approval, after the native confirm screen.
-/// `confirmed_hash` must be the hash [`multisig_preview`] returned.
+/// `confirmed_hash` must be the hash [`multisig_preview`] returned;
+/// `base_fee` is the node's per-byte rate ("0" where fees are off).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
 pub async fn multisig_approve(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
@@ -145,10 +160,12 @@ pub async fn multisig_approve(
     proposal_hex: String,
     genesis: String,
     confirmed_hash: String,
+    base_fee: String,
     session: tauri::State<'_, Session>,
 ) -> Result<ProposalView, String> {
     let _slot = DialogSlot::take(session.dialog_open())?;
     let chain = parse_genesis(&genesis)?;
+    let base_fee = parse_amount_arg("base fee", &base_fee)?;
     let proposal = Proposal::from_hex(&proposal_hex, &chain).map_err(|e| e.to_string())?;
     let ctx = session.review_context(&app)?;
     let shown = session.with(|w| Ok(w.confirm_multisig(&proposal, &chain, &ctx)))?;
@@ -163,7 +180,7 @@ pub async fn multisig_approve(
         return Err("cancelled on the native confirm screen; nothing was signed".to_string());
     }
     session.with(|w| {
-        w.approve_multisig(index, &proposal, &chain, &shown.signing_hash)
+        w.approve_multisig(index, &proposal, &chain, &shown.signing_hash, base_fee)
             .map(|p| proposal_view(&p))
             .map_err(|e| e.to_string())
     })

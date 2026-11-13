@@ -12,7 +12,7 @@ use leptos::task::spawn_local;
 
 use crate::bridge::{self, multisig as ms};
 use crate::receive::CopyButton;
-use crate::screens::typed_amount;
+use crate::screens::{input_amount, typed_amount};
 use crate::{AppState, Screen};
 
 /// Suite byte to the name a person compares.
@@ -56,7 +56,7 @@ pub fn Multisig() -> impl IntoView {
     let account = RwSignal::new(None::<ms::Account>);
     let recipient = RwSignal::new(String::new());
     let amount = RwSignal::new(String::new());
-    let fee = RwSignal::new(String::from("0"));
+    let fee = RwSignal::new(String::new());
     let proposal = RwSignal::new(String::new());
     let other = RwSignal::new(String::new());
     let progress = RwSignal::new(None::<ms::Proposal>);
@@ -71,6 +71,25 @@ pub fn Multisig() -> impl IntoView {
         review.set(None);
         signed.set(None);
     };
+
+    // A v8 spend carries the policy and m approvals, several times a
+    // transfer's bytes, so the fee is priced for that frame, not a transfer's.
+    // Standard, the second tier, is the default, as on the send screen.
+    Effect::new(move |_| {
+        let (Some(a), node) = (account.get(), state.node_url.get()) else {
+            return;
+        };
+        spawn_local(async move {
+            match ms::fee_options(&node, &a.account_hex).await {
+                Ok(terms) => {
+                    if let Some(standard) = terms.options.get(1) {
+                        fee.set(input_amount(&standard.fee));
+                    }
+                }
+                Err(e) => state.fail(format!("Could not read fees from the node: {e}")),
+            }
+        });
+    });
 
     let show_key = move |_| {
         let index = state.selected.get_untracked();
@@ -136,7 +155,7 @@ pub fn Multisig() -> impl IntoView {
             // The nonce is the multisig account's; the fee terms the node's.
             let result = async {
                 let nonce = bridge::fetch_account(&node, &a.address).await?.nonce;
-                let terms = bridge::fee_options(&node, index, 0).await?;
+                let terms = ms::fee_options(&node, &a.account_hex).await?;
                 ms::propose(
                     index,
                     &a.account_hex,
@@ -161,8 +180,19 @@ pub fn Multisig() -> impl IntoView {
         state.clear();
         let text = proposal.get_untracked();
         spawn_local(async move {
-            match ms::preview(&text, &state.genesis()).await {
-                Ok(c) => review.set(Some(c)),
+            let genesis = state.genesis();
+            // The progress line and Finish describe the proposal in the box,
+            // read from its own text, never one handled earlier.
+            let result = async {
+                let shown = ms::preview(&text, &genesis).await?;
+                Ok::<_, String>((shown, ms::status(&text, &genesis).await?))
+            }
+            .await;
+            match result {
+                Ok((c, p)) => {
+                    review.set(Some(c));
+                    progress.set(Some(p));
+                }
                 Err(e) => state.fail(e),
             }
         });
@@ -172,10 +202,28 @@ pub fn Multisig() -> impl IntoView {
         let Some(shown) = review.get_untracked() else {
             return;
         };
-        let (text, index) = (proposal.get_untracked(), state.selected.get_untracked());
+        let (text, index, node) = (
+            proposal.get_untracked(),
+            state.selected.get_untracked(),
+            state.node_url.get_untracked(),
+        );
         busy.set(true);
         spawn_local(async move {
-            match ms::approve(index, &text, &state.genesis(), &shown.signing_hash).await {
+            // The core refuses to approve a fee the finished spend would be
+            // refused for; the per-byte rate is the node's.
+            let result = async {
+                let base_fee = bridge::fee_options(&node, index, 0).await?.base_fee;
+                ms::approve(
+                    index,
+                    &text,
+                    &state.genesis(),
+                    &shown.signing_hash,
+                    &base_fee,
+                )
+                .await
+            }
+            .await;
+            match result {
                 Ok(p) => {
                     state.inform(format!(
                         "Approved: {} of {}.",
@@ -305,8 +353,9 @@ pub fn Multisig() -> impl IntoView {
         <section class="card multisig enter">
             <h1>"Multisig"</h1>
             <p class="lede">
-                "An account that needs several keys to spend. Members may use different \
-                 post-quantum suites: this wallet, a Ledger, a cold key."
+                "An account that needs several keys to spend. Every approval it needs must \
+                 come from a wallet like this one: a Ledger or another suite cannot approve \
+                 yet, so the wallet refuses an account that would depend on one."
             </p>
 
             <h2>"1. Your member key"</h2>
@@ -349,6 +398,7 @@ pub fn Multisig() -> impl IntoView {
             <textarea class="mono" rows="3" prop:value=move || proposal.get()
                 on:input=move |ev| {
                     proposal.set(event_target_value(&ev));
+                    progress.set(None);
                     review.set(None);
                     signed.set(None);
                 }></textarea>

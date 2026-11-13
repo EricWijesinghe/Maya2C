@@ -113,6 +113,7 @@ pub async fn propose(
         fee_to: Option<&'a str>,
         nonce: u64,
         genesis: &'a str,
+        base_fee: &'a str,
     }
     call(
         "multisig_propose",
@@ -125,6 +126,25 @@ pub async fn propose(
             fee_to: terms.collector.as_deref(),
             nonce,
             genesis: &terms.genesis,
+            base_fee: &terms.base_fee,
+        },
+    )
+    .await
+}
+
+/// Fee presets priced for the finished multisig spend (policy and approvals).
+pub async fn fee_options(node_url: &str, account_hex: &str) -> Result<FeeTerms, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args<'a> {
+        node_url: &'a str,
+        account_hex: &'a str,
+    }
+    call(
+        "multisig_fee_options",
+        &Args {
+            node_url,
+            account_hex,
         },
     )
     .await
@@ -135,6 +155,18 @@ pub async fn propose(
 struct ProposalArgs<'a> {
     proposal_hex: &'a str,
     genesis: &'a str,
+}
+
+/// How far the proposal in `proposal_hex` has got, from that text alone.
+pub async fn status(proposal_hex: &str, genesis: &str) -> Result<Proposal, String> {
+    call(
+        "multisig_status",
+        &ProposalArgs {
+            proposal_hex,
+            genesis,
+        },
+    )
+    .await
 }
 
 /// The confirm screen for approving a proposal. Signs nothing.
@@ -155,6 +187,7 @@ pub async fn approve(
     proposal_hex: &str,
     genesis: &str,
     confirmed_hash: &str,
+    base_fee: &str,
 ) -> Result<Proposal, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -163,6 +196,7 @@ pub async fn approve(
         proposal_hex: &'a str,
         genesis: &'a str,
         confirmed_hash: &'a str,
+        base_fee: &'a str,
     }
     call(
         "multisig_approve",
@@ -171,6 +205,7 @@ pub async fn approve(
             proposal_hex,
             genesis,
             confirmed_hash,
+            base_fee,
         },
     )
     .await

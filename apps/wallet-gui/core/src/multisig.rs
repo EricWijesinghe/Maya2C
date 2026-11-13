@@ -8,10 +8,21 @@
 //!
 //! # Mixed suites
 //!
-//! Each member names its own suite. This wallet's key is the hybrid `0x30`,
-//! a Ledger's is ML-DSA-65 `0x10`, a cold key may be SLH-DSA. A classical
-//! suite is refused by [`MultisigPolicy::new`]. The per-family approval floor
-//! proposed in ADR-117 is not on `master` and is not enforced here.
+//! Each member names its own suite. This wallet's key is the hybrid `0x30`;
+//! a policy may also list an ML-DSA-65 `0x10` (Ledger) or SLH-DSA key. A
+//! classical suite is refused by [`MultisigPolicy::new`]. Only a `0x30` key
+//! can approve today: the Ledger app refuses v8 bytes and nothing imports an
+//! approval signed elsewhere. So [`MultisigAccount::new`] refuses a threshold
+//! above the number of `0x30` members, which would lock the funds; other
+//! suites can only be spare members. The per-family approval floor proposed
+//! in ADR-117 is not built (ADR-117 is not written on `master`).
+//!
+//! # Fees
+//!
+//! A finished v8 spend carries the policy and `m` approvals, so it is larger
+//! than a single-signature transfer. [`MultisigAccount::spend_size`] measures
+//! it, and [`Proposal::check_fee`] refuses an underpaid fee before anyone
+//! signs: the fee is inside the signed bytes.
 //!
 //! # What travels between members
 //!
@@ -26,8 +37,11 @@ use custom_l1_node::core::Transaction;
 use custom_l1_node::core::describe::is_fee_output;
 use custom_l1_node::core::multisig_tx::{MultisigAuth, multisig_address};
 use custom_l1_node::core::payload::TxKind;
+use custom_l1_node::core::transaction::TxOutput;
+use custom_l1_node::state::fees::FEE_COLLECTOR;
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
 use maya_crypto_pq::suite::{self, SuiteId};
+use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, WalletError};
@@ -78,9 +92,10 @@ impl MultisigAccount {
     ///
     /// # Errors
     ///
-    /// [`WalletError::Multisig`] for anything [`MultisigPolicy::new`] refuses:
-    /// an unmeetable threshold, a repeated key, a classical suite, a wrong
-    /// key length.
+    /// [`WalletError::Multisig`] for anything [`MultisigPolicy::new`] refuses
+    /// (an unmeetable threshold, a repeated key, a classical suite, a wrong
+    /// key length), and for a threshold above the number of hybrid `0x30`
+    /// members.
     pub fn new(threshold: usize, members: &[MemberKey]) -> Result<Self> {
         let keys = members
             .iter()
@@ -88,6 +103,24 @@ impl MultisigAccount {
             .collect::<Result<Vec<_>>>()?;
         let policy = MultisigPolicy::new(threshold, keys)
             .map_err(|e| WalletError::Multisig(e.to_string()))?;
+        // Only a hybrid 0x30 key can approve today: the Ledger app refuses v8
+        // bytes and there is no way to import an approval signed elsewhere.
+        // An account needing any other approval would take funds it can never
+        // spend. Relax this when a Ledger v8 review and an "add external
+        // approval" command exist (the `multisig-v8-spend` Ledger fixture
+        // case flips with the first).
+        let approvers = policy
+            .keys()
+            .iter()
+            .filter(|k| k.suite == SuiteId::HybridMlDsa65SlhDsa128s)
+            .count();
+        if threshold > approvers {
+            return Err(WalletError::Multisig(format!(
+                "{threshold} approvals needed but only {approvers} members use this wallet's \
+                 hybrid suite; a Ledger or other suite cannot approve yet, so the account \
+                 could never spend"
+            )));
+        }
         Ok(Self { policy })
     }
 
@@ -152,6 +185,40 @@ impl MultisigAccount {
     pub(crate) fn policy(&self) -> &MultisigPolicy {
         &self.policy
     }
+
+    /// Bytes a finished spend from this account occupies: one payment, a fee
+    /// output to the collector, the policy, and `m` approvals from the
+    /// members with the longest signatures. What a fee-market chain charges
+    /// `base_fee` per byte for (ADR-029); a single-signature transfer's size
+    /// would underprice it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Proposal::finished_size`].
+    pub fn spend_size(&self) -> Result<u64> {
+        // Amounts are fixed-width on the wire, so placeholder values measure
+        // the real spend exactly.
+        let output = |recipient| TxOutput {
+            amount: U256::one(),
+            recipient,
+        };
+        let tx = Transaction::new(Vec::new(), vec![output([0; 32]), output(FEE_COLLECTOR)], 0);
+        Proposal::unsigned(self, tx).finished_size()
+    }
+}
+
+/// A proposal and how far its approval has got, as the multisig screen shows
+/// it. Computed from the proposal text itself, so it never describes another.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct ProposalStatus {
+    /// The v8 transaction with the approvals so far, hex: what members pass on.
+    pub proposal_hex: String,
+    /// Positions of the members who have approved.
+    pub approved_by: Vec<u8>,
+    /// `m`.
+    pub threshold: usize,
+    /// True once the quorum is met and the spend can be finished.
+    pub complete: bool,
 }
 
 /// A spend from a multisig account and the approvals collected for it.
@@ -209,6 +276,13 @@ impl Proposal {
             ));
         }
         let proposal = Self { tx };
+        // The node decodes up to n approvals. A copy carrying more than m
+        // could never finish, yet would keep accepting approvals: refused.
+        if proposal.auth().approvals().len() > proposal.auth().policy().threshold() {
+            return Err(WalletError::Multisig(
+                "the proposal carries more approvals than the account needs".into(),
+            ));
+        }
         let message = proposal.signing_bytes(chain);
         for approval in proposal.auth().approvals() {
             proposal.check(approval, &message)?;
@@ -246,6 +320,93 @@ impl Proposal {
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.auth().approvals().len() == self.auth().policy().threshold()
+    }
+
+    /// What the multisig screen shows for this proposal.
+    #[must_use]
+    pub fn status(&self) -> ProposalStatus {
+        ProposalStatus {
+            proposal_hex: self.to_hex(),
+            approved_by: self.approved_by(),
+            threshold: self.auth().policy().threshold(),
+            complete: self.is_complete(),
+        }
+    }
+
+    /// Everything after the payment: the fee outputs.
+    #[must_use]
+    pub fn fee(&self) -> U256 {
+        self.tx
+            .outputs
+            .iter()
+            .skip(1)
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount))
+    }
+
+    /// Bytes this spend occupies once `m` members approve, counting the
+    /// longest signatures the policy allows.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Multisig`] if the placeholder approvals do not fit the
+    /// policy (they always do for a policy [`MultisigPolicy`] accepted).
+    pub fn finished_size(&self) -> Result<u64> {
+        let policy = self.auth().policy();
+        let mut longest = policy
+            .keys()
+            .iter()
+            .enumerate()
+            .map(|(i, k)| Ok((k.suite.info().signature_len, u8::try_from(i)?)))
+            .collect::<std::result::Result<Vec<_>, std::num::TryFromIntError>>()
+            .map_err(|_| WalletError::Multisig("a policy index above 255".into()))?;
+        longest.sort_by(|a, b| b.0.cmp(&a.0));
+        longest.truncate(policy.threshold());
+        longest.sort_by_key(|&(_, index)| index);
+        let approvals = longest
+            .into_iter()
+            .map(|(len, index)| Approval {
+                index,
+                signature: vec![0; len],
+            })
+            .collect();
+        let auth = MultisigAuth::new(policy.clone(), approvals)
+            .map_err(|e| WalletError::Multisig(e.to_string()))?;
+        let mut tx = self.tx.clone();
+        tx.multisig = Some(Box::new(auth));
+        u64::try_from(tx.to_bytes().len()).map_err(|_| WalletError::AmountOverflow)
+    }
+
+    /// Refuses a fee to the collector under `base_fee` x
+    /// [`Proposal::finished_size`]: the node would refuse the finished spend
+    /// as underpaid (ADR-029), and the fee is inside the signed bytes, so
+    /// every member would have to approve a new proposal. A zero `base_fee`
+    /// (fees off) checks nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Multisig`] for an underpaid fee;
+    /// [`WalletError::AmountOverflow`] if the required fee passes 2^256 - 1.
+    pub fn check_fee(&self, base_fee: U256) -> Result<()> {
+        if base_fee.is_zero() {
+            return Ok(());
+        }
+        let needed = base_fee
+            .checked_mul(U256::from(self.finished_size()?))
+            .ok_or(WalletError::AmountOverflow)?;
+        let paid = self
+            .tx
+            .outputs
+            .iter()
+            .skip(1)
+            .filter(|o| o.recipient == FEE_COLLECTOR)
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
+        if paid < needed {
+            return Err(WalletError::Multisig(format!(
+                "the fee to the collector ({paid} base units) is below the {needed} this spend \
+                 needs once approved; nothing was signed"
+            )));
+        }
+        Ok(())
     }
 
     /// The bytes every member signs.
@@ -318,14 +479,7 @@ impl Proposal {
             .verify(&self.signing_bytes(chain), auth.approvals())
             .map_err(|e| WalletError::Multisig(e.to_string()))?;
         let first = self.tx.outputs.first();
-        let fee = self
-            .tx
-            .outputs
-            .iter()
-            .skip(1)
-            .fold(primitive_types::U256::zero(), |sum, o| {
-                sum.saturating_add(o.amount)
-            });
+        let fee = self.fee();
         Ok(SignedTransfer {
             txid: hex::encode(self.tx.txid()),
             sender: hex::encode(self.tx.sender()),

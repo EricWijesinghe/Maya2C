@@ -1,18 +1,25 @@
 //! The wallet's multisig flow (P-16): a mixed-suite 2-of-3 account (two
-//! hybrid `0x30` wallet keys and an ML-DSA-65 key, the suite the Ledger app
-//! signs with), a proposal passed between members as hex, and the node
-//! accepting the finished spend.
+//! hybrid `0x30` wallet keys and an ML-DSA-65 key), a proposal passed between
+//! members as hex, and a finished spend that passes the node's `verify_at`
+//! (signature, format and chain binding; not applied against state).
+//!
+//! The ML-DSA-65 approvals here are signed on the host. The Ledger app cannot
+//! sign them today: its review accepts only the v7 transfer domain and refuses
+//! v8 multisig bytes as not a transaction. So no account may need more
+//! approvals than it has hybrid members (the fund-lock test below).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::multisig_tx::MultisigAuth;
 use custom_l1_node::core::{ChainTag, Transaction};
 use custom_l1_node::state::context::SUITE_ENVELOPE_ACTIVATION_HEIGHT;
+use custom_l1_node::state::fees::FEE_COLLECTOR;
 use maya_clear_sign::Context;
 use maya_crypto_pq::agility::{Network, SuitePolicy};
 use maya_crypto_pq::multisig::Approval;
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 use maya_wallet_core::error::WalletError;
-use maya_wallet_core::multisig::{MemberKey, MultisigAccount, Proposal};
+use maya_wallet_core::multisig::{MemberKey, MultisigAccount, Proposal, ProposalStatus};
 use maya_wallet_core::wallet::{SignTerms, Wallet};
 use primitive_types::U256;
 
@@ -28,7 +35,8 @@ fn wallet() -> Wallet {
     Wallet::from_mnemonic(PHRASE, "").expect("phrase")
 }
 
-/// The Ledger app's suite: ML-DSA-65 from a 32-byte chain key.
+/// An ML-DSA-65 key (the Ledger app's suite) signing on the host, not on a
+/// device: the device cannot sign v8 bytes yet.
 fn ledger_key() -> LedgerKey {
     MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0x11; 32]))
 }
@@ -67,15 +75,24 @@ fn propose(w: &Wallet) -> Proposal {
         RECIPIENT,
         U256::from(500),
         &terms(U256::zero()),
+        U256::zero(),
     )
     .expect("propose")
 }
 
-/// Account `index` reviews and approves `p`.
+/// Account `index` reviews and approves `p` on a chain with fees off.
 fn approve(w: &mut Wallet, index: u32, p: &Proposal) -> Proposal {
+    approve_at(w, index, p, U256::zero()).expect("approve")
+}
+
+fn approve_at(
+    w: &mut Wallet,
+    index: u32,
+    p: &Proposal,
+    base_fee: U256,
+) -> Result<Proposal, WalletError> {
     let shown = w.confirm_multisig(p, &CHAIN, &Context::default());
-    w.approve_multisig(index, p, &CHAIN, &shown.signing_hash)
-        .expect("approve")
+    w.approve_multisig(index, p, &CHAIN, &shown.signing_hash, base_fee)
 }
 
 fn ledger_approval(p: &Proposal, index: u8) -> Approval {
@@ -184,13 +201,15 @@ fn approving_needs_this_sessions_confirm_screen() {
         .signing_hash;
     // A hash for another proposal, or none at all, signs nothing.
     assert!(matches!(
-        w.approve_multisig(0, &p, &CHAIN, &"00".repeat(32)),
+        w.approve_multisig(0, &p, &CHAIN, &"00".repeat(32), U256::zero()),
         Err(WalletError::Signing(_))
     ));
-    let approved = w.approve_multisig(0, &p, &CHAIN, &hash).expect("approve");
+    let approved = w
+        .approve_multisig(0, &p, &CHAIN, &hash, U256::zero())
+        .expect("approve");
     // The review is spent by the approval.
     assert!(matches!(
-        w.approve_multisig(1, &p, &CHAIN, &hash),
+        w.approve_multisig(1, &p, &CHAIN, &hash, U256::zero()),
         Err(WalletError::Signing(_))
     ));
     assert_eq!(approved.approved_by(), [0]);
@@ -201,14 +220,12 @@ fn a_non_member_or_a_repeat_approval_is_refused() {
     let mut w = wallet();
     let draft = propose(&w);
     let p = approve(&mut w, 0, &draft);
-    let shown = w.confirm_multisig(&p, &CHAIN, &Context::default());
     assert!(matches!(
-        w.approve_multisig(5, &p, &CHAIN, &shown.signing_hash),
+        approve_at(&mut w, 5, &p, U256::zero()),
         Err(WalletError::Multisig(_))
     ));
-    let shown = w.confirm_multisig(&p, &CHAIN, &Context::default());
     assert!(matches!(
-        w.approve_multisig(0, &p, &CHAIN, &shown.signing_hash),
+        approve_at(&mut w, 0, &p, U256::zero()),
         Err(WalletError::Multisig(_))
     ));
 }
@@ -283,8 +300,113 @@ fn a_proposal_is_capped_like_a_transfer() {
             &account(&w),
             RECIPIENT,
             U256::from(5),
-            &terms(U256::from(6))
+            &terms(U256::from(6)),
+            U256::zero(),
         )
         .is_err()
+    );
+}
+
+#[test]
+fn a_policy_needing_an_approval_this_wallet_cannot_give_is_refused() {
+    // Only a hybrid 0x30 key can approve today. A 2-of-2 of this wallet and
+    // a Ledger would hold funds that nobody can ever spend.
+    let w = wallet();
+    let me = w.member_key(0).expect("0");
+    assert!(matches!(
+        MultisigAccount::new(2, &[me.clone(), ledger_member()]),
+        Err(WalletError::Multisig(_))
+    ));
+    // As many approvals as hybrid members is spendable; other suites may sit
+    // in the policy as spare members.
+    assert!(MultisigAccount::new(1, &[me, ledger_member()]).is_ok());
+}
+
+#[test]
+fn a_proposal_carrying_more_approvals_than_the_threshold_is_refused_when_read() {
+    // The node decodes up to n approvals; a copy with more than m would stick
+    // (finish refuses it, approvals keep adding), so a member could grief.
+    let mut w = wallet();
+    let draft = propose(&w);
+    let one = approve(&mut w, 0, &draft);
+    let two = approve(&mut w, 1, &one);
+    let auth = two.transaction().multisig.as_deref().expect("v8");
+    let mut approvals = auth.approvals().to_vec();
+    approvals.push(ledger_approval(&two, 2));
+    let mut tx = two.transaction().clone();
+    tx.multisig = Some(Box::new(
+        MultisigAuth::new(auth.policy().clone(), approvals).expect("shape"),
+    ));
+    assert!(matches!(
+        Proposal::from_hex(&hex::encode(tx.to_bytes()), &CHAIN),
+        Err(WalletError::Multisig(_))
+    ));
+}
+
+/// A spend paying `fee` to the collector, proposed on a chain whose base fee
+/// is `base_fee` per byte.
+fn propose_paying(w: &Wallet, fee: u64, base_fee: u64) -> Result<Proposal, WalletError> {
+    let collector = hex::encode(FEE_COLLECTOR);
+    let terms = SignTerms {
+        fee: U256::from(fee),
+        fee_to: Some(&collector),
+        nonce: 4,
+        chain: &CHAIN,
+        allow_high_fee: false,
+    };
+    w.propose_multisig(
+        0,
+        &account(w),
+        RECIPIENT,
+        U256::from(1_000_000),
+        &terms,
+        U256::from(base_fee),
+    )
+}
+
+#[test]
+fn the_fee_is_sized_for_the_finished_v8_frame() {
+    let mut w = wallet();
+    let size = account(&w).spend_size().expect("size");
+    // A real quorum's finished frame is exactly the estimate.
+    let draft = propose_paying(&w, size, 1).expect("exactly enough");
+    let one = approve_at(&mut w, 0, &draft, U256::one()).expect("0");
+    let done = approve_at(&mut w, 1, &one, U256::one()).expect("1");
+    let raw = done.finish(&CHAIN).expect("finish").raw_hex;
+    assert_eq!(u64::try_from(raw.len() / 2).expect("len"), size);
+    // A single-signature transfer, which the send screen prices, is smaller.
+    let transfer = w
+        .transfer_size(0, &hex::encode(FEE_COLLECTOR), 4, &CHAIN)
+        .expect("transfer");
+    assert!(size > transfer, "{size} vs {transfer}");
+    // One base unit short is refused when proposed and when approved, before
+    // anyone signs a spend the node would refuse as underpaid.
+    assert!(matches!(
+        propose_paying(&w, size - 1, 1),
+        Err(WalletError::Multisig(_))
+    ));
+    let short = propose_paying(&w, size - 1, 0).expect("fees off");
+    assert!(matches!(
+        approve_at(&mut w, 0, &short, U256::one()),
+        Err(WalletError::Multisig(_))
+    ));
+}
+
+#[test]
+fn a_read_proposal_reports_its_own_progress() {
+    let mut w = wallet();
+    let draft = propose(&w);
+    assert!(!draft.status().complete);
+    let one = approve(&mut w, 0, &draft);
+    let two = approve(&mut w, 1, &one);
+    let read = Proposal::from_hex(&two.to_hex(), &CHAIN).expect("read");
+    assert_eq!(
+        read.status(),
+        ProposalStatus {
+            proposal_hex: two.to_hex(),
+            approved_by: vec![0, 1],
+            threshold: 2,
+            complete: true,
+        }
     );
 }

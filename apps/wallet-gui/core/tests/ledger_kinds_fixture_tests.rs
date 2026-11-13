@@ -3,10 +3,23 @@
 //! The Ledger app signs only what it can show: a v7 suite-`0x10` plain
 //! transfer of 1 to 4 outputs. Everything else must be refused before a
 //! screen, never shown as "a transfer" and never signed blind. This test
-//! writes, with the node's own encoder, the signing bytes of every shape the
-//! wallet builds or its confirm screen describes, to
-//! `apps/ledger-maya2c/tests/fixtures/suite-0x10-kinds.txt`. The app's host
-//! tests and its Speculos tests read that file and assert each verdict.
+//! writes, with the node's own encoder, to
+//! `apps/ledger-maya2c/tests/fixtures/suite-0x10-kinds.txt`, the signing
+//! bytes of the shapes the wallet builds or describes, plus payload kinds the
+//! device must refuse:
+//!
+//! - built by the wallet core: a transfer with its fee output, and a swap;
+//! - described by its confirm screen: transfer, asset transfer, contract
+//!   call, vault request and vault configure;
+//! - refusal probes the wallet neither builds nor describes: 0 and 5 output
+//!   transfers, deploy-contract, open-channel, delegate, lock-stake,
+//!   cancel-order, finalize-dispute, cancel-proposal, and a v8 multisig spend.
+//!
+//! That is 12 of the node's 53 payload kinds. The device clear-signs none of
+//! them: it shows only plain transfers of 1 to 4 outputs. The other kinds
+//! rely on the device's general refusal of any byte after the nonce. The
+//! app's host tests and its Speculos tests read the file and assert each
+//! verdict.
 //!
 //! The device key is written as `KEY`: each test puts its own key there, as
 //! `ledger_tests.rs` already does for the transfer fixture.
@@ -21,12 +34,14 @@ use std::path::PathBuf;
 use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::dex_payload::{AssetTransfer, SwapRequest};
 use custom_l1_node::core::governance_payload::StakeLock;
+use custom_l1_node::core::multisig_tx::MultisigAuth;
 use custom_l1_node::core::payload::{ChannelOpen, ContractCall, ContractDeploy, TxKind};
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::transaction::{Transaction, TxInput, TxOutput};
 use custom_l1_node::core::vault_payload::{VaultAction, VaultConfig};
 use custom_l1_node::state::fees::FEE_COLLECTOR;
-use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
+use maya_crypto_pq::multisig::{MultisigPolicy, PolicyKey};
+use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 use primitive_types::U256;
 
 /// The same genesis and chain key as `suite-0x10-transfer.txt`.
@@ -205,23 +220,49 @@ fn cases() -> Vec<(&'static str, &'static str, Transaction)> {
     ]
 }
 
+/// A v8 multisig spend from a 1-of-1 policy naming the device key. The
+/// device cannot approve multisig (its review reads only the v7 domain), so
+/// it must refuse these bytes as not a transaction (`6a90`), never show them.
+/// When a v8 review lands, this verdict flips and the wallet's multisig
+/// fund-lock guard (`MultisigAccount::new`) can be relaxed with it.
+fn multisig_spend(public: &[u8]) -> Transaction {
+    let policy = MultisigPolicy::new(
+        1,
+        vec![PolicyKey {
+            suite: SuiteId::MlDsa65,
+            public_key: public.to_vec(),
+        }],
+    )
+    .expect("1-of-1");
+    let mut tx = frame(vec![output(9, 0x33)], TxKind::Transfer);
+    tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy)));
+    tx
+}
+
 fn fixture() -> String {
     let key = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes(CHAIN_KEY));
-    let public = hex::encode(MlDsa65::public_key(&key));
+    let raw = MlDsa65::public_key(&key);
+    let public = hex::encode(&raw);
     let mut out = String::new();
-    for (name, verdict, mut tx) in cases() {
-        tx.sign_with_suite::<MlDsa65>(&key, &CHAIN).expect("sign");
+    let mut line = |name: &str, verdict: &str, tx: &Transaction| {
         let bytes = hex::encode(tx.signing_bytes(&CHAIN));
         assert_eq!(bytes.matches(&public).count(), 1, "{name}: one key");
         let _ = writeln!(out, "{name} {verdict} {}", bytes.replace(&public, "KEY"));
+    };
+    for (name, verdict, mut tx) in cases() {
+        tx.sign_with_suite::<MlDsa65>(&key, &CHAIN).expect("sign");
+        line(name, verdict, &tx);
     }
+    line("multisig-v8-spend", "6a90", &multisig_spend(&raw));
     out
 }
 
 #[test]
 fn every_payload_kind_carries_bytes_after_the_nonce() {
     // The device refuses anything after the nonce; that is only a refusal of
-    // every payload kind if no payload kind encodes to nothing.
+    // every payload kind if no payload kind encodes to nothing. Checked here
+    // for the 12 kinds in the fixture; every other kind's encoding also
+    // starts with a tag byte (`TxKind::encode_into`).
     for (name, _, tx) in cases() {
         let mut tail = Vec::new();
         tx.kind.encode_into(&mut tail);

@@ -109,9 +109,11 @@ nonce and the genesis the signature is valid on.
 BIP-39 phrase. It then runs `tests/ledger_tests.rs`, driving the buttons
 through Speculos's REST API.
 
-- Nano S Plus, API level 27: **11 of 11 pass** (2026-11-14; 8 of 8 before P-11).
-- Nano X (`DEVICE=nanox`), API level 27: **11 of 11 pass** (2026-11-14).
-- The three P-11 tests run every shape in `tests/fixtures/suite-0x10-kinds.txt` through the device, read back every label and value of a 4-output review, and refuse an unknown kind tag. The label test found "Network genesis" cut to "Netwo...sis" on Nano S Plus; the field is now "Genesis".
+- Nano S Plus, API level 27: **11 of 11 pass** (2026-11-14, first P-11 revision; 8 of 8 before P-11).
+- Nano X (`DEVICE=nanox`), API level 27: **11 of 11 pass** (2026-11-14, first P-11 revision).
+- The P-11 fix-up revision (an 18th fixture shape, a v8 multisig spend, and a reject-only driver beside every refused case) has not been run on Speculos.
+- The three P-11 tests run every shape in `tests/fixtures/suite-0x10-kinds.txt` through the device, read back every label and value of a 4-output review, and refuse an unknown kind tag. A refused case runs beside a driver that can only reject, so a regression that shows a review fails naming the case instead of hanging. The label test found "Network genesis" cut to "Netwo...sis" on Nano S Plus; the field is now "Genesis".
+- What the fixture covers: the shapes the wallet builds or describes plus refusal probes, 12 of the node's 53 payload kinds. The device clear-signs no payload kind (swap, asset transfer, contract call and vault included) and cannot approve a v8 multisig spend (refused as not a transaction, `0x6a90`). The other 41 kinds rely on the refusal of any byte after the nonce, tested for all 256 values. Clear-signing a payload kind on the device is open work with its own ADR.
 
 Stax and Flex build (74.8 KB of code each); their touch-screen flows are not
 driven by these tests.

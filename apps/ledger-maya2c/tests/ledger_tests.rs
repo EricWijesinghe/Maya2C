@@ -353,11 +353,24 @@ fn an_interrupted_sequence_leaves_the_device_recoverable() {
     assert_eq!(status, 0x9000, "the device recovered without a reconnect");
 }
 
-// --- every shape the wallet builds (P-11) ---------------------------------
+// --- every shape in the kinds fixture (P-11) ------------------------------
+
+/// Sends `signing`, which the device must refuse before any screen. A driver
+/// that can only walk right and reject runs beside it, so a regression that
+/// shows a review ends rejected and fails here naming `name`, instead of
+/// blocking the run until CI times out.
+fn refused_on_device(name: &str, signing: &[u8]) -> (Vec<u8>, u16) {
+    let ((reply, status), seen) = with_screens_seen(REJECT, || sign_on_device(signing));
+    assert!(
+        !seen.contains("Reject"),
+        "{name}: a review screen appeared for bytes the device must refuse: {seen}"
+    );
+    (reply, status)
+}
 
 #[test]
 #[ignore = "needs Speculos: scripts/ledger_speculos.sh"]
-fn every_shape_the_wallet_builds_reaches_its_verdict_on_the_device() {
+fn every_fixture_shape_reaches_its_verdict_on_the_device() {
     let (public, secret) = expected_keys(0, 0);
     for case in kinds::cases(&public) {
         if case.status == 0x9000 {
@@ -367,9 +380,7 @@ fn every_shape_the_wallet_builds_reaches_its_verdict_on_the_device() {
             let expected = suite::sign(&secret, &case.signing_bytes).expect("host");
             assert_eq!(signature, expected.to_vec(), "{}: device = host", case.name);
         } else {
-            // Refused before any screen: no driver runs, so a screen shown
-            // here would block the test rather than be approved by it.
-            let (reply, status) = sign_on_device(&case.signing_bytes);
+            let (reply, status) = refused_on_device(case.name, &case.signing_bytes);
             assert_eq!(status, case.status, "{}", case.name);
             assert!(reply.is_empty(), "{}: nothing signed", case.name);
         }
@@ -421,7 +432,7 @@ fn an_unknown_kind_tag_is_refused_before_any_screen() {
     let (public, _) = expected_keys(0, 0);
     let mut bytes = transfer_for(&public);
     bytes.push(0xFF);
-    let (reply, status) = sign_on_device(&bytes);
+    let (reply, status) = refused_on_device("tag 0xff", &bytes);
     assert_eq!(status, 0x6A95, "NotATransfer");
     assert!(reply.is_empty());
 }

@@ -323,11 +323,14 @@ impl Wallet {
 
     /// An unapproved spend of `amount` to `recipient` from `account`, built
     /// exactly as a transfer is (same fee output, same caps). `terms.nonce`
-    /// is the multisig account's nonce, not account `index`'s.
+    /// is the multisig account's nonce, not account `index`'s. `base_fee`
+    /// is the node's per-byte rate, zero where fees are off.
     ///
     /// # Errors
     ///
-    /// As [`Wallet::sign`]'s fee cap and address checks.
+    /// As [`Wallet::sign`]'s fee cap and address checks;
+    /// [`WalletError::Multisig`] for a fee the finished spend would be
+    /// refused for ([`Proposal::check_fee`]).
     pub fn propose_multisig(
         &self,
         index: u32,
@@ -335,10 +338,13 @@ impl Wallet {
         recipient: &str,
         amount: primitive_types::U256,
         terms: &SignTerms<'_>,
+        base_fee: primitive_types::U256,
     ) -> Result<Proposal> {
         check_fee_cap(terms.fee, amount, terms.allow_high_fee)?;
         let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
-        Ok(Proposal::unsigned(account, tx))
+        let proposal = Proposal::unsigned(account, tx);
+        proposal.check_fee(base_fee)?;
+        Ok(proposal)
     }
 
     /// What the confirm screen shows before account `index` approves
@@ -361,13 +367,15 @@ impl Wallet {
     ///
     /// [`WalletError::Signing`] when no confirm screen showed this proposal
     /// or the fee is over the cap; [`WalletError::Multisig`] when account
-    /// `index` is not a member or has already approved.
+    /// `index` is not a member or has already approved, or the fee is under
+    /// what `base_fee` (zero where fees are off) needs for the finished spend.
     pub fn approve_multisig(
         &mut self,
         index: u32,
         proposal: &Proposal,
         chain: &ChainTag,
         confirmed_hash: &str,
+        base_fee: primitive_types::U256,
     ) -> Result<Proposal> {
         let shown = confirmation(proposal.transaction(), chain);
         if self.reviewed.as_deref() != Some(confirmed_hash) || shown.signing_hash != confirmed_hash
@@ -377,15 +385,16 @@ impl Wallet {
                     .to_string(),
             ));
         }
-        let outputs = &proposal.transaction().outputs;
-        let amount = outputs.first().map(|o| o.amount).unwrap_or_default();
-        let fee = outputs
-            .iter()
-            .skip(1)
-            .fold(primitive_types::U256::zero(), |s, o| {
-                s.saturating_add(o.amount)
-            });
-        check_fee_cap(fee, amount, false)?;
+        let amount = proposal
+            .transaction()
+            .outputs
+            .first()
+            .map(|o| o.amount)
+            .unwrap_or_default();
+        check_fee_cap(proposal.fee(), amount, false)?;
+        // The fee is inside the signed bytes: an underpaid spend would be
+        // refused after every member approved, and need proposing again.
+        proposal.check_fee(base_fee)?;
         let (signing_key, member) = self.member_signer(index)?;
         let position = proposal.account().position_of(&member).ok_or_else(|| {
             WalletError::Multisig(format!("account {index} is not a member of this account"))

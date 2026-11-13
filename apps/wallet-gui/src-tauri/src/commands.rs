@@ -819,12 +819,27 @@ pub async fn fee_options(
     nonce: u64,
     session: tauri::State<'_, Session>,
 ) -> Result<FeeTerms, String> {
-    let quote = wallet::fee_quote(&node_url)
+    priced_fee_terms(&node_url, |chain, collector| {
+        session.with(|wallet| {
+            wallet
+                .transfer_size(index, collector, nonce, chain)
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+}
+
+/// [`fee_options`] for a transaction of `size(chain, collector)` bytes.
+pub(crate) async fn priced_fee_terms(
+    node_url: &str,
+    size: impl FnOnce(&ChainTag, &str) -> Result<u64, String>,
+) -> Result<FeeTerms, String> {
+    let quote = wallet::fee_quote(node_url)
         .await
         .map_err(|e| e.to_string())?;
     // The genesis the transfer will be signed for, refused when the node
     // claims to be mainnet without the pinned genesis (networks.rs).
-    let status = wallet::network_status(&node_url)
+    let status = wallet::network_status(node_url)
         .await
         .map_err(|e| e.to_string())?;
     if status.class == maya_wallet_core::networks::NetworkClass::Impostor {
@@ -850,11 +865,7 @@ pub async fn fee_options(
                 .collect(),
         });
     }
-    let size = session.with(|wallet| {
-        wallet
-            .transfer_size(index, &quote.collector, nonce, &chain)
-            .map_err(|e| e.to_string())
-    })?;
+    let size = size(&chain, &quote.collector)?;
     let fees = payment::priced_fee_tiers(quote.base_fee, size).map_err(|e| e.to_string())?;
     Ok(FeeTerms {
         collector: Some(quote.collector),
