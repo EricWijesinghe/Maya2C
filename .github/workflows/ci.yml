@@ -429,6 +429,10 @@ jobs:
           key: hub-linux
       - name: Test the Hub
         run: cargo test --locked --manifest-path apps/hub/src-tauri/Cargo.toml
+      # The shared updater is a path dependency, not a member, so the step
+      # above skips its tests: the unsigned/wrong-key refusals (ADR-080).
+      - name: Test the shared updater
+        run: cargo test --locked --manifest-path apps/hub/src-tauri/Cargo.toml -p maya-app-update
       # Each platform compiles only its own cfg half; this is the one lint pass per OS.
       - name: Lint the Hub
         run: cargo clippy --locked --manifest-path apps/hub/src-tauri/Cargo.toml --tests -- -D warnings

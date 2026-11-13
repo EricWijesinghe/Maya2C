@@ -198,7 +198,8 @@ pub fn run() {
             miner_start,
             miner_stop,
             miner_state,
-            notify_set
+            notify_set,
+            maya_app_update::command::check_for_updates
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner

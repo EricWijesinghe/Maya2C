@@ -3398,6 +3398,9 @@ version = "0.1.0"
 name = "maya-app-update"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "minisign-verify",
+ "sha2 0.10.9",
  "tauri",
  "tauri-plugin-dialog",
  "tauri-plugin-updater",

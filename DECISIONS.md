@@ -901,3 +901,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — In-app updates are manual until update manifests are k-of-n signed (Eric 2026-11-14)
+
+Founder-brief audit question 23, option A, chosen by Eric 2026-11-14 ("I
+approve everything, proceed"). One key signs the update payloads, so a
+stolen key would reach every installed Hub, Wallet and Chat at once. The
+apps no longer check on start: `apps/app-update` only registers the updater,
+and a **Check for updates** button runs the check. The dialog shows the
+publisher key's SHA-256 fingerprint, and the download must pass
+`maya_app_update::verify::verify` before it installs. Automatic checks come
+back only with k-of-n manifest signing (ADR-080, amendment 2026-11-14).

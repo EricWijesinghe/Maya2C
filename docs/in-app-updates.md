@@ -1,10 +1,24 @@
 # In-app updates
 
-Maya Wallet and Maya Chat (and the Hub, once it ships in releases) check
-`https://maya2c.dev/updates/<app>.json` when they start. When a newer version
-exists, a dialog offers **Install now** or **Later**. Nothing downloads
-without that click. The download is checked against the update-signing
-public key built into the app, then installed, and the app restarts.
+**Manual only, until update manifests are k-of-n signed** (ADR-080,
+amendment 2026-11-14). The apps never check on start. One key signs the
+updates, and an automatic check would carry a stolen key's update to every
+install.
+
+Maya Wallet (network settings), Maya Chat (settings) and the Hub (settings)
+each have a **Check for updates** button. It asks
+`https://maya2c.dev/updates/<app>.json` whether a newer version exists. When
+one does, a dialog names it, shows the **publisher key fingerprint**
+(SHA-256 of the update public key) and offers **Install now** or **Later**.
+Nothing downloads without that click. The download must be signed by the
+public key built into the app; an unsigned or wrongly signed one is refused.
+Then it installs and the app restarts.
+
+To check the fingerprint yourself from the public key file:
+
+```bash
+base64 -d apps/updater-pubkey.txt | sed -n 2p | base64 -d | sha256sum
+```
 
 | Piece | Where |
 |---|---|
@@ -41,9 +55,12 @@ log.
    ```
 
 The next `node-v*` release builds signed update bundles with app version
-`0.1.<run number>`. Apps installed from that release onward update
-themselves. Apps installed before it have no updater, so install those once
-more by hand.
+`0.1.<run number>`. Apps installed from that release onward can update
+from **Check for updates**. Apps installed before it have no updater, so
+install those once more by hand.
+
+3. Publish the fingerprint (the command above) in `docs/verify-release.md`,
+   so users can compare it with the one the update dialog shows.
 
 Until both steps are done, every build is the unsigned build it always was,
 and the apps never offer an update.

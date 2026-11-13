@@ -64,3 +64,50 @@ path above and by one owner approval.
 
 Nothing in this ADR adds a key, a threshold, or a signer. The follow-up is
 recorded here so the gap is visible, not because it is in progress.
+
+## Amendment 2026-11-14: in-app updates are manual until k-of-n
+
+**Decision (Eric 2026-11-14, founder-brief audit Q23, option A).** The
+in-app updater (`apps/app-update`, used by the Hub, Maya Wallet and Maya
+Chat) does not check, download or install anything on its own. The single
+updater key is the reason: whoever holds `TAURI_SIGNING_PRIVATE_KEY` could
+push code to every install at once, and an automatic check would deliver it
+without anyone looking.
+
+What the apps do now:
+
+1. `maya_app_update::start` registers the updater plugin in a signed build
+   and stops there. No background check.
+2. A **Check for updates** button (Hub settings, Wallet network settings,
+   Chat settings) calls `maya_app_update::check_for_updates`. A build with
+   no updater config says that updates are off.
+3. When an update exists, a native dialog names the version and the
+   publisher key's fingerprint: SHA-256 of the raw minisign public key, in
+   groups of four hex digits (`verify::fingerprint`). The minisign key id is
+   not used as a fingerprint, because it is chosen at random and another key
+   can carry it. Nothing downloads until the user presses **Install now**.
+4. After the download, `verify::verify` checks the signature against the
+   key compiled into the app, in addition to the plugin's own check. An
+   empty signature, a signature by another key, a changed download and an
+   unreadable signature are refused. Each case is a unit test in
+   `apps/app-update/src/verify.rs`.
+
+**Plan for k-of-n (not built).** Automatic checks return only when all of
+this exists:
+
+- A release manifest (version, file names, SHA-256 of each update bundle)
+  signed by k of n release keys held by different people on different
+  machines. The apps carry the n public keys and k, and refuse a manifest
+  with fewer than k valid, distinct signatures.
+- The update bundle is accepted only if its hash is in that manifest, so
+  the single Tauri key alone can no longer ship an update.
+- Rotation: a manifest signed by k current keys can replace the key set,
+  so losing one key does not strand installs.
+- The key ceremony and the signing path get their own ADR and an audit,
+  as the follow-up above already says. `crates/custody-mpc` is a candidate
+  for the threshold; separate keys with k-of-n counting are the simpler
+  option and need no new cryptography.
+
+Until then the owner publishes the fingerprint of `apps/updater-pubkey.txt`
+in `docs/verify-release.md` when the key is created, so a user can compare
+it with the one the dialog shows.
