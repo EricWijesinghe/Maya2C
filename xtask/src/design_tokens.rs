@@ -357,9 +357,9 @@ fn pair(p: &Json) -> Result<Pair<'_>, String> {
         .iter()
         .map(Json::as_str)
         .collect();
-    match strs.ok_or_else(err)?.as_slice() {
-        &[a, b, c] => Ok((a, b, c, None)),
-        &[a, b, c, t] if THEMES.contains(&t) => Ok((a, b, c, Some(t))),
+    match *strs.ok_or_else(err)?.as_slice() {
+        [fg, bg, usage] => Ok((fg, bg, usage, None)),
+        [fg, bg, usage, only] if THEMES.contains(&only) => Ok((fg, bg, usage, Some(only))),
         _ => Err(err()),
     }
 }
