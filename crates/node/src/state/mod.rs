@@ -27,6 +27,8 @@ pub mod dex_exec;
 pub mod fee_exec;
 pub mod fees;
 pub mod governance_exec;
+#[cfg(test)]
+mod governance_settle_tests;
 pub mod htlc;
 pub mod htlc_exec;
 pub mod identity;

@@ -213,6 +213,16 @@ fatal:
 2. Finalizing depends on the whole block's votes. A tally read halfway through is
    a tally still being written.
 
+The pass visits only the proposals **due** at its height, not every record. A
+proposal changes state at two heights it fixes when it opens: the first block
+after its vote closes, and its `executable_from`. `propose` writes one index key
+for each, `g:due:<height BE><id>`, and the pass reads the keys at or below its
+height, deletes them, and settles those proposals in identifier order. A
+height holds at most `MAX_PROPOSALS_DUE_PER_HEIGHT` keys; a proposal that would
+overflow one is refused and its author picks another voting period or
+timelock. Before this (re-freeze, PR #500) the pass read every proposal ever
+opened, settled ones included, on every block (ADR-082 amendment).
+
 ---
 
 ## Bounds
@@ -220,7 +230,8 @@ fatal:
 | Constant | Value | What it stops |
 |---|---|---|
 | `MAX_CHANGES_PER_PROPOSAL` | 8 | Bundling an unpopular change onto a popular one |
-| `MAX_GOVERNANCE_TX_PER_BLOCK` | 32 | Every proposal opened is one the end-of-block pass visits for life |
+| `MAX_GOVERNANCE_TX_PER_BLOCK` | 32 | Governance work one block can add |
+| `MAX_PROPOSALS_DUE_PER_HEIGHT` | 64 | Proposals the end-of-block pass settles at one height |
 | `MAX_AUTHORITIES`-style ceilings | see table | Each parameter's own range |
 | `MAX_WEIGHT` | `u64::MAX` | Keeps every tally product far inside `u128` |
 | `EXECUTION_GRACE_BLOCKS` | 1,500,000 (about 17.4 d at 1 block/s) | A stale change landing into a chain that moved on |

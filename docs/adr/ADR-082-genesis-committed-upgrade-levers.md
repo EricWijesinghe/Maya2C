@@ -205,6 +205,53 @@ block that carries the new tag, and the upgrade schedule does not govern it.
 - **Account migration for a sunset suite is not built.** It is a later
   activation (`BACKLOG.md`).
 
+## Amendment 2026-11-13: the settlement pass reads only due proposals
+
+**Problem.** `settle_governance`, the pass that executes a passed
+`ScheduleUpgrade` (and every other proposal), read every `g:prop:` record on
+every block: open, queued and settled alike. Settled records are never deleted,
+the deposit returns on cancel, and nothing limits proposals per account, so an
+attacker could grow that set for transaction fees alone, up to 32 per block
+(`MAX_GOVERNANCE_TX_PER_BLOCK`). The x15 windows (PR #500) did not cause the
+problem; they made each proposal live longer. Measured cost and the attack's
+price: `reports/sessions/2026-11-13-governance-settle-index.md`.
+
+**Decision.** An index keyed by the height a proposal next changes state,
+under the governance layer that already exists:
+
+- `g:due:<height u64 BE><proposal id>`, value empty. `propose` writes two keys:
+  `voting_closes + 1` (finalize) and `executable_from` (execute, or expire if
+  admission fails). The two keys cover every transition: `expires_after` is
+  reached only by a proposal that sat `Queued` past `executable_from`, and that
+  proposal's `executable_from` key is already due.
+- The pass reads keys at or below its height (a bounded range read, so a
+  replay that skips heights still finds them), deletes them, and settles the
+  proposals they name in identifier order: the order the full scan used. The
+  per-proposal step is the same function as before, and a proposal the index
+  does not name was a no-op in the full scan. An equivalence test
+  (`governance_settle_tests.rs`) checks the two paths agree on random sets.
+- **At most `MAX_PROPOSALS_DUE_PER_HEIGHT` (64) keys per height.** Without it
+  the index only moves the cost: the voting period ranges over 1.49 M values,
+  so 32 proposals a block for 17 days could all come due at one height. A
+  proposal that would overflow a height is refused, and its author picks a
+  voting period or timelock one block different. An attacker cannot shut
+  governance out this way: it would have to fill 64 slots at each of about
+  1.49 M heights while adding 64 a block.
+- **No new prefix.** `g:` is already the governance layer (`RECORD_LAYERS`), so
+  the index is under the root, journaled by the overlay, and restored on
+  reorg (invariant 25). It does change the governance layer's root whenever a
+  proposal exists, which is why it lands before genesis (re-freeze).
+- **No migration.** A proposal opened by an earlier binary has no index keys,
+  and this pass would never settle it. A chain carrying one, such as the
+  current testnet, re-geneses with the re-freeze bundle. It does not upgrade
+  in place.
+
+**Rejected.** A cap on concurrently open proposals: the deposit is refundable,
+so an attacker holding the cap blocks every honest proposal for the price of
+locked coin. A per-block budget with carry-over: it bounds a block too, but it
+moves when a proposal finalizes, and an attacker who floods a height delays
+everyone else's proposal behind it.
+
 ## Rejected alternatives
 
 - **Genesis-only schedule** (the first draft). Rejected: the genesis id changes
