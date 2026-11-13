@@ -92,6 +92,11 @@ jobs:
       - name: Superlative claims
         run: cargo xtask claims-check
 
+      # Invariant 36: no f32/f64 or float literal in a consensus crate, and no
+      # ML runtime among their dependencies. Lexes source; builds nothing else.
+      - name: No float in consensus
+        run: cargo xtask float-check
+
       # ADR-078 O3: the chain's immune memory may grow, never shrink. Fails if
       # Kani harnesses, conformance vectors, exploit replays, ACVP files or
       # fuzz targets fall below proof-ratchet.txt.

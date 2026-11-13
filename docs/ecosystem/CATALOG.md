@@ -142,6 +142,7 @@ named chains are only those in
 | Upgrades on chain under compiled leads; no feature switches on without a scheduled height | ADR-082, invariant 34 |
 | 256-bit amounts at 24 decimals: no ceiling to outgrow | ADR-046, ADR-068 |
 | Every state prefix under the state root; an uncovered key is caught | invariant 25, `uncovered_keys` (#395) |
+| No float and no ML runtime in a consensus crate, checked on every PR | invariant 36, `cargo xtask float-check` |
 | Network-prefixed, checksummed addresses | ADR-081 |
 | A security council bounded by compiled rules: it can pause one module for at most `max_pause_blocks` (the pause expires by itself), or schedule a suite sunset no sooner than `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about 13.6 days); it cannot move funds, mint, or schedule a version. It has no term limit | `crates/node/src/state/council.rs`, `CouncilGenesis` in `crates/node/src/genesis.rs`, invariant 34 (ADR-082) |
 

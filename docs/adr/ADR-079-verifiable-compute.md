@@ -20,7 +20,7 @@ The existing building blocks are: the `WorkClaim` lane (ADR-044), staking with e
 
 ### 1. Consensus stays deterministic; AI is advisory
 
-- **No model runs on the consensus path.** Consensus rules are integer, float-free and wall-clock-free (invariants 9, 20, 24). An AI component never decides a block, a payout, a verification result or a parameter value.
+- **No model runs on the consensus path.** Consensus rules are integer, float-free and wall-clock-free (invariants 9, 24, 36). An AI component never decides a block, a payout, a verification result or a parameter value.
 - **Network intelligence is advisory.** Three permitted roles:
   1. monitoring and anomaly detection over public chain data, reporting to humans and to dashboards;
   2. parameter *proposals* (for example a fee-controller setpoint), which enter through governance and nowhere else, and become effective at an activation height that someone wrote down;

@@ -443,7 +443,7 @@ argument the invariant guard makes about `stage_block`).
 |---|---|
 | No keys | no SRN component holds a validator, council or treasury key; sentinels sign alerts with their own identity, which carries no power |
 | Advisory only | alerts never change a score or a level; only stake signatures and deterministic rules do |
-| Deterministic boundary | consensus reads integers from on-chain facts; invariant 20 forbids floats |
+| Deterministic boundary | consensus reads integers from on-chain facts; invariant 36 forbids floats |
 | Bounded parameters | a governance change to a weight or threshold must stay within compiled bounds, and SRN parameters need the highest governance tier and a timelock |
 | Two-human rule for T4/T5 | stake signatures come from operators, not from software that acts alone |
 | Off switch | ignoring advisories is always safe, because nothing depends on them |

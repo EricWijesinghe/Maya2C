@@ -1,6 +1,6 @@
 # Critical Invariants
 
-Thirty live properties this tree must not lose (numbered 1-34; 20-23 are retired and keep their numbers), each with the reason it
+Thirty-one live properties this tree must not lose (numbered 1-36; 20-23 are retired and keep their numbers, 35 is held by a proposal), each with the reason it
 exists. They are numbered, the numbers are referenced from code comments and
 from `docs/adr/`, and **a number is never reused**: if an invariant is
 retired, its entry stays with the retirement recorded.
@@ -271,3 +271,27 @@ phase that did it.
     `crates/node/tests/council_pause_tests.rs`
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
     — ADR-082.
+36. **No float and no model output in a consensus rule.** A float is a rounding
+    mode: two validators on different CPUs, compilers or flags can round one
+    expression differently, and one ULP of disagreement in a state root is a
+    fork. A model's output is the same hazard one step removed, and a model
+    that decides a block, a payout or a parameter has moved a decision out of
+    the rules every node can re-derive. Job outputs may be stored as data; a
+    model may not decide anything. The rule lived under invariant 20, which
+    retired with `crates/zkml` (ADR-008) and left it as prose nobody checked
+    (founder audit Q20, option A, Eric 2026-11-14). `cargo xtask float-check`
+    lexes every non-test source file of `crates/node/src/{state,consensus,core}`,
+    `upgrade.rs`, `genesis.rs`, `ledger-math`, `dex`, `governance`,
+    `fee-market`, `vrf` and `crypto-pq`, macro bodies included, and fails on an
+    `f32`/`f64` token or a float literal outside its allowlist (empty; an entry
+    needs a written reason and a reviewer). It also fails if one of those
+    crates' manifests names an ML runtime (`tract-*`, `ort`, `candle-*`,
+    `burn`, `tch`, `maya-neural-fee`, `maya-zkml-prover`) as a dependency.
+    Runs in CI's `reality ledger` job. Pinned by `xtask/src/float_check.rs`
+    (`the_consensus_crates_hold_no_float_and_no_model`,
+    `a_float_type_or_literal_is_found_anywhere_in_code`,
+    `an_ml_runtime_dependency_is_found_by_key_or_rename`). Not covered: an
+    integer model inside a scanned crate (the dormant neural fee gain leaves
+    the launch binary with ADR-029b, whose own lock-walk test guards it), and
+    floats in crates the node links outside this list. Number 35 is held by a
+    proposal (account authority, PR #447) and is not reused.

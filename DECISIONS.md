@@ -901,3 +901,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — "No float, no model output in consensus" is invariant 36, with a check (Eric 2026-11-14)
+
+Founder audit Q20, option A (Eric 2026-11-14, "I approve everything, proceed"). The rule sat under invariant 20, which retired with `crates/zkml` (ADR-008), yet CLAUDE.md, ADR-079 and an earlier entry here ("AI is advisory only (invariant 20)") still cited it as live.
+
+- **Number 36, not 35:** PR #447 already writes a proposed invariant 35 (account authority). Numbers are never reused, so this takes the next free one.
+- **The check:** `cargo xtask float-check` lexes the non-test sources of the consensus crates with `proc-macro2` (already in the lock) and fails on `f32`/`f64` or a float literal, macro bodies included, and on an ML runtime in their `[dependencies]`. The allowlist starts empty: on master at a0ee0ad6 the scan reads 146 files and finds 0 violations.
+- **A lexer, not `syn`:** a `syn` visitor does not look inside macro calls, and `vec![0.5]` is still a float.
+- **CI:** a step in the `reality ledger` job, which needs no build of the node.
+- **Not covered:** an integer model inside a scanned crate (the neural fee gain leaves the launch binary under ADR-029b, with its own lock-walk test), and crates the node links outside the scanned list.
+- **No ADR:** this pins an existing rule; no behaviour changes.

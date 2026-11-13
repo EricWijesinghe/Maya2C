@@ -247,8 +247,8 @@ secrets in typed wrappers from generation to use, never in a raw buffer.
 **Deterministic execution across WASM and state updates.** Enforced by two
 mechanisms rather than by convention: `apply_block_journaled` refuses a
 `state_root` that execution does not reproduce (invariant 24), and no
-floating-point value may enter a consensus rule (invariant 20 — the reason
-`tract-onnx` is confined to `zkml-prover`). Anything new on the consensus path
+floating-point value may enter a consensus rule (invariant 36, which
+`cargo xtask float-check` enforces by lexing the consensus crates in CI). Anything new on the consensus path
 must be reproducible bit-for-bit on a different machine and a different
 toolchain, or it is not a consensus rule.
 
