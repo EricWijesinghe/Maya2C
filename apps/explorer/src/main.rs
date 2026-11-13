@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use maya_explorer::indexer::{Indexer, RpcSource};
-use maya_explorer::server::{AppState, serve};
+use maya_explorer::server::{AppState, fetch_network, serve};
 use maya_explorer::store::BlockStore;
 use maya_explorer::store::memory::MemoryStore;
 use maya_explorer::store::postgres::PostgresStore;
@@ -126,7 +126,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let source = Arc::new(RpcSource::connect(&args.node_rpc)?);
     println!("node:   {}", args.node_rpc);
 
-    let indexer = Indexer::new(source, Arc::clone(&store));
+    let network = match fetch_network(&args.node_rpc).await {
+        Ok(Some(network)) => network,
+        Ok(None) => maya_address::Network::Devnet,
+        Err(e) => {
+            eprintln!("node:   chain id unavailable ({e}); explanations use devnet addresses");
+            maya_address::Network::Devnet
+        }
+    };
+    println!("text:   {} addresses", network.hrp());
+
+    let indexer = Indexer::new(source, Arc::clone(&store)).with_network(network);
     let events = indexer.events();
 
     // Checked once, at startup. Mounting the route over a directory that is not

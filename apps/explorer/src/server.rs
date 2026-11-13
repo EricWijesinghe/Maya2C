@@ -415,7 +415,7 @@ fn parse_address(input: &str) -> std::result::Result<([u8; 32], Option<Network>)
 
 /// The network the node serves, from its chain id. `None` for a chain id that
 /// has no registered text form.
-async fn fetch_network(url: &str) -> Result<Option<Network>> {
+pub async fn fetch_network(url: &str) -> Result<Option<Network>> {
     use jsonrpsee::core::client::ClientT;
     use jsonrpsee::http_client::HttpClientBuilder;
     use jsonrpsee::rpc_params;
