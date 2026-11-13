@@ -180,7 +180,7 @@
 
 | ID | Scenario | Description | Tool |
 |---|---|---|---|
-| 8.1 | `copied_validator_key` | Twin process with same key | `Run-Attacks.ps1` |
+| 8.1 | `copied_validator_key` | Twin process with same key | `cargo xtask attacknet`, attack 3 (twin process, same host) |
 | 8.2 | `double_sign_detection` | Verify equivocation logged | Log analysis |
 | 8.3 | `evidence_handling` | Equivocation → tombstone | Log analysis |
 | 8.4 | `slashing_behavior` | Stake reduced, validator jailed | State check |

@@ -48,8 +48,11 @@
 
 pub mod chain;
 pub mod error;
+pub mod finality;
+pub mod record;
 pub mod stateless;
 
 pub use chain::{HeaderChain, LightClient};
 pub use error::LightClientError;
+pub use finality::{EpochHandoff, FinalityClient, TrustAnchor, TrustPolicy};
 pub use stateless::StatelessValidator;
