@@ -163,6 +163,218 @@ pub fn verify_hybrid(public_key: &[u8], message: &[u8], signature: &[u8]) -> boo
     verifying.verify(message, &hash_sig).is_ok()
 }
 
+pub mod wallet;
+
+fn js_err(e: String) -> JsError {
+    JsError::new(&e)
+}
+
+fn array32(bytes: &[u8], what: &str) -> Result<[u8; 32], JsError> {
+    bytes
+        .try_into()
+        .map_err(|_| JsError::new(&format!("{what} must be 32 bytes, not {}", bytes.len())))
+}
+
+/// [`wallet::mnemonic_from_entropy`], for JavaScript.
+///
+/// # Errors
+///
+/// Returns a `JsError` for an entropy length BIP-39 does not allow.
+#[wasm_bindgen(js_name = mnemonicFromEntropy)]
+pub fn mnemonic_from_entropy(entropy: &[u8]) -> Result<String, JsError> {
+    wallet::mnemonic_from_entropy(entropy)
+        .map(|m| m.to_string())
+        .map_err(js_err)
+}
+
+/// [`wallet::validate_mnemonic`], for JavaScript.
+///
+/// # Errors
+///
+/// Returns a `JsError` naming why the phrase is refused.
+#[wasm_bindgen(js_name = validateMnemonic)]
+pub fn validate_mnemonic(phrase: &str) -> Result<(), JsError> {
+    wallet::validate_mnemonic(phrase).map_err(js_err)
+}
+
+/// A wallet seed held in wasm memory and wiped there when JavaScript calls
+/// `free()` (or the object is collected): the 64 bytes never cross into
+/// JavaScript, so there is no JS copy to forget and no freed-but-unwiped copy
+/// left in linear memory by passing it back in on every call. The phrase and
+/// passphrase arguments are still copied in by wasm-bindgen and freed
+/// without a wipe (ADR-116, Consequences).
+#[wasm_bindgen]
+pub struct WalletSeed(zeroize::Zeroizing<[u8; wallet::SEED_LEN]>);
+
+#[wasm_bindgen]
+impl WalletSeed {
+    /// [`wallet::seed_from_mnemonic`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a `JsError` for an invalid phrase.
+    #[wasm_bindgen(js_name = fromMnemonic)]
+    pub fn from_mnemonic(phrase: &str, passphrase: &str) -> Result<WalletSeed, JsError> {
+        wallet::seed_from_mnemonic(phrase, passphrase)
+            .map(WalletSeed)
+            .map_err(js_err)
+    }
+
+    /// [`wallet::public_key_at`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a `JsError` for an index at or above 2^31.
+    #[wasm_bindgen(js_name = publicKeyAt)]
+    pub fn public_key_at(&self, account: u32, index: u32) -> Result<Vec<u8>, JsError> {
+        wallet::public_key_at(self.0.as_ref(), account, index).map_err(js_err)
+    }
+
+    /// [`wallet::address_at`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a `JsError` for an index at or above 2^31.
+    #[wasm_bindgen(js_name = addressAt)]
+    pub fn address_at(&self, account: u32, index: u32) -> Result<String, JsError> {
+        wallet::address_at(self.0.as_ref(), account, index).map_err(js_err)
+    }
+
+    /// [`wallet::confirm_transfer`]. Amounts and `balance` are 32-byte
+    /// little-endian; an empty `balance` means unknown.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `JsError` for a malformed argument, a fee to anyone but the
+    /// collector, or a derivation failure.
+    #[wasm_bindgen(js_name = confirmTransfer)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn confirm_transfer(
+        &self,
+        account: u32,
+        index: u32,
+        recipient: &[u8],
+        amount: &[u8],
+        fee: &[u8],
+        fee_recipient: &[u8],
+        nonce: u64,
+        chain: &[u8],
+        balance: &[u8],
+    ) -> Result<TransferConfirmation, JsError> {
+        let transfer = transfer_of(recipient, amount, fee, fee_recipient, nonce)?;
+        let balance = if balance.is_empty() {
+            None
+        } else {
+            Some(array32(balance, "balance")?)
+        };
+        let c = wallet::confirm_transfer(
+            self.0.as_ref(),
+            account,
+            index,
+            &transfer,
+            &array32(chain, "chain")?,
+            balance.as_ref(),
+        )
+        .map_err(js_err)?;
+        Ok(TransferConfirmation {
+            signing_hash: c.signing_hash,
+            description: c.description,
+            recipient: c.recipient,
+            sender: c.sender,
+            address_prefix: c.address_prefix,
+            warnings: c.warnings,
+        })
+    }
+
+    /// [`wallet::sign_transfer`]. Amounts are 32-byte little-endian; `chain`
+    /// is the 32-byte genesis id the signature commits to; `confirmed_hash`
+    /// is the `signingHash` the confirm screen showed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `JsError` for a malformed argument, a hash that names another
+    /// transfer, or a signing failure.
+    #[wasm_bindgen(js_name = signTransfer)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn sign_transfer(
+        &self,
+        account: u32,
+        index: u32,
+        recipient: &[u8],
+        amount: &[u8],
+        fee: &[u8],
+        fee_recipient: &[u8],
+        nonce: u64,
+        chain: &[u8],
+        confirmed_hash: &str,
+    ) -> Result<Vec<u8>, JsError> {
+        let transfer = transfer_of(recipient, amount, fee, fee_recipient, nonce)?;
+        wallet::sign_transfer(
+            self.0.as_ref(),
+            account,
+            index,
+            &transfer,
+            &array32(chain, "chain")?,
+            confirmed_hash,
+        )
+        .map_err(js_err)
+    }
+}
+
+/// [`wallet::transfer_wire_len`], for JavaScript.
+#[wasm_bindgen(js_name = transferWireLen)]
+#[must_use]
+pub fn transfer_wire_len(with_fee: bool) -> usize {
+    wallet::transfer_wire_len(with_fee)
+}
+
+fn transfer_of(
+    recipient: &[u8],
+    amount: &[u8],
+    fee: &[u8],
+    fee_recipient: &[u8],
+    nonce: u64,
+) -> Result<wallet::Transfer, JsError> {
+    Ok(wallet::Transfer {
+        recipient: array32(recipient, "recipient")?,
+        amount: array32(amount, "amount")?,
+        fee: array32(fee, "fee")?,
+        fee_recipient: array32(fee_recipient, "fee recipient")?,
+        nonce,
+    })
+}
+
+/// [`wallet::TransferConfirmation`], for JavaScript: plain fields, copied out.
+#[wasm_bindgen(getter_with_clone)]
+pub struct TransferConfirmation {
+    /// Hex BLAKE3 of the signing bytes; hand it back to `signTransfer`.
+    #[wasm_bindgen(js_name = signingHash)]
+    pub signing_hash: String,
+    /// The payment in plain words, recipient in full Bech32m.
+    pub description: String,
+    /// Recipient, grouped Bech32m.
+    pub recipient: String,
+    /// Sender, grouped Bech32m.
+    pub sender: String,
+    /// The address prefix the chain's genesis selects.
+    #[wasm_bindgen(js_name = addressPrefix)]
+    pub address_prefix: String,
+    /// Warnings, most severe first.
+    pub warnings: Vec<String>,
+}
+
+/// [`wallet::vault_key`], for JavaScript: Argon2id, desktop vault parameters.
+///
+/// # Errors
+///
+/// Returns a `JsError` for a salt Argon2 refuses.
+#[wasm_bindgen(js_name = vaultKey)]
+pub fn vault_key(password: &[u8], salt: &[u8]) -> Result<Vec<u8>, JsError> {
+    wallet::vault_key(password, salt)
+        .map(|k| k.to_vec())
+        .map_err(js_err)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]

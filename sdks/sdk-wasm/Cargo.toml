@@ -22,8 +22,35 @@ crate-type = ["cdylib", "rlib"]
 fips204 = { workspace = true, features = ["default-rng"] }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }
 blake3.workspace = true
-wasm-bindgen = "0.2"
+# Exact: `apps/wallet-extension/build-wasm.sh` needs wasm-bindgen-cli of this
+# same version, and a lockfile bump would otherwise break that build silently.
+# Not a workspace dependency (ADR-005): no other workspace member uses it.
+wasm-bindgen = "=0.2.108"
 hex.workspace = true
+# The confirm screen's words and the signing-hash review, the same crate the
+# desktop wallet's `confirm.rs` renders with (pure Rust, builds for wasm).
+maya-clear-sign = { path = "../../crates/clear-sign" }
+maya-amount = { path = "../../crates/amount" }
+# Wallet derivation (src/wallet.rs), the same crates and versions
+# `apps/wallet-gui/core` derives with, so the extension and the desktop wallet
+# turn one mnemonic into one address. All pure Rust; all build for wasm.
+bip39 = { version = "2.2", default-features = false, features = ["std"] }
+pbkdf2 = { version = "0.12", default-features = false }
+hmac = "0.12"
+sha2.workspace = true
+zeroize.workspace = true
+# The extension vault's key derivation, at the desktop vault's parameters.
+argon2.workspace = true
+
+[dev-dependencies]
+# For tests/desktop_parity_tests.rs, which pins src/wallet.rs against the
+# desktop wallet's derivation and the node's transaction encoding. A
+# dev-dependency cycle (the node dev-depends on this crate), which Cargo
+# permits and the node already uses for the same arrangement.
+maya-wallet-core = { path = "../../apps/wallet-gui/core" }
+custom-l1-node = { path = "../../crates/node" }
+primitive-types.workspace = true
+serde_json.workspace = true
 
 
 # getrandom reaches this crate only through `maya-crypto-pq`, and on

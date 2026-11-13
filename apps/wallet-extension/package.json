@@ -1,0 +1,20 @@
+{
+  "name": "maya2c-wallet-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Maya2C browser-extension wallet (Manifest V3, Chrome + Firefox)",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "bash build-wasm.sh",
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.12"
+  },
+  "license": "Apache-2.0"
+}

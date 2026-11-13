@@ -2855,6 +2855,18 @@ tests = ["crate:l1-wallet"]
 note = "Keystore, transaction construction and RPC submission. #270: before a key signs, the genesis must be pinned or passed with --genesis, the fee collector must be FEE_COLLECTOR, the fee is capped (default 10^24 base units, --max-fee overrides), and a typed yes or --yes is required."
 
 [[subsystem]]
+id = "wallet-extension"
+name = "Browser-extension wallet (MV3, Chrome + Firefox)"
+domain = "Tooling and formal verification"
+paths = "`apps/wallet-extension`, `sdks/sdk-wasm/src/wallet.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["sdks/sdk-wasm/tests/desktop_parity_tests.rs", "apps/wallet-extension/test/crypto.test.ts", "apps/wallet-extension/test/units.test.ts", "apps/wallet-extension/test/provider-flow.test.ts"]
+gate = "cd apps/wallet-extension && npm install && npm run build:wasm && npm test"
+note = "ADR-116. Derivation and hybrid signing in sdk-wasm (Rust), pinned to maya-wallet-core and the node's Transaction::to_bytes by desktop_parity_tests.rs and to the wasm build by spec/wallet-derivation-vectors.json. The confirm screen is rendered by maya-clear-sign in wasm (the desktop renderer) and signing is released only for its BLAKE3 signing hash, checked against the desktop confirm.rs on the same transaction (the_confirmation_is_the_desktop_confirmation_of_the_same_bytes). Vault: Argon2id (wasm) + AES-GCM (WebCrypto). window.maya2c with per-origin grants; origin from the browser sender record; sendTransfer requires the genesis and refuses a Bech32m address of another network. Not verified: loaded in a real Chrome/Firefox against a live gateway; no CI job runs the vitest suite yet. Unaudited; not published to any store."
+
+[[subsystem]]
 id = "wallet-core-gui-shared"
 name = "Wallet core (GUI-shared)"
 domain = "Supplement (not in architecture-vision.md)"

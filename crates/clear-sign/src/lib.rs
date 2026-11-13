@@ -127,6 +127,25 @@ pub enum Warning {
     UnverifiedContract,
 }
 
+/// One line per warning, in the words every confirm screen shows: here, so the
+/// desktop wallet and the browser extension cannot word one differently.
+#[must_use]
+pub fn warning_text(w: Warning) -> &'static str {
+    match w {
+        Warning::ClaimMismatch => "What the app claims differs from what this transaction does.",
+        Warning::ControlChange => "This changes who controls an account or a contract.",
+        Warning::UnlimitedApproval => "This allows spending with no practical limit.",
+        Warning::ApproveAll => "This hands every item of a collection to someone else.",
+        Warning::PermitSignature => "This signature can be used to spend later without asking you.",
+        Warning::LookAlikeRecipient => {
+            "This recipient looks like one of your contacts but is a different address. Compare every group."
+        }
+        Warning::DrainsBalance => "This sends 90% or more of your balance.",
+        Warning::UnverifiedSpender => "The spender is not a verified contract.",
+        Warning::UnverifiedContract => "This calls a contract that is not verified.",
+    }
+}
+
 /// An address in full Bech32m on `network`, the data part in groups of
 /// [`GROUP_LEN`]: `maya1 q8f3 k2x…`. Display only — copy the ungrouped form.
 #[must_use]

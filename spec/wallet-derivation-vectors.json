@@ -1,0 +1,10 @@
+{
+  "description": "Mnemonic -> account address vectors (m/44'/2992'/account'/0'/index'). Pinned against apps/wallet-gui/core by sdks/sdk-wasm/tests/desktop_parity_tests.rs and against the wasm build by apps/wallet-extension/test/derivation.test.ts.",
+  "vectors": [
+    { "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", "passphrase": "", "account": 0, "index": 0, "address": "d0a33e6ace7e98a8116fbbbb9e5fefee592bb9acf0cf66736c323adf9d095ccd" },
+    { "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", "passphrase": "", "account": 0, "index": 1, "address": "3e33eab976560d225018bd7055f72ee9310b7bfaa88b5e6e1cacdc5dd0972e4e" },
+    { "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", "passphrase": "TREZOR", "account": 0, "index": 0, "address": "1dc773097e8eaa924ed486c21406365d81ffc7f7507c8b7fecc54ad5c60051c5" },
+    { "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow", "passphrase": "", "account": 2, "index": 5, "address": "a0a08c7fd80a1c365c5355f6145e41bac39453be73b317f47b43e4f42f7b586b" },
+    { "mnemonic": "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote", "passphrase": "", "account": 0, "index": 0, "address": "982c4a40718da0c1106c98477be1b8aad6a2c7b6ed4b9d291084666c465a5a15" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Maya2C Wallet",
+  "version": "0.1.0",
+  "description": "Post-quantum (ML-DSA-65 + SLH-DSA) wallet and dapp provider for the Maya2C network.",
+  "icons": { "32": "icons/32.png", "128": "icons/128.png" },
+  "action": { "default_popup": "popup.html", "default_title": "Maya2C Wallet" },
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "content_scripts": [
+    { "matches": ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["inpage.js"], "run_at": "document_start", "world": "MAIN" },
+    { "matches": ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"], "js": ["content.js"], "run_at": "document_start" }
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self'; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+}
