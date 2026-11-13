@@ -265,17 +265,6 @@ phase that did it.
     as `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW`
     (1,000,000 + 172,800) so a vault withdrawal a sunset announcement starts can
     finish before the sunset height (ADR-082).
-    A version entry may carry feature bits this binary does not define (or
-    zkML, which it defines but cannot verify): it is admitted, stored and
-    decoded like any other, and this binary treats it as unsupported, halting
-    with `UpgradeRequired` at its activation height and not one block before.
-    Whether an entry is valid never depends on the binary checking it. Refusing it at admission would make every older
-    binary reject the block that schedules a later binary's feature, a stall
-    or fork at the vote instead of a halt at activation. `FeatureSet::is_known`
-    stays the rule for which features this binary implements. Governance gains
-    no power by this: it could already schedule a version this binary does not
-    implement, which halts it the same way. A sunset-only entry still cannot
-    switch any feature on, known or not.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`,
@@ -285,3 +274,19 @@ phase that did it.
     `crates/node/tests/council_pause_tests.rs`
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
     — ADR-082.
+    **Unknown feature bits (ADR-082 amendment).** A version entry may carry
+    feature bits this binary does not define (or zkML, which it defines but
+    cannot verify): it is admitted, stored and decoded like any other, and this
+    binary treats it as unsupported, halting with `UpgradeRequired` at its
+    activation height and not one block before. Whether an entry is valid never
+    depends on the binary checking it: refusing it at admission would make every
+    older binary reject the block that schedules a later binary's feature, a
+    stall or fork at the vote instead of a halt at activation.
+    `FeatureSet::is_known` says which bits this binary defines;
+    `FeatureSet::unimplemented` (everything outside `FeatureSet::IMPLEMENTED`)
+    says which it cannot execute, and only that decides support. Governance
+    gains no power by this: it could already schedule a version this binary
+    does not implement, which halts it the same way. A sunset-only entry still
+    cannot switch any feature on, known or not. The halt through the import
+    path and the BFT driver is pinned by `crates/node/tests/unknown_bit_halt_tests.rs`
+    and `crates/node/tests/bft_node_tests.rs`.
