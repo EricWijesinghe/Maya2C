@@ -25,6 +25,11 @@ custom-l1-node = { path = "../../../crates/node" }
 # Mnemonic entropy passes SP 800-90B start-up and continuous health tests
 # before it becomes a wallet (ADR-137 HW-5). Not linked by the node binary.
 maya-entropy = { path = "../../../hal/entropy" }
+# The pre-sign review (ADR-086 §6): the confirm screen's warnings, the
+# look-alike check and the grouped Bech32m display.
+maya-clear-sign = { path = "../../../crates/clear-sign" }
+# Address-book names are NFC-normalized (ADR-086 §7). Already in the lock.
+unicode-normalization = "0.1.25"
 
 # BIP-39 mnemonics. Wordlist only — seed derivation is PBKDF2 per the spec.
 bip39 = { version = "2.2", default-features = false, features = ["std"] }

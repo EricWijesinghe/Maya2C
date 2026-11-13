@@ -116,6 +116,14 @@ pub enum WalletError {
     /// An amount string was refused at the boundary.
     #[error("invalid amount: {0}")]
     Amount(#[from] crate::amount::AmountError),
+
+    /// An address-book entry or import was refused.
+    #[error("address book: {0}")]
+    Contact(String),
+
+    /// A payment request has passed its `exp` time.
+    #[error("payment request expired")]
+    Expired,
 }
 
 /// Convenience alias.

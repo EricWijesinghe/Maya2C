@@ -6035,6 +6035,7 @@ dependencies = [
 name = "maya-clear-sign"
 version = "0.1.0"
 dependencies = [
+ "maya-address",
  "maya-amount",
 ]
 
@@ -6247,6 +6248,8 @@ dependencies = [
  "jsonrpsee",
  "leptos",
  "maya-address",
+ "maya-amount",
+ "maya-clear-sign",
  "maya-design-system",
  "maya-web-security",
  "primitive-types",
@@ -6852,6 +6855,7 @@ dependencies = [
  "keyring",
  "maya-address",
  "maya-amount",
+ "maya-clear-sign",
  "maya-entropy",
  "maya-zk-stark",
  "pbkdf2",
@@ -6864,6 +6868,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-normalization",
  "zeroize",
 ]
 
