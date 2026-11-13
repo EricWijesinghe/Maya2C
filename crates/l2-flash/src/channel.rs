@@ -302,8 +302,14 @@ impl Channel {
     /// # Errors
     ///
     /// Returns [`FlashError::StaleSequence`] if the sequence does not advance,
-    /// or [`FlashError::CapacityMismatch`] if value is created or destroyed.
+    /// [`FlashError::ChannelIdMismatch`] for another channel's state, or
+    /// [`FlashError::CapacityMismatch`] if value is created or destroyed.
     pub fn validate_successor(&self, next: &ChannelState) -> Result<()> {
+        // Both parties may sign a state for another channel; adopting it would
+        // leave a current state that no closure for this channel can settle.
+        if next.channel_id != self.channel_id {
+            return Err(FlashError::ChannelIdMismatch);
+        }
         if next.seq <= self.current.seq {
             return Err(FlashError::StaleSequence {
                 current: self.current.seq,
