@@ -41,7 +41,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | wallet-v2 | Clear signing, smart-account recovery without a paper seed, address book, payment requests. **P0+P1 built** (ADR-086: Bech32m confirm, review wired in, address book, poisoning defenses, payment request v2); P2-P6 not started | `apps/wallet-gui/core`, `crates/smart-account`, `crates/clear-sign` | gate: [ADR-085](../adr/ADR-085-chat-v2-groups-on-mls.md)/[ADR-086](../adr/ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) Proposed, decisions for Eric listed | L | W1 |
 | wallet-mobile | Android wallet (light client); iOS after the MacBook | `crates/light-client`, wallet core | platform targets (memory 2026-10-12) | L | W2 |
 | wallet-extension | Browser extension wallet for web apps | wallet core, `crates/web-security` | ADR (dApp connection protocol) | M | W2 |
-| hardware-wallet | Ledger app for ML-DSA signing | `apps/ledger-maya2c` | device memory for PQ signatures, Ledger review | L | W3 |
+| hardware-wallet | Ledger app for ML-DSA signing. **P-11 tests built:** every shape the wallet builds or its confirm screen describes (17, node-encoded) reaches its verdict on the device; transfers of 1-4 outputs clear-signed, every payload kind and any trailing byte refused before a screen | `apps/ledger-maya2c`, `tests/kinds_tests.rs`, `tests/ledger_tests.rs` | device memory for PQ signatures, Ledger review | L | W3 |
 | chat-v2 | Group chats, attachments, multi-device | `apps/chat`, ADR-074 | gate: [ADR-085](../adr/ADR-085-chat-v2-groups-on-mls.md)/[ADR-086](../adr/ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) Proposed, decisions for Eric listed | L | W1 |
 | chat-pay | Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3) | chat + wallet hand-off | hand-off protocol ADR | M | W1 |
 | explorer-v2 | Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending | `apps/explorer` | none | M | W1 |
@@ -58,7 +58,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
 | flash-payments | Instant off-chain payment channels for small, frequent payments | `crates/l2-flash` | ADR (watchtower model) | L | W2 |
 | exchange-ui | Swap and order-book GUI; must pass the B38 ship gate (`min_out` from a quote, 1% default) | `crates/dex`, `compose_swap` | B38 gate, slippage tests | M | W2 |
-| treasury-multisig | Multisig and MPC treasury app for teams and DAOs | `crates/custody-mpc`, `crates/treasury` | invariants 18 and 19 review | L | W2 |
+| treasury-multisig | Multisig and MPC treasury app for teams and DAOs. **P-16 wallet flow built:** mixed-suite m-of-n account, proposal as v8 hex, approve behind the native confirm, merge, finish (`apps/wallet-gui` Multisig screen); MPC and treasury parts not started | `crates/custody-mpc`, `crates/treasury`, `apps/wallet-gui/core/src/multisig.rs` | invariants 18 and 19 review | L | W2 |
 | inheritance | Time-locked recovery to heirs if an owner stops signing | smart-account guardians | legal wording review | M | W3 |
 | btc-bridge-app | BTC in and out with SPV proofs | `crates/btc-bridge`, `crates/btc-spv`, `crates/deposit-watcher` | security review, bridge ADR | L | W3 |
 | rwa-issuance | Tokenized real-world assets with issuer rules | `crates/rwa`, `crates/permissioned-finance`, `crates/iso20022` | compliance and legal (Eric) | L | W3 |

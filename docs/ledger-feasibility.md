@@ -100,8 +100,8 @@ The review (`src/review.rs`) refuses before any screen appears if the bytes:
 - are a payload kind rather than a plain transfer;
 - have more than 4 outputs or 32 inputs.
 
-What is shown is every output (amount and recipient), the paying account and
-the nonce.
+What is shown is every output (amount and recipient), the paying account, the
+nonce and the genesis the signature is valid on.
 
 ## Speculos: what ran
 
@@ -109,8 +109,9 @@ the nonce.
 BIP-39 phrase. It then runs `tests/ledger_tests.rs`, driving the buttons
 through Speculos's REST API.
 
-- Nano S Plus, API level 27: **8 of 8 pass**.
-- Nano X (`DEVICE=nanox`), API level 27: **8 of 8 pass**.
+- Nano S Plus, API level 27: **11 of 11 pass** (2026-11-14; 8 of 8 before P-11).
+- Nano X (`DEVICE=nanox`), API level 27: **11 of 11 pass** (2026-11-14).
+- The three P-11 tests run every shape in `tests/fixtures/suite-0x10-kinds.txt` through the device, read back every label and value of a 4-output review, and refuse an unknown kind tag. The label test found "Network genesis" cut to "Netwo...sis" on Nano S Plus; the field is now "Genesis".
 
 Stax and Flex build (74.8 KB of code each); their touch-screen flows are not
 driven by these tests.

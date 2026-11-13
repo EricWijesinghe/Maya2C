@@ -23,6 +23,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+#[path = "fixtures/kinds.rs"]
+mod kinds;
+
 use app_maya2c::apdu::{CLA, INS_GET_PAGE, MAX_APDU_PAYLOAD, Pages};
 use app_maya2c::suite::{self, PUBLIC_KEY_LEN, SIGNATURE_LEN};
 use hmac::{Hmac, Mac};
@@ -175,29 +178,41 @@ fn press(button: &str) {
 
 /// Walks right through the screens until one names `target`, then presses
 /// both buttons on it. Runs beside a blocking APDU call; stops when `done`.
-fn drive(target: &'static [&'static str], done: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
+/// Returns the text of every screen it saw.
+fn drive(
+    target: &'static [&'static str],
+    done: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
+        let mut seen = String::new();
         for _ in 0..200 {
             if done.load(Ordering::SeqCst) {
-                return;
+                break;
             }
             let text = screen_text();
+            seen.push_str(&text);
             if target.iter().any(|t| text.contains(t)) {
                 press("both");
             } else {
                 press("right");
             }
         }
+        seen
     })
 }
 
 fn with_screens<T>(target: &'static [&'static str], call: impl FnOnce() -> T) -> T {
+    with_screens_seen(target, call).0
+}
+
+/// [`with_screens`], and the text of every screen shown meanwhile.
+fn with_screens_seen<T>(target: &'static [&'static str], call: impl FnOnce() -> T) -> (T, String) {
     let done = Arc::new(AtomicBool::new(false));
     let driver = drive(target, Arc::clone(&done));
     let result = call();
     done.store(true, Ordering::SeqCst);
-    driver.join().expect("driver");
-    result
+    let seen = driver.join().expect("driver");
+    (result, seen)
 }
 
 const APPROVE: &[&str] = &["Sign transfer", "Confirm", "Approve"];
@@ -336,4 +351,77 @@ fn an_interrupted_sequence_leaves_the_device_recoverable() {
     assert_eq!(status, 0x6985, "out-of-order chunk refused");
     let (_, status) = exchange(&frame(INS_GET_PUBLIC_KEY, 0, 0, &path(0, 0)));
     assert_eq!(status, 0x9000, "the device recovered without a reconnect");
+}
+
+// --- every shape the wallet builds (P-11) ---------------------------------
+
+#[test]
+#[ignore = "needs Speculos: scripts/ledger_speculos.sh"]
+fn every_shape_the_wallet_builds_reaches_its_verdict_on_the_device() {
+    let (public, secret) = expected_keys(0, 0);
+    for case in kinds::cases(&public) {
+        if case.status == 0x9000 {
+            let (first, status) = with_screens(APPROVE, || sign_on_device(&case.signing_bytes));
+            assert_eq!(status, 0x9000, "{}", case.name);
+            let signature = collect(first, SIGNATURE_LEN);
+            let expected = suite::sign(&secret, &case.signing_bytes).expect("host");
+            assert_eq!(signature, expected.to_vec(), "{}: device = host", case.name);
+        } else {
+            // Refused before any screen: no driver runs, so a screen shown
+            // here would block the test rather than be approved by it.
+            let (reply, status) = sign_on_device(&case.signing_bytes);
+            assert_eq!(status, case.status, "{}", case.name);
+            assert!(reply.is_empty(), "{}: nothing signed", case.name);
+        }
+    }
+}
+
+#[test]
+#[ignore = "needs Speculos: scripts/ledger_speculos.sh"]
+fn every_output_of_a_transfer_is_on_a_screen_before_it_is_signed() {
+    let (public, _) = expected_keys(0, 0);
+    let four = kinds::cases(&public)
+        .into_iter()
+        .find(|c| c.name == "transfer-4-outputs")
+        .expect("case");
+    let ((_, status), seen) = with_screens_seen(APPROVE, || sign_on_device(&four.signing_bytes));
+    assert_eq!(status, 0x9000);
+    // Every label whole (a label the screen cuts to "Netwo...sis" fails
+    // here), and every amount and the nonce as the node encoded them.
+    let labels = ["Amount 1", "Amount 2", "Amount 3", "Amount 4"]
+        .into_iter()
+        .chain([
+            "\"To 1",
+            "\"To 2",
+            "\"To 3",
+            "\"To 4",
+            "\"From",
+            "\"Nonce\"",
+            "\"Genesis",
+        ]);
+    let values = [
+        "\"1 base units\"",
+        "\"2 base units\"",
+        "\"3 base units\"",
+        "\"4 base units\"",
+        "\"7\"",
+    ];
+    for field in labels.chain(values) {
+        assert!(
+            seen.contains(field),
+            "no screen showed {field}; saw: {seen}"
+        );
+    }
+    assert!(!seen.contains("..."), "a label was cut short: {seen}");
+}
+
+#[test]
+#[ignore = "needs Speculos: scripts/ledger_speculos.sh"]
+fn an_unknown_kind_tag_is_refused_before_any_screen() {
+    let (public, _) = expected_keys(0, 0);
+    let mut bytes = transfer_for(&public);
+    bytes.push(0xFF);
+    let (reply, status) = sign_on_device(&bytes);
+    assert_eq!(status, 0x6A95, "NotATransfer");
+    assert!(reply.is_empty());
 }

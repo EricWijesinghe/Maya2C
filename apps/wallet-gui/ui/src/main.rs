@@ -13,6 +13,7 @@
 //! - **Send** — recipient, amount, and manual fee control
 //! - **Receive** — the account's address and a QR code of its `maya:` URI
 //! - **Sent** — the moment a transfer leaves, with its id
+//! - **Multisig** — set up an m-of-n account, propose, approve, finish
 
 // The core's amount parser and formatter, shared by path: the UI accepts and
 // shows exactly the strings the core and the IPC boundary accept.
@@ -21,6 +22,7 @@ mod amount;
 mod bridge;
 mod camera;
 mod contacts;
+mod multisig;
 mod receive;
 mod screens;
 
@@ -60,6 +62,8 @@ pub enum Screen {
     Sent(receive::SentTransfer),
     /// The address book.
     Contacts,
+    /// m-of-n multisig accounts (P-16).
+    Multisig,
 }
 
 /// Application state shared across screens.
@@ -236,6 +240,7 @@ fn App() -> impl IntoView {
                     Screen::Receive => view! { <receive::Receive/> }.into_any(),
                     Screen::Sent(sent) => view! { <receive::Sent sent=sent/> }.into_any(),
                     Screen::Contacts => view! { <contacts::Contacts/> }.into_any(),
+                    Screen::Multisig => view! { <multisig::Multisig/> }.into_any(),
                 }}
             </main>
         </div>
