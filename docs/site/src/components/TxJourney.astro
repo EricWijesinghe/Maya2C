@@ -78,6 +78,7 @@ const steps = [
       steps.forEach((b, k) => (k === i ? b.setAttribute("aria-current", "step") : b.removeAttribute("aria-current")));
       nodes.forEach((n, k) => n.classList.toggle("on", k <= i));
       fill.style.transform = `scaleX(${i / (panels.length - 1)})`;
+      if (i === panels.length - 1) document.dispatchEvent(new CustomEvent("maya:quest", { detail: { id: "tx" } }));
     };
     const stop = () => { clearInterval(timer); timer = 0; play.setAttribute("aria-pressed", "false"); play.textContent = "Play"; };
     steps.forEach((b, i) => b.addEventListener("click", () => { stop(); show(i); }));
@@ -93,6 +94,7 @@ const steps = [
     const verdict = root.querySelector<HTMLElement>("[data-verdict]");
     brk?.addEventListener("change", () => {
       root.querySelector("[data-lock=lattice]")!.classList.toggle("broken", brk.checked);
+      if (brk.checked) document.dispatchEvent(new CustomEvent("maya:quest", { detail: { id: "lock" } }));
       verdict!.textContent = brk.checked
         ? "Lattice lock broken. The hash lock still holds, so the forged transaction is refused."
         : "A forger needs both locks. Breaking one buys nothing.";

@@ -28,6 +28,8 @@ pub struct Config {
     pub log: PathBuf,
     /// Print pushes instead of sending them.
     pub dry_run: bool,
+    /// Where the dead-man stamp is written after every poll, if anywhere.
+    pub heartbeat: Option<PathBuf>,
 }
 
 /// What the command line asked for.
@@ -37,12 +39,23 @@ pub enum Command {
     Help,
     /// Run the watchdog.
     Run(Config),
+    /// `--check-heartbeat PATH`: page if the running sentinel's stamp is old.
+    CheckHeartbeat {
+        /// The stamp file the sentinel writes.
+        path: PathBuf,
+        /// Age, in seconds, at which the sentinel counts as stopped.
+        max_age_secs: u64,
+        /// Print the push instead of sending it.
+        dry_run: bool,
+    },
 }
 
 /// Usage text, printed on `--help` and after a bad flag.
 pub const USAGE: &str = "usage: maya2c-sentinel --node NAME=URL [--node NAME=URL]... \
 [--poll-secs 5] [--halt-secs 30] [--unreachable-secs 45] [--min-peers 2] \
-[--strand-blocks 20] [--strand-secs 120] [--log PATH] [--dry-run]\n\
+[--strand-blocks 20] [--strand-secs 120] [--finality-lag-blocks 30] \
+[--liveness-secs 60] [--heartbeat PATH] [--log PATH] [--dry-run]\n\
+       maya2c-sentinel --check-heartbeat PATH [--max-age-secs 120] [--dry-run]\n\
 env MAYA2C_SENTINEL_NTFY_TOPIC: the ntfy topic (required unless --dry-run)";
 
 /// Parses the arguments after the program name.
@@ -57,6 +70,9 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Command, St
     let mut t = Thresholds::default();
     let mut log = PathBuf::from(DEFAULT_LOG);
     let mut dry_run = false;
+    let mut heartbeat = None;
+    let mut check: Option<PathBuf> = None;
+    let mut max_age_secs = crate::heartbeat::DEFAULT_MAX_AGE_SECS;
 
     let mut it = args.into_iter();
     while let Some(flag) = it.next() {
@@ -76,11 +92,23 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Command, St
             "--min-peers" => t.min_peers = number(&flag, &value)?,
             "--strand-blocks" => t.strand_blocks = number(&flag, &value)?,
             "--strand-secs" => t.strand_ms = secs(&flag, &value)?,
+            "--finality-lag-blocks" => t.finality_lag_blocks = positive(&flag, &value)?,
+            "--liveness-secs" => t.liveness_ms = secs(&flag, &value)?,
+            "--heartbeat" => heartbeat = Some(PathBuf::from(value)),
+            "--check-heartbeat" => check = Some(PathBuf::from(value)),
+            "--max-age-secs" => max_age_secs = secs(&flag, &value)? / 1_000,
             "--log" => log = PathBuf::from(value),
             _ => return Err(format!("unknown flag {flag}")),
         }
     }
 
+    if let Some(path) = check {
+        return Ok(Command::CheckHeartbeat {
+            path,
+            max_age_secs,
+            dry_run,
+        });
+    }
     if nodes.is_empty() {
         return Err("at least one --node NAME=URL is required".into());
     }
@@ -94,7 +122,16 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Command, St
         thresholds: t,
         log,
         dry_run,
+        heartbeat,
     }))
+}
+
+/// A whole number of at least 1: a zero limit would alert on every poll.
+fn positive(flag: &str, value: &str) -> Result<u64, String> {
+    match number(flag, value)? {
+        0 => Err(format!("{flag} must be at least 1")),
+        n => Ok(n),
+    }
 }
 
 fn node(value: &str) -> Result<(String, String), String> {
@@ -180,5 +217,50 @@ mod tests {
             panic!("expected a run config");
         };
         assert!(c.dry_run);
+    }
+
+    #[test]
+    fn consensus_and_heartbeat_flags() {
+        let Ok(Command::Run(c)) = parse_args(args(&[
+            "--node",
+            "a=http://x",
+            "--finality-lag-blocks",
+            "7",
+            "--liveness-secs",
+            "90",
+            "--heartbeat",
+            "beat",
+        ])) else {
+            panic!("expected a run config");
+        };
+        assert_eq!(c.thresholds.finality_lag_blocks, 7);
+        assert_eq!(c.thresholds.liveness_ms, 90_000);
+        assert_eq!(c.heartbeat, Some(PathBuf::from("beat")));
+        assert!(
+            parse_args(args(&[
+                "--node",
+                "a=http://x",
+                "--finality-lag-blocks",
+                "0"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn check_heartbeat_needs_no_node() {
+        assert_eq!(
+            parse_args(args(&[
+                "--check-heartbeat",
+                "beat",
+                "--max-age-secs",
+                "300"
+            ])),
+            Ok(Command::CheckHeartbeat {
+                path: PathBuf::from("beat"),
+                max_age_secs: 300,
+                dry_run: false
+            })
+        );
     }
 }

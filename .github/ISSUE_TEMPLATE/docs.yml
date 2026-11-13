@@ -1,0 +1,28 @@
+name: Docs problem
+description: A guide, README or doc page is wrong, unclear, out of date or missing a step.
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Wrong docs are bugs here: a page that disagrees with the
+        code, or a number with no source, is worth reporting.
+  - type: input
+    id: where
+    attributes:
+      label: Page or file
+      description: A URL on maya2c.dev, or a path in this repository.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+      description: Quote the sentence if you can, and say what the code or your run showed instead.
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested wording
+      description: Optional. A pull request is welcome too; see CONTRIBUTING.md.

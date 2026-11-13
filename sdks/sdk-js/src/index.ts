@@ -220,3 +220,13 @@ export class MayaClient {
 
 export { AddressError, decodeAddress, decodeAnyAddress, encodeAddress } from "./address.js";
 export type { AddressNetwork, AddressErrorKind } from "./address.js";
+export {
+  PasskeyError,
+  PBKDF2_ITERATIONS,
+  protectSeed,
+  registerPasskey,
+  unlockSeed,
+  wrapWithPasskey,
+  wrapWithPassword,
+} from "./passkey.js";
+export type { CredentialsLike, PasskeyErrorKind, PasskeyRef, ProtectOptions, RegisterOptions, SeedEnvelope } from "./passkey.js";
