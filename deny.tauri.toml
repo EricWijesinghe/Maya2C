@@ -13,3 +13,10 @@ ignore = [
     "RUSTSEC-2024-0429",
     "GHSA-wrw7-89jp-8q8g",
 ]
+# Same policy as the root deny.toml: `unmaintained` fires only for crates an
+# app depends on directly. The transitive ones flagged today have no
+# maintained release their parents accept: proc-macro-error (RUSTSEC-2024-0370,
+# via gtk-rs 0.18's macros), paste (RUSTSEC-2024-0436, via libp2p's netlink stack), and zbus_names /
+# zvariant / zvariant_derive (RUSTSEC-2026-0370/0371/0372, merged into zbus 6;
+# keyring and tauri-plugin-single-instance are still on zbus 5).
+unmaintained = "workspace"

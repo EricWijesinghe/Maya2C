@@ -194,7 +194,7 @@ fn describe(v: &Variant, holes: &[String], depth: u8) -> Value {
     if !holes.is_empty() {
         out["fields"] = json!(holes);
     }
-    if let Ok(rule) = crate::explain(&v.name) {
+    if let Ok(rule) = crate::tools::explain(&v.name) {
         out["rule"] = rule["rule"].clone();
     }
     // A single `{0}` hole is often another error's whole message.

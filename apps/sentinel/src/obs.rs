@@ -54,6 +54,20 @@ pub struct Supply {
     pub burned: U256,
 }
 
+/// The part of `get_bft_status` the liveness detector reads. The node answers
+/// `null` when it runs no DAG-BFT engine, and that node has no `Bft`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bft {
+    /// Round this node last proposed in (0 for an observer).
+    pub round: u64,
+    /// Round of the last anchor committed.
+    pub committed_round: u64,
+    /// Committee index; `None` for an observer.
+    pub validator: Option<u16>,
+    /// Following attested blocks instead of building its own (ADR-038).
+    pub follower: bool,
+}
+
 /// One successful observation of a node.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeObs {
@@ -69,6 +83,11 @@ pub struct NodeObs {
     pub supply: Option<Supply>,
     /// Transactions waiting in the mempool, when the node exposes that.
     pub pending: Option<u64>,
+    /// Height of the newest quorum-attested block (`get_checkpoint`), when
+    /// the node serves one.
+    pub finalized: Option<u64>,
+    /// The node's DAG-BFT engine, when it runs one.
+    pub bft: Option<Bft>,
 }
 
 /// One node's answer in one poll.
@@ -142,7 +161,17 @@ pub async fn observe<T: Transport>(t: &T, with_supply: bool) -> Result<NodeObs, 
         .call("get_mempool_info", vec![])
         .await
         .ok()
-        .and_then(|v| v.get("pending")?.as_u64());
+        .and_then(|v| v.get("size")?.as_u64());
+    let finalized = t
+        .call("get_checkpoint", vec![])
+        .await
+        .ok()
+        .and_then(|v| v.get("height")?.as_u64());
+    let bft = t
+        .call("get_bft_status", vec![])
+        .await
+        .ok()
+        .and_then(|v| parse_bft(&v));
 
     Ok(NodeObs {
         height,
@@ -151,6 +180,23 @@ pub async fn observe<T: Transport>(t: &T, with_supply: bool) -> Result<NodeObs, 
         peers,
         supply,
         pending,
+        finalized,
+        bft,
+    })
+}
+
+/// `get_bft_status` is `null` on a node without an engine. Any other shape it
+/// does not recognise is treated the same way rather than guessed at.
+fn parse_bft(v: &Value) -> Option<Bft> {
+    let validator = match v.get("validator")? {
+        Value::Null => None,
+        n => Some(u16::try_from(n.as_u64()?).ok()?),
+    };
+    Some(Bft {
+        round: v.get("round")?.as_u64()?,
+        committed_round: v.get("committed_round")?.as_u64()?,
+        validator,
+        follower: v.get("follower")?.as_bool()?,
     })
 }
 

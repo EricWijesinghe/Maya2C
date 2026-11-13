@@ -215,20 +215,35 @@ fn trace_a_contract_call_transaction() {
     assert!(replies[1].1, "a transfer has no execution steps");
 }
 
+/// One JSON-RPC request straight to the devnet node, bypassing the MCP server.
+fn post(net: &Devnet, body: &Value) -> Value {
+    use std::io::Read;
+    let body = body.to_string();
+    let mut s = std::net::TcpStream::connect(net.rpc.address).unwrap();
+    write!(
+        s,
+        "POST / HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        net.rpc.address,
+        body.len()
+    )
+    .unwrap();
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).unwrap();
+    serde_json::from_str(resp.split_once("\r\n\r\n").unwrap().1).unwrap()
+}
+
 #[test]
 fn a_real_refusal_from_the_node_is_explained() {
     let dir = tempfile::tempdir().unwrap();
     let net = devnet(dir.path());
     // Nonce 0 was spent in block 1: the node refuses it as a replay.
     let replayed = hex::encode(transfer(&net.tag, 5, 0).to_bytes());
-    let refusal = session(
+    // The server has no submit tool (ADR-084), so the test submits directly.
+    let refusal = post(
         &net,
-        &[(
-            "rpc_call",
-            json!({"method": "send_raw_transaction", "params": [replayed]}),
-        )],
+        &json!({"jsonrpc": "2.0", "id": 1, "method": "send_raw_transaction", "params": [replayed]}),
     );
-    let message = refusal[0].0["error"]["message"]
+    let message = refusal["error"]["message"]
         .as_str()
         .expect("the node refused")
         .to_string();

@@ -1,16 +1,9 @@
-//! `maya2c-mcp` — a Model Context Protocol server for `Maya2C` (Master Prompt 24 §5).
+//! `maya2c-mcp` — a Model Context Protocol server for `Maya2C` (Master Prompt 24 §5, ADR-084).
 //!
 //! Speaks MCP's JSON-RPC 2.0 over stdio, one message per line: `initialize`,
-//! `tools/list`, `tools/call`. Tools:
-//!
-//! - `decode_transaction` — the node's own decoder: fields, txid, sender.
-//! - `review_intent` — `maya-clear-sign`'s pre-sign review of claimed versus
-//!   simulated effects.
-//! - `explain_error` — a node error kind in plain language, with the spec rule.
-//! - `rpc_call` — a JSON-RPC call to a node given by `--rpc HOST:PORT`.
-//!   **State-changing methods are refused unless the node is on loopback**,
-//!   so an assistant can never write to a public network through this server;
-//!   a person does that, with their own wallet.
+//! `tools/list`, `tools/call`. The server holds no keys and has no tool that
+//! signs or submits. It reads the chain through a fixed list of read-only
+//! node methods, and drafts transfers for a person's own wallet to sign.
 //!
 //! Read-only debugging (v3 P6, [`debug_tools`], [`refusal`]):
 //!
@@ -25,216 +18,85 @@
 //! `maya2c-mcp --rpc 127.0.0.1:8545 [--genesis genesis.json]`
 
 mod debug_tools;
+mod node;
 mod refusal;
+mod tools;
 
-use maya_amount::Amount;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
 
-use custom_l1_node::core::Transaction;
-use maya_clear_sign::{Effect, review};
+use node::Node;
 use serde_json::{Value, json};
 
-const WRITES: [&str; 2] = ["send_raw_transaction", "submit_block"];
+/// Largest request line accepted, in bytes. A signed transfer is about 14 KB
+/// in hex, so this leaves room for a long batch of arguments.
+// shortcut: 256 KiB is a generous guess, not measured; tighten after measuring a real request.
+const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
-fn tools() -> Value {
-    json!([
-        {"name": "decode_transaction", "description": "Decode a hex-encoded Maya2C transaction with the node's decoder; returns version fields, txid and sender, or the decoder's error.",
-         "inputSchema": {"type": "object", "properties": {"hex": {"type": "string"}}, "required": ["hex"]}},
-        {"name": "review_intent", "description": "Clear-signing review: compare the effects an app claims with the effects a simulation shows; returns warnings, most severe first.",
-         "inputSchema": {"type": "object", "properties": {"claimed": {"type": "array"}, "simulated": {"type": "array"}}, "required": ["claimed", "simulated"]}},
-        {"name": "explain_error", "description": "Explain a node error kind (e.g. InvalidNonce) in plain language, with the spec rule it comes from.",
-         "inputSchema": {"type": "object", "properties": {"kind": {"type": "string"}}, "required": ["kind"]}},
-        {"name": "rpc_call", "description": "Call the configured node's JSON-RPC. Read methods only, unless the node is on loopback.",
-         "inputSchema": {"type": "object", "properties": {"method": {"type": "string"}, "params": {"type": "array"}}, "required": ["method"]}},
-        {"name": "replay_block", "description": "Read-only. Re-execute the block at a height on a fresh local copy of the configured node's chain (maya2c replay); returns its transactions and every balance it changed. Optional txid checks the transaction is in that block.",
-         "inputSchema": {"type": "object", "properties": {"height": {"type": "integer"}, "txid": {"type": "string"}}, "required": ["height"]}},
-        {"name": "trace_transaction", "description": "Read-only. Run a contract call once under the time-travel debugger (maya2c debug) and return every host-call step, storage after, events and gas. Give the contract wasm (hex) and either a CallContract transaction (hex) or input/caller/gas.",
-         "inputSchema": {"type": "object", "properties": {"wasm": {"type": "string"}, "tx": {"type": "string"}, "input": {"type": "string"}, "caller": {"type": "string"}, "height": {"type": "integer"}, "gas": {"type": "integer"}}, "required": ["wasm"]}},
-        {"name": "explain_refusal", "description": "Explain why the node refused something: give the refusal message (or a NodeError kind); returns the variant, its fields and the node's own documentation of it, read from crates/node/src/error.rs.",
-         "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "kind": {"type": "string"}}}},
-        {"name": "compare_account", "description": "Read-only. An account's balance at two heights on the configured node, and the change between them.",
-         "inputSchema": {"type": "object", "properties": {"address": {"type": "string"}, "from": {"type": "integer"}, "to": {"type": "integer"}}, "required": ["address", "from", "to"]}}
-    ])
+enum Line {
+    End,
+    Text(String),
+    TooLong,
 }
 
-fn decode(hex_str: &str) -> Result<Value, String> {
-    let bytes = hex::decode(hex_str.trim()).map_err(|e| format!("not hex: {e}"))?;
-    let tx = Transaction::from_bytes(&bytes).map_err(|e| e.to_string())?;
-    let outputs: Vec<Value> = tx
-        .outputs
-        .iter()
-        .map(|o| json!({"to": hex::encode(o.recipient), "amount": o.amount.to_string()}))
-        .collect();
-    Ok(
-        json!({"version": bytes[0], "nonce": tx.nonce.to_string(), "outputs": outputs, "signed": tx.signature.is_some(),
-              "txid": hex::encode(tx.txid()), "sender": hex::encode(tx.sender())}),
-    )
-}
-
-fn addr(v: &Value) -> Result<[u8; 32], String> {
-    let b = hex::decode(v.as_str().ok_or("address must be a hex string")?)
-        .map_err(|e| e.to_string())?;
-    b.try_into()
-        .map_err(|_| "address must be 32 bytes".to_string())
-}
-
-/// A decimal string of digits, up to 2^256 - 1: the ledger's width (ADR-046).
-fn amount(v: &Value) -> Result<Amount, String> {
-    let text = v.as_str().ok_or("amounts are decimal strings")?;
-    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("an amount is a non-empty string of decimal digits".into());
+/// Reads one line without buffering more than [`MAX_REQUEST_BYTES`]. An
+/// oversized line is drained to its end and reported, so the next request
+/// still parses.
+fn read_line(input: &mut impl BufRead) -> std::io::Result<Line> {
+    let mut buf = Vec::new();
+    let cap = u64::try_from(MAX_REQUEST_BYTES + 1).unwrap_or(u64::MAX);
+    let read = Read::take(&mut *input, cap).read_until(b'\n', &mut buf)?;
+    if read == 0 {
+        return Ok(Line::End);
     }
-    let ten = Amount::from_u64(10);
-    text.bytes()
-        .try_fold(Amount::default(), |acc, b| {
-            acc.checked_mul(ten)?
-                .checked_add(Amount::from_u64(u64::from(b - b'0')))
-        })
-        .ok_or_else(|| "amount exceeds 2^256 - 1".to_string())
-}
-
-/// `{"type": "transfer", "token": hex, "to": hex, "amount": "decimal"}` and the like.
-fn effect(v: &Value) -> Result<Effect, String> {
-    Ok(match v["type"].as_str().ok_or("effect needs a type")? {
-        "transfer" => Effect::Transfer {
-            token: addr(&v["token"])?,
-            to: addr(&v["to"])?,
-            amount: amount(&v["amount"])?,
-        },
-        "approve" => Effect::Approve {
-            token: addr(&v["token"])?,
-            spender: addr(&v["spender"])?,
-            amount: amount(&v["amount"])?,
-        },
-        "approve_all" => Effect::ApproveAll {
-            collection: addr(&v["collection"])?,
-            operator: addr(&v["operator"])?,
-        },
-        "permit" => Effect::Permit {
-            token: addr(&v["token"])?,
-            spender: addr(&v["spender"])?,
-            amount: amount(&v["amount"])?,
-        },
-        "upgrade" => Effect::Upgrade {
-            contract: addr(&v["contract"])?,
-        },
-        "set_owner" => Effect::SetOwner {
-            target: addr(&v["target"])?,
-            owner: addr(&v["owner"])?,
-        },
-        "call" => Effect::Call {
-            contract: addr(&v["contract"])?,
-            method: v["method"].as_str().unwrap_or("").to_string(),
-        },
-        other => return Err(format!("unknown effect type {other}")),
-    })
-}
-
-fn review_intent(args: &Value) -> Result<Value, String> {
-    let list = |k: &str| -> Result<Vec<Effect>, String> {
-        args[k]
-            .as_array()
-            .ok_or(format!("{k} must be an array"))?
-            .iter()
-            .map(effect)
-            .collect()
-    };
-    let warnings = review(
-        &list("claimed")?,
-        &list("simulated")?,
-        &maya_clear_sign::Context::default(),
-    );
-    Ok(json!(
-        warnings
-            .iter()
-            .map(|w| format!("{w:?}"))
-            .collect::<Vec<_>>()
-    ))
-}
-
-pub(crate) fn explain(kind: &str) -> Result<Value, String> {
-    let (text, rule) = match kind {
-        "InvalidNonce" => (
-            "The transaction's nonce is not the sender's next nonce: it was already used (a replay) or one is missing before it. Resend with the nonce `get_balance` reports.",
-            "STF-1",
-        ),
-        "InsufficientBalance" => (
-            "The sender's balance is below the sum of the outputs.",
-            "STF-3",
-        ),
-        "BalanceOverflow" => (
-            "An amount would exceed the largest representable amount (2^256 - 1, ADR-046).",
-            "STF-2, STF-4, STF-5",
-        ),
-        "BadSignature" | "SignatureVerification" | "HashSignatureVerification" => (
-            "One of the two signatures (ML-DSA-65 or SLH-DSA) does not verify; both must.",
-            "TX-1",
-        ),
-        "UpgradeRequired" => (
-            "The node reached a protocol version it does not implement. Install a newer binary; it resumes where it stopped.",
-            "spec §4, ADR-020",
-        ),
-        "Decode" => (
-            "The bytes are not a well-formed transaction frame: wrong version, bad length, or trailing bytes.",
-            "ENC-1 … ENC-7",
-        ),
-        other => return Err(format!("unknown error kind {other}")),
-    };
-    Ok(json!({"explanation": text, "rule": rule}))
-}
-
-pub(crate) fn rpc(target: Option<&str>, args: &Value) -> Result<Value, String> {
-    let target = target.ok_or("no node configured: start with --rpc HOST:PORT")?;
-    let method = args["method"].as_str().ok_or("method is required")?;
-    let addr: SocketAddr = target.parse().map_err(|e| format!("--rpc: {e}"))?;
-    if WRITES.contains(&method) && !addr.ip().is_loopback() {
-        return Err(format!(
-            "refused: {method} changes state and {target} is not a local node; a person must do this with their own wallet"
-        ));
+    if buf.last() == Some(&b'\n') || buf.len() <= MAX_REQUEST_BYTES {
+        return Ok(Line::Text(String::from_utf8_lossy(&buf).into_owned()));
     }
-    let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": args.get("params").cloned().unwrap_or(json!([]))}).to_string();
-    let mut s = TcpStream::connect(addr).map_err(|e| e.to_string())?;
-    let request = format!(
-        "POST / HTTP/1.1\r\nHost: {target}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    s.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
-    let mut resp = String::new();
-    s.read_to_string(&mut resp).map_err(|e| e.to_string())?;
-    let json_part = resp
-        .split("\r\n\r\n")
-        .nth(1)
-        .ok_or("malformed HTTP response")?;
-    serde_json::from_str(json_part).map_err(|e| e.to_string())
+    let mut sink = Vec::new();
+    loop {
+        sink.clear();
+        let got = Read::take(&mut *input, 4096).read_until(b'\n', &mut sink)?;
+        if got == 0 || sink.last() == Some(&b'\n') {
+            return Ok(Line::TooLong);
+        }
+    }
 }
 
-fn call_tool(name: &str, args: &Value, config: debug_tools::Config<'_>) -> Result<Value, String> {
-    let target = config.rpc;
+/// The debugging tools (v3 P6) first, then the ADR-084 set.
+fn call_tool(
+    node: &mut Node,
+    config: debug_tools::Config<'_>,
+    name: &str,
+    args: &Value,
+) -> Result<Value, String> {
     match name {
-        "decode_transaction" => decode(args["hex"].as_str().ok_or("hex is required")?),
-        "review_intent" => review_intent(args),
-        "explain_error" => explain(args["kind"].as_str().ok_or("kind is required")?),
-        "rpc_call" => rpc(target, args),
         "replay_block" => debug_tools::replay_block(config, args),
         "trace_transaction" => debug_tools::trace_transaction(args),
         "explain_refusal" => refusal::explain_refusal(args),
-        "compare_account" => debug_tools::compare_account(config, args),
-        other => Err(format!("unknown tool {other}")),
+        "compare_account" => debug_tools::compare_account(node, args),
+        _ => tools::call(node, name, args),
     }
 }
 
-fn handle(msg: &Value, target: debug_tools::Config<'_>) -> Option<Value> {
+fn list_tools() -> Value {
+    let mut all = tools::list();
+    if let (Some(list), Value::Array(debug)) = (all.as_array_mut(), debug_tools::list()) {
+        list.extend(debug);
+    }
+    all
+}
+
+fn handle(msg: &Value, node: &mut Node, config: debug_tools::Config<'_>) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let result = match msg["method"].as_str().unwrap_or("") {
         "initialize" => {
             json!({"protocolVersion": "2025-06-18", "serverInfo": {"name": "maya2c-mcp", "version": env!("CARGO_PKG_VERSION")}, "capabilities": {"tools": {}}})
         }
-        "tools/list" => json!({"tools": tools()}),
+        "tools/list" => json!({"tools": list_tools()}),
         "tools/call" => match call_tool(
+            node,
+            config,
             msg["params"]["name"].as_str().unwrap_or(""),
             &msg["params"]["arguments"],
-            target,
         ) {
             Ok(v) => {
                 json!({"content": [{"type": "text", "text": v.to_string()}], "isError": false})
@@ -258,19 +120,26 @@ fn main() {
             .and_then(|i| args.get(i + 1))
             .map(String::as_str)
     };
-    let target = debug_tools::Config {
+    let config = debug_tools::Config {
         rpc: flag("--rpc"),
         genesis: flag("--genesis"),
     };
+    let mut node = Node::new(config.rpc);
     let stdout = std::io::stdout();
-    for line in BufReader::new(std::io::stdin())
-        .lines()
-        .map_while(Result::ok)
-    {
-        let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-            continue;
+    let stdin = std::io::stdin();
+    let mut input = BufReader::new(stdin.lock());
+    loop {
+        let reply = match read_line(&mut input) {
+            Ok(Line::End) | Err(_) => break,
+            Ok(Line::TooLong) => Some(
+                json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32600, "message": "request exceeds the size cap"}}),
+            ),
+            Ok(Line::Text(text)) => match serde_json::from_str::<Value>(&text) {
+                Ok(msg) => handle(&msg, &mut node, config),
+                Err(_) => None,
+            },
         };
-        if let Some(reply) = handle(&msg, target) {
+        if let Some(reply) = reply {
             let mut out = stdout.lock();
             let _ = writeln!(out, "{reply}");
             let _ = out.flush();

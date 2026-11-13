@@ -14,6 +14,22 @@ use maya2c_cli::{CallSpec, parse_caller, parse_hex, record_spec};
 use primitive_types::U256;
 use serde_json::{Value, json};
 
+use crate::node::Node;
+
+/// The four debugging tools' MCP descriptions, appended to `tools::list`.
+pub fn list() -> Value {
+    json!([
+        {"name": "replay_block", "description": "Read-only. Re-execute the block at a height on a fresh local copy of the configured node's chain (maya2c replay); returns its transactions and every balance it changed. Optional txid checks the transaction is in that block.",
+         "inputSchema": {"type": "object", "properties": {"height": {"type": "integer"}, "txid": {"type": "string"}}, "required": ["height"]}},
+        {"name": "trace_transaction", "description": "Read-only. Run a contract call once under the time-travel debugger (maya2c debug) and return every host-call step, storage after, events and gas. Give the contract wasm (hex) and either a CallContract transaction (hex) or input/caller/gas.",
+         "inputSchema": {"type": "object", "properties": {"wasm": {"type": "string"}, "tx": {"type": "string"}, "input": {"type": "string"}, "caller": {"type": "string"}, "height": {"type": "integer"}, "gas": {"type": "integer"}}, "required": ["wasm"]}},
+        {"name": "explain_refusal", "description": "Explain why the node refused something: give the refusal message (or a NodeError kind); returns the variant, its fields and the node's own documentation of it, read from crates/node/src/error.rs.",
+         "inputSchema": {"type": "object", "properties": {"message": {"type": "string"}, "kind": {"type": "string"}}}},
+        {"name": "compare_account", "description": "Read-only. An account's balance at two heights on the configured node, and the change between them.",
+         "inputSchema": {"type": "object", "properties": {"address": {"type": "string"}, "from": {"type": "integer"}, "to": {"type": "integer"}}, "required": ["address", "from", "to"]}}
+    ])
+}
+
 /// Where the server was pointed when it started.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config<'a> {
@@ -161,23 +177,16 @@ pub fn trace_transaction(args: &Value) -> Result<Value, String> {
 /// # Errors
 ///
 /// No `--rpc`, missing arguments, or the node's refusal (e.g. a pruned height).
-pub fn compare_account(config: Config<'_>, args: &Value) -> Result<Value, String> {
+pub fn compare_account(node: &mut Node, args: &Value) -> Result<Value, String> {
     let address = args["address"].as_str().ok_or("address is required")?;
-    let at = |key: &str| -> Result<(U256, Value), String> {
+    let mut at = |key: &str| -> Result<(U256, Value), String> {
         let height = args[key]
             .as_u64()
             .ok_or(format!("{key} (a height) is required"))?;
-        let reply = crate::rpc(
-            config.rpc,
-            &json!({"method": "get_balance_at_height", "params": [address, height]}),
-        )?;
-        if let Some(error) = reply.get("error") {
-            return Err(format!(
-                "height {height}: {}",
-                error["message"].as_str().unwrap_or("refused")
-            ));
-        }
-        let result = reply["result"].clone();
+        // Through the ADR-084 allowlist and rate limiter, like every other read.
+        let result = node
+            .call("get_balance_at_height", &json!([address, height]))
+            .map_err(|e| format!("height {height}: {e}"))?;
         let balance = U256::from_dec_str(result["balance"].as_str().unwrap_or(""))
             .map_err(|e| format!("height {height}: node returned no balance: {e:?}"))?;
         Ok((balance, result))
