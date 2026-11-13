@@ -531,7 +531,8 @@ fn crash_f_plus_one(net: &mut Net) -> Result<()> {
     Ok(())
 }
 
-/// Attack 3: a stolen key signs from a second machine. Validator 0
+/// Attack 3: a stolen key signs from a second process on the same host
+/// (a copied validator key, not a second machine). Validator 0
 /// equivocates; nobody may fork.
 fn stolen_key(net: &mut Net) -> Result<()> {
     let twin = net.start(TWIN, Some(1))?;
