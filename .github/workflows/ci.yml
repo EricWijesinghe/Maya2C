@@ -103,6 +103,11 @@ jobs:
       - name: Guide commands
         run: cargo xtask guides-check
 
+      # The public roadmap is generated from the ecosystem catalog's waves;
+      # a catalog edit without a regenerated roadmap fails here.
+      - name: Roadmap matches the catalog
+        run: cargo xtask devlog roadmap --check
+
   # The protocol spec's conformance suite (spec/README.md). The node side,
   # crates/node/tests/conformance.rs, runs in the `test` job with the rest of
   # the workspace; this job checks the vectors are what the reference

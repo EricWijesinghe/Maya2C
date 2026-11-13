@@ -1,39 +1,44 @@
 <p align="center">
   <a href="https://maya2c.dev">
-    <img src="docs/brand/hero.svg" width="100%" alt="Maya2C: the post-quantum layer-1, built in Rust. Banner with the official emblem.">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset=".github/assets/banner-light.svg">
+      <img src=".github/assets/banner-dark.svg" width="100%" alt="Maya2C emblem beside the words: Maya2C, post-quantum Layer-1, built in Rust.">
+    </picture>
   </a>
 </p>
 
 <p align="center">
-  <b>A layer-1 blockchain in Rust where every transaction carries two post-quantum signatures from different families, and both must verify.</b>
+  <b>A Layer-1 blockchain in Rust where every transaction carries two post-quantum signatures from different families, and both must verify.</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&style=for-the-badge&labelColor=050b0f"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/EricWijesinghe/Maya2C?style=for-the-badge&color=d9b97a&labelColor=050b0f"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/releases"><img alt="latest release" src="https://img.shields.io/github/v/release/EricWijesinghe/Maya2C?include_prereleases&label=latest%20release&style=for-the-badge&color=2cc3cf&labelColor=050b0f"></a>
-  <a href="Cargo.toml"><img alt="minimum Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FEricWijesinghe%2FMaya2C%2Fmaster%2FCargo.toml&query=%24.workspace.package%5B%27rust-version%27%5D&label=rust%20(MSRV)&style=for-the-badge&color=b9c6ca&labelColor=050b0f&logo=rust"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?style=for-the-badge&color=2cc3cf&labelColor=050b0f"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI status" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&labelColor=081c28"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/pulse"><img alt="commits per week" src="https://img.shields.io/github/commit-activity/w/EricWijesinghe/Maya2C?label=commits&color=1fd3cc&labelColor=081c28"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?color=1fd3cc&labelColor=081c28"></a>
+  <a href="Cargo.toml"><img alt="minimum Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FEricWijesinghe%2FMaya2C%2Fmaster%2FCargo.toml&query=%24.workspace.package%5B%27rust-version%27%5D&label=rust&color=96b8da&labelColor=081c28&logo=rust"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/EricWijesinghe/Maya2C?color=ffbb6b&labelColor=081c28"></a>
 </p>
 
 <p align="center">
-  <a href="https://maya2c.dev"><b>maya2c.dev</b></a> &nbsp;·&nbsp;
-  <a href="https://maya2c.dev/guides/testnet/">Testnet guide</a> &nbsp;·&nbsp;
-  <a href="https://status.maya2c.dev/">Network status</a> &nbsp;·&nbsp;
-  <a href="docs/README.md">Docs</a> &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.md">Contribute</a> &nbsp;·&nbsp;
+  <a href="https://maya2c.dev"><b>Website</b></a> ·
+  <a href="docs/README.md">Docs</a> ·
+  <a href="docs/ecosystem/ROADMAP.md">Roadmap</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="https://github.com/EricWijesinghe/Maya2C/discussions">Discussions</a> ·
+  <a href="https://github.com/EricWijesinghe/Maya2C/contribute">Good first issues</a> ·
   <a href="SECURITY.md">Security</a>
 </p>
 
-> **Where things stand.** The public testnet is **paused**: it ran 7 days
-> 15 hours with zero halts (blocks 0 to 393,812) and was stopped on purpose
-> on 2026-10-28 ([proof](reports/sessions/2026-10-28-testnet-stopped.md)). It
-> returns with the next genesis; until then the status page has no network to
-> report. Mainnet is to launch labelled "external audit pending" until a report
-> lands ([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers
-> stay off at genesis until their circuit is externally audited
-> (`CIRCUIT_IS_AUDITED = false`, [`crates/zk-stark/src/pool/mod.rs`](crates/zk-stark/src/pool/mod.rs);
-> [docs/mainnet-v1-plan.md](docs/mainnet-v1-plan.md)). The testnet coin has no value.
+> [!IMPORTANT]
+> **Status.** Mainnet is **not live**. The public testnet is **paused**: it ran
+> 7 days 15 hours with zero halts and was stopped on purpose on 2026-10-28
+> ([proof](reports/sessions/2026-10-28-testnet-stopped.md)).
+> **Pre-audit:** no external audit yet. Validators are run by one operator at
+> launch; an external audit is planned after funding
+> ([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers stay
+> off at genesis until their circuit is externally audited
+> ([docs/mainnet-v1-plan.md](docs/mainnet-v1-plan.md)). The testnet coin has no value.
 
 ## What Maya2C is
 
@@ -46,7 +51,16 @@
 | **Money math** | 256-bit amounts in `ledger-math`, which keeps C and C++ out of its dependency graph so Kani can check it. |
 | **Apps** | Maya2C Wallet, Maya2C Chat, Maya2C Hub, an explorer, SDKs, and an MCP server for AI assistants that reads and drafts but never signs. |
 
-### Why post-quantum matters
+## Architecture
+
+<p align="center"><img src="docs/diagrams/architecture.svg" width="100%" alt="Apps reach the API gateway and node RPC; inside the node the mempool feeds DAG-BFT, the WASM VM executes and state commits a root; libp2p with ML-KEM over Noise connects peers; ML-DSA-65, SLH-DSA and ledger-math sit underneath."></p>
+
+<p align="center"><img src="docs/diagrams/tx-lifecycle.svg" width="100%" alt="Transaction lifecycle: sign with both schemes, submit, mempool admission verifies both, gossip, DAG-BFT ordering, execution verifies again and recomputes the state root, finalized in one batch. ML-DSA-65 verifies first, then SLH-DSA; either failure rejects."></p>
+
+Mermaid sources, and what each box was checked against: [docs/diagrams/](docs/diagrams/README.md).
+Every top-level directory: [docs/REPO-MAP.md](docs/REPO-MAP.md).
+
+## Why post-quantum matters
 
 A large enough quantum computer breaks the elliptic-curve signatures most
 chains use today. Ledgers are permanent: a public key published now can be
@@ -55,7 +69,7 @@ standards from genesis, so the default account is post-quantum from its first bl
 signature-suite registry can add or retire a scheme at an activation height
 ([ADR-051](docs/adr/ADR-051-security-level-5-defaults.md), invariants 29 to 31).
 
-### How it differs
+## How it differs
 
 Other chains are adding post-quantum signatures too; Maya2C is not the first.
 The difference is in how. From the dated search in
@@ -74,26 +88,16 @@ The difference is in how. From the dated search in
 The cost is size: a hybrid signature is **11,165 bytes** and a one-output
 transfer **13,215 bytes** ([docs/hybrid-signatures.md](docs/hybrid-signatures.md)).
 
-## Architecture
-
-<p align="center"><img src="docs/diagrams/architecture.svg" width="100%" alt="Apps reach the API gateway and node RPC; inside the node the mempool feeds DAG-BFT, the WASM VM executes and state commits a root; libp2p with ML-KEM over Noise connects peers; ML-DSA-65, SLH-DSA and ledger-math sit underneath."></p>
-
-<p align="center"><img src="docs/diagrams/tx-lifecycle.svg" width="100%" alt="Transaction lifecycle: sign with both schemes, submit, mempool admission verifies both, gossip, DAG-BFT ordering, execution verifies again and recomputes the state root, finalized in one batch. ML-DSA-65 verifies first, then SLH-DSA; either failure rejects."></p>
-
-Mermaid sources, and what each box was checked against: [docs/diagrams/](docs/diagrams/README.md).
-Every top-level directory: [docs/REPO-MAP.md](docs/REPO-MAP.md).
-
 ## Quickstart
 
 ### Use the apps
 
-Installers for Maya2C Wallet and Maya2C Chat (Windows, macOS, Linux) and the
-node binaries are on the [latest release](https://github.com/EricWijesinghe/Maya2C/releases).
-It is a testnet pre-release and the installers are unsigned. Check downloads
-against `SHA256SUMS` in the same release.
-
-Maya2C Hub has no installer in a release yet; build it with
-`cargo xtask hub-bundle` ([apps/hub/README.md](apps/hub/README.md)).
+No release is published yet. When one is, installers for Maya2C Wallet,
+Maya2C Chat and the node binaries go on the
+[Releases](https://github.com/EricWijesinghe/Maya2C/releases) page with a
+`SHA256SUMS` file to check them against. Until then, build from source as
+below. Maya2C Hub builds with `cargo xtask hub-bundle`
+([apps/hub/README.md](apps/hub/README.md)).
 
 ### Run the whole ecosystem locally
 
@@ -130,7 +134,7 @@ Counts at this commit:
 
 | | Total | verified | working | stub | planned | REAL | RESEARCH | SIM |
 |---|---|---|---|---|---|---|---|---|
-| Subsystems `[[subsystem]]` | **169** | 61 | 80 | 4 | 24 | 84 | 81 | 4 |
+| Subsystems `[[subsystem]]` | **173** | 61 | 80 | 4 | 28 | 88 | 81 | 4 |
 | Register `[[feature]]` | **164** | 50 | 0 | 0 | 114 | 50 | 114 | 0 |
 
 Regenerate it with no build:
@@ -157,12 +161,17 @@ test. Status meanings and the reasoning behind each subsystem:
 
 <p align="center"><img src="docs/diagrams/roadmap.svg" width="100%" alt="Milestone ladder M0 to M9: truth, core solid, fast and proven, usable, connected, operable, public testnet, audited, mainnet, ecosystem."></p>
 
+Apps and services, wave by wave: [docs/ecosystem/ROADMAP.md](docs/ecosystem/ROADMAP.md),
+generated from the [ecosystem catalog](docs/ecosystem/CATALOG.md).
 Order: [docs/MISSION.md](docs/MISSION.md). Plan: [docs/trajectory.md](docs/trajectory.md).
-Done: [PROGRESS.md](PROGRESS.md). Where it stands now: [STATE.md](STATE.md).
+Done: [PROGRESS.md](PROGRESS.md) and [CHANGELOG.md](CHANGELOG.md), one line per
+merged pull request. Where it stands now: [STATE.md](STATE.md).
 
 ## Contributing
 
-Suggestions, bug reports, docs fixes and tests are welcome.
+Suggestions, bug reports, docs fixes and tests are welcome. Issues labelled
+[good first issue](https://github.com/EricWijesinghe/Maya2C/labels/good%20first%20issue)
+each name the files, the context and the check that proves them done.
 [CONTRIBUTING.md](CONTRIBUTING.md) explains setup on each OS, the build rule
 that keeps this repository's machine alive, test-first expectations, and what
 gets merged as written. Questions go to
@@ -182,8 +191,8 @@ gets merged as written. Questions go to
 
 Logo assets are in [`logo-assets/`](logo-assets/) and are the source of truth.
 `cargo xtask brand-assets --check` and `cargo xtask og-card --check` catch
-drift. The banner in `docs/brand/` is drawn from the official emblem, which is
-never redrawn. Brand rules: [BRAND.md](BRAND.md).
+drift. The README banners and the social preview in `.github/assets/` embed
+the official emblem from `logo-assets/website/`, scaled, never redrawn. Brand rules: [BRAND.md](BRAND.md).
 
 ## Author
 

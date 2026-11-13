@@ -21,6 +21,8 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 | Why is it designed this way? | `docs/adr/` (one ADR per decision), `DECISIONS.md` (short ones) |
 | What must never break? | `docs/invariants.md` |
 | What is done / next / deferred? | `PROGRESS.md` / `STATE.md` "Do next" / `BACKLOG.md` |
+| What changed, PR by PR? | `CHANGELOG.md` (generated: `cargo xtask devlog changelog`) |
+| What gets built, wave by wave? | `docs/ecosystem/ROADMAP.md` (generated from `docs/ecosystem/CATALOG.md`; CI checks) |
 | What could go wrong? | `RISKS.md`, `THREAT_MODEL.md` |
 | Is it ready to launch? | `LAUNCH.md` (gates), `READINESS.md` (generated), `docs/mainnet-readiness.md` |
 | How is the wire/state defined? | `spec/` |
