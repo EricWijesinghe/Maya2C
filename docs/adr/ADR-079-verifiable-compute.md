@@ -2,6 +2,7 @@
 
 **Status:** Proposed, 2026-11-03. Build after mainnet (ADR-016, ADR-069). Nothing in this ADR enters the launch binary. Every consensus part ships at an activation height of `u64::MAX` until its own ADR and a written height exist.
 **Date:** 2026-11-03
+**Amended 2026-11-14:** the float-free, model-free rule this ADR cited as invariant 20 is invariant 36, checked by `cargo xtask float-check`; invariant 20 retired with `crates/zkml` (ADR-008).
 **Related:** [ADR-016](ADR-016-launch-scope.md) (launch scope), [ADR-044](ADR-044-mining-rewards-lane.md) (reward lane and the `WorkClaim` kind byte), [ADR-077](ADR-077-sentinel-recovery-network.md) (AI as advisory, never executing), [ADR-078](ADR-078-omega-durable-advantage.md) (three-speed evolution), [invariants](../invariants.md)
 
 ## Context

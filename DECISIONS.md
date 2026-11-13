@@ -904,11 +904,15 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 
 ## 2026-11-14 — "No float, no model output in consensus" is invariant 36, with a check (Eric 2026-11-14)
 
-Founder audit Q20, option A (Eric 2026-11-14, "I approve everything, proceed"). The rule sat under invariant 20, which retired with `crates/zkml` (ADR-008), yet CLAUDE.md, ADR-079 and an earlier entry here ("AI is advisory only (invariant 20)") still cited it as live.
+Owner decision (Eric 2026-11-14, "I approve everything, proceed"). The rule sat under invariant 20, which retired with `crates/zkml` (ADR-008), yet CLAUDE.md, ADR-079 and an earlier entry here ("AI is advisory only (invariant 20)") still cited it as live.
 
 - **Number 36, not 35:** PR #447 already writes a proposed invariant 35 (account authority). Numbers are never reused, so this takes the next free one.
-- **The check:** `cargo xtask float-check` lexes the non-test sources of the consensus crates with `proc-macro2` (already in the lock) and fails on `f32`/`f64` or a float literal, macro bodies included, and on an ML runtime in their `[dependencies]`. The allowlist starts empty: on master at a0ee0ad6 the scan reads 146 files and finds 0 violations.
+- **The check:** `cargo xtask float-check` lexes the non-test sources of every path crate the node binary links, with `proc-macro2` (already in the lock), and fails on `f32`/`f64`, an ident with an `f32`/`f64` segment (`as_f64`), `Float`, or a float literal, macro bodies included.
+- **Scope from the link graph, not a hand list:** a first version scanned eleven listed paths and missed `crates/node/src/crypto`, `oracle`, `dag-bft`, `staking`, `vm` and the invariant-25 state writers. The scope is now `bins/maya2c-node` plus every path crate it reaches through normal, build and target-specific dependencies, minus six excluded paths with written reasons (node `rpc`, `network`, `metrics`; `archive`; `iso20022`; `hal/ebpf-net`). On this branch it scans 329 files in 31 crates and finds 0 violations.
+- **Allowlist by exact tokens:** one entry, `bins/maya2c-node/src/bft.rs`, for the finality-latency metric (`f64`, `1_000.0`). Any other float in that file still fails.
+- **ML runtimes through `Cargo.lock`:** the node's dependency closure (569 packages) is walked, so a transitive, renamed or target-specific ML crate fails. Today none is present.
+- **The neural fee model:** `crates/fee-market/src/model/` is integer, compiled in, and dormant at `neural_activation_height = u64::MAX`. Giving it a finite height amends invariant 36. Moving it out of the launch binary (ADR-029b, with a lock-walk test) is pending PR #542 and is not merged.
 - **A lexer, not `syn`:** a `syn` visitor does not look inside macro calls, and `vec![0.5]` is still a float.
 - **CI:** a step in the `reality ledger` job, which needs no build of the node.
-- **Not covered:** an integer model inside a scanned crate (the neural fee gain leaves the launch binary under ADR-029b, with its own lock-walk test), and crates the node links outside the scanned list.
-- **No ADR:** this pins an existing rule; no behaviour changes.
+- **Not covered:** a float reached by type inference with no float token (`"0.5".parse()`, an `f64` from an excluded crate). `clippy::float_arithmetic` would close this and is a post-genesis item. WASM guest floats are outside the invariant; the VM makes them deterministic (`crates/vm/src/config.rs`).
+- **No ADR:** this pins an existing rule; no behaviour changes. ADR-079 carries a one-line amendment noting that invariant 20 is now 36.

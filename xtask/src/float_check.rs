@@ -6,45 +6,29 @@
 //! root is a fork. The rule used to live under invariant 20, which retired with
 //! `crates/zkml` (ADR-008) and left it as prose nobody checked.
 //!
-//! This lexes every non-test source file of the consensus crates and fails on
-//! an `f32`/`f64` token or a float literal anywhere outside an [`ALLOW`] entry,
-//! macro bodies included (a `syn` visitor would skip those). Comments and
-//! strings never reach the token stream. Items under `#[cfg(test)]` or
-//! `#[test]` are skipped. It also fails if a scanned crate depends directly on
-//! an ML runtime ([`ML_CRATES`]), the other half of the rule: a model's output
-//! must not decide a block, a payout or a parameter.
+//! This lexes every non-test source file the node binary links (scope:
+//! [`crate::float_scope`]) and fails on a float token outside an [`ALLOW`]
+//! entry, macro bodies included (a `syn` visitor would skip those): an `f32`
+//! or `f64` ident, an ident with `f32`/`f64` as a `_` segment (`as_f64`,
+//! `to_f32`), `Float`, or a float literal. Comments and strings never reach the
+//! token stream. Items under `#[cfg(test)]` or `#[test]` are skipped, and so is
+//! a file declared by `#[cfg(test)] mod x;`. It also fails if an ML runtime
+//! ([`ML_CRATES`]) is anywhere in the node's dependency closure.
+//!
+//! Not caught: a float reached by type inference with no float token in the
+//! scanned file (`"0.5".parse()` into an inferred type, a function from an
+//! unscanned crate that returns `f64`). `clippy::float_arithmetic` uses type
+//! information and closes that gap; it is not configured yet.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
-/// Directories and files that decide consensus, relative to the repo root.
-const ROOTS: &[&str] = &[
-    "crates/node/src/state",
-    "crates/node/src/consensus",
-    "crates/node/src/core",
-    "crates/node/src/upgrade.rs",
-    "crates/node/src/genesis.rs",
-    "crates/ledger-math/src",
-    "crates/dex/src",
-    "crates/governance/src",
-    "crates/fee-market/src",
-    "crates/vrf/src",
-    "crates/crypto-pq/src",
-];
+use crate::float_scope::{self, EXCLUDE, MUST_SCAN, under};
 
-/// Manifests whose `[dependencies]` must name no ML runtime.
-const MANIFESTS: &[&str] = &[
-    "crates/node/Cargo.toml",
-    "crates/ledger-math/Cargo.toml",
-    "crates/dex/Cargo.toml",
-    "crates/governance/Cargo.toml",
-    "crates/fee-market/Cargo.toml",
-    "crates/vrf/Cargo.toml",
-    "crates/crypto-pq/Cargo.toml",
-];
-
-/// Crates that run a model, or hold the dormant neural fee model (ADR-029b).
+/// Crates that run a model. `maya-neural-fee` and `maya-zkml-prover` are the
+/// names the neural fee gain and the zkML prover take outside the node (PR #542).
 const ML_CRATES: &[&str] = &[
     "tract-onnx",
     "tract-core",
@@ -58,30 +42,70 @@ const ML_CRATES: &[&str] = &[
     "maya-zkml-prover",
 ];
 
-/// `(repo-relative path, why a float there cannot reach a consensus rule)`.
-/// Empty: every scanned file is float-free. An entry needs a reviewer.
-const ALLOW: &[(&str, &str)] = &[];
+/// `(repo-relative file, the exact float tokens it may hold, why none of them
+/// reaches a consensus rule)`. Any other float in the file still fails. An
+/// entry needs a reviewer.
+const ALLOW: &[(&str, &[&str], &str)] = &[(
+    "bins/maya2c-node/src/bft.rs",
+    &["f64", "1_000.0"],
+    "`observe_finality` takes the finality latency in seconds for a Prometheus histogram; it is computed after the block is final and feeds nothing back",
+)];
 
-/// Every `f32`/`f64` token and float literal in `src`, outside test items.
-pub fn floats_in(src: &str) -> Result<Vec<String>, String> {
+/// Leading words of an item whose `,` does not end it (`fn f<A, B>()`, a
+/// `where` list). Anything else under a test attribute is a field, parameter,
+/// variant or match arm, and ends at its top-level `,`.
+const ITEM_KEYWORDS: &[&str] = &[
+    "fn",
+    "impl",
+    "mod",
+    "struct",
+    "enum",
+    "union",
+    "trait",
+    "use",
+    "const",
+    "static",
+    "type",
+    "unsafe",
+    "async",
+    "extern",
+    "macro_rules",
+    "let",
+];
+
+/// What one source file holds outside test items.
+#[derive(Default)]
+pub struct FileScan {
+    pub hits: Vec<String>,
+    /// `x` for each top-level `#[cfg(test)] mod x;`: files that are tests.
+    pub test_mods: Vec<String>,
+}
+
+/// Every float token in `src` outside test items, and its test modules.
+pub fn scan_file(src: &str) -> Result<FileScan, String> {
     let stream: TokenStream = src.parse().map_err(|e| format!("does not lex: {e:?}"))?;
-    let mut out = Vec::new();
-    scan(stream, &mut out);
+    let tokens: Vec<TokenTree> = stream.into_iter().collect();
+    let mut out = FileScan::default();
+    for i in 0..tokens.len() {
+        if is_test_attr(&tokens, i) {
+            out.test_mods.extend(out_of_line_mod(&tokens, i + 2));
+        }
+    }
+    scan(&tokens, &mut out.hits);
     Ok(out)
 }
 
-fn scan(stream: TokenStream, out: &mut Vec<String>) {
-    let tokens: Vec<TokenTree> = stream.into_iter().collect();
+fn scan(tokens: &[TokenTree], out: &mut Vec<String>) {
     let mut i = 0;
     while i < tokens.len() {
-        if is_test_attr(&tokens, i) {
-            i = skip_item(&tokens, i + 2);
+        if is_test_attr(tokens, i) {
+            i = skip_item(tokens, i + 2);
             continue;
         }
         match &tokens[i] {
-            TokenTree::Group(g) => scan(g.stream(), out),
-            TokenTree::Ident(id) if id == "f32" || id == "f64" => out.push(id.to_string()),
-            TokenTree::Literal(lit) if !is_tuple_index(&tokens, i) => {
+            TokenTree::Group(g) => scan(&g.stream().into_iter().collect::<Vec<_>>(), out),
+            TokenTree::Ident(id) if names_a_float(&id.to_string()) => out.push(id.to_string()),
+            TokenTree::Literal(lit) if !is_tuple_index(tokens, i) => {
                 let text = lit.to_string();
                 if is_float_literal(&text) {
                     out.push(text);
@@ -93,8 +117,20 @@ fn scan(stream: TokenStream, out: &mut Vec<String>) {
     }
 }
 
+/// `f64`, `as_f64`, `to_f32`, `f64_bits`, or `num_traits::Float`.
+fn names_a_float(id: &str) -> bool {
+    id == "Float" || id.split('_').any(|s| s == "f32" || s == "f64")
+}
+
+fn punct(t: Option<&TokenTree>) -> Option<&proc_macro2::Punct> {
+    match t {
+        Some(TokenTree::Punct(p)) => Some(p),
+        _ => None,
+    }
+}
+
 fn is_punct(t: Option<&TokenTree>, c: char) -> bool {
-    matches!(t, Some(TokenTree::Punct(p)) if p.as_char() == c)
+    punct(t).is_some_and(|p| p.as_char() == c)
 }
 
 /// `#[test]` or `#[cfg(test)]` starting at `i`.
@@ -109,17 +145,85 @@ fn is_test_attr(tokens: &[TokenTree], i: usize) -> bool {
     g.delimiter() == Delimiter::Bracket && (body == "test" || body == "cfg(test)")
 }
 
-/// Index after the item starting at `j`: its brace body or its `;`.
-fn skip_item(tokens: &[TokenTree], mut j: usize) -> usize {
+/// Index of the first token after further `#[..]` attributes and a `pub`/`pub(..)`.
+fn after_attrs(tokens: &[TokenTree], mut j: usize) -> usize {
+    loop {
+        match tokens.get(j) {
+            Some(TokenTree::Punct(p)) if p.as_char() == '#' => j += 2,
+            Some(TokenTree::Ident(id)) if id == "pub" => {
+                j += 1;
+                if matches!(tokens.get(j), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
+                {
+                    j += 1;
+                }
+            }
+            _ => return j,
+        }
+    }
+}
+
+fn ident_at(tokens: &[TokenTree], j: usize) -> Option<String> {
+    match tokens.get(j) {
+        Some(TokenTree::Ident(id)) => Some(id.to_string()),
+        _ => None,
+    }
+}
+
+/// `x` when the item at `j` is `mod x;`.
+fn out_of_line_mod(tokens: &[TokenTree], j: usize) -> Option<String> {
+    let k = after_attrs(tokens, j);
+    if ident_at(tokens, k)? == "mod" && is_punct(tokens.get(k + 2), ';') {
+        ident_at(tokens, k + 1)
+    } else {
+        None
+    }
+}
+
+/// `p` is joined to a following `c` (`<=`, `>=`, `=>`).
+fn joined(p: &proc_macro2::Punct, next: Option<&TokenTree>, c: char) -> bool {
+    p.spacing() == Spacing::Joint && is_punct(next, c)
+}
+
+/// Index after the test-only item whose tokens start at `start`: its brace
+/// body, its `;`, or, for a field, parameter, variant or match arm, its
+/// top-level `,` (not one inside `<..>` generics).
+fn skip_item(tokens: &[TokenTree], start: usize) -> usize {
+    let commas_end = ident_at(tokens, after_attrs(tokens, start))
+        .is_none_or(|w| !ITEM_KEYWORDS.contains(&w.as_str()));
+    let mut angle = 0usize;
+    // A `,` passed inside `<`: a generic list, or the `<` was a comparison.
+    let mut first_comma = None;
+    let mut j = start;
     while let Some(t) = tokens.get(j) {
         j += 1;
-        match t {
+        let p = match t {
             TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => return j,
-            TokenTree::Punct(p) if p.as_char() == ';' => return j,
+            TokenTree::Punct(p) => p,
+            _ => continue,
+        };
+        let next = tokens.get(j);
+        let after_arrow = j >= 2
+            && punct(tokens.get(j - 2))
+                .is_some_and(|q| q.spacing() == Spacing::Joint && matches!(q.as_char(), '-' | '='));
+        match p.as_char() {
+            ';' => return j,
+            ',' if commas_end && angle == 0 => return j,
+            ',' if commas_end => {
+                first_comma.get_or_insert(j);
+            }
+            '<' if !joined(p, next, '=') => angle += 1,
+            '>' if !after_arrow && !joined(p, next, '=') => angle = angle.saturating_sub(1),
+            // A match arm cannot span `=>`: the open `<` was a comparison.
+            '=' if joined(p, next, '>') && angle > 0 => {
+                if let Some(c) = first_comma {
+                    return c;
+                }
+            }
             _ => {}
         }
     }
-    j
+    // `<` never closed: it was a comparison, so the item ended at the comma.
+    first_comma.unwrap_or(j)
 }
 
 /// `x.0.1` lexes `0.1` as a float literal; it is two tuple indices. `..1.5`
@@ -151,34 +255,36 @@ fn rust_files(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         let p = entry
             .map_err(|e| format!("{}: {e}", path.display()))?
             .path();
-        // shortcut: a file named tests.rs is taken as a `#[cfg(test)] mod tests;`
-        // (true for all three in scope today); track the declaring attribute if one is not.
-        let is_test_file = p.file_name().is_some_and(|n| n == "tests.rs");
         if p.is_dir() {
             rust_files(&p, out)?;
-        } else if p.extension().is_some_and(|x| x == "rs") && !is_test_file {
+        } else if p.extension().is_some_and(|x| x == "rs") {
             out.push(p);
         }
     }
     Ok(())
 }
 
-/// ML runtimes named in a manifest's `[dependencies]` (by key or `package =`).
-pub fn ml_deps_in(manifest: &str) -> Result<Vec<String>, String> {
-    let doc: toml::Table = manifest.parse().map_err(|e| format!("not TOML: {e}"))?;
-    let Some(deps) = doc.get("dependencies").and_then(toml::Value::as_table) else {
-        return Ok(Vec::new());
-    };
-    Ok(deps
-        .iter()
-        .map(|(key, v)| {
-            v.get("package")
-                .and_then(toml::Value::as_str)
-                .unwrap_or(key)
-                .to_owned()
+/// `path` is `dir/m.rs` or under `dir/m/` for a `#[cfg(test)] mod m;` in a
+/// file of `decls`.
+fn is_test_file(path: &str, decls: &[(String, Vec<String>)]) -> bool {
+    decls.iter().any(|(file, mods)| {
+        let base = match file.rsplit_once('/') {
+            Some((dir, "mod.rs" | "lib.rs" | "main.rs")) => dir,
+            _ => file.trim_end_matches(".rs"),
+        };
+        mods.iter().any(|m| {
+            let p = format!("{base}/{m}");
+            path == format!("{p}.rs") || under(path, &p)
         })
-        .filter(|name| ML_CRATES.contains(&name.as_str()))
-        .collect())
+    })
+}
+
+/// [`MUST_SCAN`] entries no scanned file falls under.
+fn unscanned<'a>(must: &[&'a str], scanned: &[String]) -> Vec<&'a str> {
+    must.iter()
+        .copied()
+        .filter(|m| !scanned.iter().any(|f| under(f, m)))
+        .collect()
 }
 
 fn rel(root: &Path, p: &Path) -> String {
@@ -190,32 +296,79 @@ fn rel(root: &Path, p: &Path) -> String {
 
 pub fn run(_args: &[String]) -> Result<(), String> {
     let root = crate::workspace_root();
-    let mut files = Vec::new();
-    for r in ROOTS {
-        rust_files(&root.join(r), &mut files)?;
+    let linked = float_scope::linked(&root)?;
+    let mut paths = Vec::new();
+    for d in &linked.dirs {
+        rust_files(&root.join(d).join("src"), &mut paths)?;
     }
+    let mut all: Vec<String> = paths.iter().map(|p| rel(&root, p)).collect();
+    all.sort();
+    let (excluded, lexed): (Vec<String>, Vec<String>) = all
+        .into_iter()
+        .partition(|f| EXCLUDE.iter().any(|(e, _)| under(f, e)));
+    let mut scans = Vec::new();
+    for f in &lexed {
+        let src = std::fs::read_to_string(root.join(f)).map_err(|e| format!("{f}: {e}"))?;
+        scans.push((f.clone(), scan_file(&src).map_err(|e| format!("{f}: {e}"))?));
+    }
+    let decls: Vec<(String, Vec<String>)> = scans
+        .iter()
+        .filter(|(_, s)| !s.test_mods.is_empty())
+        .map(|(f, s)| (f.clone(), s.test_mods.clone()))
+        .collect();
+    let scanned: Vec<&(String, FileScan)> = scans
+        .iter()
+        .filter(|(f, _)| !is_test_file(f, &decls))
+        .collect();
     let mut failures = Vec::new();
-    for f in &files {
-        let path = rel(&root, f);
-        if ALLOW.iter().any(|(p, _)| *p == path) {
-            continue;
-        }
-        let src = std::fs::read_to_string(f).map_err(|e| format!("{path}: {e}"))?;
-        let hits = floats_in(&src).map_err(|e| format!("{path}: {e}"))?;
-        if !hits.is_empty() {
-            failures.push(format!("{path}: {}", hits.join(", ")));
+    for (f, s) in &scanned {
+        let allowed = ALLOW
+            .iter()
+            .find(|(p, _, _)| p == f)
+            .map_or(&[][..], |(_, toks, _)| *toks);
+        if s.hits != allowed {
+            failures.push(format!(
+                "{f}: {} (allowlist expects [{}])",
+                s.hits.join(", "),
+                allowed.join(", ")
+            ));
         }
     }
-    for m in MANIFESTS {
-        let text = std::fs::read_to_string(root.join(m)).map_err(|e| format!("{m}: {e}"))?;
-        for dep in ml_deps_in(&text).map_err(|e| format!("{m}: {e}"))? {
-            failures.push(format!("{m}: depends on ML runtime `{dep}`"));
-        }
+    let scanned_names: Vec<String> = scanned.iter().map(|(f, _)| f.clone()).collect();
+    for (p, _, _) in ALLOW
+        .iter()
+        .filter(|(p, _, _)| !scanned_names.contains(&(*p).to_owned()))
+    {
+        failures.push(format!("{p}: allowlisted but not scanned (stale entry)"));
+    }
+    for (e, _) in EXCLUDE
+        .iter()
+        .filter(|(e, _)| !excluded.iter().any(|f| under(f, e)))
+    {
+        failures.push(format!(
+            "{e}: excluded but not linked by the node (stale entry)"
+        ));
+    }
+    for m in unscanned(MUST_SCAN, &scanned_names) {
+        failures.push(format!("{m}: consensus code no longer scanned"));
+    }
+    let ml: BTreeSet<&str> = ML_CRATES
+        .iter()
+        .copied()
+        .filter(|c| linked.names.contains(*c))
+        .collect();
+    for dep in ml {
+        failures.push(format!(
+            "{dep}: ML runtime in the node's dependency closure"
+        ));
     }
     println!(
-        "float-check: {} consensus files and {} manifests scanned, {} allowlisted, {} violations",
-        files.len(),
-        MANIFESTS.len(),
+        "float-check: {} files in {} linked crates scanned ({} test modules, {} excluded), {} packages checked for ML runtimes, {} allowlisted, {} violations",
+        scanned.len(),
+        linked.dirs.len(),
+        lexed.len() - scanned.len(),
+        excluded.len(),
+        linked.names.len(),
         ALLOW.len(),
         failures.len()
     );
@@ -235,7 +388,7 @@ mod tests {
     use super::*;
 
     fn hits(src: &str) -> Vec<String> {
-        floats_in(src).unwrap()
+        scan_file(src).unwrap().hits
     }
 
     #[test]
@@ -252,6 +405,20 @@ mod tests {
         assert_eq!(hits("let v = vec![1.5, 2.0];"), ["1.5", "2.0"]);
         assert_eq!(hits("let r = ..1.5;"), ["1.5"]);
         assert_eq!(hits("let x = f64::from(3u32);"), ["f64"]);
+    }
+
+    #[test]
+    fn a_float_named_inside_an_identifier_or_a_float_bound_is_found() {
+        assert_eq!(hits("let x = v.as_f64();"), ["as_f64"]);
+        assert_eq!(
+            hits("let y = n.to_f32().map(from_f64); let b = f64_bits;"),
+            ["to_f32", "from_f64", "f64_bits"]
+        );
+        assert_eq!(hits("fn g<T: num_traits::Float>() {}"), ["Float"]);
+        assert_eq!(
+            hits("let a = buf64; let b = f640; let c = af64_x;"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -276,19 +443,67 @@ mod tests {
             fn u() { let _ = 1.5; }
             #[cfg(test)]
             mod more;
+            #[cfg(test)]
+            fn gen<A, B>() where A: Into<f64>, B: Copy { 0.5 }
             fn live() -> f32 { 0.0 }
         ";
         assert_eq!(hits(src), ["f32", "0.0"]);
     }
 
     #[test]
-    fn an_ml_runtime_dependency_is_found_by_key_or_rename() {
-        let m = "[dependencies]\nserde = \"1\"\nort = \"2\"\nnn = { package = \"candle-core\", version = \"0.8\" }\n[dev-dependencies]\ntract-onnx = \"0.21\"\n";
-        // Keys come back sorted: `nn` before `ort`.
-        assert_eq!(ml_deps_in(m).unwrap(), ["candle-core", "ort"]);
+    fn a_test_field_parameter_variant_or_arm_hides_only_itself() {
+        assert_eq!(hits("struct S { #[cfg(test)] a: u8, b: f64 }"), ["f64"]);
+        assert_eq!(hits("fn f(#[cfg(test)] x: u8, y: f32) {}"), ["f32"]);
         assert_eq!(
-            ml_deps_in("[package]\nname = \"x\"\n").unwrap(),
-            Vec::<String>::new()
+            hits("struct S { #[cfg(test)] pub a: HashMap<K, f32>, b: f64 }"),
+            ["f64"]
+        );
+        assert_eq!(hits("enum E { #[cfg(test)] A(f32), B(f64) }"), ["f64"]);
+        assert_eq!(
+            hits("match k { #[cfg(test)] A => 1, B => g(0.5) }"),
+            ["0.5"]
+        );
+        assert_eq!(
+            hits("match k { #[cfg(test)] A => a < b, B => g(0.5) }"),
+            ["0.5"]
+        );
+        assert_eq!(
+            hits("match k { #[cfg(test)] A => a <= 1.5, B => g(0.5) }"),
+            ["0.5"]
+        );
+        assert_eq!(hits("let s = S { #[cfg(test)] a: 1.5, b: 2.5 };"), ["2.5"]);
+        assert_eq!(
+            hits("fn f(#[cfg(test)] x: impl Fn(u8) -> u8, y: f32) {}"),
+            ["f32"]
+        );
+    }
+
+    #[test]
+    fn only_a_module_declared_under_cfg_test_marks_its_file_as_a_test() {
+        let s = scan_file("#[cfg(test)]\nmod tests;\npub mod real;\n#[cfg(test)] #[path = \"x.rs\"] pub(crate) mod more;").unwrap();
+        assert_eq!(s.test_mods, ["tests", "more"]);
+        let decls = [
+            ("crates/a/src/suite/mod.rs".to_owned(), s.test_mods.clone()),
+            ("crates/a/src/lib.rs".to_owned(), vec!["tests".to_owned()]),
+        ];
+        assert!(is_test_file("crates/a/src/suite/tests.rs", &decls));
+        assert!(is_test_file("crates/a/src/suite/tests/vectors.rs", &decls));
+        assert!(is_test_file("crates/a/src/tests.rs", &decls));
+        assert!(!is_test_file("crates/a/src/suite/real.rs", &decls));
+        assert!(!is_test_file("crates/a/src/other/tests.rs", &decls));
+        let flat = [(
+            "crates/a/src/agility.rs".to_owned(),
+            vec!["tests".to_owned()],
+        )];
+        assert!(is_test_file("crates/a/src/agility/tests.rs", &flat));
+    }
+
+    #[test]
+    fn a_consensus_path_with_no_scanned_file_is_reported() {
+        let scanned = ["crates/dex/src/lib.rs".to_owned()];
+        assert_eq!(
+            unscanned(&["crates/dex", "crates/vm"], &scanned),
+            ["crates/vm"]
         );
     }
 

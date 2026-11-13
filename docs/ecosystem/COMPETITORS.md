@@ -149,7 +149,7 @@ builds on. NEW rows are added to CATALOG in the same change.
 1. **Invariant citation.** CLAUDE.md says "no float enters a consensus rule
    (invariant 20)". `docs/invariants.md` marks invariant 20 as retired (zkML,
    ADR-008). Either the citation moves to invariant 24, or invariant 20 is
-   restored with a test. Resolved 2026-11-14 (founder audit Q20 A): the rule
+   restored with a test. Resolved 2026-11-14 (owner decision, Eric): the rule
    is invariant 36, pinned by `cargo xtask float-check`.
 2. **Competitor sources.** About half the competitor cells come from
    aggregators, press releases or secondary blogs, and some sources disagree

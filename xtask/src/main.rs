@@ -30,6 +30,7 @@ mod eco_metrics;
 mod eth_fixtures;
 mod evidence;
 mod float_check;
+mod float_scope;
 mod gap_register;
 mod genesis_check;
 mod go_no_go;
@@ -200,9 +201,9 @@ cargo xtask <command>
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
-  float-check           Fail on an f32/f64 or float literal in a consensus
-                        crate, or an ML runtime among their dependencies
-                        (invariant 36).
+  float-check           Fail on an f32/f64 or float literal in code the node
+                        binary links, or an ML runtime in its dependency
+                        closure (invariant 36).
   mesh-check            Run mesh-cli check:data against a one-validator
                         devnet and maya2c-mesh [--mesh-cli PATH]
                         [--timeout SECS] [--workdir DIR].
