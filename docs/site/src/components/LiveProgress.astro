@@ -1,0 +1,150 @@
+---
+// Live progress bars. Values are rendered at build time from public/progress.json
+// and public/health.json (both counted by scripts at each build, never typed),
+// then re-read every 5 minutes so an open page follows each 6-hourly rebuild.
+// Gate cells come from src/data/mainnet-gates.ts (mirrors docs/mainnet-v1-plan.md).
+import p from "../../public/progress.json";
+import h from "../../public/health.json";
+import { mainnetGates } from "../data/mainnet-gates";
+const ledgerTotal = h.ledger.total;
+const ledgerVerified = h.ledger.by_status.verified;
+const bars = [
+  { key: "roadmap", label: "Roadmap steps done", done: p.progress.done, of: p.progress.done + p.progress.open, src: "PROGRESS.md checkboxes" },
+  { key: "ledger", label: "Features verified by tests", done: ledgerVerified, of: ledgerTotal, src: "features.toml, status = verified" },
+  { key: "backlog", label: "Backlog items finished", done: p.backlog.done, of: p.backlog.items, src: "BACKLOG.md" },
+];
+const ci = (p as { ci_pass_rate?: { passed: number; of: number } }).ci_pass_rate;
+if (ci) bars.splice(1, 0, { key: "ci", label: "Master CI runs passing", done: ci.passed, of: ci.of, src: "newest finished master CI runs" });
+const pct = (d: number, o: number) => (o ? Math.round((d / o) * 100) : 0);
+const met = mainnetGates.filter((g) => g.state === "met").length;
+---
+
+<section class="not-content lp" data-lp aria-label="Live project progress">
+  <p class="lp-live"><i class="pulse" aria-hidden="true"></i> Live · counted <span data-gen>{new Date(p.generated).toISOString().slice(0, 16).replace("T", " ")} UTC</span></p>
+
+  <div class="gates">
+    <div class="gates-head">
+      <h3>Mainnet gates</h3>
+      <p class="big"><span data-count={met}>{met}</span><small>/ {mainnetGates.length}</small></p>
+    </div>
+    <ol class="cells" role="list">
+      {mainnetGates.map((g) => (
+        <li><button type="button" class={`cell ${g.state}`} data-gate={g.n} aria-label={`Gate ${g.n}: ${g.name}, ${g.state}`} style={`--i:${g.n}`}><span>{g.n}</span></button></li>
+      ))}
+    </ol>
+    <p class="gate-detail" data-gate-detail aria-live="polite">Tap a gate to see what it checks.</p>
+    <p class="legend"><i class="sw met"></i>met <i class="sw running"></i>in progress <i class="sw waiting"></i>waiting</p>
+  </div>
+
+  <ul class="bars">
+    {bars.map((b) => (
+      <li data-bar={b.key} data-done={b.done} data-of={b.of}>
+        <div class="row"><span class="lbl">{b.label}</span><span class="val"><b data-pct>{pct(b.done, b.of)}</b>% <small data-frac>{b.done} / {b.of}</small></span></div>
+        <div class="track" role="progressbar" aria-label={b.label} aria-valuemin="0" aria-valuemax={b.of} aria-valuenow={b.done}>
+          <div class="fill" style={`--p:${pct(b.done, b.of)}%`}></div>
+        </div>
+        <small class="src">{b.src}</small>
+      </li>
+    ))}
+  </ul>
+</section>
+
+<script>
+  import { mainnetGates } from "../data/mainnet-gates";
+  const REFRESH_MS = 5 * 60 * 1000;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-lp]")) {
+    root.classList.add("armed");
+    const countUp = (el: HTMLElement, to: number) => {
+      if (reduce) { el.textContent = String(to); return; }
+      const t0 = performance.now(), dur = 1200;
+      const step = (t: number) => { const k = Math.min(1, (t - t0) / dur); el.textContent = String(Math.round(to * (1 - (1 - k) ** 3))); if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    };
+    const animate = () => {
+      root.classList.add("go");
+      root.querySelectorAll<HTMLElement>("[data-count]").forEach((el) => countUp(el, Number(el.dataset.count)));
+      root.querySelectorAll<HTMLElement>("[data-bar]").forEach((li) => countUp(li.querySelector("[data-pct]")!, Number(li.querySelector("[data-pct]")!.textContent)));
+    };
+    // Bars fill when they scroll into view, not before nobody can see them.
+    new IntersectionObserver((es, io) => { if (es.some((e) => e.isIntersecting)) { animate(); io.disconnect(); } }, { threshold: 0.3 }).observe(root);
+
+    const detail = root.querySelector<HTMLElement>("[data-gate-detail]")!;
+    root.querySelectorAll<HTMLButtonElement>("[data-gate]").forEach((b) => b.addEventListener("click", () => {
+      const g = mainnetGates.find((x) => x.n === Number(b.dataset.gate))!;
+      root.querySelectorAll("[data-gate]").forEach((x) => x.classList.toggle("sel", x === b));
+      detail.innerHTML = "";
+      const s = document.createElement("strong"); s.textContent = `Gate ${g.n} · ${g.name}: `;
+      const a = document.createElement("a"); a.href = g.href; a.textContent = `evidence: ${g.evidence}`;
+      detail.append(s, `${g.line}. `, a);
+      document.dispatchEvent(new CustomEvent("maya:quest", { detail: { id: "gate" } }));
+    }));
+
+    const set = (key: string, done: number, of: number) => {
+      const li = root.querySelector<HTMLElement>(`[data-bar="${key}"]`);
+      if (!li || !of) return;
+      const p = Math.round((done / of) * 100);
+      li.querySelector<HTMLElement>("[data-pct]")!.textContent = String(p);
+      li.querySelector<HTMLElement>("[data-frac]")!.textContent = `${done} / ${of}`;
+      li.querySelector<HTMLElement>(".fill")!.style.setProperty("--p", `${p}%`);
+      li.querySelector(".track")!.setAttribute("aria-valuenow", String(done));
+    };
+    const refresh = async () => {
+      try {
+        const [p, h] = await Promise.all(["/progress.json", "/health.json"].map((u) => fetch(u, { cache: "no-store" }).then((r) => r.json())));
+        set("roadmap", p.progress.done, p.progress.done + p.progress.open);
+        set("backlog", p.backlog.done, p.backlog.items);
+        if (p.ci_pass_rate) set("ci", p.ci_pass_rate.passed, p.ci_pass_rate.of);
+        set("ledger", h.ledger.by_status.verified, h.ledger.total);
+        root.querySelector("[data-gen]")!.textContent = `${new Date(p.generated).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+      } catch { /* the build-time figures stay */ }
+    };
+    setInterval(refresh, REFRESH_MS);
+  }
+</script>
+
+<style>
+  .lp { margin: 1.5rem auto 2rem; max-width: 46rem; display: grid; gap: 1.25rem; }
+  .lp-live { margin: 0; font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.45rem; }
+  .pulse { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--verified); box-shadow: 0 0 0 0 rgba(69, 224, 160, 0.6); animation: ping 2s infinite; }
+  .gates, .bars li { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 1rem; padding: 1rem 1.1rem; }
+  .gates-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .gates h3 { margin: 0; font-size: 1.05rem; }
+  .big { margin: 0; font-size: 2.2rem; font-weight: 800; color: var(--cherenkov-hi); font-variant-numeric: tabular-nums; }
+  .big small { font-size: 1rem; color: var(--muted); margin-left: 0.2rem; }
+  .cells { list-style: none; padding: 0; margin: 0.75rem 0 0; display: grid; grid-template-columns: repeat(10, 1fr); gap: 0.35rem; }
+  .cells li { margin: 0; }
+  .cell { width: 100%; aspect-ratio: 1 / 1.4; min-height: 44px; border-radius: 0.5rem; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.04); color: var(--text); font: inherit; font-weight: 700; font-size: 0.8rem; cursor: pointer; position: relative; overflow: hidden;
+    transition: opacity 0.4s calc(var(--i) * 70ms), transform 0.4s calc(var(--i) * 70ms), box-shadow 0.2s; }
+  /* Hidden only once the script has armed the section, so no-JS shows the final state. */
+  .armed .cell { opacity: 0; transform: translateY(8px); }
+  .armed.go .cell { opacity: 1; transform: none; }
+  .cell.met { background: linear-gradient(180deg, #45e0a0, #1fb5c2); color: #02161a; border-color: transparent; }
+  .cell.running { background: linear-gradient(180deg, rgba(230, 178, 96, 0.35), rgba(230, 178, 96, 0.1)); border-color: var(--signal); }
+  .cell.running::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35), transparent 70%); animation: sweep 2.2s infinite; }
+  .cell.sel, .cell:focus-visible { box-shadow: 0 0 0 2px var(--cherenkov-hi); }
+  .gate-detail { margin: 0.75rem 0 0; font-size: 0.9rem; color: var(--lede); min-height: 2.6em; }
+  .legend { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--muted); display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 0.2rem; margin-right: -0.4rem; }
+  .sw.met { background: #45e0a0; } .sw.running { background: var(--signal); } .sw.waiting { background: rgba(255, 255, 255, 0.12); }
+
+  .bars { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; }
+  .bars li { margin: 0; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+  .lbl { font-weight: 600; }
+  .val b { font-size: 1.5rem; color: var(--cherenkov-hi); font-variant-numeric: tabular-nums; }
+  .val small, .src { color: var(--muted); font-size: 0.75rem; }
+  .track { margin: 0.5rem 0 0.3rem; height: 0.85rem; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+  .fill { height: 100%; width: var(--p); border-radius: inherit; background: linear-gradient(90deg, #0e8f9c, #1fb5c2, #7eeaf0); position: relative; transition: width 1.4s cubic-bezier(.22,1,.36,1); }
+  .fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.45), transparent 65%); animation: sweep 2.6s infinite; }
+  .armed .fill { width: 0; }
+  .armed.go .fill { width: var(--p); }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes ping { 70% { box-shadow: 0 0 0 0.5rem rgba(69, 224, 160, 0); } 100% { box-shadow: 0 0 0 0 rgba(69, 224, 160, 0); } }
+  @media (max-width: 520px) { .cells { grid-template-columns: repeat(5, 1fr); } }
+  @media (prefers-reduced-motion: reduce) {
+    .cell, .fill { transition: none; } .armed .cell { opacity: 1; transform: none; } .armed .fill { width: var(--p); }
+    .fill::after, .cell.running::after, .pulse { animation: none; }
+  }
+</style>
