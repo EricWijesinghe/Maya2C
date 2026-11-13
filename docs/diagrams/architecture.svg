@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="t d">
+<title id="t">Maya2C system architecture</title>
+<desc id="d">Apps call the API gateway and node RPC; inside the node, the mempool feeds DAG-BFT ordering, the WASM VM executes, and state commits a state root; libp2p with ML-KEM over Noise carries peers; ML-DSA-65, SLH-DSA and ledger-math sit underneath.</desc>
+<style>
+  text { font-family: Manrope, Inter, "Segoe UI", Helvetica, Arial, sans-serif; fill: #eef3f3; }
+  .h { font-size: 15px; font-weight: 700; }
+  .s { font-size: 12px; fill: #b9c6ca; }
+  .p { font-size: 11px; fill: #8a9ca3; font-family: ui-monospace, Consolas, monospace; }
+  .lane { font-size: 12px; font-weight: 700; fill: #8a9ca3; letter-spacing: 2px; }
+  .box { fill: #0c171d; stroke: #2cc3cf; stroke-width: 1.5; }
+  .core { fill: #12232b; stroke: #8ff0f5; stroke-width: 1.5; }
+  .pq { fill: #1d1709; stroke: #d9b97a; stroke-width: 1.5; }
+  .wire { stroke: #8a9ca3; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8a9ca3"/></marker>
+</defs>
+<rect width="1200" height="660" fill="#050b0f"/>
+<text x="45" y="38" font-size="20" font-weight="800">System architecture</text>
+<text x="1155" y="38" text-anchor="end" class="s">names match the crates · source: docs/diagrams/README.md</text>
+
+<text x="45" y="66" class="lane">APPS</text>
+<g>
+  <rect class="box" x="45" y="74" width="175" height="62" rx="10"/><text x="132" y="100" text-anchor="middle" class="h">Maya2C Wallet</text><text x="132" y="122" text-anchor="middle" class="p">apps/wallet-gui</text>
+  <rect class="box" x="232" y="74" width="175" height="62" rx="10"/><text x="319" y="100" text-anchor="middle" class="h">Maya2C Chat</text><text x="319" y="122" text-anchor="middle" class="p">apps/chat-gui</text>
+  <rect class="box" x="419" y="74" width="175" height="62" rx="10"/><text x="506" y="100" text-anchor="middle" class="h">Maya2C Hub</text><text x="506" y="122" text-anchor="middle" class="p">apps/hub</text>
+  <rect class="box" x="606" y="74" width="175" height="62" rx="10"/><text x="693" y="100" text-anchor="middle" class="h">Explorer</text><text x="693" y="122" text-anchor="middle" class="p">apps/explorer</text>
+  <rect class="box" x="793" y="74" width="175" height="62" rx="10"/><text x="880" y="100" text-anchor="middle" class="h">SDKs</text><text x="880" y="122" text-anchor="middle" class="p">sdks/</text>
+  <rect class="box" x="980" y="74" width="175" height="62" rx="10"/><text x="1067" y="100" text-anchor="middle" class="h">MCP server</text><text x="1067" y="122" text-anchor="middle" class="p">bins/maya2c-mcp</text>
+</g>
+<path class="wire" d="M600 138V166"/>
+
+<text x="45" y="162" class="lane">EDGE</text>
+<rect class="box" x="45" y="170" width="549" height="62" rx="10"/>
+<text x="319" y="196" text-anchor="middle" class="h">API gateway · REST + GraphQL</text>
+<text x="319" y="218" text-anchor="middle" class="s">default-deny method allowlist · crates/api-gateway</text>
+<rect class="box" x="606" y="170" width="549" height="62" rx="10"/>
+<text x="880" y="196" text-anchor="middle" class="h">Node JSON-RPC</text>
+<text x="880" y="218" text-anchor="middle" class="s">per-IP rate limiter · crates/node/src/rpc</text>
+<path class="wire" d="M600 234V262"/>
+
+<text x="45" y="258" class="lane">NODE · bins/maya2c-node + crates/node</text>
+<rect x="45" y="266" width="1110" height="170" rx="14" fill="none" stroke="#2cc3cf" stroke-opacity=".45" stroke-dasharray="6 5"/>
+<rect class="core" x="65" y="290" width="250" height="124" rx="10"/>
+<text x="190" y="322" text-anchor="middle" class="h">Mempool</text>
+<text x="190" y="344" text-anchor="middle" class="s">admission: both signatures,</text>
+<text x="190" y="362" text-anchor="middle" class="s">nonce, balance, breaker</text>
+<text x="190" y="396" text-anchor="middle" class="p">network/mempool.rs</text>
+<rect class="core" x="335" y="290" width="250" height="124" rx="10"/>
+<text x="460" y="322" text-anchor="middle" class="h">DAG-BFT</text>
+<text x="460" y="344" text-anchor="middle" class="s">Narwhal + Bullshark,</text>
+<text x="460" y="362" text-anchor="middle" class="s">stake-weighted finality</text>
+<text x="460" y="396" text-anchor="middle" class="p">crates/dag-bft · bft.rs</text>
+<rect class="core" x="605" y="290" width="250" height="124" rx="10"/>
+<text x="730" y="322" text-anchor="middle" class="h">WASM VM</text>
+<text x="730" y="344" text-anchor="middle" class="s">metered gas, fee market,</text>
+<text x="730" y="362" text-anchor="middle" class="s">contracts</text>
+<text x="730" y="396" text-anchor="middle" class="p">crates/vm · crates/fee-market</text>
+<rect class="core" x="875" y="290" width="260" height="124" rx="10"/>
+<text x="1005" y="322" text-anchor="middle" class="h">State</text>
+<text x="1005" y="344" text-anchor="middle" class="s">RocksDB, journaled apply,</text>
+<text x="1005" y="362" text-anchor="middle" class="s">state root must reproduce</text>
+<text x="1005" y="396" text-anchor="middle" class="p">crates/node/src/state</text>
+<path class="wire" d="M316 352H333"/><path class="wire" d="M586 352H603"/><path class="wire" d="M856 352H873"/>
+<path class="wire" d="M600 438V466"/>
+
+<text x="45" y="462" class="lane">PEERS</text>
+<rect class="pq" x="45" y="470" width="1110" height="62" rx="10"/>
+<text x="600" y="496" text-anchor="middle" class="h">libp2p · TCP + WebSocket · ML-KEM-1024 (768 fallback) layered over Noise</text>
+<text x="600" y="518" text-anchor="middle" class="s">gossip scoring, peer health, chain tag bound into the handshake · crates/node/src/network/pq</text>
+
+<text x="45" y="562" class="lane">CRYPTO AND MONEY MATH</text>
+<rect class="pq" x="45" y="570" width="360" height="62" rx="10"/>
+<text x="225" y="596" text-anchor="middle" class="h">ML-DSA-65 · FIPS 204</text><text x="225" y="618" text-anchor="middle" class="p">lattice half of every signature</text>
+<rect class="pq" x="420" y="570" width="360" height="62" rx="10"/>
+<text x="600" y="596" text-anchor="middle" class="h">SLH-DSA-SHA2-128s · FIPS 205</text><text x="600" y="618" text-anchor="middle" class="p">hash-based half · crates/crypto-pq</text>
+<rect class="pq" x="795" y="570" width="360" height="62" rx="10"/>
+<text x="975" y="596" text-anchor="middle" class="h">ledger-math · amount</text><text x="975" y="618" text-anchor="middle" class="p">checked 256-bit money math, Kani</text>
+</svg>

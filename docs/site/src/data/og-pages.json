@@ -1,5 +1,6 @@
 [
   { "slug": "experience", "title": "Experience Maya2C", "line": "Touch every part of the Maya2C network: live blocks, real API calls, post-quantum signatures, wallet, chat and more." },
+  { "slug": "design", "title": "What we are designing next", "line": "Written design proposals for Maya2C in plain words. Proposals, not features: none is built or switched on." },
   { "slug": "fields", "title": "Fields", "line": "Every field Maya2C spans, and the honest status of each part: shipped, research, simulator or planned." },
   { "slug": "health", "title": "Live health", "line": "Is maya-testnet-1 finalizing now, how long since its last halt, and what the public gateway does and does not show." },
   { "slug": "ecosystem/roadmap", "title": "Ecosystem roadmap", "line": "Every planned Maya2C app and service by wave, and how the chain compares with others." },
