@@ -175,6 +175,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
+            { label: "Live statistics", link: "/stats/" },
             { label: "Live network", link: "/network/" },
             { label: "FAQ", link: "/guides/faq" },
             { label: "Help run the network (easy)", link: "/guides/help-run" },
@@ -190,6 +191,7 @@ export default defineConfig({
             { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
+            { label: "Passkey unlock", link: "/guides/passkey-unlock" },
             { label: "Compiling a contract", link: "/guides/contracts" },
             { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
             { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },

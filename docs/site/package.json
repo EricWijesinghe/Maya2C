@@ -7,7 +7,7 @@
     "ingest": "node scripts/ingest.mjs",
     "health": "node scripts/gen-health.mjs && node scripts/gen-progress.mjs",
     "dev": "npm run ingest && npm run health && astro dev",
-    "build": "npm run ingest && npm run health && node scripts/gen-updates.mjs && astro build && node scripts/check-csp.mjs && node scripts/check-fields.mjs",
+    "build": "npm run ingest && npm run health && node scripts/gen-updates.mjs && node scripts/gen-og.mjs && astro build && node scripts/check-csp.mjs && node scripts/check-fields.mjs && node scripts/check-seo.mjs",
     "preview": "astro preview",
     "test": "node --test \"test/*.test.ts\""
   },
@@ -25,6 +25,7 @@
     "three": "^0.187.0"
   },
   "overrides": {
-    "postcss-selector-parser": "^7.1.6"
+    "postcss-selector-parser": "^7.1.6",
+    "katex": "$katex"
   }
 }
