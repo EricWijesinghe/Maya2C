@@ -153,10 +153,15 @@ phase that did it.
     lists:
     - `RECORD_LAYERS`, the one source for the generic-record prefixes;
     - `committed_prefixes()`;
-    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`, `bdelta:`). `bdelta:` is the Mesh
+    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`, `bdelta:`, `smt:`). `bdelta:` is the Mesh
       balance-change record (`state::balance_changes`): derived from the block's
       own before/after pair, so it is not consensus state, and it is deleted with
-      the undo journal on reorg.
+      the undo journal on reorg. `smt:` is the sparse accounts root cache
+      (`state::root_cache`, ADR-062a): derived from `acct:`, rebuilt locally
+      whenever it cannot be vouched for, and never in a snapshot, so two nodes
+      with different caches still compute the same root. Pinned by
+      `the_cache_prefix_is_local_only_and_outside_the_root` and
+      `a_snapshot_carries_no_root_cache_and_the_importer_builds_its_own`.
     - The upgrade schedule (`up:`, ADR-082) is a committed layer, not local-only.
       Its writes are overlay records, so `capture_undo` records their prior values
       and a reorg restores them.
@@ -172,7 +177,13 @@ phase that did it.
     store (`state/blocks.rs`) lives in the state's RocksDB:
     - `apply_canonical` writes the canonical-index entry and the tip pointer
       in the same `WriteBatch` as the block's state;
-    - `revert_canonical` does the same for a revert.
+    - `revert_canonical` does the same for a revert;
+    - on all four commit paths (`apply_block`, `apply_block_checked`,
+      `apply_journaled_with`, `revert_block_with`) the sparse root cache's
+      branch writes and its `smt:` marker go in the block's own batch, staged
+      under the write guard, so a crash leaves cache and accounts both old or
+      both new (ADR-062a; `incremental_root_equals_full_rebuild_over_random_histories`,
+      `blocks_a_reorg_and_a_restart_keep_the_cache_equal_to_the_full_rebuild`).
 
     `Chain::open` rebuilds from it and adopts a heavier stored branch, which is
     how a crash mid-reorg recovers. `seed_state` runs on a **fresh** database

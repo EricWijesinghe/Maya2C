@@ -32,7 +32,7 @@ order, and the first rule that fails is the result:
   which is what the vectors exercise. Their own rules are specified by code.
 - The sparse accounts tree (stateless mode, dark) has no vectors.
 - The root is a function of state alone. An implementation may compute it
-  incrementally — the node keeps a local cache of the sparse accounts tree's
-  interior nodes (ADR-062a, `state/root_cache.rs`) — but the value is the full
+  incrementally — once the sparse accounts tree is active, the node keeps a
+  local cache of its branches (ADR-062a, `state/root_cache.rs`) — but the value is the full
   function's, and `StateDB::state_root()` stays the full rebuild it is checked
   against. The cache is local-only and never part of a snapshot.

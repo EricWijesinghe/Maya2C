@@ -94,9 +94,10 @@ const NODE_KEY_LEN: usize = PREFIX_LEN + KEY_BYTES + 1;
 /// The marker's value: the root, then the account count, little-endian.
 const MARKER_LEN: usize = HASH_LEN + 8;
 
-/// One seek costs about as much as building this many accounts' share of a
-/// full rebuild. From `root_cost_by_state_size` at 1M accounts (test
-/// profile): ~1.9 µs a seek against ~1.1 µs an account rebuilt, so 2.
+/// One seek's cost in accounts of a full rebuild. `root_cost_by_state_size`
+/// (test profile) measured 1.3-1.4 µs a seek against 1.06-1.09 µs an account
+/// at 100k and 1M accounts. Rounded up to 2: the rebuild's cost does not
+/// depend on which addresses a block touches, the walk's does.
 const SEEK_COST_IN_ACCOUNTS: u64 = 2;
 
 /// Below this many accounts a block always walks: either path then costs a

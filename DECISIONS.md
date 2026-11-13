@@ -920,3 +920,22 @@ Two findings that contradict the brief, reported rather than worked around (Stan
    that the light client's SPV path verifies.
 2. Record layers (DEX, sealed, governance, staking, ...), channels, contracts and nullifiers are
    dense full rebuilds too and stay so (205-213 ms at 100k records, test profile). Not touched.
+
+### Revision after the PR #540 review (Eric 2026-11-14 MCQ, same item)
+
+- **Branches only.** The first layout stored every node holding two or more accounts,
+  single-child levels included: recipient pairs one bit apart cost about 240 entries each, so a
+  5 MiB block of them was a storage and slow-block vector once the sparse tree activates
+  (review, HIGH, found by reading the code). The cache now stores one entry per branch (N − 1 for
+  N accounts, whatever the addresses), with the children's digests, and folds single-child runs in
+  memory. Pinned by `neighbour_addresses_cost_one_branch_each_not_a_spine`.
+- **One walk a block, and a crossover.** The plan made with the root is carried to the commit in
+  the overlay and staged if the write generation is unchanged. A block touching enough keys
+  (touched × (bits(N) + 1) × 2 > N, N ≥ 4,096) builds from every account instead.
+- **A wrong cache no longer stalls a validator.** A declared root that the full rebuild matches
+  and the cache does not is accepted on the full rebuild, and the cache is withdrawn; repairs are
+  counted (`root_cache_stats`). Debug builds cross-check every planned root.
+- **Still dark at genesis, accounts layer only.** Not changed by the revision. The choice stays
+  Eric's: (a) activate `FeatureSet::STATELESS` at genesis (genesis root format, `spec/03-state.md`
+  rule and vectors for the sparse root, light-client SPV moved off the dense `account_proof`), or
+  (b) keep ADR-062a dark and accept that mainnet's per-block accounts cost is unchanged by it.

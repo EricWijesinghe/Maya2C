@@ -562,16 +562,22 @@ fn root_cost_by_state_size() {
         let walk = time(RUNS, || {
             root_after(db.raw_db(), &changes).unwrap().unwrap();
         });
-        // The commit side: plan, stage and write, as a block pays them once.
+        // The accounts layer's whole per-block cost: plan, stage and write, as
+        // a block pays them once. `plan` directly, not `root_with_overlay`,
+        // whose debug-build cross-check is itself a full rebuild.
         let commit = {
             let snapshot_dir = TempDir::new().expect("tempdir");
             db.create_checkpoint(snapshot_dir.path().join("c"))
                 .expect("checkpoint");
             let copy = StateDB::open(snapshot_dir.path().join("c")).expect("open copy");
-            let mut overlay = overlay.clone();
             let started = Instant::now();
-            copy.root_with_overlay(&mut overlay).expect("plan");
-            let plan = overlay.root_plan.clone().expect("plan");
+            let plan = super::plan(
+                copy.raw_db(),
+                0,
+                changes.clone(),
+                &super::Counters::default(),
+            )
+            .expect("plan");
             let mut batch = WriteBatch::default();
             super::stage(&mut batch, &plan);
             copy.raw_db().write(batch).expect("write");

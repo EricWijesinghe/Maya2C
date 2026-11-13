@@ -118,7 +118,7 @@ pub(super) fn truncate(key: &Key, depth: usize) -> Key {
     let mut out = [0; KEY_BYTES];
     let whole = depth / 8;
     out[..whole].copy_from_slice(&key[..whole]);
-    if depth % 8 != 0 {
+    if !depth.is_multiple_of(8) {
         out[whole] = key[whole] & !(0xFF >> (depth % 8));
     }
     out
