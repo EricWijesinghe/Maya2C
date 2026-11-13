@@ -4,7 +4,7 @@
 
 use std::future::Future;
 
-use maya_sentinel::obs::{ObserveError, Transport, observe};
+use maya_sentinel::obs::{Bft, ObserveError, Transport, observe};
 use primitive_types::U256;
 use serde_json::{Value, json};
 
@@ -43,7 +43,14 @@ fn healthy(method: &str) -> Result<Value, String> {
             "burned": "100000000000000000000",
         })),
         "get_peers" => Ok(json!({ "peer_id": "p", "peers": [{}, {}, {}, {}] })),
-        "get_mempool_info" => Ok(json!({ "pending": 7 })),
+        "get_mempool_info" => Ok(json!({ "size": 7, "bytes": 1234 })),
+        "get_checkpoint" => {
+            Ok(json!({ "epoch": 3, "height": 40, "block": "cd", "signatures": [] }))
+        }
+        "get_bft_status" => Ok(json!({
+            "epoch": 3, "round": 88, "committed_round": 86,
+            "validator": 2, "committee": 4, "follower": false,
+        })),
         other => Err(format!("{other}: method not found")),
     }
 }
@@ -55,7 +62,17 @@ async fn reads_every_field_when_the_node_serves_them() {
     assert_eq!(obs.tip_id, "ab".repeat(32));
     assert_eq!(obs.tip_txs, 2);
     assert_eq!(obs.peers, Some(4));
-    assert_eq!(obs.pending, Some(7));
+    assert_eq!(obs.pending, Some(7), "get_mempool_info serves `size`");
+    assert_eq!(obs.finalized, Some(40));
+    assert_eq!(
+        obs.bft,
+        Some(Bft {
+            round: 88,
+            committed_round: 86,
+            validator: Some(2),
+            follower: false
+        })
+    );
     let s = obs.supply.expect("supply requested");
     assert_eq!(s.total, U256::from(10u64).pow(U256::from(21u64)));
     assert_eq!(s.circulating.saturating_add(s.burned), s.total);
@@ -64,7 +81,11 @@ async fn reads_every_field_when_the_node_serves_them() {
 #[tokio::test]
 async fn optional_calls_degrade_to_none_and_never_fail_the_poll() {
     let answers = |m: &str| match m {
-        "get_mempool_info" | "get_peers" | "get_supply" => Err("method not found".to_owned()),
+        "get_mempool_info" | "get_peers" | "get_supply" | "get_checkpoint" => {
+            Err("method not found".to_owned())
+        }
+        // A node without a DAG-BFT engine answers null.
+        "get_bft_status" => Ok(Value::Null),
         other => healthy(other),
     };
     let obs = observe(&Scripted(answers), true)
@@ -74,6 +95,21 @@ async fn optional_calls_degrade_to_none_and_never_fail_the_poll() {
     assert_eq!(obs.pending, None);
     assert_eq!(obs.peers, None);
     assert_eq!(obs.supply, None);
+    assert_eq!(obs.finalized, None);
+    assert_eq!(obs.bft, None);
+}
+
+#[tokio::test]
+async fn an_observer_reports_no_committee_index() {
+    let answers = |m: &str| match m {
+        "get_bft_status" => Ok(json!({
+            "epoch": 1, "round": 0, "committed_round": 9,
+            "validator": null, "committee": 4, "follower": false,
+        })),
+        other => healthy(other),
+    };
+    let obs = observe(&Scripted(answers), false).await.expect("observed");
+    assert_eq!(obs.bft.map(|b| b.validator), Some(None));
 }
 
 #[tokio::test]

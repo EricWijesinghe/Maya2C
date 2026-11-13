@@ -573,6 +573,158 @@ mod tests {
         assert!(combine_approvals(&council, &TEST_CHAIN, a.to_vec()).is_ok());
     }
 
+    fn council_of(n: u8) -> (Vec<SigningKey>, Vec<Member>) {
+        (0..n).map(member).unzip()
+    }
+
+    #[test]
+    fn no_approvals_or_an_index_past_the_council_is_refused() {
+        let (ks, council) = council_of(3);
+        let err = combine_approvals(&council, &TEST_CHAIN, vec![]).unwrap_err();
+        assert!(err.to_string().contains("no approvals"), "{err}");
+        // A valid signature by a key that sits at no index of this council.
+        let (outsider, _) = member(9);
+        let err = combine_approvals(
+            &council,
+            &TEST_CHAIN,
+            vec![approval(&ks[0], 0, PAUSE), approval(&outsider, 3, PAUSE)],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("no member 3"), "{err}");
+        // The outsider claiming a real seat fails verification instead.
+        let err = combine_approvals(
+            &council,
+            &TEST_CHAIN,
+            vec![approval(&ks[0], 0, PAUSE), approval(&outsider, 1, PAUSE)],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("does not verify"), "{err}");
+    }
+
+    #[test]
+    fn a_repeat_is_refused_even_when_it_would_reach_the_majority() {
+        // 2 of 3 would be a majority; one member twice must not count as two.
+        let (ks, council) = council_of(3);
+        let err = combine_approvals(
+            &council,
+            &TEST_CHAIN,
+            vec![approval(&ks[1], 1, PAUSE), approval(&ks[1], 1, PAUSE)],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("approved twice"), "{err}");
+    }
+
+    #[test]
+    fn half_is_not_a_majority() {
+        let (ks, council) = council_of(4);
+        let err = combine_approvals(
+            &council,
+            &TEST_CHAIN,
+            vec![approval(&ks[0], 0, PAUSE), approval(&ks[3], 3, PAUSE)],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("not a majority"), "{err}");
+        let three = (0..3)
+            .map(|i| approval(&ks[i], u8::try_from(i).unwrap(), PAUSE))
+            .collect();
+        assert!(combine_approvals(&council, &TEST_CHAIN, three).is_ok());
+    }
+
+    /// A fresh directory under the OS temp dir, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let p = std::env::temp_dir().join(format!("ceremony-{tag}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&p);
+            fs::create_dir_all(&p).unwrap();
+            Self(p)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn malformed_approval_files_are_errors_not_panics() {
+        let dir = Scratch::new("approval");
+        let (k, _) = member(0);
+        let good = approval(&k, 0, PAUSE);
+        let body = |member: &str, action: &str, sig: &str| {
+            format!("{APPROVAL_HEADER}\nmember {member}\naction {action}\nsignature {sig}\n")
+        };
+        let (msg, sig) = (hex::encode(&good.1), hex::encode(*good.2));
+        let cases = [
+            String::new(),
+            "not an approval\n".to_owned(),
+            format!("{APPROVAL_HEADER}\n"),
+            body("300", &msg, &sig),
+            body("-1", &msg, &sig),
+            body("0", "zz", &sig),
+            body("0", &msg, &sig[..sig.len() - 2]),
+            body("0", &msg, "abc"),
+            format!("{APPROVAL_HEADER}\naction {msg}\nmember 0\nsignature {sig}\n"),
+        ];
+        for (i, case) in cases.iter().enumerate() {
+            let p = dir.0.join(format!("{i}.approval"));
+            fs::write(&p, case).unwrap();
+            assert!(read_approval(&p).is_err(), "case {i} accepted");
+        }
+        let p = dir.0.join("good.approval");
+        fs::write(&p, body("0", &msg, &sig)).unwrap();
+        assert_eq!(read_approval(&p).unwrap().0, 0);
+    }
+
+    #[test]
+    fn a_council_directory_with_a_sealed_secret_a_repeat_or_junk_is_refused() {
+        let write = |dir: &Path, label: &str, i: u8| {
+            let key = hex::encode(member(i).1.key);
+            fs::write(dir.join(format!("{label}{PUBLIC_SUFFIX}")), key).unwrap();
+        };
+        let ok = Scratch::new("council-ok");
+        write(&ok.0, "b", 1);
+        write(&ok.0, "a", 0);
+        let members = load(&ok.0).unwrap();
+        assert_eq!(
+            members.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+
+        let sealed = Scratch::new("council-sealed");
+        write(&sealed.0, "a", 0);
+        fs::write(sealed.0.join(format!("a{SEALED_SUFFIX}")), "x").unwrap();
+        let err = load(&sealed.0).err().unwrap();
+        assert!(err.to_string().contains("left its device"), "{err}");
+        // A member on their own device may keep their own sealed file.
+        assert!(load_members(&sealed.0, false).is_ok());
+
+        let twice = Scratch::new("council-twice");
+        write(&twice.0, "a", 0);
+        write(&twice.0, "b", 0);
+        assert!(
+            load(&twice.0)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("same key")
+        );
+
+        let junk = Scratch::new("council-junk");
+        fs::write(junk.0.join(format!("a{PUBLIC_SUFFIX}")), "zz").unwrap();
+        assert!(load(&junk.0).is_err());
+        fs::write(
+            junk.0.join(format!("a{PUBLIC_SUFFIX}")),
+            "00".repeat(PUBLIC_KEY_LEN - 1),
+        )
+        .unwrap();
+        assert!(load(&junk.0).is_err());
+
+        assert!(load(&Scratch::new("council-empty").0).is_err());
+    }
+
     #[test]
     fn module_names_map_to_their_tags() {
         assert_eq!(module("dex").unwrap(), 1);

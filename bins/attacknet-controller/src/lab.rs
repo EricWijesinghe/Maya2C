@@ -18,7 +18,9 @@ use crate::validators::ValidatorManager;
 
 /// Main lab coordinator
 pub struct Lab {
+    /// Shared lab configuration, read by every component.
     pub config: Arc<LabConfig>,
+    /// Starts, stops and restarts validator processes.
     pub validator_manager: ValidatorManager,
     #[expect(dead_code)]
     fault_injector: FaultInjector,
@@ -33,6 +35,7 @@ pub struct Lab {
 use std::collections::HashMap;
 
 impl Lab {
+    /// Builds the lab from `config`. Fails if the `maya2c-node` binary cannot be found; see `find_binary`.
     pub async fn new(config: LabConfig) -> Result<Self> {
         let config = Arc::new(config);
 
@@ -55,6 +58,9 @@ impl Lab {
         })
     }
 
+    /// Locates `<name>.exe`, checking `MAYA2C_BIN_DIR`, then `target/release`, then `target/debug`.
+    ///
+    /// The first existing file wins. Paths are relative to the working directory. Returns an error if none exist.
     pub fn find_binary(name: &str) -> Result<PathBuf> {
         // Check MAYA2C_BIN_DIR first
         if let Ok(bin_dir) = std::env::var("MAYA2C_BIN_DIR") {

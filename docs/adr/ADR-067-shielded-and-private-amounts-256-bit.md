@@ -11,11 +11,12 @@ and both are narrower than they look:
 
 | Where | Cap today | Why |
 |---|---|---|
-| Shielded pool note value, `public_in`, `public_out`, `fee` (`crates/zk-stark/src/pool`, `core/payload.rs`) | 2^58 − 1 (`MAX_VALUE`) | `BabyBear` is a 31-bit field; a value is two 29-bit limbs so every sum stays under the modulus and no equation can hold "mod p" without holding over the integers. The wire fields are `u64`, but a note cannot carry more than 2^58. |
+| Shielded pool note value, `public_in`, `public_out`, `fee` (`crates/zk-stark/src/pool`, `core/payload.rs`) | 2^54 − 1 (`MAX_VALUE`, `pool/note.rs:26-30`: two 27-bit limbs) | `BabyBear` is a 31-bit field; a value is two limbs so every sum stays under the modulus and no equation can hold "mod p" without holding over the integers. The wire fields are `u64`, but a note cannot carry more than 2^54. (Corrected 2026-11-10: this row said 2^58; that is the private-state ceiling below.) |
 | Private contract state (`crates/zk-stark/src/private_state.rs`) | 2^58 − 1 | The same two-limb design (`VALUE_BITS = 2 × LIMB_BITS`). |
 
-At 18 decimals 2^58 base units is about 0.29 of a coin. So a shielded transfer or a
-private field cannot hold even one whole coin. This is a smaller ceiling than the `u64`
+At 24 decimals (`COIN_DECIMALS`, ADR-068) the pool ceiling 2^54 base units is about
+1.8e-8 of a coin, and the private-state ceiling 2^58 is about 2.9e-7 of a coin. So a
+shielded transfer or a private field cannot hold even one whole coin. This is a smaller ceiling than the `u64`
 the wire fields suggest, and it is not visible from the node's types.
 
 Shielded transfers are off for mainnet v1 (ADR-037; the guard refuses a genesis that
@@ -43,14 +44,14 @@ Consequences that need design work, none of which a type change can deliver:
 ## Decision needed from Eric
 
 - Build it before shielded transfers are ever enabled, or keep shielded and private
-  state off until a coin-sized value is needed? Either way the 2^58 ceiling should be
-  stated wherever these features are described.
+  state off until a coin-sized value is needed? Either way the 2^54 pool ceiling and the
+  2^58 private-state ceiling should be stated wherever these features are described.
 - If built: an external or independent review of the new AIR is required before any
   activation height is set, and no float, wall-clock or `unsafe` enters the path
   (Standing Order 4).
 
 ## Consequences of doing nothing
 
-Shielded and private-state features stay capped at about 0.29 of a coin per value at 18
-decimals. They remain off by the mainnet guard, so no funds are at risk; they are simply
+Shielded and private-state features stay capped at about 1.8e-8 of a coin per pool value
+and 2.9e-7 of a coin per private field, at 24 decimals. They remain off by the mainnet guard, so no funds are at risk; they are simply
 unusable at coin scale.
