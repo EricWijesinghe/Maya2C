@@ -911,5 +911,9 @@ compiled into the binary genesis freezes, against the rule that models never
 sit on consensus. The model and its rule moved to `crates/neural-fee`
 (RESEARCH, linked only by `neural-gas-trainer`); `FeeConfig` lost its neural
 switch; the node's feature extractor, its join test and its bench are
-deleted. Fee behaviour is unchanged on every network. ADR-029 amendment
-2026-11-14.
+deleted. Fee behaviour is unchanged on every network: no network set the
+height and `FeeConfig` has no serialized form. Checked 2026-11-14 by `cargo
+tree -i maya-neural-fee` on `custom-l1-node` and `maya2c-node` (not in either
+graph), a `Cargo.lock` walk in `fee_market_tests`, and the fee-market,
+neural-fee, trainer and node fee test runs recorded in the ADR-029 amendment.
+The trainer's weight-drift check fails, as it already did at `3735252d`.

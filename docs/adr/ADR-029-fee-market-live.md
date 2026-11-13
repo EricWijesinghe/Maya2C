@@ -83,9 +83,13 @@ it ran, but all of it was compiled into the binary a genesis freezes.
   linear step directly, as it always did on every network.
 - The node's `neural_gas` module, `tests/neural_fee_tests.rs` and the
   `gas_predictor` bench are deleted. They are in history at `3735252d`.
-- Check: `cargo tree -p custom-l1-node -i maya-neural-fee` finds no path, and
+- Check: `cargo tree -p <pkg> -e normal,build -i maya-neural-fee` answers
+  "did not match any packages" for both `custom-l1-node` and `maya2c-node`
+  (run 2026-11-14; the same command for `maya-fee-market` prints its path, so
+  the query is live). In CI,
   `tests/fee_market_tests.rs::the_launch_binary_carries_no_neural_fee_model`
-  fails if the node manifest names the crate or either half comes back.
+  walks `Cargo.lock` from both packages, so a transitive path through any
+  crate the node links fails it, and it fails if either half comes back.
 
 **Why.** "Models never on consensus" is the owner's identity rule, and
 dormant code at `u64::MAX` is still code a reviewer of the launch binary has
@@ -95,8 +99,20 @@ linear rule is the only one any network has run.
 
 **Behaviour.** Unchanged. No network ever set the height, `FeeConfig` has no
 serialized form, and no state record or wire type named the field, so no
-state root, vector or encoding moves. The fee-market tests and the node's
-fee tests pass as before.
+state root, vector or encoding moves. Run 2026-11-14 after the move:
+`maya-fee-market` 58 tests, `maya-neural-fee` 18, `maya-neural-gas-trainer`
+12, the node's `fee_market_tests` 9, `conformance` 6,
+`consensus_conformance` 1, `block_bytes_tests` 10 and `amount_bytes_tests`
+3, all passing; `cargo check -p custom-l1-node --all-targets` clean; `cargo
+xtask spec-coverage --strict` 0 gaps. The fee-market lost its two neural-rule
+unit tests and gained one pinning the linear step at heights up to
+`u64::MAX − 1`. Not re-run: the full node test suite, and the Kani envelope
+proof in its new crate (nightly CI).
+
+The trainer's `-- --check` reports drift, and it reported the same drift with
+the same metrics at `3735252d` before the move, so the weight file is stale
+against the simulator independently of this change. It was not regenerated:
+the model is RESEARCH and off every path.
 
 **Reviving it** is a hard fork: a new ADR, the dependency added back to the
 node, a feature extractor, and an activation height in the upgrade schedule

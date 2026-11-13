@@ -5,8 +5,9 @@
 `u64::MAX`, and the node extracted block features for it. Both were removed
 from the launch binary before genesis (ADR-029 amendment, founder audit Q19):
 the model and rule now live in `crates/neural-fee`, which only the trainer
-depends on, and `cargo tree -p custom-l1-node -i maya-neural-fee` finds no
-path. Reviving it is a hard fork: a new ADR, the dependency, a feature
+depends on. `cargo tree -e normal,build -i maya-neural-fee` on
+`custom-l1-node` and `maya2c-node` reports it in neither graph (2026-11-14),
+and `crates/node/tests/fee_market_tests.rs` walks `Cargo.lock` to keep it so. Reviving it is a hard fork: a new ADR, the dependency, a feature
 extractor and an activation height in the upgrade schedule.
 
 | Piece | Where |
@@ -88,7 +89,10 @@ follows from the types, and a test drives every weight to its extreme.
 `crates/neural-fee/src/model/weights_v1.rs` deterministically (SplitMix64, fixed
 seed, single-threaded float arithmetic). `--check` fails if the committed file
 differs from a fresh run — exact on the platform that generated it; the file,
-not the float run, is what consensus would read.
+not the float run, is what consensus would read. On 2026-11-14 `--check`
+failed on Windows both at `3735252d` and after the move, with identical
+metrics (float MSE 0.142131 against the file's 0.141388), so the committed
+file is stale against the simulator; it has not been regenerated.
 
 The simulator's assumptions, all of which the model inherits:
 
