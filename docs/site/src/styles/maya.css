@@ -26,6 +26,8 @@
   --well: var(--surface-1);
   --nav-pill: var(--surface-1);
   --nav-hover: var(--surface-2);
+  /* The paused-note wash: one amber surface per screen, information not alarm. */
+  --warn-wash: color-mix(in srgb, var(--warn) 8%, var(--surface-1));
 
   /* Homepage-only tints (next phase). */
   --orb-hi: rgba(255, 255, 255, 0.13);
@@ -78,6 +80,8 @@
 }
 
 :root[data-theme="light"] {
+  /* --warn is a dark text amber in light mode; mixed into white it reads tan. */
+  --warn-wash: #fff6e2;
   --orb-hi: rgba(255, 255, 255, 0.98);
   --orb-lo: rgba(208, 236, 238, 0.8);
   --halo: rgba(14, 140, 152, 0.3);

@@ -42,7 +42,7 @@ finality column is left out for that reason.
 Each point is what the search found. "None found" means not found in the
 search dated 2026-11-01, not that no chain does it.
 
-1. **Two PQ signature families, both required.** A transaction's signature is decided by its own frame: an untagged frame, which `l1-wallet` signs, is the ML-DSA-65 + SLH-DSA-SHA2-128s hybrid and both must verify; a suite-tagged frame (ML-DSA-87 among others) is opt-in. The governance parameter `crypto.default_signature_suite` (ML-DSA-87 at genesis) never decides what verifies, and no wallet reads it yet: `l1-wallet` signs the hybrid whatever it says.
+1. **Two PQ signature families, both required on the default frame.** A transaction's signature is decided by its own frame: an untagged frame, which `l1-wallet` signs, is the ML-DSA-65 + SLH-DSA-SHA2-128s hybrid and both must verify; a suite-tagged frame (ML-DSA-87 among others) is opt-in. The governance parameter `crypto.default_signature_suite` (ML-DSA-87 at genesis) never decides what verifies, and no wallet reads it yet: `l1-wallet` signs the hybrid whatever it says.
    None of the 18 comparison rows was found requiring two post-quantum families.
    The nearest designs pair a classical scheme with a PQ one: Sui (optional
    multisig), Verona (optional co-signing policy), Algorand (planned hybrid),

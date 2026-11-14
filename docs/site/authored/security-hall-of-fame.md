@@ -1,18 +1,17 @@
 ---
 title: Security Hall of Fame
-description: People who found and privately reported valid security problems in Maya2C. No cash rewards yet; rewards will come once funding exists.
+description: People who found and privately reported valid security problems in Maya2C. No cash rewards are offered.
 ---
 
 Maya2C is built by one developer. Security reports from people outside the
 project are how it gets safer, and this page names the people who sent them.
 
-## No cash rewards yet
+## No cash rewards
 
-**There are no cash rewards yet.** A bounty programme is planned, not live, and
-it depends on funding that does not exist today. No amount is promised here or
-anywhere else. When rewards are offered, this page and
+**No cash rewards are offered**, and no amount is promised here or anywhere
+else. If that ever changes, this page and
 [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md)
-will say so and say what they are.
+will say so first.
 
 Recognition is what there is for now: a line on this page, a badge, and credit
 in the published advisory.

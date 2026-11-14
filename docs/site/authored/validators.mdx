@@ -11,7 +11,7 @@ import PausedNote from "../../../components/PausedNote.astro";
 import { publicTab } from "../../../data/paused.ts";
 import { release, releaseHref } from "../../../data/release.ts";
 
-<PausedNote line="Registration and the bootnode need the public testnet, so they wait for the next genesis. Every step below has a local devnet tab that works today." />
+<PausedNote line="Registration waits for it; every step has a local devnet tab that works today." />
 
 ## In plain words
 
@@ -37,7 +37,7 @@ allocation, and anyone who says otherwise is not speaking for this project.
 
 | | Status |
 |---|---|
-| Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
+| Validator software | Built: `maya2c-node`. No release is published yet; build it with the [quickstart](/guides/quickstart/) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
 | Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
 | Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
@@ -68,9 +68,9 @@ how mainnet will work.
 
 ## Steps
 
-1. **Install** `maya2c-node` and `l1-wallet` from the tagged preview
-   (<a href={releaseHref}>{release.tag}</a>), or build them from source with the
-   [quickstart](/guides/quickstart/), and check downloads against `SHA256SUMS`.
+1. **Install** `maya2c-node` and `l1-wallet`. {release.published
+   ? <>Download them from <a href={releaseHref}>{release.tag}</a> and check them against <code>SHA256SUMS</code>, or build them from source with the <a href="/guides/quickstart/">quickstart</a>.</>
+   : <>The preview (<a href={releaseHref}>{release.tag}</a>) is not released yet, so build them from source with the <a href="/guides/quickstart/">quickstart</a>.</>}
 2. **Make a validator key.** This prints its public key:
 
    ```bash

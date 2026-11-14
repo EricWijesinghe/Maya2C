@@ -11,10 +11,16 @@ const steps = [
   { n: 4, title: "PR", line: "Open it; the template has the checklist", href: `${repo}/compare` },
   { n: 5, title: "Review", line: "Read line by line; you stay the author", href: `${repo}/pulls` },
 ];
+// 20 px line icons, one per task; text glyphs rendered as unreadable specks at 360 px.
+const ICONS: Record<string, string> = {
+  play: "M8 5.5v13l10.5-6.5z",
+  edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+  check: "M4.5 12.5l5 5L19.5 7",
+};
 const tasks = [
-  { title: "Run the local devnet", line: "Anything that confuses you on the way is a docs bug. Report it or fix it.", href: "/guides/quickstart/", cta: "Start the quickstart", icon: "▶", tone: "teal" },
-  { title: "Check one guide against the code", line: "A step that is wrong or missing is a good first pull request.", href: `${repo}/tree/master/docs/site/authored`, cta: "Open the guide sources", icon: "✎", tone: "bronze" },
-  { title: "Test an untested behaviour", line: "Pick a features.toml entry marked working and read its tests. Tests only, no production change.", href: `${repo}/blob/master/features.toml`, cta: "Open features.toml", icon: "✓", tone: "steel" },
+  { title: "Run the local devnet", line: "Anything that confuses you on the way is a docs bug. Report it or fix it.", href: "/guides/quickstart/", cta: "Start the quickstart", icon: "play", tone: "teal" },
+  { title: "Check one guide against the code", line: "A step that is wrong or missing is a good first pull request.", href: `${repo}/tree/master/docs/site/authored`, cta: "Open the guides", icon: "edit", tone: "bronze" },
+  { title: "Test an untested behaviour", line: "Pick a features.toml entry marked working and read its tests. Tests only, no production change.", href: `${repo}/blob/master/features.toml`, cta: "Open features.toml", icon: "check", tone: "steel" },
 ];
 ---
 
@@ -37,7 +43,7 @@ const tasks = [
     {tasks.map((t) => (
       <li>
         <a class={`cf-task cf-task--${t.tone}`} href={t.href}>
-          <span class="cf-icon" aria-hidden="true">{t.icon}</span>
+          <span class="cf-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path d={ICONS[t.icon]} /></svg></span>
           <span class="cf-title">{t.title}</span>
           <span class="cf-line">{t.line}</span>
           <span class="cf-cta">{t.cta} <span aria-hidden="true">→</span></span>
@@ -70,8 +76,9 @@ const tasks = [
   .cf-task--bronze { --cf-tone: var(--bronze); }
   .cf-task--steel { --cf-tone: var(--steel); }
   .cf-icon { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: var(--space-2); border-radius: var(--r-md); background: color-mix(in srgb, var(--cf-tone) 18%, transparent); color: var(--text); font-size: var(--type-body-lg-size); }
+  .cf-icon svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .cf-task:hover { border-color: var(--cf-tone); transform: translateY(-2px); box-shadow: var(--shadow-md); }
-  .cf-cta { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; margin-top: var(--space-3); padding: 0 var(--space-4); border-radius: var(--r-pill); border: 1px solid color-mix(in srgb, var(--cf-tone) 60%, var(--border)); background: color-mix(in srgb, var(--cf-tone) 10%, transparent); color: var(--text); font-weight: var(--weight-semibold); font-size: var(--type-body-sm-size); }
+  .cf-cta { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; margin-top: var(--space-3); padding: 0 var(--space-4); border-radius: var(--r-pill); border: 1px solid color-mix(in srgb, var(--cf-tone) 60%, var(--border)); background: color-mix(in srgb, var(--cf-tone) 10%, transparent); color: var(--text); font-weight: var(--weight-semibold); font-size: var(--type-body-sm-size); white-space: nowrap; }
   .cf-task:hover .cf-cta { background: color-mix(in srgb, var(--cf-tone) 20%, transparent); }
   .cf-chev { display: none; }
   @media (max-width: 720px) {

@@ -35,3 +35,19 @@
   max-width: 100%;
   overflow-x: auto;
 }
+
+/* Phones: a table is a stack of cards, one per row, each cell a label/value
+   pair (labels from rehype-table-labels.mjs). A table that scrolls inside its
+   box hides its right half, and on a 360 px screen that half is usually the
+   point of the row (owner, 2026-11-14). The first cell is the row's title. */
+@media (max-width: 600px) {
+  .sl-markdown-content table:not(:where(.not-content *)) { overflow-x: visible; border: 0; border-radius: 0; background: none; }
+  .sl-markdown-content table:not(:where(.not-content *)) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sl-markdown-content table:not(:where(.not-content *)) tbody { display: grid; gap: var(--space-3); }
+  .sl-markdown-content table:not(:where(.not-content *)) tr { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1); }
+  .sl-markdown-content table:not(:where(.not-content *)) td { display: block; min-width: 0; padding: 0; border: 0; overflow-wrap: anywhere; }
+  .sl-markdown-content table:not(:where(.not-content *)) td code { overflow-wrap: anywhere; word-break: break-word; }
+  .sl-markdown-content table:not(:where(.not-content *)) td:empty { display: none; }
+  .sl-markdown-content table:not(:where(.not-content *)) td:not(:first-child)[data-label]:not([data-label=""])::before { content: attr(data-label); display: block; margin-bottom: 2px; color: var(--text-2); font: var(--weight-medium) var(--type-label-size)/var(--line-body) var(--font-sans); }
+  .sl-markdown-content table:not(:where(.not-content *)) td:first-child { color: var(--text); font-weight: var(--weight-semibold); }
+}

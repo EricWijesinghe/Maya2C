@@ -9,8 +9,9 @@ description: For anyone who wants to help, no technical background needed. Pick 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 import InstallPicker from '../../../components/InstallPicker.astro';
 import PausedNote from '../../../components/PausedNote.astro';
+import { testnet } from '../../../data/network-state.ts';
 
-<PausedNote line="Every step below joins the public testnet, so there is nothing to join until the next genesis. The steps stay here because they will be the same then; Copy is off until it returns." />
+<PausedNote line="Nothing to join until then. The steps below stay as they will be, with Copy off." />
 
 Thank you for helping. Your computer becomes one of the machines that keep
 the Maya2C test network running. Setting it up takes about five minutes, and you can
@@ -27,7 +28,7 @@ Pick your computer once. Every section of this page then follows that choice.
 ## 1. Install
 
 Choose your computer, its version, and how you want to install. The steps
-below change to match, and every command has a **Copy** button. Tick **Done**
+below change to match{testnet.paused ? <>. While the testnet is paused this is a preview: <strong>Copy</strong> is off until it returns</> : <>, and every command has a <strong>Copy</strong> button</>}. Tick **Done**
 as you go, or switch on **One step at a time** to be walked through.
 
 <InstallPicker guide="join" />

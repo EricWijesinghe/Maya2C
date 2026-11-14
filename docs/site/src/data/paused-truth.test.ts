@@ -203,3 +203,41 @@ test("built: the wallet guide's download buttons are off until the release exist
     assert.doesNotMatch(html, /owner's approval/, "no process talk on a public page");
   }
 });
+
+// ---- review round 2 (design and truth critics, 2026-11-14) ----------------
+
+test("literals: experience.astro's styles use tokens only", () => {
+  // The `--literals` check the lane brief names: no hex, rgb()/hsl() or named
+  // colour in the page's <style>, so both themes come from the token files.
+  const css = (read("src/pages/experience.astro").match(/<style>([\s\S]*)<\/style>/)?.[1] ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(css.length > 1000, "found the style block");
+  const hits = css.match(/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(|\b(?:white|black)\b(?!-)/gi) ?? [];
+  assert.deepEqual(hits, [], `colour literals in experience.astro: ${hits.join(", ")}`);
+  for (const f of ["src/components/PausedNote.astro", "src/components/GetWallet.astro"]) {
+    assert.doesNotMatch(read(f), /#fff6e2/i, `${f} uses --warn-wash`);
+  }
+});
+
+test("no availability claim for a release that does not exist", () => {
+  const readme = read("README.md", repo);
+  if (!release.published) {
+    assert.doesNotMatch(readme, /are on the \[latest release\]/);
+    assert.match(readme, /No installer or binary is published yet/);
+    assert.doesNotMatch(authored("validators.mdx"), /Shipped: `maya2c-node` on the \[releases page\]/);
+  }
+});
+
+test("the README's signature claim is scoped to the default frame", () => {
+  const readme = read("README.md", repo);
+  assert.doesNotMatch(readme, /every transaction carries two signatures/i);
+  assert.ok(readme.includes(S03.split(". The governance")[0]), "the S-03 sentence");
+  assert.doesNotMatch(authored("wallet.mdx").replace(/\s+/g, " "), /Every transaction carries two signatures/);
+});
+
+test("figures that were wrong or live-sounding while paused", () => {
+  assert.match(read("src/pages/experience.astro"), /bytes: 13215 \}/, "transfer size from docs/hybrid-signatures.md");
+  assert.match(read("docs/hybrid-signatures.md", repo), /13,?215/);
+  assert.doesNotMatch(authored("mining.md"), /live from mainnet genesis/);
+  assert.match(read("src/data/ecosystem-apps.ts"), /updated live whenever the testnet runs/);
+  assert.doesNotMatch(read("src/data/og-pages.json"), /"Live health"|live blocks|finalizing now/);
+});

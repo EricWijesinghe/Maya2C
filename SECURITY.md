@@ -9,7 +9,7 @@ First channel: GitHub private vulnerability reporting, https://github.com/EricWi
 | Channel | Status |
 |---|---|
 | GitHub private vulnerability reporting | **Use this.** Enabled; only the maintainer sees the report. |
-| `security@maya2c.dev` | Reserved for disclosures, **not receiving mail yet**: the domain had no MX record when checked on 2026-11-13. This file will say when it works. Until then, use the GitHub form. |
+| `security@maya2c.dev` | Reserved for disclosures, **not confirmed to receive mail yet**: the domain had no MX record on 2026-11-13 and has Cloudflare MX records since (checked 2026-11-14), but no test message has been delivered. This file will say when it works. Until then, use the GitHub form. |
 | Encrypted channel (PGP or similar) | **None exists yet.** No key is published. The GitHub form travels over TLS and only the maintainer can read it, but it is not end-to-end encrypted. This file will say when a key exists. |
 
 Include what you found, the steps to reproduce it, the commit or release you

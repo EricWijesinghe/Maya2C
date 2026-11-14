@@ -63,8 +63,8 @@ does not have.
 First channel: GitHub private vulnerability reporting, https://github.com/EricWijesinghe/Maya2C/security/advisories/new
 
 That is the same channel [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md)
-and [security.txt](/.well-known/security.txt) name. `security@maya2c.dev` does
-not receive mail yet, and no encrypted channel exists yet. Include what you found, how to reproduce it, and the commit you
+and [security.txt](/.well-known/security.txt) name. `security@maya2c.dev` is
+not confirmed to receive mail yet, and no encrypted channel exists yet. Include what you found, how to reproduce it, and the commit you
 tested. You will get an acknowledgement within 3 working days. Please
 allow 90 days, or until a fix ships, before publishing.
 

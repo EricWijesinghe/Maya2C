@@ -34,7 +34,9 @@ const inline = (s: string) =>
 const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?? "all"}`;
 ---
 
-<section class="ip not-content" data-guide={guideId} data-default={DEFAULT} aria-label="Choose your computer">
+<section class={`ip not-content${offReason ? " is-preview" : ""}`} data-guide={guideId} data-default={DEFAULT} aria-label="Choose your computer">
+  {offReason && <p class="ip-paused" id={offId} data-copy-off><span class="ip-preview-tag">Preview only</span> {offReason} <a href="/guides/quickstart/">Local devnet steps</a></p>}
+
   <div class="ip-rows">
     {
       rows.map((r) => (
@@ -53,8 +55,6 @@ const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?
       ))
     }
   </div>
-
-  {offReason && <p class="ip-paused" id={offId} data-copy-off>{offReason} <a href="/guides/quickstart/">Local devnet steps</a></p>}
 
   <div class="ip-bar">
     <div class="ip-progress" aria-live="polite">
@@ -161,8 +161,11 @@ const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?
   .ip-copy { position: absolute; top: var(--space-2); right: var(--space-2); height: var(--control-h-sm); padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface-1); color: var(--text-2); font: var(--weight-medium) var(--type-body-sm-size)/1 var(--font-sans); cursor: pointer; transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease); }
   .ip-copy:hover { color: var(--text); background: var(--surface-3); }
   .ip-copy:disabled { cursor: not-allowed; color: var(--text-3); background: var(--surface-2); border-style: dashed; }
-  .ip-paused { margin-top: var(--space-5) !important; padding: var(--space-3) var(--space-4); border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-inline-start: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface-1)); color: var(--text) !important; }
-  .ip-paused a { color: var(--text); text-decoration-color: var(--warn); text-underline-offset: 3px; font-weight: var(--weight-medium); }
+  /* Neutral, not a second amber box: the page's PausedNote is the one warning. */
+  .ip-paused { margin-bottom: var(--space-4) !important; padding: var(--space-3) var(--space-4); border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2) !important; }
+  .ip-paused a { color: var(--text); text-decoration-color: var(--steel); text-underline-offset: 3px; font-weight: var(--weight-medium); }
+  .ip-preview-tag { display: inline-block; margin-right: var(--space-2); padding: 0 var(--space-2); border-radius: var(--r-pill); border: 1px solid var(--steel); color: var(--text); font: var(--weight-semibold) var(--type-label-size)/1.6 var(--font-sans); }
+  .ip.is-preview .ip-opt[aria-checked="true"] { border-color: var(--steel); background: color-mix(in srgb, var(--steel) 12%, var(--surface-2)); box-shadow: 0 0 0 1px var(--steel) inset; }
   .ip-copy.is-copied { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
   .ip-nav { display: none; margin-top: var(--space-3); gap: var(--space-2); align-items: center; flex-wrap: wrap; }
   .ip-nav button { height: var(--control-h); padding: 0 var(--space-3); border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); font: var(--weight-medium) var(--type-body-size)/1 var(--font-sans); cursor: pointer; }

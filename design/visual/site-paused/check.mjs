@@ -87,6 +87,18 @@ for (const theme of THEMES) {
       });
       measured++;
       if (sw > iw) fail(`overflow /${path}/ ${width}px ${theme}: scrollWidth ${sw} > ${iw} (${culprit})`);
+      // Content that scrolls inside its own box hides from document.scrollWidth:
+      // a table cut at the right edge passes the check above. So at phone widths
+      // every table and pre in main must fit its box, unless it is a marked scroll
+      // region: [data-scroll-region], or a pre with tabindex (a code block a
+      // keyboard can scroll, which is how the site marks deliberate code scrolling).
+      if (width <= 430) {
+        const clipped = await page.evaluate(() => [...document.querySelectorAll('main table, main pre')]
+          .filter((el) => el.scrollWidth > el.clientWidth + 1 && el.getClientRects().length)
+          .filter((el) => !el.closest('[data-scroll-region]') && !(el.tagName === 'PRE' && el.hasAttribute('tabindex')))
+          .map((el) => `${el.tagName.toLowerCase()} "${el.textContent.trim().slice(0, 40)}" ${el.scrollWidth}>${el.clientWidth}`));
+        for (const c of clipped) fail(`clipped /${path}/ ${width}px ${theme}: ${c}`);
+      }
       await ctx.close();
     }
   }
@@ -132,7 +144,28 @@ for (const theme of THEMES) {
     }
   }
 }
-console.log(`screenshots: ${shots} full-page (${SHOT_WIDTHS.map(([w, d]) => `${w}px -> ${d}`).join(', ')})`);
+// 5. Motion, without reduced motion (the shots above use reducedMotion:
+// 'reduce'): the paused orb's breathing halo at two moments 2.4 s apart (half
+// its 4.8 s cycle), and an orb's hover state, so motion taste can be reviewed.
+for (const theme of THEMES) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, colorScheme: theme, reducedMotion: 'no-preference' });
+  await ctx.addInitScript((t) => { try { localStorage.setItem('starlight-theme', t); } catch {} }, theme);
+  const page = await ctx.newPage();
+  await page.goto(`${origin}/experience/`, { waitUntil: 'load' });
+  const hero = page.locator('.xp-hero');
+  await hero.screenshot({ path: join(here, `motion-experience-hero-a-${theme}.jpg`), type: 'jpeg', quality: 70 });
+  await page.waitForTimeout(2400);
+  await hero.screenshot({ path: join(here, `motion-experience-hero-b-${theme}.jpg`), type: 'jpeg', quality: 70 });
+  const orb = page.locator('.orb').nth(1);
+  await orb.scrollIntoViewIfNeeded();
+  await orb.hover();
+  await page.waitForTimeout(400);
+  await page.locator('.orb-grid').screenshot({ path: join(here, `motion-experience-orb-hover-${theme}.jpg`), type: 'jpeg', quality: 70 });
+  shots += 3;
+  await ctx.close();
+}
+
+console.log(`screenshots: ${shots} full-page and motion (${SHOT_WIDTHS.map(([w, d]) => `${w}px -> ${d}`).join(', ')})`);
 
 await browser.close();
 server.close();

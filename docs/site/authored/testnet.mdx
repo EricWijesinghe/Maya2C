@@ -5,10 +5,11 @@ description: Make a wallet, take free test coins, and send a post-quantum-signed
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 import PausedNote from "../../../components/PausedNote.astro";
+import CopyValue from "../../../components/CopyValue.astro";
 import { testnet } from "../../../data/network-state.ts";
 import { pausedReason, publicTab } from "../../../data/paused.ts";
 
-<PausedNote line="It stopped so the next build (256-bit amounts, mining rewards that never end, ML-DSA-87 validator keys) starts from a fresh genesis. The faucet and the public commands below are offline until then; each has a local devnet twin that works today." />
+<PausedNote line="The faucet and public commands are offline; each has a local devnet twin that works today." />
 
 ## In plain words
 
@@ -81,7 +82,7 @@ A local devnet needs no faucet: its genesis funds your wallet. Follow the
   .faucet-form input { font-family: var(--sl-font-mono); padding: 0.5rem; min-height: 44px; max-width: 100%; }
   .faucet-form button { justify-self: start; min-height: 44px; padding: 0.5rem 1rem; cursor: pointer; }
   .faucet-form fieldset:disabled input, .faucet-form fieldset:disabled button { cursor: not-allowed; }
-  .faucet-form .faucet-paused { margin: 0; padding: 0.75rem 1rem; border-radius: var(--r-md); border-inline-start: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface-1)); color: var(--text); }
+  .faucet-form .faucet-paused { margin: 0; padding: 0.75rem 1rem; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); }
   .faucet-form [data-state="error"] { color: var(--sl-color-red); }
 `}</style>
 
@@ -141,10 +142,10 @@ the fee is charged per byte. The fee rule and the minimum are in
 | | |
 |---|---|
 | Chain id | `maya-testnet-1` (from `docs/site/public/testnet/genesis.json`) |
-| Genesis file SHA-256 | `dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d` |
-| Public API | `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)){testnet.paused && ", paused"} |
-| Faucet | `https://faucet.maya2c.dev`{testnet.paused && ", paused"} |
-| Bootnode | `/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/<peer id>`, WebSocket over TLS |
+| Genesis file SHA-256 | <CopyValue value="dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d" label="genesis file SHA-256" /> |
+| Public API | {testnet.paused && <span class="ui-pill ui-pill--warn">Paused</span>} `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)) |
+| Faucet | {testnet.paused && <span class="ui-pill ui-pill--warn">Paused</span>} `https://faucet.maya2c.dev` |
+| Bootnode | WebSocket over TLS: <CopyValue value="/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/<peer id>" label="bootnode address template" head={20} tail={10} /> |
 | Consensus | DAG-BFT: see [consensus and finality](/guides/consensus/) |
 
 The genesis state root and block hash in the first release notes

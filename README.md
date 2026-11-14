@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>A post-quantum layer-1 blockchain in Rust: every transaction carries two signatures from different post-quantum families, and both must verify.</b>
+  <b>A post-quantum layer-1 blockchain in Rust: its default transaction frame, which <code>l1-wallet</code> signs, carries two signatures from different post-quantum families, and both must verify.</b>
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@
 
 | | |
 |---|---|
-| **Signatures** | Every transaction is signed with **ML-DSA-65** (FIPS 204, lattice) and **SLH-DSA-SHA2-128s** (FIPS 205, hash-based) over the same bytes. A break of one family alone does not forge a transaction. |
+| **Signatures** | A transaction's signature is decided by its own frame: an untagged frame, which `l1-wallet` signs, is the ML-DSA-65 + SLH-DSA-SHA2-128s hybrid and both must verify; a suite-tagged frame (ML-DSA-87 among others) is opt-in. In the hybrid, **ML-DSA-65** (FIPS 204, lattice) and **SLH-DSA-SHA2-128s** (FIPS 205, hash-based) sign the same bytes, so a break of one family alone does not forge it. |
 | **Consensus** | DAG-BFT: Narwhal + Bullshark, stake-weighted finality ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)). |
 | **Execution** | A metered WASM VM, an EIP-1559 fee market over bytes, and a state root every block must reproduce (invariant 24). |
 | **Transport** | libp2p over TCP and WebSocket, with ML-KEM-1024 (ML-KEM-768 as fallback) layered on Noise ([docs/pq-transport.md](docs/pq-transport.md)). |
@@ -90,10 +90,12 @@ Every top-level directory: [docs/REPO-MAP.md](docs/REPO-MAP.md).
 
 ### Use the apps
 
-Installers for Maya2C Wallet and Maya2C Chat (Windows, macOS, Linux) and the
-node binaries are on the [latest release](https://github.com/EricWijesinghe/Maya2C/releases).
-It is a testnet pre-release and the installers are unsigned. Check downloads
-against `SHA256SUMS` in the same release.
+No installer or binary is published yet: the repository has no release. The
+next one, `node-v0.2.0-preview.1`, has its notes committed
+([release notes](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/releases/node-v0.2.0-preview.1.md))
+and is not released. Until it is, build Maya2C Wallet, Maya2C Chat and the node
+from source with the steps below. When it is released, its installers will be
+unsigned, and `SHA256SUMS` on the same release is how to check them.
 
 Maya2C Hub has no installer in a release yet; build it with
 `cargo xtask hub-bundle` ([apps/hub/README.md](apps/hub/README.md)).

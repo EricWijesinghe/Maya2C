@@ -39,12 +39,13 @@ const orbs: { title: string; line: string; href: string; tone: Tone }[] = [
 ];
 
 // Bytes. ML-DSA-65 and SLH-DSA-SHA2-128s from FIPS 204 / 205; Ed25519 from
-// RFC 8032; the hybrid transfer is the size the faucet budgets for.
+// RFC 8032; the transfer is a one-output hybrid transfer as measured in
+// docs/hybrid-signatures.md (13,215 B, the figure the README also gives).
 const sizes = [
   { name: "Ed25519", note: "today's chains", bytes: 64 },
   { name: "ML-DSA-65", note: "post-quantum", bytes: 3309 },
   { name: "SLH-DSA", note: "hash-based backup", bytes: 7856 },
-  { name: "Maya2C transfer", note: "both, signed", bytes: 13000 },
+  { name: "Maya2C transfer", note: "both, signed", bytes: 13215 },
 ];
 const maxBytes = Math.max(...sizes.map((s) => s.bytes));
 // Keys tinted, values in the text colour. The body is our own constant from the
@@ -52,10 +53,14 @@ const maxBytes = Math.max(...sizes.map((s) => s.bytes));
 const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(/"([a-z_]+)":/g, '<span class="k">"$1"</span>:');
 ---
 
-<StarlightPage frontmatter={{ title: "Experience Maya2C", description: "Touch every part of the Maya2C network: blocks, real API responses, post-quantum signatures, wallet, chat and more.", template: "splash" }}>
+<StarlightPage frontmatter={{ title: "Experience Maya2C", description: "Touch every part of the Maya2C network: blocks, real API responses, post-quantum signatures, wallet, chat and more.", template: "splash", prev: false, next: false }}>
   <div class="xp not-content" data-xp={paused ? "paused" : "live"}>
   <header class="xp-hero">
     <p class="xp-lede">A post-quantum layer-1 blockchain you can touch. Every part below opens the real thing in one tap.</p>
+    <a class="xp-hero__orb" href="#xp-blocks" aria-label={paused ? `Last block ${lastHeight}, ${testnet.last.at}` : "Live blocks"}>
+      <span class={`pulse-orb${paused ? " is-paused" : ""}`} id="blockOrb"><span id="blockNum">{paused ? lastHeight : "—"}</span></span>
+      <span class="xp-hero__cap">{paused ? <>Last block · <time datetime={lastRun.stopIso}>{testnet.since}</time></> : "Each pulse is a finalized block"}</span>
+    </a>
     <div class="xp-actions">
       {paused
         ? <a class="xp-cta" href={LOCAL_DEVNET_HREF}>Run a local devnet <span aria-hidden="true">→</span></a>
@@ -66,7 +71,6 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
 
   <section class="xp-live" aria-label={paused ? "Last reading" : "Live"}>
     <article class="orb-panel" id="xp-blocks">
-      <div class={`pulse-orb${paused ? " is-paused" : ""}`} id="blockOrb" aria-hidden="true"><span id="blockNum">{paused ? lastHeight : "—"}</span></div>
       {paused ? (
         <>
           <h2>Last block</h2>
@@ -127,6 +131,7 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
         </figure>
       ))}
     </div>
+    <p class="xp-src">Sizes from FIPS 204, FIPS 205 and RFC 8032; the transfer from <a href="/reference/hybrid-signatures/">hybrid signatures</a>.</p>
     <a href="/guides/signatures/">How Maya2C signs →</a>
   </section>
 
@@ -141,15 +146,16 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
       {orbs.map((o) => (
         <a class={`orb tone-${o.tone}`} href={o.href}>
           <span class="glow" aria-hidden="true"></span>
+          {o.tone === "paused" && <svg class="orb-pause" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.5" /><rect x="14" y="5" width="4" height="14" rx="1.5" /></svg>}
           <b>{o.title}</b>
           <span>{o.line}</span>
         </a>
       ))}
     </div>
     <p class="legend">
-      {!paused && <><span class="tone-live"></span>live now</>}
-      {paused && <><span class="tone-paused"></span>paused until next genesis</>}
-      <span class="tone-built"></span>built and tested
+      {!paused && <span class="legend-item"><span class="sw tone-live" aria-hidden="true"></span>live now</span>}
+      {paused && <span class="legend-item"><span class="sw tone-paused" aria-hidden="true"></span>paused until next genesis</span>}
+      <span class="legend-item"><span class="sw tone-built" aria-hidden="true"></span>built and tested</span>
     </p>
   </section>
   </div>
@@ -214,25 +220,56 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
 </script>
 
 <style>
-  /* Depth is one token per theme. Dark gets light (a halo); light gets depth
-     (a coloured drop shadow and a tinted wash), because a halo on a white page
-     reads as a smudge. The halo itself stays dark-only. */
+  /* Every colour here is a token or a mix of tokens (the literals check in
+     paused-truth.test.ts). Depth is one recipe per theme: dark gets light (a
+     lit rim and a halo), light gets depth (a white core, a saturated rim and a
+     coloured drop shadow), because a halo on a white page reads as a smudge. */
   .xp {
+    --xp-spec: color-mix(in srgb, var(--accent-grad-from) 45%, var(--text));
     --xp-glow: color-mix(in srgb, var(--accent) 70%, transparent);
     --xp-orb-shadow: 0 0 60px -10px var(--xp-glow);
     --xp-orb-shadow-beat: 0 0 90px -4px color-mix(in srgb, var(--bronze) 85%, transparent);
     --xp-wash: color-mix(in srgb, var(--accent) 7%, transparent);
+    --xp-panel-edge: var(--glass-edge);
+    /* Working orbs: a teal core that holds AA for text-2 at the centre. */
+    --xp-orb-fill: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--accent) 45%, var(--surface-1)) 0, color-mix(in srgb, var(--accent) 18%, var(--surface-1)) 40%, color-mix(in srgb, var(--accent) 8%, var(--surface-1)) 75%);
+    --xp-orb-ring: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    --xp-orb-rest: inset 0 1px 0 var(--accent-highlight), 0 0 32px -10px color-mix(in srgb, var(--accent) 60%, transparent);
+    /* Paused orbs: bronze, a visible dashed ring and a pause glyph. */
+    --xp-pause-fill: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--bronze) 40%, var(--surface-1)) 0, color-mix(in srgb, var(--bronze) 16%, var(--surface-1)) 40%, color-mix(in srgb, var(--bronze) 7%, var(--surface-1)) 75%);
+    --xp-pause-ring: 2px dashed var(--warn);
+    --xp-pause-rest: inset 0 1px 0 var(--accent-highlight), 0 0 28px -12px color-mix(in srgb, var(--bronze) 70%, transparent);
+    --xp-orb-line: color-mix(in srgb, var(--text) 80%, var(--text-2));
     min-width: 0;
   }
   :global(:root[data-theme="light"]) .xp {
+    --xp-spec: color-mix(in srgb, var(--accent-grad-from) 45%, var(--surface-1));
     --xp-orb-shadow: 0 18px 40px -18px color-mix(in srgb, var(--accent) 55%, transparent), 0 2px 6px -2px color-mix(in srgb, var(--accent) 30%, transparent);
     --xp-orb-shadow-beat: 0 22px 48px -16px color-mix(in srgb, var(--bronze) 60%, transparent);
-    --xp-wash: color-mix(in srgb, var(--accent) 10%, transparent);
+    --xp-wash: color-mix(in srgb, var(--accent) 14%, transparent);
+    --xp-panel-edge: color-mix(in srgb, var(--accent) 22%, var(--border-strong));
+    --xp-orb-fill: radial-gradient(circle at 30% 25%, var(--surface-1) 0 45%, color-mix(in srgb, var(--accent) 16%, var(--surface-1)) 100%);
+    --xp-orb-ring: 2px solid var(--accent);
+    --xp-orb-rest: 0 14px 28px -14px color-mix(in srgb, var(--accent) 65%, transparent), 0 2px 6px -2px color-mix(in srgb, var(--accent) 35%, transparent);
+    --xp-pause-fill: radial-gradient(circle at 30% 25%, var(--surface-1) 0 45%, color-mix(in srgb, var(--bronze) 18%, var(--surface-1)) 100%);
+    --xp-pause-ring: 2px dashed var(--bronze);
+    --xp-pause-rest: 0 14px 28px -14px color-mix(in srgb, var(--bronze) 65%, transparent), 0 2px 6px -2px color-mix(in srgb, var(--bronze) 35%, transparent);
+    --xp-orb-line: var(--text-2);
   }
 
-  /* Hero: what this is, and the one thing a visitor can do today. */
-  .xp-hero { display: grid; gap: var(--space-4); margin: 0 0 var(--space-6); max-width: 46rem; }
-  .xp-lede { margin: 0; color: var(--text-2); font-size: clamp(var(--type-body-lg-size), 2.2vw, var(--type-title-3-size)); line-height: var(--line-body); }
+  /* Hero: what this is, the last block as the first visual, and the one thing
+     a visitor can do today. */
+  .xp-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin: 0 0 var(--space-8); }
+  .xp-lede { margin: 0; max-width: 40rem; color: var(--text-2); font-size: clamp(var(--type-body-lg-size), 2.2vw, var(--type-title-3-size)); line-height: var(--line-body); }
+  .xp-hero__orb { justify-self: center; display: grid; justify-items: center; gap: var(--space-2); color: var(--text-2); text-decoration: none; font-size: var(--type-body-sm-size); border-radius: var(--r-lg); padding: var(--space-2); }
+  .xp-hero__orb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .xp-hero__cap time { color: var(--text); font-variant-numeric: tabular-nums; }
+  @media (min-width: 1024px) {
+    .xp-hero { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "lede orb" "actions orb"; align-items: center; column-gap: var(--space-10); }
+    .xp-lede { grid-area: lede; align-self: end; }
+    .xp-actions { grid-area: actions; align-self: start; }
+    .xp-hero__orb { grid-area: orb; }
+  }
   .xp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
   .xp-cta { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-5); border-radius: var(--r-pill); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); text-decoration: none; box-shadow: var(--xp-orb-shadow); transition: transform var(--dur-2) var(--ease); }
   .xp-cta:hover { transform: translateY(-1px); }
@@ -240,9 +277,10 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
   .xp-chip__dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--warn); }
   .xp-cta:focus-visible, .xp-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-  /* align-items: start, so the block card does not stretch to the JSON card's height. */
-  .xp-live { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); align-items: start; }
-  .orb-panel { background: linear-gradient(160deg, var(--xp-wash), transparent 60%), var(--glass); border: 1px solid var(--glass-edge); border-radius: var(--r-l); padding: clamp(var(--space-5), 4vw, var(--space-8)); backdrop-filter: var(--glass-blur); min-width: 0; display: grid; gap: var(--space-3); align-content: start; }
+  /* Equal-height cards; each card's link sits on its bottom edge. */
+  .xp-live { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); align-items: stretch; }
+  .orb-panel { background: linear-gradient(160deg, var(--xp-wash), transparent 60%), var(--glass); border: 1px solid var(--xp-panel-edge); border-radius: var(--r-l); padding: clamp(var(--space-5), 4vw, var(--space-8)); backdrop-filter: var(--glass-blur); min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+  .orb-panel > a { margin-top: auto; }
   .orb-panel h2, .xp-sizes h2, .xp-delivery h2, .xp-orbs h2 { margin: 0; color: var(--text); font: var(--type-title-2-weight) clamp(var(--type-title-3-size), 2.6vw, var(--type-title-1-size))/var(--type-title-2-line) var(--font-sans); letter-spacing: var(--type-title-2-tracking); }
   .orb-panel p { margin: 0; color: var(--text-2); }
   .orb-panel > * { min-width: 0; }
@@ -250,8 +288,8 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
   .orb-panel p b { color: var(--text); font-variant-numeric: tabular-nums; }
   .orb-panel > a, .xp-sizes > a { color: var(--accent-text); font-weight: var(--weight-semibold); text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
 
-  .pulse-orb { position: relative; width: clamp(120px, 34vw, 150px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; margin: var(--space-4) auto;
-    background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--accent-grad-from) 45%, white) 0 12%, var(--accent-grad-from) 34%, var(--accent-grad-to) 72%, var(--accent) 100%);
+  .pulse-orb { position: relative; width: clamp(132px, 36vw, 176px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; margin: var(--space-3);
+    background: radial-gradient(circle at 34% 30%, var(--xp-spec) 0 12%, var(--accent-grad-from) 34%, var(--accent-grad-to) 72%, var(--accent) 100%);
     box-shadow: var(--xp-orb-shadow); }
   .pulse-orb span { position: relative; font: var(--weight-medium) clamp(var(--type-body-lg-size), 5vw, var(--type-title-3-size))/1 var(--font-mono); color: var(--on-accent); font-variant-numeric: tabular-nums; }
   /* Paused: the same full-colour orb, at rest. Rest is shown by form, not by
@@ -296,30 +334,36 @@ const recordedHtml = JSON.stringify(JSON.parse(recorded.body), null, 2).replace(
   /* One minmax(0, 1fr) column: an auto column grows to its widest child, and the
      orb grid's min-content is two orbs, which pushed a 390 px phone to 697 px. */
   .xp-sizes, .xp-delivery, .xp-orbs { margin-top: clamp(var(--space-10), 7vw, var(--space-12)); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
-  .bubbles { display: flex; align-items: flex-end; justify-content: space-around; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-6); border-radius: var(--r-l); background: linear-gradient(160deg, var(--xp-wash), transparent 60%), var(--glass); border: 1px solid var(--glass-edge); }
+  .bubbles { display: flex; align-items: flex-end; justify-content: space-around; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-6); border-radius: var(--r-l); background: linear-gradient(160deg, var(--xp-wash), transparent 60%), var(--glass); border: 1px solid var(--xp-panel-edge); }
   .size { margin: 0; display: grid; justify-items: center; gap: var(--space-3); }
-  .size .ball { width: var(--d); height: var(--d); max-width: 40vw; max-height: 40vw; border-radius: 50%; background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--accent-grad-from) 45%, white) 0 10%, var(--accent-grad-from) 30%, var(--accent-grad-to) 65%, var(--accent) 100%); box-shadow: var(--xp-orb-shadow); }
+  .size .ball { width: var(--d); height: var(--d); max-width: 40vw; max-height: 40vw; border-radius: 50%; background: radial-gradient(circle at 34% 30%, var(--xp-spec) 0 10%, var(--accent-grad-from) 30%, var(--accent-grad-to) 65%, var(--accent) 100%); box-shadow: var(--xp-orb-shadow); }
   .size:first-child .ball { background: radial-gradient(circle at 34% 30%, var(--text-2) 0 10%, var(--steel) 45%, var(--text-3)); box-shadow: none; }
   .size figcaption { display: grid; justify-items: center; gap: 2px; text-align: center; }
   .size b { font: var(--weight-semibold) var(--type-body-lg-size)/var(--type-body-lg-line) var(--font-sans); }
   .size span { font: var(--type-mono-weight) var(--type-body-size)/var(--type-mono-line) var(--font-mono); color: var(--accent-text); }
   .size small { color: var(--text-2); font-size: var(--type-body-sm-size); }
-  .orb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: var(--space-3); }
-  .orb { position: relative; min-width: 0; aspect-ratio: 1; border-radius: 50%; display: grid; place-content: center; text-align: center; gap: var(--space-1); padding: var(--space-4); color: var(--text); text-decoration: none; background: radial-gradient(circle at 34% 28%, var(--orb-hi), var(--orb-lo) 60%); border: 1.5px solid var(--glass-edge); transition: transform var(--dur-3) var(--spring), border-color var(--dur-2); }
+  .xp-src { margin: 0; color: var(--text-2); font-size: var(--type-body-sm-size); }
+  .xp-src a { color: var(--accent-text); }
+
+  .orb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: var(--space-4); }
+  .orb { position: relative; min-width: 0; aspect-ratio: 1; border-radius: 50%; display: grid; place-content: center; text-align: center; gap: var(--space-1); padding: var(--space-4); color: var(--text); text-decoration: none; background: var(--xp-orb-fill); border: var(--xp-orb-ring); box-shadow: var(--xp-orb-rest); transition: transform var(--dur-3) var(--spring), border-color var(--dur-2); }
   .orb > * { max-width: 100%; overflow-wrap: anywhere; }
   .orb b { font: var(--weight-semibold) var(--type-body-lg-size)/1.2 var(--font-sans); }
-  .orb span:not(.glow) { font-size: var(--type-body-sm-size); color: var(--text-2); }
+  .orb span:not(.glow) { font-size: var(--type-body-sm-size); color: var(--xp-orb-line); }
   .orb .glow { position: absolute; inset: -1px; border-radius: 50%; opacity: 0; box-shadow: var(--xp-orb-shadow); transition: opacity var(--dur-2); }
   .orb:hover, .orb:focus-visible { transform: scale(1.06); border-color: var(--cherenkov); }
   .orb:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .orb:hover .glow, .orb:focus-visible .glow { opacity: 1; }
-  .orb.tone-live { border-color: color-mix(in srgb, var(--success) 55%, transparent); }
-  .orb.tone-paused { border-color: color-mix(in srgb, var(--warn) 60%, transparent); border-style: dashed; }
+  .orb.tone-live { border-color: color-mix(in srgb, var(--success) 70%, transparent); }
+  .orb.tone-paused { background: var(--xp-pause-fill); border: var(--xp-pause-ring); box-shadow: var(--xp-pause-rest); }
+  .orb.tone-paused:hover, .orb.tone-paused:focus-visible { border-color: var(--warn); }
+  .orb-pause { justify-self: center; fill: var(--warn); }
   .legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); align-items: center; justify-content: center; color: var(--text-2); font-size: var(--type-body-size); margin: 0; }
-  .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: calc(var(--space-2) * -1); }
-  .legend .tone-live { border: 2px solid var(--verified); }
-  .legend .tone-paused { border: 2px dashed var(--warn); }
-  .legend .tone-built { border: 2px solid var(--glass-edge); }
+  .legend-item { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+  .legend .sw { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; }
+  .legend .tone-built { background: var(--xp-orb-fill); border: var(--xp-orb-ring); }
+  .legend .tone-live { background: var(--xp-orb-fill); border: 2px solid var(--success); }
+  .legend .tone-paused { background: var(--xp-pause-fill); border: var(--xp-pause-ring); }
   @media (max-width: 760px) { .xp-live { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 480px) { .xp-cta, .xp-chip { width: 100%; justify-content: center; } }
   @media (prefers-reduced-motion: reduce) {

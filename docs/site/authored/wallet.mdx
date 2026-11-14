@@ -7,7 +7,7 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 import PausedNote from "../../../components/PausedNote.astro";
 import GetWallet from "../../../components/GetWallet.astro";
 
-<PausedNote line="The wallet works offline and against a local devnet. Balances and transfers on a public network wait for the next genesis." />
+<PausedNote line="The wallet works offline and against a local devnet today." />
 
 ## Get the wallet
 
@@ -33,8 +33,9 @@ Three rules keep a wallet safe:
 
 ## Three facts that decide the design
 
-**1. A signature is a hybrid pair, and it is large.** Every transaction carries
-two signatures over the same payload:
+**1. A signature is a hybrid pair, and it is large.** A transaction in the
+untagged default frame, which `l1-wallet` signs, carries two signatures over the
+same payload (a suite-tagged frame is opt-in and carries one):
 
 | Scheme | Standard | Size |
 |---|---|---|

@@ -17,11 +17,12 @@ const stages = [
         <small>{s.line}</small>
       </li>
     ))}
+    <li class="stage tone-expired">
+      <span class="node" aria-hidden="true">×</span>
+      <b>Expired</b>
+      <small>past its time limit, dismissable</small>
+    </li>
   </ol>
-  <div class="branch">
-    <span class="fork" aria-hidden="true"></span>
-    <span class="stage tone-expired"><b>Expired</b><small>past its time limit, dismissable</small></span>
-  </div>
   <figcaption>
     Receipts are optional: off for everyone, or per contact. The recipient still gets the message.
   </figcaption>
@@ -30,16 +31,26 @@ const stages = [
 <style>
   /* Tokens only (lane L04): the literals here failed AA contrast in light mode. */
   .delivery { margin: 0; display: grid; gap: var(--space-4); }
-  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); position: relative; }
+  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4) var(--space-3); position: relative; }
   .track::before { content: ""; position: absolute; left: 22px; right: 22px; top: 21px; height: 2px; background: linear-gradient(90deg, var(--accent), var(--bronze)); opacity: .5; }
-  .stage { position: relative; display: grid; gap: var(--space-1); justify-items: start; }
+  .stage { position: relative; display: grid; gap: var(--space-1); justify-items: start; align-content: start; }
   /* 44 px nodes: the same steps pattern as ContributeFlow. */
   .node { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--accent); color: var(--text); font: var(--weight-semibold) var(--type-body-lg-size)/1 var(--font-mono); }
   .tone-done .node { background: var(--accent-grad-from); color: var(--on-accent); }
   .stage b { font-weight: var(--weight-semibold); }
   .stage small, .delivery figcaption { color: var(--text-2); font-size: var(--type-body-sm-size); line-height: var(--type-body-sm-line); }
-  .branch { display: flex; align-items: center; gap: var(--space-3); padding-left: 22px; }
-  .fork { width: var(--space-8); height: 0; border-top: 2px dashed var(--bronze); opacity: .7; }
-  .tone-expired b { color: var(--bronze); }
+  /* Expired: the side branch, a dashed bronze node on its own row. */
+  .tone-expired { grid-column: 1 / -1; grid-template-columns: 44px minmax(0, 1fr); column-gap: var(--space-3); align-items: center; }
+  .tone-expired .node { grid-row: span 2; border: 2px dashed var(--bronze); background: none; color: var(--bronze); }
+  .tone-expired b { color: var(--bronze); align-self: end; }
+  .tone-expired small { align-self: start; }
   .delivery figcaption { margin: 0; }
+  @media (max-width: 480px) {
+    .track { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+    .track::before { left: 21px; right: auto; top: 22px; bottom: 22px; width: 2px; height: auto; background: linear-gradient(180deg, var(--accent), var(--bronze)); }
+    .stage { grid-template-columns: 44px minmax(0, 1fr); column-gap: var(--space-3); align-items: center; }
+    .stage .node { grid-row: span 2; position: relative; }
+    .stage b { align-self: end; }
+    .stage small { align-self: start; }
+  }
 </style>

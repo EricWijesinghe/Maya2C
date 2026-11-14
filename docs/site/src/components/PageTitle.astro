@@ -29,11 +29,11 @@ const tone: Record<string, string> = { verified: "ok", working: "info", stub: "w
     {chips.map((c) => (
       HOSTED_SUBSYSTEMS.includes(c.id ?? "") ? (
         <a class="ui-pill ui-pill--warn" href="/health/" title={`${c.name}: ${c.status}, ${c.class} (features.toml); the public testnet is paused`} data-paused-chip>
-          {c.name.length > 38 ? `${c.name.slice(0, 36)}…` : c.name} · {c.status} · offline until next genesis
+          {c.name} · {c.status} · offline until next genesis
         </a>
       ) : (
         <a class={`ui-pill ui-pill--${tone[c.status] ?? "info"}`} href="/health/" title={`${c.name}: ${c.status}, ${c.class} (features.toml)`}>
-          {c.name.length > 38 ? `${c.name.slice(0, 36)}…` : c.name} · {c.status}
+          {c.name} · {c.status}
         </a>
       )
     ))}
@@ -42,7 +42,11 @@ const tone: Record<string, string> = { verified: "ok", working: "info", stub: "w
 
 <style>
   .doc-status { display: flex; flex-wrap: wrap; gap: 6px; margin: 0.5rem 0 0; }
-  .doc-status a { text-decoration: none; font-size: 12.5px; }
+  /* Each chip is a link, so it gets a 44 px hit area (a transparent band
+     above and below) without a taller pill; names wrap rather than truncate. */
+  .doc-status { row-gap: var(--space-3); }
+  .doc-status a { position: relative; height: auto; min-height: 22px; max-width: 100%; padding-block: 3px; line-height: 1.3; white-space: normal; text-decoration: none; font-size: 12.5px; }
+  .doc-status a::after { content: ""; position: absolute; inset: -11px 0; }
   /* The longer paused label may wrap on a phone, so it cannot keep the pill's fixed height. */
-  .doc-status a[data-paused-chip] { height: auto; min-height: 22px; max-width: 100%; padding-block: 3px; line-height: 1.3; border-style: dashed; border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+  .doc-status a[data-paused-chip] { border-style: dashed; border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
 </style>

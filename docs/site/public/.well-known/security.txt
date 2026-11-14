@@ -1,5 +1,5 @@
 # First channel: GitHub private vulnerability reporting, https://github.com/EricWijesinghe/Maya2C/security/advisories/new
-# security@maya2c.dev does not receive mail yet, and no encrypted channel exists yet (see Policy).
+# security@maya2c.dev is not confirmed to receive mail yet, and no encrypted channel exists yet (see Policy).
 Contact: https://github.com/EricWijesinghe/Maya2C/security/advisories/new
 Expires: 2027-11-08T00:00:00.000Z
 Preferred-Languages: en

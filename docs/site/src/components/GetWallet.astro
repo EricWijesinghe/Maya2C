@@ -1,9 +1,10 @@
 ---
 // "Get the wallet" (lane L04): one button per OS, deep-linked to the exact
 // asset of the tagged pre-release in data/release.ts, never the moving "latest".
-// Until that release is published there are no buttons at all: one state card
-// says so and offers the build-from-source path, because a link to a file that
-// does not exist yet is a 404 and three disabled buttons are a dead end.
+// Until that release is published the three OS tiles are shown off, labelled
+// "not released yet", so the layout is final and the state is plain, and the one
+// working action is building from source. No tile is a link: a link to a file
+// that does not exist yet is a 404. The checksum step appears with the files.
 import { Code } from "@astrojs/starlight/components";
 import { assetHref, BUILD_FROM_SOURCE_HREF, release, releaseHref, unpublishedReason, wallet, walletOsLabel, type WalletOs } from "../data/release.ts";
 
@@ -24,6 +25,14 @@ const oses = Object.keys(wallet) as WalletOs[];
   ) : (
     <div class="gw-state" data-unreleased>
       <p class="gw-state__title">Preview build not released yet</p>
+      <ul class="gw-os gw-os--off" aria-label="Installers">
+        {oses.map((os) => (
+          <li class="gw-btn is-off">
+            <span class="gw-btn__os">{walletOsLabel[os]}</span>
+            <span class="gw-btn__file">not released yet</span>
+          </li>
+        ))}
+      </ul>
       <p>{unpublishedReason}</p>
       <div class="gw-state__actions">
         <a class="gw-cta" href={BUILD_FROM_SOURCE_HREF}>Build it from source <span aria-hidden="true">→</span></a>
@@ -31,8 +40,12 @@ const oses = Object.keys(wallet) as WalletOs[];
       </div>
     </div>
   )}
-  <p class="gw-label">Check the file before you open it (Linux; on macOS use <code>shasum -a 256</code> in place of <code>sha256sum</code>):</p>
-  <Code code="sha256sum --ignore-missing -c SHA256SUMS" lang="bash" />
+  {release.published && (
+    <>
+      <p class="gw-label">Check the file before you open it (Linux; on macOS use <code>shasum -a 256</code> in place of <code>sha256sum</code>):</p>
+      <Code code="sha256sum --ignore-missing -c SHA256SUMS" lang="bash" />
+    </>
+  )}
   <p class="gw-note">The installers are not code-signed yet, so Windows and macOS warn about an unknown publisher. The <code>SHA256SUMS</code> check, not the warning, is what tells you the file is the one this project built.</p>
 </div>
 
@@ -47,8 +60,12 @@ const oses = Object.keys(wallet) as WalletOs[];
   .gw-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .gw-btn__os { font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
   .gw-btn__file { font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
-  .gw-state { display: grid; gap: var(--space-2); padding: var(--space-4); border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-inline-start: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface-1)); }
-  :global(:root[data-theme="light"]) .gw-state { background: #fff6e2; }
+  /* Neutral: the page's PausedNote is the one amber box on this screen. */
+  .gw-state { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); }
+  .gw-os--off { list-style: none; margin: 0; padding: 0; }
+  .gw-btn.is-off { border: 1px dashed var(--border-strong); background: var(--surface-1); color: var(--text-2); cursor: default; }
+  .gw-btn.is-off:hover { transform: none; }
+  .gw-btn.is-off .gw-btn__os { color: var(--text); }
   .gw .gw-state p { color: var(--text); }
   .gw .gw-state .gw-state__title { font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
   .gw-state__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-top: var(--space-1); }
