@@ -65,6 +65,16 @@ fn args() -> anyhow::Result<Args> {
     Ok(a)
 }
 
+/// A search item's acquisition day, `YYYY-MM-DD`; empty when the service
+/// sent no usable datetime. `get`, not `[..10]`: the string is the remote
+/// service's, and a byte slice of a shorter one panics.
+fn scene_day(f: &Value) -> &str {
+    f["properties"]["datetime"]
+        .as_str()
+        .and_then(|d| d.get(..10))
+        .unwrap_or_default()
+}
+
 fn search(client: &reqwest::blocking::Client, a: &Args) -> anyhow::Result<Vec<Value>> {
     let body = json!({
         "collections": ["sentinel-2-l2a"],
@@ -99,9 +109,7 @@ fn search(client: &reqwest::blocking::Client, a: &Args) -> anyhow::Result<Vec<Va
             .unwrap_or_default()
             .to_owned()
     });
-    picked.dedup_by_key(|f| {
-        f["properties"]["datetime"].as_str().unwrap_or_default()[..10].to_owned()
-    });
+    picked.dedup_by_key(|f| scene_day(f).to_owned());
     picked.truncate(a.scenes);
     if picked.is_empty() {
         bail!("no low-cloud scene in UTM zone {zone} for that point and range");
@@ -186,4 +194,26 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| format!("writing {}", a.out))?;
     println!("wrote {}", a.out);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_short_or_missing_datetime_from_the_search_is_no_day_not_a_panic() {
+        let item = |d: Value| json!({"properties": {"datetime": d}});
+        assert_eq!(
+            scene_day(&item(json!("2025-06-14T18:39:21Z"))),
+            "2025-06-14"
+        );
+        assert_eq!(scene_day(&item(json!("2025"))), "");
+        assert_eq!(
+            scene_day(&item(json!("2025-06-1é"))),
+            "",
+            "byte 10 is inside a character"
+        );
+        assert_eq!(scene_day(&item(Value::Null)), "");
+        assert_eq!(scene_day(&json!({})), "");
+    }
 }

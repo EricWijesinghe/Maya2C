@@ -218,8 +218,16 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     markdown_files(&root.join("docs"), &mut files);
     let (mut resolved, mut unchecked, mut missing) = (0usize, 0usize, Vec::new());
     for file in &files {
-        let Ok(text) = std::fs::read_to_string(file) else {
-            continue;
+        // An unreadable guide fails rather than counting as checked.
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(e) => {
+                missing.push(format!(
+                    "{}: cannot read: {e}",
+                    file.strip_prefix(&root).unwrap_or(file).display()
+                ));
+                continue;
+            }
         };
         for (line, cmd) in commands(&text) {
             match resolve(&cmd, &root, &pkgs) {

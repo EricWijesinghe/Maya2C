@@ -125,25 +125,37 @@ fn surfaces(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Scans the public surfaces; fails on any unauthorised claim.
-pub fn run(_args: &[String]) -> Result<(), String> {
-    let root = crate::workspace_root();
-    let prior_art = root.join("docs/prior-art");
+/// Every unauthorised claim in `files`, as `path:line: why` lines.
+fn scan(files: &[PathBuf], root: &Path, prior_art: &Path) -> Vec<String> {
     let mut failures = Vec::new();
-    let files = surfaces(&root);
-    for path in &files {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            continue;
+    for path in files {
+        let rel = path.strip_prefix(root).unwrap_or(path).display();
+        // An unreadable page (not UTF-8, locked) fails: skipped, its claims
+        // would pass the gate unread.
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                failures.push(format!("{rel}: cannot read: {e}"));
+                continue;
+            }
         };
         for (n, line) in text.lines().enumerate() {
             if is_claim(line)
-                && let Some(why) = unauthorised(line, &prior_art)
+                && let Some(why) = unauthorised(line, prior_art)
             {
-                let rel = path.strip_prefix(&root).unwrap_or(path).display();
                 failures.push(format!("{rel}:{}: {why}\n    {}", n + 1, line.trim()));
             }
         }
     }
+    failures
+}
+
+/// Scans the public surfaces; fails on any unauthorised claim.
+pub fn run(_args: &[String]) -> Result<(), String> {
+    let root = crate::workspace_root();
+    let prior_art = root.join("docs/prior-art");
+    let files = surfaces(&root);
+    let failures = scan(&files, &root, &prior_art);
     println!(
         "claims-check: {} public files scanned, {} unauthorised claims",
         files.len(),
@@ -209,6 +221,27 @@ mod tests {
                 &d
             ),
             None
+        );
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn a_surface_that_cannot_be_read_fails_the_check() {
+        // A page saved as UTF-16 by a Windows editor is not UTF-8: skipped,
+        // every claim in it would pass the gate unread.
+        let d = std::env::temp_dir().join(format!("claims-unread-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let page = d.join("page.md");
+        let utf16: Vec<u8> = "the first chain\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        std::fs::write(&page, [&[0xFF, 0xFE][..], &utf16].concat()).unwrap();
+        let failures = scan(&[page], &d, &d);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(
+            failures[0].starts_with("page.md: cannot read"),
+            "{failures:?}"
         );
         std::fs::remove_dir_all(d).unwrap();
     }
