@@ -171,6 +171,7 @@ async fn overview(State(state): State<Arc<PoolState>>) -> crate::error::Result<R
         workers,
         status.reported_power_milliwatts,
         blocks,
+        state.config.network,
     )))
 }
 
@@ -178,6 +179,7 @@ async fn overview(State(state): State<Arc<PoolState>>) -> crate::error::Result<R
 async fn blocks(State(state): State<Arc<PoolState>>) -> crate::error::Result<Response> {
     Ok(html(ui::blocks_page(
         state.ledger.recent_blocks(LIST_LIMIT)?,
+        state.config.network,
     )))
 }
 
@@ -193,7 +195,7 @@ async fn miner(
     State(state): State<Arc<PoolState>>,
     Path(address): Path<String>,
 ) -> crate::error::Result<Response> {
-    let parsed = api::parse_address(&address)?;
+    let parsed = api::parse_address(&address, state.config.network)?;
     let balance = state.ledger.balance(&parsed)?;
     let workers = state.telemetry()?.workers_of(&parsed, now_millis());
 
@@ -211,7 +213,11 @@ async fn miner(
             .into_response());
     }
 
-    Ok(html(ui::miner_page(hex::encode(parsed), balance, workers)))
+    Ok(html(ui::miner_page(
+        maya_address::encode(state.config.network, &parsed),
+        balance,
+        workers,
+    )))
 }
 
 /// Pool-wide status, as JSON.
@@ -226,10 +232,15 @@ async fn miner_json(
     State(state): State<Arc<PoolState>>,
     Path(address): Path<String>,
 ) -> crate::error::Result<Json<MinerView>> {
-    let parsed = api::parse_address(&address)?;
+    let parsed = api::parse_address(&address, state.config.network)?;
     let balance = state.ledger.balance(&parsed)?;
     let workers = state.telemetry()?.workers_of(&parsed, now_millis());
-    Ok(Json(api::miner_view(parsed, balance, workers)))
+    Ok(Json(api::miner_view(
+        parsed,
+        state.config.network,
+        balance,
+        workers,
+    )))
 }
 
 /// Found blocks, as JSON.

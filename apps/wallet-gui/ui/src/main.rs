@@ -20,6 +20,7 @@
 mod amount;
 mod bridge;
 mod camera;
+mod contacts;
 mod receive;
 mod screens;
 
@@ -31,6 +32,9 @@ const DEFAULT_NODE_URL: &str = "https://rpc.maya2c.dev/rpc";
 /// How often the header re-reads the network's height. A block lands every
 /// few seconds on the testnet; faster polling would only load the gateway.
 const NETWORK_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+/// Pending-link check. Polled, not evented: a wasm page cannot listen to a
+/// Tauri event without JS glue. One cheap IPC call a second, Wallet screen only.
+const PENDING_PAY_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Which screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +58,8 @@ pub enum Screen {
     Receive,
     /// A transfer was broadcast.
     Sent(receive::SentTransfer),
+    /// The address book.
+    Contacts,
 }
 
 /// Application state shared across screens.
@@ -119,6 +125,15 @@ impl AppState {
         self.error.set(None);
         self.notice.set(None);
     }
+
+    /// The connected node's genesis id, hex, or empty before it answers: the
+    /// core decides the address prefix from it, never from the node's name.
+    pub fn genesis(&self) -> String {
+        self.network
+            .get_untracked()
+            .map(|n| n.genesis)
+            .unwrap_or_default()
+    }
 }
 
 /// The application root.
@@ -148,6 +163,22 @@ fn App() -> impl IntoView {
     };
     poll_network();
     let _ = set_interval_with_handle(poll_network, NETWORK_POLL);
+
+    // A payment link arrives while the app runs; it is applied only on the
+    // Wallet screen, so it never interrupts an unlock, backup or signing step.
+    let poll_pending_pay = move || {
+        if !matches!(state.screen.get_untracked(), Screen::Wallet) {
+            return;
+        }
+        leptos::task::spawn_local(async move {
+            // A refused link (wrong network, expired) is dropped, as the OS
+            // handler drops a malformed one.
+            if let Ok(Some(request)) = bridge::take_pending_pay(&state.genesis()).await {
+                state.screen.set(Screen::Send(request));
+            }
+        });
+    };
+    let _ = set_interval_with_handle(poll_pending_pay, PENDING_PAY_POLL);
 
     view! {
         <div class="app">
@@ -204,6 +235,7 @@ fn App() -> impl IntoView {
                     }
                     Screen::Receive => view! { <receive::Receive/> }.into_any(),
                     Screen::Sent(sent) => view! { <receive::Sent sent=sent/> }.into_any(),
+                    Screen::Contacts => view! { <contacts::Contacts/> }.into_any(),
                 }}
             </main>
         </div>

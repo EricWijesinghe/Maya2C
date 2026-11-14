@@ -1,4 +1,4 @@
-//! The OpenAPI document and the router must describe the same API.
+//! The `OpenAPI` document and the router must describe the same API.
 //!
 //! `src/rest.rs` promises this file exists. It did not, for a while: the doc
 //! comment was written with the annotations and the test was left for later.

@@ -173,7 +173,7 @@ impl Default for TelemetryService {
 
 /// The routes, ready to serve.
 pub fn router(service: Arc<TelemetryService>) -> Router {
-    Router::new()
+    let routes = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/report", post(report))
         .route("/api/snapshot", get(snapshot))
@@ -182,14 +182,13 @@ pub fn router(service: Arc<TelemetryService>) -> Router {
             MAX_BODY_BYTES,
         ))
         // The dashboard is served from a different origin than the collector
-        // in most deployments. Reads are public data; `POST /report` is not
+        // in most deployments. Reads are public data, so any origin may read
+        // unless `MAYA2C_CORS_ALLOWED_ORIGINS` lists them; `POST /report` is not
         // browser-originated, so only GET is allowed cross-origin.
-        .layer(
-            tower_http::cors::CorsLayer::new()
-                .allow_origin(tower_http::cors::Any)
-                .allow_methods([axum::http::Method::GET]),
-        )
-        .with_state(service)
+        .layer(maya_web_security::cors_from_env([axum::http::Method::GET]))
+        .with_state(service);
+    // JSON and a websocket only: no page of its own to run script.
+    maya_web_security::secure(routes, "default-src 'none'; frame-ancestors 'none'")
 }
 
 /// An error, as a reporter sees it.
@@ -335,5 +334,27 @@ mod tests {
             .ingest(report, Region::UNKNOWN, 1_000)
             .expect("accepted");
         assert_eq!(snapshot.hash_rate, 500);
+    }
+
+    #[tokio::test]
+    async fn every_response_sends_the_hardening_headers_and_no_server_name() {
+        use tower::ServiceExt;
+        let service = Arc::new(TelemetryService::new());
+        for (uri, status) in [("/health", 200_u16), ("/no-such-route", 404)] {
+            let response = router(Arc::clone(&service))
+                .oneshot(
+                    axum::http::Request::get(uri)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), status, "{uri}");
+            let headers = response.headers();
+            assert_eq!(headers["x-content-type-options"], "nosniff", "{uri}");
+            assert_eq!(headers["x-frame-options"], "DENY", "{uri}");
+            assert_eq!(headers["server"], "maya2c", "{uri}");
+            assert!(headers.contains_key("content-security-policy"), "{uri}");
+        }
     }
 }

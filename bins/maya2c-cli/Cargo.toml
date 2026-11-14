@@ -15,6 +15,7 @@ name = "maya2c"
 path = "src/main.rs"
 
 [dependencies]
+maya-address = { path = "../../crates/address" }
 maya-vm = { path = "../../crates/vm" }
 # ADR-046: money is a U256 (the node's wire amounts, decimal strings).
 primitive-types.workspace = true

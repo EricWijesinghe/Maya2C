@@ -140,7 +140,7 @@ pub fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn call(url: &str, method: &str, params: Value) -> Result<Value, String> {
+pub(crate) fn call(url: &str, method: &str, params: Value) -> Result<Value, String> {
     // No redirects: a node URL that answers 3xx must not move the call elsewhere.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(TIMEOUT))

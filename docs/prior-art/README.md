@@ -19,3 +19,36 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Post-quantum L1 comparison, 18 chains](pq-l1-comparison-2026-11.md) — searched 2026-11-01
 - [Chain-level exploit containment and recovery (Sentinel Recovery Network)](chain-level-exploit-recovery.md) — searched 2026-11-02
 - [Forkless upgrades and on-chain adaptive control (Omega design)](forkless-upgrades-and-adaptive-control.md) — searched 2026-11-02
+- [Time-capsule (height-released messages)](time-capsule.md) — searched 2026-11-10
+- [Digital will (inactivity trigger on a native account)](digital-will.md) — searched 2026-11-10
+- [Personal agent (session-scoped spending)](personal-agent.md) — searched 2026-11-10
+- [Fabrication rights (provenance-only print licences)](fabrication-rights.md) — searched 2026-11-10
+- [Quantum-ready keys (rotation and suite sunset)](quantum-ready-keys.md) — searched 2026-11-10
+- [Guardian AI (advisory sentinels, consensus boundary)](guardian-ai.md) — searched 2026-11-10
+- [Emergency identity (guardian recovery for lost papers)](emergency-identity.md) — searched 2026-11-10
+- [Autonomous-vehicle payments (session limits, consensus-enforced)](autonomous-vehicle-payments.md) — searched 2026-11-10
+- [Space-debris registry (mirror of state-filed records)](space-debris-registry.md) — searched 2026-11-10
+- [Seed-vault attestation (lab custody records)](seed-vault-attestation.md) — searched 2026-11-10
+- [Aid tracing (chain-enforced recipient limits)](aid-tracing.md) — searched 2026-11-10
+- [On-device translation inside encrypted chat (babel-chat)](babel-chat.md) — partially searched 2026-11-10
+- [Proof of personhood without biometrics on chain (human-or-machine)](human-or-machine.md) — partially searched 2026-11-10
+- [One identity and owned items across virtual worlds (avatar-passport)](avatar-passport.md) — partially searched 2026-11-10
+- [Patient-owned medical records granted per visit (health-vault)](health-vault.md) — partially searched 2026-11-10
+- [Civilisation's knowledge kept verifiable for centuries (foundation-archive)](foundation-archive.md) — partially searched 2026-11-10
+- [Proving a photo or video is original since capture (truth-stamps)](truth-stamps.md) — partially searched 2026-11-10
+- [Light-lag ledger, payments between distant sites (light-lag-ledger)](light-lag-ledger.md) — searched 2026-11-10
+- [Mind-link safety, consent and logging for BCIs (mind-link-safety)](mind-link-safety.md) — searched 2026-11-10
+- [Swarm coordination without a central controller (swarm-coordination)](swarm-coordination.md) — searched 2026-11-10
+- [City mesh, messaging and paying when the network is down (city-mesh)](city-mesh.md) — searched 2026-11-10
+- [Energy credits, measured energy sharing (energy-credits)](energy-credits.md) — searched 2026-11-10
+- [Stealth addresses over ML-KEM (ADR-102)](stealth-addresses.md) — searched 2026-11-12
+- [User-issued fungible tokens with a cap (ADR-103)](fungible-tokens.md) — searched 2026-11-12
+- [NFTs: metadata hash and royalties (ADR-104)](nfts.md) — searched 2026-11-12
+- [Name service (ADR-105)](name-service.md) — searched 2026-11-12
+- [Sponsored fees / paymaster (ADR-106)](sponsored-fees.md) — searched 2026-11-12
+- [Account abstraction: session keys and limits (ADR-107)](account-abstraction.md) — partially searched 2026-11-12
+- [Liquid staking receipt token (ADR-108)](liquid-staking.md) — searched 2026-11-12
+- [Scheduled and recurring payments (ADR-109)](scheduled-payments.md) — partially searched 2026-11-12
+- [GPU auto-tuning in a miner GUI (ADR-137 HW-1)](gpu-auto-tuning.md) — partially searched 2026-11-12
+- [Node hardware self-tuning (ADR-137 HW-2)](node-hardware-self-tuning.md) — not searched
+- [GPU batch verification of post-quantum signatures (ADR-137 HW-3)](gpu-signature-verification.md) — partially searched 2026-11-12

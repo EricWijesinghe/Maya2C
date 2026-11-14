@@ -1,0 +1,15 @@
+# OSS-Fuzz project descriptor for Maya2C. Copied to projects/maya2c/ in a fork
+# of google/oss-fuzz. See README.md for the submission steps.
+homepage: "https://github.com/EricWijesinghe/Maya2C"
+language: rust
+# Placeholder. Replace with a Google account address that is a committer in
+# the repository's git log, before submitting. It is not filled in here on
+# purpose: the contact address is the owner's to choose.
+primary_contact: "REPLACE_WITH_GOOGLE_ACCOUNT_EMAIL"
+main_repo: "https://github.com/EricWijesinghe/Maya2C.git"
+sanitizers:
+  - address
+fuzzing_engines:
+  - libfuzzer
+architectures:
+  - x86_64

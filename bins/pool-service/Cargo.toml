@@ -35,6 +35,7 @@ custom-l1-node = { path = "../../crates/node" }
 # ADR-046: money is a U256 (the node's wire amounts).
 primitive-types.workspace = true
 maya-stratum-v2 = { path = "../../crates/stratum-v2" }
+maya-address = { path = "../../crates/address" }
 # Every credit, debit, and treasury nonce bump. Model-checked, and the reason
 # no balance in this crate is touched with a bare `+` or `-`.
 maya-ledger-math = { path = "../../crates/ledger-math" }

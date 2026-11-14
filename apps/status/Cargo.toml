@@ -10,6 +10,7 @@ description = "Chain uptime from block timestamps: a status page, a JSON API and
 axum.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 tower-http = { workspace = true, features = ["cors"] }
+maya-web-security = { path = "../../crates/web-security" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 primitive-types.workspace = true
@@ -22,3 +23,4 @@ workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tower = { workspace = true, features = ["util"] }

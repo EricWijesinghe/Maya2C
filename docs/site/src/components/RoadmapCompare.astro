@@ -1,0 +1,114 @@
+---
+// How we compare (COMPETITORS.md section 3 and 4). Every cell is shown, trailing
+// ones included, and the tally is counted from the cells, not written by hand.
+import { VERDICTS, type Ecosystem, type Verdict } from "../data/ecosystem";
+
+interface Props {
+  eco: Ecosystem;
+}
+const { eco } = Astro.props;
+
+const VERDICT_TEXT: Record<Verdict, string> = {
+  Lead: "ahead on the stated fact",
+  Par: "level, or both lack it",
+  Trail: "a competitor is ahead today",
+  "n/a": "not verified; not a lead, not a trail",
+};
+const total = VERDICTS.reduce((n, v) => n + eco.matrix.tally[v], 0);
+---
+
+<section class="compare not-content" aria-labelledby="compare-h">
+  <h2 id="compare-h">How we compare</h2>
+  <p class="intro">
+    Maya2C against thirteen chains, cell by cell. Maya2C has no mainnet yet and its throughput runs were on one machine,
+    so the honest reading is in the trailing rows, not the leads.
+  </p>
+
+  <ul class="key" aria-label="Verdict key">
+    {VERDICTS.map((v) => (
+      <li><span class={`v v-${v}`}>{v}</span> {VERDICT_TEXT[v]}</li>
+    ))}
+  </ul>
+
+  <div class="scroll" tabindex="0" role="region" aria-label="Verdict matrix, scrolls sideways on narrow screens">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Dimension</th>
+          {eco.matrix.chains.map((c) => <th scope="col" title={c.name}>{c.code}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {eco.matrix.rows.map((row) => (
+          <tr>
+            <th scope="row">{row.dimension}</th>
+            {row.cells.map((v, i) => <td class={`v v-${v}`} title={`${eco.matrix.chains[i].name}: ${v}`}>{v}</td>)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+  <p class="tally">
+    {total} cells: {eco.matrix.tally.Lead} lead, {eco.matrix.tally.Par} par, {eco.matrix.tally.Trail} trail, {eco.matrix.tally["n/a"]} not verified.
+    Chain codes: {eco.matrix.chains.map((c) => `${c.code} ${c.name}`).join(" · ")}.
+  </p>
+
+  <h3>Where we trail, and what closes it</h3>
+  <ul class="closures">
+    {eco.closures.map((c) => (
+      <li>
+        <p class="cell"><span class="v v-Trail">Trail</span> {c.cell}</p>
+        <p class="closed">
+          <span>Closed by</span> {c.closedBy}
+        </p>
+        {c.ids.length > 0 ? (
+          <p class="ids">
+            {c.ids.map((id) => (
+              <button type="button" class="chipbtn" data-pick={id}>{id}</button>
+            ))}
+          </p>
+        ) : null}
+        <p class="notes">{c.notes}</p>
+      </li>
+    ))}
+  </ul>
+  <p class="src"><a href={eco.links.competitors}>COMPETITORS.md, with every source and access date</a></p>
+</section>
+
+<style>
+  .compare { margin: 2.5rem 0; color: var(--lede); }
+  .compare h2 { font: 800 1.3rem/1.2 var(--display); color: var(--text); margin: 0 0 .4rem; }
+  .compare h3 { font: 700 1.05rem var(--display); color: var(--text); margin: 1.8rem 0 .7rem; }
+  .intro { margin: 0 0 .9rem; font-size: .92rem; }
+  .key { list-style: none; margin: 0 0 1rem; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem 1rem; font-size: .8rem; color: var(--muted); }
+  .key li { display: inline-flex; align-items: center; gap: .35rem; }
+  .v { display: inline-block; font: 700 .72rem var(--mono); padding: .15rem .45rem; border-radius: var(--r-pill); border: 1px solid currentColor; white-space: nowrap; }
+  .v-Lead { color: color-mix(in srgb, var(--verified) 70%, var(--text)); }
+  .v-Par { color: var(--muted); }
+  .v-Trail { color: color-mix(in srgb, var(--gold) 70%, var(--text)); }
+  .v-n\/a { color: var(--muted); border-style: dashed; }
+
+  .scroll { overflow-x: auto; border-radius: var(--r-m); border: 1px solid var(--glass-edge); background: var(--glass); }
+  .scroll:focus-visible { outline: 3px solid var(--cherenkov-hi); outline-offset: 2px; }
+  table { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: .78rem; }
+  th, td { padding: .45rem .55rem; border-bottom: 1px solid var(--glass-edge); text-align: center; }
+  thead th { font: 700 .72rem var(--mono); color: var(--text); position: sticky; top: 0; background: var(--well); }
+  tbody th { text-align: left; font-weight: 600; color: var(--lede); position: sticky; left: 0; background: var(--well); min-width: 11rem; }
+  td.v { border-radius: 0; font: 700 .7rem var(--mono); }
+  td.v-Lead, td.v-Trail, td.v-Par, td.v-n\/a { border-style: none; }
+  .tally { margin: .6rem 0 0; font-size: .8rem; color: var(--muted); }
+
+  .closures { list-style: none; margin: 0; padding: 0; display: grid; gap: .8rem; }
+  .closures li { padding: 1rem 1.1rem; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); }
+  .cell { margin: 0 0 .4rem; color: var(--text); font-weight: 600; }
+  .cell .v { margin-right: .35rem; }
+  .closed, .notes { margin: 0 0 .3rem; font-size: .88rem; }
+  .closed span, .notes { color: var(--muted); }
+  .closed span { font-weight: 600; }
+  .ids { margin: .3rem 0 .4rem; display: flex; flex-wrap: wrap; gap: .4rem; }
+  .chipbtn { min-height: 2rem; padding: .25rem .6rem; border-radius: var(--r-pill); background: var(--well); border: 1px solid var(--glass-edge); color: var(--text); font: 600 .75rem var(--mono); cursor: pointer; }
+  .chipbtn:hover { border-color: var(--cherenkov-hi); }
+  .pick:focus-visible { outline: 3px solid var(--cherenkov-hi); outline-offset: 2px; }
+  .src { margin: 1rem 0 0; font-size: .85rem; }
+  .src a { color: var(--accent-text); font-weight: 600; }
+</style>

@@ -3,6 +3,13 @@
   "productName": "Maya Chat",
   "version": "0.1.0",
   "identifier": "com.maya2c.chat",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["maya2c-chat"]
+      }
+    }
+  },
   "build": {
     "frontendDist": "../ui"
   },

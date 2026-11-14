@@ -5,6 +5,29 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — frozen-node findings (CATALOG §M research, 2026-11-10)
+
+Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
+**Decision for Eric: re-freeze vs fix outside the node.**
+
+- **F1 — `get_supply` counts the keyless mining reserve as circulating.**
+  `crates/node/src/rpc/market.rs:48` `NON_CIRCULATING` lists only `FEE_SINK`;
+  `MINING_RESERVE` (`crates/node/src/state/mining.rs:41`, no key derives it) is
+  funded at genesis with `--mining-reserve 122753829695359067419575633036805965021648`
+  base units (`deploy/genesis/mainnet/README.md:46`). `get_supply`,
+  `/api/v1/supply` and aggregator endpoints would report it as circulating on
+  day one. Not consensus. Smaller, same file: the sums use `saturating_add`
+  (`market.rs:95,97,108`), so an overflow would understate silently. Outside-node
+  option: correct the figure in the explorer/status/aggregator layer and in
+  J `supply-recompute`.
+- **F2 — wallet description of `Propose` ignores the upgrade (blind signing).**
+  `crates/node/src/core/describe.rs:336-344` describes `TxKind::Propose` by
+  parameter count only and never reads `ProposalSubmission.upgrade`
+  (`crates/node/src/core/governance_payload.rs:156`); an upgrade-only proposal
+  reads "Propose changing 0 parameters…". The no-wildcard match does not catch a
+  new field inside an existing variant. Outside-node option: render the upgrade
+  section in the wallet/CLI from the decoded payload until `describe.rs` can change.
+
 ## P5 — ADR-082 follow-ups (genesis upgrade levers, 2026-11-07)
 
 - **Suite account migration.** `crates/crypto-pq/src/agility/migration.rs` is
@@ -26,6 +49,12 @@ band; move an item to PROGRESS.md when it starts.
   for fewer reads and smaller proofs (ADR-062 territory).
 
 ## P2 — found in the 2026-11-01 hardening wave (post-freeze)
+
+- **Pay the lint ratchet back from 844 to 790 or below (after genesis).** It rose by 54 between
+  10-28 and 11-09 while nightly was red: compile errors in clippy kept `--check` from counting.
+  It was raised on 11-09 rather than edited during the freeze, because the largest share is
+  pedantic cast lints in `crates/vm/src/runtime.rs` (frozen consensus code). Top kinds:
+  truncating casts (~100), doc backticks (49), sign-loss casts (24), f64 precision (36).
 
 - **OS-native wallet confirm dialog.** #287 makes `Wallet::sign` spend one confirm, but a
   compromised webview can still call confirm and then sign without rendering anything. A
@@ -77,9 +106,9 @@ band; move an item to PROGRESS.md when it starts.
 - **Key the kept block preview on wire hashes, not txids**
   (`crates/node/src/state/preview.rs`), so a multisig body re-encoded with
   other approvals cannot reuse a preview. Predates ADR-036. Source: same.
-- **Ceremony runbook checks the mainnet genesis id differs from every
+- [x] (`docs/runbooks/genesis-ceremony.md` step 7a, line 47) **Ceremony runbook checks the mainnet genesis id differs from every
   published testnet id** (gate 5). Source: same.
-- **htlc-watcher and pool-service fetch the genesis per transaction**;
+- [x] (`bins/htlc-watcher/src/rpc.rs:23`, `bins/pool-service/src/node.rs:44`) **htlc-watcher and pool-service fetch the genesis per transaction**;
   cache it once per connection, as the faucet does. Source: rust review,
   2026-10-03.
 
@@ -92,7 +121,7 @@ band; move an item to PROGRESS.md when it starts.
   Kademlia addresses unless the node itself is on that network, or stop the
   seed advertising them. Harmless, but it reads as broken. (maya2c-c9's
   real-PC join, 2026-10-13: testnet.3 bootstrap to ready in ~13 min.)
-- **Catch-up calls an already-held block "malformed".** v4's log (2026-10-13)
+- [x] (`crates/node/src/consensus/bft/catchup.rs:466` counts `Duplicate` as `already_held`) **Catch-up calls an already-held block "malformed".** v4's log (2026-10-13)
   has 1,975 lines `catch-up: malformed wire encoding: a block did not extend
   the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
   Duplicate` should be skipped quietly; logging it as malformed hides real
@@ -108,22 +137,22 @@ band; move an item to PROGRESS.md when it starts.
 
 - **Measure line coverage of the core crates** with `cargo llvm-cov`
   (installed, 0.8.7; never run). M1 criterion 8. Source: EMPIRE.md.
-- **Property tests for fees, consensus and VM.** State has a seeded
+- [x] (`crates/{fee-market,dag-bft,vm}/tests/property_tests.rs`, proptest) **Property tests for fees, consensus and VM.** State has a seeded
   property test (`crates/node/tests/supply_property_tests.rs`); a search
   found none for `fee-market`, `dag-bft` or `vm`. First confirm by reading
   their test suites, then add seeded property tests. M1 criterion 5.
-- **Gap-register allowlist.** `cargo xtask gap-register` counts reviewed
+- [x] (`xtask/src/gap_register.rs:19,58`, `reviewed-guard:` marker; the tool is Rust in `xtask/`, command `gap-register`) **Gap-register allowlist.** `cargo xtask gap-register` counts reviewed
   guards as P0 (DECISIONS.md, 2026-09-28). Add a reviewed-guard marker so
   the count means open work. Port to Rust (`cargo xtask gaps`) at the same
   time: new tooling here is Rust.
 - **Re-check that every number in reports 12, 13, 14, 26** carries commit,
   hardware, OS and command (Production Standing Orders). M2.
-- **PROGRESS.md is stale in places**: "Phase B — physical layout — not
+- [x] (PROGRESS.md "Phase B" header now "done 2026-09-20", commit `8d0ff94e`; no `claude/task-0g86kl` text left in PROGRESS.md) **PROGRESS.md is stale in places**: "Phase B — physical layout — not
   started" although the tree already has `crates/ bins/ apps/ hal/`; the
   section header still names branch `claude/task-0g86kl`, which was merged
   and deleted. Reconcile against git history.
 
-- **`xtask sweep` should record a dirty tree.** The record names only
+- **`xtask sweep` should record a dirty tree.** Record part done (`xtask/src/sweep.rs:89-94`, `worktree_state` at `:290-317`); open: `status` printing the count is NOT VERIFIED. The record names only
   `git rev-parse HEAD`; the 2026-09-28 re-run ran with uncommitted fixes on
   top. Add `git status --porcelain` count to `Sweep`, and have `status`
   print it.

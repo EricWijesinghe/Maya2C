@@ -54,6 +54,11 @@ export default defineConfig({
           // <Tabs syncKey>: restores the reader's chosen OS tab from
           // localStorage; reads one key, no network. Reviewed 2026-10-12.
           "sha256-OizSKqsU+f0G4vojbxNt0Lao3kUpTmCLQSv3y6P7qhQ=",
+          // Starlight 0.42.9 <Tabs syncKey> restore body (user-components/Tabs.astro),
+          // emitted only on guides/quickstart and guides/help-run. Reviewed 2026-11-10:
+          // reads one localStorage key, compares tab textContent, toggles hidden/aria/tabindex;
+          // no eval, fetch, innerHTML or remote code.
+          "sha256-j066YyZLmxi7hThtvu2oKJArg82wWVur6pfnklFFLH0=",
         ],
       },
       directives: [
@@ -170,6 +175,8 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
+            { label: "Live statistics", link: "/stats/" },
+            { label: "Design proposals", link: "/design/" },
             { label: "FAQ", link: "/guides/faq" },
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
@@ -181,11 +188,14 @@ export default defineConfig({
             { label: "Run a validator", link: "/guides/validators" },
             { label: "Break it", link: "/guides/break-it" },
             { label: "Security Hall of Fame", link: "/guides/security-hall-of-fame" },
+            { label: "Check the foundation", link: "/guides/trust-log" },
             { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
+            { label: "Passkey unlock", link: "/guides/passkey-unlock" },
             { label: "Compiling a contract", link: "/guides/contracts" },
             { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
+            { label: "Ecosystem roadmap", link: "/ecosystem/roadmap/" },
           ],
         },
         // The whole of docs/, in the order ingest found it.

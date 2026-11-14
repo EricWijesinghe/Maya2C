@@ -1,0 +1,177 @@
+---
+// "Your journey": six missions that complete as a visitor uses the page's
+// interactive parts (they announce themselves with a `maya:quest` event).
+// Progress is kept only in this browser's localStorage; nothing is sent
+// anywhere, and the badge is a badge, not a reward or a token.
+const missions = [
+  { id: "tx", title: "Watch a payment become final", hint: "Step through “From two signatures to a final block” to the last step.", href: "#tx-journey" },
+  { id: "lock", title: "Break one lock, watch the other hold", hint: "In the same explainer, break the lattice lock.", href: "#tx-journey" },
+  { id: "eco", title: "Explore three apps", hint: "Tap three apps in “Many apps, one identity”.", href: "#ecosystem" },
+  { id: "quiz", title: "Pass the quantum check", hint: "Three questions, right here.", href: "#quiz" },
+  { id: "gate", title: "Inspect a mainnet gate", hint: "Tap any gate cell under “Live from the repository”.", href: "#progress" },
+  { id: "stats", title: "See the chain's live statistics", hint: "Open the live statistics page.", href: "/stats/" },
+];
+const quiz = [
+  { q: "How many signatures does every Maya2C transaction carry?", options: ["One", "Two, and both must verify", "As many as the sender likes"], a: 1, why: "ML-DSA-65 (lattice) and SLH-DSA (hash-based). Breaking one family is not enough to forge a payment." },
+  { q: "A block is final under DAG-BFT. Can it later be reorganised away?", options: ["Yes, if a longer chain appears", "No, a final block never reorganises"], a: 1, why: "Finality comes from a quorum of validators signing, not from chain length." },
+  { q: "What are post-quantum signatures built to survive?", options: ["A quantum computer running Shor's algorithm", "A power cut", "Slow internet"], a: 0, why: "Shor's algorithm breaks the elliptic-curve signatures most chains use today. Lattice and hash-based schemes are not known to fall to it." },
+];
+---
+
+<section class="not-content qt" data-qt aria-label="Your Maya2C journey">
+  <div class="qt-head">
+    <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+      <circle cx="60" cy="60" r="52" class="ring-bg" />
+      <circle cx="60" cy="60" r="52" class="ring-fg" data-ring />
+    </svg>
+    <div class="qt-count"><b data-done>0</b><span>/ {missions.length}</span></div>
+    <div>
+      <p class="rank" data-rank>Visitor</p>
+      <p class="sub">Complete missions as you explore. Saved in this browser only.</p>
+    </div>
+  </div>
+
+  <ol class="missions">
+    {missions.map((m, i) => (
+      <li data-m={m.id} style={`--i:${i}`}>
+        <span class="tick" aria-hidden="true"></span>
+        <div><a href={m.href} data-mlink={m.id}>{m.title}</a><small>{m.hint}</small></div>
+      </li>
+    ))}
+  </ol>
+
+  <div id="quiz" class="quiz" data-quiz>
+    <h3>Quantum check</h3>
+    {quiz.map((item, qi) => (
+      <fieldset data-q={qi} data-a={item.a} aria-live="polite">
+        <legend>{qi + 1}. {item.q}</legend>
+        {item.options.map((o, oi) => <button type="button" data-o={oi}>{o}</button>)}
+        <p class="why" hidden>{item.why}</p>
+      </fieldset>
+    ))}
+  </div>
+
+  <div class="badge" data-badge hidden role="status">
+    <div class="burst" aria-hidden="true">{Array.from({ length: 14 }, (_, i) => <i style={`--k:${i}`}></i>)}</div>
+    <p class="badge-ic" aria-hidden="true">🛡️</p>
+    <p><strong>Quantum-safe explorer.</strong> You walked the whole journey: signatures, finality, apps, gates and live numbers.</p>
+  </div>
+  <button type="button" class="reset" data-reset>Start the journey again</button>
+</section>
+
+<a class="pill" href="#journey" data-pill hidden aria-label="Your journey progress"><span data-pill-n>0</span>/{missions.length}<span class="pill-w"> missions</span></a>
+
+<script>
+  const KEY = "maya-journey-v1";
+  const RANKS = ["Visitor", "Visitor", "Explorer", "Explorer", "Builder", "Builder", "Quantum-safe"];
+  // Stored data is untrusted: keep only known mission ids.
+  const load = (known: Set<string>): Set<string> => {
+    try { const v = JSON.parse(localStorage.getItem(KEY) ?? "[]"); return new Set(Array.isArray(v) ? v.filter((id) => known.has(id)) : []); } catch { return new Set(); }
+  };
+  const save = (s: Set<string>) => { try { localStorage.setItem(KEY, JSON.stringify([...s])); } catch { /* private mode: progress lasts for this page view */ } };
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-qt]")) {
+    const items = [...root.querySelectorAll<HTMLElement>("[data-m]")];
+    const done = load(new Set(items.map((li) => li.dataset.m!)));
+    const total = items.length;
+    const ring = root.querySelector<SVGCircleElement>("[data-ring]")!;
+    const C = 2 * Math.PI * 52;
+    ring.style.strokeDasharray = String(C);
+    const pill = document.querySelector<HTMLElement>("[data-pill]")!;
+    const badge = root.querySelector<HTMLElement>("[data-badge]")!;
+
+    const render = (fresh?: string) => {
+      items.forEach((li) => li.classList.toggle("done", done.has(li.dataset.m!)));
+      if (fresh) root.querySelector(`[data-m="${fresh}"]`)?.classList.add("pop");
+      root.querySelector("[data-done]")!.textContent = String(done.size);
+      root.querySelector("[data-rank]")!.textContent = RANKS[done.size];
+      ring.style.strokeDashoffset = String(C * (1 - done.size / total));
+      pill.hidden = done.size === 0;
+      pill.querySelector("[data-pill-n]")!.textContent = String(done.size);
+      pill.classList.toggle("full", done.size === total);
+      if (fresh) { pill.classList.remove("bump"); void pill.offsetWidth; pill.classList.add("bump"); }
+      badge.hidden = done.size < total;
+    };
+    const complete = (id: string) => { if (done.has(id) || !items.some((li) => li.dataset.m === id)) return; done.add(id); save(done); render(id); };
+
+    document.addEventListener("maya:quest", (e) => {
+      const d = (e as CustomEvent<{ id: string; count?: number }>).detail;
+      if (d.id === "eco" && (d.count ?? 0) < 3) return;
+      complete(d.id);
+    });
+    root.querySelector('[data-mlink="stats"]')!.addEventListener("click", () => complete("stats"));
+
+    const answered = new Set<number>();
+    root.querySelectorAll<HTMLFieldSetElement>("[data-q]").forEach((fs) => {
+      fs.querySelectorAll<HTMLButtonElement>("[data-o]").forEach((b) => b.addEventListener("click", () => {
+        const right = b.dataset.o === fs.dataset.a;
+        b.classList.add(right ? "right" : "wrong");
+        if (!right) { b.setAttribute("aria-label", `${b.textContent}: not quite, try another answer`); return; }
+        fs.querySelectorAll("button").forEach((x) => (x.disabled = true));
+        fs.querySelector<HTMLElement>(".why")!.hidden = false;
+        answered.add(Number(fs.dataset.q));
+        if (answered.size === 3) complete("quiz");
+      }));
+    });
+
+    root.querySelector("[data-reset]")!.addEventListener("click", () => {
+      done.clear(); answered.clear(); save(done);
+      root.querySelectorAll<HTMLButtonElement>("[data-o]").forEach((b) => { b.disabled = false; b.classList.remove("right", "wrong"); b.removeAttribute("aria-label"); });
+      root.querySelectorAll<HTMLElement>(".why").forEach((w) => (w.hidden = true));
+      render();
+    });
+    render();
+  }
+</script>
+
+<style>
+  .qt { margin: 1.5rem auto 2.5rem; max-width: 46rem; padding: 1.25rem; border-radius: 1.25rem; background: var(--glass); border: 1px solid var(--glass-edge); }
+  .qt-head { display: grid; grid-template-columns: 5.5rem 1fr; gap: 1rem; align-items: center; position: relative; }
+  .ring { width: 5.5rem; height: 5.5rem; transform: rotate(-90deg); grid-row: 1; grid-column: 1; }
+  .ring-bg { fill: none; stroke: rgba(255, 255, 255, 0.08); stroke-width: 10; }
+  .ring-fg { fill: none; stroke: var(--cherenkov); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.9s cubic-bezier(.22,1,.36,1); filter: drop-shadow(0 0 6px rgba(31, 181, 194, 0.7)); }
+  .qt-count { grid-row: 1; grid-column: 1; display: grid; place-content: center; text-align: center; }
+  .qt-count b { font-size: 1.6rem; line-height: 1; color: var(--cherenkov-hi); }
+  .qt-count span { font-size: 0.75rem; color: var(--muted); }
+  .rank { margin: 0; font-size: 1.3rem; font-weight: 800; background: linear-gradient(90deg, var(--cherenkov-hi), var(--gold)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin: 0.15rem 0 0; font-size: 0.85rem; color: var(--muted); }
+
+  .missions { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.5rem; }
+  @media (min-width: 640px) { .missions { grid-template-columns: 1fr 1fr; } }
+  .missions li { margin: 0; display: flex; gap: 0.65rem; align-items: flex-start; padding: 0.65rem 0.75rem; border-radius: 0.75rem; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.02); transition: border-color 0.3s, background 0.3s; }
+  .missions a { font-weight: 700; color: var(--text); text-decoration: none; }
+  .missions a:hover { color: var(--cherenkov-hi); }
+  .missions small { display: block; color: var(--muted); font-size: 0.78rem; }
+  .tick { flex: none; width: 1.4rem; height: 1.4rem; border-radius: 50%; border: 2px solid var(--muted); margin-top: 0.1rem; display: grid; place-content: center; }
+  .done { border-color: rgba(69, 224, 160, 0.5) !important; background: rgba(69, 224, 160, 0.07) !important; }
+  .done .tick { border-color: var(--verified); background: var(--verified); }
+  .done .tick::after { content: "✓"; color: #02161a; font-weight: 900; font-size: 0.8rem; }
+  .done a { text-decoration: line-through; text-decoration-color: rgba(69, 224, 160, 0.6); }
+  .pop .tick { animation: pop 0.6s cubic-bezier(.34,1.56,.64,1); }
+
+  .quiz h3 { margin: 0.5rem 0; font-size: 1.05rem; }
+  .quiz fieldset { border: 0; padding: 0; margin: 0 0 0.9rem; }
+  .quiz legend { font-weight: 600; margin-bottom: 0.4rem; }
+  .quiz button { display: inline-block; margin: 0 0.4rem 0.4rem 0; padding: 0.5rem 0.9rem; min-height: 44px; border-radius: 999px; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.04); color: var(--text); font: inherit; font-size: 0.88rem; cursor: pointer; }
+  .quiz button:hover:not(:disabled) { border-color: var(--cherenkov); }
+  .quiz button.right { background: rgba(69, 224, 160, 0.18); border-color: var(--verified); }
+  .quiz button.wrong { background: rgba(224, 100, 92, 0.15); border-color: #e0645c; animation: shake 0.35s; }
+  .quiz button:disabled:not(.right) { opacity: 0.45; }
+  .why { margin: 0.2rem 0 0; font-size: 0.85rem; color: var(--lede); }
+
+  .badge { position: relative; text-align: center; padding: 1rem; border-radius: 1rem; background: radial-gradient(circle at 50% 0, rgba(201, 168, 106, 0.25), transparent 70%); border: 1px solid var(--gold); overflow: hidden; }
+  .badge-ic { font-size: 2.6rem; margin: 0; animation: pop 0.8s cubic-bezier(.34,1.56,.64,1); }
+  .burst i { position: absolute; left: 50%; top: 2rem; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--gold); animation: fly 1.2s ease-out forwards; rotate: calc(var(--k) * 25.7deg); }
+  .burst i:nth-child(odd) { background: var(--cherenkov-hi); }
+  .reset { margin-top: 0.75rem; background: none; border: 0; color: var(--muted); font: inherit; font-size: 0.8rem; text-decoration: underline; cursor: pointer; min-height: 44px; }
+
+  .pill { position: fixed; left: 1rem; bottom: 1rem; z-index: 20; padding: 0.55rem 1rem; border-radius: 999px; background: var(--accent-fill); color: var(--on-accent); font-weight: 800; font-size: 0.85rem; text-decoration: none; box-shadow: 0 0.4rem 1.5rem rgba(31, 181, 194, 0.45); }
+  /* Phones: a small chip that stays clear of content and buttons. */
+  @media (max-width: 759px) { .pill { left: 0.6rem; bottom: 0.6rem; padding: 0.35rem 0.8rem; min-height: 44px; display: inline-flex; align-items: center; font-size: 0.75rem; opacity: 0.92; } .pill-w { display: none; } }
+  .pill.full { background: linear-gradient(135deg, #d9b97a, #c9a86a); }
+  .pill.bump { animation: pop 0.6s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }
+  @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+  @keyframes fly { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-5rem); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .ring-fg { transition: none; } .pop .tick, .badge-ic, .burst i, .pill.bump, .quiz button.wrong { animation: none; } .burst { display: none; } }
+</style>

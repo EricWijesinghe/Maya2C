@@ -273,3 +273,90 @@ fn a_vault_over_the_os_keychain_works_end_to_end() {
 
     vault.forget(&name).expect("forget");
 }
+
+// ---------------------------------------------------------------------------
+// a failing keychain
+// ---------------------------------------------------------------------------
+
+/// A keychain that fails the operations named and records every write it was
+/// asked to make, shared so the test can read it after the vault owns it.
+#[derive(Default)]
+struct BrokenStore {
+    fail_get: bool,
+    fail_put: bool,
+    writes: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+fn locked() -> WalletError {
+    WalletError::Keychain("store locked".into())
+}
+
+impl SecretStore for BrokenStore {
+    fn put(&self, _name: &str, secret: &[u8]) -> maya_wallet_core::error::Result<()> {
+        self.writes.lock().unwrap().push(secret.to_vec());
+        if self.fail_put { Err(locked()) } else { Ok(()) }
+    }
+
+    fn get(&self, _name: &str) -> maya_wallet_core::error::Result<Option<Vec<u8>>> {
+        if self.fail_get {
+            Err(locked())
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn delete(&self, _name: &str) -> maya_wallet_core::error::Result<()> {
+        Err(locked())
+    }
+}
+
+#[test]
+fn a_keychain_that_cannot_be_read_is_never_written_over() {
+    // `store` checks for an existing wallet first. A read failure taken for
+    // "absent" would overwrite a seed the vault could not see.
+    let store = BrokenStore {
+        fail_get: true,
+        ..BrokenStore::default()
+    };
+    let writes = store.writes.clone();
+    let vault = Vault::new(store);
+    assert!(matches!(
+        vault.store("w", &seed(1), "pw"),
+        Err(WalletError::Keychain(_))
+    ));
+    assert!(
+        writes.lock().unwrap().is_empty(),
+        "wrote despite a failed read"
+    );
+    assert!(matches!(
+        vault.unlock("w", "pw"),
+        Err(WalletError::Keychain(_))
+    ));
+    assert!(matches!(vault.exists("w"), Err(WalletError::Keychain(_))));
+}
+
+#[test]
+fn a_keychain_write_failure_is_an_error_and_only_ciphertext_was_offered() {
+    let store = BrokenStore {
+        fail_put: true,
+        ..BrokenStore::default()
+    };
+    let writes = store.writes.clone();
+    let vault = Vault::new(store);
+    assert!(matches!(
+        vault.store("w", &seed(0x5A), "pw"),
+        Err(WalletError::Keychain(_))
+    ));
+    assert!(matches!(
+        vault.replace("w", &seed(0x5A), "pw"),
+        Err(WalletError::Keychain(_))
+    ));
+    assert!(matches!(vault.forget("w"), Err(WalletError::Keychain(_))));
+    let writes = writes.lock().unwrap();
+    assert_eq!(writes.len(), 2);
+    for w in writes.iter() {
+        // Sealed, never the seed: no run of the seed byte, and it opens.
+        assert!(!w.windows(8).any(|win| win.iter().all(|b| *b == 0x5A)));
+        assert_eq!(*unseal(w, "pw").unwrap(), seed(0x5A));
+    }
+}

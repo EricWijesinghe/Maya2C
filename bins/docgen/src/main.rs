@@ -30,8 +30,12 @@
 //! entitled to make.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Writing into a `String` cannot fail, so a failure here is a bug.
+const WRITE_TO_STRING: &str = "writing to a String cannot fail";
 
 /// Crates whose documentation goes into the reference, in reading order.
 ///
@@ -182,9 +186,8 @@ fn extract_module_doc(source: &str) -> Option<String> {
         let trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix("//!") {
             lines.push(rest.strip_prefix(' ').unwrap_or(rest).to_string());
-        } else if trimmed.is_empty() && lines.is_empty() {
-            continue;
-        } else {
+        } else if !(trimmed.is_empty() && lines.is_empty()) {
+            // Leading blank lines are skipped; anything else ends the block.
             break;
         }
     }
@@ -276,11 +279,11 @@ fn doc_to_latex(doc: &str) -> String {
         }
 
         if let Some(rest) = trimmed.strip_prefix("### ") {
-            out.push_str(&format!("\\paragraph{{{}}}\n", escape_latex(rest)));
+            writeln!(out, "\\paragraph{{{}}}", escape_latex(rest)).expect(WRITE_TO_STRING);
         } else if let Some(rest) = trimmed.strip_prefix("## ") {
-            out.push_str(&format!("\\subsubsection{{{}}}\n", escape_latex(rest)));
+            writeln!(out, "\\subsubsection{{{}}}", escape_latex(rest)).expect(WRITE_TO_STRING);
         } else if let Some(rest) = trimmed.strip_prefix("# ") {
-            out.push_str(&format!("\\subsubsection{{{}}}\n", escape_latex(rest)));
+            writeln!(out, "\\subsubsection{{{}}}", escape_latex(rest)).expect(WRITE_TO_STRING);
         } else if trimmed.is_empty() {
             out.push('\n');
         } else {
@@ -305,16 +308,13 @@ fn inline_to_latex(line: &str) -> String {
     while let Some(open) = rest.find('`') {
         out.push_str(&bold_to_latex(&rest[..open]));
         let after = &rest[open + 1..];
-        match after.find('`') {
-            Some(close) => {
-                out.push_str(&format!("\\texttt{{{}}}", escape_latex(&after[..close])));
-                rest = &after[close + 1..];
-            }
-            None => {
-                // An unmatched backtick is text, not a delimiter.
-                out.push_str(&escape_latex(&rest[open..]));
-                return out;
-            }
+        if let Some(close) = after.find('`') {
+            write!(out, "\\texttt{{{}}}", escape_latex(&after[..close])).expect(WRITE_TO_STRING);
+            rest = &after[close + 1..];
+        } else {
+            // An unmatched backtick is text, not a delimiter.
+            out.push_str(&escape_latex(&rest[open..]));
+            return out;
         }
     }
     out.push_str(&bold_to_latex(rest));
@@ -329,15 +329,12 @@ fn bold_to_latex(span: &str) -> String {
     while let Some(open) = rest.find("**") {
         out.push_str(&escape_latex(&rest[..open]));
         let after = &rest[open + 2..];
-        match after.find("**") {
-            Some(close) => {
-                out.push_str(&format!("\\textbf{{{}}}", escape_latex(&after[..close])));
-                rest = &after[close + 2..];
-            }
-            None => {
-                out.push_str(&escape_latex(&rest[open..]));
-                return out;
-            }
+        if let Some(close) = after.find("**") {
+            write!(out, "\\textbf{{{}}}", escape_latex(&after[..close])).expect(WRITE_TO_STRING);
+            rest = &after[close + 2..];
+        } else {
+            out.push_str(&escape_latex(&rest[open..]));
+            return out;
         }
     }
     out.push_str(&escape_latex(rest));
@@ -472,8 +469,7 @@ fn main() {
         let crate_status = modules
             .iter()
             .find(|m| m.path == "lib.rs" || m.path == "main.rs")
-            .map(|m| m.status)
-            .unwrap_or(Status::Shipped);
+            .map_or(Status::Shipped, |m| m.status);
         if crate_status != Status::Shipped {
             for module in &mut modules {
                 if module.status == Status::Shipped {
@@ -488,19 +484,24 @@ fn main() {
             .count();
         counts.insert(title, (modules.len(), disabled));
 
-        document.push_str(&format!("\\section{{{}}}\n", escape_latex(title)));
-        document.push_str(&format!(
+        writeln!(document, "\\section{{{}}}", escape_latex(title)).expect(WRITE_TO_STRING);
+        write!(
+            document,
             "\\noindent\\texttt{{{}}}\n\n",
             escape_latex(&root.to_string_lossy())
-        ));
+        )
+        .expect(WRITE_TO_STRING);
 
         for module in modules {
-            document.push_str(&format!("\\subsection{{{}}}\n", escape_latex(&module.path)));
+            writeln!(document, "\\subsection{{{}}}", escape_latex(&module.path))
+                .expect(WRITE_TO_STRING);
             if let Some(banner) = module.status.banner() {
-                document.push_str(&format!(
+                write!(
+                    document,
                     "\\begin{{framed}}\\noindent\\textbf{{Status.}} {}\\end{{framed}}\n\n",
                     escape_latex(banner)
-                ));
+                )
+                .expect(WRITE_TO_STRING);
             }
             document.push_str(&doc_to_latex(&module.doc));
             document.push('\n');

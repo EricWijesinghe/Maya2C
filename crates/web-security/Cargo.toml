@@ -1,0 +1,22 @@
+[package]
+name = "maya-web-security"
+version.workspace = true
+# Not published; see the note in crates/amount/Cargo.toml for why every
+# workspace crate says so.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Security headers, CORS policy and security.txt shared by Maya2C's HTTP services"
+
+[dependencies]
+axum.workspace = true
+tower-http = { workspace = true, features = ["set-header", "cors"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+http-body-util.workspace = true
+
+[lints]
+workspace = true

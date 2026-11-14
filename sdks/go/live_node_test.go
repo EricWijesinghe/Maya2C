@@ -10,13 +10,15 @@ import (
 
 // Against a live devnet: cargo xtask sdk-e2e --lang go sets it up.
 func setup(t *testing.T) (*Client, *Wallet) {
-	for _, k := range []string{"MAYA_RPC_URL", "L1_WALLET", "MAYA_KEYSTORE", "L1_WALLET_PASSWORD", "MAYA_RECIPIENT"} {
+	for _, k := range []string{"MAYA_RPC_URL", "L1_WALLET", "MAYA_KEYSTORE", "L1_WALLET_PASSWORD", "MAYA_RECIPIENT", "MAYA_GENESIS"} {
 		if os.Getenv(k) == "" {
 			t.Skip("needs a devnet: cargo xtask sdk-e2e --lang go")
 		}
 	}
 	c := NewClient(os.Getenv("MAYA_RPC_URL"))
-	return c, NewWallet(os.Getenv("L1_WALLET"), os.Getenv("MAYA_KEYSTORE"), os.Getenv("L1_WALLET_PASSWORD"), c)
+	w := NewWallet(os.Getenv("L1_WALLET"), os.Getenv("MAYA_KEYSTORE"), os.Getenv("L1_WALLET_PASSWORD"), c)
+	w.Genesis = os.Getenv("MAYA_GENESIS")
+	return c, w
 }
 
 func TestReadsTheChain(t *testing.T) {

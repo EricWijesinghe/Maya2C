@@ -21,6 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 use custom_l1_node::state::Address;
+use maya_address::Network;
 
 use crate::error::{PoolError, Result};
 use crate::ledger::{FoundBlock, MinerBalance};
@@ -71,6 +72,8 @@ pub struct PoolStatus {
 pub struct MinerView {
     /// Address, hex.
     pub address: String,
+    /// The same address as Bech32m text (ADR-081), on the pool's network.
+    pub address_text: String,
     /// Balances, kept in three separate figures.
     pub balance: MinerBalance,
     /// The miner's rigs.
@@ -93,14 +96,22 @@ pub struct PayoutList {
     pub batches: Vec<PayoutBatch>,
 }
 
-/// Parses an address from a path segment.
+/// Parses an address from a path segment: 32 hex-encoded bytes, or the
+/// Bech32m text form for `network` (ADR-081).
 ///
 /// # Errors
 ///
-/// Returns [`PoolError::BadRequest`] for anything that is not 32 hex-encoded
-/// bytes. The message names the expected length, because the commonest mistake
-/// is pasting a transaction id.
-pub fn parse_address(value: &str) -> Result<Address> {
+/// Returns [`PoolError::BadRequest`] for anything that is neither. The hex
+/// message names the expected length, because the commonest mistake is pasting
+/// a transaction id; a text address for another network is refused by name.
+pub fn parse_address(value: &str, network: Network) -> Result<Address> {
+    if !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return maya_address::decode(network, value).map_err(|e| {
+            PoolError::BadRequest(format!(
+                "{value:?} is not hex or a Bech32m address for this network: {e}"
+            ))
+        });
+    }
     let bytes =
         hex::decode(value).map_err(|_| PoolError::BadRequest(format!("{value:?} is not hex")))?;
     bytes.try_into().map_err(|_| {
@@ -112,10 +123,16 @@ pub fn parse_address(value: &str) -> Result<Address> {
 
 /// Builds a miner's view from their balance and rigs.
 #[must_use]
-pub fn miner_view(address: Address, balance: MinerBalance, workers: Vec<WorkerStats>) -> MinerView {
+pub fn miner_view(
+    address: Address,
+    network: Network,
+    balance: MinerBalance,
+    workers: Vec<WorkerStats>,
+) -> MinerView {
     let measured_hashrate = workers.iter().map(|worker| worker.measured_hashrate).sum();
     MinerView {
         address: hex::encode(address),
+        address_text: maya_address::encode(network, &address),
         balance,
         workers,
         measured_hashrate,
@@ -130,21 +147,32 @@ mod tests {
     #[test]
     fn an_address_round_trips_through_the_path() {
         let address: Address = [0x5A; 32];
-        assert_eq!(parse_address(&hex::encode(address)).unwrap(), address);
+        assert_eq!(
+            parse_address(&hex::encode(address), Network::Testnet).unwrap(),
+            address
+        );
+        assert_eq!(
+            parse_address(
+                &maya_address::encode(Network::Testnet, &address),
+                Network::Testnet
+            )
+            .unwrap(),
+            address
+        );
     }
 
     #[test]
     fn a_transaction_id_pasted_as_an_address_says_what_was_wrong() {
         // The commonest mistake, and the error has to name the expected length
         // rather than only refusing.
-        let error = parse_address(&"ab".repeat(40)).unwrap_err();
+        let error = parse_address(&"ab".repeat(40), Network::Testnet).unwrap_err();
         assert!(error.to_string().contains("32 bytes"));
     }
 
     #[test]
     fn a_non_hex_address_is_refused() {
         assert!(matches!(
-            parse_address("not-hex"),
+            parse_address("not-hex", Network::Testnet),
             Err(PoolError::BadRequest(_))
         ));
     }
@@ -166,7 +194,12 @@ mod tests {
             },
         ];
 
-        let view = miner_view([1u8; 32], MinerBalance::default(), workers);
+        let view = miner_view(
+            [1u8; 32],
+            Network::Testnet,
+            MinerBalance::default(),
+            workers,
+        );
         assert_eq!(view.measured_hashrate, 1_500.0);
     }
 
@@ -174,6 +207,7 @@ mod tests {
     fn reported_fields_keep_their_prefix_on_the_wire() {
         let view = miner_view(
             [1u8; 32],
+            Network::Testnet,
             MinerBalance::default(),
             vec![WorkerStats::default()],
         );
@@ -188,6 +222,7 @@ mod tests {
     fn balances_serialise_as_three_separate_figures() {
         let view = miner_view(
             [1u8; 32],
+            Network::Testnet,
             MinerBalance {
                 unpaid: primitive_types::U256::from(1),
                 immature: primitive_types::U256::from(2),

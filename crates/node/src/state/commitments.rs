@@ -230,6 +230,37 @@ mod tests {
     }
 
     #[test]
+    fn post_genesis_halt_and_risk_records_need_no_new_layer() {
+        // docs/design/protocol-tdd/02 §4: halt levels (`g:halt:`) and the risk
+        // engine (`g:risk:`) arrive after genesis as feature-gated writes. They
+        // sit under the governance prefix, so the root already covers them and
+        // no re-genesis is needed to add them.
+        let (db, _dir) = open();
+        let before = db.state_root().expect("root");
+        for key in [b"g:halt:dex".as_slice(), b"g:risk:composite".as_slice()] {
+            assert!(is_committed(key), "{key:?} must be under the root");
+            let prior = db.state_root().expect("root");
+            db.raw_put(key, &[1]).expect("put");
+            assert_ne!(db.state_root().expect("root"), prior);
+        }
+        assert_ne!(db.state_root().expect("root"), before);
+        assert!(db.uncovered_keys().expect("scan").is_empty());
+    }
+
+    #[test]
+    fn a_new_top_level_prefix_is_caught_until_it_gets_a_layer() {
+        // A bridge layer (`x:`, ADR-065) must be added to RECORD_LAYERS in the
+        // binary that first writes it; until then it is reported, not silently
+        // left outside the root.
+        let (db, _dir) = open();
+        db.raw_put(b"x:route", &[1]).expect("put");
+        assert_eq!(
+            db.uncovered_keys().expect("scan"),
+            vec![b"x:route".to_vec()]
+        );
+    }
+
+    #[test]
     fn one_spent_nullifier_moves_the_root() {
         let (db, _dir) = open();
         let before = db.state_root().expect("root");

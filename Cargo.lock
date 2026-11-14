@@ -5167,6 +5167,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "primitive-types",
+ "proptest",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -5432,9 +5433,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-gossipsub"
-version = "0.50.0"
+version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b625461b45e5b36facf07ff3585b831bcaf26cab8907ac8f47d1e8e999999e0"
+checksum = "6c28d7256540bd1a5df45cf6d7a7d8c58e913ad63ccfaa2f97983ec077b2794a"
 dependencies = [
  "async-channel",
  "asynchronous-codec",
@@ -5936,6 +5937,7 @@ dependencies = [
  "http-body-util",
  "jsonrpsee",
  "maya-amount",
+ "maya-web-security",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -5992,6 +5994,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "maya-btc-spv",
+ "proptest",
  "serde_json",
  "thiserror 2.0.21",
 ]
@@ -6031,6 +6034,7 @@ dependencies = [
 name = "maya-clear-sign"
 version = "0.1.0"
 dependencies = [
+ "maya-address",
  "maya-amount",
 ]
 
@@ -6242,7 +6246,11 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "leptos",
+ "maya-address",
+ "maya-amount",
+ "maya-clear-sign",
  "maya-design-system",
+ "maya-web-security",
  "primitive-types",
  "serde",
  "serde_json",
@@ -6265,6 +6273,7 @@ dependencies = [
  "http-body-util",
  "jsonrpsee",
  "maya-address",
+ "maya-web-security",
  "primitive-types",
  "serde",
  "serde_json",
@@ -6394,6 +6403,7 @@ name = "maya-light-client"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "criterion",
  "custom-l1-node",
  "hex",
  "primitive-types",
@@ -6471,6 +6481,7 @@ name = "maya-parallel-exec"
 version = "0.1.0"
 dependencies = [
  "maya-loadgen",
+ "proptest",
 ]
 
 [[package]]
@@ -6510,6 +6521,7 @@ dependencies = [
  "jsonrpsee",
  "l1-wallet",
  "leptos",
+ "maya-address",
  "maya-ledger-math",
  "maya-stratum-v2",
  "primitive-types",
@@ -6588,6 +6600,7 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "maya-address",
  "maya-crypto-pq",
  "thiserror 2.0.21",
  "uniffi",
@@ -6646,6 +6659,7 @@ dependencies = [
  "blake3",
  "maya-amount",
  "maya-crypto-pq",
+ "proptest",
 ]
 
 [[package]]
@@ -6689,12 +6703,14 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "jsonrpsee",
+ "maya-web-security",
  "primitive-types",
  "reqwest",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tower",
  "tower-http",
 ]
 
@@ -6726,6 +6742,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "maya-telemetry",
+ "maya-web-security",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6795,6 +6812,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-trust-log"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "clap 4.6.7",
+ "getrandom 0.4.3",
+ "hex",
+ "jsonrpsee",
+ "maya-crypto-pq",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "maya-vm"
 version = "0.1.0"
 dependencies = [
@@ -6838,6 +6874,7 @@ dependencies = [
  "keyring",
  "maya-address",
  "maya-amount",
+ "maya-clear-sign",
  "maya-zk-stark",
  "pbkdf2",
  "primitive-types",
@@ -6849,6 +6886,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-normalization",
  "zeroize",
 ]
 
@@ -6859,6 +6897,18 @@ dependencies = [
  "reqwest",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "maya-web-security"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
 ]
 
 [[package]]
@@ -6915,6 +6965,7 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "l1-wallet",
+ "maya-address",
  "maya-vm",
  "primitive-types",
  "serde",
@@ -6956,8 +7007,10 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "maya-address",
  "maya-amount",
  "maya-clear-sign",
+ "primitive-types",
  "serde_json",
 ]
 
@@ -7000,12 +7053,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya2c-sdk"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "maya-address",
+ "primitive-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "maya2c-signer"
 version = "0.1.0"
 dependencies = [
  "maya-crypto-pq",
  "maya-signer",
  "serde_json",
+ "tempfile",
  "zeroize",
 ]
 

@@ -58,41 +58,58 @@ pub struct LabMetrics {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+/// Prometheus label set for per-validator series.
 pub struct ValidatorLabels {
+    /// Validator name, as in `ValidatorConfig::name`.
     pub name: String,
 }
 
+/// Prometheus label set for per-chain series.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct ConsensusLabels {
+    /// Chain identifier from `LabConfig::chain_id`.
     pub chain_id: String,
 }
 
+/// Prometheus label set for peer traffic series.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct NetworkLabels {
-    pub direction: String, // "sent" or "received"
+    /// `"sent"` or `"received"`.
+    pub direction: String,
+    /// Peer identifier, supplied by the caller.
     pub peer: String,
 }
 
+/// Prometheus label set for RPC call series.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct RpcLabels {
+    /// JSON-RPC method name.
     pub method: String,
-    pub status: String, // "success" or "error"
+    /// `"success"` or `"error"`.
+    pub status: String,
 }
 
+/// Prometheus label set for scenario series. Not constructed anywhere in this crate yet.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct ScenarioLabels {
+    /// Scenario identifier, as in `Scenario::id`.
     pub scenario_id: String,
+    /// Category label, supplied by the caller.
     pub category: String,
 }
 
+/// Prometheus label set for fault-injection series. Not constructed anywhere in this crate yet.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct FaultLabels {
+    /// Kind of fault, supplied by the caller.
     pub fault_type: String,
+    /// Target of the fault, supplied by the caller.
     pub target: String,
 }
 
 #[allow(dead_code)]
 impl LabMetrics {
+    /// Creates every metric family and registers it with a fresh Prometheus registry.
     pub fn new() -> Self {
         let mut registry = Registry::default();
 
@@ -501,14 +518,17 @@ impl LabMetrics {
         self.host_memory_usage_mb.set(mb as i64);
     }
 
+    /// Sets host CPU use. The value is truncated to a whole percent, because the gauge is an integer.
     pub fn set_host_cpu_percent(&self, percent: f64) {
         self.host_cpu_percent.set(percent as i64);
     }
 
+    /// Sets free space on the host disk, in GiB.
     pub fn set_host_disk_free_gb(&self, gb: u64) {
         self.host_disk_free_gb.set(gb as i64);
     }
 
+    /// Sets host commit charge, in GiB.
     pub fn set_host_commit_charge_gb(&self, gb: u64) {
         self.host_commit_charge_gb.set(gb as i64);
     }
@@ -548,6 +568,7 @@ impl Default for LabMetrics {
 
 /// Metrics collector that periodically scrapes validators
 #[allow(dead_code)]
+/// Polls every validator's metrics and health endpoints on a fixed interval.
 pub struct MetricsCollector {
     metrics: Arc<LabMetrics>,
     config: Arc<crate::config::LabConfig>,
@@ -556,6 +577,7 @@ pub struct MetricsCollector {
 
 #[allow(dead_code)]
 impl MetricsCollector {
+    /// Creates a collector that polls every `interval`. Nothing is polled until `run` is called.
     pub fn new(
         metrics: Arc<LabMetrics>,
         config: Arc<crate::config::LabConfig>,
@@ -568,6 +590,8 @@ impl MetricsCollector {
         }
     }
 
+    /// Polls on each tick. Validator endpoint failures are recorded as "down" and do not stop the loop;
+    /// an error from host-metric collection does, and is returned.
     pub async fn run(&self) -> Result<()> {
         let mut interval = tokio::time::interval(self.interval);
 

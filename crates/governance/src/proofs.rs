@@ -23,9 +23,10 @@
 //!   except the two threshold harnesses
 //!   (`more_support_never_turns_a_pass_into_a_failure`,
 //!   `more_turnout_never_loses_a_quorum`): they quantify over weights below
-//!   2^128, because a 512-bit cross-multiplication over every 256-bit weight
-//!   does not finish in CBMC (ADR-046). The ceiling itself is covered by a
-//!   unit test, not a proof.
+//!   2^8, because CBMC returns no verdict for these threshold products at 16
+//!   bits or wider within the budget (ADR-046). The
+//!   256-bit ceiling is covered by a unit test and a deterministic sweep, not
+//!   a proof.
 //! - What they do *not* cover is a sequence of operations. Each proves a
 //!   property of one transition; the composition of many transitions is covered
 //!   by the tests in `proposal.rs` and `tests/governance_tests.rs`. Said here
@@ -45,15 +46,19 @@ fn any_amount() -> Amount {
     Amount(kani::any())
 }
 
-/// A symbolic weight below 2^128.
+/// A symbolic weight below 2^8: a `u8` zero-extended, so the threshold products
+/// are single-limb.
 ///
-/// The threshold harnesses multiply two weights into 512 bits and compare;
-/// over all 256-bit operands CBMC does not finish. They are proved for weights
-/// below 2^128 — every products' high half is then zero — and the 512-bit
-/// comparison itself is exercised at the ceiling by the unit tests
-/// (`quorum_and_approval_stay_exact_at_the_ceiling`). Bounded, and said so.
+/// The threshold harnesses prove `e·a ≤ e·K` for a symbolic threshold `a` and
+/// a symbolic extra weight `e`: a multiplier-vs-multiplier comparison that
+/// CBMC closes in about 100 s at 8 bits. At 16 bits it gave no verdict in 10
+/// minutes, at 64 bits none in 30 minutes (2026-11-10 local), and at 128 bits
+/// the nightly run passed 2 hours (2026-11-09). So these two harnesses prove the threshold logic on
+/// single-limb weights only. Multi-limb products (weights at and above 2^64)
+/// are covered by the deterministic sweep in `tests/threshold_extremes_tests.rs`,
+/// not by this proof.
 fn any_bounded_amount() -> Amount {
-    Amount::from_u128(kani::any())
+    Amount::from_u64(u64::from(kani::any::<u8>()))
 }
 
 /// A symbolic tally that [`Tally::add`] could have built: its turnout is
@@ -239,6 +244,11 @@ fn nothing_executes_before_its_timelock() {
 }
 
 /// A settled proposal admits no further transition.
+///
+/// The four settled tags (3..=6) are taken one by one rather than as one
+/// symbolic tag: the same states, all of them, but each a constant, so CBMC
+/// drops `finalize`'s tally branch (a 512-bit product) that no settled state
+/// reaches. With a symbolic tag the harness ran past 15 minutes (2026-11-09).
 #[kani::proof]
 fn a_settled_proposal_never_moves_again() {
     let height: u64 = kani::any();
@@ -246,37 +256,39 @@ fn a_settled_proposal_never_moves_again() {
     let timelock: u64 = kani::any();
     let at: u64 = kani::any();
 
-    let tag: u8 = kani::any();
-    kani::assume(tag >= 3 && tag <= 6);
-    let Some(state) = ProposalState::from_tag(tag) else {
-        return;
-    };
-    assert!(state.is_settled());
+    for tag in 3u8..=6 {
+        let Some(state) = ProposalState::from_tag(tag) else {
+            panic!("tag {tag} names no state");
+        };
+        assert!(state.is_settled());
 
-    if let Ok(proposal) = Proposal::open(height, voting, timelock) {
-        let settled = Proposal { state, ..proposal };
+        if let Ok(proposal) = Proposal::open(height, voting, timelock) {
+            let settled = Proposal { state, ..proposal };
 
-        assert!(settled.vote(any_choice(), Amount::ONE, at).is_err());
-        assert!(settled.execute(at).is_err());
-        assert!(settled.cancel().is_err());
-        assert!(!settled.is_executable(at));
-        // Finalizing is a no-op rather than an error, because the end-of-block
-        // pass visits every proposal and must not fail on a settled one.
-        assert!(settled.finalize(at, Amount::ONE, MIN_QUORUM_BPS, MIN_APPROVAL_BPS) == Ok(settled));
+            assert!(settled.vote(any_choice(), Amount::ONE, at).is_err());
+            assert!(settled.execute(at).is_err());
+            assert!(settled.cancel().is_err());
+            assert!(!settled.is_executable(at));
+            // Finalizing is a no-op rather than an error, because the end-of-block
+            // pass visits every proposal and must not fail on a settled one.
+            assert!(
+                settled.finalize(at, Amount::ONE, MIN_QUORUM_BPS, MIN_APPROVAL_BPS) == Ok(settled)
+            );
+        }
     }
 }
 
 /// A parameter value is accepted exactly when it is inside its own range.
 ///
 /// The bound between "governance may adjust this" and "governance may break
-/// this", proved for every key and every `u64`.
+/// this", proved for every key and every 256-bit value.
 #[kani::proof]
 fn a_parameter_is_accepted_exactly_within_its_range() {
     let index: usize = kani::any();
     kani::assume(index < ALL_KEYS.len());
     let key = ALL_KEYS[index];
 
-    let value: u64 = kani::any();
+    let value = any_amount();
     let bounds = key.bounds();
 
     if key.check(value).is_ok() {

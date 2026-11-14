@@ -63,13 +63,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
 }
 
 /// What the Python and Go live-node tests need: the node, the Rust wallet,
-/// its keystore and password, and a recipient.
-fn sdk_env(cmd: &mut Command, work: &std::path::Path, rpc: &str) {
-    cmd.env("MAYA_RPC_URL", rpc)
+/// its keystore and password, a recipient, and the devnet's genesis id (the
+/// wallet signs for an unpinned network only when told its genesis).
+fn sdk_env(cmd: &mut Command, work: &std::path::Path, rpc: &str) -> Result<(), String> {
+    cmd.env("MAYA_GENESIS", devnet::genesis_id()?)
+        .env("MAYA_RPC_URL", rpc)
         .env("L1_WALLET", devnet::bin("l1-wallet"))
         .env("MAYA_KEYSTORE", work.join("wallet.key"))
         .env("L1_WALLET_PASSWORD", devnet::PASSWORD)
         .env("MAYA_RECIPIENT", RECIPIENT);
+    Ok(())
 }
 
 fn check(status: std::io::Result<std::process::ExitStatus>, what: &str) -> Result<(), String> {
@@ -84,7 +87,7 @@ fn python(work: &std::path::Path, rpc: &str) -> Result<(), String> {
     let mut cmd = Command::new("python");
     cmd.args(["-m", "unittest", "discover", "-s", "tests", "-v"])
         .current_dir(devnet::root().join("sdks").join("python"));
-    sdk_env(&mut cmd, work, rpc);
+    sdk_env(&mut cmd, work, rpc)?;
     check(cmd.status(), "the Python SDK tests")
 }
 
@@ -92,7 +95,7 @@ fn go(work: &std::path::Path, rpc: &str) -> Result<(), String> {
     let mut cmd = Command::new(std::env::var("GO").unwrap_or_else(|_| "go".into()));
     cmd.args(["test", "-v", "-count=1", "./..."])
         .current_dir(devnet::root().join("sdks").join("go"));
-    sdk_env(&mut cmd, work, rpc);
+    sdk_env(&mut cmd, work, rpc)?;
     check(cmd.status(), "the Go SDK tests")
 }
 

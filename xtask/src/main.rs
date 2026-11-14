@@ -14,6 +14,7 @@
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
 mod attacknet;
+mod bench_finality;
 mod bench_gate;
 mod bench_report;
 mod bench_tps;
@@ -35,9 +36,12 @@ mod guides_check;
 mod hub_bundle;
 mod hybrid_genesis;
 mod kheavyhash;
+mod kit;
 mod localnet;
+mod md_links;
 mod mesh_check;
 mod mining_localnet;
+mod node_box;
 mod og_card;
 mod ordered_json;
 mod pgo;
@@ -54,6 +58,7 @@ mod spec_coverage;
 mod starter_stickers;
 mod status;
 mod sweep;
+mod trust_facts;
 mod up;
 mod verify_release;
 
@@ -86,19 +91,24 @@ fn main() -> ExitCode {
         "pgo" => pgo::run(rest),
         "hub-bundle" => hub_bundle::run(rest),
         "bench-tps" => bench_tps::bench_tps(rest),
+        "bench-finality" => bench_finality::bench_finality(rest),
         "bft-devnet" => bft_devnet::run(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
         "ceremony-rehearsal" => ceremony_rehearsal::run(rest),
         "proving" => proving::proving(rest),
         "proof-ratchet" => proof_ratchet::run(rest),
+        "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
+        "kit" => kit::run(rest),
+        "node" => node_box::run(rest),
         "status" => status::run(rest),
         "sweep" => sweep::run(rest),
         "verify-release" => verify_release::run(rest),
         "site-integrity" => site_integrity::run(rest),
+        "md-links" => md_links::run(rest),
         "bench-gate" => return bench_gate::run(rest),
         "bench-report" => return bench_report::run(rest),
         "gap-register" => return gap_register::run(rest),
@@ -184,6 +194,11 @@ cargo xtask <command>
                         named gap for each one that needs chain data.
   proof-ratchet         Kani harnesses, conformance vectors, exploit replays and
                         fuzz targets may grow, never fall [--check | --update].
+  trust-facts           Run go-no-go, readiness, coverage and proof-ratchet into
+                        reports/trust-facts.{{md,json}}: evidence or GAP per line
+                        [--out <dir>].
+  md-links              Fail if a relative link in a tracked Markdown file names
+                        a file that does not exist (issue #530).
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
@@ -209,10 +224,12 @@ cargo xtask <command>
   hub-bundle            Build the release miner and package the Maya2C Hub
                         with it: NSIS/MSI on Windows, deb/rpm/AppImage on
                         Linux (run in WSL).
-  attacknet [--rounds N] [--weighted] [--beyond-retention]  Seven validators as processes, attacked:
+  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME]
+                        Seven validators as processes, attacked (--scenario: one attack once):
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
   bench-tps [--senders N] [--txs N]  Finalized transfers/s on the 4-validator localnet
+  bench-finality [--txs N] [--rate R]  Submit-to-finalized latency p50/p90/p99/max, localnet
   bft-devnet [--workdir DIR] [--seconds N] [--transfers N] [--release]
                         Four validators and an observer as processes over
                         DAG-BFT on localhost: transfers, heights, agreement.
@@ -223,6 +240,12 @@ cargo xtask <command>
                         four validators, the API gateway, a chat relay and a
                         funded devnet wallet. Prints the endpoints.
   down                  Stop what `up` started.
+  node setup|doctor     Node-in-a-box: host checks, node-config.toml, key permissions,
+                        the service text to apply by hand, and a health check.
+  kit up|down|status|attack [NAME]
+                        The testnet kit: `up` is the devnet with its explorer and
+                        wallet path; `attack` runs one named attacknet scenario
+                        (no NAME lists them). `cargo xtask kit help` for more.
   status [--live]       Where the project stands, from evidence on disk: the
                         last sweep, the gap register, the ledger, STATE.md's
                         milestone and next tasks. Builds nothing unless --live.

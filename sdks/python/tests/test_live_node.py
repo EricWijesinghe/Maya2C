@@ -5,14 +5,20 @@ import unittest
 
 from maya2c_sdk import Client, RpcError, Wallet
 
-ENV = ("MAYA_RPC_URL", "L1_WALLET", "MAYA_KEYSTORE", "L1_WALLET_PASSWORD", "MAYA_RECIPIENT")
+ENV = ("MAYA_RPC_URL", "L1_WALLET", "MAYA_KEYSTORE", "L1_WALLET_PASSWORD", "MAYA_RECIPIENT", "MAYA_GENESIS")
 
 
 @unittest.skipUnless(all(k in os.environ for k in ENV), "needs a devnet: cargo xtask sdk-e2e --lang python")
 class LiveNode(unittest.TestCase):
     def setUp(self) -> None:
         self.client = Client(os.environ["MAYA_RPC_URL"])
-        self.wallet = Wallet(os.environ["L1_WALLET"], os.environ["MAYA_KEYSTORE"], os.environ["L1_WALLET_PASSWORD"], self.client)
+        self.wallet = Wallet(
+            os.environ["L1_WALLET"],
+            os.environ["MAYA_KEYSTORE"],
+            os.environ["L1_WALLET_PASSWORD"],
+            self.client,
+            genesis=os.environ["MAYA_GENESIS"],
+        )
 
     def test_reads_the_chain(self) -> None:
         sender = self.wallet.address()

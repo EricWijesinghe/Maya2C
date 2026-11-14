@@ -4,7 +4,7 @@
 //! pool --node-rpc http://127.0.0.1:8545 \
 //!      --treasury treasury.key \
 //!      --reward-per-block 1000000000 \
-//!      --fee-address <HEX>
+//!      --fee-address <ADDR>
 //! ```
 //!
 //! ## Three listeners, three audiences
@@ -35,6 +35,8 @@ use std::sync::Arc;
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 use custom_l1_node::metrics::server as metrics_server;
 use custom_l1_node::state::Address;
+use maya_address::Network;
+use maya_pool_service::api;
 use maya_pool_service::config::PoolConfig;
 use maya_pool_service::daemon;
 use maya_pool_service::ledger::rocks::RocksLedger;
@@ -96,7 +98,8 @@ fn print_usage() {
          --data-dir <PATH>       share ledger directory (default ./pool-data)\n  \
          --treasury <PATH>       encrypted treasury keystore (default treasury.key)\n  \
          --fee-rate <F>          operator fee, 0..1 (default 0.01)\n  \
-         --fee-address <HEX>     operator fee destination\n  \
+         --fee-address <ADDR>    operator fee destination (hex or text)\n  \
+         --network <NET>         mainnet, testnet or devnet (default testnet)\n  \
          --pplns-factor <F>      window as a multiple of difficulty (default 2.0)\n  \
          --confirmations <N>     depth before credits are payable (default 60)\n  \
          --min-payout <N>        smallest payout, in base units (default 1000)\n  \
@@ -111,12 +114,19 @@ fn print_usage() {
     );
 }
 
-/// Parses a 32-byte hex address.
-fn parse_address(value: &str) -> Result<Address, Box<dyn Error>> {
-    let bytes = hex::decode(value)?;
-    bytes
-        .try_into()
-        .map_err(|_| "an address is 32 bytes of hex".into())
+/// Parses a fee address: 32 bytes of hex, or the Bech32m text form (ADR-081).
+fn parse_address(value: &str, network: Network) -> Result<Address, Box<dyn Error>> {
+    Ok(api::parse_address(value, network)?)
+}
+
+/// Parses `--network`: mainnet, testnet or devnet.
+fn parse_network(value: &str) -> Result<Network, Box<dyn Error>> {
+    match value {
+        "mainnet" => Ok(Network::Mainnet),
+        "testnet" => Ok(Network::Testnet),
+        "devnet" => Ok(Network::Devnet),
+        other => Err(format!("unknown network '{other}': use mainnet, testnet or devnet").into()),
+    }
 }
 
 /// A base-unit amount in decimal. `U256::from_str` would read hex, so a
@@ -129,6 +139,8 @@ fn parse_amount(value: &str) -> Result<primitive_types::U256, Box<dyn Error>> {
 fn parse_args() -> Result<Args, Box<dyn Error>> {
     let mut args = Args::default();
     let mut argv = std::env::args().skip(1);
+    // Resolved after the loop: the text form needs `--network`, which may come later.
+    let mut fee_address: Option<String> = None;
 
     while let Some(flag) = argv.next() {
         let mut value = || {
@@ -144,7 +156,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--treasury" => args.config.treasury_keystore = PathBuf::from(value()?),
             "--reward-per-block" => args.config.reward_per_block = parse_amount(&value()?)?,
             "--fee-rate" => args.config.fee_rate = value()?.parse()?,
-            "--fee-address" => args.config.fee_address = parse_address(&value()?)?,
+            "--fee-address" => fee_address = Some(value()?),
+            "--network" => args.config.network = parse_network(&value()?)?,
             "--pplns-factor" => args.config.pplns_factor = value()?.parse()?,
             "--confirmations" => args.config.confirmations = value()?.parse()?,
             "--min-payout" => args.config.min_payout = parse_amount(&value()?)?,
@@ -159,6 +172,10 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             }
             other => return Err(format!("unknown argument: {other}").into()),
         }
+    }
+
+    if let Some(text) = fee_address {
+        args.config.fee_address = parse_address(&text, args.config.network)?;
     }
 
     if args.validators == 0 {
@@ -197,7 +214,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let treasury = Treasury::unlock(&config.treasury_keystore)?;
     let treasury_address = treasury.address();
-    println!("pool: treasury {}", hex::encode(treasury_address));
+    println!(
+        "pool: treasury {}",
+        maya_address::encode(config.network, &treasury_address)
+    );
 
     let node = Arc::new(NodeClient::connect(&config.node_rpc)?);
     let state = Arc::new(PoolState::new(

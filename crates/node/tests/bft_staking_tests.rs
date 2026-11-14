@@ -695,3 +695,31 @@ fn a_node_catches_up_by_checkpoints_across_a_boundary_that_shrinks_the_committee
         sleeper.height()
     );
 }
+
+/// `get_supply` once summed account balances only, so it reported a staked
+/// genesis 4 x 10,000 short of the total supply genesis declares (found by
+/// `cargo xtask ceremony-rehearsal`, 2026-11-08).
+#[test]
+fn get_supply_counts_what_staking_holds() {
+    let root = TempDir::new().unwrap();
+    let config = genesis();
+    let state = Arc::new(StateDB::open(root.path()).unwrap());
+    config.seed_state(&state).unwrap();
+    let chain = common::open_chain(
+        state,
+        config.genesis_block().unwrap(),
+        ChainConfig::without_pow_verification(),
+    )
+    .unwrap();
+    let chain = Arc::new(std::sync::Mutex::new(chain));
+
+    let report = custom_l1_node::rpc::market::supply(&chain).unwrap();
+
+    let expected = config.total_supply().unwrap();
+    assert_eq!(
+        expected,
+        primitive_types::U256::from(1_000_000 + 4 * 10_000)
+    );
+    assert_eq!(report.total, expected);
+    assert_eq!(report.circulating, expected);
+}

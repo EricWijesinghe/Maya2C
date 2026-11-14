@@ -187,7 +187,11 @@ fn replay(source: &maya2c_cli::fork::Source, height: u64) -> anyhow::Result<()> 
         println!("  tx {txid}");
     }
     for c in &r.changes {
-        println!("  {}  {} -> {}", hex::encode(c.address), c.before, c.after);
+        let address = match r.network {
+            Some(network) => maya_address::encode(network, &c.address),
+            None => hex::encode(c.address),
+        };
+        println!("  {address}  {} -> {}", c.before, c.after);
     }
     Ok(())
 }

@@ -84,7 +84,37 @@ impl Journal {
         if self.get(&swap.commitment_id).is_some() {
             return Err(WatcherError::DuplicateSwap(hex::encode(swap.commitment_id)));
         }
+        // A lock id is (address, nonce), so a nonce reused after a failed
+        // submission can derive one an active swap already watches.
+        let watched = |leg: &Leg| leg.lock_id == swap.outbound.lock_id;
+        if self
+            .swaps
+            .iter()
+            .filter(|s| s.phase == Phase::Active)
+            .any(|s| watched(&s.outbound) || s.inbound.as_ref().is_some_and(watched))
+        {
+            return Err(WatcherError::Refused(format!(
+                "lock {} is already watched by an active swap",
+                hex::encode(swap.outbound.lock_id)
+            )));
+        }
         self.swaps.push(swap);
+        // Not kept unsaved: nothing was broadcast for it, and a kept entry
+        // would refuse the retry as a reused secret.
+        self.save().inspect_err(|_| {
+            self.swaps.pop();
+        })
+    }
+
+    /// Removes a swap whose lock can never be mined, and saves. Only for a
+    /// lock refused outright (signed for a genesis the chain no longer has):
+    /// a lock that may still land must stay journalled to be refunded.
+    ///
+    /// # Errors
+    ///
+    /// A save failure.
+    pub fn abandon(&mut self, id: &CommitmentId) -> Result<()> {
+        self.swaps.retain(|swap| swap.commitment_id != *id);
         self.save()
     }
 
@@ -150,5 +180,61 @@ fn failure(path: &Path, reason: impl ToString) -> WatcherError {
     WatcherError::Journal {
         path: path.display().to_string(),
         reason: reason.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use crate::swap::{ChainSide, Role};
+
+    fn swap() -> Swap {
+        Swap {
+            commitment_id: [7; 32],
+            role: Role::Initiator,
+            inbound: None,
+            outbound: Leg {
+                side: ChainSide::Maya,
+                lock_id: [8; 32],
+                expiry_height: 100,
+            },
+            phase: Phase::Active,
+        }
+    }
+
+    #[test]
+    fn two_active_swaps_never_watch_one_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut journal = Journal::open(&dir.path().join("journal.json")).unwrap();
+        journal.insert(swap()).unwrap();
+        let mut other = swap();
+        other.commitment_id = [9; 32];
+        assert!(matches!(
+            journal.insert(other),
+            Err(WatcherError::Refused(_))
+        ));
+        assert_eq!(journal.swaps().len(), 1);
+    }
+
+    #[test]
+    fn a_swap_that_could_not_be_saved_is_not_kept_and_can_be_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        // The directory does not exist yet, so the save's staging file fails.
+        let path = dir.path().join("later").join("journal.json");
+        let mut journal = Journal::open(&path).unwrap();
+        assert!(matches!(
+            journal.insert(swap()),
+            Err(WatcherError::Journal { .. })
+        ));
+        assert!(
+            journal.get(&[7; 32]).is_none(),
+            "an unsaved swap stayed in memory and blocks a retry as a duplicate"
+        );
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        journal
+            .insert(swap())
+            .expect("retry after the disk recovers");
+        assert!(Journal::open(&path).unwrap().get(&[7; 32]).is_some());
     }
 }

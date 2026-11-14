@@ -1,7 +1,7 @@
 //! Gateway behaviour against a recorded node.
 //!
 //! The [`NodeClient`] trait exists so these run without a chain: an end-to-end
-//! test that needs RocksDB, a genesis file and a mined block in order to check
+//! test that needs `RocksDB`, a genesis file and a mined block in order to check
 //! that a 404 is a 404 is a test nobody runs.
 //!
 //! What is asserted here is the gateway's own policy — the allowlist, the size
@@ -169,6 +169,49 @@ async fn health_does_not_touch_the_node() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "ok");
     assert_eq!(node.calls(), 0, "health must not call the node");
+}
+
+#[tokio::test]
+async fn every_response_sends_the_hardening_headers_and_no_server_name() {
+    for uri in [
+        "/health",
+        "/v1/accounts/nothex",
+        "/no-such-route",
+        "/.well-known/security.txt",
+    ] {
+        let node = Arc::new(MockNode::default());
+        let response = app_with(node)
+            .oneshot(Request::get(uri).body(Body::empty()).expect("request"))
+            .await
+            .expect("served");
+        let headers = response.headers();
+        assert_eq!(headers["x-content-type-options"], "nosniff", "{uri}");
+        assert_eq!(headers["x-frame-options"], "DENY", "{uri}");
+        assert_eq!(headers["referrer-policy"], "no-referrer", "{uri}");
+        assert_eq!(headers["server"], "maya2c", "{uri}");
+        assert_eq!(
+            headers["content-security-policy"], "default-src 'none'; frame-ancestors 'none'",
+            "{uri}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn with_no_configured_origins_any_origin_may_read_but_no_credentials_are_sent() {
+    // Only holds with `MAYA2C_CORS_ALLOWED_ORIGINS` unset, which no test sets.
+    let node = Arc::new(MockNode::default());
+    let response = app_with(node)
+        .oneshot(
+            Request::get("/health")
+                .header("origin", "https://untrusted.example")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("served");
+    let headers = response.headers();
+    assert_eq!(headers["access-control-allow-origin"], "*");
+    assert!(!headers.contains_key("access-control-allow-credentials"));
 }
 
 #[tokio::test]
@@ -444,7 +487,10 @@ async fn graphql_exposes_no_mutation() {
 // ---------------------------------------------------------------------------
 
 fn rpc_request(method: &str, params: serde_json::Value) -> serde_json::Value {
-    serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params })
+    // `json!` borrows its operands; assigning moves `params` in as clippy wants.
+    let mut request = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method });
+    request["params"] = params;
+    request
 }
 
 #[tokio::test]

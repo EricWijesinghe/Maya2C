@@ -216,6 +216,7 @@ fn bucket_key(address: IpAddr) -> IpAddr {
 
 #[cfg(test)]
 mod bucket_key_tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     #[test]

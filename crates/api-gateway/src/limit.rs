@@ -101,7 +101,15 @@ fn header_ip<T>(
     name: &str,
     pick: impl Fn(&str) -> Option<&str>,
 ) -> Option<IpAddr> {
-    let value = request.headers().get(name)?.to_str().ok()?;
+    // Several header lines are one comma-joined list (RFC 9110 5.3), and the
+    // proxy's own entry is on the last line; the first is client-written.
+    let value = request
+        .headers()
+        .get_all(name)
+        .iter()
+        .next_back()?
+        .to_str()
+        .ok()?;
     pick(value)?.trim().parse().ok()
 }
 

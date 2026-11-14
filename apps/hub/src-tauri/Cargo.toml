@@ -38,6 +38,10 @@ maya-address = { path = "../../../crates/address" }
 # Official Tauri 2 plugin for OS toasts, opt-in from Settings (ADR-073 decision 4).
 # DepScout (2026-11-03): 2.8.0, no OSV advisories, not malicious, Apache-2.0 OR MIT.
 tauri-plugin-notification = "2.8"
+# Opens `maya2c-wallet://open` and `maya2c-chat://open` (ADR-083 decision 4).
+# Scoped in capabilities/default.json to those two URLs and nothing else.
+# DepScout 2026-11-10: 2.7.2, no OSV advisories, Apache-2.0 OR MIT.
+tauri-plugin-opener = "=2.7.2"
 
 [target.'cfg(unix)'.dependencies]
 # Real uid for the key-file owner check (miner_guard.rs). Already in Cargo.lock

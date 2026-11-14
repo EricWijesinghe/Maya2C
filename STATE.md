@@ -1,10 +1,17 @@
 # State
 
 ## Handover
+- **2026-11-09: open PRs landed; bench, attacknet x10 and freeze gates PASS; get_supply fix #398.**
+  - **Done:** merged #384, #390, #395, #397. bench-tps at b6b5f536 finalized every transfer (413.3/s, 390.2/s and 245.0/s). Weighted attacknet x10 PASS, no fork through 3482 (`reports/attacknet/2026-11-09-1.md`). All six freeze gates passed at 8e764b6f (nextest 4016/4016). The fuzz report is committed. Detail: `reports/sessions/2026-11-09-freeze-gates-attacknet-ceremony.md`.
+  - **Found:** the ceremony rehearsal failed only on `get_supply`, which omitted staked funds (7,000 coins). Fixed in #398, which is RPC only. The old freeze gate script had hidden the nextest result (`rg -E`, and no pipefail); it is fixed.
+  - **Evening:** nightly red since 11-06 fixed in #404 (clippy test allows + ratchet 790→844 justified; SDKs pass `--genesis`/`--yes` and read the Bech32m `hex:` line; Kani one runner per crate at 340 min, governance proof compiles again; localnet job 120 min, 1,000-run kill -9 test passes locally). Test, kani, SDK and CI changes only: the node binary is unchanged. The laptop slept ~1.2 h during proving (no halt recorded, no fork). Disclose it in the proving report.
+  - **Ceremony rehearsal 2** (on #398): exit 0, all 9 checks ok. #398 merged as **bb4e0940 = freeze sha**.
+  - **Running:** 24 h proving at 6fcfc65e (#400: node code = bb4e0940, harness fixed for the no-premine/floor-bond genesis rules), started 2026-11-09 16:21 KST in `D:/Maya2C-wt-audit` (launcher PID 54284; log `D:/Temp/claude-locks/proving-2026-11-09.log`). Keep heavy cargo off the PC. Stop it only by PID.
+  - **Do first:** read the proving result (~2026-11-10 16:21 KST); if it passes, commit its report. After that, Eric decides: `APPROVED:` for release/mainnet-v1 publishing, then `APPROVED: sign genesis`.
 - **2026-11-07/08 — pre-freeze drift sweep (docs PR, Bech32m mainnet id); #383 open, re-freeze still ahead.**
   - **Merged:** #370, #372-#382. **Open:** #383 (consensus frames dropped under load: byte budget freed once read). This sweep's PR is open, not merged.
   - **Decided:** `--supply 0`, no premine (ADR-044, Eric 2026-11-07). Genesis = keyless reserve (lifetime emission) + 7 disclosed min-self-bonds of 1,000 coins each, one per genesis validator (7,000 coins, about 0.036% of the 19.69M era issuance). The bond equals the `genesis-check` floor, decided 2026-11-08 (DECISIONS). The draft's 100-coin figure is withdrawn. Tail ~1.07%/yr at 1 s block time accepted (DECISIONS 2026-11-07). Upgrade authority on chain under compiled leads (ADR-082, invariant 34). Bech32m: `maya-mainnet` registered, HRP `maya` (ADR-081).
-  - **History rewrite:** done 2026-11-08 to remove OWNER_PLAN.md from git history; the file is absent from every branch because of it. Rulesets re-enabled. Eric must send the GitHub Support purge request; Claude does not.
+  - **History rewrite:** done 2026-11-08 to remove OWNER_PLAN.md from git history. Checked 2026-11-11: no remote branch, tag or open PR head contains it, but GitHub still serves the pre-rewrite commit by SHA (`gh api .../commits/1909075e` returns 200), so the purge is not complete until GitHub Support drops it. Eric must send that request; Claude does not. Old local refs still reach that commit; a local pre-push hook refuses any push that does. Rulesets re-enabled.
   - **Bench at 6029a4ba:** consensus frames dropped under load (fixed in #383). After the fix, one machine, localhost: 1000x4 4000/4000 at 319.4/s; 3000x2 6000/6000 at 434.9/s; 32x40 206.3/s. The run output is not yet in `reports/bench/`; commit the report before citing these.
   - **Fuzz:** 8 decoders, about 462M execs, 0 bugs. Report not yet in the repo either.
   - **Verified by reading code:** the undo journal records prior values of `up:` writes (`capture_undo` covers every overlay record). No consensus bug found.
@@ -212,7 +219,10 @@
     watcher is fixed. Eric confirmed Cloudflare is clear.
   - Harness settings restored, and the non-existent MCP entries removed.
   - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
-    - attacknet faults are now honest;
+    - attacknet faults: kill fixed (by data dir); pause, latency, loss and
+      bandwidth `bail!`. Correction 2026-11-10: restart, protocol, resource
+      and net-mangle faults were still no-ops logging Ok; they now fail
+      loudly (branch `fix/attacknet-honesty`);
     - the broken lab scripts are quarantined;
     - the property tests are fixed;
     - lint debt is 794.
@@ -425,7 +435,10 @@ un-node.cmd` at 02:35; neither was touched.
     watcher is fixed. Eric confirmed Cloudflare is clear.
   - Harness settings restored, and the non-existent MCP entries removed.
   - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
-    - attacknet faults are now honest;
+    - attacknet faults: kill fixed (by data dir); pause, latency, loss and
+      bandwidth `bail!`. Correction 2026-11-10: restart, protocol, resource
+      and net-mangle faults were still no-ops logging Ok; they now fail
+      loudly (branch `fix/attacknet-honesty`);
     - the broken lab scripts are quarantined;
     - the property tests are fixed;
     - lint debt is 794.

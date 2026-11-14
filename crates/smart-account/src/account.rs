@@ -8,7 +8,7 @@ use maya_crypto_pq::suite::{SuiteId, verify};
 use crate::fees::{FeeSpec, Paymaster, TokenPrice};
 use crate::op::{Action, Op};
 use crate::policy::{BLOCKS_PER_DAY, Policy, SessionScope};
-use crate::recovery::{GuardianSet, RecoveryRequest};
+use crate::recovery::{GuardianSet, QueuedGuardians, RecoveryRequest};
 use crate::{AccountId, KeyHash, key_hash};
 
 /// Most signatures one op may carry.
@@ -77,8 +77,10 @@ pub struct Account {
     pub policy: Policy,
     /// Recovery guardians.
     pub guardians: GuardianSet,
-    /// Recovery in progress.
-    pub recovery: Option<RecoveryRequest>,
+    /// A guardian change waiting out the current set's delay.
+    pub queued_guardians: Option<QueuedGuardians>,
+    /// Recoveries in progress, one per proposed key.
+    pub recovery: BTreeMap<KeyHash, RecoveryRequest>,
     /// Delayed transfers by id.
     pub pending: BTreeMap<u64, Pending>,
     /// Spent per policy day.
@@ -178,7 +180,8 @@ impl Registry {
                 threshold: 1,
                 policy: Policy::default(),
                 guardians: GuardianSet::default(),
-                recovery: None,
+                queued_guardians: None,
+                recovery: BTreeMap::new(),
                 pending: BTreeMap::new(),
                 spent: BTreeMap::new(),
                 spent_to: BTreeMap::new(),
@@ -391,8 +394,7 @@ impl Registry {
             Action::ReleasePending { id } => self.release_pending(&op.account, *id, height),
             Action::SetGuardians(g) => {
                 need_owner(owner)?;
-                self.account_mut(&op.account)?.guardians = g.clone();
-                Ok(())
+                self.set_guardians(&op.account, g, height)
             }
             Action::ApproveRecovery {
                 target,
@@ -404,8 +406,12 @@ impl Registry {
             }
             Action::CancelRecovery => {
                 need_owner(owner)?;
-                self.account_mut(&op.account)?.recovery = None;
+                self.account_mut(&op.account)?.recovery.clear();
                 Ok(())
+            }
+            Action::WithdrawApproval { target } => {
+                need_owner(owner)?;
+                self.withdraw_approval(&op.account, target, height)
             }
             Action::FinalizeRecovery { target } => self.finalize_recovery(target, height),
         }
@@ -499,6 +505,8 @@ impl Registry {
         id: u64,
         guardians: &[AccountId],
     ) -> Result<(), AccountError> {
+        // shortcut: no height here, so a due-but-unpromoted guardian change is
+        // not applied; take a height when this becomes a node transaction.
         let a = self
             .accounts
             .get(account)
@@ -537,6 +545,43 @@ impl Registry {
         Ok(())
     }
 
+    fn set_guardians(
+        &mut self,
+        account: &AccountId,
+        g: &GuardianSet,
+        height: u64,
+    ) -> Result<(), AccountError> {
+        g.validate(account).map_err(AccountError::Recovery)?;
+        let a = self.account_mut(account)?;
+        a.promote_guardians(height);
+        // Only the first set is immediate: a later one waits out the current
+        // delay, or a key thief would swap the guardians out of a recovery.
+        if a.guardians.guardians.is_empty() {
+            a.guardians = g.clone();
+        } else {
+            a.queued_guardians = Some(QueuedGuardians {
+                set: g.clone(),
+                effective_at: height.saturating_add(a.guardians.delay_blocks),
+            });
+        }
+        Ok(())
+    }
+
+    fn withdraw_approval(
+        &mut self,
+        guardian: &AccountId,
+        target: &AccountId,
+        height: u64,
+    ) -> Result<(), AccountError> {
+        let t = self.account_mut(target)?;
+        t.promote_guardians(height);
+        if !t.drop_approval(guardian) {
+            return Err(AccountError::Recovery("no approval to withdraw"));
+        }
+        t.refresh_quorum(height);
+        Ok(())
+    }
+
     fn approve_recovery(
         &mut self,
         guardian: &AccountId,
@@ -546,53 +591,64 @@ impl Registry {
         height: u64,
     ) -> Result<(), AccountError> {
         let t = self.account_mut(target)?;
+        t.promote_guardians(height);
         if !t.guardians.guardians.contains(guardian) {
             return Err(AccountError::Recovery("not a guardian of this account"));
         }
-        let threshold = t.guardians.threshold.max(1);
-        let req = t.recovery.get_or_insert_with(|| RecoveryRequest {
-            suite,
-            public_key: public_key.to_vec(),
-            approvals: BTreeSet::new(),
-            quorum_at: None,
-        });
-        if req.suite != suite || req.public_key != public_key {
-            return Err(AccountError::Recovery(
-                "a different key is already proposed",
-            ));
-        }
-        req.approvals.insert(*guardian);
-        if req.quorum_at.is_none() && req.approvals.len() >= threshold {
-            req.quorum_at = Some(height);
-        }
+        // One approval per guardian, on its latest proposal: nobody can pin
+        // the request to a key the others will not approve.
+        t.drop_approval(guardian);
+        t.recovery
+            .entry(key_hash(suite, public_key))
+            .or_insert_with(|| RecoveryRequest {
+                suite,
+                public_key: public_key.to_vec(),
+                approvals: BTreeSet::new(),
+                quorum_at: None,
+            })
+            .approvals
+            .insert(*guardian);
+        t.refresh_quorum(height);
         Ok(())
     }
 
     fn finalize_recovery(&mut self, target: &AccountId, height: u64) -> Result<(), AccountError> {
-        let t = self
-            .accounts
-            .get(target)
-            .ok_or(AccountError::UnknownAccount)?;
+        let t = self.account_mut(target)?;
+        t.promote_guardians(height);
+        if t.recovery.is_empty() {
+            return Err(AccountError::Recovery("no recovery in progress"));
+        }
+        // quorum_at is kept against the current set, so this counts only
+        // current guardians' approvals.
         let req = t
-            .recovery
-            .clone()
-            .ok_or(AccountError::Recovery("no recovery in progress"))?;
-        let at = req
-            .quorum_at
+            .quorate()
+            .cloned()
             .ok_or(AccountError::Recovery("no guardian quorum yet"))?;
-        if height < at + t.guardians.delay_blocks {
+        let at = req.quorum_at.unwrap_or(u64::MAX);
+        if height < at.saturating_add(t.guardians.delay_blocks) {
             return Err(AccountError::Recovery("cancel window still open"));
         }
-        let hash = req.new_key_hash();
-        self.keys.insert(hash, (req.suite, req.public_key.clone()));
-        let t = self.account_mut(target)?;
-        t.keys.retain(|k| !matches!(k.role, KeyRole::Owner));
-        t.keys.push(KeyEntry {
-            hash,
+        // Whoever held the old keys may have queued transfers and a guardian
+        // change; none of it survives.
+        let held = t
+            .pending
+            .values()
+            .try_fold(Amount::ZERO, |s, p| s.checked_add(p.amount))
+            .ok_or(AccountError::Insufficient)?;
+        t.balance = t
+            .balance
+            .checked_add(held)
+            .ok_or(AccountError::Insufficient)?;
+        t.pending.clear();
+        t.queued_guardians = None;
+        t.recovery.clear();
+        t.keys = vec![KeyEntry {
+            hash: req.new_key_hash(),
             weight: t.threshold.max(1),
             role: KeyRole::Owner,
-        });
-        t.recovery = None;
+        }];
+        self.keys
+            .insert(req.new_key_hash(), (req.suite, req.public_key));
         Ok(())
     }
 }

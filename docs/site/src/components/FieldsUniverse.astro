@@ -62,7 +62,7 @@ const parts = `${fields.reduce((n, f) => n + f.parts.length, 0)}`;
         return (
           <li class={`detail ${tag}`} id={`f-${f.id}`} data-i={i}>
             <p class="tag"><span class="pip" aria-hidden="true"></span>{word[tag]}, most mature part</p>
-            <h3>{f.name}</h3>
+            <h2>{f.name}</h2>
             <p class="line">{f.line}</p>
             <p class="counts">
               {count(f, "SHIPPED")} shipped · {count(f, "RESEARCH")} research · {count(f, "SIM")} simulator · {count(f, "PLANNED")} planned
@@ -158,7 +158,7 @@ const parts = `${fields.reduce((n, f) => n + f.parts.length, 0)}`;
   .details { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; min-width: 0; }
   .detail { padding: 1.25rem 1.4rem; border-radius: var(--r-m); background: var(--well); border: 1px solid var(--glass-edge); }
   .js .detail { animation: rise .45s var(--glide); }
-  .detail h3 { margin: .2rem 0 .3rem; font: 800 1.45rem/1.2 var(--display); color: var(--text); }
+  .detail h2 { margin: .2rem 0 .3rem; font: 800 1.45rem/1.2 var(--display); color: var(--text); }
   .detail .line { margin: 0 0 .5rem; color: var(--lede); }
   .counts { margin: 0 0 .7rem; font: .8rem var(--mono); color: var(--muted); }
   .parts { list-style: none; margin: 0 0 .7rem; padding: 0; display: grid; gap: .35rem; }

@@ -24,6 +24,7 @@ use leptos::prelude::*;
 
 use crate::ledger::{FoundBlock, MinerBalance};
 use crate::model::{PayoutBatch, WorkerStats};
+use maya_address::Network;
 
 /// Renders a component tree to an HTML string.
 fn render(view: impl IntoView + 'static) -> String {
@@ -264,6 +265,8 @@ pub fn WorkerTable(
 pub fn BlockTable(
     /// Blocks to list.
     blocks: Vec<FoundBlock>,
+    /// Network the finders' addresses are written for.
+    network: Network,
 ) -> impl IntoView {
     let rows: Vec<_> = blocks
         .into_iter()
@@ -274,7 +277,7 @@ pub fn BlockTable(
                 <tr>
                     <td>{block.height.to_string()}</td>
                     <td class="mono">{short_hex(&block.id)}</td>
-                    <td class="mono">{short_hex(&hex::encode(block.finder))}</td>
+                    <td class="mono">{short_hex(&maya_address::encode(network, &block.finder))}</td>
                     <td>{block.reward.to_string()}</td>
                     <td class=state>{state_label}</td>
                 </tr>
@@ -359,6 +362,7 @@ pub fn overview_page(
     workers: Vec<WorkerStats>,
     reported_power_milliwatts: u64,
     blocks: Vec<FoundBlock>,
+    network: Network,
 ) -> String {
     let worker_count = workers.len();
     render(view! {
@@ -370,7 +374,7 @@ pub fn overview_page(
                 reported_power_milliwatts=reported_power_milliwatts
             />
             <WorkerTable workers=workers/>
-            <BlockTable blocks=blocks/>
+            <BlockTable blocks=blocks network=network/>
         </Shell>
     })
 }
@@ -389,10 +393,10 @@ pub fn miner_page(address: String, balance: MinerBalance, workers: Vec<WorkerSta
 
 /// The found-blocks page.
 #[must_use]
-pub fn blocks_page(blocks: Vec<FoundBlock>) -> String {
+pub fn blocks_page(blocks: Vec<FoundBlock>, network: Network) -> String {
     render(view! {
         <Shell title="Blocks".to_string()>
-            <BlockTable blocks=blocks/>
+            <BlockTable blocks=blocks network=network/>
         </Shell>
     })
 }
@@ -531,7 +535,14 @@ mod tests {
     fn the_overview_marks_reported_figures_as_unverified() {
         // The one thing this page must not do is present a rig's claim about
         // itself as a measurement.
-        let html = overview_page(1_500_000.0, 2, vec![worker(true)], 1_450_000, Vec::new());
+        let html = overview_page(
+            1_500_000.0,
+            2,
+            vec![worker(true)],
+            1_450_000,
+            Vec::new(),
+            Network::Testnet,
+        );
 
         assert!(html.contains("self-reported, unverified"));
         assert!(html.contains("cannot be verified by the pool"));
@@ -540,7 +551,14 @@ mod tests {
 
     #[test]
     fn the_overview_shows_measured_and_reported_side_by_side() {
-        let html = overview_page(1_500_000.0, 1, vec![worker(true)], 0, Vec::new());
+        let html = overview_page(
+            1_500_000.0,
+            1,
+            vec![worker(true)],
+            0,
+            Vec::new(),
+            Network::Testnet,
+        );
         assert!(html.contains("1.50 MH/s"), "measured rate missing");
         assert!(html.contains("40.00 MH/s"), "reported rate missing");
     }
@@ -568,7 +586,7 @@ mod tests {
     #[test]
     fn an_offline_rig_is_still_listed() {
         // The operator looking for it has just been paged about it.
-        let html = overview_page(0.0, 0, vec![worker(false)], 0, Vec::new());
+        let html = overview_page(0.0, 0, vec![worker(false)], 0, Vec::new(), Network::Testnet);
         assert!(html.contains("offline"));
         assert!(html.contains("rig-1"));
     }
@@ -582,8 +600,8 @@ mod tests {
     #[test]
     fn every_page_carries_the_live_update_client() {
         for html in [
-            overview_page(0.0, 0, Vec::new(), 0, Vec::new()),
-            blocks_page(Vec::new()),
+            overview_page(0.0, 0, Vec::new(), 0, Vec::new(), Network::Testnet),
+            blocks_page(Vec::new(), Network::Testnet),
             payouts_page(Vec::new()),
             error_page("Not found", "no such miner"),
         ] {

@@ -77,6 +77,10 @@ members = [
     # One internal leaf instead of a private limb type in each of fee-market,
     # dex and ledger-math, so the carry and borrow chains are proved once.
     "crates/amount",
+    # Security headers, CORS policy and security.txt for every HTTP service.
+    # A leaf crate: it depends on nothing in the node, so it cannot pull a
+    # consensus crate into a web service or the other way round.
+    "crates/web-security",
     # GPU miner. A member so it cannot rot, but its `cuda` feature is off by
     # default: with no feature selected it compiles to host-side Rust and needs
     # no CUDA toolkit, which is what keeps `cargo build --workspace` green on
@@ -135,6 +139,9 @@ members = [
     # target wasm32 — so it composes the hybrid construction from the same two
     # primitives, and `tests/hybrid_parity_tests.rs` pins the two together.
     "sdks/sdk-wasm",
+    # Typed Rust client for the API gateway's REST /v1. Client-only: it links
+    # no consensus crate, so a SDK bug cannot reach state. Not published.
+    "sdks/rust",
     # Generates the LaTeX technical reference from module documentation.
     # Dependency-free: it reads Rust source and writes LaTeX, and neither needs
     # a crate.
@@ -152,6 +159,10 @@ members = [
     # Live watchdog (ADR-077 watcher): read-only, pages on-call by ntfy. A member
     # so its detectors are built and tested with the rest of the workspace.
     "apps/sentinel",
+    # Trust log (CATALOG §J: release-log-anchor, signed-incidents,
+    # foundation-canary). Signs with ML-DSA-87 and reads the chain over RPC
+    # only; it links no node crate, so nothing it does can reach consensus.
+    "apps/trust-log",
     # Threshold custody of a chain key. A member so its sharing arithmetic and
     # its quorum rules cannot rot, and because the one thing it must never do —
     # let a sub-threshold set of shares reconstruct anything — is a property a

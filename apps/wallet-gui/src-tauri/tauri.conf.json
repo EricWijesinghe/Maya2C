@@ -3,6 +3,13 @@
   "productName": "Maya Wallet",
   "version": "0.1.1",
   "identifier": "com.maya2c.wallet",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["maya2c-wallet"]
+      }
+    }
+  },
   "build": {
     "beforeDevCommand": "trunk serve --config ui/Trunk.toml",
     "devUrl": "http://localhost:1420",
