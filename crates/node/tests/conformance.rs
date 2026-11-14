@@ -518,6 +518,21 @@ fn mining_vectors() {
                 );
                 assert_eq!(met, case["expect"]["result"] == "ok", "{id}");
             }
+            "work_payload" => {
+                use custom_l1_node::core::codec::ByteReader;
+                let payload = unhex(case["payload"].as_str().unwrap());
+                let mut reader = ByteReader::new(&payload);
+                let decoded = match case["payload_type"].as_str().unwrap() {
+                    "mining_share" => {
+                        custom_l1_node::core::mining_payload::MiningShare::decode(&mut reader)
+                            .map(drop)
+                    }
+                    "work_claim" => custom_l1_node::core::WorkClaim::decode(&mut reader).map(drop),
+                    other => panic!("{id}: unknown payload type {other}"),
+                }
+                .and_then(|()| reader.finish());
+                assert_eq!(decoded.is_ok(), case["expect"]["result"] == "ok", "{id}");
+            }
             other => panic!("{id}: unknown fn {other}"),
         }
     }

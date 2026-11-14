@@ -17,7 +17,9 @@ use custom_l1_node::error::NodeError;
 use custom_l1_node::governance::derive_proposal_id;
 use custom_l1_node::state::upgrades::{ScheduleRequest, SunsetSpec};
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
-use custom_l1_node::upgrade::{FeatureSet, SUPPORTED_PROTOCOL_VERSION};
+use custom_l1_node::upgrade::{
+    FeatureSet, ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION, UpgradeSchedule,
+};
 use maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
 use maya_crypto_pq::suite::SuiteId;
 use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_UPGRADE_LEAD_BLOCKS, MIN_VOTING_BLOCKS};
@@ -317,6 +319,31 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
             )
             .is_err()
     );
+}
+
+#[test]
+fn work_claim_cannot_be_scheduled_until_its_adr_is_accepted() {
+    // The compiled guard: no ADR binding a claim to a verified share is
+    // Accepted (`WORK_CLAIM_ADR_ACCEPTED` is false), so neither genesis nor
+    // governance can switch credit on. Flipping the guard fails this test.
+    let entry = ProtocolUpgrade {
+        version: SUPPORTED_PROTOCOL_VERSION,
+        activation_height: FIRST_LEGAL_ACTIVATION,
+        features: FeatureSet(FeatureSet::WORK_CLAIM),
+    };
+    let refused = UpgradeSchedule::new(vec![entry]).expect_err("genesis schedule refused");
+    assert!(refused.to_string().contains("work claim"), "{refused}");
+
+    let f = fixture();
+    let proposal = upgrade(
+        SUPPORTED_PROTOCOL_VERSION,
+        FIRST_LEGAL_ACTIVATION,
+        FeatureSet::WORK_CLAIM | FeatureSet::DVP,
+    );
+    assert!(f.propose(proposal).is_err(), "refused at proposal");
+    let schedule = f.db.effective_schedule().expect("schedule");
+    assert!(schedule.upgrades.entries().is_empty(), "nothing written");
+    assert_eq!(schedule.features().work_claim, u64::MAX);
 }
 
 // ---------------------------------------------------------------------------

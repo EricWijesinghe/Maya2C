@@ -901,3 +901,12 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-15 — Work-kind byte on shares and claims; work claims refused by a compiled guard (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, "all format fixes", applied before the re-genesis. ADR-044 amendment 2026-11-15.
+
+- **`WorkKind` byte:** `MiningShare` and `WorkClaim` now start with a closed `#[repr(u8)]` kind byte. `0 = DagPow` is the only kind. Any other byte is a decode error (spec MINE-11). This is a wire change for both payloads (share 16 → 17 bytes, claim 32 → 33), so it lands only with the re-genesis.
+- **Registry:** new kinds come only from a new binary, gated by a new feature bit and a scheduled activation (ADR-082). Neither governance nor genesis can add one. ADR-079's `kind = 1` and ADR-129's `ClaimCompute` are both still open.
+- **`WORK_CLAIM_ADR_ACCEPTED = false`:** while it is false, the node refuses any schedule entry carrying `FeatureSet::WORK_CLAIM`, at genesis and at governance or council admission, and the mempool refuses `TxKind::ClaimWork`. The executor's existing refusal (`WorkClaimInactive` below `u64::MAX`) is unchanged. Flipping the flag is part of the change that lands an Accepted ADR binding a claim to a verified share.
+- **Open, with PR #506:** #506 makes unknown or unimplemented feature bits halt the node at activation instead of being refused when scheduled. If #506 merges, `WORK_CLAIM` should join zkML outside `FeatureSet::IMPLEMENTED`, so the entry halts the node rather than being refused at the vote. Claude's recommendation is to follow #506's model. It is reported here rather than worked around.

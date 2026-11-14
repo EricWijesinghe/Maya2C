@@ -1,4 +1,4 @@
-//! Mining reward schedule — `spec/09-mining.md` MINE-1 .. MINE-10 (ADR-044, ADR-068).
+//! Mining reward schedule — `spec/09-mining.md` MINE-1 .. MINE-11 (ADR-044, ADR-068).
 //!
 //! Written from the spec text, not from `custom_l1_node::state::mining`, which
 //! is what these functions are checked against.
@@ -185,6 +185,25 @@ pub fn share_header(
 #[must_use]
 pub fn meets_target(digest: &[u8; 32], target: &[u8; 32]) -> bool {
     digest <= target
+}
+
+/// MINE-11: a mining share's payload length after its tag: kind, epoch, nonce.
+pub const SHARE_PAYLOAD_LEN: usize = 1 + 8 + 8;
+
+/// MINE-11: a work claim's payload length after its tag: kind, beneficiary.
+pub const CLAIM_PAYLOAD_LEN: usize = 1 + 32;
+
+/// MINE-11: a share or claim payload of `len` bytes decodes only when it is
+/// exactly that long and its kind byte is 0 (DAG proof of work).
+///
+/// # Errors
+///
+/// `"MINE-11"` for any other kind byte or length.
+pub fn work_payload(payload: &[u8], len: usize) -> Result<(), &'static str> {
+    match payload.first() {
+        Some(0) if payload.len() == len => Ok(()),
+        _ => Err("MINE-11"),
+    }
 }
 
 #[cfg(test)]

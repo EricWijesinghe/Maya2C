@@ -33,6 +33,13 @@ use crate::state::context::{
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
 
+/// Whether an Accepted ADR binds a work claim to a verified share in the same
+/// block (ADR-044, "Work credit at launch"). None does, so this binary refuses
+/// to schedule [`FeatureSet::WORK_CLAIM`] and refuses a claim at mempool
+/// admission (Eric 2026-11-14 MCQ). Set it to `true` only in the change that
+/// lands that ADR's code; it is compiled, so no vote or config can flip it.
+pub const WORK_CLAIM_ADR_ACCEPTED: bool = false;
+
 /// The dark features an upgrade entry can switch on, as a bitmask. The bit
 /// positions are consensus: never renumber, only append.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +173,14 @@ impl UpgradeSchedule {
             if u.features.contains(FeatureSet::ZKML) {
                 return Err(NodeError::Decode(format!(
                     "protocol upgrade to version {} schedules zkML, which is refused until its verifier exists",
+                    u.version
+                )));
+            }
+            // Work credit is voting weight, and a claim carries no share proof:
+            // refused until an Accepted ADR binds it to one (ADR-044).
+            if !WORK_CLAIM_ADR_ACCEPTED && u.features.contains(FeatureSet::WORK_CLAIM) {
+                return Err(NodeError::Decode(format!(
+                    "protocol upgrade to version {} schedules work claim credit, which is refused until its ADR is accepted",
                     u.version
                 )));
             }

@@ -852,6 +852,82 @@
         "MINE-10"
       ],
       "target": "0f00000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "work_payload",
+      "id": "mining_share-kind-0",
+      "payload": "0007000000000000000900000000000000",
+      "payload_type": "mining_share",
+      "rules": [
+        "MINE-11"
+      ]
+    },
+    {
+      "expect": {
+        "error": "MINE-11",
+        "result": "error"
+      },
+      "fn": "work_payload",
+      "id": "refuse-mining_share-kind-1",
+      "payload": "0107000000000000000900000000000000",
+      "payload_type": "mining_share",
+      "rules": [
+        "MINE-11"
+      ]
+    },
+    {
+      "expect": {
+        "error": "MINE-11",
+        "result": "error"
+      },
+      "fn": "work_payload",
+      "id": "refuse-mining_share-kind-255",
+      "payload": "ff07000000000000000900000000000000",
+      "payload_type": "mining_share",
+      "rules": [
+        "MINE-11"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "work_payload",
+      "id": "work_claim-kind-0",
+      "payload": "003333333333333333333333333333333333333333333333333333333333333333",
+      "payload_type": "work_claim",
+      "rules": [
+        "MINE-11"
+      ]
+    },
+    {
+      "expect": {
+        "error": "MINE-11",
+        "result": "error"
+      },
+      "fn": "work_payload",
+      "id": "refuse-work_claim-kind-1",
+      "payload": "013333333333333333333333333333333333333333333333333333333333333333",
+      "payload_type": "work_claim",
+      "rules": [
+        "MINE-11"
+      ]
+    },
+    {
+      "expect": {
+        "error": "MINE-11",
+        "result": "error"
+      },
+      "fn": "work_payload",
+      "id": "refuse-work_claim-kind-255",
+      "payload": "ff3333333333333333333333333333333333333333333333333333333333333333",
+      "payload_type": "work_claim",
+      "rules": [
+        "MINE-11"
+      ]
     }
   ],
   "format": 1,

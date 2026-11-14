@@ -63,6 +63,9 @@ the suite policy, the mempool, and the RPC.
   stalling the chain (H2).
 - **zkML** cannot be scheduled until `zkml::verdict` is a real verifier (M3).
   The refusal is in `UpgradeSchedule::new`, so admission and genesis both apply it.
+- **Work claims** (`FeatureSet::WORK_CLAIM`) cannot be scheduled while
+  `WORK_CLAIM_ADR_ACCEPTED` is false, the same way and in the same place
+  (ADR-044 amendment 2026-11-15).
 - **Feature bits** must be defined (`FeatureSet::is_known`).
 - **Nothing is cancelled or moved.** A record is written once. There is no
   removal path.
