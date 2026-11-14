@@ -2,7 +2,7 @@
 
 **Status:** Accepted, 2026-11-07. Implemented for the crate, the node RPC and the `maya-address` tests. Wallet GUI, explorer, faucet, pool, hub, chat, CLI output and the Go SDK are not converted yet (see "Not done").
 **Date:** 2026-11-07
-**Related:** [ADR-005](ADR-005-dependency-unification.md) (no new dependency), [ADR-036](ADR-036-genesis-id-signature-binding.md) (genesis id binds signatures, not the network name), `crates/node/src/crypto/hybrid.rs` (derivation, unchanged), `spec/address-vectors.json`
+**Related:** [ADR-005](ADR-005-dependency-unification.md) (no new dependency), [ADR-036](ADR-036-chain-bound-signatures.md) (genesis id binds signatures, not the network name), `crates/node/src/crypto/hybrid.rs` (derivation, unchanged), `spec/address-vectors.json`
 
 ## Context
 
