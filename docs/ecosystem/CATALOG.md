@@ -72,7 +72,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
 | names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed) | consensus review (ADR-105) | M | W2 |
-| notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
+| notary | Timestamp and prove that a document existed (hash only, never the file). **Working** (ADR-094, `docs/ecosystem/notary.md`; devnet e2e `bins/maya2c-cli/tests/notary_devnet_tests.rs`; finality: checkpoint signatures unverified) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 
 ## D. Builders and operators

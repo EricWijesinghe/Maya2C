@@ -134,6 +134,56 @@ enum Command {
         #[arg(long)]
         script: Option<String>,
     },
+    /// Timestamp a file by its hash, or verify a stamp. Only the 32-byte
+    /// BLAKE3 hash leaves this machine; the file never does.
+    Notary {
+        #[command(subcommand)]
+        action: NotaryCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum NotaryCommand {
+    /// Create the keystore's DID, which a stamp needs once.
+    Setup {
+        /// Encrypted wallet keystore.
+        #[arg(long)]
+        keystore: PathBuf,
+        /// Node JSON-RPC.
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc: String,
+        /// Expected genesis block id (hex), required unless the chain is a pinned network.
+        #[arg(long)]
+        genesis: Option<String>,
+    },
+    /// Anchor the file's hash in a transaction. Prints the txid.
+    Stamp {
+        /// The file to stamp. It is hashed here and never sent.
+        file: PathBuf,
+        /// Encrypted wallet keystore.
+        #[arg(long)]
+        keystore: PathBuf,
+        /// Node JSON-RPC.
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc: String,
+        /// Expected genesis block id (hex), as for `setup`.
+        #[arg(long)]
+        genesis: Option<String>,
+    },
+    /// Recompute the file's hash, find the stamp, and print a receipt as JSON.
+    Verify {
+        /// The file to check.
+        file: PathBuf,
+        /// The stamp's transaction id, hex.
+        #[arg(long)]
+        tx: String,
+        /// Node JSON-RPC.
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc: String,
+        /// First block to scan.
+        #[arg(long, default_value_t = 1)]
+        from: u64,
+    },
 }
 
 fn debug(
@@ -209,6 +259,67 @@ async fn fork(source: maya2c_cli::fork::Source, rpc_port: u16) -> anyhow::Result
     Ok(())
 }
 
+/// The keystore password: `L1_WALLET_PASSWORD` when set, else a prompt.
+fn notary_password() -> anyhow::Result<zeroize::Zeroizing<String>> {
+    if let Ok(from_env) = std::env::var("L1_WALLET_PASSWORD")
+        && !from_env.is_empty()
+    {
+        return Ok(zeroize::Zeroizing::new(from_env));
+    }
+    Ok(zeroize::Zeroizing::new(
+        rpassword::prompt_password("keystore password: ")
+            .context("reading password; set L1_WALLET_PASSWORD for non-interactive use")?,
+    ))
+}
+
+async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
+    use maya2c_cli::notary;
+    match action {
+        NotaryCommand::Setup {
+            keystore,
+            rpc,
+            genesis,
+        } => {
+            let password = notary_password()?;
+            let txid = Box::pin(notary::setup(
+                &keystore,
+                &password,
+                &rpc,
+                genesis.as_deref(),
+            ))
+            .await?;
+            println!("did txid: {txid}");
+        }
+        NotaryCommand::Stamp {
+            file,
+            keystore,
+            rpc,
+            genesis,
+        } => {
+            let password = notary_password()?;
+            let txid = Box::pin(notary::stamp(
+                &keystore,
+                &password,
+                &rpc,
+                genesis.as_deref(),
+                &file,
+            ))
+            .await?;
+            println!("txid: {txid}");
+        }
+        NotaryCommand::Verify {
+            file,
+            tx,
+            rpc,
+            from,
+        } => {
+            let receipt = notary::verify(&file, &tx, &rpc, from).await?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+        }
+    }
+    Ok(())
+}
+
 async fn vault(rpc: &str, address: &str) -> anyhow::Result<()> {
     match maya2c_cli::vault::status(rpc, address).await? {
         None => println!("{address} has no vault: its transfers are instant and final."),
@@ -253,6 +364,7 @@ fn main() -> anyhow::Result<()> {
         Command::Vault { address, rpc } => {
             tokio::runtime::Runtime::new()?.block_on(vault(&rpc, &address))
         }
+        Command::Notary { action } => tokio::runtime::Runtime::new()?.block_on(notary(action)),
         Command::Replay {
             from,
             genesis,

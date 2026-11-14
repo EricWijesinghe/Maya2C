@@ -7,6 +7,7 @@ pub mod debug;
 pub mod dev;
 pub mod fork;
 pub mod lines;
+pub mod notary;
 pub mod vault;
 
 use maya_vm::host::{ContractId, MemoryState};

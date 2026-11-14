@@ -6939,6 +6939,7 @@ name = "maya2c-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap 4.6.7",
  "custom-l1-node",
  "gimli",
@@ -6948,6 +6949,7 @@ dependencies = [
  "maya-address",
  "maya-vm",
  "primitive-types",
+ "rpassword",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6955,6 +6957,7 @@ dependencies = [
  "tokio",
  "wasmparser 0.258.3",
  "wat",
+ "zeroize",
 ]
 
 [[package]]

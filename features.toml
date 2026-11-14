@@ -3609,6 +3609,17 @@ tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
 
 [[subsystem]]
+id = "notary"
+name = "Notary: timestamp a file by its BLAKE3 hash, verify with a JSON receipt"
+domain = "Developer experience"
+paths = "`bins/maya2c-cli/src/notary.rs`, `docs/ecosystem/notary.md`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["bins/maya2c-cli/tests/notary_tests.rs", "bins/maya2c-cli/tests/notary_devnet_tests.rs"]
+note = "ADR-094. Class RESEARCH means no consensus path calls it, not that it is unreachable: `maya2c notary` is a CLI tool. Unit tests (11) plus a devnet e2e (`notary_devnet_tests.rs`): a one-validator dev node, the CLI's own setup (RegisterDid) and stamp, the stamp found in a block by verify, the receipt checked against that block's id, timestamp and transaction list, and one changed byte refused. Uses the existing AnchorAttestation payload (tag 34, schema notary-v1); no node change. Verify scans blocks (no txid lookup RPC), refuses a block whose body disagrees with the tx_root its id hashes or whose id is not the one named, refuses a non-contiguous batch, and checks the stamp's signature against the node's chain tag; finality trusts the node's checkpoint (signatures not verified yet). An early manual run that never saw the stamp land is unexplained and was not reproduced."
+
+[[subsystem]]
 id = "xtask-attacknet"
 name = "Attacknet (cargo xtask attacknet)"
 domain = "Tooling and formal verification"
