@@ -191,11 +191,11 @@ fn calibrate_storage_bytes() {
     let emit = looped(
         r#"(import "env" "emit_event" (func $f (param i32 i32 i32 i32)))"#,
         "",
-        "(call $f (i32.const 0) (i32.const 4096) (i32.const 4096) (i32.const 4096))",
+        "(call $f (i32.const 0) (i32.const 256) (i32.const 4096) (i32.const 4096))",
         64,
     );
     let (seconds, fuel) = time_call(&vm, &emit, || MemoryState::at_height(1));
-    report("host: emit_event 4 KiB + 4 KiB (x64)", seconds, fuel, 64);
+    report("host: emit_event 256 B + 4 KiB (x64)", seconds, fuel, 64);
 }
 
 /// A module of about `target` bytes: many functions of straight-line i64

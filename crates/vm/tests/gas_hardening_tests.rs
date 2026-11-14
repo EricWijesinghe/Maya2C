@@ -91,7 +91,13 @@ fn an_event_topic_over_the_cap_is_refused() {
         "(call $f (i32.const 0) (i32.const 1000) (i32.const 0) (i32.const 1))",
     );
     assert!(
-        matches!(&outcome, Err(VmError::SizeLimit { what: "event topic", .. })),
+        matches!(
+            &outcome,
+            Err(VmError::SizeLimit {
+                what: "event topic",
+                ..
+            })
+        ),
         "{outcome:?}"
     );
     assert!(!wrote);
@@ -119,6 +125,26 @@ fn a_call_pays_for_the_linear_memory_it_holds() {
     let grown = gas_with_memory(1, 63).unwrap();
     assert!(declared > one + 63 * 1_000, "{one} vs {declared}");
     assert!(grown > one + 63 * 1_000, "{one} vs {grown}");
+    // Exactly the page price: the modules differ in one immediate byte.
+    assert_eq!(declared - one, 63 * gas::MEMORY_PAGE_FUEL);
+    assert_eq!(grown - one, 63 * gas::MEMORY_PAGE_FUEL);
+    // Growth past the module's own maximum is refused by wasmtime and never
+    // held, so it is not charged.
+    let capped = |grow: u32| {
+        let code = wasm(&format!(
+            r#"(module (memory (export "memory") 1 2)
+                (func (export "invoke") (param i32) (result i64)
+                  (drop (memory.grow (i32.const {grow})))
+                  (i64.const 0)))"#
+        ));
+        Vm::new()
+            .unwrap()
+            .execute(&code, CONTRACT, &[], 50_000_000, MemoryState::at_height(1))
+            .outcome
+            .unwrap()
+            .gas_used
+    };
+    assert_eq!(capped(63), capped(0));
 }
 
 #[test]
@@ -128,11 +154,79 @@ fn a_call_cannot_hold_more_memory_than_its_gas_pays_for() {
             (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
     );
     let vm = Vm::new().unwrap();
-    let limit = gas::call_fuel(code.len(), false) + 10_000;
+    let limit = gas::cold_call_fuel(&code).unwrap() + 10_000;
     let outcome = vm
         .execute(&code, CONTRACT, &[], limit, MemoryState::at_height(1))
         .outcome;
-    assert!(outcome.is_err(), "{outcome:?}");
+    assert!(
+        matches!(outcome, Err(VmError::MemoryLimit { limit: 1, .. })),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_failed_call_reports_the_gas_it_used() {
+    let vm = Vm::new().unwrap();
+    let trap = wasm(
+        r#"(module (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64) unreachable))"#,
+    );
+    let spin = wasm(
+        r#"(module (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (loop $l (br $l)) (i64.const 0)))"#,
+    );
+    let limit = 50_000_000;
+    let trapped = vm.execute(&trap, CONTRACT, &[], limit, MemoryState::at_height(1));
+    assert!(trapped.outcome.is_err());
+    // Its upfront price, its page and the unit or so wasmtime meters on the
+    // way in: nowhere near the limit it named.
+    let base = gas::cold_call_fuel(&trap).unwrap() + gas::MEMORY_PAGE_FUEL;
+    assert!(
+        (base..base + 16).contains(&trapped.gas_used),
+        "{} against {base}",
+        trapped.gas_used
+    );
+    let spun = vm.execute(&spin, CONTRACT, &[], limit, MemoryState::at_height(1));
+    assert!(matches!(spun.outcome, Err(VmError::OutOfGas { .. })));
+    assert_eq!(spun.gas_used, limit);
+    // Refused before anything ran: nothing used.
+    let short = vm.execute(&trap, CONTRACT, &[], 10, MemoryState::at_height(1));
+    assert_eq!(short.gas_used, 0);
+}
+
+#[test]
+fn a_module_whose_compile_costs_more_than_any_cap_allows_is_refused() {
+    // Every deployed module must stay callable under the lowest cap a vote
+    // can set, so its cold price may not exceed the largest module's length
+    // price.
+    let functions = usize::try_from(gas::MAX_COLD_CALL_FUEL / gas::FUNCTION_FUEL).unwrap() + 1;
+    let code = wasm(&format!("(module {})", "(func)".repeat(functions)));
+    assert!(code.len() < maya_vm::MAX_MODULE_BYTES);
+    let vm = Vm::new().unwrap();
+    assert!(
+        matches!(
+            vm.validate(&code),
+            Err(VmError::SizeLimit {
+                what: "module compile price",
+                ..
+            })
+        ),
+        "{:?}",
+        vm.validate(&code)
+    );
+    // And one too many control operators in one function, at any price.
+    let branchy = wasm(&format!(
+        "(module (func {}))",
+        "(block)".repeat(maya_vm::shape::MAX_CONTROL_PER_FUNCTION + 1)
+    ));
+    assert!(matches!(
+        vm.validate(&branchy),
+        Err(VmError::SizeLimit {
+            what: "function control operators",
+            ..
+        })
+    ));
 }
 
 /// A binary module: `functions` bodies of `locals` i64 locals each.

@@ -168,15 +168,6 @@ impl Vm {
         gas_limit: u64,
         state: S,
     ) -> Execution<S> {
-        match self.run(wasm, contract, input, gas_limit, state, register::<S>) {
-            Ok((state, outcome)) => Execution {
-                state,
-                outcome: Ok(outcome),
-            },
-            Err((state, error)) => Execution {
-                state,
-                outcome: Err(error),
-            },
-        }
+        crate::runtime::execution(self.run(wasm, contract, input, gas_limit, state, register::<S>))
     }
 }

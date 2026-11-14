@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use maya_vm::gas::{
-    CALL_BASE_FUEL, CODE_BYTE_FUEL, EVENT_BYTE_FUEL, HOST_CALL_FUEL, STORAGE_READ_BYTE_FUEL,
-    STORAGE_WRITE_BYTE_FUEL, WARM_CODE_BYTE_FUEL, call_fuel,
+    CALL_BASE_FUEL, CALL_OP_FUEL, CODE_BYTE_FUEL, EVENT_BYTE_FUEL, FUNCTION_FUEL, HOST_CALL_FUEL,
+    MEMORY_PAGE_FUEL, STORAGE_READ_BYTE_FUEL, STORAGE_WRITE_BYTE_FUEL, call_fuel, cold_call_fuel,
 };
 use maya_vm::{MemoryState, Vm, VmError};
 
@@ -30,9 +30,14 @@ fn a_call_pays_its_base_and_every_module_byte() {
     let vm = Vm::new().unwrap();
     let code = wasm(EMPTY);
     let used = gas_of(&vm, &code, MemoryState::at_height(1));
-    // The body's own fuel as wasmtime 48 meters it: `i64.const` and the
-    // implicit return, two units.
-    assert_eq!(used, call_fuel(code.len(), false) + 2);
+    // The upfront price (its length and its one function), the one page of
+    // memory it holds, and the body's own fuel as wasmtime 48 meters it:
+    // `i64.const` and the implicit return, two units.
+    assert_eq!(
+        cold_call_fuel(&code).unwrap(),
+        call_fuel(code.len(), false) + FUNCTION_FUEL
+    );
+    assert_eq!(used, cold_call_fuel(&code).unwrap() + MEMORY_PAGE_FUEL + 2);
     assert_eq!(
         call_fuel(code.len(), false),
         CALL_BASE_FUEL + CODE_BYTE_FUEL * code.len() as u64
@@ -43,7 +48,7 @@ fn a_call_pays_its_base_and_every_module_byte() {
 fn a_call_that_cannot_pay_its_base_runs_out_of_gas_before_compiling() {
     let vm = Vm::new().unwrap();
     let code = wasm(EMPTY);
-    let short = call_fuel(code.len(), false) - 1;
+    let short = cold_call_fuel(&code).unwrap() - 1;
     let outcome = vm
         .execute(&code, CONTRACT, &[], short, MemoryState::at_height(1))
         .outcome;
@@ -71,9 +76,10 @@ fn a_warm_call_pays_instantiation_but_not_the_compile() {
         .gas_used
     };
     let (cold, warm) = (run(false), run(true));
+    // The compile, length and shape, against instantiation only.
     assert_eq!(
         cold - warm,
-        (CODE_BYTE_FUEL - WARM_CODE_BYTE_FUEL) * code.len() as u64
+        cold_call_fuel(&code).unwrap() - call_fuel(code.len(), true)
     );
     // `execute` is a cold call: the same price as an explicit cold one.
     assert_eq!(gas_of(&vm, &code, MemoryState::at_height(1)), cold);
@@ -150,29 +156,33 @@ fn every_host_call_pays_the_host_base() {
     let delta =
         gas_of(&vm, &two, MemoryState::at_height(1)) - gas_of(&vm, &one, MemoryState::at_height(1));
     let extra_bytes = (two.len() - one.len()) as u64;
-    // The host base, the `call` operator, and the longer module (`drop` is free).
-    assert_eq!(delta, HOST_CALL_FUEL + 1 + extra_bytes * CODE_BYTE_FUEL);
+    // The host base, the `call` operator, the longer module (`drop` is free),
+    // and compiling one more call.
+    assert_eq!(
+        delta,
+        HOST_CALL_FUEL + 1 + extra_bytes * CODE_BYTE_FUEL + CALL_OP_FUEL
+    );
 }
 
 #[test]
 fn event_bytes_are_charged_before_they_are_copied() {
-    // A 1 MiB topic: unbounded and unmetered before ADR-142.
+    // The largest topic and payload: unmetered before ADR-142.
     let code = wasm(
         r#"(module
             (import "env" "emit_event" (func $e (param i32 i32 i32 i32)))
-            (memory (export "memory") 17)
+            (memory (export "memory") 1)
             (func (export "invoke") (param i32) (result i64)
-              (call $e (i32.const 0) (i32.const 1048576) (i32.const 0) (i32.const 8))
+              (call $e (i32.const 0) (i32.const 256) (i32.const 0) (i32.const 4096))
               (i64.const 0)))"#,
     );
     let vm = Vm::new().unwrap();
-    let base = call_fuel(code.len(), false);
+    let base = cold_call_fuel(&code).unwrap() + MEMORY_PAGE_FUEL;
     let outcome = vm
         .execute(
             &code,
             CONTRACT,
             &[],
-            base + 100_000,
+            base + HOST_CALL_FUEL + 100,
             MemoryState::at_height(1),
         )
         .outcome;
@@ -181,5 +191,5 @@ fn event_bytes_are_charged_before_they_are_copied() {
         "{outcome:?}"
     );
     let used = gas_of(&vm, &code, MemoryState::at_height(1));
-    assert!(used >= base + HOST_CALL_FUEL + (1_048_576 + 8) * EVENT_BYTE_FUEL);
+    assert!(used >= base + HOST_CALL_FUEL + (256 + 4_096) * EVENT_BYTE_FUEL);
 }

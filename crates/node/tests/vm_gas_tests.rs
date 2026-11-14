@@ -272,7 +272,8 @@ fn the_spec_vectors_hold() {
         v.as_str().expect("decimal string").parse().expect("u64")
     };
     let cases = doc["cases"].as_array().expect("cases");
-    assert!(cases.len() >= 20);
+    assert!(cases.len() >= 40);
+    let mut wrong = Vec::new();
     for case in cases {
         let id = case["id"].as_str().unwrap();
         let input = &case["input"];
@@ -325,14 +326,57 @@ fn the_spec_vectors_hold() {
                 )),
                 None,
             ),
+            // The length part of the price; a module's shape only adds to it.
             "admit_deploy" => (
                 class(&admit_deploy_gas(
-                    usize::try_from(num(&input["code_len"])).unwrap(),
+                    gas::deploy_fuel(usize::try_from(num(&input["code_len"])).unwrap()),
                     num(&input["block_cap"]),
                     num(&input["block_used"]),
                 )),
                 None,
             ),
+            "shape_fuel" => (
+                None,
+                Some(gas::shape_fuel(&maya_vm::shape::ModuleShape {
+                    functions: num(&input["functions"]),
+                    locals: num(&input["locals"]),
+                    controls: num(&input["controls"]),
+                    calls: num(&input["calls"]),
+                })),
+            ),
+            "memory_fuel" => (None, Some(gas::MEMORY_PAGE_FUEL * num(&input["pages"]))),
+            "sealed_budget" => (
+                None,
+                Some(custom_l1_node::state::vm_exec::sealed_gas_budget(num(
+                    &input["block_cap"],
+                ))),
+            ),
+            // A real execution, end to end: the gas a small corpus uses must
+            // be the same number on every platform CI runs.
+            "golden_gas" => {
+                let code = wat::parse_str(input["wat"].as_str().unwrap()).expect("wat");
+                let mut state = maya_vm::MemoryState::at_height(1);
+                if let Some(value) = input["stored"].as_str() {
+                    state
+                        .storage
+                        .insert(([5u8; 32], b"k".to_vec()), value.as_bytes().to_vec());
+                }
+                let execution = maya_vm::Vm::new().unwrap().execute(
+                    &code,
+                    [5u8; 32],
+                    &[],
+                    num(&input["gas_limit"]),
+                    state,
+                );
+                let error = match &execution.outcome {
+                    Ok(_) => None,
+                    Err(maya_vm::VmError::OutOfGas { .. }) => Some("OutOfGas"),
+                    Err(maya_vm::VmError::SizeLimit { .. }) => Some("SizeLimit"),
+                    Err(maya_vm::VmError::MemoryLimit { .. }) => Some("MemoryLimit"),
+                    Err(_) => Some("Trap"),
+                };
+                (error, Some(execution.gas_used))
+            }
             "param" => {
                 let key =
                     ParameterKey::from_tag(u16::try_from(num(&input["tag"])).unwrap()).unwrap();
@@ -341,14 +385,22 @@ fn the_spec_vectors_hold() {
             }
             other => panic!("{id}: unknown kind {other}"),
         };
-        assert_eq!(got_error.is_some(), wants_error, "{id}: {got_error:?}");
-        if let Some(error) = got_error {
-            assert_eq!(Some(error), expect["error"].as_str(), "{id}");
+        // Every mismatch, not the first: one run names every vector to fix.
+        if got_error.is_some() != wants_error
+            || got_error.is_some_and(|error| Some(error) != expect["error"].as_str())
+        {
+            wrong.push(format!(
+                "{id}: error {got_error:?}, expected {}",
+                expect["error"]
+            ));
         }
-        if let Some(value) = value {
-            assert_eq!(value, num(&expect["value"]), "{id}");
+        if let Some(value) = value
+            && value != num(&expect["value"])
+        {
+            wrong.push(format!("{id}: value {value}, expected {}", expect["value"]));
         }
     }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 #[test]
@@ -364,4 +416,161 @@ fn the_governance_floor_is_the_vm_price_of_the_largest_module() {
         ParameterKey::VmMaxTxGas.bounds().min.saturating_to_u64(),
         floor
     );
+}
+
+// ---------------------------------------------------------------------------
+// PR #549 review: work the block cap did not see
+// ---------------------------------------------------------------------------
+
+const FOREVER_WAT: &str = r#"(module (memory (export "memory") 1)
+    (func (export "invoke") (param i32) (result i64)
+      (loop $forever (br $forever)) (i64.const 0)))"#;
+
+const TRAP_WAT: &str = r#"(module (memory (export "memory") 1)
+    (func (export "invoke") (param i32) (result i64) unreachable))"#;
+
+/// Deploys each of `codes` from its own key, in one block at height 1.
+fn deploy_all(db: &StateDB, keys: &[&HybridSigningKey], codes: &[Vec<u8>]) -> Vec<[u8; 32]> {
+    let txs = keys
+        .iter()
+        .zip(codes)
+        .map(|(key, code)| {
+            signed(
+                TxKind::DeployContract(ContractDeploy { code: code.clone() }),
+                0,
+                key,
+            )
+        })
+        .collect();
+    db.apply_block(&block_of(txs), BlockContext::at_height(1))
+        .expect("deploy");
+    keys.iter()
+        .zip(codes)
+        .map(|(key, code)| derive_contract_id(&key.address(), 0, code))
+        .collect()
+}
+
+#[test]
+fn a_call_that_fails_while_the_block_is_built_still_spends_its_gas() {
+    // Before: the builder trial-ran a failing call on a copy of the overlay
+    // and threw the copy away, gas included, so N failing calls of 250 M gas
+    // cost every validator N x ~250 ms and counted for nothing.
+    let attacker = generate_signing_key().unwrap();
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &honest],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    let spin = call(ids[0], block_cap(), 1, &attacker);
+    let after = call(ids[1], block_cap() / 2, 1, &honest);
+    let kept = db
+        .select_applicable(
+            vec![spin, after],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    // The spin ran to the cap and failed; what it burned is gone from the
+    // block, so the next call no longer fits and is left for a later block.
+    assert!(kept.is_empty(), "{} kept", kept.len());
+}
+
+#[test]
+fn a_failed_call_spends_the_gas_it_used_not_the_gas_it_named() {
+    // A call that traps on its first instruction ran almost nothing; charging
+    // it its whole limit would let one transaction void the block's budget.
+    let attacker = generate_signing_key().unwrap();
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &honest],
+        &[wasm(TRAP_WAT), wasm(WRITER_WAT)],
+    );
+    let trap = call(ids[0], block_cap(), 1, &attacker);
+    let after = call(ids[1], block_cap() / 2, 1, &honest);
+    let kept = db
+        .select_applicable(
+            vec![trap, after.clone()],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(kept, vec![after]);
+}
+
+/// A module of about `len` bytes importing a name the host does not have:
+/// it compiles in full, then fails validation.
+fn bad_import_module_of_len(len: usize) -> Vec<u8> {
+    let data = "a".repeat(len);
+    wasm(&format!(
+        r#"(module (import "env" "no_such_host_function" (func))
+            (memory (export "memory") 1) (data "{data}")
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#
+    ))
+}
+
+#[test]
+fn a_deployment_that_fails_validation_still_spends_its_compile() {
+    // Before: the compile ran inside `validate` and the gas was added only
+    // after it passed, so a module with one unknown import compiled for free.
+    let attacker = generate_signing_key().unwrap();
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let len = usize::try_from(block_cap() * 3 / 5 / maya_vm::gas::CODE_BYTE_FUEL).unwrap();
+    let bad = signed(
+        TxKind::DeployContract(ContractDeploy {
+            code: bad_import_module_of_len(len),
+        }),
+        0,
+        &attacker,
+    );
+    let good = signed(
+        TxKind::DeployContract(ContractDeploy {
+            code: module_of_len(len),
+        }),
+        0,
+        &honest,
+    );
+    let kept = db
+        .select_applicable(
+            vec![bad, good],
+            BlockContext::at_height(1),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert!(kept.is_empty(), "{} kept", kept.len());
+}
+
+#[test]
+fn a_later_call_to_a_contract_in_the_same_block_is_warm_by_block_order() {
+    // GAS-3: the first call to a contract in a block pays for its compile and
+    // later ones do not, decided by the block's order and nothing else.
+    let key = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[key.address()]);
+    let len = usize::try_from(block_cap() * 7 / 10 / maya_vm::gas::CODE_BYTE_FUEL).unwrap();
+    let code = module_of_len(len);
+    let contract = deploy(&db, &key, &code);
+    let cold = block_cap() * 3 / 4;
+    let warm = 2_000_000;
+    assert!(maya_vm::gas::call_fuel(code.len(), true) < warm);
+    assert!(maya_vm::gas::call_fuel(code.len(), false) > warm);
+
+    db.apply_block(
+        &block_of(vec![
+            call(contract, cold, 1, &key),
+            call(contract, warm, 2, &key),
+        ]),
+        BlockContext::at_height(2),
+    )
+    .expect("cold then warm fits");
+    // The same small limit as the block's first call is a cold call, whatever
+    // the node's module cache holds from the block before.
+    let result = db.apply_block(
+        &block_of(vec![call(contract, warm, 3, &key)]),
+        BlockContext::at_height(3),
+    );
+    assert!(matches!(result, Err(NodeError::Vm(_))), "{result:?}");
 }

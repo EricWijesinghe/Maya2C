@@ -14,10 +14,11 @@ const CONTRACT: [u8; 32] = [7u8; 32];
 proptest! {
     /// A module that returns immediately should always succeed and use 0 fuel
     /// beyond the base cost. Since ADR-142 the base is the call's upfront
-    /// price (~74 K for this module), so the range starts above it.
+    /// price (~200 K for this module with its function priced, and its page
+    /// of memory), so the range starts above it.
     #[test]
     fn trivial_module_succeeds_with_minimal_fuel(
-        fuel_limit in 100_000u64..1_000_000u64,
+        fuel_limit in 300_000u64..1_000_000u64,
     ) {
         let vm = Vm::new().expect("vm creation");
         let module = wat::parse_str(
@@ -73,7 +74,9 @@ proptest! {
                   (i64.const 0)))"#)
         ).unwrap();
 
-        let exec = vm.execute(&module, CONTRACT, &[], 1_000_000, MemoryState::default());
+        // Gas for every page it may hold (GAS-7), so only the page ceiling
+        // decides.
+        let exec = vm.execute(&module, CONTRACT, &[], 2_000_000, MemoryState::default());
         let within = initial_pages + grow <= MAX_MEMORY_PAGES as u32;
         prop_assert_eq!(exec.outcome.is_ok(), within,
             "initial {} + grow {} vs limit {}", initial_pages, grow, MAX_MEMORY_PAGES);
@@ -111,7 +114,7 @@ proptest! {
     #[test]
     fn bounded_loop_is_charged_within_limit(
         iterations in 1u32..1000u32,
-        fuel_limit in 100000u64..10_000_000u64,
+        fuel_limit in 300_000u64..10_000_000u64,
     ) {
         let module = wat::parse_str(
             format!(r#"(module

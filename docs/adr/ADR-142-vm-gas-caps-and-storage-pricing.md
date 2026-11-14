@@ -1,6 +1,6 @@
 # ADR-142: Contract gas caps per transaction and per block, native work priced in fuel, lazy per-key contract storage
 
-**Status:** Accepted, 2026-11-14 (Eric, 2026-11-14 MCQ: "cap + price now"). Re-freeze change: consensus behaviour, lands before genesis.
+**Status:** Accepted, 2026-11-14 (Eric, 2026-11-14 MCQ: "cap + price now"). Re-freeze change: consensus behaviour, lands before genesis. Amended 2026-11-14 after the PR #549 review (see the end): shape-priced compiles, priced memory, failed work counted, a sealed budget, warm and cold reads, ceiling 300 M.
 **Date:** 2026-11-14
 **Related:** [ADR-034](ADR-034-vm-reference-types-off.md) (VM feature lockdown), [ADR-072](ADR-072-max-block-bytes.md) (block byte cap), [ADR-029](ADR-029-fee-market-live.md) (fees price bytes), [ADR-062](ADR-062-state-layout-before-genesis.md), ADR-131 (P-25 state pricing / rent, options, PR #472), ADR-135 (parameter tags 11–16, PR #477); invariants 7, 12, 17, 21, 24, 25, 33; `spec/10-vm-gas.md` (GAS-1..GAS-6)
 
@@ -41,7 +41,8 @@ not an amplifier here (measured 0.011–0.013 ns per unit).
 `ParameterKey::VmMaxTxGas` (tag 17, `vm.max_tx_gas`) and
 `ParameterKey::VmMaxBlockGas` (tag 18, `vm.max_block_gas`). Tags 11–16 are
 ADR-135's. Both default to 250,000,000 and are bounded to
-`[239,979,600, 500,000,000]`, checked when a proposal is made and again when
+`[239,979,600, 300,000,000]` (the ceiling was 500 M until the amendment
+below), checked when a proposal is made and again when
 it executes (invariant 12). They change only through a governance proposal
 and its timelock — the scheduled path; no transaction, council act or node
 setting moves them. They are read from the parameter table through the
@@ -52,10 +53,12 @@ overlay at the call site (invariant 17).
   (`GasAboveCap`) and at mempool admission, before the signature check.
 - **Per block (GAS-2):** a block's contract gas starts at 0; a call needs
   `gas_limit ≤ vm.max_block_gas − spent` (`BlockGasExhausted`), and adds the
-  gas it used. A deployment adds `deploy_fuel(len)` under the same rule. A
-  revealed sealed action that fails still adds its `gas_limit`, because it
-  ran; the old code discarded the failed attempt's overlay, which would have
-  let revealed calls run to their limit outside the budget.
+  gas it used. A deployment adds its cold price under the same rule, before
+  it compiles. A revealed sealed action that fails still adds the gas it
+  used, because it ran; the old code discarded the failed attempt's overlay,
+  which would have let revealed calls run to their limit outside the budget.
+  Since the amendment revealed actions count against a budget of their own,
+  and the builder keeps the gas of the failed calls it tries.
 - The block builder already trial-stages each transaction and passes over one
   that fails, so a call that does not fit is left for a later block, like an
   over-size transaction under ADR-072.
@@ -65,8 +68,10 @@ deployment may carry stays callable under any cap a vote can set.
 
 ### 2. Native work priced in fuel, charged before the work (GAS-3, GAS-4)
 
-`crates/vm/src/gas.rs`. One rule: **about 1 ns of measured worst-case native
-work per unit of fuel**.
+`crates/vm/src/gas.rs`. One rule: **about 1 ns of measured native work per
+unit of fuel, for the slowest shape of each kind of work that was
+measured**. This table is the first cut, on ordinary shapes; the amendment
+below adds the adversarial shapes and the prices they forced.
 
 | Charge | Fuel | Measured (dev profile, this machine) |
 |---|---|---|
@@ -80,7 +85,8 @@ work per unit of fuel**.
 | `emit_event` | 600 + 1/byte of topic and data | 2.6 µs for 8 KiB |
 
 Each is charged from the call's own arguments, before anything is read or
-copied; sizes over the limits are refused before the charge. A charge that
+copied; sizes over the limits are refused before the charge, and since the
+amendment the refusal ends the call. A charge that
 cannot be paid traps out of fuel, exactly like running out in the guest. The
 charges are host-side `set_fuel` arithmetic, so they are identical under
 Cranelift and Pulley (`tier_differential_tests.rs`, corpus includes storage
@@ -172,18 +178,158 @@ read base is 5,000 rather than the ~600 the in-memory host measured.
   ask Eric), and the byte-priced fee market (ADR-029) is what a call pays.
 - **A failing plaintext call is still free to submit.** Invariant 7 / STF-8:
   a failing transaction fails its block, so a producer drops it after a trial
-  run. A sender can therefore make every builder run a call up to
-  `vm.max_tx_gas` (≈250 ms) and pay nothing. The cap bounds each attempt where
-  before nothing did; charging failed calls means including them with their
-  fee, which changes STF-8 and is a separate decision.
+  run, and it pays nothing. Since the amendment the gas it ran counts against
+  the block being built, so failed calls cost a builder at most one block's
+  budget; charging their sender means including them with their fee, which
+  changes STF-8 and is a separate decision (raised with Eric).
 - **The contracts layer of the state root is still folded over all contract
   code and storage every block** (`merged_contracts`, ROOT-5). Per-block cost
-  grows with total contract state, and no gas price bounds that. The write
-  price caps growth at ~1 MiB a block; an incremental contracts root (as
-  ADR-062a did for accounts) is the fix and is open.
+  grows with total contract state, and no gas price bounds that: the write
+  price limits how fast state grows (~1 MiB a block), not the fold's cost. An
+  incremental contracts root (as ADR-062a did for accounts) is the fix and is
+  open.
 - **Timing is from one machine**, under load from other builds. A slower
   validator validates the same block more slowly, never differently: every
   charge is deterministic. Re-measure with `gas_price_calibration_tests` and
   `vm_gas_timing_tests` before moving either cap.
 - **No `storage_delete` host function exists**; a zero-length write is the
   clear and is priced as a write.
+
+## Amendment, 2026-11-14: the PR #549 review (Eric 2026-11-14 MCQ, same decision)
+
+The first cut was reviewed before merge. Its derivation rested on benign
+shapes and on success paths, and the review found work that ran below its
+price or outside the block's budget. Every finding is fixed here or recorded
+below as open with its reason. Measurements are from this PC (Windows 11, the
+owner's machine, shared with other builds) on 2026-11-14;
+`crates/vm/tests/gas_adversarial_calibration_tests.rs` and
+`crates/node/tests/vm_gas_timing_tests.rs` (both `#[ignore]`d: timing) print
+them, and `reports/sessions/2026-11-14-vm-gas-caps-review.md` holds the runs.
+
+### What changed
+
+| Finding | Fix | Pinned by |
+|---|---|---|
+| Compile time is not a function of length: 200 functions of 50,000 locals compiled in 678 ms (release) against a price of 0.78 M, 40,000 `if`s in one function in 10.4 s, 20,000 empty functions in 1.06 s | `crate::shape`: a linear pre-pass before any compile counts functions, declared locals, control operators and calls, refuses more than 1,024 locals or 2,000 control operators in one function and more than 10,000 functions, and the cold price adds `125,000 × functions + 170 × locals + 30,000 × controls + 8,000 × calls`; a module whose cold price is above 235,979,600 is refused at deployment, so the governance floor still keeps every deployed module callable | `shape.rs` tests, `gas_hardening_tests`, `shapes_at_the_limits_compile_inside_their_price` (release) |
+| A host call that failed its size check, or a 65th event, was free and did not stop the guest | `runtime::refuse`: every recorded host failure traps at once; the memory limiter traps too | `a_refused_host_call_ends_the_call`, vector `golden-oversized-key-ends-the-call` |
+| `emit_event`'s topic had no bound | `MAX_EVENT_TOPIC_BYTES` = 256, checked before the charge | `an_event_topic_over_the_cap_is_refused` |
+| Fresh linear memory was unpriced: 11–15 ns per unit of fuel touching new pages | `MEMORY_PAGE_FUEL` = 6,000 per page held, charged when the call returns; a call may hold only the pages its gas can pay for (GAS-7) | `a_call_pays_for_the_linear_memory_it_holds`, `a_call_cannot_hold_more_memory_than_its_gas_pays_for` |
+| A deployment that compiled and then failed its import check added no gas | the price is counted before `validate` | `a_deployment_that_fails_validation_still_spends_its_compile`, `a_sealed_deployment_that_fails_validation_still_spends_its_compile` |
+| A failed call in block selection threw its gas away, so K failing calls cost every DAG-BFT validator K × the cap | contract calls and deployments stage on the overlay with the transfer undo path; a failed one leaves its gas spent | `a_call_that_fails_while_the_block_is_built_still_spends_its_gas` |
+| A failed revealed call was charged its whole `gas_limit`, so one envelope naming the cap voided every later sealed call at its height | a failed call spends `Execution::gas_used`, the gas it ran (its limit only when it ran out) | `a_failed_call_spends_the_gas_it_used_not_the_gas_it_named`, `a_failed_call_reports_the_gas_it_used` |
+| Revealed actions ran on what plaintext left, so one gas-filling plaintext call voided every sealed call due in that block | revealed actions get their own budget, `vm.max_block_gas / 4` (GAS-2) | `a_plaintext_call_that_fills_the_block_gas_does_not_void_a_due_sealed_call`, `a_sealed_call_over_the_sealed_budget_is_refused_before_it_runs` |
+| Every call copied the block's earlier writes to its contract; every builder trial and sealed attempt cloned all staged contract storage | `Overlay::contract_storage` is an `Arc`'d map the host reads through; contract trials and contract reveals no longer clone the overlay | `lazy_storage_reads_exactly_what_the_whole_storage_load_did` (nothing preloaded), `a_block_that_writes_then_calls_many_times_validates_inside_the_block_time` |
+| The read base was measured only on warm reads; the node's RocksDB had no bloom filter | the block's first read of a committed key pays `STORAGE_COLD_READ_FUEL` = 95,000 more (decided by the block's order: keys the block wrote or its applied calls read are warm). A bloom filter was tried and left out: with a cache too small to hold a whole-file filter it made every hit reread it (580 µs against 73 µs) | `a_committed_key_is_cold_once_per_block_and_only_where_it_reaches_disk`, `cold_point_reads_against_the_read_price` |
+| The cap's ceiling, 500 M, let a vote push a producer past the block time | ceiling 300 M | `the_gas_caps_cannot_be_voted_unbounded_or_below_the_largest_module`, vectors |
+| The 256-entry module cache could hold 256 × 512 KiB modules | also bounded to 32 MiB of module bytes (node-local, not consensus) | `cache_tests` |
+| Timing tests asserted wall time on shared CI | `#[ignore]`d; they print, and the session report records the run | — |
+| Vectors recomputed constants with the code's own functions | golden `gas_used` for real executions (write, read hit and miss, event, growth, a trap, out of gas, an oversized key, memory past the allowance), replayed by the node on every CI platform | `the_spec_vectors_hold` |
+
+### The revised derivation
+
+The rule is still about 1 ns of measured native work per unit of fuel, now
+for the slowest shape *measured* of each kind of work, release build:
+
+| Work, at the limits | Measured | Profile | ns per unit of its price |
+|---|---|---|---|
+| ~1,760 empty exported functions | 203 ms for 229.9 M | release | 0.88 |
+| 2,000 `if`s in each of 3 functions | 168 ms for 196.6 M | release | 0.86 |
+| 2,000 `loop`s in each of 3 functions | 158 ms for 188.5 M | release | 0.84 |
+| 20,000 `call`s in one function | 124 ms for 178.2 M | release | 0.70 |
+| 200 functions × 1,024 locals | 27 ms for 60.5 M | release | 0.45 |
+| real contracts: `nft_game.wasm`, `token_swap.wasm` | 4.9 ms / 4.2 ms for 5.3 M / 5.9 M | release | 0.93 / 0.72 (4.5 / 3.6 at the length-only price) |
+| touching 256 fresh pages | 4.9–5.7 µs a page over an empty call | release | 1.08–1.14 per unit of the call |
+| a cold storage read (1 B values, direct I/O, 1 MiB cache) | 73–113 µs | release | 0.73–1.13 |
+
+Each line is `shapes_at_the_limits_compile_inside_their_price` or
+`calibrate_fresh_memory_pages` (`--release`), or `cold_point_reads_against_the_read_price`.
+Whole blocks at the 250 M cap, `apply_block` including signatures, the state
+root and the commit (`vm_gas_timing_tests`, **dev** profile: the node
+unoptimised, Cranelift with debug assertions):
+
+| Block | `apply_block` | ns per unit of gas |
+|---|---|---|
+| ten deployments of ~50 KB compile-heavy modules (241.5 M) | 347.3 ms | 1.44 |
+| 134 calls each touching 16 MiB of fresh memory | 330.1 ms | 1.32 |
+| ten cold calls to those modules | 294.4 ms | 1.22 |
+| host calls (`get_balance_u256`) | 233.2 ms | 0.93 |
+| 19,745 small writes, then 200 warm calls to the same contract | 172.4 ms | 0.53 |
+| guest compute (`i64.div_u`) | 39.0 ms | 0.16 |
+| storage reads at the cold price (memtable hits) | 19.4 ms | 0.08 |
+| storage writes, 920 KiB of new state | 10.1 ms | 0.04 |
+| selection of 8 failing calls at the cap (DAG-BFT builder) | 162.9 ms | — |
+
+The dev figures are above 1 ns because of the profile; the release rows are
+the derivation's basis. Every block is inside the 1 s block time on this
+machine in the dev profile. The contracts root fold, which no price covers,
+measured 128 ms over 100,000 committed contract entries and 533 ms over
+400,000 (dev); see the consequences below.
+
+A block now spends at most `vm.max_block_gas` on plaintext contract work
+plus a quarter of it on revealed sealed actions: 312.5 M at the default
+(~313 ms of priced work), 375 M at the 300 M ceiling. A DAG-BFT producer
+also runs selection, which since this amendment never runs more than
+`vm.max_block_gas` of failed and applied contract work together: ~563 ms at
+the default, ~675 ms at the ceiling, inside the 1 s block time.
+
+What this does not cover, stated so nobody reads the table as a proof:
+
+- **The end-of-block bisection.** `consensus/bft/builder.rs` may select up
+  to 9 times and build up to 32 times for one anchor
+  (`MAX_END_OF_BLOCK_DROPS`, `END_OF_BLOCK_PROBES`, audit finding 3) when a
+  transaction stages but fails an end-of-block pass. Each build re-runs the
+  block's contract work, so a sub-DAG built to fail that way can cost up to
+  about 9 × 250 M + 32 × 312.5 M ≈ 12 G gas of work on one anchor, ~12 s.
+  Pre-existing and not contract-specific; bounded, not fixed here. Open, for
+  Eric.
+- **Shapes not measured:** other CPUs (a validator on a slower core compiles
+  more slowly, never differently), ARM, Pulley's compile, real compiled Rust
+  contracts as a corpus, functions that escape through tables (priced as if
+  exported), deep nesting past 2,000, and compile-time interactions between
+  the counted shapes. `shapes_at_the_limits_compile_inside_their_price`
+  asserts the measured worst at the limits in release builds only; the dev
+  profile keeps Cranelift's debug assertions and runs it about 10× slower.
+- **Cold reads** were measured with direct I/O on this PC's SSD, not on a
+  slower disk class. With 4 KiB values and a 1 MiB cache the SST index block
+  did not fit and every read reread it: 1.4–2.0 ms, far past the price. The
+  node's default 512 MiB cache holds index blocks for tens of GiB of state;
+  partitioned indexes would remove the case and are node-local tuning, not
+  done here.
+
+### Consequences, added
+
+- Compiling is now priced closer to what it costs, so cold calls cost more:
+  every function 125,000 and every branch 30,000. A module of 1,000 small
+  functions costs ~125 M cold before its bytes; a 512 KiB module with more
+  than ~1,800 functions cannot deploy at all. Warm calls are unchanged.
+- **Contract calls can still be crowded out for one byte fee a block.** Gas
+  has no coin price and `vm.max_tx_gas`'s floor sits near the block cap, so
+  one call that runs to ~250 M successfully fills the block's plaintext
+  budget, and every other call waits for a later block. Sealed calls no
+  longer can be (their own budget). Pricing gas in coin, or a per-sender
+  share below the block cap, is an economics decision: raised with Eric.
+- **Failed calls are free and stay pooled.** A failing plaintext call is
+  never included, so it pays nothing (STF-8), and the DAG-BFT driver keeps
+  dropped transactions pooled (`bins/maya2c-node/src/bft.rs`), so it is
+  re-proposed every block. Since this amendment its gas counts against the
+  block it is tried in: bounded work, but contract calls ordered after it
+  can be crowded out. Evicting a transaction after it fails execution is a
+  node-policy change outside this PR; including failed calls with their fee
+  changes STF-8. Both raised with Eric.
+- **Revealed actions share their quarter in envelope-key order.** An
+  envelope due at the same height that uses the whole quarter leaves later
+  sealed calls at that height out (consumed, BlockGasExhausted). It costs
+  that envelope's sender its fee and the gas it really runs; keeping such a
+  reveal pending for the next height instead would publish its plaintext a
+  block early, which is the front-running sealing prevents.
+- **The contracts layer of the state root** is still folded over all
+  contract code and storage every block (ROOT-5). Its cost grows with total
+  contract state, at up to ~1 MiB of new state a block, and no gas price
+  bounds it: the write price limits growth, not the fold. Measured (dev):
+  128 ms at 100,000 entries, 533 ms at 400,000. A block of the cheapest
+  writes adds ~48,000 entries (250 M / 5,240), so about ten such blocks take
+  the fold past half a second on this machine, and a few more past the block
+  time, for byte fees only. It belongs with the incremental state root
+  (ADR-062a; PR #540 covers accounts only). **This blocks genesis**: either
+  the contracts layer becomes incremental, or contract state gets a hard
+  ceiling. Raised with Eric.

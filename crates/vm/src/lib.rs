@@ -42,6 +42,7 @@ pub mod host;
 pub mod private;
 pub mod resources;
 pub mod runtime;
+pub mod shape;
 pub mod tier;
 pub mod trace;
 pub mod zkml;

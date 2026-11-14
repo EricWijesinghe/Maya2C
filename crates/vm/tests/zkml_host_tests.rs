@@ -210,14 +210,14 @@ fn verification_is_charged_its_full_price() {
     let (with, without) = (standard(), contract_without_call());
     let (outcome, _) = run(&with, GENEROUS, FakeVerifier::answering(ZkmlVerdict::Valid));
     let (_, with_call) = outcome.expect("call succeeds");
-    let with_call = with_call - maya_vm::gas::call_fuel(with.len(), false);
+    let with_call = with_call - maya_vm::gas::cold_call_fuel(&with).unwrap();
     let (outcome, _) = run(
         &without,
         GENEROUS,
         FakeVerifier::answering(ZkmlVerdict::Valid),
     );
     let (_, without_call) = outcome.expect("baseline succeeds");
-    let without_call = without_call - maya_vm::gas::call_fuel(without.len(), false);
+    let without_call = without_call - maya_vm::gas::cold_call_fuel(&without).unwrap();
 
     let charged = with_call - without_call;
     // The price, plus the handful of instructions that push seven arguments.

@@ -11,16 +11,22 @@
 //!
 //! ## How the numbers were chosen
 //!
-//! One rule: **about one nanosecond of measured worst-case native work per
-//! unit of fuel**, on the machine `crates/vm/tests/gas_price_calibration_tests.rs`
-//! and `crates/node/tests/vm_gas_tests.rs` ran on (dev profile, which leaves
-//! this crate and the node unoptimised, so the figures are pessimistic). Plain
-//! guest code measured 0.3–0.7 ns per fuel and bulk memory 0.01 ns per fuel,
-//! so guest work is already inside the rule; the constants below bring native
-//! work inside it too. The per-block cap then turns "1 ns per fuel" into a
-//! time bound: 250 M gas is about 250 ms of the slowest priced work, a
-//! quarter of the 1 s block time. The measured figures and the derivation are
-//! in ADR-142.
+//! One rule: **about one nanosecond of measured native work per unit of
+//! fuel, for the slowest shape of each kind of work that was measured**, on
+//! the machine `crates/vm/tests/gas_price_calibration_tests.rs`,
+//! `crates/vm/tests/gas_adversarial_calibration_tests.rs` and
+//! `crates/node/tests/vm_gas_timing_tests.rs` ran on. Plain guest code
+//! measured 0.2–0.7 ns per fuel and bulk memory 0.01 ns per fuel, so guest
+//! work is already inside the rule; the constants below bring native work
+//! inside it too. The per-block cap then turns "1 ns per fuel" into a time
+//! bound. The measured figures, the shapes that were *not* measured, and the
+//! derivation are in ADR-142.
+//!
+//! Compiling is priced by the module's shape as well as its length
+//! ([`crate::shape`]): per function, per declared local, per control
+//! operator and per call. Priced by length alone, the review of 2026-11-14
+//! built modules that compiled more than a thousand times slower than their
+//! price (many locals, many empty functions, long runs of branches).
 //!
 //! One exception to the rule: [`STORAGE_WRITE_BYTE_FUEL`] is priced by what a
 //! written byte costs every node *forever* (it is stored and folded into the
@@ -46,6 +52,7 @@ use wasmtime::Caller;
 
 use crate::host::HostState;
 use crate::runtime::CallContext;
+use crate::shape::ModuleShape;
 
 /// Charged once per call, before the module is instantiated: building the
 /// store and the linker, instantiating, and the entry and exit calls.
@@ -56,9 +63,55 @@ pub const CALL_BASE_FUEL: u64 = 50_000;
 /// Charged per byte of the module on a **cold** call: the first call to a
 /// contract in a block, which may compile it.
 ///
-/// Measured: 222–432 ns per byte for three module shapes compiled by
-/// Cranelift 48 (432 was the worst run). Priced at the worst, rounded up.
+/// Measured: 222–432 ns per byte for three straight-line module shapes
+/// compiled by Cranelift 48 (432 was the worst run). Priced at the worst,
+/// rounded up. What a byte does not cover, its shape does: the four prices
+/// below.
 pub const CODE_BYTE_FUEL: u64 = 450;
+
+/// Charged per function, imported or defined, on a cold call.
+///
+/// Measured (release build, 2026-11-14): 53 µs per empty function, 120 µs
+/// per empty *exported* function (the exported one also compiles a
+/// trampoline). Priced at the exported case, since which functions escape is
+/// not counted.
+pub const FUNCTION_FUEL: u64 = 125_000;
+
+/// Charged per declared local, on a cold call.
+///
+/// Measured: 68–162 ns per local (2,000 functions of 1,024 locals was the
+/// worst, function overhead included).
+pub const LOCAL_FUEL: u64 = 170;
+
+/// Charged per control operator (`block`, `loop`, `if`, `else`, `br`,
+/// `br_if`, `br_table`, `return`), on a cold call.
+///
+/// Measured: 18–25 µs per `if` or `loop` at up to 1,000 in one function, in
+/// two or three bytes each; past a few thousand in one function the time per
+/// operator grows, which is what [`crate::shape::MAX_CONTROL_PER_FUNCTION`]
+/// stops.
+pub const CONTROL_FUEL: u64 = 30_000;
+
+/// Charged per `call` or `call_indirect`, on a cold call.
+///
+/// Measured: 5.1–6.1 µs a call in two bytes.
+pub const CALL_OP_FUEL: u64 = 8_000;
+
+/// Charged once the call returns, per 64 KiB page of linear memory it held
+/// at most (its initial pages included). A call may hold no more pages than
+/// what is left of its gas after the upfront price could pay for.
+///
+/// Measured: touching every 4 KiB of a fresh page costs 3.2–5.7 µs a page
+/// (release, four runs), 5.2–7.1 µs (dev), in page faults and zeroing the
+/// fuel meter does not see: 11–15 ns per unit of fuel before this price
+/// existed. Priced at the worst release run, rounded up.
+pub const MEMORY_PAGE_FUEL: u64 = 6_000;
+
+/// The most a cold call may pay up front: what the largest module would pay
+/// if its length were all it cost. A deployment whose module would cost more
+/// is refused, so every deployed contract stays callable under the lowest
+/// cap governance may set (`vm.max_tx_gas`'s floor is this plus 4,000,000).
+pub const MAX_COLD_CALL_FUEL: u64 = call_fuel(crate::config::MAX_MODULE_BYTES, false);
 
 /// Charged per byte of the module on a **warm** call: a later call to a
 /// contract already compiled in the same block. Instantiation still copies
@@ -78,9 +131,23 @@ pub const HOST_CALL_FUEL: u64 = 600;
 /// A lookup in the node is a RocksDB point read (the storage is no longer
 /// loaded whole before the call). Measured with the node's host in
 /// `crates/node/tests/vm_gas_timing_tests.rs`: a block of ~49,000 hits took
-/// 78 ms, ~1.6 µs a read with everything else in the block. 5,000 leaves
-/// room for a read that misses RocksDB's block cache.
+/// 78 ms, ~1.6 µs a read with everything else in the block. That is the
+/// warm read; one that may go to disk pays [`STORAGE_COLD_READ_FUEL`] too.
 pub const STORAGE_READ_BASE_FUEL: u64 = 5_000;
+
+/// Charged on a `storage_read` of a key the block has not read or written
+/// before (`HostState::touch_storage`), on top of the base and before the
+/// lookup: the read that can miss every cache and go to disk.
+///
+/// Measured with the node's RocksDB options, a 1 MiB block cache and direct
+/// I/O (no OS cache) on this PC's SSD, 2026-11-14: 73–113 µs a read for
+/// 1-byte values, present or absent (the 113 µs run was under load from
+/// other builds, 13% over this price). Base plus this is 100,000 fuel a cold
+/// read. A read whose SST index block does not fit the cache rereads the
+/// index too (1.4–2.0 ms measured with 4 KiB values and a 1 MiB cache); the
+/// node's 512 MiB cache holds the index blocks, and ADR-142 records the case
+/// as unpriced.
+pub const STORAGE_COLD_READ_FUEL: u64 = 95_000;
 
 /// Charged per byte of the key and of the value a `storage_read` returns.
 pub const STORAGE_READ_BYTE_FUEL: u64 = 1;
@@ -95,8 +162,9 @@ pub const STORAGE_WRITE_BASE_FUEL: u64 = 5_000;
 pub const STORAGE_WRITE_BYTE_FUEL: u64 = 240;
 
 /// Charged per byte of an event's topic and payload, before they are copied.
-/// The topic had no size bound, so before this a call could copy its whole
-/// 16 MiB memory into a topic 64 times for 64 units of fuel.
+/// The topic is bounded too now (`MAX_EVENT_TOPIC_BYTES`); before ADR-142 a
+/// call could copy its whole 16 MiB memory into a topic 64 times for 64
+/// units of fuel.
 pub const EVENT_BYTE_FUEL: u64 = 1;
 
 /// What a call pays before its first instruction runs.
@@ -110,11 +178,33 @@ pub const fn call_fuel(code_len: usize, warm: bool) -> u64 {
     CALL_BASE_FUEL.saturating_add(per_byte.saturating_mul(code_len as u64))
 }
 
-/// What a deployment counts against its block's gas: validating a module
-/// compiles it, which is the cold-call compile without the call.
+/// The length part of a deployment's price: [`call_fuel`] cold. What a
+/// deployment actually counts is [`cold_call_fuel`], which adds its shape.
 #[must_use]
 pub const fn deploy_fuel(code_len: usize) -> u64 {
     call_fuel(code_len, false)
+}
+
+/// What compiling a module of this shape costs beyond its length.
+#[must_use]
+pub const fn shape_fuel(shape: &ModuleShape) -> u64 {
+    FUNCTION_FUEL
+        .saturating_mul(shape.functions)
+        .saturating_add(LOCAL_FUEL.saturating_mul(shape.locals))
+        .saturating_add(CONTROL_FUEL.saturating_mul(shape.controls))
+        .saturating_add(CALL_OP_FUEL.saturating_mul(shape.calls))
+}
+
+/// What a cold call of `wasm` pays before its first instruction, and what a
+/// deployment of it counts: its length and its shape (GAS-3).
+///
+/// # Errors
+///
+/// What [`crate::shape::scan`] refuses: a module past a shape bound, or bytes
+/// that are not a module.
+pub fn cold_call_fuel(wasm: &[u8]) -> crate::Result<u64> {
+    let shape = crate::shape::scan(wasm)?;
+    Ok(call_fuel(wasm.len(), false).saturating_add(shape_fuel(&shape)))
 }
 
 /// `base + per_byte × bytes`, saturating.
@@ -154,6 +244,29 @@ mod tests {
         assert_eq!(call_fuel(1_000, false), CALL_BASE_FUEL + 450_000);
         assert_eq!(call_fuel(1_000, true), CALL_BASE_FUEL + 1_000);
         assert_eq!(deploy_fuel(1_000), call_fuel(1_000, false));
+    }
+
+    #[test]
+    fn a_cold_call_pays_for_the_shape_of_its_module_too() {
+        let wasm =
+            wat::parse_str(r#"(module (func (local i64 i64) (block (br 0)) (call 0)) (func))"#)
+                .unwrap();
+        let shape = ModuleShape {
+            functions: 2,
+            locals: 2,
+            controls: 2,
+            calls: 1,
+        };
+        assert_eq!(crate::shape::scan(&wasm).unwrap(), shape);
+        assert_eq!(
+            cold_call_fuel(&wasm).unwrap(),
+            call_fuel(wasm.len(), false)
+                + 2 * FUNCTION_FUEL
+                + 2 * LOCAL_FUEL
+                + 2 * CONTROL_FUEL
+                + CALL_OP_FUEL
+        );
+        assert_eq!(MAX_COLD_CALL_FUEL, 235_979_600);
     }
 
     #[test]

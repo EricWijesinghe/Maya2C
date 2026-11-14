@@ -850,3 +850,229 @@ fn share_and_envelope_keys_order_by_height_then_identity() {
     let elsewhere = share_key(9, &[2u8; 32], 1);
     assert!(a < b && b < elsewhere);
 }
+
+// ---------------------------------------------------------------------------
+// contract gas at the reveal height (ADR-142, GAS-2; PR #549 review)
+// ---------------------------------------------------------------------------
+
+const WRITER_WAT: &str = r#"(module
+    (import "env" "storage_write" (func $write (param i32 i32 i32 i32)))
+    (memory (export "memory") 1)
+    (func (export "invoke") (param i32) (result i64)
+      (i32.store8 (i32.const 0) (i32.const 107))
+      (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4))
+      (i64.const 0)))"#;
+
+const TRAP_WAT: &str = r#"(module (memory (export "memory") 1)
+    (func (export "invoke") (param i32) (result i64) unreachable))"#;
+
+fn wasm(text: &str) -> Vec<u8> {
+    wat::parse_str(text).expect("valid WAT")
+}
+
+fn block_cap() -> u64 {
+    maya_governance::params::ParameterKey::VmMaxBlockGas
+        .bounds()
+        .default
+        .saturating_to_u64()
+}
+
+/// GAS-2: what the revealed actions of one height may spend between them.
+fn sealed_budget() -> u64 {
+    block_cap() / 4
+}
+
+fn contract_call(contract: [u8; 32], gas_limit: u64) -> TxKind {
+    TxKind::CallContract(custom_l1_node::core::payload::ContractCall {
+        contract,
+        input: Vec::new(),
+        gas_limit,
+    })
+}
+
+fn contract_deploy(code: Vec<u8>) -> TxKind {
+    TxKind::DeployContract(custom_l1_node::core::payload::ContractDeploy { code })
+}
+
+/// Deploys `codes` from `key` in one plaintext block at `height`.
+fn deploy_plain(
+    fixture: &Fixture,
+    key: &HybridSigningKey,
+    codes: &[Vec<u8>],
+    height: u64,
+) -> Vec<[u8; 32]> {
+    let txs = codes
+        .iter()
+        .enumerate()
+        .map(|(nonce, code)| signed(contract_deploy(code.clone()), nonce as u64, key))
+        .collect();
+    fixture.apply(txs, height).expect("deploy");
+    codes
+        .iter()
+        .enumerate()
+        .map(|(nonce, code)| {
+            custom_l1_node::core::payload::derive_contract_id(&key.address(), nonce as u64, code)
+        })
+        .collect()
+}
+
+fn wrote(fixture: &Fixture, contract: &[u8; 32]) -> bool {
+    fixture
+        .db
+        .get_contract_storage(contract, b"k")
+        .expect("read")
+        .is_some()
+}
+
+/// A loop contract that a cold call of it spends close to `target` gas on.
+fn spinner_using(target: u64) -> Vec<u8> {
+    let make = |n: u64| {
+        wasm(&format!(
+            r#"(module (memory (export "memory") 1)
+                (func (export "invoke") (param i32) (result i64)
+                  (local $i i64)
+                  (loop $l
+                    (local.set $i (i64.add (local.get $i) (i64.const 1)))
+                    (br_if $l (i64.lt_u (local.get $i) (i64.const {n}))))
+                  (i64.const 0)))"#
+        ))
+    };
+    let vm = maya_vm::Vm::new().expect("vm");
+    let gas = |n| {
+        vm.execute(
+            &make(n),
+            [0; 32],
+            &[],
+            u64::MAX / 4,
+            maya_vm::MemoryState::at_height(1),
+        )
+        .outcome
+        .expect("runs")
+        .gas_used
+    };
+    let (small, large) = (gas(1_000), gas(2_000));
+    let per = (large - small) / 1_000;
+    make(1_000 + (target - small) / per)
+}
+
+#[test]
+fn a_plaintext_call_that_fills_the_block_gas_does_not_void_a_due_sealed_call() {
+    // Before: revealed actions ran after every plaintext transaction against
+    // the same block budget, so one byte-fee call that used the whole budget
+    // made every sealed call due at that height fail, and consumed it.
+    let deployer = generate_signing_key().expect("key");
+    let sender = generate_signing_key().expect("key");
+    let keepers = keepers(3);
+    let mut funded = vec![
+        (deployer.address(), 1_000_000u64),
+        (sender.address(), 1_000_000),
+    ];
+    funded.extend(keepers.iter().map(|(key, _)| (key.address(), 10_000u64)));
+    let fixture = fixture(&funded);
+
+    let spinner = spinner_using(block_cap() - 1_000_000);
+    let ids = deploy_plain(&fixture, &deployer, &[spinner, wasm(WRITER_WAT)], 1);
+    let (sealed_call, call_id) = fixture.seal(&contract_call(ids[1], 5_000_000), &sender, 0, 5);
+    fixture.apply(vec![sealed_call], 2).expect("include");
+
+    // The plaintext spinner first, as a producer would order it: it leaves
+    // 1 M of the block's gas, less than the sealed call names.
+    let mut reveal = vec![signed(contract_call(ids[0], block_cap()), 2, &deployer)];
+    reveal.extend(fixture.shares(&call_id, 5, 3, &keepers));
+    fixture.apply(reveal, 5).expect("the reveal block applies");
+    assert!(
+        wrote(&fixture, &ids[1]),
+        "the sealed call must run on its own budget"
+    );
+}
+
+/// Two senders whose envelope ids at `nonce` sort `(first, second)`.
+fn ordered_senders(nonce: u64) -> (HybridSigningKey, HybridSigningKey) {
+    let a = generate_signing_key().expect("key");
+    let b = generate_signing_key().expect("key");
+    if derive_envelope_id(&a.address(), nonce) < derive_envelope_id(&b.address(), nonce) {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+#[test]
+fn a_sealed_deployment_that_fails_validation_still_spends_its_compile() {
+    // Before: the compile ran before its gas was counted, so up to 128
+    // reveals of a module with one unknown import compiled for free.
+    let (bad_sender, good_sender) = ordered_senders(0);
+    let (bad_keepers, good_keepers) = (keepers(3), keepers(3));
+    let mut funded = vec![
+        (bad_sender.address(), 1_000_000u64),
+        (good_sender.address(), 1_000_000),
+    ];
+    funded.extend(
+        bad_keepers
+            .iter()
+            .chain(&good_keepers)
+            .map(|(key, _)| (key.address(), 10_000u64)),
+    );
+    let fixture = fixture(&funded);
+
+    let len = usize::try_from(sealed_budget() * 3 / 5 / maya_vm::gas::CODE_BYTE_FUEL).expect("len");
+    let data = "a".repeat(len);
+    let bad = wasm(&format!(
+        r#"(module (import "env" "no_such_host_function" (func))
+            (memory (export "memory") 1) (data "{data}")
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#
+    ));
+    let good = wasm(&format!(
+        r#"(module (memory (export "memory") 1) (data "{data}")
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#
+    ));
+    let (bad_envelope, bad_id) = fixture.seal(&contract_deploy(bad), &bad_sender, 0, 5);
+    let (good_envelope, good_id) = fixture.seal(&contract_deploy(good.clone()), &good_sender, 0, 5);
+    fixture
+        .apply(vec![bad_envelope, good_envelope], 1)
+        .expect("include");
+
+    let mut reveal = fixture.shares(&bad_id, 5, 3, &bad_keepers);
+    reveal.extend(fixture.shares(&good_id, 5, 3, &good_keepers));
+    fixture.apply(reveal, 5).expect("the reveal block applies");
+
+    let nonce = u64::from_le_bytes(good_id[..8].try_into().expect("8 bytes"));
+    let deployed =
+        custom_l1_node::core::payload::derive_contract_id(&good_sender.address(), nonce, &good);
+    assert!(
+        fixture.db.get_code(&deployed).expect("read").is_none(),
+        "the failed deployment's compile must have used the budget the second needed"
+    );
+}
+
+#[test]
+fn a_sealed_call_over_the_sealed_budget_is_refused_before_it_runs() {
+    // Before: a sealed call that trapped at once was charged its whole
+    // `gas_limit`, so one envelope naming the block cap voided every sealed
+    // call after it at that height.
+    let (trap_sender, honest_sender) = ordered_senders(0);
+    let deployer = generate_signing_key().expect("key");
+    let (trap_keepers, honest_keepers) = (keepers(3), keepers(3));
+    let mut funded = vec![
+        (trap_sender.address(), 1_000_000u64),
+        (honest_sender.address(), 1_000_000),
+        (deployer.address(), 1_000_000),
+    ];
+    funded.extend(
+        trap_keepers
+            .iter()
+            .chain(&honest_keepers)
+            .map(|(key, _)| (key.address(), 10_000u64)),
+    );
+    let fixture = fixture(&funded);
+    let ids = deploy_plain(&fixture, &deployer, &[wasm(TRAP_WAT), wasm(WRITER_WAT)], 1);
+
+    let (trap, trap_id) = fixture.seal(&contract_call(ids[0], block_cap()), &trap_sender, 0, 5);
+    let (honest, honest_id) = fixture.seal(&contract_call(ids[1], 5_000_000), &honest_sender, 0, 5);
+    fixture.apply(vec![trap, honest], 2).expect("include");
+
+    let mut reveal = fixture.shares(&trap_id, 5, 3, &trap_keepers);
+    reveal.extend(fixture.shares(&honest_id, 5, 3, &honest_keepers));
+    fixture.apply(reveal, 5).expect("the reveal block applies");
+    assert!(wrote(&fixture, &ids[1]), "the honest sealed call must run");
+}

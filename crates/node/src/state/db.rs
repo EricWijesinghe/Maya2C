@@ -63,6 +63,13 @@ pub(crate) const NULLIFIER_PREFIX: &[u8] = b"null:";
 /// Key holding the serialized shielded pool.
 pub(crate) const POOL_KEY: &[u8] = b"shld:pool";
 
+/// One block's staged contract storage, keyed by contract then key.
+pub(crate) type StagedContractStorage = BTreeMap<(ChannelId, Vec<u8>), Vec<u8>>;
+
+/// Committed contract storage keys this block's applied calls have read,
+/// keyed by contract then key: a later read of one is warm (GAS-4).
+pub(crate) type BlockStorageReads = BTreeSet<(ChannelId, Vec<u8>)>;
+
 /// Staged mutations for one block.
 ///
 /// Both maps are ordered so the Merkle root is a function of content rather
@@ -76,7 +83,13 @@ pub(crate) struct Overlay {
     /// Contract code deployed by this block.
     pub(crate) code: BTreeMap<ChannelId, Vec<u8>>,
     /// Contract storage written by this block, keyed by contract then key.
-    pub(crate) contract_storage: BTreeMap<(ChannelId, Vec<u8>), Vec<u8>>,
+    ///
+    /// Shared, not owned: a contract call's host reads this block's earlier
+    /// writes through it instead of copying them, and a builder trial's
+    /// clone of the overlay is one reference count (PR #549 review: both
+    /// copies were O(entries) work no gas price saw). Written through
+    /// `Arc::make_mut`, which copies only while another clone is alive.
+    pub(crate) contract_storage: Arc<StagedContractStorage>,
     /// Nullifiers spent by this block.
     ///
     /// Checked alongside the committed set, so two joinsplits in one block
@@ -167,6 +180,16 @@ pub(crate) struct Overlay {
     /// is warm (GAS-3): it reuses this module rather than compiling again, so
     /// the price follows the work regardless of any cache. Block-local.
     pub(crate) vm_modules: BTreeMap<ChannelId, maya_vm::Compiled>,
+    /// Committed storage keys this block's applied calls have read. A later
+    /// read of one is warm; the block's first is cold and pays
+    /// `STORAGE_COLD_READ_FUEL` (GAS-4). Only calls that applied add to it,
+    /// so a builder and a validator of the same block agree on it. Shared
+    /// like `contract_storage`, so a call's host reads it without a copy.
+    pub(crate) vm_reads: Arc<BlockStorageReads>,
+    /// True while `settle_sealed` runs revealed actions. `vm_gas` then counts
+    /// the revealed actions' own budget, `sealed_gas_budget` (GAS-2), not
+    /// the plaintext transactions'.
+    pub(crate) revealing: bool,
 }
 
 impl Overlay {
@@ -310,6 +333,11 @@ impl StateDB {
         // the real ceiling rather than the ceiling plus an unbounded amount of
         // metadata.
         block_opts.set_cache_index_and_filter_blocks(true);
+        // No bloom filter. One was tried for absent-key reads (ADR-142
+        // review) and measured: with the cache too small to keep a whole-file
+        // filter, every lookup reread it, 580 us a hit against 73 us without
+        // (`cold_point_reads_against_the_read_price`). The cold-read price
+        // covers the read without one.
         opts.set_block_based_table_factory(&block_opts);
 
         opts.set_write_buffer_size(storage.write_buffer_mib * 1024 * 1024);
@@ -712,7 +740,7 @@ impl StateDB {
         for (id, code) in &overlay.code {
             batch.put(code_key(id), code);
         }
-        for ((contract, key), value) in &overlay.contract_storage {
+        for ((contract, key), value) in overlay.contract_storage.iter() {
             batch.put(contract_storage_key(contract, key), value);
         }
         for nullifier in &overlay.nullifiers {
@@ -1170,11 +1198,25 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
+            let staged = if matches!(
+                tx.kind,
+                crate::core::TxKind::Transfer
+                    | crate::core::TxKind::CallContract(_)
+                    | crate::core::TxKind::DeployContract(_)
+            ) {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
                 // copy made building a 900-transaction block quadratic.
+                //
+                // A contract call or deployment writes the same, then stages
+                // its own writes only once it has succeeded, so it takes the
+                // same path. What a failed one leaves behind is the contract
+                // gas it spent (`Overlay::vm_gas`), and that is meant: every
+                // validator runs this selection on the same sub-DAG, so a
+                // failed call that cost nothing here let K of them cost K x
+                // the cap (PR #549 review). The block that results only ever
+                // spends less than the count kept here, so it validates.
                 self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)?
             } else {
                 let mut trial = overlay.clone();
@@ -1233,8 +1275,11 @@ impl StateDB {
         Ok(())
     }
 
-    /// Stages a plain transfer, restoring exactly what it could have written
-    /// if it fails. Returns whether it was kept; a storage failure is an error,
+    /// Stages a plain transfer, a contract call or a deployment, restoring
+    /// exactly what it could have written if it fails, except the contract
+    /// gas a failed call or deployment spent, which stays spent (ADR-142,
+    /// GAS-2). `call_contract` and `deploy_contract` write nothing else
+    /// before their last check. Returns whether it was kept; a storage failure is an error,
     /// not a reason to drop the transaction, or this node would build a block
     /// its peers' state does not match.
     fn stage_transfer_or_undo(

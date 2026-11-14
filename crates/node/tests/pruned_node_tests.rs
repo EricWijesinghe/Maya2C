@@ -184,7 +184,7 @@ impl ArchiveNode {
                         TxKind::CallContract(ContractCall {
                             contract,
                             input: Vec::new(),
-                            gas_limit: 1_000_000,
+                            gas_limit: 10_000_000,
                         }),
                         self.nonce,
                         &self.key,

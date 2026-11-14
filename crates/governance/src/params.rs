@@ -117,6 +117,9 @@ pub const ALL_KEYS: &[ParameterKey] = &[
 /// or the largest deployable contract could never be called.
 const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
 
+/// Most either contract gas cap may be voted to (ADR-142).
+const VM_GAS_CEILING: u64 = 300_000_000;
+
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bounds {
@@ -285,25 +288,27 @@ impl ParameterKey {
                 max: Amount::from_u64(0x30),
                 default: Amount::from_u64(0x11),
             },
-            // ADR-142. Gas is priced at about 1 ns of measured worst-case
-            // native work per unit, so these are time bounds. The default
-            // lets one call use the whole block, as one call to the largest
-            // module needs ~236 M of it to compile. The floor keeps every
-            // contract one block-sized call can reach callable at all; the
-            // ceiling is the block's own ceiling. A call is capped at the
-            // smaller of this and the block cap.
+            // ADR-142. Gas is priced at about 1 ns of measured native work
+            // per unit, so these are time bounds. The default lets one call
+            // use the whole block, as one call to the largest module needs
+            // ~236 M of it to compile. The floor keeps every deployable
+            // contract callable at all; the ceiling is the block's own. A
+            // call is capped at the smaller of this and the block cap.
             Self::VmMaxTxGas => Bounds {
                 min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
-                max: Amount::from_u64(500_000_000),
+                max: Amount::from_u64(VM_GAS_CEILING),
                 default: Amount::from_u64(250_000_000),
             },
             // 250 M is ~250 ms of the slowest priced work on the measuring
-            // machine, a quarter of the 1 s block time. The ceiling, 500 M, is
-            // half of it; the floor is one maximum-module call with a little
-            // left to run.
+            // machine. A block can spend it twice over and a quarter more
+            // (plaintext calls, then revealed sealed actions on their own
+            // quarter, GAS-2), and a producer stages its plaintext twice, so
+            // the ceiling is 300 M: ~375 ms to validate, ~675 ms to produce,
+            // inside the 1 s block time (PR #549 review: 500 M would have
+            // been ~1.1 s for the producer).
             Self::VmMaxBlockGas => Bounds {
                 min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
-                max: Amount::from_u64(500_000_000),
+                max: Amount::from_u64(VM_GAS_CEILING),
                 default: Amount::from_u64(250_000_000),
             },
         }
@@ -411,7 +416,8 @@ mod tests {
         // u64::MAX, and nothing bounded a block's contract work.
         for key in [ParameterKey::VmMaxTxGas, ParameterKey::VmMaxBlockGas] {
             assert!(key.check(Amount::from_u64(u64::MAX)).is_err());
-            assert!(key.check(Amount::from_u64(500_000_001)).is_err());
+            assert!(key.check(Amount::from_u64(VM_GAS_CEILING + 1)).is_err());
+            assert!(key.check(Amount::from_u64(VM_GAS_CEILING)).is_ok());
             assert!(key.check(Amount::from_u64(MAX_MODULE_CALL_GAS)).is_err());
             assert!(key.check(key.bounds().default).is_ok());
         }

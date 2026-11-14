@@ -146,7 +146,7 @@ impl StateDB {
         for (contract, code) in &overlay.code {
             merged.insert(code_key(contract), code.clone());
         }
-        for ((contract, key), value) in &overlay.contract_storage {
+        for ((contract, key), value) in overlay.contract_storage.iter() {
             merged.insert(contract_storage_key(contract, key), value.clone());
         }
         Ok(merged)
@@ -305,8 +305,7 @@ mod tests {
 
         let mut overlay = Overlay::default();
         overlay.code.insert(contract, b"code".to_vec());
-        overlay
-            .contract_storage
+        std::sync::Arc::make_mut(&mut overlay.contract_storage)
             .insert((contract, b"k".to_vec()), b"v".to_vec());
         overlay.nullifiers.insert([9u8; 32]);
 

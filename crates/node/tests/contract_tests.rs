@@ -216,7 +216,7 @@ fn calling_a_contract_persists_its_storage_writes() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         1,
         &caller,
@@ -239,7 +239,7 @@ fn calling_an_undeployed_address_is_rejected() {
         TxKind::CallContract(ContractCall {
             contract: [9u8; 32],
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         0,
         &caller,
@@ -261,7 +261,7 @@ fn gas_exhaustion_writes_nothing_to_the_database() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 200_000,
+            gas_limit: 2_000_000,
         }),
         1,
         &caller,
@@ -301,7 +301,7 @@ fn a_failed_call_aborts_the_whole_block() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 200_000,
+            gas_limit: 2_000_000,
         }),
         1,
         &caller,
@@ -349,7 +349,7 @@ fn a_contract_sees_the_executing_block_height() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         1,
         &caller,
@@ -388,7 +388,7 @@ fn two_calls_in_one_block_see_each_others_writes() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         1,
         &caller,
@@ -397,7 +397,7 @@ fn two_calls_in_one_block_see_each_others_writes() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         2,
         &caller,
@@ -424,7 +424,7 @@ fn a_contract_call_may_not_also_carry_transfer_outputs() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         1,
     );
@@ -477,7 +477,7 @@ fn reverting_contract_blocks_restores_code_storage_and_the_root() {
         TxKind::CallContract(ContractCall {
             contract,
             input: Vec::new(),
-            gas_limit: 1_000_000,
+            gas_limit: 10_000_000,
         }),
         1,
         &caller,

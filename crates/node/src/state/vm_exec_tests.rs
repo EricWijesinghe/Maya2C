@@ -57,7 +57,8 @@ fn lazy_storage_reads_exactly_what_the_whole_storage_load_did() {
                 bytes(&mut seed, 5)
             };
             let value = bytes(&mut seed, 9);
-            overlay.contract_storage.insert((owner, key.clone()), value);
+            std::sync::Arc::make_mut(&mut overlay.contract_storage)
+                .insert((owner, key.clone()), value);
             probes.push(key);
         }
         for _ in 0..20 {
@@ -66,7 +67,7 @@ fn lazy_storage_reads_exactly_what_the_whole_storage_load_did() {
 
         // The load `call_contract` did before ADR-142, verbatim.
         let mut whole = db.contract_storage(&contract).unwrap();
-        for ((owner, key), value) in &overlay.contract_storage {
+        for ((owner, key), value) in overlay.contract_storage.iter() {
             if owner == &contract {
                 whole.insert(key.clone(), value.clone());
             }
@@ -76,13 +77,10 @@ fn lazy_storage_reads_exactly_what_the_whole_storage_load_did() {
             .contract_host(&overlay, &[1u8; 32], &contract, BlockContext::at_height(1))
             .unwrap();
 
-        // Only the block's writes to this contract were copied in.
-        let staged = overlay
-            .contract_storage
-            .keys()
-            .filter(|(owner, _)| owner == &contract)
-            .count();
-        assert_eq!(lazy.preloaded(), staged, "round {round}");
+        // Nothing was copied in, not even this block's writes to the
+        // contract: a copy per call is O(entries) work no gas price saw
+        // (PR #549 review). They are read through the shared overlay.
+        assert_eq!(lazy.preloaded(), 0, "round {round}");
 
         for key in &probes {
             assert_eq!(
@@ -133,5 +131,48 @@ fn the_cap_checks_refuse_in_the_order_the_spec_states() {
             needed: 1,
             remaining: 0
         })
+    );
+}
+
+#[test]
+fn a_committed_key_is_cold_once_per_block_and_only_where_it_reaches_disk() {
+    // GAS-4: the block's first read of a committed key pays the cold price;
+    // a key the block wrote, or an applied call of the block already read,
+    // or this call already read, is warm. Decided by the block, not a cache.
+    let contract = [7u8; 32];
+    let dir = tempfile::TempDir::new().unwrap();
+    let db = StateDB::open(dir.path()).unwrap();
+    for key in [b"a", b"b", b"c"] {
+        db.raw_put(&contract_storage_key(&contract, key), b"v")
+            .unwrap();
+    }
+    let mut overlay = Overlay::new();
+    std::sync::Arc::make_mut(&mut overlay.contract_storage)
+        .insert((contract, b"b".to_vec()), b"staged".to_vec());
+    std::sync::Arc::make_mut(&mut overlay.vm_reads).insert((contract, b"c".to_vec()));
+    let mut host = db
+        .contract_host(&overlay, &[1u8; 32], &contract, BlockContext::at_height(1))
+        .unwrap();
+    assert!(
+        host.touch_storage(&contract, b"a"),
+        "first read of a committed key"
+    );
+    assert!(
+        !host.touch_storage(&contract, b"a"),
+        "this call read it already"
+    );
+    assert!(!host.touch_storage(&contract, b"b"), "the block wrote it");
+    assert!(
+        !host.touch_storage(&contract, b"c"),
+        "an applied call read it"
+    );
+    host.storage_set(&contract, b"d".to_vec(), b"w".to_vec());
+    assert!(!host.touch_storage(&contract, b"d"), "this call wrote it");
+    // An absent key costs a probe too, so it is cold the first time.
+    assert!(host.touch_storage(&contract, b"absent"));
+    let (_, reads) = host.into_writes_and_reads();
+    assert_eq!(
+        reads.into_iter().collect::<Vec<_>>(),
+        vec![b"a".to_vec(), b"absent".to_vec()]
     );
 }

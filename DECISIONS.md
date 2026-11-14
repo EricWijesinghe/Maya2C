@@ -910,3 +910,18 @@ Eric chose "cap + price now" in the 2026-11-14 MCQ. A call's `gas_limit` was sen
 - **Prices** (`crates/vm/src/gas.rs`), at about 1 ns of measured worst-case native work per unit: 50,000 per call, 450 per module byte on a contract's first call in a block (the compile) and 1 after, 600 per host call, storage reads 5,000 + 1/byte, writes 5,000 + 240/byte (priced by persistence: ≤ ~1 MiB of new state per block), events 600 + 1/byte. No refunds.
 - **Lazy storage:** the host reads committed storage one key at a time; randomized equivalence against the old whole-storage load is a test.
 - **Not decided here, left open:** a fee per gas (economics, Eric's), charging failed plaintext calls (changes STF-8), and an incremental contracts root (the root still folds all contract state each block).
+
+## 2026-11-14 — ADR-142 amended after the PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+The review found work running below its price or outside the block's budget; measured on this PC, the worst was a module of 200 functions with 50,000 locals each that compiled in 678 ms (release) against a price of 0.78 M gas, and 40,000 `if`s in one function that compiled in 10.4 s. Implementing "cap + price now" fully therefore needed:
+
+- **Compile priced by shape** (`crates/vm/src/shape.rs`): a linear pre-pass before any compile; at most 1,024 locals and 2,000 control operators per function and 10,000 functions; cold price adds 125,000 per function, 170 per local, 30,000 per control operator, 8,000 per call; a module whose cold price exceeds 235,979,600 is refused at deployment, so the governance floor still keeps every deployed module callable.
+- **Linear memory priced** at 6,000 a page held (GAS-7), and a call may hold only what its gas pays for.
+- **Refused host calls trap**, and event topics are capped at 256 bytes.
+- **Failed work stays counted:** a failed call spends the gas it used (not its limit) and a failed deployment its price, counted before the compile, in block selection and in revealed sealed actions.
+- **Revealed sealed actions get their own budget**, a quarter of `vm.max_block_gas`, so a plaintext call cannot void a due sealed call.
+- **Warm and cold storage reads:** the block's first read of a committed key pays 95,000 more (measured 73–113 µs from disk with direct I/O). A bloom filter was measured and left out (it made hits slower with a small cache).
+- **No per-call copies** of the block's staged contract storage; contract trials no longer clone the overlay.
+- **Ceiling 300 M** for both caps (was 500 M).
+
+Raised with Eric, not decided here: one gas-filling call per block crowds out other contract calls for a byte fee (fee per gas or a per-sender share is economics); failing calls are free and stay pooled (eviction after a failed execution is node policy; charging them changes STF-8); the end-of-block bisection may re-run a block's contract work up to ~41 times on one anchor (audit finding 3); the contracts layer of the state root still folds all contract state each block (533 ms at 400,000 entries, dev; ~10 blocks of cheap writes) and blocks genesis until it is incremental or contract state is capped.

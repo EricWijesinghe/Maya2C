@@ -92,8 +92,8 @@ moving its engine is a release.
 | `vm.max_memory_pages` | 16–1024 | 256 | 1 MiB to 64 MiB per call |
 | `vm.max_module_bytes` | 64 KiB–2 MiB | 512 KiB | Code is stored verbatim and kept forever |
 | `vm.default_gas_limit` | 1e5–1e9 | 1e7 | Too low and nothing completes; too high and one call outlasts a block. **Not read by the node**: every call names its own limit, which `vm.max_tx_gas` caps |
-| `vm.max_tx_gas` | 239,979,600–5e8 | 2.5e8 | ADR-142. The most gas a call may name. The floor keeps a call to the largest module (≈236 M to compile cold) possible; a call is capped at the smaller of this and `vm.max_block_gas` |
-| `vm.max_block_gas` | 239,979,600–5e8 | 2.5e8 | ADR-142. A block's contract work, calls and deployments. Gas is priced at ~1 ns of measured worst-case work a unit, so 2.5e8 is ~250 ms, a quarter of the block time; the ceiling is half of it |
+| `vm.max_tx_gas` | 239,979,600–3e8 | 2.5e8 | ADR-142. The most gas a call may name. The floor keeps every deployable module (≤ ≈236 M to compile cold) callable; a call is capped at the smaller of this and `vm.max_block_gas` |
+| `vm.max_block_gas` | 239,979,600–3e8 | 2.5e8 | ADR-142. A block's plaintext contract work, calls and deployments; revealed sealed actions get a further quarter of it (GAS-2). Gas is priced at ~1 ns of measured work a unit, so 2.5e8 is ~250 ms; at the 3e8 ceiling a block validates in ~375 ms of contract work and a producer spends ~675 ms |
 | `governance.proposal_deposit` | 0–1e9 | 10000 | Anti-spam; the ceiling stops governance pricing out its own participants |
 
 **No parameter can be set to zero where zero silently disables a subsystem.**

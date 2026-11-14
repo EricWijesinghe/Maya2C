@@ -1,187 +1,642 @@
 {
-  "description": "Contract gas caps and prices (spec/10-vm-gas.md, ADR-142). Replayed by crates/node/tests/vm_gas_tests.rs (the_spec_vectors_hold).",
+  "description": "Contract gas caps and prices (spec/10-vm-gas.md, ADR-142). Replayed by crates/node/tests/vm_gas_tests.rs (the_spec_vectors_hold); the golden_gas cases also by crates/vm/tests/gas_hardening_tests.rs. admit_deploy vectors take the length part of the price (deploy_fuel); a module's shape adds shape_fuel to it.",
   "cases": [
     {
       "id": "call-fuel-empty-cold",
-      "rules": ["GAS-3"],
+      "rules": [
+        "GAS-3"
+      ],
       "kind": "call_fuel",
-      "input": { "code_len": "0", "warm": false },
-      "expect": { "result": "ok", "value": "50000" }
+      "input": {
+        "code_len": "0",
+        "warm": false
+      },
+      "expect": {
+        "result": "ok",
+        "value": "50000"
+      }
     },
     {
       "id": "call-fuel-1000-cold",
-      "rules": ["GAS-3"],
+      "rules": [
+        "GAS-3"
+      ],
       "kind": "call_fuel",
-      "input": { "code_len": "1000", "warm": false },
-      "expect": { "result": "ok", "value": "500000" }
+      "input": {
+        "code_len": "1000",
+        "warm": false
+      },
+      "expect": {
+        "result": "ok",
+        "value": "500000"
+      }
     },
     {
       "id": "call-fuel-1000-warm",
-      "rules": ["GAS-3"],
+      "rules": [
+        "GAS-3"
+      ],
       "kind": "call_fuel",
-      "input": { "code_len": "1000", "warm": true },
-      "expect": { "result": "ok", "value": "51000" }
+      "input": {
+        "code_len": "1000",
+        "warm": true
+      },
+      "expect": {
+        "result": "ok",
+        "value": "51000"
+      }
     },
     {
       "id": "call-fuel-max-module-cold",
-      "rules": ["GAS-3", "GAS-5"],
+      "rules": [
+        "GAS-3",
+        "GAS-5"
+      ],
       "kind": "call_fuel",
-      "input": { "code_len": "524288", "warm": false },
-      "expect": { "result": "ok", "value": "235979600" }
+      "input": {
+        "code_len": "524288",
+        "warm": false
+      },
+      "expect": {
+        "result": "ok",
+        "value": "235979600"
+      }
     },
     {
       "id": "call-gas-limit-below-call-fuel",
-      "rules": ["GAS-3"],
+      "rules": [
+        "GAS-3"
+      ],
       "kind": "call_affordable",
-      "input": { "code_len": "1000", "warm": false, "gas_limit": "499999" },
-      "expect": { "result": "error", "error": "OutOfGas" }
+      "input": {
+        "code_len": "1000",
+        "warm": false,
+        "gas_limit": "499999"
+      },
+      "expect": {
+        "result": "error",
+        "error": "OutOfGas"
+      }
     },
     {
       "id": "call-gas-limit-equal-call-fuel",
-      "rules": ["GAS-3"],
+      "rules": [
+        "GAS-3"
+      ],
       "kind": "call_affordable",
-      "input": { "code_len": "1000", "warm": false, "gas_limit": "500000" },
-      "expect": { "result": "ok" }
+      "input": {
+        "code_len": "1000",
+        "warm": false,
+        "gas_limit": "500000"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "price-host-call",
-      "rules": ["GAS-4"],
+      "rules": [
+        "GAS-4"
+      ],
       "kind": "host_price",
-      "input": { "op": "host_call", "bytes": "0" },
-      "expect": { "result": "ok", "value": "600" }
+      "input": {
+        "op": "host_call",
+        "bytes": "0"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "600"
+      }
     },
     {
       "id": "price-storage-read-lookup-128b-key",
-      "rules": ["GAS-4"],
+      "rules": [
+        "GAS-4"
+      ],
       "kind": "host_price",
-      "input": { "op": "storage_read_lookup", "bytes": "128" },
-      "expect": { "result": "ok", "value": "5128" }
+      "input": {
+        "op": "storage_read_lookup",
+        "bytes": "128"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "5128"
+      }
     },
     {
       "id": "price-storage-read-4kib-value",
-      "rules": ["GAS-4"],
+      "rules": [
+        "GAS-4"
+      ],
       "kind": "host_price",
-      "input": { "op": "storage_read_value", "bytes": "4096" },
-      "expect": { "result": "ok", "value": "4096" }
+      "input": {
+        "op": "storage_read_value",
+        "bytes": "4096"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "4096"
+      }
     },
     {
       "id": "price-storage-write-32b-key-4kib-value",
-      "rules": ["GAS-4", "GAS-6"],
+      "rules": [
+        "GAS-4",
+        "GAS-6"
+      ],
       "kind": "host_price",
-      "input": { "op": "storage_write", "bytes": "4128" },
-      "expect": { "result": "ok", "value": "995720" }
+      "input": {
+        "op": "storage_write",
+        "bytes": "4128"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "995720"
+      }
     },
     {
       "id": "price-emit-event-16b-topic-4kib-data",
-      "rules": ["GAS-4"],
+      "rules": [
+        "GAS-4"
+      ],
       "kind": "host_price",
-      "input": { "op": "emit_event", "bytes": "4112" },
-      "expect": { "result": "ok", "value": "4712" }
+      "input": {
+        "op": "emit_event",
+        "bytes": "4112"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "4712"
+      }
     },
     {
       "id": "admit-call-at-the-cap",
-      "rules": ["GAS-1", "GAS-2"],
+      "rules": [
+        "GAS-1",
+        "GAS-2"
+      ],
       "kind": "admit_call",
-      "input": { "gas_limit": "250000000", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "0" },
-      "expect": { "result": "ok" }
+      "input": {
+        "gas_limit": "250000000",
+        "tx_cap": "250000000",
+        "block_cap": "250000000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "admit-call-one-over-the-cap",
-      "rules": ["GAS-1"],
+      "rules": [
+        "GAS-1"
+      ],
       "kind": "admit_call",
-      "input": { "gas_limit": "250000001", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "0" },
-      "expect": { "result": "error", "error": "GasAboveCap" }
+      "input": {
+        "gas_limit": "250000001",
+        "tx_cap": "250000000",
+        "block_cap": "250000000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "error",
+        "error": "GasAboveCap"
+      }
     },
     {
       "id": "admit-call-u64-max",
-      "rules": ["GAS-1"],
+      "rules": [
+        "GAS-1"
+      ],
       "kind": "admit_call",
-      "input": { "gas_limit": "18446744073709551615", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "0" },
-      "expect": { "result": "error", "error": "GasAboveCap" }
+      "input": {
+        "gas_limit": "18446744073709551615",
+        "tx_cap": "250000000",
+        "block_cap": "250000000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "error",
+        "error": "GasAboveCap"
+      }
     },
     {
       "id": "admit-call-capped-by-the-block-cap",
-      "rules": ["GAS-1"],
+      "rules": [
+        "GAS-1"
+      ],
       "kind": "admit_call",
-      "input": { "gas_limit": "260000000", "tx_cap": "300000000", "block_cap": "250000000", "block_used": "0" },
-      "expect": { "result": "error", "error": "GasAboveCap" }
+      "input": {
+        "gas_limit": "260000000",
+        "tx_cap": "300000000",
+        "block_cap": "250000000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "error",
+        "error": "GasAboveCap"
+      }
     },
     {
       "id": "admit-call-fits-what-the-block-has-left",
-      "rules": ["GAS-2"],
+      "rules": [
+        "GAS-2"
+      ],
       "kind": "admit_call",
-      "input": { "gas_limit": "150000000", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "100000000" },
-      "expect": { "result": "ok" }
+      "input": {
+        "gas_limit": "150000000",
+        "tx_cap": "250000000",
+        "block_cap": "250000000",
+        "block_used": "100000000"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "admit-call-more-than-the-block-has-left",
-      "rules": ["GAS-2"],
+      "rules": [
+        "GAS-2"
+      ],
       "kind": "admit_call",
-      "input": { "gas_limit": "150000001", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "100000000" },
-      "expect": { "result": "error", "error": "BlockGasExhausted" }
+      "input": {
+        "gas_limit": "150000001",
+        "tx_cap": "250000000",
+        "block_cap": "250000000",
+        "block_used": "100000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "BlockGasExhausted"
+      }
     },
     {
       "id": "admit-deploy-max-module",
-      "rules": ["GAS-2", "GAS-3"],
+      "rules": [
+        "GAS-2",
+        "GAS-3"
+      ],
       "kind": "admit_deploy",
-      "input": { "code_len": "524288", "block_cap": "250000000", "block_used": "0" },
-      "expect": { "result": "ok" }
+      "input": {
+        "code_len": "524288",
+        "block_cap": "250000000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "admit-deploy-more-than-the-block-has-left",
-      "rules": ["GAS-2"],
+      "rules": [
+        "GAS-2"
+      ],
       "kind": "admit_deploy",
-      "input": { "code_len": "524288", "block_cap": "250000000", "block_used": "20000000" },
-      "expect": { "result": "error", "error": "BlockGasExhausted" }
+      "input": {
+        "code_len": "524288",
+        "block_cap": "250000000",
+        "block_used": "20000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "BlockGasExhausted"
+      }
     },
     {
       "id": "admit-deploy-above-the-block-cap",
-      "rules": ["GAS-2"],
+      "rules": [
+        "GAS-2"
+      ],
       "kind": "admit_deploy",
-      "input": { "code_len": "600000", "block_cap": "250000000", "block_used": "0" },
-      "expect": { "result": "error", "error": "GasAboveCap" }
+      "input": {
+        "code_len": "600000",
+        "block_cap": "250000000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "error",
+        "error": "GasAboveCap"
+      }
     },
     {
       "id": "param-tx-cap-default",
-      "rules": ["GAS-5"],
+      "rules": [
+        "GAS-5"
+      ],
       "kind": "param",
-      "input": { "tag": "17", "value": "250000000" },
-      "expect": { "result": "ok" }
+      "input": {
+        "tag": "17",
+        "value": "250000000"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "param-tx-cap-floor",
-      "rules": ["GAS-5"],
+      "rules": [
+        "GAS-5"
+      ],
       "kind": "param",
-      "input": { "tag": "17", "value": "239979600" },
-      "expect": { "result": "ok" }
+      "input": {
+        "tag": "17",
+        "value": "239979600"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "param-tx-cap-below-the-floor",
-      "rules": ["GAS-5"],
+      "rules": [
+        "GAS-5"
+      ],
       "kind": "param",
-      "input": { "tag": "17", "value": "239979599" },
-      "expect": { "result": "error", "error": "ParameterOutOfRange" }
+      "input": {
+        "tag": "17",
+        "value": "239979599"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
     },
     {
       "id": "param-block-cap-ceiling",
-      "rules": ["GAS-5"],
+      "rules": [
+        "GAS-5"
+      ],
       "kind": "param",
-      "input": { "tag": "18", "value": "500000000" },
-      "expect": { "result": "ok" }
+      "input": {
+        "tag": "18",
+        "value": "300000000"
+      },
+      "expect": {
+        "result": "ok"
+      }
     },
     {
       "id": "param-block-cap-above-the-ceiling",
-      "rules": ["GAS-5"],
+      "rules": [
+        "GAS-5"
+      ],
       "kind": "param",
-      "input": { "tag": "18", "value": "500000001" },
-      "expect": { "result": "error", "error": "ParameterOutOfRange" }
+      "input": {
+        "tag": "18",
+        "value": "300000001"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
     },
     {
       "id": "param-block-cap-u64-max",
-      "rules": ["GAS-5"],
+      "rules": [
+        "GAS-5"
+      ],
       "kind": "param",
-      "input": { "tag": "18", "value": "18446744073709551615" },
-      "expect": { "result": "error", "error": "ParameterOutOfRange" }
+      "input": {
+        "tag": "18",
+        "value": "18446744073709551615"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
+    },
+    {
+      "id": "shape-fuel-one-of-each",
+      "rules": [
+        "GAS-3"
+      ],
+      "kind": "shape_fuel",
+      "input": {
+        "functions": "1",
+        "locals": "1",
+        "controls": "1",
+        "calls": "1"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "163170"
+      }
+    },
+    {
+      "id": "shape-fuel-none",
+      "rules": [
+        "GAS-3"
+      ],
+      "kind": "shape_fuel",
+      "input": {
+        "functions": "0",
+        "locals": "0",
+        "controls": "0",
+        "calls": "0"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "0"
+      }
+    },
+    {
+      "id": "memory-fuel-256-pages",
+      "rules": [
+        "GAS-7"
+      ],
+      "kind": "memory_fuel",
+      "input": {
+        "pages": "256"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "1536000"
+      }
+    },
+    {
+      "id": "sealed-budget-default",
+      "rules": [
+        "GAS-2"
+      ],
+      "kind": "sealed_budget",
+      "input": {
+        "block_cap": "250000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "62500000"
+      }
+    },
+    {
+      "id": "sealed-budget-ceiling",
+      "rules": [
+        "GAS-2"
+      ],
+      "kind": "sealed_budget",
+      "input": {
+        "block_cap": "300000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "75000000"
+      }
+    },
+    {
+      "id": "golden-empty-call",
+      "rules": [
+        "GAS-3",
+        "GAS-7"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "205302"
+      }
+    },
+    {
+      "id": "golden-storage-write",
+      "rules": [
+        "GAS-4"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (import \"env\" \"storage_write\" (func $w (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (data (i32.const 0) \"kv\") (func (export \"invoke\") (param i32) (result i64) (call $w (i32.const 0) (i32.const 1) (i32.const 1) (i32.const 1)) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "376234"
+      }
+    },
+    {
+      "id": "golden-storage-read-hit",
+      "rules": [
+        "GAS-4"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (import \"env\" \"storage_read\" (func $r (param i32 i32 i32 i32) (result i32))) (memory (export \"memory\") 1) (data (i32.const 0) \"k\") (func (export \"invoke\") (param i32) (result i64) (drop (call $r (i32.const 0) (i32.const 1) (i32.const 64) (i32.const 64))) (i64.const 0)))",
+        "gas_limit": "10000000",
+        "stored": "value-bytes"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "376666"
+      }
+    },
+    {
+      "id": "golden-storage-read-miss",
+      "rules": [
+        "GAS-4"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (import \"env\" \"storage_read\" (func $r (param i32 i32 i32 i32) (result i32))) (memory (export \"memory\") 1) (data (i32.const 0) \"k\") (func (export \"invoke\") (param i32) (result i64) (drop (call $r (i32.const 0) (i32.const 1) (i32.const 64) (i32.const 64))) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "376655"
+      }
+    },
+    {
+      "id": "golden-emit-event",
+      "rules": [
+        "GAS-4"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (import \"env\" \"emit_event\" (func $e (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (call $e (i32.const 0) (i32.const 16) (i32.const 0) (i32.const 64)) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "361937"
+      }
+    },
+    {
+      "id": "golden-grow-15-pages",
+      "rules": [
+        "GAS-7"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (drop (memory.grow (i32.const 15))) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "297554"
+      }
+    },
+    {
+      "id": "golden-failed-call-uses-what-it-ran",
+      "rules": [
+        "GAS-2",
+        "GAS-3"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) unreachable))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "Trap",
+        "value": "204851"
+      }
+    },
+    {
+      "id": "golden-out-of-gas-uses-its-limit",
+      "rules": [
+        "GAS-2"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (loop $l (br $l)) (i64.const 0)))",
+        "gas_limit": "1000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "OutOfGas",
+        "value": "1000000"
+      }
+    },
+    {
+      "id": "golden-oversized-key-ends-the-call",
+      "rules": [
+        "GAS-4"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (import \"env\" \"storage_read\" (func $r (param i32 i32 i32 i32) (result i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (drop (call $r (i32.const 0) (i32.const 200) (i32.const 0) (i32.const 0))) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "SizeLimit",
+        "value": "363056"
+      }
+    },
+    {
+      "id": "golden-memory-past-what-the-gas-pays",
+      "rules": [
+        "GAS-7"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 256) (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))",
+        "gas_limit": "1000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "MemoryLimit",
+        "value": "199750"
+      }
     }
   ]
 }

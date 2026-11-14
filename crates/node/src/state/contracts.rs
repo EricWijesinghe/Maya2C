@@ -7,8 +7,9 @@
 //! touch:
 //!
 //! - a shared handle to the database, through which committed storage is read
-//!   **one key at a time**, when the contract asks (ADR-142), and only this
-//!   block's earlier writes to the contract copied up front
+//!   **one key at a time**, when the contract asks (ADR-142), and a shared
+//!   handle to this block's earlier writes, read the same way: nothing is
+//!   copied before the call (PR #549 review: the copy was O(entries) per call)
 //! - a snapshot of the balances the caller pre-declared
 //!
 //! Until ADR-142 the contract's *entire* storage was read before every call, so
@@ -34,6 +35,7 @@ use maya_vm::host::{
 use maya_vm::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
 
 use crate::state::account::Address;
+use crate::state::db::{BlockStorageReads, StagedContractStorage};
 
 /// One contract's committed storage, read through a shared database handle.
 #[derive(Clone)]
@@ -51,6 +53,23 @@ impl core::fmt::Debug for CommittedStorage {
     }
 }
 
+/// This block's earlier writes to one contract, and the committed keys its
+/// applied calls read, through the overlay's shared maps.
+#[derive(Clone)]
+struct StagedWrites {
+    map: Arc<StagedContractStorage>,
+    reads: Arc<BlockStorageReads>,
+    contract: [u8; 32],
+}
+
+impl core::fmt::Debug for StagedWrites {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StagedWrites")
+            .field("contract", &hex::encode(self.contract))
+            .finish_non_exhaustive()
+    }
+}
+
 /// Host state for one contract call.
 ///
 /// Owns its data; see the module documentation for why.
@@ -64,8 +83,13 @@ pub struct ChainHost {
     /// contract, or, through [`ChainHost::with_storage`], a whole preloaded
     /// map. Consulted before `committed`.
     storage: BTreeMap<Vec<u8>, Vec<u8>>,
-    /// Committed storage, read key by key on a miss in `storage`.
+    /// This block's earlier writes to the contract, consulted after
+    /// `storage` and before `committed`.
+    staged: Option<StagedWrites>,
+    /// Committed storage, read key by key on a miss in `staged`.
     committed: Option<CommittedStorage>,
+    /// Committed keys this call read cold: the block's first read of each.
+    cold_reads: std::collections::BTreeSet<Vec<u8>>,
     /// The first database error a lazy read hit. The read answers "absent"
     /// to the contract, and the node fails the call with `Storage` after it
     /// returns, so a local I/O fault is never mistaken for a missing key.
@@ -106,6 +130,23 @@ impl ChainHost {
     #[must_use]
     pub fn with_storage(mut self, storage: BTreeMap<Vec<u8>, Vec<u8>>) -> Self {
         self.storage = storage;
+        self
+    }
+
+    /// Reads this block's earlier writes to `contract` through the overlay's
+    /// shared map, without copying them.
+    #[must_use]
+    pub(crate) fn with_staged(
+        mut self,
+        map: Arc<StagedContractStorage>,
+        reads: Arc<BlockStorageReads>,
+        contract: [u8; 32],
+    ) -> Self {
+        self.staged = Some(StagedWrites {
+            map,
+            reads,
+            contract,
+        });
         self
     }
 
@@ -195,6 +236,19 @@ impl ChainHost {
     pub fn into_parts(self) -> (BTreeMap<Vec<u8>, Vec<u8>>, Vec<VmEvent>) {
         (self.writes, self.events)
     }
+
+    /// Consumes the host, yielding its writes and the committed keys it read
+    /// cold. Dropping the host first releases its handles on the overlay's
+    /// shared maps, so writing them back copies nothing.
+    #[must_use]
+    pub(crate) fn into_writes_and_reads(
+        self,
+    ) -> (
+        BTreeMap<Vec<u8>, Vec<u8>>,
+        std::collections::BTreeSet<Vec<u8>>,
+    ) {
+        (self.writes, self.cold_reads)
+    }
 }
 
 impl HostState for ChainHost {
@@ -220,6 +274,11 @@ impl HostState for ChainHost {
         if let Some(value) = self.writes.get(key).or_else(|| self.storage.get(key)) {
             return Some(value.clone());
         }
+        if let Some(staged) = &self.staged
+            && let Some(value) = staged.map.get(&(staged.contract, key.to_vec()))
+        {
+            return Some(value.clone());
+        }
         let committed = self.committed.as_ref()?;
         let mut full = Vec::with_capacity(committed.prefix.len() + key.len());
         full.extend_from_slice(&committed.prefix);
@@ -236,6 +295,28 @@ impl HostState for ChainHost {
 
     fn storage_set(&mut self, _contract: &ContractId, key: Vec<u8>, value: Vec<u8>) {
         self.writes.insert(key, value);
+    }
+
+    fn touch_storage(&mut self, _contract: &ContractId, key: &[u8]) -> bool {
+        // Cold only where a read reaches committed storage: not a key this
+        // call or this block wrote, nor one an applied call of this block, or
+        // this call, already read. A function of the block's order, never of
+        // a cache, so every node prices the same read the same way.
+        if self.committed.is_none()
+            || self.writes.contains_key(key)
+            || self.storage.contains_key(key)
+            || self.cold_reads.contains(key)
+        {
+            return false;
+        }
+        if let Some(staged) = &self.staged {
+            let full = (staged.contract, key.to_vec());
+            if staged.map.contains_key(&full) || staged.reads.contains(&full) {
+                return false;
+            }
+        }
+        self.cold_reads.insert(key.to_vec());
+        true
     }
 
     fn emit(&mut self, event: VmEvent) {

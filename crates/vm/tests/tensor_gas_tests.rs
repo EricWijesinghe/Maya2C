@@ -67,7 +67,7 @@ fn gas_for(n: u32) -> u64 {
         .outcome
         .expect("matmul runs")
         .gas_used
-        - maya_vm::gas::call_fuel(code.len(), false)
+        - maya_vm::gas::cold_call_fuel(&code).expect("shape")
 }
 
 #[test]

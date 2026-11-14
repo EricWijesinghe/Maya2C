@@ -301,6 +301,16 @@ impl StateDB {
         // envelope could have been accepted and `due` would be empty.
         let committee = self.require_committee(overlay)?.to_committee();
 
+        // Contract gas (GAS-2): the revealed actions get a budget of their own,
+        // starting at zero, rather than whatever the plaintext transactions
+        // left. Settling runs after every plaintext transaction, so on a shared
+        // budget one call that used it all made every sealed call due here
+        // fail and be consumed: the censorship this module exists to prevent,
+        // for one byte fee (PR #549 review). Added back afterwards, so the
+        // block's total stays the sum of both.
+        let plaintext_gas = std::mem::take(&mut overlay.vm_gas);
+        overlay.revealing = true;
+
         for (key, bytes) in due {
             let Some(id) = envelope_id_from_key(&key) else {
                 // A key under this prefix that is not the right length cannot
@@ -335,22 +345,29 @@ impl StateDB {
                 // error instead yields a root the header does not match, which
                 // invariant 24 refuses, so it costs that node a retry, not a
                 // fork (S-020, review 2026-10-30).
-                let mut attempt = overlay.clone();
-                if self
-                    .apply_revealed(&mut attempt, &record.sender, &id, &kind, context)
-                    .is_ok()
-                {
-                    *overlay = attempt;
+                //
+                // A contract call or deployment needs no copy: it stages its
+                // writes only once it has succeeded, so a failed one leaves
+                // behind exactly the gas it spent, which must stay spent
+                // (ADR-142, GAS-2), and nothing else. Copying the overlay for
+                // each of up to 128 reveals was O(staged state) work apiece.
+                if matches!(kind, TxKind::CallContract(_) | TxKind::DeployContract(_)) {
+                    let _ = self.apply_revealed(overlay, &record.sender, &id, &kind, context);
                 } else {
-                    // A contract call that ran and failed still spent its gas
-                    // (ADR-142, GAS-2): discarding that too would let every
-                    // revealed call run to its limit for free.
-                    overlay.vm_gas = attempt.vm_gas;
+                    let mut attempt = overlay.clone();
+                    if self
+                        .apply_revealed(&mut attempt, &record.sender, &id, &kind, context)
+                        .is_ok()
+                    {
+                        *overlay = attempt;
+                    }
                 }
                 overlay.revealed += 1;
             }
         }
 
+        overlay.revealing = false;
+        overlay.vm_gas = overlay.vm_gas.saturating_add(plaintext_gas);
         Ok(())
     }
 
