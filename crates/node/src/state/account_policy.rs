@@ -321,9 +321,16 @@ impl StateDB {
     /// reads nothing below activation, where no row can exist. Counts what
     /// [`StateDB::vault_outflow`] counts: every output, the required fee exempt.
     ///
+    /// A limited account sends only plain transfers and account actions, as a
+    /// vault account does (ADR-030): any other kind can move value without an
+    /// output (channel funding, a stake lock, an escrow, a fee debit), which
+    /// the window cannot count. Fail-closed, so a kind added later is refused
+    /// until someone decides how the window charges it.
+    ///
     /// # Errors
     ///
-    /// [`NodeError::Account`] when the frame would pass the window's limit.
+    /// [`NodeError::Account`] when the frame would pass the window's limit, or
+    /// is of a kind a limited account may not send.
     pub(crate) fn window_check(
         &self,
         overlay: &Overlay,
@@ -338,6 +345,13 @@ impl StateDB {
         let Some(window) = self.window_record(overlay, account)? else {
             return Ok(None);
         };
+        if !matches!(tx.kind, TxKind::Transfer | TxKind::Account(_)) {
+            return refuse(format!(
+                "an account with a daily limit sends only plain transfers and account actions, \
+                 not `{}`; lift the limit first",
+                tx.kind.label()
+            ));
+        }
         let moved = self.vault_outflow(overlay, tx)?;
         let spent = window.spent_at(height);
         let total = spent.checked_add(moved).ok_or(NodeError::BalanceOverflow)?;

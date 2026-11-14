@@ -61,12 +61,28 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    `AddSessionKey` with the same `key_hash` overwrites it; nothing else
    deletes one and no sweep runs. The storage is paid by the byte fee of the
    `AddSessionKey` that wrote it.
-7. **The window bounds output-carried value only, and only against session
-   keys.** Kinds that move value without outputs (staking and bonds, DEX
-   orders, HTLC locks, contract calls with value) are not charged, and
-   `SetDailyLimit(0)` takes effect at once. Against a compromised owner key
-   the window is advisory; it is a bound on what a leaked session key and
-   the owner's ordinary transfers can move.
+7. **A limited account sends only plain transfers and account actions.**
+   The window counts output-carried value (decision 3). As first built,
+   kinds that move value without outputs (channel funding, stake locks, DEX
+   orders, HTLC locks, contract calls with value) were allowed and not
+   charged. The V4-V1 red team showed that on the full v4 fork this lets an
+   owner frame move a limited account's whole balance in one block:
+   `CreateSchedule` with `first_due = height + 1` and `amount = balance`
+   (#502), or a channel to a colluding counterparty today. Two fixes were
+   weighed: charge each such kind's debit to the window, or refuse those
+   kinds while a limit is set. Chosen: refuse (AA-9), the rule a vault
+   account already follows (ADR-030), because it is fail-closed. A kind
+   added later, such as the v4 names, NFT, asset-registration and schedule
+   forms, is refused for a limited account until someone writes how the
+   window charges it, rather than leaking until someone notices. The owner
+   who needs one of those kinds lifts the limit first (`SetDailyLimit(0)`,
+   immediate), so against a compromised owner key the window is still
+   advisory; it is a bound on what a leaked session key and the owner's
+   ordinary frames can move. Tests:
+   `a_limited_account_cannot_move_value_without_outputs`
+   (`v4_redteam_accounts.rs`), vector
+   `AA-window-refuses-a-kind-without-outputs`. Decided under Eric
+   2026-11-14.
 8. **`SetDailyLimit` stays halted by the circuit breaker**, while
    `RevokeSessionKey` is not. Considered: exempting a `SetDailyLimit` that
    lowers a non-zero limit, as a defensive move. Not done: the breaker's

@@ -169,6 +169,21 @@
         "error": "Account",
         "result": "error"
       },
+      "id": "AA-window-refuses-a-kind-without-outputs",
+      "input": {
+        "funding": "500000",
+        "kind": "open_channel",
+        "limit": "100"
+      },
+      "rules": [
+        "AA-9"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
       "id": "AA-policy-before-bit-45",
       "rules": [
         "AA-10"
