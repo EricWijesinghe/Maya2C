@@ -474,6 +474,149 @@
     }
    ],
    "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "115792089237316195423570985008687907853269984665640564",
+    "result": "ok",
+    "supply": "1"
+   },
+   "height": "10",
+   "id": "AS-reg-cap-at-max-supply",
+   "rules": [
+    "AS-3"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "115792089237316195423570985008687907853269984665640564",
+     "from": "k0",
+     "kind": "register",
+     "supply": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-reg-cap-over-max-supply",
+   "rules": [
+    "AS-3"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "115792089237316195423570985008687907853269984665640565",
+     "from": "k0",
+     "kind": "register",
+     "supply": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "10",
+    "result": "ok",
+    "supply": "9"
+   },
+   "height": "10",
+   "id": "AS-mint-to-third-party",
+   "rules": [
+    "AS-4"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "amount": "4",
+     "from": "k0",
+     "kind": "mint",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "authority": "k0",
+    "cap": "10",
+    "result": "ok",
+    "supply": "10"
+   },
+   "height": "10",
+   "id": "AS-burn-then-remint-to-cap",
+   "rules": [
+    "AS-4",
+    "AS-5"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "10"
+    },
+    {
+     "amount": "4",
+     "from": "k0",
+     "kind": "burn"
+    },
+    {
+     "amount": "4",
+     "from": "k0",
+     "kind": "mint",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "AS-mint-after-renounce",
+   "rules": [
+    "AS-4",
+    "AS-6"
+   ],
+   "steps": [
+    {
+     "authority": "self",
+     "cap": "10",
+     "from": "k0",
+     "kind": "register",
+     "supply": "5"
+    },
+    {
+     "from": "k0",
+     "kind": "renounce"
+    },
+    {
+     "amount": "1",
+     "from": "k0",
+     "kind": "mint",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
   }
  ],
  "format": 1,
