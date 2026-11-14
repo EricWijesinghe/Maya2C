@@ -5,8 +5,8 @@
 "use strict";
 
 const NetStatus = (() => {
-  // The public testnet was stopped on purpose; the date and the report are the
-  // site's (docs/site/src/data/network-state.ts) and the session report's.
+  // The public testnet was stopped on purpose; the date and the link are those
+  // of reports/sessions/2026-10-28-testnet-stopped.md.
   const PAUSED_SINCE = "2026-10-28";
   const PUBLIC_RPC = "https://rpc.maya2c.dev/rpc";
   const STOP_REPORT = "https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md";
@@ -33,14 +33,14 @@ const NetStatus = (() => {
   // One string for "live", so the legend and the cards never disagree.
   const liveText = (chainId) => (chainId ? `Live on ${chainId}` : "Live on testnet");
 
-  // The chip one universe entry shows. Unknown stages read as planned, never live.
-  // The card chip is short enough for a two-column card at 360 px; the legend
-  // and the detail panel carry the date.
+  // The tone and state one universe entry carries. Unknown stages read as
+  // planned, never live. A built entry keeps the teal "built" tone while the
+  // network is paused: the code exists, and the legend states the pause once.
   function chip(item, net, chainId) {
     if (item.status !== "built") return { tone: STAGE[item.status] ? item.status : "planned", text: STAGE[item.status] || STAGE.planned };
     if (net === "live") return { tone: "live", text: liveText(chainId) };
     if (net === "connecting") return { tone: "built", text: "Built, checking" };
-    return { tone: "paused", text: "Built · testnet paused" };
+    return { tone: "built", text: "Built · testnet paused" };
   }
 
   function legend(net, chainId) {
@@ -50,34 +50,33 @@ const NetStatus = (() => {
     return [first, ...Object.entries(STAGE).map(([tone, text]) => ({ tone, text }))];
   }
 
-  // The calm card shown instead of "Node unreachable". The raw error is kept
-  // for the Details disclosure and never written into the sentence.
+  // The one-line banner shown instead of "Node unreachable": the only place a
+  // page says the network is paused. The raw error is kept for the Details
+  // disclosure and never written into the sentence.
   function pausedCopy({ rpc, error }) {
     const details = error ? String(error) : "";
     if (isPublic(rpc)) {
       return {
-        title: "Testnet paused",
-        body: `The public testnet is paused on purpose since ${PAUSED_SINCE}. No restart date is set; the Hub reconnects by itself when the node answers.`,
+        title: `Testnet paused since ${PAUSED_SINCE}`,
+        body: "Stopped on purpose, no restart date set. The Hub reconnects by itself.",
         report: true,
         details,
       };
     }
     return {
       title: "Your node is not answering",
-      body: `No reply from ${hostOf(rpc)}. Check that it is running, or switch back to the public node in Settings.`,
+      body: `No reply from ${hostOf(rpc)}. Check it runs, or pick the public node in Settings.`,
       report: false,
       details,
     };
   }
 
-  // Why Start cannot run right now, or null when it can.
+  // Why Start cannot run right now, or null when it can. Short: the banner
+  // above already says why the network does not answer.
   function startBlock({ net, canMine, devices, rpc }) {
     if (canMine === false) return "Mining runs on the desktop Hub; this one watches.";
-    if (net === "connecting") return "Start waits for the first reply from the node.";
-    if (net !== "live") {
-      return isPublic(rpc) ? `Start waits for the network: the testnet is paused since ${PAUSED_SINCE}.`
-        : `Start waits for your node at ${hostOf(rpc)} to answer.`;
-    }
+    if (net === "connecting") return "Waits for the first reply from the node.";
+    if (net !== "live") return isPublic(rpc) ? "Waits for the network." : `Waits for your node at ${hostOf(rpc)}.`;
     if (!devices || !devices.length) return "Pick at least one device to mine on.";
     return null;
   }

@@ -38,15 +38,14 @@ test("no universe chip says live while the node does not answer", () => {
   }
 });
 
-test("a built entry says paused when the node is unreachable, and the legend carries the date", () => {
+test("a built entry keeps the teal built tone while paused, says paused in words, and the legend carries the date", () => {
   const built = UNIVERSE.filter((i) => i.status === "built");
   assert.ok(built.length > 0, "the wallet, explorer and validators are built");
   for (const item of built) {
     const chip = NetStatus.chip(item, "paused");
-    assert.equal(chip.tone, "paused");
-    assert.match(chip.text, /paused/i);
-    // Fits one line of a two-column card at 360 px (11 px type).
-    assert.ok(chip.text.length <= 24, `card chip too long for a phone: "${chip.text}"`);
+    // Amber is the banner's alone; built is good news and stays teal.
+    assert.equal(chip.tone, "built");
+    assert.match(chip.text, /paused/i, "the spoken state still says paused");
   }
   assert.equal(NetStatus.legend("paused")[0].text, "Built, testnet paused since 2026-10-28");
 });
@@ -95,8 +94,9 @@ test("no entry dates a trial that did not happen", () => {
 test("the paused card names the stop on the public node, and keeps raw errors in Details", () => {
   const raw = "rpc: error sending request for url (https://rpc.maya2c.dev/rpc): dns error";
   const pub = NetStatus.pausedCopy({ rpc: "https://rpc.maya2c.dev/rpc/", error: raw });
-  assert.match(pub.title, /paused/i);
-  assert.match(pub.body, /2026-10-28/);
+  assert.equal(pub.title, "Testnet paused since 2026-10-28");
+  // Said once: the banner title says paused, its sentence does not repeat it.
+  assert.doesNotMatch(pub.body, /paused/i, pub.body);
   assert.ok(pub.report, "links the stop report");
   assert.ok(!pub.title.includes(raw) && !pub.body.includes(raw), "raw error stays out of the copy");
   assert.equal(pub.details, raw);
@@ -111,7 +111,8 @@ test("the paused card names the stop on the public node, and keeps raw errors in
 test("Start is blocked, with a reason, unless the node answers and a device is picked", () => {
   const base = { canMine: true, devices: ["gpu0"], rpc: "https://rpc.maya2c.dev/rpc" };
   assert.equal(NetStatus.startBlock({ ...base, net: "live" }), null);
-  assert.match(NetStatus.startBlock({ ...base, net: "paused" }), /paused since 2026-10-28/);
+  // The banner says why; the reason under Start is short and does not repeat it.
+  assert.equal(NetStatus.startBlock({ ...base, net: "paused" }), "Waits for the network.");
   assert.match(NetStatus.startBlock({ ...base, net: "connecting" }), /\S/);
   assert.match(NetStatus.startBlock({ ...base, net: "live", devices: [] }), /device/i);
   assert.match(NetStatus.startBlock({ ...base, net: "live", canMine: false }), /desktop/i);
@@ -121,6 +122,26 @@ test("the first-run sheet cannot start before the backup box is ticked", () => {
   assert.equal(NetStatus.sheetReady({ backup: false, devices: ["gpu0"] }), false);
   assert.equal(NetStatus.sheetReady({ backup: true, devices: [] }), false);
   assert.equal(NetStatus.sheetReady({ backup: true, devices: ["cpu"] }), true);
+});
+
+test("the tiles use the lane's exact wording, and no dash is printed before a unit", () => {
+  const html = ui("index.html");
+  for (const text of ["Received this session (on chain)", "Reward per share this epoch", "Testnet MAYA, no value"]) {
+    assert.ok(html.includes(text), `index.html lacks "${text}"`);
+  }
+  // Every tile whose value starts as a dash carries a hint, so hintTiles can
+  // hide the dash and the unit together.
+  const tiles = html.split('<div class="tile ').slice(1).map((t) => t.split("</section>")[0]);
+  assert.ok(tiles.length >= 11, "six mining tiles and five network tiles");
+  for (const tile of tiles) {
+    if (/<b id="[^"]+">—<\/b>/.test(tile)) assert.match(tile, /class="hint"/, tile.slice(0, 120));
+  }
+});
+
+test("the first-start sheet's close is 'Not now' and says Start stays locked", () => {
+  const html = ui("index.html");
+  assert.match(html, /id="fr-close"[^>]*>Not now</);
+  assert.match(html, /Start stays locked until it is finished/);
 });
 
 // ------------------------------------------------------------ DOM level ----

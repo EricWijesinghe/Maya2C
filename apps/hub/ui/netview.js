@@ -323,8 +323,8 @@ const NetView = (() => {
     const flash = live ? Math.max(0, 1 - (g.t - v.flash) / FLASH_MS) : 0;
     const reach = Math.max(w, h) * 0.6;
     const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, reach);
-    glow.addColorStop(0, live ? Charts.tint("--accent", 0.34 + 0.2 * flash) : Charts.tint("--warn", 0.16));
-    glow.addColorStop(0.35, live ? Charts.tint("--accent", 0.1) : Charts.tint("--warn", 0.05));
+    glow.addColorStop(0, live ? Charts.tint("--accent", 0.34 + 0.2 * flash) : Charts.tint("--accent", 0.14));
+    glow.addColorStop(0.35, live ? Charts.tint("--accent", 0.1) : Charts.tint("--steel", 0.06));
     glow.addColorStop(1, Charts.tint("--accent", 0));
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
@@ -339,11 +339,12 @@ const NetView = (() => {
 
     const r = R * 0.17 * beat * (1 + 0.25 * flash);
     const body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
-    body.addColorStop(0, live ? v.colors.glow : Charts.tint("--warn", 0.9));
-    body.addColorStop(0.6, live ? v.colors.teal : Charts.tint("--warn", 0.55));
+    // At rest the core is steel with a teal rim: amber is the banner's alone.
+    body.addColorStop(0, live ? v.colors.glow : Charts.tint("--steel", 0.9));
+    body.addColorStop(0.6, live ? v.colors.teal : Charts.tint("--steel", 0.6));
     body.addColorStop(1, live ? Charts.tint("--accent-grad-to", 0.9) : Charts.tint("--steel", 0.5));
     ctx.fillStyle = body;
-    ctx.shadowColor = live ? v.colors.glow : v.colors.warn;
+    ctx.shadowColor = live ? v.colors.glow : Charts.tint("--accent", 0.5);
     ctx.shadowBlur = 24 + 20 * flash;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -351,13 +352,13 @@ const NetView = (() => {
     ctx.shadowBlur = 0;
   }
 
-  // No reply: dim the view and draw a calm amber ring. A paused network is
-  // waiting, not broken, so the ring is dashed and never red.
+  // No reply: dim the view and draw a calm dashed steel ring. A paused network
+  // is waiting, not broken; the banner above says so, in the only amber.
   function drawDown(g) {
     const { ctx, cx, cy, w, h } = g;
     ctx.fillStyle = Charts.tint("--bg", 0.35);
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = v.colors.warn;
+    ctx.strokeStyle = v.colors.steel;
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 8]);
     ctx.beginPath();

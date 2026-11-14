@@ -64,8 +64,8 @@ const Charts = (() => {
 
   // The hero gauge: an arc whose sweep follows the rate against the session
   // peak, a rotating sheen while mining, and tick marks.
-  // `paused`: the network does not answer, so the ring is lit a soft amber
-  // (waiting, not broken) instead of a dead grey.
+  // Idle or paused, the track is neutral steel with teal ticks and a teal
+  // glow: amber belongs to the one paused banner, not to every surface.
   function gauge(canvas, { hps, peak, active, paused = false, t }) {
     const fitted = fit(canvas);
     if (!fitted) return;
@@ -78,7 +78,7 @@ const Charts = (() => {
     const frac = peak > 0 && hps ? Math.min(1, hps / peak) : 0;
 
     // A soft halo behind the dial; brighter while mining.
-    const tone = paused ? "--warn" : "--accent";
+    const tone = "--accent";
     const halo = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.25);
     halo.addColorStop(0, tint(tone, active ? 0.3 : 0.16));
     halo.addColorStop(1, tint(tone, 0));
@@ -87,11 +87,9 @@ const Charts = (() => {
 
     ctx.lineCap = "round";
     ctx.lineWidth = r * 0.12;
-    ctx.strokeStyle = paused ? tint("--warn", 0.32) : tint("--accent", 0.14);
-    if (paused) {
-      ctx.shadowColor = tint("--warn", 0.5);
-      ctx.shadowBlur = 14;
-    }
+    ctx.strokeStyle = active || frac > 0 ? tint("--accent", 0.14) : tint("--steel", paused ? 0.34 : 0.28);
+    ctx.shadowColor = tint("--accent", 0.45);
+    ctx.shadowBlur = active ? 0 : 12;
     ctx.beginPath();
     ctx.arc(cx, cy, r, start, start + span);
     ctx.stroke();
@@ -100,7 +98,7 @@ const Charts = (() => {
     for (let i = 0; i <= 28; i += 1) {
       const a = start + (span * i) / 28;
       const inner = r * (i % 7 === 0 ? 0.74 : 0.8);
-      ctx.strokeStyle = i / 28 <= frac && frac > 0 ? css("--accent-hover") : tint(paused ? "--warn" : "--text-3", 0.4);
+      ctx.strokeStyle = i / 28 <= frac && frac > 0 ? css("--accent-hover") : tint("--accent", i % 7 === 0 ? 0.75 : 0.45);
       ctx.lineWidth = i % 7 === 0 ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);

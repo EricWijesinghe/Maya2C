@@ -1,5 +1,7 @@
-//! `cargo xtask design-tokens [--check]` — generates `tokens.css` from
-//! `design/tokens.json` (Forged Light 2, ADR-136) into every surface.
+//! `cargo xtask design-tokens [--check | --literals <dir>]` — generates
+//! `tokens.css` from `design/tokens.json` (Forged Light 2, ADR-136) into every
+//! surface. `--literals <dir>` lists the colours a surface still writes by
+//! hand instead of naming a role (`design_tokens/literals.rs`).
 //!
 //! Five surfaces each wrote their own stylesheet from one palette and drifted
 //! into five products (docs/design/audit-2026-11.md). One source, one
@@ -16,6 +18,10 @@ use maya_design_system::contrast::{Rgb, Use, ratio};
 use sha2::{Digest, Sha256};
 
 use crate::ordered_json::Json;
+
+// Byte-identical to the module on feat/ui-l02-site-shell-theme, so the two
+// branches merge without a conflict in this file's body.
+mod literals;
 
 /// The single source.
 const SOURCE: &str = "design/tokens.json";
@@ -35,12 +41,20 @@ const TARGETS: &[&str] = &[
 const THEMES: [&str; 2] = ["dark", "light"];
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    let root = crate::workspace_root();
     let check = match args {
         [] => false,
         [flag] if flag == "--check" => true,
-        _ => return Err("usage: cargo xtask design-tokens [--check]".into()),
+        [flag, dir] if flag == "--literals" => {
+            let dir = Path::new(dir);
+            return literals::run(&if dir.is_absolute() {
+                dir.to_path_buf()
+            } else {
+                root.join(dir)
+            });
+        }
+        _ => return Err("usage: cargo xtask design-tokens [--check | --literals <dir>]".into()),
     };
-    let root = crate::workspace_root();
     let tokens = load(&root)?;
     let failures = contrast_failures(&tokens)?;
     if !failures.is_empty() {
@@ -469,5 +483,51 @@ mod tests {
         let css = render(&real()).unwrap();
         let stale = stale(&crate::workspace_root(), &css);
         assert!(stale.is_empty(), "run cargo xtask design-tokens: {stale:?}");
+    }
+
+    #[test]
+    fn literals_are_found_outside_tokens_css_only() {
+        let root = std::env::temp_dir().join(format!("xtask-literals-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let write = |rel: &str, text: &str| {
+            let p = root.join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, text).unwrap();
+        };
+        write(
+            "ui/app.css",
+            ".a { color: #FF0000; }
+.b { border-color: var(--border); }
+",
+        );
+        write(
+            "ui/index.html",
+            "<p>&#8212;</p> <use href=\"icons.svg#cafe\"/>
+<meta name=\"theme-color\" content=\"#081c28\">
+",
+        );
+        write(
+            "ui/tokens.css",
+            ":root { --bg: #081c28; }
+",
+        );
+        write(
+            "ui/node_modules/x.css",
+            ".x { color: #fff; }
+",
+        );
+        assert_eq!(
+            literals::scan(&root).unwrap(),
+            vec!["ui/app.css:1: #FF0000".to_owned()]
+        );
+        assert!(literals::run(&root).is_err());
+        fs::write(
+            root.join("ui/app.css"),
+            ".a { color: var(--text); }
+",
+        )
+        .unwrap();
+        assert!(literals::run(&root).is_ok());
+        fs::remove_dir_all(&root).unwrap();
     }
 }

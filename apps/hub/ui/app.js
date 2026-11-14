@@ -173,15 +173,55 @@ function combinedRates(workers) {
   return out;
 }
 
-// An empty tile ("—") shows its one-line hint instead.
+// An empty tile ("—") shows its one-line hint alone: no dash, no unit.
 function hintTiles() {
-  document.querySelectorAll(".tile .hint").forEach((hint) => {
-    const value = hint.parentElement.querySelector("b");
-    hint.hidden = !value || value.textContent !== "—";
-    // A qualifier of the value ("This epoch") gives way to the hint.
-    const qualifier = hint.parentElement.querySelector(".sub.with-value");
-    if (qualifier) qualifier.hidden = !hint.hidden;
+  document.querySelectorAll(".tile").forEach((tile) => {
+    const value = tile.querySelector("b");
+    const hint = tile.querySelector(".hint");
+    const empty = Boolean(value && hint && value.textContent === "—");
+    tile.classList.toggle("empty", empty);
+    if (hint) hint.hidden = !empty;
   });
+}
+
+// While nothing mines and the network does not answer, six empty tiles say
+// nothing; one quiet line says what will appear there.
+function renderTiles(running) {
+  const quiet = !running && state.net !== "live";
+  $("tiles").hidden = quiet;
+  $("tiles-quiet").hidden = !quiet;
+}
+
+// What is true on this computer whatever the network does: its devices, read
+// locally, and the payout key with the state of its backup step.
+function renderGlance() {
+  const gpus = state.gpus.devices;
+  const rows = gpus.length
+    ? gpus.map((g) => [`GPU ${g.index} · ${g.name}`, g.temp_c != null ? `${Math.round(g.temp_c)} °C` : "no reading"])
+    : [["CPU", `${state.defaults ? state.defaults.cpu_threads : "?"} threads`]];
+  $("glance-devices").replaceChildren(
+    ...rows.map(([name, reading]) => {
+      const li = document.createElement("li");
+      const b = document.createElement("b");
+      b.textContent = reading;
+      li.append(icon("chip"), Object.assign(document.createElement("span"), { textContent: name }), b);
+      return li;
+    }),
+  );
+  const key = state.settings.key_file || "miner.key";
+  setText("glance-key", FirstRun.done() ? `Payout key ${key} · backup step done` : `Payout key ${key} · backup step not done yet`);
+  $("glance-key").dataset.done = String(FirstRun.done());
+}
+
+async function checkDevices() {
+  try {
+    state.gpus = await call("gpu_telemetry");
+    setText("check-msg", `Checked ${clock(Date.now())}: ${state.gpus.devices.length || "no"} GPU${state.gpus.devices.length === 1 ? "" : "s"} found.`);
+  } catch (err) {
+    setText("check-msg", `The check failed: ${err}`);
+  }
+  renderGlance();
+  renderRigs();
 }
 
 // ------------------------------------------------------------- render ----
@@ -217,13 +257,14 @@ function renderMiner() {
   if (!report) return;
   const sum = summarise(report.workers);
   if (sum.hps) state.peak = Math.max(state.peak * 0.999, sum.hps * 1.1);
-  const r = Charts.rate(sum.running ? sum.hps : null);
-  setText("rate-value", r.value);
+  // Not mining reads 0 H/s: a measured nothing, never a dash before a unit.
+  const r = Charts.rate(sum.running ? sum.hps : 0);
+  setText("rate-value", sum.running ? r.value : "0");
   setText("rate-unit", r.unit);
-  Charts.describe($("gauge"), sum.running ? `Hash rate gauge: ${r.value} ${r.unit}` : "Hash rate gauge: not mining");
-  const paused = !sum.running && state.net === "paused";
-  setText("miner-status", state.watchOnly ? WATCH_ONLY : paused ? "Network paused" : sum.status);
-  $("miner-status").dataset.state = sum.running ? "mining" : paused ? "paused" : "stopped";
+  Charts.describe($("gauge"), sum.running ? `Hash rate gauge: ${r.value} ${r.unit}` : "Hash rate gauge: not mining, 0 H/s");
+  // The banner says why the network is quiet; the gauge only says what it reads.
+  setText("miner-status", state.watchOnly ? WATCH_ONLY : sum.running ? sum.status : "Not mining");
+  $("miner-status").dataset.state = sum.running ? "mining" : "stopped";
   setText("t-accepted", sum.accepted.toLocaleString());
   setText("t-rejected", sum.rejected.toLocaleString());
   setText("t-received", maya(sum.received));
@@ -248,10 +289,11 @@ function renderMiner() {
     tile.classList.add("flash");
   }
   state.lastAccepted = sum.accepted;
-  Charts.area($("rate-chart"), combinedRates(report.workers), { name: "Hash rate", empty: "No samples yet: start the miner" });
+  Charts.area($("rate-chart"), combinedRates(report.workers), { name: "Hash rate", empty: startReason() ? "No samples yet" : "No samples yet: start the miner" });
   renderFeed(report.workers);
   renderAlerts(report.alerts);
   renderRigs();
+  renderTiles(sum.running);
   hintTiles();
 }
 
@@ -292,7 +334,11 @@ function renderNode() {
   if (state.miner) renderPower(state.miner.workers.some((w) => w.running));
   FirstRun.refresh();
   $("hero").dataset.net = net;
+  document.body.dataset.net = net;
+  // No height to show: the caption goes, rather than a dash as the largest mark.
+  $("n-height").parentElement.hidden = net !== "live";
   if (changed && state.miner) renderMiner();
+  if (!state.miner) renderTiles(false);
   const pill = $("net-pill");
   if (net !== "live") {
     // No reply: no figure from an earlier reply stays on screen as if current.
@@ -390,6 +436,12 @@ const UNIVERSE_GROUPS = [
   ["research", "Research"],
 ];
 
+// The card line drops the stage lead ("Being built: "): the group heading says it.
+const cardLine = (text) => text.replace(/^(Being built|Planned|Research):\s*/, "").replace(/^./, (c) => c.toUpperCase());
+
+// A column count that fills its rows: 4 for 8, 3 for 6, the count itself up to 4.
+const columnsFor = (n) => (n <= 4 ? n : n % 4 === 0 ? 4 : n % 3 === 0 ? 3 : 4);
+
 function planet(item, host) {
   const b = document.createElement("button");
   b.type = "button";
@@ -400,16 +452,10 @@ function planet(item, host) {
   glyph.append(icon(item.icon));
   const name = document.createElement("b");
   name.textContent = item.name;
-  const chip = document.createElement("span");
-  chip.className = "chip";
-  b.append(glyph, name);
-  if (item.status === "built") {
-    const line = document.createElement("span");
-    line.className = "planet-line";
-    line.textContent = item.text;
-    b.append(line);
-  }
-  b.append(chip);
+  const line = document.createElement("span");
+  line.className = "planet-line";
+  line.textContent = cardLine(item.text);
+  b.append(glyph, name, line, icon("chevron", "icon more"));
   b.addEventListener("click", () => {
     host.querySelectorAll(".planet").forEach((p) => p.classList.toggle("selected", p === b));
     const detail = $("detail");
@@ -435,6 +481,8 @@ function renderUniverse() {
       heading.append(title, Object.assign(document.createElement("small"), { textContent: String(items.length) }));
       const grid = document.createElement("div");
       grid.className = "universe-grid";
+      grid.style.setProperty("--cols", String(columnsFor(items.length)));
+      grid.style.setProperty("--cols-md", String(Math.min(2, columnsFor(items.length))));
       grid.append(...items.map((item) => planet(item, host)));
       group.append(heading, grid);
       return group;
@@ -450,9 +498,8 @@ function updateUniverse() {
     const item = UNIVERSE.find((u) => u.id === b.dataset.id);
     const chip = NetStatus.chip(item, state.net, chainId);
     b.className = `planet ${chip.tone}${b.classList.contains("selected") ? " selected" : ""}`;
-    const el = b.querySelector(".chip");
-    el.className = `chip ${chip.tone}`;
-    setText(el, chip.text);
+    // The card shows no chip; its spoken name still carries the state.
+    b.setAttribute("aria-label", `${item.name}: ${chip.text}. ${cardLine(item.text)}`);
   });
   const open = UNIVERSE.find((u) => u.id === $("detail").dataset.id);
   if (open) setText("d-stage", universeDetail(open));
@@ -579,11 +626,21 @@ function wireNav() {
         else b.removeAttribute("aria-current");
       });
       document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${btn.dataset.page}`));
+      document.body.dataset.page = btn.dataset.page;
       document.querySelector("main").scrollTop = 0;
       // Canvases on a hidden page measured zero; redraw once now visible.
       redrawAll();
     }),
   );
+}
+
+// Phones show the network pill as a dot; a tap opens its text, a second closes it.
+function wireNetPill() {
+  const pill = $("net-pill");
+  pill.addEventListener("click", () => pill.setAttribute("aria-expanded", String(pill.getAttribute("aria-expanded") !== "true")));
+  document.addEventListener("click", (e) => {
+    if (!pill.contains(e.target)) pill.setAttribute("aria-expanded", "false");
+  });
 }
 
 function renderDevicePicks(gpus) {
@@ -679,6 +736,7 @@ function finishFirstRun(devices) {
   state.settings = { ...state.settings, devices };
   saveSettings(state.settings);
   renderDevicePicks(state.gpus.devices);
+  renderGlance();
   startAll();
 }
 
@@ -689,10 +747,14 @@ async function main() {
   state.defaults = defaults;
   state.gpus = await call("gpu_telemetry").catch(() => ({ devices: [], note: "GPU telemetry unavailable" }));
   state.settings = loadSettings(defaults);
+  document.body.dataset.page = "mining";
   wireNav();
+  wireNetPill();
   wireTheme();
   wireSettings(defaults, state.gpus);
   renderUniverse();
+  renderGlance();
+  $("check-devices").addEventListener("click", checkDevices);
   Wallet.init({ call, url: () => state.settings.rpc });
   NetView.init({ canvas: $("orb"), layer: $("net-layer"), tip: $("net-tip"), reduced: reducedMotion, onSelect: showNetDetail });
   FirstRun.init({ call, isPreview, settings: () => state.settings, gpus: () => state.gpus.devices,
@@ -716,7 +778,7 @@ async function main() {
     state.snapshot = s || { reachable: false, error: String(err) };
     renderNode();
   }, POLL_NODE_MS);
-  poll("gpu_telemetry", () => undefined, (g) => { if (g) { state.gpus = g; renderRigs(); } }, POLL_GPU_MS);
+  poll("gpu_telemetry", () => undefined, (g) => { if (g) { state.gpus = g; renderRigs(); renderGlance(); } }, POLL_GPU_MS);
   requestAnimationFrame(frame);
 }
 

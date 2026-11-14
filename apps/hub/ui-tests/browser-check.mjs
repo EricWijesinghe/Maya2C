@@ -7,9 +7,10 @@
 //
 // CI runs it (job `hub-ui` in .github/workflows/ci.yml) with NO_SHOTS=1 in the
 // pinned Playwright image; the Hub itself does not depend on playwright or
-// axe-core. Screenshots show the paused network only, which is the real state
-// since 2026-10-28: no image here carries a live chip or a synthetic height,
-// epoch or reward. Exits 1 on any failure and prints each one.
+// axe-core. Screenshots show the paused network, which is the real state since
+// 2026-10-28, except the `hub-preview-*` set: the live look on synthetic data,
+// each image stamped "Preview data" across the top. Exits 1 on any failure
+// and prints each one.
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
@@ -147,6 +148,29 @@ async function canvasNames(page, where) {
   bad.length ? fail(`${where}: canvases without role=img and a label: ${bad.join(", ")}`) : pass(`${where}: every chart canvas has role=img and a label`);
 }
 
+// The hover state axe never sees: a primary button under the pointer, its text
+// against its background, measured from the computed colours.
+async function hoverContrast(page, where) {
+  await goto(page, "settings");
+  await page.hover("#s-save");
+  const ratio = await page.evaluate(() => {
+    const parse = (c) => {
+      const srgb = c.match(/color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/);
+      if (srgb) return srgb.slice(1, 4).map(Number);
+      return c.match(/[\d.]+/g).slice(0, 3).map((v) => Number(v) / 255);
+    };
+    const lum = (rgb) => {
+      const [r, g, b] = rgb.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const cs = getComputedStyle(document.getElementById("s-save"));
+    const [a, b] = [lum(parse(cs.backgroundColor)), lum(parse(cs.color))].sort((x, y) => y - x);
+    return (a + 0.05) / (b + 0.05);
+  });
+  await page.mouse.move(0, 0);
+  ratio >= 4.5 ? pass(`${where}: primary button hover ${ratio.toFixed(2)}:1`) : fail(`${where}: primary button hover ${ratio.toFixed(2)}:1, under 4.5:1`);
+}
+
 async function contrast(page, where) {
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(() => window.axe.run(document, { runOnly: { type: "rule", values: ["color-contrast"] } }));
@@ -169,8 +193,25 @@ for (const theme of ["dark", "light"]) {
     if (hash) {
       const legend = await page.evaluate(() => document.getElementById("legend").textContent + [...document.querySelectorAll(".planet .chip")].map((c) => c.textContent).join("|"));
       /\blive\b/i.test(legend) ? fail(`${theme} paused: universe says live: ${legend}`) : pass(`${theme} paused: no universe chip says live`);
-      const disabled = await page.evaluate(() => document.getElementById("power").disabled && /paused since 2026-10-28/.test(document.getElementById("power-why").textContent));
-      disabled ? pass(`${theme} paused: Start disabled with the reason`) : fail(`${theme} paused: Start not disabled with a reason`);
+      const disabled = await page.evaluate(() => document.getElementById("power").disabled
+        && document.getElementById("power-why").textContent === "Waits for the network."
+        && document.querySelector("#page-mining .paused-title").textContent === "Testnet paused since 2026-10-28");
+      disabled ? pass(`${theme} paused: Start disabled with the reason, the banner carries the date`) : fail(`${theme} paused: Start not disabled with a reason`);
+      // Said once above the fold: the banner, not also the gauge or the header.
+      const once = await page.evaluate(() => {
+        const page = document.getElementById("page-mining");
+        page.closest("main").scrollTop = 0;
+        document.querySelector('.nav[data-page="mining"]').click();
+        const seen = [...document.querySelectorAll("#page-mining *, .topbar *")].filter((el) => {
+          if (!el.children.length && el.offsetParent !== null) {
+            const r = el.getBoundingClientRect();
+            return r.bottom <= innerHeight && /paused/i.test(el.textContent);
+          }
+          return false;
+        });
+        return seen.length;
+      });
+      once === 1 ? pass(`${theme} paused: "paused" appears once above the fold on Mining`) : fail(`${theme} paused: "paused" appears ${once} times above the fold on Mining`);
       // No network figure is shown while the network does not answer.
       const figures = await page.evaluate(() => ["t-epoch", "t-reward", "t-balance", "n-height", "n-chain"].map((id) => `${id}=${document.getElementById(id).textContent}`));
       figures.every((f) => f.endsWith("=—")) ? pass(`${theme} paused: epoch, reward, balance, height and chain show —`) : fail(`${theme} paused: figures shown: ${figures.join(" ")}`);
@@ -178,6 +219,7 @@ for (const theme of ["dark", "light"]) {
       const said = await page.evaluate(() => document.body.textContent);
       /\blive\b/i.test(said) ? fail(`${theme} paused: the page says live somewhere`) : pass(`${theme} paused: no text on any page says live`);
     }
+    if (!hash) await hoverContrast(page, `${theme}`);
     errors.length ? fail(`${theme}${hash}: page errors: ${errors.join(" | ")}`) : pass(`${theme}${hash || " live"}: no page errors`);
     await context.close();
   }
@@ -202,6 +244,13 @@ for (const width of WIDTHS) {
       if (main.scrollWidth > main.clientWidth + 1) out.push(`main ${main.scrollWidth}px > ${main.clientWidth}px`);
       for (const el of document.querySelectorAll(".page.active *, .topbar *, .rail *")) {
         if (el.closest(".net-layer") || el.closest("[hidden]") || el.closest("details:not([open]) code")) continue;
+        // Inside a row that scrolls or clips sideways (the phone legend), the
+        // row is what must fit, and it is checked as an element itself.
+        let clipped = false;
+        for (let up = el.parentElement; up && up !== document.body && !clipped; up = up.parentElement) {
+          clipped = up.matches(".page, main") ? false : ["auto", "scroll", "hidden"].includes(getComputedStyle(up).overflowX);
+        }
+        if (clipped) continue;
         const r = el.getBoundingClientRect();
         if (r.width && r.right > vw + 1) out.push(`${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className.baseVal ?? el.className).split(" ")[0]} right ${Math.round(r.right)}`);
       }
@@ -224,7 +273,16 @@ for (const width of WIDTHS) {
 // -------------------------------------------------------- screenshots ----
 if (!process.env.NO_SHOTS) {
   mkdirSync(shots, { recursive: true });
-  const shot = (page, name) => page.screenshot({ path: join(shots, `${name}.jpg`), type: "jpeg", quality: 82 });
+  const shot = (page, name, fullPage = false) => page.screenshot({ path: join(shots, `${name}.jpg`), type: "jpeg", quality: 82, fullPage });
+  // fullPage of an app whose <main> scrolls: let the document grow instead.
+  const unclip = (page) => page.addStyleTag({ content: "html, body { height: auto !important; overflow: visible !important; } .app { height: auto !important; } main { overflow: visible !important; }" });
+  // Stamped on every live-look image: the figures in it are synthetic.
+  const stamp = (page) => page.evaluate(() => {
+    const s = document.createElement("div");
+    s.textContent = "Preview data · synthetic figures, not the network";
+    s.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99;padding:6px 12px;text-align:center;font:700 14px Inter,sans-serif;letter-spacing:.04em;background:var(--steel);color:var(--bg);opacity:.92";
+    document.body.append(s);
+  });
   const SIZES = { 360: { width: 360, height: 780 }, 768: { width: 768, height: 1024 }, 1024: { width: 1024, height: 768 }, 1280: DEFAULT_WINDOW, 1440: { width: 1440, height: 900 } };
   for (const theme of ["dark", "light"]) {
     // Every page on the paused network: what every real user sees today.
@@ -240,6 +298,28 @@ if (!process.env.NO_SHOTS) {
         }
       }
       await paused.context.close();
+    }
+    // Whole pages, below the fold too: paused, then the live look on preview data.
+    for (const label of ["360", "1440"]) {
+      const paused = await open({ theme, viewport: SIZES[label], hash: "#paused" });
+      await paused.page.waitForSelector(".paused-slot .paused-card", { timeout: 8000 });
+      await unclip(paused.page);
+      for (const name of ["mining", "network"]) {
+        await goto(paused.page, name);
+        await paused.page.waitForTimeout(600);
+        await shot(paused.page, `hub-${name}-paused-${theme}-${label}-full`, true);
+      }
+      await paused.context.close();
+      const live = await open({ theme, viewport: SIZES[label] });
+      await startPreviewMiner(live.page);
+      await unclip(live.page);
+      await stamp(live.page);
+      for (const name of ["mining", "network", "universe"]) {
+        await goto(live.page, name);
+        await live.page.waitForTimeout(900);
+        await shot(live.page, `hub-preview-${name}-${theme}-${label}-full`, true);
+      }
+      await live.context.close();
     }
     for (const label of ["360", "1280"]) {
       const sheet = await open({ theme, viewport: SIZES[label], firstRun: false });

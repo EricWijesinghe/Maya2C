@@ -36,10 +36,12 @@
       <main>
         <header class="topbar">
           <div class="brand">
+            <img class="brand-emblem" src="img/emblem.png" alt="" width="28" height="28" />
             <h1 class="wordmark">Maya2C Hub</h1>
             <span id="preview-flag" class="chip info" title="Opened in a browser: every figure here is synthetic. Open the Hub app for real numbers." hidden><i class="dot"></i>Preview data</span>
           </div>
-          <div class="chip net" id="net-pill" role="status"><i class="dot"></i><span id="net-text">Connecting…</span></div>
+          <!-- On phones the pill is a dot; a tap shows its text (app.js wireNetPill). -->
+          <button type="button" class="chip net" id="net-pill" aria-expanded="false"><i class="dot"></i><span id="net-text" role="status">Connecting…</span></button>
         </header>
 
         <!-- Mining -->
@@ -63,21 +65,32 @@
                 <span id="power-text">Start mining</span>
               </button>
               <div class="why" id="power-why"></div>
+              <!-- Read on this computer, so it is true whether or not the network answers. -->
+              <div class="glance" role="group" aria-label="This computer">
+                <ul class="glance-devices" id="glance-devices"></ul>
+                <p class="glance-key" id="glance-key"></p>
+                <div class="glance-row">
+                  <button type="button" class="btn secondary" id="check-devices"><svg class="icon" aria-hidden="true"><use href="icons.svg#refresh" /></svg>Check my devices</button>
+                  <span class="fine" id="check-msg" role="status"></span>
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- Labels fit one line; the qualifier sits on the line under the value.
-               Tone: teal for this computer, bronze for coins, steel for the chain. -->
-          <div class="tiles">
+          <!-- Tone: teal for this computer, bronze for coins, steel for the chain.
+               While the network does not answer and nothing mines, the row
+               folds into the one quiet line above it (app.js renderTiles). -->
+          <p class="tiles-quiet" id="tiles-quiet" hidden><svg class="icon" aria-hidden="true"><use href="icons.svg#chip" /></svg><span>Shares, payouts and the epoch show here once mining runs.</span></p>
+          <div class="tiles" id="tiles">
             <div class="tile tone-accent">
               <span class="label">Accepted shares</span>
               <b id="t-accepted">0</b>
               <small class="sub"><span id="t-rejected">0</span> rejected</small>
             </div>
-            <div class="tile bronze wide">
-              <span class="label">Received on chain</span>
-              <span class="tile-value"><b id="t-received">0</b><em>MAYA</em><span class="tag">Testnet MAYA, no value</span></span>
-              <small class="sub">This session, as the chain credited it</small>
+            <div class="tile bronze">
+              <span class="label">Received this session (on chain)</span>
+              <span class="tile-value"><b id="t-received">0</b><em>MAYA</em></span>
+              <span class="tag"><svg class="icon" aria-hidden="true"><use href="icons.svg#tag" /></svg>Testnet MAYA, no value</span>
             </div>
             <div class="tile bronze">
               <span class="label">Payout balance</span>
@@ -85,9 +98,8 @@
               <small class="hint" hidden>Needs the node and a payout key.</small>
             </div>
             <div class="tile tone-steel">
-              <span class="label">Reward / share</span>
+              <span class="label">Reward per share this epoch</span>
               <span class="tile-value"><b id="t-reward">—</b><em>MAYA</em></span>
-              <small class="sub with-value">This epoch</small>
               <small class="hint" hidden>Once the node answers.</small>
             </div>
             <div class="tile tone-steel">
@@ -148,11 +160,11 @@
               </div>
             </div>
             <div class="stack stats">
-              <div class="tile tone-steel"><span class="label">Chain</span><b id="n-chain">—</b></div>
-              <div class="tile tone-accent"><span class="label">Committee</span><span class="tile-value"><b id="n-committee">—</b><em>validators</em></span></div>
-              <div class="tile tone-steel"><span class="label">Base fee</span><span class="tile-value"><b id="n-fee">—</b><em>per byte</em></span></div>
-              <div class="tile tone-accent"><span class="label">Block rate</span><span class="tile-value"><b id="n-rate">—</b><em>blocks/min, measured here</em></span></div>
-              <div class="tile bronze"><span class="label">Mining</span><b id="n-mining">—</b></div>
+              <div class="tile tone-steel"><span class="label">Chain</span><b id="n-chain">—</b><small class="hint" hidden>Once the node answers.</small></div>
+              <div class="tile tone-accent"><span class="label">Committee</span><span class="tile-value"><b id="n-committee">—</b><em>validators</em></span><small class="hint" hidden>Once the node answers.</small></div>
+              <div class="tile tone-steel"><span class="label">Base fee</span><span class="tile-value"><b id="n-fee">—</b><em>per byte</em></span><small class="hint" hidden>Once the node answers.</small></div>
+              <div class="tile tone-accent"><span class="label">Block rate</span><span class="tile-value"><b id="n-rate">—</b><em>blocks/min, measured here</em></span><small class="hint" hidden>Measured here from new blocks.</small></div>
+              <div class="tile bronze"><span class="label">Mining</span><b id="n-mining">—</b><small class="hint" hidden>Once the node answers.</small></div>
             </div>
           </div>
           <div class="card">
@@ -170,6 +182,7 @@
           <div class="card">
             <h2>Watched balance</h2>
             <p class="big" id="w-total">—</p>
+            <p class="hint-line" id="w-total-hint" hidden>Watch an address below to see its balance here.</p>
             <p class="fine">Read from the node in Settings. The Hub holds no keys: to send or receive, open the Maya2C Wallet app.</p>
             <div class="watch-add">
               <input id="w-input" spellcheck="false" autocomplete="off" placeholder="Paste an address (tmaya1… or 64 hex)" aria-label="Address to watch" />
@@ -209,23 +222,27 @@
 
         <!-- Settings -->
         <section class="page" id="page-settings" aria-label="Settings">
-          <div class="card form">
-            <h2>Appearance</h2>
-            <fieldset class="segmented" id="s-theme">
-              <legend>Theme</legend>
-              <label><input type="radio" name="theme" value="system" /><svg class="icon" aria-hidden="true"><use href="icons.svg#monitor" /></svg><span>System</span></label>
-              <label><input type="radio" name="theme" value="light" /><svg class="icon" aria-hidden="true"><use href="icons.svg#sun" /></svg><span>Light</span></label>
-              <label><input type="radio" name="theme" value="dark" /><svg class="icon" aria-hidden="true"><use href="icons.svg#moon" /></svg><span>Dark</span></label>
-            </fieldset>
-            <p class="fine">System follows your computer, and is dark when it states no preference. Saved on this device.</p>
-          </div>
-          <div class="card form">
-            <h2>Node</h2>
-            <label>JSON-RPC URL <input id="s-rpc" spellcheck="false" /></label>
-            <div id="s-miner">
+          <div class="settings-grid">
+            <div class="settings-col">
+              <div class="card form">
+                <h2>Appearance</h2>
+                <fieldset class="segmented" id="s-theme">
+                  <legend>Theme</legend>
+                  <label><input type="radio" name="theme" value="system" /><svg class="icon" aria-hidden="true"><use href="icons.svg#monitor" /></svg><span>System</span></label>
+                  <label><input type="radio" name="theme" value="light" /><svg class="icon" aria-hidden="true"><use href="icons.svg#sun" /></svg><span>Light</span></label>
+                  <label><input type="radio" name="theme" value="dark" /><svg class="icon" aria-hidden="true"><use href="icons.svg#moon" /></svg><span>Dark</span></label>
+                </fieldset>
+                <p class="fine">System follows your computer, and is dark when it states no preference. Saved on this device.</p>
+              </div>
+              <div class="card form">
+                <h2>Node</h2>
+                <label>JSON-RPC URL <input id="s-rpc" spellcheck="false" /></label>
+                <label>Pool <span class="select"><select id="s-pool"></select><svg class="icon" aria-hidden="true"><use href="icons.svg#chevron" /></svg></span></label>
+                <p class="fine" id="s-pool-note"></p>
+              </div>
+            </div>
+            <div class="card form" id="s-miner">
               <h2>Miner</h2>
-              <label>Pool <select id="s-pool"></select></label>
-              <p class="fine" id="s-pool-note"></p>
               <label>Miner program <input id="s-binary" spellcheck="false" /></label>
               <label>Payout key file <input id="s-key" spellcheck="false" /></label>
               <p class="fine">The key file is the wallet for what you mine. It is created on first start. Back it up and never share it.</p>
@@ -240,6 +257,8 @@
               <p class="fine">Off by default. A notification names the device only, never an address or a key, and at most one per kind every ten minutes.</p>
               <button type="button" class="btn ghost" id="s-guide">Show the first-start guide again</button>
             </div>
+          </div>
+          <div class="settings-actions">
             <button type="button" class="btn primary" id="s-save">Save</button>
             <p class="fine" id="s-msg" role="status"></p>
           </div>
@@ -255,7 +274,7 @@
           <li data-step-dot="1">Payout key</li>
           <li data-step-dot="2">Devices</li>
         </ol>
-        <button type="button" class="btn icon-btn" id="fr-close" aria-label="Close the guide"><svg class="icon" aria-hidden="true"><use href="icons.svg#cross" /></svg></button>
+        <button type="button" class="btn ghost" id="fr-close" aria-describedby="fr-later">Not now</button>
       </div>
 
       <div class="sheet-step" data-step="0">
@@ -265,8 +284,9 @@
           <li><svg class="icon" aria-hidden="true"><use href="icons.svg#heat" /></svg><span><b>Heat and noise.</b> The devices you pick run at full load, get hot, and their fans speed up.</span></li>
           <li><svg class="icon" aria-hidden="true"><use href="icons.svg#bolt" /></svg><span><b>Power.</b> They draw power the whole time, on your electricity.</span></li>
           <li><svg class="icon" aria-hidden="true"><use href="icons.svg#shield" /></svg><span><b>The <span id="fr-ceiling">80</span> °C stop.</b> The Hub stops a GPU above it and restarts it once it is 5 °C cooler. Change it in Settings.</span></li>
-          <li><svg class="icon" aria-hidden="true"><use href="icons.svg#spark" /></svg><span><b>Testnet MAYA has no value.</b> It tests the network; nothing here is income.</span></li>
+          <li><svg class="icon" aria-hidden="true"><use href="icons.svg#tag" /></svg><span><b>Testnet MAYA has no value.</b> It tests the network; nothing here is income.</span></li>
         </ul>
+        <p class="fine later" id="fr-later"><svg class="icon" aria-hidden="true"><use href="icons.svg#lock" /></svg>Not now closes the guide; Start stays locked until it is finished.</p>
       </div>
 
       <div class="sheet-step" data-step="1" hidden>
@@ -298,14 +318,14 @@
       </div>
     </dialog>
 
-    <!-- The shared paused card, cloned into every [data-paused] slot. -->
+    <!-- The one-line paused banner, cloned into every [data-paused] slot: the
+         one place a page says the network does not answer. -->
     <template id="paused-tpl">
-      <div class="card paused-card" role="status">
+      <div class="paused-card" role="status">
         <svg class="icon paused-icon" aria-hidden="true"><use href="icons.svg#pause" /></svg>
-        <div class="paused-body">
-          <h2 class="paused-title"></h2>
-          <p class="paused-text"></p>
-          <a class="paused-report" target="_blank" rel="noopener noreferrer">Read the stop report<svg class="icon" aria-hidden="true"><use href="icons.svg#external" /></svg></a>
+        <p class="paused-body"><b class="paused-title"></b> <span class="paused-text"></span></p>
+        <div class="paused-actions">
+          <a class="paused-report" target="_blank" rel="noopener noreferrer">Stop report<svg class="icon" aria-hidden="true"><use href="icons.svg#external" /></svg></a>
           <details class="paused-details"><summary><svg class="icon" aria-hidden="true"><use href="icons.svg#chevron" /></svg>Details</summary><code class="paused-raw"></code></details>
         </div>
       </div>
