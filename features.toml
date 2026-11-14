@@ -2659,7 +2659,7 @@ paths = "`crates/node/src/state/scheduled.rs`, `crates/node/src/core/schedule_pa
 tier = "core"
 class = "RESEARCH"
 status = "stub"
-tests = ["crates/node/tests/scheduled_payment_tests.rs", "crates/node/tests/schedule_conformance.rs"]
+tests = ["crates/node/tests/scheduled_payment_tests.rs", "crates/node/tests/schedule_conformance.rs", "crates/node/tests/v4_redteam_schedules.rs"]
 note = "ADR-135 P-7 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 46, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 67-68, layer sp: (StateLayer 21), breaker module 16, ScheduleRunFee governance tag 16 (ADR-135 allocation table); RUN_FEE defaults to a small non-zero governed value, one minimal transfer's byte fee (Eric 2026-11-12). End-of-block step capped at MAX_DUE_PER_BLOCK = 256 with carry-over. CI-first: not compiled locally, so stub until CI and a fix wave run the tests."
 
 [[subsystem]]

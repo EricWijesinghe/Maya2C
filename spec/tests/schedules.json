@@ -6,12 +6,12 @@
    },
    "hex": "43222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000000b00000000000000100e00000000000078000000",
    "id": "SC-enc-create",
+   "note": "payee 0x22 x32, amount 100, first_due 11, interval 3600, runs 120. Hand-laid; NOT VERIFIED until CI runs schedule_conformance.rs",
    "rules": [
     "SC-1"
    ],
    "size": "85",
-   "type": "encoding",
-   "note": "payee 0x22 x32, amount 100, first_due 11, interval 3600, runs 120. Hand-laid; NOT VERIFIED until CI runs schedule_conformance.rs"
+   "type": "encoding"
   },
   {
    "expect": {
@@ -19,12 +19,12 @@
    },
    "hex": "443333333333333333333333333333333333333333333333333333333333333333",
    "id": "SC-enc-cancel",
+   "note": "schedule_id 0x33 x32. Hand-laid; NOT VERIFIED",
    "rules": [
     "SC-1"
    ],
    "size": "33",
-   "type": "encoding",
-   "note": "schedule_id 0x33 x32. Hand-laid; NOT VERIFIED"
+   "type": "encoding"
   },
   {
    "expect": {
@@ -32,12 +32,12 @@
    },
    "hex": "43222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000000b00000000000000100e000000000000780000",
    "id": "SC-enc-create-truncated",
+   "note": "runs cut to 3 bytes",
    "rules": [
     "SC-1"
    ],
    "size": "84",
-   "type": "encoding",
-   "note": "runs cut to 3 bytes"
+   "type": "encoding"
   },
   {
    "expect": {
@@ -45,12 +45,12 @@
    },
    "hex": "4433333333333333333333333333333333333333333333333333333333333333",
    "id": "SC-enc-cancel-truncated",
+   "note": "schedule_id cut to 31 bytes",
    "rules": [
     "SC-1"
    ],
    "size": "32",
-   "type": "encoding",
-   "note": "schedule_id cut to 31 bytes"
+   "type": "encoding"
   },
   {
    "expect": {
@@ -58,12 +58,1171 @@
    },
    "hex": "43222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000000b00000000000000100e0000000000007800000000",
    "id": "SC-enc-create-trailing",
+   "note": "one byte past the fixed width",
    "rules": [
     "SC-1"
    ],
    "size": "86",
-   "type": "encoding",
-   "note": "one byte past the fixed width"
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "id": "b7bac292bdaeb200f7d28e6da4d5de81492a40db3e218b0b4bae1bb0b533d5c7",
+    "result": "ok"
+   },
+   "id": "SC-id-nonce-0",
+   "nonce": "0",
+   "payer": "1111111111111111111111111111111111111111111111111111111111111111",
+   "rules": [
+    "SC-2"
+   ],
+   "type": "schedule_id"
+  },
+  {
+   "expect": {
+    "id": "ea5ecb5139d84d3422cc872d9a55e6478ec16b98cfc54e1e0aee5bba208293d5",
+    "result": "ok"
+   },
+   "id": "SC-id-nonce-513",
+   "nonce": "513",
+   "payer": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+   "rules": [
+    "SC-2"
+   ],
+   "type": "schedule_id"
+  },
+  {
+   "expect": {
+    "amount": "100",
+    "escrow": "300",
+    "interval": "3600",
+    "missed": "2",
+    "next_due": "77",
+    "payee": "2222222222222222222222222222222222222222222222222222222222222222",
+    "payer": "1111111111111111111111111111111111111111111111111111111111111111",
+    "remaining": "3",
+    "result": "ok"
+   },
+   "hex": "011111111111111111111111111111111111111111111111111111111111111111222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000004d00000000000000100e000000000000030000002c0100000000000000000000000000000000000000000000000000000000000002",
+   "id": "SC-rec-150",
+   "rules": [
+    "SC-2"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "011111111111111111111111111111111111111111111111111111111111111111222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000004d00000000000000100e000000000000030000002c01000000000000000000000000000000000000000000000000000000000000",
+   "id": "SC-rec-149",
+   "rules": [
+    "SC-2"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "021111111111111111111111111111111111111111111111111111111111111111222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000004d00000000000000100e000000000000030000002c0100000000000000000000000000000000000000000000000000000000000002",
+   "id": "SC-rec-version-2",
+   "rules": [
+    "SC-2"
+   ],
+   "type": "record"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "k0": "999999999999800"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "200",
+     "missed": "0",
+     "next_due": "15",
+     "nonce": "0",
+     "remaining": "2"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "ok",
+    "schedule": {
+     "escrow": "12000",
+     "missed": "0",
+     "next_due": "11",
+     "nonce": "0",
+     "remaining": "120"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-bounds",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "11",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "120"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "ok",
+    "schedule": {
+     "escrow": "100",
+     "missed": "0",
+     "next_due": "31536010",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-horizon-edge",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "31536010",
+     "from": "k0",
+     "height": "10",
+     "interval": "31536000",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-first-due-now",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "10",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-interval-3599",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3599",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-runs-0",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-runs-121",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "121"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-amount-0",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "0",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-payee-collector",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "payee": "collector",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-payee-sink",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "payee": "sink",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-past-horizon",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "31536011",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-interval-past-horizon",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "31536001",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1809251394333065553493296640760748560207343510400633813116524750123642650624",
+   "id": "SC-create-unit-at-2pow249",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "904625697166532776746648320380374280103671755200316906558262375061821325312",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "ok",
+    "schedule": {
+     "escrow": "904625697166532776746648320380374280103671755200316906558262375061821325311",
+     "missed": "0",
+     "next_due": "15",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1809251394333065553493296640760748560207343510400633813116524750123642650624",
+   "id": "SC-create-unit-below-2pow249",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "904625697166532776746648320380374280103671755200316906558262375061821325311",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-escrow-short",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "1000000000000001",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-create-from-vault",
+   "rules": [
+    "SC-3"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "vault"
+    },
+    {
+     "amount": "100",
+     "first_due": "16",
+     "from": "k0",
+     "height": "11",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "k0": "1000000000000000",
+     "payee": "0"
+    },
+    "result": "ok",
+    "schedule": {
+     "absent": true,
+     "nonce": "0"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-cancel-refunds",
+   "rules": [
+    "SC-4"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "from": "k0",
+     "height": "11",
+     "kind": "cancel",
+     "schedule": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "k0": "1000000000000000",
+     "payee": "0"
+    },
+    "result": "ok",
+    "schedule": {
+     "absent": true,
+     "nonce": "0"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-cancel-wins-in-due-block",
+   "rules": [
+    "SC-4",
+    "SC-5"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "from": "k0",
+     "height": "15",
+     "kind": "cancel",
+     "schedule": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-cancel-non-payer",
+   "rules": [
+    "SC-4"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "from": "k1",
+     "height": "11",
+     "kind": "cancel",
+     "schedule": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-cancel-missing",
+   "rules": [
+    "SC-4"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "cancel",
+     "schedule": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-cancel-twice",
+   "rules": [
+    "SC-4"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "from": "k0",
+     "height": "11",
+     "kind": "cancel",
+     "schedule": "0"
+    },
+    {
+     "from": "k0",
+     "height": "12",
+     "kind": "cancel",
+     "schedule": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "payee": "0"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "200",
+     "missed": "0",
+     "next_due": "15",
+     "nonce": "0",
+     "remaining": "2"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-run-not-early",
+   "rules": [
+    "SC-5"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "height": "14",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "payee": "100"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "100",
+     "missed": "0",
+     "next_due": "3615",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-run-at-due",
+   "rules": [
+    "SC-5"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "k0": "999999999999800",
+     "payee": "200"
+    },
+    "result": "ok",
+    "schedule": {
+     "absent": true,
+     "nonce": "0"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-run-last-closes",
+   "rules": [
+    "SC-5"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    },
+    {
+     "height": "3615",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "collector": "7",
+     "payee": "100"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "107",
+     "missed": "0",
+     "next_due": "3615",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-run-fee-to-collector",
+   "rules": [
+    "SC-5",
+    "SC-6"
+   ],
+   "run_fee": "7",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "k0": "1000000000000000",
+     "payee": "0"
+    },
+    "result": "ok",
+    "schedule": {
+     "absent": true,
+     "nonce": "0"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-miss-three-then-refund",
+   "rules": [
+    "SC-5",
+    "SC-6"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    },
+    {
+     "fee": "1",
+     "kind": "set_run_fee"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    },
+    {
+     "height": "3615",
+     "kind": "empty"
+    },
+    {
+     "height": "7215",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "payee": "0"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "100",
+     "missed": "2",
+     "next_due": "7215",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-miss-two-still-open",
+   "rules": [
+    "SC-5"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    },
+    {
+     "fee": "1",
+     "kind": "set_run_fee"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    },
+    {
+     "height": "3615",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "collector": "1",
+     "payee": "100"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "99",
+     "missed": "1",
+     "next_due": "7215",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-raised-fee-pays-from-pooled-escrow",
+   "rules": [
+    "SC-5",
+    "SC-6"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "fee": "1",
+     "kind": "set_run_fee"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    },
+    {
+     "height": "3615",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "collector": "7",
+     "k0": "999999999999793",
+     "payee": "200"
+    },
+    "result": "ok",
+    "schedule": {
+     "absent": true,
+     "nonce": "0"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-lowered-fee-refunded",
+   "rules": [
+    "SC-5",
+    "SC-6"
+   ],
+   "run_fee": "7",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    },
+    {
+     "fee": "0",
+     "kind": "set_run_fee"
+    },
+    {
+     "height": "3615",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "k0": "999986784999900"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "13215000100",
+     "missed": "0",
+     "next_due": "15",
+     "nonce": "0",
+     "remaining": "1"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-run-fee-default",
+   "rules": [
+    "SC-6"
+   ],
+   "run_fee": "default",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "11",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-before-activation",
+   "rules": [
+    "SC-7"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "ok",
+    "schedule": {
+     "escrow": "200",
+     "missed": "0",
+     "next_due": "15",
+     "nonce": "0",
+     "remaining": "2"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-at-activation",
+   "rules": [
+    "SC-7"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "funds": "1000000000000000",
+   "id": "SC-breaker-refuses-create",
+   "rules": [
+    "SC-7"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "height": "10",
+     "kind": "breaker",
+     "until": "1000"
+    },
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "11",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "balances": {
+     "payee": "0"
+    },
+    "result": "ok",
+    "schedule": {
+     "escrow": "200",
+     "missed": "0",
+     "next_due": "15",
+     "nonce": "0",
+     "remaining": "2"
+    }
+   },
+   "funds": "1000000000000000",
+   "id": "SC-breaker-skips-step",
+   "rules": [
+    "SC-7"
+   ],
+   "run_fee": "0",
+   "steps": [
+    {
+     "amount": "100",
+     "first_due": "15",
+     "from": "k0",
+     "height": "10",
+     "interval": "3600",
+     "kind": "create",
+     "runs": "2"
+    },
+    {
+     "height": "11",
+     "kind": "breaker",
+     "until": "1000"
+    },
+    {
+     "height": "15",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
   }
  ]
 }
