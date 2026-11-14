@@ -59,9 +59,12 @@ pub struct Execution<S> {
     /// What the call produced, or why it failed.
     pub outcome: Result<Outcome>,
     /// Gas the call used, whether it succeeded or not: on success the same
-    /// as [`Outcome::gas_used`], on failure what ran before it failed (its
-    /// whole limit when it ran out). A caller that keeps going after a failed
-    /// call charges this, not the limit the call named (ADR-142, GAS-2).
+    /// as [`Outcome::gas_used`], on failure what ran before it failed plus
+    /// the memory it held, which can pass the limit (by at most 256 pages)
+    /// when it ran out; when it overflowed the native stack, its limit plus
+    /// every page its gas could have paid for. A caller that keeps going
+    /// after a failed call charges this, not the limit the call named
+    /// (ADR-142, GAS-2, GAS-7).
     pub gas_used: u64,
 }
 
@@ -146,6 +149,10 @@ pub(crate) struct CallContext<S: HostState> {
     /// The most pages of linear memory the call has held, initial ones
     /// included. Charged `MEMORY_PAGE_FUEL` each once the call returns.
     peak_pages: usize,
+    /// The guest overflowed the native stack. Where that happens depends on
+    /// frame sizes, so on the ISA and the compiler's flags, not on fuel; a
+    /// call that did reports a figure that does not depend on it (GAS-2).
+    overflowed: bool,
 }
 
 impl<S: HostState> CallContext<S> {
@@ -650,6 +657,7 @@ impl Vm {
             failure: None,
             max_pages: MAX_MEMORY_PAGES.min(affordable),
             peak_pages: 0,
+            overflowed: false,
         };
 
         let mut store = Store::new(&self.engine, context);
@@ -670,7 +678,7 @@ impl Vm {
 
         let invoked = match linker.instantiate(&mut store, &module) {
             Ok(instance) => self.invoke(&mut store, &instance, input, gas_limit),
-            Err(e) => Err(classify(&e, gas_limit)),
+            Err(e) => Err(fault(&mut store, &e, gas_limit)),
         };
 
         // A host function that refused traps the guest, but the useful error
@@ -679,29 +687,37 @@ impl Vm {
 
         // What ran, measured against `gas_limit` (so the upfront price is in
         // it), plus the memory the call held. Past the limit it ran out.
+        //
+        // Not capped at the limit: memory is charged after the compute, so a
+        // call that ran out of gas did up to its limit of compute *and* held
+        // its pages, and a caller that keeps going after it counts both
+        // (PR #549 review). A call that overflowed the native stack reports
+        // its limit and every page its gas could have paid for: the most any
+        // failure of this call can report, and a function of its gas alone,
+        // where the fuel left at the overflow is not (GAS-2).
         let remaining = store.get_fuel().unwrap_or(0);
         let memory = gas::MEMORY_PAGE_FUEL.saturating_mul(store.data().peak_pages as u64);
-        let ran = gas_limit
-            .saturating_sub(remaining)
-            .saturating_add(memory)
-            .min(gas_limit);
-        let out_of_gas = gas_limit.saturating_sub(remaining).saturating_add(memory) > gas_limit;
+        let used = gas_limit.saturating_sub(remaining).saturating_add(memory);
+        let failed = if store.data().overflowed {
+            gas_limit
+                .saturating_add(gas::MEMORY_PAGE_FUEL.saturating_mul(store.data().max_pages as u64))
+        } else {
+            used
+        };
         let events = std::mem::take(&mut store.data_mut().events);
         let data = store.into_data();
 
         match (recorded, invoked) {
-            (Some(failure), _) => Err((data.state, failure, ran)),
-            (None, Err(error)) => Err((data.state, error, ran)),
-            (None, Ok(_)) if out_of_gas => Err((
-                data.state,
-                VmError::OutOfGas { limit: gas_limit },
-                gas_limit,
-            )),
+            (Some(failure), _) => Err((data.state, failure, failed)),
+            (None, Err(error)) => Err((data.state, error, failed)),
+            (None, Ok(_)) if used > gas_limit => {
+                Err((data.state, VmError::OutOfGas { limit: gas_limit }, used))
+            }
             (None, Ok(output)) => Ok((
                 data.state,
                 Outcome {
                     output,
-                    gas_used: ran,
+                    gas_used: used,
                     events,
                 },
             )),
@@ -726,12 +742,12 @@ impl Vm {
                 .get_typed_func::<(), i32>(&mut *store, "input_ptr")
                 .map_err(|_| VmError::MissingExport("input_ptr".to_string()))?
                 .call(&mut *store, ())
-                .map_err(|e| classify(&e, gas_limit))?;
+                .map_err(|e| fault(store, &e, gas_limit))?;
             let capacity = instance
                 .get_typed_func::<(), i32>(&mut *store, "input_cap")
                 .map_err(|_| VmError::MissingExport("input_cap".to_string()))?
                 .call(&mut *store, ())
-                .map_err(|e| classify(&e, gas_limit))?;
+                .map_err(|e| fault(store, &e, gas_limit))?;
 
             if input.len() > capacity.max(0) as usize {
                 return Err(VmError::InvalidHostCall(format!(
@@ -749,7 +765,7 @@ impl Vm {
 
         let packed = invoke
             .call(&mut *store, input.len() as i32)
-            .map_err(|e| classify(&e, gas_limit))?;
+            .map_err(|e| fault(store, &e, gas_limit))?;
 
         if packed < 0 {
             return Err(VmError::Trap(format!(
@@ -801,6 +817,19 @@ fn classify(error: &wasmtime::Error, gas_limit: u64) -> VmError {
         return VmError::OutOfGas { limit: gas_limit };
     }
     VmError::Trap(text)
+}
+
+/// [`classify`], recording on the call a stack overflow, whose firing point
+/// is not a function of fuel (see `CallContext::overflowed`).
+fn fault<S: HostState>(
+    store: &mut Store<CallContext<S>>,
+    error: &wasmtime::Error,
+    gas_limit: u64,
+) -> VmError {
+    if error.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::StackOverflow) {
+        store.data_mut().overflowed = true;
+    }
+    classify(error, gas_limit)
 }
 
 /// The one module name a contract may import from.

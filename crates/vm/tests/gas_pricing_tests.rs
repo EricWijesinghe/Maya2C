@@ -4,8 +4,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use maya_vm::gas::{
-    CALL_BASE_FUEL, CALL_OP_FUEL, CODE_BYTE_FUEL, EVENT_BYTE_FUEL, FUNCTION_FUEL, HOST_CALL_FUEL,
-    MEMORY_PAGE_FUEL, STORAGE_READ_BYTE_FUEL, STORAGE_WRITE_BYTE_FUEL, call_fuel, cold_call_fuel,
+    ARITY_FUEL, CALL_BASE_FUEL, CALL_OP_FUEL, CODE_BYTE_FUEL, EVENT_BYTE_FUEL, FUNCTION_FUEL,
+    HOST_CALL_FUEL, MEMORY_PAGE_FUEL, STORAGE_READ_BYTE_FUEL, STORAGE_WRITE_BYTE_FUEL, call_fuel,
+    cold_call_fuel,
 };
 use maya_vm::{MemoryState, Vm, VmError};
 
@@ -30,12 +31,13 @@ fn a_call_pays_its_base_and_every_module_byte() {
     let vm = Vm::new().unwrap();
     let code = wasm(EMPTY);
     let used = gas_of(&vm, &code, MemoryState::at_height(1));
-    // The upfront price (its length and its one function), the one page of
-    // memory it holds, and the body's own fuel as wasmtime 48 meters it:
-    // `i64.const` and the implicit return, two units.
+    // The upfront price (its length, its one function and the two values
+    // its type carries), the one page of memory it holds, and the body's own
+    // fuel as wasmtime 48 meters it: `i64.const` and the implicit return,
+    // two units.
     assert_eq!(
         cold_call_fuel(&code).unwrap(),
-        call_fuel(code.len(), false) + FUNCTION_FUEL
+        call_fuel(code.len(), false) + FUNCTION_FUEL + 2 * ARITY_FUEL
     );
     assert_eq!(used, cold_call_fuel(&code).unwrap() + MEMORY_PAGE_FUEL + 2);
     assert_eq!(
@@ -157,10 +159,10 @@ fn every_host_call_pays_the_host_base() {
         gas_of(&vm, &two, MemoryState::at_height(1)) - gas_of(&vm, &one, MemoryState::at_height(1));
     let extra_bytes = (two.len() - one.len()) as u64;
     // The host base, the `call` operator, the longer module (`drop` is free),
-    // and compiling one more call.
+    // and compiling one more call, with the one value its callee returns.
     assert_eq!(
         delta,
-        HOST_CALL_FUEL + 1 + extra_bytes * CODE_BYTE_FUEL + CALL_OP_FUEL
+        HOST_CALL_FUEL + 1 + extra_bytes * CODE_BYTE_FUEL + CALL_OP_FUEL + ARITY_FUEL
     );
 }
 

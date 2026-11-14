@@ -342,6 +342,8 @@ fn the_spec_vectors_hold() {
                     locals: num(&input["locals"]),
                     controls: num(&input["controls"]),
                     calls: num(&input["calls"]),
+                    arity: num(&input["arity"]),
+                    loop_arity: num(&input["loop_arity"]),
                 })),
             ),
             "memory_fuel" => (None, Some(gas::MEMORY_PAGE_FUEL * num(&input["pages"]))),
@@ -474,7 +476,123 @@ fn a_call_that_fails_while_the_block_is_built_still_spends_its_gas() {
         .unwrap();
     // The spin ran to the cap and failed; what it burned is gone from the
     // block, so the next call no longer fits and is left for a later block.
+    //
+    // This is also the open hole the PR #549 review named: the spin pays no
+    // fee, stays pooled, and does this every block. Counting failed work on
+    // a counter of its own does not close it (a call is only known to fail
+    // once it has run, so a bounded failure budget is the same lever, and an
+    // unbounded one is unbounded builder time). Closing it needs failed
+    // calls included with their fee and a nonce bump (STF-8), an economics
+    // decision: a genesis blocker in ADR-142 and BACKLOG.md.
     assert!(kept.is_empty(), "{} kept", kept.len());
+}
+
+#[test]
+fn one_sender_gets_one_failed_contract_trial_per_block() {
+    // A sub-DAG can carry several versions of one sender's nonce, from
+    // different proposers. Each failing one was tried, each free.
+    let attacker = generate_signing_key().unwrap();
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &honest],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    let third = block_cap() / 3;
+    let spin = call(ids[0], third, 1, &attacker);
+    let again = call(ids[0], third + 1, 1, &attacker);
+    let after = call(ids[1], block_cap() / 2, 1, &honest);
+    let kept = db
+        .select_applicable(
+            vec![spin, again, after.clone()],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    // The second version is not tried, so two thirds of the budget are left.
+    assert_eq!(kept, vec![after]);
+}
+
+#[test]
+fn a_replayed_old_transaction_does_not_shut_its_sender_out() {
+    // A transaction refused at its nonce did no contract work, and anyone can
+    // put a sender's old transaction in a sub-DAG: it must not cost the
+    // sender its contract calls for the block.
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[honest.address()]);
+    let code = wasm(WRITER_WAT);
+    let ids = deploy_all(&db, &[&honest], std::slice::from_ref(&code));
+    let replay = signed(TxKind::DeployContract(ContractDeploy { code }), 0, &honest);
+    let after = call(ids[0], 1_000_000, 1, &honest);
+    let kept = db
+        .select_applicable(
+            vec![replay, after.clone()],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(kept, vec![after]);
+}
+
+#[test]
+fn a_call_below_its_upfront_price_still_counts_its_code_read_and_scan() {
+    // Refused before the compile, but after a read of the code and a scan of
+    // its shape: before the PR #549 review fix it counted nothing, so a pool
+    // of them was builder work outside GAS-2's bound.
+    let attacker = generate_signing_key().unwrap();
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let code = wasm(WRITER_WAT);
+    let ids = deploy_all(&db, &[&attacker], std::slice::from_ref(&code));
+    let counted = maya_vm::gas::CALL_BASE_FUEL + code.len() as u64;
+    let select = |honest_limit: u64| {
+        db.select_applicable(
+            vec![
+                call(ids[0], 1, 1, &attacker),
+                call(ids[0], honest_limit, 0, &honest),
+            ],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap()
+        .len()
+    };
+    // The honest call fits only in what the refused one left.
+    assert_eq!(select(block_cap() - counted), 1);
+    assert_eq!(select(block_cap() - counted + 1), 0);
+}
+
+#[test]
+fn a_deployment_above_the_deploy_price_is_refused_at_admission() {
+    // Under the block cap but over `MAX_COLD_CALL_FUEL`, which `Vm::validate`
+    // refuses: before the review fix the pool took it, and every builder
+    // paid its scan every block for a deployment that could never apply.
+    let deployer = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[deployer.address()]);
+    let code = wasm(&format!(
+        r#"(module (memory 2) (data (i32.const 0) "{}") {})"#,
+        "a".repeat(110_000),
+        "(func)".repeat(1_500)
+    ));
+    let price = maya_vm::gas::cold_call_fuel(&code).unwrap();
+    assert!(
+        price > maya_vm::gas::MAX_COLD_CALL_FUEL && price <= block_cap(),
+        "{price}"
+    );
+    let pool = Mempool::new(Arc::new(db));
+    let tx = signed(
+        TxKind::DeployContract(ContractDeploy { code }),
+        0,
+        &deployer,
+    );
+    assert_eq!(
+        pool.insert(tx),
+        Err(NodeError::GasAboveCap {
+            limit: price,
+            cap: maya_vm::gas::MAX_COLD_CALL_FUEL
+        })
+    );
 }
 
 #[test]

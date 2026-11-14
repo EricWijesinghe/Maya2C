@@ -308,9 +308,26 @@ impl StateDB {
         // fail and be consumed: the censorship this module exists to prevent,
         // for one byte fee (PR #549 review). Added back afterwards, so the
         // block's total stays the sum of both.
+        //
+        // Restored on every path, an early error included: the overlay must
+        // never be left in sealed mode with the plaintext gas dropped, even
+        // though every caller today discards it on `Err` (PR #549 review).
         let plaintext_gas = std::mem::take(&mut overlay.vm_gas);
         overlay.revealing = true;
+        let settled = self.settle_due(overlay, due, &committee, context);
+        overlay.revealing = false;
+        overlay.vm_gas = overlay.vm_gas.saturating_add(plaintext_gas);
+        settled
+    }
 
+    /// The loop of [`StateDB::settle_sealed`], in sealed mode.
+    fn settle_due(
+        &self,
+        overlay: &mut Overlay,
+        due: BTreeMap<Vec<u8>, Vec<u8>>,
+        committee: &Committee,
+        context: BlockContext,
+    ) -> Result<()> {
         for (key, bytes) in due {
             let Some(id) = envelope_id_from_key(&key) else {
                 // A key under this prefix that is not the right length cannot
@@ -323,7 +340,7 @@ impl StateDB {
             let record = EnvelopeRecord::decode(&bytes)?;
 
             let shares = self.gather_shares(overlay, context.height, &id)?;
-            let opened = open_envelope(&committee, &record, &id, context.height, &shares);
+            let opened = open_envelope(committee, &record, &id, context.height, &shares);
 
             // Consumed either way, and before the action runs. An envelope that
             // stayed pending after being opened could be opened again in a
@@ -365,9 +382,6 @@ impl StateDB {
                 overlay.revealed += 1;
             }
         }
-
-        overlay.revealing = false;
-        overlay.vm_gas = overlay.vm_gas.saturating_add(plaintext_gas);
         Ok(())
     }
 

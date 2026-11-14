@@ -189,10 +189,126 @@ fn a_failed_call_reports_the_gas_it_used() {
     );
     let spun = vm.execute(&spin, CONTRACT, &[], limit, MemoryState::at_height(1));
     assert!(matches!(spun.outcome, Err(VmError::OutOfGas { .. })));
-    assert_eq!(spun.gas_used, limit);
+    // Its whole limit, and the page it held on top: memory is charged after
+    // the compute, so a call that ran out did both (PR #549 review).
+    assert_eq!(spun.gas_used, limit + gas::MEMORY_PAGE_FUEL);
     // Refused before anything ran: nothing used.
     let short = vm.execute(&trap, CONTRACT, &[], 10, MemoryState::at_height(1));
     assert_eq!(short.gas_used, 0);
+}
+
+#[test]
+fn a_failed_call_reports_the_memory_it_touched_on_top_of_its_limit() {
+    // Grow to every page the gas pays for, touch each one, then spin out of
+    // gas. Before the review fix the figure was capped at the limit, hiding
+    // up to 256 pages of page faults and zeroing (PR #549 review, MEDIUM).
+    let code = wasm(
+        r#"(module (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (local $p i32)
+              (drop (memory.grow (i32.const 255)))
+              (loop $touch
+                (i32.store8 (local.get $p) (i32.const 1))
+                (local.set $p (i32.add (local.get $p) (i32.const 4096)))
+                (br_if $touch (i32.lt_u (local.get $p) (i32.const 16777216))))
+              (loop $l (br $l))
+              (i64.const 0)))"#,
+    );
+    let vm = Vm::new().unwrap();
+    let limit = 50_000_000;
+    let run = vm.execute(&code, CONTRACT, &[], limit, MemoryState::at_height(1));
+    assert!(
+        matches!(run.outcome, Err(VmError::OutOfGas { .. })),
+        "{:?}",
+        run.outcome
+    );
+    assert_eq!(run.gas_used, limit + 256 * gas::MEMORY_PAGE_FUEL);
+}
+
+#[test]
+fn a_call_that_recurses_forever_reports_its_whole_limit() {
+    // Where the native stack overflows depends on frame size, so on the ISA
+    // and the compiler's flags: the fuel used by then is not the same on
+    // every validator. The figure must not depend on it (PR #549 review,
+    // HIGH): the whole limit, and every page the gas could have paid for.
+    let code = wasm(
+        r#"(module (memory (export "memory") 1)
+            (func $down (param i64) (result i64)
+              (call $down (i64.add (local.get 0) (i64.const 1))))
+            (func (export "invoke") (param i32) (result i64)
+              (call $down (i64.const 0))))"#,
+    );
+    let vm = Vm::new().unwrap();
+    for limit in [10_000_000u64, 50_000_000] {
+        let run = vm.execute(&code, CONTRACT, &[], limit, MemoryState::at_height(1));
+        assert!(
+            matches!(&run.outcome, Err(VmError::Trap(text)) if text.contains("stack")),
+            "{:?}",
+            run.outcome
+        );
+        let pages =
+            ((limit - gas::cold_call_fuel(&code).unwrap()) / gas::MEMORY_PAGE_FUEL).min(256);
+        assert_eq!(run.gas_used, limit + pages * gas::MEMORY_PAGE_FUEL);
+    }
+}
+
+#[test]
+fn a_module_with_a_wide_function_type_is_refused_at_deploy() {
+    // The review's compile bomb, scaled down: a type naming more values than
+    // MAX_TYPE_ARITY (16) is refused by the scan, before the compile. Before
+    // the fix this validated, and 1,500 blocks of [1000] -> [1000] compiled
+    // in 8.2 s for a price of 49.6 M fuel.
+    let vm = Vm::new().unwrap();
+    let wide = wasm(&format!(
+        r#"(module (type $w (func (param {0}) (result {0})))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+        "i32 ".repeat(9)
+    ));
+    assert!(
+        matches!(vm.validate(&wide), Err(VmError::SizeLimit { .. })),
+        "{:?}",
+        vm.validate(&wide)
+    );
+    assert!(gas::cold_call_fuel(&wide).is_err());
+    // Within the bound, a typed block pays for the values it carries.
+    let typed = |blocks: usize| {
+        wasm(&format!(
+            r#"(module (type $h (func (param {0}) (result {0})))
+                (memory (export "memory") 1)
+                (func (export "invoke") (param i32) (result i64)
+                  {1} {2} {3} (i64.const 0)))"#,
+            "i32 ".repeat(8),
+            "(i32.const 1) ".repeat(8),
+            "block (type $h) end ".repeat(blocks),
+            "drop ".repeat(8),
+        ))
+    };
+    let (one, two) = (typed(1), typed(2));
+    assert!(vm.validate(&one).is_ok() && vm.validate(&two).is_ok());
+    let step = gas::cold_call_fuel(&two).unwrap() - gas::cold_call_fuel(&one).unwrap();
+    // One more block: its bytes, its control and its 16 carried values.
+    let bytes = (two.len() - one.len()) as u64;
+    assert_eq!(
+        step,
+        bytes * gas::CODE_BYTE_FUEL + gas::CONTROL_FUEL + 16 * gas::ARITY_FUEL
+    );
+    // A typed loop pays more per value: its params are fed again at every
+    // back edge (2,000 loops of 16 params compiled in 823 ms, release).
+    let looped = wasm(&format!(
+        r#"(module (type $h (func (param {0}) (result {0})))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              {1} block (type $h) end loop (type $h) end {2} (i64.const 0)))"#,
+        "i32 ".repeat(8),
+        "(i32.const 1) ".repeat(8),
+        "drop ".repeat(8),
+    ));
+    assert_eq!(looped.len(), two.len());
+    assert_eq!(
+        gas::cold_call_fuel(&looped).unwrap() - gas::cold_call_fuel(&one).unwrap(),
+        bytes * gas::CODE_BYTE_FUEL + gas::CONTROL_FUEL + 16 * gas::LOOP_ARITY_FUEL
+    );
 }
 
 #[test]

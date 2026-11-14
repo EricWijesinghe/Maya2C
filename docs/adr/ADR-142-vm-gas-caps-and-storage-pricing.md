@@ -64,7 +64,9 @@ overlay at the call site (invariant 17).
   over-size transaction under ADR-072.
 
 The floor is `call_fuel(512 KiB, cold) + 4,000,000`: the largest module a
-deployment may carry stays callable under any cap a vote can set.
+deployment may carry stays callable by a plaintext call under any cap a vote
+can set. (Not by a revealed sealed call cold: its cap is the sealed budget,
+a quarter of the block cap; see the second amendment.)
 
 ### 2. Native work priced in fuel, charged before the work (GAS-3, GAS-4)
 
@@ -300,8 +302,13 @@ What this does not cover, stated so nobody reads the table as a proof:
 
 - Compiling is now priced closer to what it costs, so cold calls cost more:
   every function 125,000 and every branch 30,000. A module of 1,000 small
-  functions costs ~125 M cold before its bytes; a 512 KiB module with more
-  than ~1,800 functions cannot deploy at all. Warm calls are unchanged.
+  functions costs ~125 M cold before its bytes. A module deploys only when
+  its whole cold price is at most `MAX_COLD_CALL_FUEL`, the length-only price
+  of a 512 KiB module: its shape price must fit in `(524,288 − len) × 450`, so
+  a 512 KiB module cannot deploy with even one function, and a module of
+  `len` bytes holds at most about `(524,288 − len) × 450 / 125,000`
+  functions. (The first text said "a 512 KiB module with more than ~1,800
+  functions"; that was wrong.) Warm calls are unchanged.
 - **Contract calls can still be crowded out for one byte fee a block.** Gas
   has no coin price and `vm.max_tx_gas`'s floor sits near the block cap, so
   one call that runs to ~250 M successfully fills the block's plaintext
@@ -333,3 +340,152 @@ What this does not cover, stated so nobody reads the table as a proof:
   (ADR-062a; PR #540 covers accounts only). **This blocks genesis**: either
   the contracts layer becomes incremental, or contract state gets a hard
   ceiling. Raised with Eric.
+
+## Amendment 2, 2026-11-14: the second review of PR #549 (Eric 2026-11-14 MCQ, same decision)
+
+A second review of the PR head (f6652709) found one compile shape the first
+amendment did not count, two ways the gas a *failed* call reports was not the
+work it did or not the same on every validator, and builder work outside
+GAS-2's bound. Fixed here unless marked open. No new ADR number
+(`adr-claims.txt`: 142b).
+
+### What changed
+
+| Finding | Fix | Pinned by |
+|---|---|---|
+| **Multi-value arity was not priced** (CRITICAL). wasmparser allows 1,000 params and 1,000 results per type; the review measured 1,500 `block (type [1000]->[1000])` compiling in 8.23 s for 49.6 M fuel (166 ns/fuel), and 200 chained calls of `[1000]->[1000]` in 1.24 s for 5.66 M (219 ns/fuel), release | `shape::scan` reads the type section: a function type may name at most `MAX_TYPE_ARITY` = 16 params and results together, at most `MAX_CALLS_PER_FUNCTION` = 10,000 calls per function, and the cold price adds `ARITY_FUEL` = 2,500 per value carried by every defined function's own type, every `block`/`if` and every call, and `LOOP_ARITY_FUEL` = 30,000 per value a `loop` carries (measured below) | `a_function_type_past_the_arity_bound_is_refused`, `typed_blocks_and_calls_are_counted_by_the_values_they_carry`, `calls_past_the_per_function_bound_are_refused`, `a_module_with_a_wide_function_type_is_refused_at_deploy`, vectors `golden-wide-type-refused`, `golden-typed-block-pays-for-its-values`, `shape-fuel-arity-16`, `shape-fuel-loop-arity-16` |
+| **"About 1 ns of native work per unit" was false for compiles** (HIGH): the review measured 2.3–2.5 ns/fuel at arity 8–16, and the first run here found typed loops at 5.09 | every shape the arity bound still allows re-measured in release (below); typed loops repriced; best run under 1 ns on every shape, single loaded runs up to 1.5 | `shapes_at_the_limits_compile_inside_their_price` (release, `#[ignore]`d), `a_module_with_a_wide_function_type_is_refused_at_deploy` (the loop price) |
+| **A stack overflow reported a platform-dependent gas** (HIGH). It fires on native frame size (ISA, Cranelift's detected flags), not fuel; since the first amendment a failed call's gas reaches the state root through the sealed budget and the BFT block through selection | a call that overflows the native stack reports `gas_limit + 6,000 × max_pages`: its limit and every page its gas could have paid for, a function of its gas alone | `a_call_that_recurses_forever_reports_its_whole_limit`, vector `golden-stack-overflow-uses-its-limit-and-every-page` |
+| **A failed call's figure was capped at its limit** (MEDIUM). Memory is charged after the compute, so a call that ran out of gas also held up to 256 pages of page faults and zeroing | a failed call reports what it ran plus its memory, uncapped (`Execution::gas_used`; `Outcome::gas_used` of a success is unchanged and never above the limit) | `a_failed_call_reports_the_memory_it_touched_on_top_of_its_limit`, `a_failed_call_reports_the_gas_it_used`, vectors `golden-out-of-gas-uses-its-limit`, `golden-out-of-gas-after-touching-memory` |
+| A call refused because `gas_limit` is below its upfront price counted nothing, after a read of up to 512 KiB of code and a full shape scan | it counts `50,000 + len` (GAS-2) | `a_call_below_its_upfront_price_still_counts_its_code_read_and_scan` |
+| A sub-DAG can carry several versions of one sender's nonce; each failing one was tried | selection tries at most one failing contract trial per sender (one that did contract work; a nonce refusal, such as a replay, does not count) | `one_sender_gets_one_failed_contract_trial_per_block`, `a_replayed_old_transaction_does_not_shut_its_sender_out` |
+| Mempool admission scanned an unsigned deployment's whole module before its signature, and took deployments priced in `(MAX_COLD_CALL_FUEL, block cap]` that `Vm::validate` always refuses | before the signature, length only; after it, the full cold price, refused above `min(block cap, MAX_COLD_CALL_FUEL)` | `a_deployment_above_the_deploy_price_is_refused_at_admission` |
+| `settle_sealed` could return early with the overlay left in sealed mode and the plaintext gas dropped | the loop is a helper; the mode and the gas are restored on every path | (structure; every caller discards the overlay on `Err`) |
+| "every module GAS-3 lets deploy stays callable" did not hold for revealed sealed calls; "a 512 KiB module with more than ~1,800 functions cannot deploy" was wrong | GAS-5 and the consequences above corrected | vector `admit-sealed-call-to-a-module-priced-over-the-sealed-budget` |
+| Instantiation shapes that scale with entries (globals, data segments) were not measured | measured, below | `calibrate_instantiation_shapes` (release) |
+| `invariant 21` cited in `docs/architecture-vision.md` (retired) | cites ADR-142 / GAS-3, GAS-4 | — |
+| Golden gas came from one x86-64 Windows machine | CI job `vm-gas-aarch64` replays the vectors, the hardening tests and the tier differential on `ubuntu-24.04-arm` when the VM or its vectors change | `.github/workflows/ci.yml` |
+
+### Multi-value: the measurements
+
+Release build, wasmtime 48.0.8 / Cranelift 0.135.8, this PC (Windows 11,
+x86-64, shared with other agents' builds), `Vm::validate` timed best of
+three, 2026-11-15. Command:
+`cargo test --release -p maya-vm --test gas_adversarial_calibration_tests --
+--ignored --nocapture --test-threads 1 shapes_at_the_limits`, through the
+build slot. Three runs; the first before the loop price below existed.
+
+A first run with `ARITY_FUEL` = 2,500 on every carried value found one shape
+still far outside its price: **typed loops**. 3 functions of 2,000
+`loop (type [8]->[8]) end` compiled in 726.8 ms for 142.9 M (5.09 ns/fuel).
+A scratch series (not committed) showed why: a loop's params cost compile
+time per value that grows with the number of loops in the function, so the
+total grows with the square of it.
+
+| loops in one function, `loop (type [k]->[])` | k = 8 | k = 16 |
+|---|---|---|
+| 500 | 27.0 ms | 44.4 ms |
+| 1,000 | 93.5 ms | 165.8 ms |
+| 2,000 | 416.5 ms | 823.3 ms |
+
+That is about 11.75 ns per value per loop in the function: 23.5 µs a value
+at the 2,000 controls a function may hold. Blocks with the same types cost
+less (2,000 `block (type [1]->[1])` in one function: 73 ms, against 163 ms
+for the same loops) and stay inside their control price; how blocks grow
+with their count was not measured. So a `loop`'s values are counted apart (`ModuleShape::loop_arity`)
+and priced `LOOP_ARITY_FUEL` = 30,000 each, above the 23.5 µs worst; blocks,
+`if`s, calls and function types stay at `ARITY_FUEL` = 2,500 on top of their
+control or call price.
+
+With both prices (ns of compile per unit of the whole cold price; "best"
+is the lowest of the runs, "loaded" the highest; the loop rows exist only in
+runs 2 and 3):
+
+| Shape | Size | Price | best | loaded |
+|---|---|---|---|---|
+| 3 × 2,000 `block (type [8]->[8])` | 6,137 B | 142.9 M | 0.67 | 0.73 |
+| 3 × 2,000 `loop (type [8]->[8])` | — | 1,022.9 M | refused at deploy | |
+| 3 × 1,000 `if (type [8]->[8])` | 12,166 B | 205.8 M | 0.96 | 1.04 |
+| 3 × 2,000 `block (type []->[16])` | 102,115 B | 186.1 M | 0.77 | 1.18 |
+| 3 × 1,999 `br_if` carrying 8 | 24,193 B | 191.4 M | 0.83 | 1.00 |
+| 3 × 2,000 `loop (param i32) (result i32)` | 6,121 B | 182.9 M | 0.67 | 0.96 |
+| 416 `loop (type [8]->[8])` (most one module pays for) | 1,385 B | 213.0 M | 0.15 | 0.17 |
+| 393 of them, each with a back edge carrying 8 | 2,888 B | 213.7 M | 0.16 | 0.19 |
+| 416 of them nested | 1,385 B | 213.0 M | 0.14 | 0.14 |
+| 4,424 `call` of `[8]->[8]` | 9,011 B | 216.7 M | 0.33 | 0.43 |
+| 3,318 `call` of `[16]->[]` | 112,937 B | 210.4 M | 0.20 | 0.29 |
+| `br_table` of 10,000 over 16 typed labels | 30,355 B | 17.5 M | 0.20 | 0.35 |
+| 256 values live across 10,000 calls | 20,895 B | 89.7 M | 0.58 | 0.80 |
+| 2,048 values live across 10,000 calls | 26,271 B | 92.1 M | 0.70 | 0.82 |
+| 2,048 values live across 1,000 `br_if` | 13,259 B | 66.1 M | 0.57 | 0.66 |
+
+The shapes the first amendment measured, in the same three runs: best 0.02
+to 0.85, loaded up to 1.50 ("loops at the per-function cap", 0.62 best).
+The two compiled example contracts (`nft_game`, `token_swap`, ~2.4 KB)
+measured 1.05 and 1.06 in the one loaded run that included them: a fixed
+~5 ms of engine work per compile that small modules pay through their
+function and control prices.
+
+What this supports, and what it does not:
+
+- On every shape measured, the best run is under 1 ns of compile per unit,
+  so a cold call at the 250 M cap compiles in about 250 ms. On this machine
+  under other agents' builds, single runs reached 1.5 ns (375 ms per
+  compile, ~750 ms for a producer that stages a block twice). The test's
+  bound (`MAX_NS_PER_FUEL` = 1.5) is about the loaded figure; it does not
+  prove the 1 ns rule, it catches a shape priced ten times too low, as the
+  typed loops were.
+- The review's own shapes are refused, not priced: `[1000]->[1000]` (a type
+  over 16 values) and 20,000 calls in one function (over 10,000).
+- Not measured: aarch64, other x86-64 ISAs, Pulley. CI job
+  `vm-gas-aarch64` replays the gas vectors there; it does not time compiles.
+
+Instantiation shapes that scale with entries, not bytes (warm call against
+its warm price, `calibrate_instantiation_shapes`, release): 100,000
+immutable globals 0.54 ms (0.99 ns/fuel), 80,000 mutable globals 0.57 ms
+(1.27), 70,000 one-byte active data segments 0.06 ms (0.12), 1,000 passive
+400 B segments 0.05 ms (0.12); an empty module 0.09 ms (1.86, the call base).
+Each is under a millisecond and the warm price is mostly the call base, so
+they are recorded, not priced apart.
+
+### Builder work, restated
+
+Applied contract work is at most `vm.max_block_gas`; failed and applied
+together at most `vm.max_block_gas + 1,536,000` (the last failure's memory may
+pass the budget). Selection still shares one counter between them. A separate
+budget for failed work was considered, as the review proposed, and not
+taken: a call is only known to fail once it has run, so a bounded failure
+budget is the same lever (one call at the cap fills it and every later call
+is not tried), and an unbounded one is unbounded builder time. Separate
+counters would have raised the builder's worst case to about twice the cap
+without letting one honest call through that the shared counter refuses.
+
+### Open, and blocking genesis (BACKLOG.md G1–G3)
+
+- **G1 — a failing contract call is free.** One call naming the cap, from one
+  funded sender, leaves every contract call after it in the sub-DAG out,
+  every block, for nothing; the one-trial-per-sender rule only stops the same
+  sender's re-signed versions. The fix is to include a failed contract call
+  with its fee and a nonce bump: a change to STF-8 and an economics decision,
+  Eric's. Evicting transactions that failed execution from the pool helps and
+  does not close it. Previously listed here as "raised"; it is a blocker.
+- **G2 — the contracts root fold** (above): incremental contracts layer or a
+  hard ceiling on contract state.
+- **G3 — end-of-block bisection** re-runs contract work, ~12 G gas per anchor
+  at worst: cache staged results per prefix or charge probes to a per-anchor
+  budget.
+- Not blockers: envelopes do not state their inner `gas_limit`, so reveals at
+  one height share the sealed budget in envelope-key order and a seal is
+  accepted without a gas check (state it in the outer envelope and reserve it
+  at admission, a wire change); a sealed call to a module priced over the
+  sealed budget can apply only warm. A contract's cold price is recomputed by
+  a scan at each cold call; storing it at deployment would make both the call
+  and admission O(1).
+- **Recursion across ISAs**, pre-existing: a call that recurses deep enough to
+  overflow on one ISA and not on another succeeds on one and fails on the
+  other. `max_wasm_stack` is 512 KiB and Cranelift's ISA flags are not pinned
+  (`config.rs`); pinning them narrows x86-64-to-x86-64 differences, not
+  x86-64-to-aarch64. A bound on call depth enforced by fuel, not by the native
+  stack, would close it; not done here.
+- Timing tests stay `#[ignore]`d (shared CI runners); the deterministic
+  guards in CI are the shape bounds and their unit tests.

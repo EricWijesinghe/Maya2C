@@ -342,6 +342,267 @@ fn calibrate_fresh_memory_pages() {
     }
 }
 
+/// `n` copies of `item`, space separated, for WAT.
+fn times(item: &str, n: usize) -> String {
+    vec![item; n].join(" ")
+}
+
+/// Modules at the multi-value limits, as WAT: `$tN` is
+/// `[i32; N/2] -> [i32; N/2]` with `N` the most a type may name.
+fn multi_value_shapes() -> Vec<(String, Vec<u8>)> {
+    use maya_vm::shape::{MAX_CALLS_PER_FUNCTION, MAX_CONTROL_PER_FUNCTION, MAX_TYPE_ARITY};
+    let half = MAX_TYPE_ARITY / 2;
+    let types = format!(
+        "(type $half (func (param {p}) (result {p}))) \
+         (type $in (func (param {all}))) \
+         (type $out (func (result {all})))",
+        p = times("i32", half),
+        all = times("i32", MAX_TYPE_ARITY),
+    );
+    let push = |n: usize| times("i32.const 1", n);
+    let drop = |n: usize| times("drop", n);
+    let most = MAX_CONTROL_PER_FUNCTION;
+    let module = |functions: &str| {
+        wat::parse_str(format!("(module {types} (memory 1) {functions})")).expect("valid WAT")
+    };
+    // Three copies of the function, or as many as one deployable module holds.
+    let three = |body: String| {
+        (1..=3)
+            .rev()
+            .map(|n| module(&times(&format!("(func {body})"), n)))
+            .find(|code| gas::cold_call_fuel(code).is_ok_and(|p| p <= gas::MAX_COLD_CALL_FUEL))
+            .unwrap_or_else(|| module(&format!("(func {body})")))
+    };
+    let mut out = vec![
+        (
+            format!("blocks [{half}]->[{half}] x {most}, 3 fns"),
+            three(format!(
+                "{} {} {}",
+                push(half),
+                times("block (type $half) end", most),
+                drop(half)
+            )),
+        ),
+        (
+            format!("loops [{half}]->[{half}] x {most}, 3 fns"),
+            three(format!(
+                "{} {} {}",
+                push(half),
+                times("loop (type $half) end", most),
+                drop(half)
+            )),
+        ),
+        (
+            format!("ifs [{half}]->[{half}] x {}, 3 fns", most / 2),
+            three(format!(
+                "{} {} {}",
+                push(half),
+                times("i32.const 1 if (type $half) else end", most / 2),
+                drop(half)
+            )),
+        ),
+        (
+            format!("blocks []->[{MAX_TYPE_ARITY}] x {}, 3 fns", most),
+            three(times(
+                &format!(
+                    "block (type $out) {} end {}",
+                    push(MAX_TYPE_ARITY),
+                    drop(MAX_TYPE_ARITY)
+                ),
+                most,
+            )),
+        ),
+        (
+            format!("br_if carrying {half} x {}, 3 fns", most - 1),
+            three(format!(
+                "{} block (type $half) {} end {}",
+                push(half),
+                times("i32.const 1 br_if 0", most - 1),
+                drop(half)
+            )),
+        ),
+    ];
+    // Calls carrying the most values: as many as one module can pay for,
+    // up to the per-function bound, in as many functions as that takes.
+    let carried = gas::CALL_OP_FUEL + MAX_TYPE_ARITY as u64 * gas::ARITY_FUEL;
+    let affordable = usize::try_from(gas::MAX_COLD_CALL_FUEL * 9 / 10 / carried)
+        .unwrap()
+        .min(MAX_CALLS_PER_FUNCTION);
+    let body = (0..half)
+        .map(|i| format!("local.get {i}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    // Typed loops: as many as one module can pay for at the loop price, up
+    // to the per-function bound. Their compile time per value grows with
+    // the loops in the function (ADR-142, "Multi-value").
+    let per_loop = gas::CONTROL_FUEL + MAX_TYPE_ARITY as u64 * gas::LOOP_ARITY_FUEL;
+    let loops = usize::try_from(gas::MAX_COLD_CALL_FUEL * 9 / 10 / per_loop)
+        .unwrap()
+        .min(most);
+    let back_edged =
+        usize::try_from(gas::MAX_COLD_CALL_FUEL * 9 / 10 / (per_loop + gas::CONTROL_FUEL))
+            .unwrap()
+            .min(most / 2);
+    out.extend([
+        (
+            format!("loops [1]->[1] x {most}, 3 fns"),
+            three(format!(
+                "i32.const 1 {} drop",
+                times("loop (param i32) (result i32) end", most)
+            )),
+        ),
+        (
+            format!("loops [{half}]->[{half}] x {loops}"),
+            module(&format!(
+                "(func {} {} {})",
+                push(half),
+                times("loop (type $half) end", loops),
+                drop(half)
+            )),
+        ),
+        (
+            format!("loops [{half}]->[{half}] with a back edge x {back_edged}"),
+            module(&format!(
+                "(func {} {} {})",
+                push(half),
+                times("loop (type $half) i32.const 0 br_if 0 end", back_edged),
+                drop(half)
+            )),
+        ),
+        (
+            format!("nested loops [{half}]->[{half}] x {loops}"),
+            module(&format!(
+                "(func {} {} {} {})",
+                push(half),
+                times("loop (type $half)", loops),
+                times("end", loops),
+                drop(half)
+            )),
+        ),
+    ]);
+    out.extend([
+        (
+            format!("calls [{half}]->[{half}] x {affordable}"),
+            module(&format!(
+                "(func $f (type $half) {body}) (func {} {} {})",
+                push(half),
+                times("call $f", affordable),
+                drop(half)
+            )),
+        ),
+        (
+            format!("calls [{MAX_TYPE_ARITY}]->[] x {}", affordable * 3 / 4),
+            module(&format!(
+                "(func $f (type $in)) (func {})",
+                times(
+                    &format!("{} call $f", push(MAX_TYPE_ARITY)),
+                    affordable * 3 / 4
+                )
+            )),
+        ),
+        (
+            "br_table over 16 typed labels x 10000".to_string(),
+            three(format!(
+                "{} {} i32.const 0 br_table {} {}",
+                push(half),
+                times("block (type $half)", 16),
+                (0..10_000)
+                    .map(|i| (i % 16).to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                times("end", 16) + " " + &drop(half)
+            )),
+        ),
+    ]);
+    // Values held live across controls and calls: no type bounds how many
+    // an operand stack holds.
+    for live in [256usize, 2_048] {
+        let hold = times("local.get 0", live);
+        let release = drop(live);
+        out.push((
+            format!("{live} live across {MAX_CALLS_PER_FUNCTION} calls"),
+            module(&format!(
+                "(func $g) (func (local i64) {hold} {} {release})",
+                times("call $g", MAX_CALLS_PER_FUNCTION)
+            )),
+        ));
+        out.push((
+            format!("{live} live across {} br_if", most / 2),
+            module(&format!(
+                "(func (local i64) {hold} {} {release})",
+                times("block i32.const 1 br_if 0 end", most / 2)
+            )),
+        ));
+    }
+    out
+}
+
+/// Instantiation is priced by length on a warm call (`WARM_CODE_BYTE_FUEL`):
+/// shapes whose instantiation scales with entries rather than bytes (PR #549
+/// review, LOW). Prints warm-call time against its price.
+#[test]
+#[ignore = "timing; run in release with --ignored --nocapture and record the figures in ADR-142"]
+fn calibrate_instantiation_shapes() {
+    let invoke = r#"(memory (export "memory") 1) (func (export "invoke") (param i32) (result i64) (i64.const 0))"#;
+    for (label, extra) in [
+        ("empty", String::new()),
+        (
+            "100k immutable globals",
+            times("(global i32 (i32.const 0))", 100_000),
+        ),
+        (
+            "80k mutable globals",
+            times("(global (mut i64) (i64.const 0))", 80_000),
+        ),
+        (
+            "70k one-byte data segments",
+            times("(data (i32.const 0) \"a\")", 70_000),
+        ),
+        (
+            "1k passive 400 B data segments",
+            times(&format!("(data \"{}\")", "a".repeat(400)), 1_000),
+        ),
+    ] {
+        let code = wat::parse_str(format!("(module {invoke} {extra})")).expect("valid WAT");
+        let vm = Vm::new().unwrap();
+        let compiled = match vm.compile(&code) {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                eprintln!(
+                    "ADV instantiate {label:<32} {:>8} B refused: {error}",
+                    code.len()
+                );
+                continue;
+            }
+        };
+        let price = compiled.call_fuel(true);
+        let mut best = f64::MAX;
+        for _ in 0..RUNS * 3 {
+            let started = Instant::now();
+            let execution = vm.execute_compiled(
+                &compiled,
+                true,
+                [1; 32],
+                &[],
+                gas::MAX_COLD_CALL_FUEL,
+                MemoryState::at_height(1),
+            );
+            best = best.min(started.elapsed().as_secs_f64());
+            assert!(
+                execution.outcome.is_ok(),
+                "{label}: {:?}",
+                execution.outcome
+            );
+        }
+        eprintln!(
+            "ADV instantiate {label:<32} {:>8} B {:>10.3} ms warm price {price:>10} {:>7.3} ns/fuel",
+            code.len(),
+            best * 1e3,
+            best * 1e9 / price as f64,
+        );
+    }
+}
+
 /// The bound the timing test below holds every shape at the limits to:
 /// nanoseconds of compile per unit of its price. The rule is about one; a
 /// shared, loaded machine gets half again.
@@ -362,6 +623,35 @@ fn shapes_at_the_limits_compile_inside_their_price() {
     let calls = |n: usize| [0x10, 0x00].repeat(n);
     let locals = u32::try_from(MAX_LOCALS_PER_FUNCTION).unwrap();
     let mut worst: f64 = 0.0;
+    let mut time = |label: &str, code: &[u8]| {
+        let price = gas::cold_call_fuel(code).expect("within the shape bounds");
+        if price > gas::MAX_COLD_CALL_FUEL {
+            // Refused at deployment before any compile: nothing to time.
+            eprintln!("ADV at-limit {label:<40} price {price:>11} over the deploy price, refused");
+            return;
+        }
+        let mut best = f64::MAX;
+        for _ in 0..RUNS {
+            let vm = Vm::new().unwrap();
+            let started = Instant::now();
+            // A refusal after the compile still paid for it; time it either way.
+            let _ = vm.validate(code);
+            best = best.min(started.elapsed().as_secs_f64());
+        }
+        let ns_per_fuel = best * 1e9 / price as f64;
+        worst = worst.max(ns_per_fuel);
+        eprintln!(
+            "ADV at-limit {label:<40} {:>8} B {:>10.3} ms price {price:>11} {ns_per_fuel:>7.3} ns/fuel",
+            code.len(),
+            best * 1e3,
+        );
+    };
+    // Multi-value (PR #549 review, CRITICAL): typed blocks and calls carrying
+    // the most values a type may name, and values held live across controls
+    // and calls, which no type bounds.
+    for (label, code) in multi_value_shapes() {
+        time(&label, &code);
+    }
     for (label, functions, local_count, body, exported) in [
         (
             "empty functions, exported",
@@ -388,27 +678,16 @@ fn shapes_at_the_limits_compile_inside_their_price() {
             false,
         ),
         ("nested blocks at the cap", 3, 0, nested_blocks(most), false),
-        ("calls", 1, 0, calls(20_000), false),
+        (
+            "calls at the per-function cap",
+            1,
+            0,
+            calls(maya_vm::shape::MAX_CALLS_PER_FUNCTION),
+            false,
+        ),
         ("br_table", 1, 0, br_table(10_000), false),
     ] {
-        let code = shape(0, functions, local_count, &body, exported);
-        let price = gas::cold_call_fuel(&code).expect("within the shape bounds");
-        assert!(price <= gas::MAX_COLD_CALL_FUEL, "{label}: price {price}");
-        let mut best = f64::MAX;
-        for _ in 0..RUNS {
-            let vm = Vm::new().unwrap();
-            let started = Instant::now();
-            // A refusal after the compile still paid for it; time it either way.
-            let _ = vm.validate(&code);
-            best = best.min(started.elapsed().as_secs_f64());
-        }
-        let ns_per_fuel = best * 1e9 / price as f64;
-        worst = worst.max(ns_per_fuel);
-        eprintln!(
-            "ADV at-limit {label:<32} {:>8} B {:>10.3} ms price {price:>11} {ns_per_fuel:>7.3} ns/fuel",
-            code.len(),
-            best * 1e3,
-        );
+        time(label, &shape(0, functions, local_count, &body, exported));
     }
     eprintln!("ADV at-limit worst {worst:.3} ns/fuel (bound {MAX_NS_PER_FUEL})");
     // Real compiled contracts, for scale: what their cold calls now cost

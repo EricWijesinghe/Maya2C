@@ -925,3 +925,11 @@ The review found work running below its price or outside the block's budget; mea
 - **Ceiling 300 M** for both caps (was 500 M).
 
 Raised with Eric, not decided here: one gas-filling call per block crowds out other contract calls for a byte fee (fee per gas or a per-sender share is economics); failing calls are free and stay pooled (eviction after a failed execution is node policy; charging them changes STF-8); the end-of-block bisection may re-run a block's contract work up to ~41 times on one anchor (audit finding 3); the contracts layer of the state root still folds all contract state each block (533 ms at 400,000 entries, dev; ~10 blocks of cheap writes) and blocks genesis until it is incremental or contract state is capped.
+
+## 2026-11-14 — ADR-142 amendment 2: the second PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+- **Multi-value is bounded and priced:** a function type names at most 16 params and results together, a function holds at most 10,000 calls, and the cold price adds 2,500 per value carried by each function's type, typed block, `if` and call, and 30,000 per value a `loop` carries (typed loops compiled 5.09 ns/fuel at 2,500, their time per value growing with the loops in the function; measured in release, ADR-142 amendment 2). The review's `[1000]->[1000]` blocks compiled 166× slower than their price.
+- **A failed call's gas is the same on every validator and counts all its work:** a stack overflow (whose point depends on the ISA) reports its limit plus every page its gas could pay for; any other failure reports what it ran plus its memory, not capped at the limit.
+- **Builder work:** a call refused below its upfront price counts `50,000 + len`; one failing contract trial per sender per selection; deployments are shape-checked at admission only after their signature, and refused there above `MAX_COLD_CALL_FUEL`.
+- **Not taken:** a separate failed-work budget in selection (the review's proposal). A call is only known to fail by running it, so it doubles the builder's worst case without letting through an honest call the shared budget refuses.
+- **Genesis blockers, recorded in BACKLOG.md G1–G3:** free failing calls (needs failed calls included with fee and nonce bump, an STF-8 change: Eric's economics decision), the contracts root fold, and the bisection's re-runs.

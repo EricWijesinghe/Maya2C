@@ -1190,6 +1190,12 @@ impl StateDB {
         self.prewarm_verification(&transactions[..warm], context.height, &policy)?;
         let mut kept = Vec::with_capacity(transactions.len());
         let mut wire = block_wire_len(std::iter::empty::<usize>());
+        // Senders whose contract call or deployment already failed in this
+        // selection. Their later transactions here would fail on the nonce
+        // anyway, except another version of the same nonce: a sub-DAG can
+        // carry several, from different proposers, and each one tried would be
+        // free contract work (PR #549 review). One failed trial per sender.
+        let mut failed_senders = std::collections::BTreeSet::new();
         for tx in transactions {
             let len = transaction_wire_len(tx.to_bytes().len());
             // First-fit (ADR-072): one too big for the room left is passed over
@@ -1198,12 +1204,15 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            let staged = if matches!(
+            let contract = matches!(
                 tx.kind,
-                crate::core::TxKind::Transfer
-                    | crate::core::TxKind::CallContract(_)
-                    | crate::core::TxKind::DeployContract(_)
-            ) {
+                crate::core::TxKind::CallContract(_) | crate::core::TxKind::DeployContract(_)
+            );
+            if contract && failed_senders.contains(&tx.sender()) {
+                continue;
+            }
+            let gas_before = overlay.vm_gas;
+            let staged = if contract || matches!(tx.kind, crate::core::TxKind::Transfer) {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
@@ -1232,6 +1241,11 @@ impl StateDB {
             if staged {
                 wire = wire.saturating_add(len);
                 kept.push(tx);
+            } else if contract && overlay.vm_gas > gas_before {
+                // Only a failure that did contract work: one refused at the
+                // nonce (a replay of the sender's old transaction, which
+                // anyone can put in a sub-DAG) must not shut the sender out.
+                failed_senders.insert(tx.sender());
             }
         }
         Ok(kept)

@@ -20,6 +20,14 @@
 //! (MVP, sign extension, saturating conversions, bulk memory, multi-value)
 //! and refuses any other opcode, which the engine's validator refuses as
 //! well. A module the scan refuses was never going to deploy.
+//!
+//! Multi-value is the one enabled proposal whose cost is not one operator's:
+//! a block or a call carries as many values as its type names, and
+//! wasmparser allows a thousand params and a thousand results. The PR #549
+//! review measured 1,500 `block (type [1000]->[1000])` compiling in 8.2 s for
+//! a price of 49.6 M fuel (166 ns a unit). So a function type may name at
+//! most [`MAX_TYPE_ARITY`] values, and every typed block and every call is
+//! priced by the values it carries ([`ModuleShape::arity`]).
 
 use crate::error::{Result, VmError};
 
@@ -28,6 +36,17 @@ pub const MAX_FUNCTIONS: usize = 10_000;
 
 /// Most locals one function may declare (wasmparser allows 50,000).
 pub const MAX_LOCALS_PER_FUNCTION: usize = 1_024;
+
+/// Most params and results, together, one function type may name
+/// (wasmparser allows 1,000 of each). Contracts compiled from Rust use a
+/// handful; the review found compile time per carried value growing with the
+/// count well before a thousand.
+pub const MAX_TYPE_ARITY: usize = 16;
+
+/// Most `call` and `call_indirect` operators one function may hold. Calls
+/// compiled linearly up to 10,000 in one function; the review measured
+/// 20,000 slower per call.
+pub const MAX_CALLS_PER_FUNCTION: usize = 10_000;
 
 /// Most control operators (`block`, `loop`, `if`, `else`, `br`, `br_if`,
 /// `br_table`, `return`) one function may hold. Past a few thousand in one
@@ -47,6 +66,39 @@ pub struct ModuleShape {
     pub controls: u64,
     /// `call` and `call_indirect` operators, over every function.
     pub calls: u64,
+    /// Values carried, over every function: the params and results of each
+    /// defined function's own type, of each `block` and `if` (one for a
+    /// single-result block type), and of each call's callee type.
+    pub arity: u64,
+    /// Values carried by `loop`s, counted as for `arity`. Priced apart: a
+    /// loop's params are fed again at every back edge, and their compile
+    /// time grows with the loops in the function, not only with the values.
+    pub loop_arity: u64,
+}
+
+/// Params plus results of each function type, and the type of each function,
+/// imported then defined: what a typed block or a call carries.
+#[derive(Default)]
+struct Types {
+    arity: Vec<u32>,
+    functions: Vec<u32>,
+}
+
+impl Types {
+    fn of_type(&self, index: u32) -> Result<u64> {
+        self.arity
+            .get(index as usize)
+            .map(|a| u64::from(*a))
+            .ok_or_else(|| invalid("type index out of range"))
+    }
+
+    fn of_function(&self, index: u32) -> Result<u64> {
+        let ty = *self
+            .functions
+            .get(index as usize)
+            .ok_or_else(|| invalid("function index out of range"))?;
+        self.of_type(ty)
+    }
 }
 
 /// Reads `wasm`'s shape, refusing a module past the bounds above.
@@ -61,17 +113,31 @@ pub fn scan(wasm: &[u8]) -> Result<ModuleShape> {
         return Err(invalid("not a version 1 wasm module"));
     }
     let mut shape = ModuleShape::default();
+    let mut types = Types::default();
+    // Where the defined functions start in `types.functions`: each body's
+    // own type is found from it.
+    let mut first_defined = 0usize;
     while !reader.done() {
         let id = reader.byte()?;
         let size = reader.u32()? as usize;
         let mut section = Reader::new(reader.take(size)?);
         match id {
-            2 => imports(&mut section, &mut shape)?,
+            1 => type_section(&mut section, &mut types)?,
+            2 => imports(&mut section, &mut shape, &mut types)?,
             3 => {
                 let defined = section.u32()?;
                 shape.functions = shape.functions.saturating_add(u64::from(defined));
+                if shape.functions > MAX_FUNCTIONS as u64 {
+                    return Err(too_many("functions", shape.functions, MAX_FUNCTIONS));
+                }
+                first_defined = types.functions.len();
+                for _ in 0..defined {
+                    let ty = section.u32()?;
+                    types.of_type(ty)?;
+                    types.functions.push(ty);
+                }
             }
-            10 => code(&mut section, &mut shape)?,
+            10 => code(&mut section, &mut shape, &types, first_defined)?,
             _ => {}
         }
         if shape.functions > MAX_FUNCTIONS as u64 {
@@ -93,15 +159,53 @@ fn too_many(what: &'static str, actual: u64, limit: usize) -> VmError {
     }
 }
 
-/// Counts imported functions; skips the other import kinds.
-fn imports(section: &mut Reader<'_>, shape: &mut ModuleShape) -> Result<()> {
+/// Every function type's arity, refusing one past [`MAX_TYPE_ARITY`] and any
+/// type form or value type outside the enabled proposals.
+fn type_section(section: &mut Reader<'_>, types: &mut Types) -> Result<()> {
+    for _ in 0..section.u32()? {
+        if section.byte()? != 0x60 {
+            return Err(invalid("type outside the enabled proposals"));
+        }
+        let mut arity: u64 = 0;
+        // Params, then results.
+        for _ in 0..2 {
+            let count = section.u32()?;
+            arity = arity.saturating_add(u64::from(count));
+            if arity > MAX_TYPE_ARITY as u64 {
+                return Err(too_many(
+                    "function type params and results",
+                    arity,
+                    MAX_TYPE_ARITY,
+                ));
+            }
+            for _ in 0..count {
+                // f64, f32, i64, i32: SIMD and reference types are off.
+                if !matches!(section.byte()?, 0x7c..=0x7f) {
+                    return Err(invalid("value type outside the enabled proposals"));
+                }
+            }
+        }
+        // At most MAX_TYPE_ARITY, checked above.
+        types.arity.push(u32::try_from(arity).unwrap_or(u32::MAX));
+    }
+    Ok(())
+}
+
+/// Counts imported functions and records their types; skips the other
+/// import kinds.
+fn imports(section: &mut Reader<'_>, shape: &mut ModuleShape, types: &mut Types) -> Result<()> {
     for _ in 0..section.u32()? {
         section.name()?;
         section.name()?;
         match section.byte()? {
             0 => {
-                section.u32()?;
+                let ty = section.u32()?;
+                types.of_type(ty)?;
+                types.functions.push(ty);
                 shape.functions = shape.functions.saturating_add(1);
+                if shape.functions > MAX_FUNCTIONS as u64 {
+                    return Err(too_many("functions", shape.functions, MAX_FUNCTIONS));
+                }
             }
             1 => {
                 section.byte()?;
@@ -119,8 +223,18 @@ fn imports(section: &mut Reader<'_>, shape: &mut ModuleShape) -> Result<()> {
 }
 
 /// Every function body: its locals, then its operators.
-fn code(section: &mut Reader<'_>, shape: &mut ModuleShape) -> Result<()> {
-    for _ in 0..section.u32()? {
+fn code(
+    section: &mut Reader<'_>,
+    shape: &mut ModuleShape,
+    types: &Types,
+    first_defined: usize,
+) -> Result<()> {
+    for index in 0..section.u32()? {
+        let own = first_defined
+            .checked_add(index as usize)
+            .and_then(|i| u32::try_from(i).ok())
+            .ok_or_else(|| invalid("function index out of range"))?;
+        shape.arity = shape.arity.saturating_add(types.of_function(own)?);
         let size = section.u32()? as usize;
         let mut body = Reader::new(section.take(size)?);
         let mut locals: u64 = 0;
@@ -131,43 +245,70 @@ fn code(section: &mut Reader<'_>, shape: &mut ModuleShape) -> Result<()> {
                 return Err(too_many("function locals", locals, MAX_LOCALS_PER_FUNCTION));
             }
         }
-        let (controls, calls) = operators(&mut body)?;
-        if controls > MAX_CONTROL_PER_FUNCTION as u64 {
+        let ops = operators(&mut body, types)?;
+        if ops.controls > MAX_CONTROL_PER_FUNCTION as u64 {
             return Err(too_many(
                 "function control operators",
-                controls,
+                ops.controls,
                 MAX_CONTROL_PER_FUNCTION,
             ));
         }
+        if ops.calls > MAX_CALLS_PER_FUNCTION as u64 {
+            return Err(too_many(
+                "function calls",
+                ops.calls,
+                MAX_CALLS_PER_FUNCTION,
+            ));
+        }
         shape.locals = shape.locals.saturating_add(locals);
-        shape.controls = shape.controls.saturating_add(controls);
-        shape.calls = shape.calls.saturating_add(calls);
+        shape.controls = shape.controls.saturating_add(ops.controls);
+        shape.calls = shape.calls.saturating_add(ops.calls);
+        shape.arity = shape.arity.saturating_add(ops.arity);
+        shape.loop_arity = shape.loop_arity.saturating_add(ops.loop_arity);
     }
     Ok(())
 }
 
-/// `(control operators, calls)` in one body, skipping every immediate.
-/// Calls compile linearly (5–6 µs each up to 10,000 in one function), so
-/// they are priced but not bounded per function.
-fn operators(body: &mut Reader<'_>) -> Result<(u64, u64)> {
-    let (mut controls, mut calls) = (0u64, 0u64);
+/// What one body's operators count.
+#[derive(Default)]
+struct Operators {
+    controls: u64,
+    calls: u64,
+    arity: u64,
+    loop_arity: u64,
+}
+
+/// One body's control operators, calls and carried values, skipping every
+/// other immediate.
+fn operators(body: &mut Reader<'_>, types: &Types) -> Result<Operators> {
+    let mut ops = Operators::default();
     while !body.done() {
         match body.byte()? {
             // unreachable, nop, end, drop, select, numeric and conversion
             // operators, sign extension: no immediate.
             0x00 | 0x01 | 0x0b | 0x1a | 0x1b | 0x45..=0xc4 => {}
-            0x02..=0x04 => {
-                body.block_type()?;
-                controls += 1;
+            op @ 0x02..=0x04 => {
+                let carried = match body.block_type()? {
+                    BlockType::Empty => 0,
+                    BlockType::Value => 1,
+                    BlockType::Type(index) => types.of_type(index)?,
+                };
+                if op == 0x03 {
+                    ops.loop_arity = ops.loop_arity.saturating_add(carried);
+                } else {
+                    ops.arity = ops.arity.saturating_add(carried);
+                }
+                ops.controls += 1;
             }
-            0x05 | 0x0f => controls += 1,
+            0x05 | 0x0f => ops.controls += 1,
             0x0c | 0x0d => {
                 body.u32()?;
-                controls += 1;
+                ops.controls += 1;
             }
             0x10 => {
-                body.u32()?;
-                calls += 1;
+                let callee = body.u32()?;
+                ops.arity = ops.arity.saturating_add(types.of_function(callee)?);
+                ops.calls += 1;
             }
             // One control however many targets: a 200,000-target table
             // measured 17 ns a byte, far inside the byte price.
@@ -176,12 +317,13 @@ fn operators(body: &mut Reader<'_>) -> Result<(u64, u64)> {
                 for _ in 0..=targets {
                     body.u32()?;
                 }
-                controls += 1;
+                ops.controls += 1;
             }
             0x11 => {
+                let ty = body.u32()?;
                 body.u32()?;
-                body.u32()?;
-                calls += 1;
+                ops.arity = ops.arity.saturating_add(types.of_type(ty)?);
+                ops.calls += 1;
             }
             // local.get/set/tee, global.get/set, memory.size, memory.grow
             0x20..=0x24 | 0x3f | 0x40 => {
@@ -211,7 +353,14 @@ fn operators(body: &mut Reader<'_>) -> Result<(u64, u64)> {
             _ => return Err(invalid("operator outside the enabled proposals")),
         }
     }
-    Ok((controls, calls))
+    Ok(ops)
+}
+
+/// What a `block`, `loop` or `if` carries.
+enum BlockType {
+    Empty,
+    Value,
+    Type(u32),
 }
 
 /// A bounds-checked cursor over module bytes.
@@ -280,11 +429,15 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
-    /// `0x40`, one value type, or a type index (s33, non-negative).
-    fn block_type(&mut self) -> Result<()> {
+    /// `0x40`, one value type, or a type index (an s33 that must be
+    /// non-negative: a first byte with the sign bit 0x40 clear, which reads
+    /// the same as an unsigned LEB128).
+    fn block_type(&mut self) -> Result<BlockType> {
         match self.bytes.get(self.at) {
-            Some(0x40 | 0x6f..=0x7f) => self.byte().map(|_| ()),
-            Some(_) => self.leb(),
+            Some(0x40) => self.byte().map(|_| BlockType::Empty),
+            Some(0x6f..=0x7f) => self.byte().map(|_| BlockType::Value),
+            Some(byte) if byte & 0x40 == 0 => self.u32().map(BlockType::Type),
+            Some(_) => Err(invalid("block type outside the enabled proposals")),
             None => Err(invalid("truncated")),
         }
     }
@@ -331,8 +484,99 @@ mod tests {
                 // block, loop, br_if, br, if, else, br_table
                 controls: 7,
                 calls: 0,
+                // The defined function's own (i32) -> (i64).
+                arity: 2,
+                loop_arity: 0,
             }
         );
+    }
+
+    #[test]
+    fn typed_blocks_and_calls_are_counted_by_the_values_they_carry() {
+        let shape = scan(&wasm(
+            r#"(module
+                (type $t (func (param i32 i32) (result i32 i32 i32)))
+                (import "env" "f" (func $f (type $t)))
+                (table 1 funcref)
+                (func (result i32)
+                  (drop (drop (drop (call $f (i32.const 0) (i32.const 0)))))
+                  (drop (drop (drop (call_indirect (type $t) (i32.const 0) (i32.const 0) (i32.const 0)))))
+                  (block (result i32) (i32.const 0))
+                  (drop)
+                  (i32.const 0) (i32.const 0)
+                  (block (type $t) (param i32 i32) (result i32 i32 i32) (i32.const 0))
+                  (loop (param i32) (result i32))
+                  (drop) (drop) (drop)
+                  (i32.const 7)))"#,
+        ))
+        .unwrap();
+        // own () -> i32: 1; call $f: 5; call_indirect $t: 5; block (result
+        // i32): 1; block (type $t): 5.
+        assert_eq!(shape.arity, 17);
+        // loop (param i32) (result i32): priced apart.
+        assert_eq!(shape.loop_arity, 2);
+        assert_eq!(shape.calls, 2);
+        assert_eq!(shape.controls, 3);
+    }
+
+    #[test]
+    fn a_function_type_past_the_arity_bound_is_refused() {
+        // The review's bomb: [1000] -> [1000]. Refused at the type, before
+        // any body is read.
+        let wide = |params: usize, results: usize| {
+            wasm(&format!(
+                "(module (type (func (param {}) (result {}))))",
+                "i32 ".repeat(params),
+                "i32 ".repeat(results)
+            ))
+        };
+        let refused = |code: &[u8]| {
+            matches!(
+                scan(code),
+                Err(VmError::SizeLimit {
+                    what: "function type params and results",
+                    ..
+                })
+            )
+        };
+        assert!(refused(&wide(1000, 1000)));
+        assert!(refused(&wide(MAX_TYPE_ARITY, 1)));
+        assert!(refused(&wide(1, MAX_TYPE_ARITY)));
+        assert!(scan(&wide(MAX_TYPE_ARITY / 2, MAX_TYPE_ARITY / 2)).is_ok());
+        assert!(scan(&wide(MAX_TYPE_ARITY, 0)).is_ok());
+        // A reference type in a signature is a disabled proposal.
+        assert!(scan(&wasm("(module (type (func (param externref))))")).is_err());
+    }
+
+    #[test]
+    fn calls_past_the_per_function_bound_are_refused() {
+        let calls = |n: usize| {
+            wasm(&format!(
+                "(module (func $g) (func {}))",
+                "(call $g)".repeat(n)
+            ))
+        };
+        assert!(scan(&calls(MAX_CALLS_PER_FUNCTION)).is_ok());
+        assert!(matches!(
+            scan(&calls(MAX_CALLS_PER_FUNCTION + 1)),
+            Err(VmError::SizeLimit {
+                what: "function calls",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn an_index_the_module_does_not_define_is_refused() {
+        // A body whose block names type 5 in a module with one type: the
+        // validator refuses it too, and the scan must not price it as zero.
+        let mut code = wasm("(module (func (block)))");
+        let at = code
+            .windows(2)
+            .rposition(|w| w == [0x02, 0x40])
+            .expect("the block");
+        code[at + 1] = 0x05;
+        assert!(scan(&code).is_err());
     }
 
     #[test]

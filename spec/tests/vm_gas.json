@@ -415,11 +415,13 @@
         "functions": "1",
         "locals": "1",
         "controls": "1",
-        "calls": "1"
+        "calls": "1",
+        "arity": "1",
+        "loop_arity": "1"
       },
       "expect": {
         "result": "ok",
-        "value": "163170"
+        "value": "195670"
       }
     },
     {
@@ -432,11 +434,51 @@
         "functions": "0",
         "locals": "0",
         "controls": "0",
-        "calls": "0"
+        "calls": "0",
+        "arity": "0",
+        "loop_arity": "0"
       },
       "expect": {
         "result": "ok",
         "value": "0"
+      }
+    },
+    {
+      "id": "shape-fuel-arity-16",
+      "rules": [
+        "GAS-3"
+      ],
+      "kind": "shape_fuel",
+      "input": {
+        "functions": "0",
+        "locals": "0",
+        "controls": "0",
+        "calls": "0",
+        "arity": "16",
+        "loop_arity": "0"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "40000"
+      }
+    },
+    {
+      "id": "shape-fuel-loop-arity-16",
+      "rules": [
+        "GAS-3"
+      ],
+      "kind": "shape_fuel",
+      "input": {
+        "functions": "0",
+        "locals": "0",
+        "controls": "0",
+        "calls": "0",
+        "arity": "0",
+        "loop_arity": "16"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "480000"
       }
     },
     {
@@ -482,6 +524,24 @@
       }
     },
     {
+      "id": "admit-sealed-call-to-a-module-priced-over-the-sealed-budget",
+      "rules": [
+        "GAS-2",
+        "GAS-5"
+      ],
+      "kind": "admit_call",
+      "input": {
+        "gas_limit": "100000000",
+        "tx_cap": "250000000",
+        "block_cap": "62500000",
+        "block_used": "0"
+      },
+      "expect": {
+        "result": "error",
+        "error": "GasAboveCap"
+      }
+    },
+    {
       "id": "golden-empty-call",
       "rules": [
         "GAS-3",
@@ -494,7 +554,7 @@
       },
       "expect": {
         "result": "ok",
-        "value": "205302"
+        "value": "210302"
       }
     },
     {
@@ -509,7 +569,7 @@
       },
       "expect": {
         "result": "ok",
-        "value": "376234"
+        "value": "391234"
       }
     },
     {
@@ -525,7 +585,7 @@
       },
       "expect": {
         "result": "ok",
-        "value": "376666"
+        "value": "394166"
       }
     },
     {
@@ -540,7 +600,7 @@
       },
       "expect": {
         "result": "ok",
-        "value": "376655"
+        "value": "394155"
       }
     },
     {
@@ -555,7 +615,7 @@
       },
       "expect": {
         "result": "ok",
-        "value": "361937"
+        "value": "376937"
       }
     },
     {
@@ -570,7 +630,7 @@
       },
       "expect": {
         "result": "ok",
-        "value": "297554"
+        "value": "302554"
       }
     },
     {
@@ -587,7 +647,7 @@
       "expect": {
         "result": "error",
         "error": "Trap",
-        "value": "204851"
+        "value": "209851"
       }
     },
     {
@@ -603,7 +663,7 @@
       "expect": {
         "result": "error",
         "error": "OutOfGas",
-        "value": "1000000"
+        "value": "1006000"
       }
     },
     {
@@ -619,7 +679,7 @@
       "expect": {
         "result": "error",
         "error": "SizeLimit",
-        "value": "363056"
+        "value": "380556"
       }
     },
     {
@@ -635,7 +695,72 @@
       "expect": {
         "result": "error",
         "error": "MemoryLimit",
-        "value": "199750"
+        "value": "204750"
+      }
+    },
+    {
+      "id": "golden-typed-block-pays-for-its-values",
+      "rules": [
+        "GAS-3"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (type $h (func (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32 i32 i32 i32 i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) i32.const 1 i32.const 1 i32.const 1 i32.const 1 i32.const 1 i32.const 1 i32.const 1 i32.const 1 block (type $h) end drop drop drop drop drop drop drop drop (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "306860"
+      }
+    },
+    {
+      "id": "golden-wide-type-refused",
+      "rules": [
+        "GAS-3"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (type (func (param i32 i32 i32 i32 i32 i32 i32 i32 i32) (result i32 i32 i32 i32 i32 i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "SizeLimit",
+        "value": "0"
+      }
+    },
+    {
+      "id": "golden-stack-overflow-uses-its-limit-and-every-page",
+      "rules": [
+        "GAS-2",
+        "GAS-7"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (call $down (i64.add (local.get 0) (i64.const 1)))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 0))))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "Trap",
+        "value": "11536000"
+      }
+    },
+    {
+      "id": "golden-out-of-gas-after-touching-memory",
+      "rules": [
+        "GAS-2",
+        "GAS-7"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (local $p i32) (drop (memory.grow (i32.const 255))) (loop $t (i32.store8 (local.get $p) (i32.const 1)) (local.set $p (i32.add (local.get $p) (i32.const 4096))) (br_if $t (i32.lt_u (local.get $p) (i32.const 16777216)))) (loop $l (br $l)) (i64.const 0)))",
+        "gas_limit": "20000000"
+      },
+      "expect": {
+        "result": "error",
+        "error": "OutOfGas",
+        "value": "21536000"
       }
     }
   ]

@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      vm: ${{ steps.diff.outputs.vm }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -51,10 +52,16 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"; echo "push: full run"; exit 0
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "vm=true" >> "$GITHUB_OUTPUT"
+            echo "push: full run"; exit 0
           fi
           files=$(git diff --name-only "$BASE"...HEAD)
           echo "$files"
+          if echo "$files" | grep -qE '^(crates/vm/|spec/tests/vm_gas\.json|crates/node/src/state/vm_exec\.rs|Cargo\.lock)'; then
+            echo "vm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "vm=false" >> "$GITHUB_OUTPUT"
+          fi
           if echo "$files" | grep -qvE '^(docs/(site|brand|master-prompts|releases)/|README\.md$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"; echo "code changed: full run"
           else
@@ -135,6 +142,35 @@ jobs:
         run: node spec/verifier-ts/verify.ts
       - name: Rule coverage (gaps are listed, not fatal)
         run: cargo xtask spec-coverage
+
+  # Contract gas is consensus (ADR-142): the same call must use the same gas
+  # on every validator's CPU. The golden values in spec/tests/vm_gas.json
+  # were produced on x86-64; this replays them, the gas hardening tests
+  # (stack overflow included) and the Cranelift/Pulley differential on
+  # aarch64. Only when the VM, its vectors or the lockfile change.
+  vm-gas-aarch64:
+    name: vm gas (aarch64)
+    needs: changes
+    if: needs.changes.outputs.vm == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install clang (RocksDB's build)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: vm-gas-aarch64
+      - name: VM gas, hardening and tier differential
+        run: >-
+          cargo test --locked -p maya-vm
+          --test gas_hardening_tests --test gas_pricing_tests
+          --test tier_differential_tests
+      - name: Golden gas vectors
+        run: cargo test --locked -p custom-l1-node --test vm_gas_tests the_spec_vectors_hold
 
   # Screenshot diffs of the design-system specimen (Master Prompt 29). Pinned
   # to one Playwright image because font rasterisation differs between hosts:

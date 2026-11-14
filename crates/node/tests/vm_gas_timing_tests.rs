@@ -236,12 +236,7 @@ fn a_block_of_committed_storage_reads_validates_inside_the_block_time() {
     // Every read is of a distinct committed key, so on the node every one
     // is the block's first: cold (GAS-4). The in-memory preflight host has
     // nothing cold, so the surcharge is added per iteration here.
-    let n = iterations_within(
-        limit,
-        make,
-        filled,
-        maya_vm::gas::STORAGE_COLD_READ_FUEL,
-    );
+    let n = iterations_within(limit, make, filled, maya_vm::gas::STORAGE_COLD_READ_FUEL);
     assert!(
         n <= u64::from(keys),
         "every read must hit: {n} reads, {keys} keys"

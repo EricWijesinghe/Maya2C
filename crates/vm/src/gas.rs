@@ -97,6 +97,26 @@ pub const CONTROL_FUEL: u64 = 30_000;
 /// Measured: 5.1–6.1 µs a call in two bytes.
 pub const CALL_OP_FUEL: u64 = 8_000;
 
+/// Charged per value a function's own type, a typed `block`/`if` or a
+/// call's callee type carries ([`crate::shape::ModuleShape::arity`]), on a
+/// cold call. Function types carry at most
+/// [`crate::shape::MAX_TYPE_ARITY`] values.
+///
+/// Measured, release: typed blocks, `if`s and calls at the bounds compile in
+/// at most 0.96 ns per unit of their whole price (best of three runs; up to
+/// 1.18 on the loaded shared machine). The control and call prices carry
+/// most of it (ADR-142, "Multi-value").
+pub const ARITY_FUEL: u64 = 2_500;
+
+/// Charged per value a `loop` carries
+/// ([`crate::shape::ModuleShape::loop_arity`]), on a cold call.
+///
+/// Measured: a loop's params cost compile time per value that grows with the
+/// loops in the function, about 11.75 ns per value per loop, so 23.5 µs per
+/// value at the 2,000 a function may hold (2,000 loops of 16 params: 823 ms,
+/// release). Priced above that (ADR-142, "Multi-value").
+pub const LOOP_ARITY_FUEL: u64 = 30_000;
+
 /// Charged once the call returns, per 64 KiB page of linear memory it held
 /// at most (its initial pages included). A call may hold no more pages than
 /// what is left of its gas after the upfront price could pay for.
@@ -109,8 +129,11 @@ pub const MEMORY_PAGE_FUEL: u64 = 6_000;
 
 /// The most a cold call may pay up front: what the largest module would pay
 /// if its length were all it cost. A deployment whose module would cost more
-/// is refused, so every deployed contract stays callable under the lowest
-/// cap governance may set (`vm.max_tx_gas`'s floor is this plus 4,000,000).
+/// is refused, so every deployed contract stays callable by a plaintext call
+/// under the lowest cap governance may set (`vm.max_tx_gas`'s floor is this
+/// plus 4,000,000). A revealed sealed call's cap is the sealed budget, a
+/// quarter of the block cap: a module priced above that is never called cold
+/// through an envelope (GAS-5).
 pub const MAX_COLD_CALL_FUEL: u64 = call_fuel(crate::config::MAX_MODULE_BYTES, false);
 
 /// Charged per byte of the module on a **warm** call: a later call to a
@@ -193,6 +216,8 @@ pub const fn shape_fuel(shape: &ModuleShape) -> u64 {
         .saturating_add(LOCAL_FUEL.saturating_mul(shape.locals))
         .saturating_add(CONTROL_FUEL.saturating_mul(shape.controls))
         .saturating_add(CALL_OP_FUEL.saturating_mul(shape.calls))
+        .saturating_add(ARITY_FUEL.saturating_mul(shape.arity))
+        .saturating_add(LOOP_ARITY_FUEL.saturating_mul(shape.loop_arity))
 }
 
 /// What a cold call of `wasm` pays before its first instruction, and what a
@@ -256,6 +281,8 @@ mod tests {
             locals: 2,
             controls: 2,
             calls: 1,
+            arity: 0,
+            loop_arity: 0,
         };
         assert_eq!(crate::shape::scan(&wasm).unwrap(), shape);
         assert_eq!(
