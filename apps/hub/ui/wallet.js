@@ -51,7 +51,16 @@ const Wallet = (() => {
     const list = document.getElementById("w-list");
     if (!list) return;
     const total = rows.reduce((sum, r) => (r.balance ? sum + BigInt(r.balance) : sum), 0n);
-    document.getElementById("w-total").textContent = rows.some((r) => r.balance) ? formatMaya(total.toString()) : "—";
+    const known = rows.some((r) => r.balance);
+    const totalEl = document.getElementById("w-total");
+    totalEl.textContent = known ? formatMaya(total.toString()) : "—";
+    // No figure: the hint stands alone instead of a dash as the page's largest element.
+    totalEl.hidden = !known;
+    const hint = document.getElementById("w-total-hint");
+    if (hint) {
+      hint.hidden = known;
+      hint.textContent = watched.length ? "Balances show here once the node answers." : "Watch an address below to see its balance here.";
+    }
     if (!watched.length) {
       list.replaceChildren(el("p", "fine", "No addresses yet. Paste one of yours above: it is only read, never used to sign."));
       return;
@@ -118,7 +127,7 @@ const Wallet = (() => {
   // are allowed by capabilities/default.json.
   const APP_LINKS = [
     { button: "open-wallet", url: "maya2c-wallet://open", note: "open-wallet-msg", name: "Maya2C Wallet" },
-    { button: "open-chat", url: "maya2c-chat://open", note: "open-chat-msg", name: "Maya Chat" },
+    { button: "open-chat", url: "maya2c-chat://open", note: "open-chat-msg", name: "Maya2C Chat" },
   ];
   async function openApp(link) {
     const note = document.getElementById(link.note);

@@ -163,6 +163,28 @@ jobs:
           name: visual-diff
           path: design/visual/out/
 
+  # The Hub's webview in Chromium on its preview data: the first-start sheet
+  # and its backup gate, the three power states, canvas names, axe contrast in
+  # both themes, nothing live and no figure while the network is paused, and
+  # no horizontal overflow from 360 px. Same pinned image as `visual`; the
+  # Hub itself does not depend on playwright or axe-core.
+  hub-ui:
+    name: hub ui (browser)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install the browser tools
+        run: npm install --no-save --prefix /tmp/hub-tools playwright@1.56.1 axe-core@4.14.0
+      - name: Browser checks
+        env:
+          HUB_TOOLS: /tmp/hub-tools
+          NO_SHOTS: "1"
+        run: node apps/hub/ui-tests/browser-check.mjs
+
   fmt:
     name: rustfmt
     needs: changes

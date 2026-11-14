@@ -7,7 +7,9 @@
 const NetView = (() => {
   const TILT = 0.42; // orbit plane tilt, radians
   const CAMERA = 3.2; // camera distance in orbit radii; sets the perspective
-  const ORBIT_FRAC = 0.36; // orbit radius as a share of the shorter canvas side
+  const ORBIT_FRAC = 0.4; // orbit radius as a share of the shorter canvas side
+  const FLASH_MS = 900; // core flash and outward ring when a new block arrives
+  const LIT_MS = 800; // validators glow this long after a block's pulse reaches them
   const ORBIT_PER_MS = 0.0004; // radians per ms: one lap about every 16 s
   const SPIN_PER_MS = 0.00006; // slow turn of the whole scene
   const MAX_DRAWN = 32; // validators beyond this are counted but not drawn
@@ -28,6 +30,8 @@ const NetView = (() => {
     snap: null,
     rate: null,
     pulses: [],
+    flash: -Infinity, // performance.now() of the last new block
+    lit: -Infinity, // when the last pulse reached the committee
     entries: [],
     active: null,
   };
@@ -66,7 +70,7 @@ const NetView = (() => {
 
   function describeCore(s, rate) {
     if (!s) return { title: "Connecting", line: "Waiting for the first reply from the node." };
-    if (!s.reachable) return { title: "Node unreachable", line: "No live data. The view stays dimmed until the node answers." };
+    if (!s.reachable) return { title: "No reply from the node", line: "The node did not answer the last poll. The view stays dimmed until it does." };
     const fee = s.fees && s.fees.active ? `base fee ${s.fees.base_fee} per byte` : "fees off";
     const measured = rate == null ? "not measured yet" : `${rate.toFixed(1)} blocks/min, measured here`;
     return {
@@ -92,13 +96,13 @@ const NetView = (() => {
     if (!m) return null;
     if (!m.active) return { title: "Mining not open yet", line: "Steel ring: no mining work is open on the chain." };
     const shares = m.shares != null && m.target_shares != null ? `Shares ${m.shares} of ${m.target_shares} this epoch. ` : "";
-    return { title: `Mining open · epoch ${m.epoch}`, line: "Gold ring: the chain is taking mining work.", detail: `${shares}Source: node snapshot.` };
+    return { title: `Mining open · epoch ${m.epoch}`, line: "Bronze ring: the chain is taking mining work.", detail: `${shares}Source: node snapshot.` };
   }
 
   // Keeps the canvas's accessible name in step with the figures on screen.
   function summary(s, rate) {
     if (!s) return "Network view: waiting for the node.";
-    if (!s.reachable) return "Network view: node unreachable, no live data.";
+    if (!s.reachable) return "Network view: no reply from the node at the last poll.";
     const n = committeeCount(s);
     const parts = [`chain ${s.chain.chain_id}, height ${Number(s.chain.height).toLocaleString()}`,
       n == null ? "committee not reported" : `committee ${n} validators`,
@@ -249,7 +253,7 @@ const NetView = (() => {
     ctx.globalAlpha = 1;
   }
 
-  // Each block: a gold dot per validator, travelling from the core outward.
+  // Each block: a bronze dot per validator, travelling from the core outward.
   // With no committee to reach, the block shows as one expanding ring instead.
   function drawPulses(g) {
     const { t } = g;
@@ -258,6 +262,7 @@ const NetView = (() => {
       const age = (t - p.t0) / p.dur;
       if (age >= 1) {
         v.pulses.splice(i, 1);
+        v.lit = t;
       } else if (age >= 0) {
         drawPulse(g, age);
       }
@@ -292,14 +297,16 @@ const NetView = (() => {
   function drawOrbiters(g) {
     const { ctx } = g;
     const order = g.pts.map((p, i) => ({ i, q: project(p, g) })).sort((a, b) => b.q.z - a.q.z);
+    // Lit: the last block's pulse just reached the committee.
+    const lit = Math.max(0, 1 - (g.t - v.lit) / LIT_MS);
     ctx.fillStyle = v.colors.glow;
-    ctx.shadowColor = v.colors.glow;
-    ctx.shadowBlur = 12;
+    ctx.shadowColor = lit > 0 ? v.colors.gold : v.colors.glow;
+    ctx.shadowBlur = 12 + 18 * lit;
     order.forEach(({ i, q }) => {
       const depth = (q.z + 1) / 2;
       ctx.globalAlpha = 1 - 0.6 * Math.min(1, Math.max(0, depth));
       ctx.beginPath();
-      ctx.arc(q.x, q.y, 4.5 * q.k, 0, Math.PI * 2);
+      ctx.arc(q.x, q.y, (5 + 3 * lit) * q.k, 0, Math.PI * 2);
       ctx.fill();
       v.entries[3 + i].x = q.x;
       v.entries[3 + i].y = q.y;
@@ -308,29 +315,56 @@ const NetView = (() => {
     ctx.globalAlpha = 1;
   }
 
+  // A lit sphere: a wide glow sized to the card, a core shaded from a
+  // highlight to the deep accent, and on each new block a flash and a ring
+  // that runs out past the orbit.
   function drawCore(g) {
-    const { ctx, cx, cy, R, live, beat } = g;
-    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.9);
-    glow.addColorStop(0, live ? "rgba(31,181,194,0.4)" : "rgba(147,164,170,0.2)");
-    glow.addColorStop(1, "rgba(5,11,15,0)");
+    const { ctx, cx, cy, R, w, h, live, beat } = g;
+    const flash = live ? Math.max(0, 1 - (g.t - v.flash) / FLASH_MS) : 0;
+    const reach = Math.max(w, h) * 0.6;
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, reach);
+    glow.addColorStop(0, live ? Charts.tint("--accent", 0.34 + 0.2 * flash) : Charts.tint("--accent", 0.14));
+    glow.addColorStop(0.35, live ? Charts.tint("--accent", 0.1) : Charts.tint("--steel", 0.06));
+    glow.addColorStop(1, Charts.tint("--accent", 0));
     ctx.fillStyle = glow;
-    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
-    ctx.fillStyle = live ? v.colors.glow : v.colors.steel;
+    ctx.fillRect(0, 0, w, h);
+
+    if (flash > 0) {
+      ctx.strokeStyle = Charts.tint("--accent-hover", flash * 0.8);
+      ctx.lineWidth = 2 + 2 * flash;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * (0.2 + 1.1 * (1 - flash)), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    const r = R * 0.17 * beat * (1 + 0.25 * flash);
+    const body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+    // At rest the core is steel with a teal rim: amber is the banner's alone.
+    body.addColorStop(0, live ? v.colors.glow : Charts.tint("--steel", 0.9));
+    body.addColorStop(0.6, live ? v.colors.teal : Charts.tint("--steel", 0.6));
+    body.addColorStop(1, live ? Charts.tint("--accent-grad-to", 0.9) : Charts.tint("--steel", 0.5));
+    ctx.fillStyle = body;
+    ctx.shadowColor = live ? v.colors.glow : Charts.tint("--accent", 0.5);
+    ctx.shadowBlur = 24 + 20 * flash;
     ctx.beginPath();
-    ctx.arc(cx, cy, R * 0.16 * beat, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
   }
 
-  // Unreachable: dim the whole view and draw a red status ring.
+  // No reply: dim the view and draw a calm dashed steel ring. A paused network
+  // is waiting, not broken; the banner above says so, in the only amber.
   function drawDown(g) {
     const { ctx, cx, cy, w, h } = g;
-    ctx.fillStyle = "rgba(5,11,15,0.55)";
+    ctx.fillStyle = Charts.tint("--bg", 0.35);
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = v.colors.hot;
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = v.colors.steel;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 8]);
     ctx.beginPath();
-    ctx.arc(cx, cy, Math.min(w, h) * 0.46, 0, Math.PI * 2);
+    ctx.arc(cx, cy, Math.min(w, h) * 0.44, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // Buttons for the core, committee ring and mining ring sit where those things are drawn.
@@ -349,12 +383,18 @@ const NetView = (() => {
 
   // ----------------------------------------------------------- public API ----
 
+  // Token roles, read again whenever the theme changes (refresh).
   function readColors() {
-    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const css = Charts.css;
     return {
-      teal: css("--teal"), glow: css("--teal-glow"), gold: css("--gold"),
-      steel: css("--dim"), hot: css("--hot"), grid: css("--grid"),
+      teal: css("--accent"), glow: css("--accent-hover"), gold: css("--bronze"),
+      steel: css("--steel"), warn: css("--warn"), grid: css("--chart-grid"),
     };
+  }
+
+  function refresh() {
+    v.colors = readColors();
+    frame(performance.now());
   }
 
   function init({ canvas, layer, tip, reduced, onSelect }) {
@@ -368,7 +408,10 @@ const NetView = (() => {
   function update(snap, rate, newBlock) {
     v.snap = snap;
     v.rate = rate;
-    if (newBlock && !v.reduced) v.pulses.push({ t0: performance.now(), dur: travelMs(rate) });
+    if (newBlock && !v.reduced) {
+      v.flash = performance.now();
+      v.pulses.push({ t0: v.flash, dur: travelMs(rate) });
+    }
     labelEntries();
   }
 
@@ -389,5 +432,5 @@ const NetView = (() => {
     syncEntries();
   }
 
-  return { init, update, frame };
+  return { init, update, frame, refresh };
 })();

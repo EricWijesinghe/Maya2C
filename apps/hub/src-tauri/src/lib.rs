@@ -150,6 +150,39 @@ fn miner_state(state: tauri::State<'_, Miner>) -> MinerReport {
     state.report()
 }
 
+/// Shows the payout key in the system file manager, so the first-start sheet
+/// can say "back it up" next to a button that finds it. The path goes through
+/// `resolve_key_file`, so only a file inside the app data folder is shown;
+/// before the first start the key does not exist yet and its folder opens.
+#[tauri::command]
+fn reveal_key_file(key_file: String, app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let key = miner_guard::resolve_key_file(&key_file, &data).map_err(|e| e.to_string())?;
+    if key.exists() {
+        return app
+            .opener()
+            .reveal_item_in_dir(&key)
+            .map_err(|e| e.to_string());
+    }
+    let folder = key.parent().map_or(data, std::path::Path::to_path_buf);
+    app.opener()
+        .open_path(folder.display().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// Why the public testnet is paused. Compiled in, so the webview can open
+/// this one page and cannot hand the opener any other address.
+const STOP_REPORT: &str = "https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md";
+
+#[tauri::command]
+fn open_stop_report(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(STOP_REPORT, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// Runs the watchdog once a second. GPU temperatures are read every third
 /// second and only while a GPU miner runs, so an idle Hub never calls
 /// `nvidia-smi`. A tick without a reading never stops or restarts a GPU.
@@ -198,7 +231,9 @@ pub fn run() {
             miner_start,
             miner_stop,
             miner_state,
-            notify_set
+            notify_set,
+            reveal_key_file,
+            open_stop_report
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner

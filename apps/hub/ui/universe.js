@@ -1,25 +1,27 @@
-// Every app and field of the Maya2C ecosystem, with an honest status.
-// "live" means running on the public testnet today; nothing is labelled live
-// because it is planned. Update a status here when it changes in features.toml.
+// Every app and field of the Maya2C ecosystem, with an honest stage.
+// "built" means the code exists and ran on the public testnet before its pause
+// on 2026-10-28; whether it is live right now is read from the node snapshot
+// (status.js), never written here. Update a stage when it changes in features.toml. `icon` names a
+// symbol in icons.svg. Anything not built says so in its own sentence.
 "use strict";
 
 const UNIVERSE = [
-  { id: "wallet", name: "Wallet", icon: "◈", status: "live", text: "Post-quantum desktop wallet: send, receive, and keys kept in the OS keychain." },
-  { id: "explorer", name: "Explorer", icon: "⌕", status: "live", text: "Every block, transaction and account on the testnet, at explorer.maya2c.dev." },
-  { id: "node", name: "Validators", icon: "⬡", status: "live", text: "DAG-BFT committee producing and finalizing blocks. Anyone can run a node." },
-  { id: "mining", name: "Mining", icon: "⛏", status: "building", text: "GPU and CPU miners earn from the block-reward reserve. Testnet trial from mid-October." },
-  { id: "chat", name: "Maya Chat", icon: "✉", status: "building", text: "Encrypted peer-to-peer chat. Messages wait with the sender until delivered, plus animated stickers." },
-  { id: "dex", name: "Exchange", icon: "⇄", status: "building", text: "On-chain order book for swapping assets." },
-  { id: "identity", name: "Identity", icon: "◉", status: "building", text: "One identity across every app, owned by you." },
-  { id: "governance", name: "Governance", icon: "⚖", status: "building", text: "Proposals and votes that change the protocol in the open." },
-  { id: "defsec", name: "Cyber defence", icon: "⛨", status: "building", text: "Shared threat intelligence recorded on-chain so defenders can verify it." },
-  { id: "offsec", name: "Offensive security lab", icon: "⌖", status: "building", text: "Sandboxed, authorized-scope testing tools. Never for targets you do not own." },
-  { id: "network", name: "Networking", icon: "⌁", status: "building", text: "Mesh and relay transport for places with poor connectivity." },
-  { id: "ai", name: "AI network", icon: "✶", status: "planned", text: "Verified AI inference paid in MAYA, on open-weight models, run by miners' GPUs." },
-  { id: "genetics", name: "Genetics", icon: "⧬", status: "planned", text: "Owner-controlled genomic data: you decide who reads it, and every access is recorded." },
-  { id: "engineering", name: "Engineering & 3D", icon: "△", status: "planned", text: "Provenance for 3D models and designs; a market for GPU rendering and simulation." },
-  { id: "simulation", name: "Simulation", icon: "∿", status: "planned", text: "Distributed scientific simulation jobs, with results anyone can check." },
-  { id: "research", name: "Research & development", icon: "⚗", status: "planned", text: "Timestamped, citable research records and open data sets." },
-  { id: "defense", name: "Civil defence", icon: "⛉", status: "planned", text: "Disaster-response coordination and resilient communications. Civil and defensive uses only." },
-  { id: "space", name: "Space", icon: "✦", status: "research", text: "Satellite links and orbital timing research. Nothing in consensus depends on it yet." },
+  { id: "wallet", name: "Maya2C Wallet", icon: "wallet", status: "built", text: "Post-quantum desktop wallet: send, receive, and keys kept in the OS keychain." },
+  { id: "explorer", name: "Explorer", icon: "explorer", status: "built", text: "Kept every block, transaction and account of the testnet until its pause on 2026-10-28." },
+  { id: "node", name: "Validators", icon: "validators", status: "built", text: "The DAG-BFT committee that produced and finalized the testnet's blocks. The node software is open source." },
+  { id: "mining", name: "Mining", icon: "mining", status: "building", text: "Being built: the miner here runs on the testnet only. Mainnet mining waits for its genesis." },
+  { id: "chat", name: "Maya2C Chat", icon: "chat", status: "building", text: "Being built: encrypted peer-to-peer chat where messages wait with the sender until delivered." },
+  { id: "dex", name: "Exchange", icon: "exchange", status: "building", text: "Being built: an on-chain order book for swapping assets." },
+  { id: "identity", name: "Identity", icon: "identity", status: "building", text: "Being built: one identity across every app, held by its owner." },
+  { id: "governance", name: "Governance", icon: "governance", status: "building", text: "Being built: proposals and votes for changing the protocol in the open." },
+  { id: "defsec", name: "Cyber defence", icon: "shield", status: "building", text: "Being built: shared threat intelligence recorded on chain, so defenders can check it." },
+  { id: "offsec", name: "Offensive security lab", icon: "target", status: "building", text: "Being built: sandboxed testing tools for authorized scopes only, never for targets you do not own." },
+  { id: "network", name: "Networking", icon: "mesh", status: "building", text: "Being built: mesh and relay transport for places with poor connectivity." },
+  { id: "ai", name: "AI network", icon: "spark", status: "planned", text: "Planned: verified AI inference on open-weight models, to run on miners' GPUs." },
+  { id: "genetics", name: "Genetics", icon: "dna", status: "planned", text: "Planned: genomic data its owner controls, with a record of each read the owner allows." },
+  { id: "engineering", name: "Engineering & 3D", icon: "cube", status: "planned", text: "Planned: provenance for 3D models and designs, and GPU rendering jobs." },
+  { id: "simulation", name: "Simulation", icon: "wave", status: "planned", text: "Planned: distributed scientific simulation jobs with checkable results." },
+  { id: "research", name: "Research & development", icon: "flask", status: "planned", text: "Planned: timestamped, citable research records and open data sets." },
+  { id: "defense", name: "Civil defence", icon: "buoy", status: "planned", text: "Planned: disaster-response coordination and resilient communications, for civil and defensive uses only." },
+  { id: "space", name: "Space", icon: "orbit", status: "research", text: "Research: satellite links and orbital timing. Nothing in consensus depends on it." },
 ];
