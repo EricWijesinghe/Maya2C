@@ -50,6 +50,10 @@ pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// bit 44, ADR-135 P-4) apply, for a schedule that never names the bit: never.
 /// Until the v4 entry moves it, every v13 frame is refused on admission and on
 /// apply by the one check both call (`state::sponsor::require_active`).
+///
+/// Not to be written while M1 (spec 02, "Open residuals": the sponsor does
+/// not sign the inner frame's approvals, so a relay can grow the frame it
+/// pays for) and M3 (the builder's overlay copy) are open.
 pub const SPONSORED_FEES_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// Prefix of every upgrade-schedule record. A committed layer

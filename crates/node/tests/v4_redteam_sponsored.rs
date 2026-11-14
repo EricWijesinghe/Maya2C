@@ -7,9 +7,14 @@
 //!
 //! Classes tried (V4-V1 brief): value creation (none: a sponsorship moves
 //! the fee between two accounts, `sponsored_fee_tests` checks the total),
-//! fee bypass (here, M1, and P-5 there), unbounded per-block work (M3, open:
-//! the builder's per-frame overlay copy, not measured here), replay (P-1
-//! there), squatting (no namespace).
+//! fee bypass (here, M1, and P-5 there), replay (P-1 there), squatting (no
+//! namespace), unbounded per-block work (M3, open, and not specific to
+//! sponsors: the block builder's filter (`StateDB::select_applicable_within`) copies the
+//! whole overlay for every frame that is not a plain transfer, so a block full
+//! of v4 forms (or sponsored transfers) costs every builder work quadratic in
+//! the state the block touches. Open as M3 (BACKLOG, v4 activation blockers):
+//! one benchmark over a block of v4 forms before any v4 activation height is
+//! written.)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
