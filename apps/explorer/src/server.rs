@@ -25,7 +25,11 @@ use crate::error::{ExplorerError, Result};
 use crate::indexer::IndexEvent;
 use crate::model::{HashratePoint, NetworkStats, average_block_time, estimate_hashrate};
 use crate::store::BlockStore;
+use maya_address::Network;
+
 use crate::ui;
+
+mod v4;
 
 /// Blocks shown in list views.
 const LIST_LIMIT: i64 = 20;
@@ -103,7 +107,14 @@ pub fn router(state: AppState) -> Router {
         .route("/tx", get(transaction_search))
         .route("/tx/{txid}", get(transaction_detail))
         .route("/account", get(account))
+        .route("/account/{address}", get(account_path))
+        .route("/mining", get(mining))
         .route("/validators", get(validators))
+        .route("/name", get(v4::name_lookup))
+        .route("/asset", get(v4::asset_lookup))
+        .route("/nft", get(v4::nft_lookup))
+        .route("/schedule", get(v4::schedule_lookup))
+        .route("/api/name/{label}", get(v4::api_name))
         .route("/api/validators", get(api_validators))
         .route("/api/stats", get(api_stats))
         .route("/api/blocks", get(api_blocks))
@@ -263,10 +274,23 @@ async fn account(
     State(state): State<AppState>,
     Query(query): Query<AccountQuery>,
 ) -> Result<Response> {
-    let address = query.address.unwrap_or_default();
-    if address.is_empty() {
+    lookup_account(&state, query.address.unwrap_or_default()).await
+}
+
+/// The same page at a clean address path, `/account/<address>`.
+async fn account_path(
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+) -> Result<Response> {
+    lookup_account(&state, address).await
+}
+
+/// Shows an account from an address typed as hex or as Bech32m (ADR-081).
+async fn lookup_account(state: &AppState, input: String) -> Result<Response> {
+    if input.is_empty() {
         return Ok(html(ui::account_page(
             String::new(),
+            None,
             None,
             None,
             Vec::new(),
@@ -275,45 +299,105 @@ async fn account(
     }
 
     // Validate before spending a round trip on it.
-    if hex::decode(&address).map(|b| b.len()) != Ok(32) {
-        return Ok(html_status(
-            StatusCode::BAD_REQUEST,
-            ui::account_page(
-                address,
-                None,
-                None,
-                Vec::new(),
-                Some("An address is 64 hexadecimal characters.".to_string()),
-            ),
-        ));
-    }
+    let (id, typed_network) = match parse_address(&input) {
+        Ok(parsed) => parsed,
+        Err(message) => {
+            return Ok(html_status(
+                StatusCode::BAD_REQUEST,
+                ui::account_page(input, None, None, None, Vec::new(), Some(message)),
+            ));
+        }
+    };
+    let hex_id = hex::encode(id);
 
     let transactions = state
         .store
-        .transactions_by_sender(&address, LIST_LIMIT)
+        .transactions_by_sender(&hex_id, LIST_LIMIT)
         .await?;
 
     // Balance comes from the node, live. A balance as of the last indexed
     // block would be presented as current and quietly be wrong.
-    let (balance, nonce, error) = match &state.node_rpc {
-        Some(url) => match fetch_account(url, &address).await {
-            Ok((balance, nonce)) => (Some(balance), Some(nonce), None),
-            Err(error) => (None, None, Some(format!("Node unavailable: {error}"))),
-        },
+    let (balance, nonce, balance_error, network, network_error) = match &state.node_rpc {
+        Some(url) => {
+            let (network, network_error) = match typed_network {
+                Some(network) => (Some(network), None),
+                // A hex address names no network; the node's chain id does.
+                None => match fetch_network(url).await {
+                    Ok(network) => (network, None),
+                    Err(error) => (None, Some(format!("Bech32m form unavailable: {error}"))),
+                },
+            };
+            match fetch_account(url, &hex_id).await {
+                Ok((balance, nonce)) => (Some(balance), Some(nonce), None, network, network_error),
+                Err(error) => (
+                    None,
+                    None,
+                    Some(format!("Node unavailable: {error}")),
+                    network,
+                    network_error,
+                ),
+            }
+        }
         None => (
             None,
             None,
             Some("No node endpoint configured; balances unavailable.".to_string()),
+            typed_network,
+            None,
         ),
     };
+    let error = [balance_error, network_error]
+        .into_iter()
+        .flatten()
+        .reduce(|a, b| format!("{a} {b}"));
+    let text = network.map(|network| maya_address::encode(network, &id));
 
     Ok(html(ui::account_page(
-        address,
+        hex_id,
+        text,
         balance,
         nonce,
         transactions,
         error,
     )))
+}
+
+/// Reads an address as 32 bytes, from its 64 hex characters or its Bech32m
+/// text. Bech32m also names the network, so its text form is known without
+/// asking the node.
+fn parse_address(input: &str) -> std::result::Result<([u8; 32], Option<Network>), String> {
+    if let Ok(bytes) = hex::decode(input)
+        && let Ok(id) = <[u8; 32]>::try_from(bytes.as_slice())
+    {
+        return Ok((id, None));
+    }
+    maya_address::decode_any(input)
+        .map(|(network, id)| (id, Some(network)))
+        .map_err(|_| "An address is 64 hexadecimal characters or a Bech32m address.".to_string())
+}
+
+/// The network the node serves, from its chain id. `None` for a chain id that
+/// has no registered text form.
+pub async fn fetch_network(url: &str) -> Result<Option<Network>> {
+    use jsonrpsee::core::client::ClientT;
+    use jsonrpsee::http_client::HttpClientBuilder;
+    use jsonrpsee::rpc_params;
+
+    let client = HttpClientBuilder::default()
+        .build(url)
+        .map_err(|e| ExplorerError::NodeRpc(e.to_string()))?;
+    let info: custom_l1_node::rpc::ChainInfo = client
+        .request("get_chain_info", rpc_params![])
+        .await
+        .map_err(|e| ExplorerError::NodeRpc(e.to_string()))?;
+    Ok(info.chain_id.as_deref().and_then(Network::for_chain_id))
+}
+
+/// Estimated hashrate and block pacing, with the series behind the chart.
+async fn mining(State(state): State<AppState>) -> Result<Response> {
+    let stats = gather_stats(&state.store).await?;
+    let series = gather_hashrate(&state.store).await?;
+    Ok(html(ui::mining_page(stats, series)))
 }
 
 /// The validator set, live from the node: a stale committee would be shown as

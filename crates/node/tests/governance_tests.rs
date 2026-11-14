@@ -884,3 +884,35 @@ fn every_parameter_reads_as_its_compiled_default_before_any_vote() {
         assert_eq!(value, key.bounds().default, "{}", key.label());
     }
 }
+
+// ADR-135 P-3: tags 12-15 are unknown to a pre-v4 binary, so a proposal naming
+// one is refused until bit 43 activates (never, on this fixture). Tag 15 is the
+// maya2c hold: without this, an early proposal could release it before names exist.
+#[test]
+fn a_name_parameter_proposal_is_refused_before_names_activate() {
+    let fixture = fixture();
+    for key in [
+        ParameterKey::NameBaseFee3,
+        ParameterKey::NameBaseFee4,
+        ParameterKey::NameBaseFee5,
+        ParameterKey::NameReservedLabels,
+    ] {
+        let error = fixture
+            .act(
+                0,
+                TxKind::Propose(Box::new(ProposalSubmission {
+                    voting_blocks: MIN_VOTING_BLOCKS,
+                    timelock_blocks: MIN_TIMELOCK_BLOCKS,
+                    upgrade: None,
+                    changes: vec![(key.tag(), maya_dex::Amount::from_u64(0))],
+                })),
+                1,
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, NodeError::NameInactive { .. }),
+            "{}: {error}",
+            key.label()
+        );
+    }
+}

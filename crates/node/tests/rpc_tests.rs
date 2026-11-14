@@ -453,6 +453,214 @@ async fn get_validators_is_null_on_a_chain_without_staking() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_name_reads_the_committed_record_and_refuses_an_impossible_label() {
+    use custom_l1_node::rpc::NameInfo;
+    use custom_l1_node::state::names::NameRecord;
+
+    let node = start_node(&[], false).await;
+    let record = NameRecord {
+        label: b"alice".to_vec(),
+        owner: [0xAA; 32],
+        target: [0xBB; 32],
+        registered_at: 3,
+        expires_at: 31_536_003,
+    };
+    // `nm:n:` ‖ blake3(label), the key ADR-135 P-3 names.
+    let key = [&b"nm:n:"[..], blake3::hash(b"alice").as_bytes()].concat();
+    node.state
+        .raw_put_for_test(&key, &record.encode())
+        .expect("seed name");
+
+    for query in ["alice", "alice.maya"] {
+        let info: Option<NameInfo> = node
+            .client
+            .request("get_name", rpc_params![query])
+            .await
+            .expect("get_name");
+        let info = info.expect("registered");
+        assert_eq!(info.label, "alice");
+        assert_eq!(info.owner, "aa".repeat(32));
+        assert_eq!(info.target, Some("bb".repeat(32)));
+        assert_eq!(info.expires_at, 31_536_003);
+        assert_eq!(info.status, "active");
+        assert_eq!(info.checked_at, 1, "judged at the tip plus one");
+    }
+    let free: Option<NameInfo> = node
+        .client
+        .request("get_name", rpc_params!["bobby"])
+        .await
+        .expect("get_name");
+    assert!(free.is_none());
+    for bad in ["ab", "Alice", "a--b", "-ab"] {
+        let refused: Result<Option<NameInfo>, _> =
+            node.client.request("get_name", rpc_params![bad]).await;
+        assert!(refused.is_err(), "{bad} must be refused, not looked up");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_expired_name_is_reported_in_grace_without_a_target() {
+    use custom_l1_node::rpc::NameInfo;
+    use custom_l1_node::state::names::NameRecord;
+
+    let node = start_node(&[], false).await;
+    // Expired at block 0, so the next block (1) is past it: in grace.
+    let record = NameRecord {
+        label: b"carol".to_vec(),
+        owner: [0xAA; 32],
+        target: [0xBB; 32],
+        registered_at: 0,
+        expires_at: 0,
+    };
+    let key = [&b"nm:n:"[..], blake3::hash(b"carol").as_bytes()].concat();
+    node.state
+        .raw_put_for_test(&key, &record.encode())
+        .expect("seed name");
+
+    let info: Option<NameInfo> = node
+        .client
+        .request("get_name", rpc_params!["carol"])
+        .await
+        .expect("get_name");
+    let info = info.expect("the record is still in state");
+    assert_eq!(info.status, "grace");
+    assert_eq!(info.target, None, "an expired name resolves to nothing");
+    assert_eq!(info.owner, "aa".repeat(32), "the owner may still renew");
+    let json = serde_json::to_value(&info).expect("json");
+    assert!(json.get("target").is_none(), "{json}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_v4_reads_serve_an_asset_an_nft_and_a_schedule_from_committed_state() {
+    use custom_l1_node::rpc::{AssetInfo, NftCollectionInfo, NftItemInfo, ScheduleInfo};
+    use custom_l1_node::state::asset::{AssetRecord, AssetRecordV2};
+    use custom_l1_node::state::nft::{NftCollection, NftItem};
+    use custom_l1_node::state::scheduled::ScheduleRecord;
+
+    let node = start_node(&[], false).await;
+    let (asset, collection, schedule) = ([0x51; 32], [0x52; 32], [0x53; 32]);
+    let put = |key: Vec<u8>, value: &[u8]| node.state.raw_put_for_test(&key, value).expect("seed");
+    put(
+        custom_l1_node::state::dex::asset_key(&asset),
+        &AssetRecordV2 {
+            base: AssetRecord {
+                creator: [0xAA; 32],
+                total_supply: U256::from(1_000),
+                symbol: *b"GOLD\0\0\0\0",
+            },
+            cap: U256::from(5_000),
+            authority: [0xAB; 32],
+        }
+        .encode(),
+    );
+    put(
+        [&b"n:c:"[..], &collection[..]].concat(),
+        &NftCollection {
+            creator: [0xAC; 32],
+            max_items: 10,
+            minted: 1,
+            metadata_hash: [0x01; 32],
+        }
+        .encode(),
+    );
+    put(
+        [&b"n:i:"[..], &collection[..], &0_u64.to_be_bytes()[..]].concat(),
+        &NftItem {
+            owner: [0xAD; 32],
+            metadata_hash: [0x02; 32],
+        }
+        .encode(),
+    );
+    put(
+        [&b"sp:s:"[..], &schedule[..]].concat(),
+        &ScheduleRecord {
+            payer: [0xAE; 32],
+            payee: [0xAF; 32],
+            amount: U256::from(7),
+            next_due: 40,
+            interval: 20,
+            remaining: 3,
+            escrow: U256::from(24),
+            missed: 0,
+        }
+        .encode(),
+    );
+
+    let a: Option<AssetInfo> = node
+        .client
+        .request("get_asset", rpc_params![hex::encode(asset)])
+        .await
+        .expect("get_asset");
+    let a = a.expect("seeded");
+    assert_eq!((a.symbol.as_str(), a.cap), ("GOLD", U256::from(5_000)));
+    assert_eq!(a.mint_authority, Some("ab".repeat(32)));
+    let c: Option<NftCollectionInfo> = node
+        .client
+        .request("get_nft_collection", rpc_params![hex::encode(collection)])
+        .await
+        .expect("get_nft_collection");
+    assert_eq!(c.expect("seeded").minted, 1);
+    let item: Option<NftItemInfo> = node
+        .client
+        .request("get_nft_item", rpc_params![hex::encode(collection), 0_u64])
+        .await
+        .expect("get_nft_item");
+    assert_eq!(item.expect("seeded").owner, "ad".repeat(32));
+    let missing: Option<NftItemInfo> = node
+        .client
+        .request("get_nft_item", rpc_params![hex::encode(collection), 1_u64])
+        .await
+        .expect("get_nft_item");
+    assert!(missing.is_none(), "an unminted index is null");
+    let s: Option<ScheduleInfo> = node
+        .client
+        .request("get_schedule", rpc_params![hex::encode(schedule)])
+        .await
+        .expect("get_schedule");
+    let s = s.expect("seeded");
+    assert_eq!((s.remaining, s.escrow), (3, U256::from(24)));
+    assert_eq!(s.payee, "af".repeat(32));
+
+    let none: Option<AssetInfo> = node
+        .client
+        .request("get_asset", rpc_params!["00".repeat(32)])
+        .await
+        .expect("get_asset");
+    assert!(none.is_none());
+    for method in ["get_asset", "get_nft_collection", "get_schedule"] {
+        let bad: Result<Option<serde_json::Value>, _> =
+            node.client.request(method, rpc_params!["abcd"]).await;
+        assert!(bad.is_err(), "{method}: a short id is refused");
+    }
+}
+
+#[test]
+fn a_name_is_active_to_its_expiry_then_in_grace_then_lapsed() {
+    use custom_l1_node::rpc::NameInfo;
+    use custom_l1_node::state::names::{GRACE_BLOCKS, NameRecord};
+
+    let record = NameRecord {
+        label: b"dave".to_vec(),
+        owner: [0xAA; 32],
+        target: [0xBB; 32],
+        registered_at: 1,
+        expires_at: 100,
+    };
+    let cases = [
+        (100, "active", true),
+        (101, "grace", false),
+        (100 + GRACE_BLOCKS, "grace", false),
+        (101 + GRACE_BLOCKS, "lapsed", false),
+    ];
+    for (height, status, resolves) in cases {
+        let info = NameInfo::at(&record, height);
+        assert_eq!(info.status, status, "at {height}");
+        assert_eq!(info.target.is_some(), resolves, "at {height}");
+        assert_eq!(info.checked_at, height);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_range_stops_at_the_tip_and_matches_the_single_block_answer() {
     let node = start_node(&[], false).await;
 

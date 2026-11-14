@@ -21,6 +21,11 @@ custom-l1-node = { path = "../../crates/node" }
 thiserror.workspace = true
 hex.workspace = true
 
+[dev-dependencies]
+# Reads spec/tests/v4-client-vectors.json, the node-written v4 vectors.
+serde_json.workspace = true
+primitive-types.workspace = true
+
 [build-dependencies]
 uniffi = { version = "0.32", features = ["build"] }
 

@@ -402,9 +402,25 @@ impl StateDB {
     ///
     /// Returns [`NodeError::Storage`] on an iteration failure.
     pub(crate) fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.scan_prefix_limit(prefix, usize::MAX)
+    }
+
+    /// The first `limit` key/value pairs under `prefix`, in key order: a scan
+    /// whose work is bounded however many rows the prefix holds (invariant 33).
+    /// One copy for every bounded end-of-block pass (ADR-135: the name-commit
+    /// prune and the scheduled-payment step), so they cannot drift.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix_limit(
+        &self,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
         let mut out = Vec::new();
-        for item in self.db.iterator(mode) {
+        for item in self.db.iterator(mode).take(limit) {
             let (key, value) = item.map_err(storage_err)?;
             if !key.starts_with(prefix) {
                 break;
@@ -795,6 +811,9 @@ impl StateDB {
                 actual: tx.nonce,
             });
         }
+        // A v13 frame before bit 44 is refused before either signature is
+        // checked; the mempool calls the same function (ADR-135 P-4).
+        crate::state::sponsor::require_active(tx, context)?;
 
         // Authorization — an unsigned or forged transaction must never reach
         // the balance rules.
@@ -815,7 +834,10 @@ impl StateDB {
         // ADR-013. Chain tag is required for signature verification (ADR-036).
         self.verified
             .verify(tx, context.height, policy, self.get_chain_tag()?)?;
-        self.charge_fee(overlay, tx)?;
+        // A sponsor's fee moves here, before the inner touches anything: if
+        // the inner then fails, the caller discards this transaction's whole
+        // overlay (a block fails; the builder rolls back its trial copy).
+        self.charge_fee(overlay, tx, context.height)?;
 
         // The sender above is derived from the keys the signatures were just
         // checked against, never read from a wire field. A transaction able to
@@ -916,6 +938,11 @@ impl StateDB {
         // assembling this block must not be able to place a transaction ahead
         // of it. See `crate::state::sealed_exec`.
         self.settle_sealed(&mut overlay, context)?;
+        // After every transaction, sealed reveals included, so a cancel in
+        // the due block wins over the run (ADR-135 P-7, S-7); bounded per
+        // block (invariant 33). Its RUN_FEE reaches the collector before
+        // `settle_fees` and staking, so it joins the tips.
+        self.settle_schedules(&mut overlay, context)?;
 
         self.settle_trading(&mut overlay, context)?;
         // After trading, so a contract or a swap in this block sees the
@@ -936,6 +963,9 @@ impl StateDB {
         // After governance and before the invariants: the epoch boundary moves
         // bonds, rewards and slashes, which the conservation check must see.
         self.settle_staking(&mut overlay, &block.header, context)?;
+        // After every transaction, so a reveal in this block deletes its own
+        // commitment first; bounded per block (ADR-135 P-3, M-11). Moves no value.
+        self.settle_names(&mut overlay, context)?;
 
         // Last, over the finished overlay. Running it earlier would check
         // a half-built block: the trading pass moves reserves and the
@@ -1132,7 +1162,11 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
+            // A sponsored transfer also writes its sponsor's account, which
+            // the fast path does not save, so it takes the full copy: a
+            // failed inner must not leave the sponsor's debit behind.
+            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) && tx.sponsor.is_none()
+            {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the

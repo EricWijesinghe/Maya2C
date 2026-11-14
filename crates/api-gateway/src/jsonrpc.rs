@@ -30,7 +30,7 @@ use utoipa::ToSchema;
 
 use crate::error::GatewayError;
 use crate::node::NodeClient;
-use crate::rest::{AppState, parse_address};
+use crate::rest::{AppState, parse_address, parse_id, parse_label};
 
 const PARSE_ERROR: i64 = -32_700;
 const INVALID_REQUEST: i64 = -32_600;
@@ -252,12 +252,56 @@ async fn dispatch(
                 .forward("get_mining_work", vec![Value::String(address.to_string())])
                 .await?)
         }
+        "get_name" => {
+            let [Value::String(label)] = params else {
+                return Err(RpcError::new(INVALID_PARAMS, "expected [label]"));
+            };
+            Ok(node.get_name(parse_label(label)?).await?)
+        }
+        // v4 record reads (ADR-135 I8): one 32-byte id, checked here so a
+        // malformed one costs the node nothing.
+        "get_asset" => one_id(node, "get_asset", params).await,
+        "get_nft_collection" => one_id(node, "get_nft_collection", params).await,
+        "get_schedule" => one_id(node, "get_schedule", params).await,
+        "get_nft_item" => {
+            let [Value::String(id), index] = params else {
+                return Err(RpcError::new(
+                    INVALID_PARAMS,
+                    "expected [collection, index]",
+                ));
+            };
+            let index = index
+                .as_u64()
+                .ok_or_else(|| RpcError::new(INVALID_PARAMS, "index must be a whole number"))?;
+            let id = parse_id(id, "collection")?;
+            Ok(node
+                .forward(
+                    "get_nft_item",
+                    vec![Value::String(id.to_string()), index.into()],
+                )
+                .await?)
+        }
         "send_raw_transaction" => send_raw_transaction(node, params).await,
         _ => Err(RpcError::new(
             METHOD_NOT_FOUND,
             "method not available through the gateway",
         )),
     }
+}
+
+/// A read keyed by one 32-byte hex id, forwarded once the id is checked.
+async fn one_id(
+    node: &dyn NodeClient,
+    method: &'static str,
+    params: &[Value],
+) -> Result<Value, RpcError> {
+    let [Value::String(id)] = params else {
+        return Err(RpcError::new(INVALID_PARAMS, "expected [id]"));
+    };
+    let id = parse_id(id, "id")?;
+    Ok(node
+        .forward(method, vec![Value::String(id.to_string())])
+        .await?)
 }
 
 /// Answers in the node's `AccountInfo` shape, address included: clients

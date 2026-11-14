@@ -10,7 +10,7 @@
 //! the same text the wallet showed when the session was authorised.
 
 use maya_amount::Amount;
-use maya_clear_sign::{Effect, render};
+use maya_clear_sign::{Effect, Network, render};
 use maya_crypto_pq::suite::SuiteId;
 use maya_smart_account::account::AccountError;
 use maya_smart_account::op::Action;
@@ -80,9 +80,13 @@ pub fn charge(
         customer.refused();
         return Err(e);
     }
-    Ok(render(&Effect::Transfer {
-        token: [0; 32],
-        to,
-        amount,
-    }))
+    // The reference apps run on a local model of the chain, never a public network.
+    Ok(render(
+        &Effect::Transfer {
+            token: [0; 32],
+            to,
+            amount,
+        },
+        Network::Devnet,
+    ))
 }

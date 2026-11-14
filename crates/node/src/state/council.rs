@@ -150,6 +150,37 @@ impl StateDB {
         };
         let module = Module::from_tag(module_tag)
             .ok_or_else(|| NodeError::Decode(format!("unknown module {module_tag}")))?;
+        // Tags 14, 15 and 16 (ADR-135) are unknown to a pre-v4 binary, which
+        // refuses them at the line above; refusing them here until their bit
+        // activates keeps both binaries agreeing on every earlier block.
+        let dark = match module {
+            Module::Nft => !context.nft_active(),
+            Module::Names => !context.names_active(),
+            Module::Scheduled => !context.scheduled_active(),
+            // Listed, not `_`: a new module must decide its own gate here.
+            Module::Channels
+            | Module::Dex
+            | Module::Shielded
+            | Module::Oracle
+            | Module::Governance
+            | Module::Vm
+            | Module::Sealed
+            | Module::Identity
+            | Module::Rwa
+            | Module::Htlc
+            | Module::ThreatIntel
+            | Module::Iot
+            | Module::Vault => false,
+        };
+        if dark {
+            return Err(NodeError::Decode(format!("unknown module {module_tag}")));
+        }
+        // Tag 13 (ADR-135 P-7) is unknown to a pre-v4 binary, which refuses
+        // it at the line above; refusing it here until bit 46 activates keeps
+        // both binaries agreeing on every earlier block.
+        if module == Module::Scheduled && !context.scheduled_active() {
+            return Err(NodeError::Decode(format!("unknown module {module_tag}")));
+        }
         let record = match action.kind {
             // Returned above; refused here rather than trusted to stay that way.
             CouncilKind::SunsetSuites { .. } => return refuse("a sunset is not a pause".into()),

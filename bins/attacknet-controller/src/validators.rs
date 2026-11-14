@@ -30,6 +30,7 @@ struct ValidatorProcess {
 }
 
 impl ValidatorManager {
+    /// Creates a manager with no running processes. `binary_path` is the node executable every validator starts from.
     pub fn new(config: Arc<LabConfig>, binary_path: PathBuf) -> Self {
         Self {
             config,
@@ -290,11 +291,17 @@ impl ValidatorManager {
 /// Validator status information
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ValidatorStatus {
+    /// Validator name, as in `ValidatorConfig::name`.
     pub name: String,
+    /// `true` while the child process exists and has not exited.
     pub running: bool,
+    /// OS process id, while a child process is held.
     pub pid: Option<u32>,
+    /// Time since the current start, or `None` if never started.
     pub uptime: Option<Duration>,
+    /// Restart requests counted by `restart`, including the one that was refused by the policy.
     pub restart_count: u32,
+    /// Time since the last restart request, or `None` if there was none.
     pub last_restart: Option<Duration>,
 }
 

@@ -89,8 +89,12 @@ type AccountAtTip struct {
 // Balance returns an account's balance. Amounts are 256-bit (ADR-046), so
 // the result is a big.Int parsed from the node's decimal string.
 func (c *Client) Balance(address string) (*big.Int, error) {
+	hex, err := hexAddress(address)
+	if err != nil {
+		return nil, err
+	}
 	var a Account
-	if err := c.Call("get_balance", []any{address}, &a); err != nil {
+	if err := c.Call("get_balance", []any{hex}, &a); err != nil {
 		return nil, err
 	}
 	balance, ok := new(big.Int).SetString(a.Balance, 10)
@@ -103,7 +107,11 @@ func (c *Client) Balance(address string) (*big.Int, error) {
 // AccountAtTip returns an account with the tip it was read at.
 func (c *Client) AccountAtTip(address string) (AccountAtTip, error) {
 	var a AccountAtTip
-	err := c.Call("get_account_at_tip", []any{address}, &a)
+	hex, err := hexAddress(address)
+	if err != nil {
+		return a, err
+	}
+	err = c.Call("get_account_at_tip", []any{hex}, &a)
 	return a, err
 }
 

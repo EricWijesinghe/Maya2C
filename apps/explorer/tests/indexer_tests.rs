@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use custom_l1_node::rpc::{BlockInfo, HeaderInfo};
+use maya_address::Network;
 use maya_explorer::error::Result;
 use maya_explorer::indexer::{BlockSource, IndexEvent, Indexer, RETAINED_START_BEHIND};
 use maya_explorer::model::{IndexedBlock, average_block_time, estimate_hashrate};
@@ -73,6 +74,8 @@ impl StubChain {
                     kind: "transfer".to_owned(),
                     summary: String::new(),
                     careful: true,
+                    details: Vec::new(),
+                    sponsor: None,
                 })
                 .collect(),
             raw: String::new(),
@@ -107,6 +110,8 @@ impl StubChain {
                     kind: (*kind).to_owned(),
                     summary: (*summary).to_owned(),
                     careful: *careful,
+                    details: Vec::new(),
+                    sponsor: None,
                 },
             )
             .collect();
@@ -662,4 +667,37 @@ async fn the_index_keeps_each_transactions_kind_summary_and_care_flag() {
             ("cancel_order".into(), "Cancel an open order.".into(), false),
         ]
     );
+}
+
+#[tokio::test]
+async fn each_indexed_transaction_carries_its_clear_sign_explanation() {
+    let chain = StubChain::new();
+    let store = Arc::new(MemoryStore::new());
+    chain.push(0, 0, 1);
+    indexer_from(&chain, &store)
+        .with_network(Network::Testnet)
+        .sync_once()
+        .await
+        .expect("sync");
+
+    let tx = &store.transactions_in_block(0).await.expect("query")[0];
+    let want = format!(
+        "Send 100 base units of the native coin to {}",
+        maya_clear_sign::grouped(Network::Testnet, &[0xbb; 32])
+    );
+    assert!(tx.explanation.contains(&want), "{}", tx.explanation);
+}
+
+#[tokio::test]
+async fn an_indexer_with_no_network_writes_devnet_text() {
+    let chain = StubChain::new();
+    let store = Arc::new(MemoryStore::new());
+    chain.push(0, 0, 1);
+    indexer_from(&chain, &store)
+        .sync_once()
+        .await
+        .expect("sync");
+
+    let tx = &store.transactions_in_block(0).await.expect("query")[0];
+    assert!(tx.explanation.contains("to dmaya1 "), "{}", tx.explanation);
 }

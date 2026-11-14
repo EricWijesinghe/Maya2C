@@ -1,0 +1,85 @@
+# The Go, Python and TypeScript SDK unit tests. Before this file, nothing in CI
+# ran them: ci.yml is Rust-only, and nightly.yml runs the SDKs only against a
+# live devnet. The live-node tests skip here (no MAYA_RPC_URL / L1_WALLET).
+#
+# The v4 client vectors are written by the node (crates/node/tests/
+# v4_client_vectors.rs, from core::describe and the *_payload codecs), so a
+# change there must run the SDK tests too: otherwise the node's test passes
+# against its own new file and Python and TypeScript drift unseen.
+name: sdks
+
+on:
+  push:
+    branches: ["master", "main"]
+    paths:
+      - "sdks/**"
+      - "spec/tests/v4-client-vectors.json"
+      - "crates/node/src/core/describe.rs"
+      - "crates/node/src/core/*_payload.rs"
+      - ".github/workflows/sdks.yml"
+  pull_request:
+    paths:
+      - "sdks/**"
+      - "spec/tests/v4-client-vectors.json"
+      - "crates/node/src/core/describe.rs"
+      - "crates/node/src/core/*_payload.rs"
+      - ".github/workflows/sdks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: Go SDK tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdks/go
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: "1.22"
+      - name: go test
+        run: go test ./...
+
+  python:
+    name: Python SDK tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: unittest
+        run: python -m unittest discover -s tests
+
+  js:
+    name: TypeScript SDK v4 vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdks/sdk-js
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdks/sdk-js/package-lock.json
+      - name: Install
+        run: npm ci
+      # The vector test only: the whole suite's typecheck is red on
+      # test/live-node.test.ts, which this job must not depend on.
+      - name: vitest
+        run: npx vitest run test/v4-vectors.test.ts

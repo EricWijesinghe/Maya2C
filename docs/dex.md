@@ -36,9 +36,24 @@ A chain that has never registered an asset has exactly the state root it always
 had. The trading layer folds into the root only when there is something in it —
 the same rule the channel and shielded layers follow.
 
-**Supply is fixed at registration.** There is no mint operation and no authority
-field. A mint authority is an account that can dilute every holder, and
-introducing one is a governance decision rather than a data-model one.
+**Supply is fixed at registration, unless the asset declares a cap.**
+`RegisterAsset` creates a fixed supply with no mint operation and no authority:
+a mint authority is an account that can dilute every holder, so introducing one
+was a governance decision rather than a data-model one.
+
+ADR-135 (PR #477; P-1, proposed for the post-genesis v4
+fork) adds capped assets, off until feature bit 41 is scheduled:
+
+| Form | Who | Rule |
+|---|---|---|
+| `RegisterCappedAsset` | anyone | supply ≤ cap; authority is the sender or nobody |
+| `MintAsset` | the authority | amount > 0, supply + amount ≤ cap |
+| `BurnAsset` | any holder | only their own units; the cap stays |
+| `RenounceMint` | the authority | for good: the cap becomes the supply |
+
+The cap and the authority sit in the asset's record, so a holder reads the
+largest possible dilution from state. A renounce that a reorg drops is undone
+with the rest of its block.
 
 **Liquidity shares are assets.** A pool's shares are an ordinary asset with a
 derived identifier, so they transfer through the ordinary path and can

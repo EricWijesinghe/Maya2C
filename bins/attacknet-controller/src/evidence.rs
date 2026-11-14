@@ -12,14 +12,20 @@ use uuid::Uuid;
 /// Scenario verdict
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Verdict {
+    /// Set when no check fails. Returned by `verify_success_criteria`.
     Pass,
+    /// Set when a fork is found or a scenario-specific check fails.
     Fail,
+    /// The initial value when a run starts; stays until `finalize` sets a verdict.
     Incomplete,
+    /// Reserved for callers. This crate never sets it.
     Skipped,
+    /// Reserved for callers. This crate never sets it.
     Aborted,
 }
 
 impl Verdict {
+    /// Upper-case label written into reports (`PASS`, `FAIL`, ...).
     pub fn as_str(&self) -> &'static str {
         match self {
             Verdict::Pass => "PASS",
@@ -34,14 +40,20 @@ impl Verdict {
 /// Severity levels for findings
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Severity {
+    /// Most serious level. Scenario definitions set it as `severity_if_failed` for their most important checks.
     Critical,
+    /// Serious, below `Critical`.
     High,
+    /// Moderate impact.
     Medium,
+    /// Minor impact.
     Low,
+    /// Informational; no impact on the network.
     Info,
 }
 
 impl Severity {
+    /// Upper-case label written into reports (`CRITICAL`, `HIGH`, ...).
     pub fn as_str(&self) -> &'static str {
         match self {
             Severity::Critical => "CRITICAL",
@@ -56,108 +68,178 @@ impl Severity {
 /// A finding discovered during a scenario
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
+    /// Identifier of the finding, unique within its run.
     pub id: String,
+    /// How serious the finding is.
     pub severity: Severity,
+    /// Free-text grouping label, shown in the report.
     pub category: String,
+    /// One-line summary.
     pub title: String,
+    /// Full description of what was observed.
     pub description: String,
+    /// Names of the validators, services or segments involved.
     pub affected_components: Vec<String>,
+    /// Steps that reproduce the finding, in order.
     pub reproduction_steps: Vec<String>,
+    /// Paths or identifiers of the evidence supporting the finding.
     pub evidence_refs: Vec<String>,
+    /// Unix time of the observation, in seconds. Set by the caller; this crate builds no `Finding` itself.
     pub timestamp: u64,
 }
 
 /// Evidence collected for a single scenario run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioEvidence {
+    /// Scenario identifier. Also the last directory name under `runs/<date>/`.
     pub scenario_id: String,
+    /// Human-readable scenario name.
     pub scenario_name: String,
+    /// Scenario category number, as passed to `start_scenario`.
     pub category: u8,
+    /// Random v4 UUID generated when the run starts.
     pub run_id: String,
+    /// Run start, in Unix seconds.
     pub start_time: u64,
+    /// Run end, in Unix seconds. `None` until `finalize` runs.
     pub end_time: Option<u64>,
+    /// Run length in milliseconds. Computed from whole-second timestamps, so it is always a multiple of 1000.
     pub duration_ms: Option<u64>,
+    /// Outcome, set by `finalize`.
     pub verdict: Verdict,
+    /// Findings added with `add_finding`.
     pub findings: Vec<Finding>,
+    /// Numbers supplied with `update_metrics`.
     pub metrics: ScenarioMetrics,
+    /// Snapshot of the lab and build the run used.
     pub configuration: ScenarioConfig,
+    /// Paths to the logs of each component.
     pub logs: LogReferences,
+    /// Files produced by the run, added with `add_artifact`.
     pub artifacts: Vec<ArtifactRef>,
 }
 
 /// Metrics captured during scenario
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Numbers for one run. Each value is supplied by the caller through `update_metrics`; this crate does not compute them.
 pub struct ScenarioMetrics {
+    /// Blocks finalized.
     pub blocks_finalized: u64,
+    /// Transactions processed.
     pub transactions_processed: u64,
+    /// Consensus rounds.
     pub consensus_rounds: u64,
+    /// Forks.
     pub forks_detected: u64,
+    /// Validator crashes.
     pub validator_crashes: u64,
+    /// Validator restarts.
     pub validator_restarts: u64,
+    /// Network partitions.
     pub network_partitions: u64,
+    /// RPC errors.
     pub rpc_errors: u64,
+    /// p2p errors.
     pub p2p_errors: u64,
+    /// Storage errors.
     pub storage_errors: u64,
+    /// Average block time, in milliseconds.
     pub avg_block_time_ms: f64,
+    /// Average finality time, in milliseconds.
     pub avg_finality_time_ms: f64,
+    /// Peak memory use, in MiB.
     pub peak_memory_mb: u64,
+    /// Peak CPU use, in percent.
     pub peak_cpu_percent: f64,
+    /// Disk growth, in MiB.
     pub disk_growth_mb: u64,
+    /// Network throughput, in megabits per second.
     pub network_throughput_mbps: f64,
 }
 
 /// Scenario configuration snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioConfig {
+    /// Lab identifier from `LabConfig::lab_id`.
     pub lab_id: String,
+    /// Chain identifier from `LabConfig::chain_id`.
     pub chain_id: String,
+    /// Git commit the run was built from.
     pub git_commit: String,
+    /// Git branch the run was built from.
     pub git_branch: String,
+    /// Binary name to checksum. The scenario runner currently leaves this empty.
     pub binary_checksums: HashMap<String, String>,
+    /// Lowercase hex SHA-256 of the text of `genesis.json`.
     pub genesis_hash: String,
+    /// Identities of the validators in the run.
     pub validator_identities: Vec<String>,
+    /// The scenario's fault specification, serialized as JSON.
     pub fault_injection: serde_json::Value,
+    /// Random value drawn for this run and recorded. No generator in this crate is seeded from it, so it does not reproduce the run.
     pub random_seed: u64,
 }
 
 /// Log file references
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LogReferences {
+    /// Validator name to the path of its log file.
     pub validator_logs: HashMap<String, String>,
+    /// Infrastructure service name to the path of its log file.
     pub infrastructure_logs: HashMap<String, String>,
+    /// Path to the controller's own log.
     pub controller_log: String,
+    /// Paths to packet captures taken during the run.
     pub packet_captures: Vec<String>,
 }
 
 /// Artifact reference
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactRef {
+    /// File name, for display.
     pub name: String,
+    /// Path to the file.
     pub path: String,
+    /// Checksum of the file as recorded by the caller. Algorithm is not fixed by this type.
     pub checksum: String,
+    /// File size, in bytes.
     pub size_bytes: u64,
+    /// Kind of file.
     pub artifact_type: ArtifactType,
 }
 
+/// Kind of file recorded as an artifact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ArtifactType {
+    /// Text log.
     Log,
+    /// Metrics export.
     Metrics,
+    /// Packet capture.
     PacketCapture,
+    /// Snapshot of node state.
     StateSnapshot,
+    /// Dump of a node's database.
     DatabaseDump,
+    /// Generated report.
     Report,
+    /// Configuration file.
     Config,
-    Other(String),
+    /// Any other kind; the label is shown in reports as given.
+    Other(
+        /// Label shown in the report.
+        String,
+    ),
 }
 
-/// Evidence collector
+/// Evidence collector: one scenario run at a time.
 pub struct EvidenceCollector {
     base_dir: PathBuf,
     current_run: Option<ScenarioEvidence>,
 }
 
 impl EvidenceCollector {
+    /// Creates a collector with no active run. `base_dir` is where `finalize` writes `runs/<date>/<scenario_id>/evidence.json`.
     pub fn new(base_dir: PathBuf) -> Self {
         Self {
             base_dir,

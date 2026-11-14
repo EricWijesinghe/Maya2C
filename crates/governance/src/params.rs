@@ -2,8 +2,8 @@
 //!
 //! # The shape of self-amendment here
 //!
-//! Every governable rule is a `u64` under a [`ParameterKey`], stored in
-//! consensus state, and read at execution time by whichever subsystem owns it.
+//! Every governable rule is a 256-bit [`Amount`] (ADR-066) under a
+//! [`ParameterKey`], stored in consensus state, and read at execution time by whichever subsystem owns it.
 //! A change carries an activation height, so the value that applies at height
 //! *h* is a function of *h* alone — which is what makes two nodes replaying the
 //! same chain reach the same answer.
@@ -52,6 +52,44 @@ use maya_amount::Amount;
 /// One coin in base units: 24 decimals (ADR-068), from `maya_amount`.
 const COIN: u128 = maya_amount::ONE_COIN;
 
+/// `2^252 - 1`: the largest value a governed v4 surcharge may hold (ADR-135,
+/// "Fee and gas per form").
+const SURCHARGE_CEILING: Amount = {
+    let mut bytes = [0xFF; maya_amount::BYTES];
+    bytes[maya_amount::BYTES - 1] = 0x0F;
+    Amount::from_le_bytes(bytes)
+};
+
+/// The 4-byte per-year fee in base units, kept as `u128` so the 5-byte fee
+/// below is derived from it in compile-time arithmetic (an overflow or a
+/// non-exact division would fail the build, not round).
+const NAME_FEE_4_UNITS: u128 = COIN / 10;
+
+/// Default, governed: the per-year fee of a 3-byte name, one coin (Eric,
+/// 2026-11-12, settling ADR-135 O-3). Burned.
+pub const NAME_BASE_FEE_3: Amount = Amount::from_u128(COIN);
+/// Default, governed: the per-year fee of a 4-byte name, 0.1 coin (Eric,
+/// 2026-11-12). Burned.
+pub const NAME_BASE_FEE_4: Amount = Amount::from_u128(NAME_FEE_4_UNITS);
+/// Default, governed: the per-year fee of a name of 5 bytes or more, 0.001
+/// coin: 1/100 of the 4-byte fee (Eric, 2026-11-12), so a long name costs
+/// something but almost nothing. Burned.
+pub const NAME_BASE_FEE_5: Amount = Amount::from_u128(NAME_FEE_4_UNITS / 100);
+/// `NameReservedLabels` with every compiled reserved label held. One label
+/// today (`maya2c`, bit 0); must equal `(1 << RESERVED_LABELS.len()) - 1` in
+/// the node, which a node test pins.
+pub const RESERVED_LABELS_ALL_HELD: u64 = 0b1;
+
+/// `ScheduleRunFee` at activation, in base units per run: the byte fee of one
+/// minimal transfer, so a due row is never free to queue (the S-2 backlog
+/// residual of ADR-135 P-7). Eric's decision, 2026-11-12: a small non-zero
+/// governed value, lowerable by proposal. Derived, not measured here: the
+/// launch base-fee floor `LAUNCH_MIN_BASE_FEE` (10^6 per byte,
+/// `bins/genesis-ceremony/src/committee.rs`) times 13,215 bytes, the measured
+/// v5 transfer (`reports/13-pq-weight.md`). The base fee floats above its floor
+/// and this does not; governance re-prices it.
+pub const SCHEDULE_RUN_FEE_DEFAULT: u64 = 1_000_000 * 13_215;
+
 /// A rule that governance may change.
 ///
 /// The tags are consensus and must never be renumbered. A key this build does
@@ -84,6 +122,31 @@ pub enum ParameterKey {
     /// The signature suite new accounts are created under (ADR-007), as its
     /// registry byte. Read only once suite-tagged transactions activate.
     DefaultSignatureSuite,
+    /// Native units burned (paid to `FEE_SINK`) on top of the byte fee by
+    /// `RegisterAsset` and `RegisterCappedAsset` once ADR-135 bit 41 is
+    /// active: anti-spam on a permanent asset record. Refused in a proposal
+    /// before that height, so a pre-v4 binary and a v4 binary agree on every
+    /// pre-activation block.
+    AssetRegistrationFee,
+    /// Native units burned per year for a 3-byte name, times the years bought
+    /// (ADR-135 P-3, O-3). Refused in a proposal before bit 43 activates.
+    /// Governed, not fixed: the default is a PROPOSED placeholder.
+    NameBaseFee3,
+    /// As [`Self::NameBaseFee3`], for a 4-byte name.
+    NameBaseFee4,
+    /// As [`Self::NameBaseFee3`], for a name of 5 bytes or more.
+    NameBaseFee5,
+    /// Which compiled reserved labels are held (ADR-135 O-3: "held by a
+    /// governance proposal, not a key"): bit `i` holds the node's
+    /// `RESERVED_LABELS[i]`, bit 0 being `maya2c`. The default holds them all,
+    /// so the hold is in force from bit 43's activation; only a passed proposal
+    /// clearing a bit releases a label. Refused in a proposal before bit 43.
+    NameReservedLabels,
+    /// Native units each scheduled-payment run pays `FEE_COLLECTOR`, prepaid
+    /// with the schedule's escrow (ADR-135 P-7, `RUN_FEE`): it joins the tips.
+    /// Zero at activation, raisable (Eric, O-6). Refused in a proposal before
+    /// bit 46 activates.
+    ScheduleRunFee,
 }
 
 /// Every key, in tag order.
@@ -101,6 +164,12 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::VmDefaultGasLimit,
     ParameterKey::GovernanceProposalDeposit,
     ParameterKey::DefaultSignatureSuite,
+    ParameterKey::AssetRegistrationFee,
+    ParameterKey::NameBaseFee3,
+    ParameterKey::NameBaseFee4,
+    ParameterKey::NameBaseFee5,
+    ParameterKey::NameReservedLabels,
+    ParameterKey::ScheduleRunFee,
 ];
 
 /// The permitted range and starting value of one parameter.
@@ -137,6 +206,12 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => 8,
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
+            Self::AssetRegistrationFee => 11,
+            Self::NameBaseFee3 => 12,
+            Self::NameBaseFee4 => 13,
+            Self::NameBaseFee5 => 14,
+            Self::NameReservedLabels => 15,
+            Self::ScheduleRunFee => 16,
         }
     }
 
@@ -165,6 +240,12 @@ impl ParameterKey {
             8 => Ok(Self::VmDefaultGasLimit),
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
+            11 => Ok(Self::AssetRegistrationFee),
+            12 => Ok(Self::NameBaseFee3),
+            13 => Ok(Self::NameBaseFee4),
+            14 => Ok(Self::NameBaseFee5),
+            15 => Ok(Self::NameReservedLabels),
+            16 => Ok(Self::ScheduleRunFee),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -265,6 +346,52 @@ impl ParameterKey {
                 max: Amount::from_u64(0x30),
                 default: Amount::from_u64(0x11),
             },
+            // Pending Eric O-2 (ADR-135): the amount, and burn versus treasury.
+            // The default is the ADR's placeholder, zero: bytes only. The
+            // ceiling is the ADR's admission bound for every governed v4
+            // surcharge, below 2^252, so one `checked_add` to the sender's
+            // debit cannot reach the top of U256.
+            Self::AssetRegistrationFee => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(0),
+            },
+            // Eric, 2026-11-12: 1 / 0.1 / 0.001 coin a year for 3 / 4 / 5+
+            // bytes, all burned. The ceiling is the ADR-135 surcharge bound,
+            // 2^252 - 1: the 1-coin default (~2^80) sits far below it, and
+            // since `periods` is at most 10 (< 16) the node's one
+            // `fee × periods` multiply stays inside U256 for every legal value.
+            Self::NameBaseFee3 => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: NAME_BASE_FEE_3,
+            },
+            Self::NameBaseFee4 => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: NAME_BASE_FEE_4,
+            },
+            Self::NameBaseFee5 => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: NAME_BASE_FEE_5,
+            },
+            // A bit set, not a quantity: one bit per compiled reserved label.
+            // The ceiling grows with the list, which is a binary upgrade anyway.
+            Self::NameReservedLabels => Bounds {
+                min: Amount::from_u64(0),
+                max: Amount::from_u64(RESERVED_LABELS_ALL_HELD),
+                default: Amount::from_u64(RESERVED_LABELS_ALL_HELD),
+            },
+            // Eric, 2026-11-12 (replaces O-6's zero): small and non-zero at
+            // activation, governed, lowerable to zero. The ceiling keeps
+            // `amount + RUN_FEE` one `checked_add` from the top of U256; the
+            // 2^249 creation bound refuses it before that.
+            Self::ScheduleRunFee => Bounds {
+                min: Amount::from_u64(0),
+                max: SURCHARGE_CEILING,
+                default: Amount::from_u64(SCHEDULE_RUN_FEE_DEFAULT),
+            },
         }
     }
 
@@ -282,6 +409,12 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => "vm.default_gas_limit",
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
+            Self::AssetRegistrationFee => "asset.registration_fee",
+            Self::NameBaseFee3 => "name.base_fee_3",
+            Self::NameBaseFee4 => "name.base_fee_4",
+            Self::NameBaseFee5 => "name.base_fee_5",
+            Self::NameReservedLabels => "name.reserved_labels",
+            Self::ScheduleRunFee => "schedule.run_fee",
         }
     }
 
@@ -359,7 +492,9 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 10);
+        // 11 (`AssetRegistrationFee`), the four name keys 12-15 and
+        // `ScheduleRunFee` 16 (ADR-135 allocation table).
+        assert_eq!(count, 16);
     }
 
     #[test]
@@ -367,7 +502,8 @@ mod tests {
         // A node that skipped an unknown key would execute a proposal it did
         // not understand and then build on a state every upgraded node
         // disagrees with. Refusing turns a silent fork into a stopped node.
-        for tag in [0u16, 11, 999, u16::MAX] {
+        // 17: the first tag past `ScheduleRunFee` (16, ADR-135).
+        for tag in [0u16, 17, 999, u16::MAX] {
             assert_eq!(
                 ParameterKey::from_tag(tag),
                 Err(GovernanceError::UnknownParameter { tag })

@@ -64,6 +64,13 @@ pub const ALLOWED_METHODS: &[&str] = &[
     // state, and the header is bound to the caller's own payout address, so
     // work fetched for one address pays nobody else.
     "get_mining_work",
+    // v4 record reads (ADR-135 I8): one committed-state key each, bounded by
+    // the id, so as cheap to answer as `get_balance`.
+    "get_name",
+    "get_asset",
+    "get_nft_collection",
+    "get_nft_item",
+    "get_schedule",
     "send_raw_transaction",
 ];
 

@@ -271,7 +271,7 @@ impl StateDB {
     ///
     /// Takes the node's `U256` or the DEX's `Amount`: both are 256-bit
     /// (ADR-046), and the conversion is the exact byte copy of ADR-048.
-    fn credit_asset(
+    pub(crate) fn credit_asset(
         &self,
         overlay: &mut Overlay,
         asset: &AssetId,
@@ -291,7 +291,7 @@ impl StateDB {
 
     /// Debits `amount` of `asset` from `address`, in either 256-bit type as
     /// [`Self::credit_asset`] takes.
-    fn debit_asset(
+    pub(crate) fn debit_asset(
         &self,
         overlay: &mut Overlay,
         asset: &AssetId,
