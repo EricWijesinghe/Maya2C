@@ -52,3 +52,11 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [GPU auto-tuning in a miner GUI (ADR-137 HW-1)](gpu-auto-tuning.md) — partially searched 2026-11-12
 - [Node hardware self-tuning (ADR-137 HW-2)](node-hardware-self-tuning.md) — not searched
 - [GPU batch verification of post-quantum signatures (ADR-137 HW-3)](gpu-signature-verification.md) — partially searched 2026-11-12
+- [Mixed-suite multisig and suite-diverse quorums (multisig-suite-diversity)](multisig-suite-diversity.md) — searched 2026-11-12
+- [State compression (state-compression)](state-compression.md) — searched 2026-11-12
+- [Data-carrier outputs and metaprotocols (data-carrier)](data-carrier.md) — searched 2026-11-12
+- [Cross-chain token standards (cross-chain-tokens)](cross-chain-tokens.md) — searched 2026-11-12
+- [Blockspace reservation and preconfirmations (blockspace-reservation)](blockspace-reservation.md) — searched 2026-11-12
+- [Generic cross-chain messaging (cross-chain-messaging)](cross-chain-messaging.md) — searched 2026-11-12
+- [Blob transactions and DA attestations (blobs-and-da)](blobs-and-da.md) — searched 2026-11-12
+- [Inclusion lists and fair ordering (inclusion-lists)](inclusion-lists.md) — searched 2026-11-12
