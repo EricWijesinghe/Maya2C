@@ -5,10 +5,14 @@
 //     2026-11-14: "some objects go over the display").
 //  2. /experience/ built with the testnet paused opens no WebSocket and no
 //     request to any maya2c.dev host.
-//  3. axe-core, WCAG 2.2 A/AA rules, on /experience/ and /guides/testnet/ in
+//  3. axe-core, WCAG 2.2 A/AA rules, on /experience/, testnet, wallet,
+//     contributors and help-run in
 //     both themes: zero violations.
-//  4. Screenshots of four pages at 360 and 1440 px in both themes, written
-//     next to this file, so a reviewer sees the phone layout without a phone.
+//  4. Full-page screenshots of the seven pages this lane changed most, at 360
+//     and 1440 px in both themes, written next to this file (JPEG, to keep the
+//     public repo small), so a reviewer sees everything below the fold on a
+//     phone without a phone. EXTRA_SHOTS_DIR=<dir> also writes 390 and 768 px
+//     there; those are not committed (the overflow check covers both widths).
 //
 // Run after `npm run build` in docs/site:
 //   node design/visual/site-paused/check.mjs
@@ -34,8 +38,9 @@ const PAGES = [
 ];
 const WIDTHS = [360, 390, 430, 768, 1024, 1440];
 const THEMES = ['dark', 'light'];
-const AXE_PAGES = ['experience', 'guides/testnet'];
-const SHOTS = ['experience', 'guides/testnet', 'guides/wallet', 'guides/contributors'];
+const AXE_PAGES = ['experience', 'guides/testnet', 'guides/wallet', 'guides/contributors', 'guides/help-run'];
+const SHOTS = ['experience', 'guides/testnet', 'guides/wallet', 'guides/contributors', 'guides/help-run', 'guides/start-mining', 'guides/validators'];
+const SHOT_WIDTHS = [[360, here], [1440, here], ...(process.env.EXTRA_SHOTS_DIR ? [[390, process.env.EXTRA_SHOTS_DIR], [768, process.env.EXTRA_SHOTS_DIR]] : [])];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.json': 'application/json', '.webp': 'image/webp', '.txt': 'text/plain' };
 
 if (!existsSync(dist)) throw new Error(`no ${dist}: run npm run build in docs/site first`);
@@ -115,17 +120,19 @@ for (const theme of THEMES) {
   }
 }
 
-// 4. Screenshots.
+// 4. Screenshots, full page.
+let shots = 0;
 for (const theme of THEMES) {
-  for (const width of [360, 1440]) {
+  for (const [width, dir] of SHOT_WIDTHS) {
     for (const path of SHOTS) {
-      const { ctx, page } = await open(path, width, theme, width === 360 ? 780 : 900);
-      await page.screenshot({ path: join(here, `${path.replace(/\//g, '-')}-${width}-${theme}.png`) });
+      const { ctx, page } = await open(path, width, theme, width < 800 ? 780 : 900);
+      await page.screenshot({ path: join(dir, `${path.replace(/\//g, '-')}-${width}-${theme}.jpg`), fullPage: true, type: 'jpeg', quality: 70 });
+      shots++;
       await ctx.close();
     }
   }
 }
-console.log(`screenshots: ${SHOTS.length * 4} written to ${here}`);
+console.log(`screenshots: ${shots} full-page (${SHOT_WIDTHS.map(([w, d]) => `${w}px -> ${d}`).join(', ')})`);
 
 await browser.close();
 server.close();

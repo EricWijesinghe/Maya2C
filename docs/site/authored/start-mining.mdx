@@ -34,7 +34,7 @@ machine can mine, how to start, and what to expect.
 | Mining mode | What you need | Honest note |
 |---|---|---|
 | GPU, full dataset | A graphics card with about **6 GB of free video memory**, and a driver with Vulkan (Linux) or DirectX 12 or Vulkan (Windows). The miner holds the **4 GiB dataset** in video memory. | This is the mode that makes sense. The GPU path has not been measured on real cards in this repository yet; run `--list` and `--benchmark` on your card before you rely on any figure. |
-| CPU, light | Any 64-bit machine with about 64 MiB free for the cache. | Works, and is useful for testing. Mining from the cache is about 260 times slower than from the dataset, so CPU mining will earn a very small share of the budget. |
+| CPU, light | Any 64-bit machine with about 64 MiB free for the cache. | Works, and is useful for testing. Light mode recomputes every dataset item it reads from the cache (128 items at 256 cache reads each per hash, about a hundred times the work by design: `crates/node/src/crypto/dag/hashimoto.rs`). The measured speed ratio is MISSING, so CPU mining gets a very small share of the budget. |
 
 Find your adapter before anything else. Every later command uses its index.
 

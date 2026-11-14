@@ -29,16 +29,17 @@ const stages = [
 
 <style>
   /* Tokens only (lane L04): the literals here failed AA contrast in light mode. */
-  .delivery { margin: 0; display: grid; gap: 14px; }
-  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; position: relative; }
-  .track::before { content: ""; position: absolute; left: 16px; right: 16px; top: 15px; height: 2px; background: linear-gradient(90deg, var(--accent), var(--bronze)); opacity: .5; }
-  .stage { position: relative; display: grid; gap: 4px; justify-items: start; }
-  .node { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--accent); color: var(--text); font: 600 13px/1 monospace; }
+  .delivery { margin: 0; display: grid; gap: var(--space-4); }
+  .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); position: relative; }
+  .track::before { content: ""; position: absolute; left: 22px; right: 22px; top: 21px; height: 2px; background: linear-gradient(90deg, var(--accent), var(--bronze)); opacity: .5; }
+  .stage { position: relative; display: grid; gap: var(--space-1); justify-items: start; }
+  /* 44 px nodes: the same steps pattern as ContributeFlow. */
+  .node { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--accent); color: var(--text); font: var(--weight-semibold) var(--type-body-lg-size)/1 var(--font-mono); }
   .tone-done .node { background: var(--accent-grad-from); color: var(--on-accent); }
-  .stage b { font-weight: 600; }
-  .stage small, .delivery figcaption { color: var(--text-2); font-size: 12.5px; line-height: 1.4; }
-  .branch { display: flex; align-items: center; gap: 12px; padding-left: 16px; }
-  .fork { width: 28px; height: 0; border-top: 2px dashed var(--bronze); opacity: .7; }
+  .stage b { font-weight: var(--weight-semibold); }
+  .stage small, .delivery figcaption { color: var(--text-2); font-size: var(--type-body-sm-size); line-height: var(--type-body-sm-line); }
+  .branch { display: flex; align-items: center; gap: var(--space-3); padding-left: 22px; }
+  .fork { width: var(--space-8); height: 0; border-top: 2px dashed var(--bronze); opacity: .7; }
   .tone-expired b { color: var(--bronze); }
   .delivery figcaption { margin: 0; }
 </style>

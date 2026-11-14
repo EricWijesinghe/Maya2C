@@ -24,7 +24,7 @@ export interface EcoApp {
 const repo = "https://github.com/EricWijesinghe/Maya2C";
 
 const cards: EcoApp[] = [
-  { id: "wallet", name: "Maya2C Wallet", icon: "👛", note: "CLI + desktop", status: "built", ledger: "tauri-2-0-desktop-wallet", what: "Holds your post-quantum keys and signs every transfer twice, with ML-DSA-65 and SLH-DSA.", now: "Read the wallet guide, then download the desktop wallet.", href: "/guides/wallet/" },
+  { id: "wallet", name: "Maya2C Wallet", icon: "👛", note: "CLI + desktop", status: "built", ledger: "tauri-2-0-desktop-wallet", what: "Holds your post-quantum keys and signs every transfer twice, with ML-DSA-65 and SLH-DSA.", now: release.published ? "Read the wallet guide, then download the desktop wallet." : "Build from source today; the installer is not released yet.", href: "/guides/wallet/" },
   { id: "chat", name: "Maya2C Chat", icon: "💬", note: "PQ messenger", status: "built", ledger: "maya-chat", what: "A messenger with post-quantum key exchange, delivery receipts and stickers. Research software: unaudited, no group chats, no metadata privacy yet.", now: `Unaudited: read the ${release.tag} notes before you try it.`, href: releaseHref },
   { id: "hub", name: "Maya2C Hub", icon: "🧭", note: "all apps, one window", status: "built", ledger: "maya2c-hub", what: "One desktop app that opens the others and runs the miner where you can see it.", now: "Build from source (cargo xtask hub-bundle); no installer is published.", href: `${repo}/tree/master/apps/hub` },
   { id: "explorer", name: "Explorer", icon: "🔭", note: "blocks · txs · accounts", status: "built", ledger: "leptos-block-explorer-and-dashboard", what: "Every block, transaction and account on the chain, searchable, updated live.", ...(testnet.paused

@@ -7,6 +7,13 @@ import { testnet } from "./network-state.ts";
 /** The hosts that answer only while the testnet runs. */
 export const PUBLIC_HOSTS = ["faucet.maya2c.dev", "rpc.maya2c.dev", "explorer.maya2c.dev", "status.maya2c.dev"] as const;
 
+/**
+ * Ledger subsystems that are services on the public testnet. Their status
+ * chips say "offline until next genesis" while paused, so a page does not
+ * show "verified" in green right above a note saying the service is stopped.
+ */
+export const HOSTED_SUBSYSTEMS: readonly string[] = testnet.paused ? ["testnet-faucet", "chain-status", "leptos-block-explorer-and-dashboard"] : [];
+
 /** The path that works today: a one-validator devnet on your own machine. */
 export const LOCAL_DEVNET_HREF = "/guides/quickstart/";
 
@@ -27,6 +34,15 @@ export const recorded = {
   source: "status.maya2c.dev/api/status",
   at: "2026-10-28 ~07:36 UTC",
   body: '{"genesis":1792511653,"halted_now":false,"halts":[],"height":393812,"last_block":1793172992,"since_last_block":18,"streak_seconds":661357,"threshold_seconds":60,"uptime":1.0}',
+} as const;
+
+/** The run the stop ended, as the stop report dates it (a test checks the report). */
+export const lastRun = {
+  genesisAt: "2026-10-20 15:54 UTC",
+  genesisIso: "2026-10-20T15:54Z",
+  stopIso: "2026-10-28T07:36Z",
+  /** The status page lists the deliberate stop as a halt; the run itself had none. */
+  stopNote: "the stop itself shows as a halt on the status page",
 } as const;
 
 /** The two caveats recorded with the 7-day result, and what a halt is. */

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { testnet } from "./network-state.ts";
-import { PUBLIC_HOSTS, recorded, runCaveats } from "./paused.ts";
+import { HOSTED_SUBSYSTEMS, lastRun, PUBLIC_HOSTS, recorded, runCaveats } from "./paused.ts";
 import { release, wallet } from "./release.ts";
 
 const site = new URL("../../", import.meta.url);
@@ -17,7 +17,7 @@ const authored = (f: string) => read(`authored/${f}`);
 const GUIDES = ["start-mining.mdx", "help-run.mdx", "testnet.mdx", "validators.mdx", "wallet.mdx"];
 const CHANNEL = "First channel: GitHub private vulnerability reporting, https://github.com/EricWijesinghe/Maya2C/security/advisories/new";
 const S03 =
-  "A transaction's signature is decided by its own frame: an untagged frame, which `l1-wallet` signs, is the ML-DSA-65 + SLH-DSA-SHA2-128s hybrid and both must verify; a suite-tagged frame (ML-DSA-87 among others) is opt-in, and the governance parameter `crypto.default_signature_suite` (ML-DSA-87 at genesis) names what wallets should offer, never what verifies.";
+  "A transaction's signature is decided by its own frame: an untagged frame, which `l1-wallet` signs, is the ML-DSA-65 + SLH-DSA-SHA2-128s hybrid and both must verify; a suite-tagged frame (ML-DSA-87 among others) is opt-in. The governance parameter `crypto.default_signature_suite` (ML-DSA-87 at genesis) never decides what verifies, and no wallet reads it yet: `l1-wallet` signs the hybrid whatever it says.";
 const STOP_REPORT = "reports/sessions/2026-10-28-testnet-stopped.md";
 
 test("every paused-sensitive guide renders the one PausedNote", () => {
@@ -31,6 +31,19 @@ test("every paused-sensitive guide renders the one PausedNote", () => {
 test("the recorded response is the stop report's own line, not retyped", () => {
   assert.ok(read(STOP_REPORT, repo).includes(recorded.body), "recorded.body must appear verbatim in the stop report");
   assert.equal(JSON.parse(recorded.body).height, testnet.last.height);
+});
+
+test("the run timeline on /experience/ is the stop report's own dates", () => {
+  const report = read(STOP_REPORT, repo);
+  assert.ok(report.includes(`Genesis 1792511653 = ${lastRun.genesisAt.replace(" UTC", ":13 UTC")}`), "genesis time");
+  assert.ok(report.includes("shows a halt from 07:36:32 UTC: that is this deliberate stop"), "the stop shows as a halt");
+});
+
+test("/experience/ shows rest by form, never by greying the brand colour", () => {
+  const src = read("src/pages/experience.astro");
+  assert.doesNotMatch(src, /saturate\(|grayscale\(/);
+  assert.doesNotMatch(src, /--xp-glow:\s*transparent/, "light mode gets a designed shadow, not no effect");
+  assert.match(src, /prefers-reduced-motion[\s\S]*is-paused::after[^}]*animation: none/, "the breathing halo stops under reduced motion");
 });
 
 test("the 7-day figure carries both recorded caveats and the halt definition", () => {
@@ -161,12 +174,32 @@ test("built: every height or block count is at most the last real height, or an 
   }
 });
 
+test("built: a hosted service's status chip is not green while paused", { skip }, () => {
+  if (!testnet.paused) return;
+  const html = page("guides/testnet");
+  const chips = html.match(/<a[^>]*data-paused-chip[^>]*>[\s\S]*?<\/a>/g) ?? [];
+  assert.equal(chips.length, 2, "faucet and chain status");
+  for (const c of chips) {
+    assert.match(c, /ui-pill--warn/);
+    assert.match(text(c), /offline until next genesis/);
+  }
+  assert.ok(HOSTED_SUBSYSTEMS.includes("testnet-faucet"));
+});
+
+test("built: /experience/ opens with a lede and one action that works today", { skip }, () => {
+  const html = page("experience");
+  assert.match(html, /class="xp-lede/);
+  if (testnet.paused) assert.match(html, /class="xp-cta[^"]*" href="\/guides\/quickstart\/"/);
+});
+
 test("built: the wallet guide's download buttons are off until the release exists", { skip }, () => {
   const html = page("guides/wallet");
   assert.match(html, /data-get-wallet/);
   assert.doesNotMatch(html, /releases\/latest/);
   if (!release.published) {
     assert.doesNotMatch(html, /releases\/download\//);
-    assert.match(text(html), /Not published yet/);
+    assert.match(text(html), /Preview build not released yet/);
+    assert.match(html, /href="\/guides\/quickstart\/#1-install-the-tools-and-build"/, "the unreleased card offers the build-from-source path");
+    assert.doesNotMatch(html, /owner's approval/, "no process talk on a public page");
   }
 });

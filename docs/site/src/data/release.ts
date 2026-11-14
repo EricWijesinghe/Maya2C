@@ -5,7 +5,7 @@
 //
 // `published` stays false until the release exists on GitHub. Publishing needs
 // the owner's APPROVED (Standing Order 6), and until then a download button
-// would be a 404, so the buttons render disabled with the reason. When it is
+// would be a 404, so the guide shows one "not released yet" card instead. When it is
 // published: copy each asset name from
 //   gh release view <tag> --json assets --jq '.assets[].name'
 // into `wallet` below and set `published: true`. paused-truth.test.ts fails if
@@ -41,4 +41,7 @@ export function assetHref(name: string): string {
 /** Why a download button is off, or null when the release is out. */
 export const unpublishedReason: string | null = release.published
   ? null
-  : `Not published yet: ${release.tag} is built from master but waits for the owner's approval to publish. The notes are already readable.`;
+  : `${release.tag} is not released yet, so there is no installer to download. The wallet builds from source today, and the notes are already readable.`;
+
+/** Where the wallet's build-from-source steps are, while there is no installer. */
+export const BUILD_FROM_SOURCE_HREF = "/guides/quickstart/#1-install-the-tools-and-build";
