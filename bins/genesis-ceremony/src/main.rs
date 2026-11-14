@@ -52,6 +52,7 @@ use custom_l1_node::state::mining::{MINING_RESERVE, MiningGenesis};
 
 mod committee;
 mod council;
+mod council_rotate;
 
 /// Chain ids that carry real value, so their genesis keeps the pool off.
 ///

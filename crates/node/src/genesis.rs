@@ -165,17 +165,12 @@ impl CouncilGenesis {
     ///
     /// # Errors
     ///
-    /// A malformed key, a duplicate member, or a threshold that is not a
-    /// strict majority (a minority could pause over the majority's head).
+    /// A malformed key, a duplicate member, a threshold that is not a strict
+    /// majority (a minority could pause over the majority's head), or more
+    /// than `MAX_COUNCIL_MEMBERS` (32) members: a new bound since 2026-11-14,
+    /// because a strict majority of 33 would not fit in `MAX_APPROVALS`.
     pub fn record(&self) -> Result<crate::state::council::CouncilRecord> {
-        let n = self.members.len();
-        if n == 0 || usize::from(self.threshold) * 2 <= n || usize::from(self.threshold) > n {
-            return Err(NodeError::Decode(format!(
-                "security_council: threshold {} of {n} is not a strict majority",
-                self.threshold
-            )));
-        }
-        let mut members = Vec::with_capacity(n);
+        let mut members = Vec::with_capacity(self.members.len());
         for (i, m) in self.members.iter().enumerate() {
             let bytes = hex::decode(m)
                 .map_err(|e| NodeError::Decode(format!("security_council.members[{i}]: {e}")))?;
@@ -183,19 +178,20 @@ impl CouncilGenesis {
                 .as_slice()
                 .try_into()
                 .map_err(|_| NodeError::Decode(format!("security_council.members[{i}]: length")))?;
-            crate::crypto::keys::VerifyingKey::from_bytes(&key)?;
-            if members.contains(&key) {
-                return Err(NodeError::Decode(format!(
-                    "security_council.members[{i}] repeats"
-                )));
-            }
             members.push(key);
         }
+        // The rule a rotation must also meet, so a rotated council is never
+        // looser than a genesis one.
+        crate::state::council::check_member_set(self.threshold, &members)
+            .map_err(|why| NodeError::Decode(format!("security_council: {why}")))?;
         Ok(crate::state::council::CouncilRecord {
             threshold: self.threshold,
             max_pause_blocks: self.max_pause_blocks,
             nonce: 0,
             members,
+            pending: None,
+            last_sunset_at: None,
+            last_pause_end: std::collections::BTreeMap::new(),
         })
     }
 }

@@ -265,9 +265,30 @@ phase that did it.
     as `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW`
     (1,000,000 + 172,800) so a vault withdrawal a sunset announcement starts can
     finish before the sunset height (ADR-082).
+    The council's own levers are bounded the same way (ADR-082 amendment,
+    2026-11-14): it can neither pause nor resume Governance; a council pause
+    of a module is refused within `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` (86,400)
+    after the council's last pause of that module ends (a resume ends it at
+    the resume's height), counted from the end the council record keeps, so
+    an automatic breaker trip on the module does not reset it; a council
+    sunset is refused within the same cooldown after the council's last
+    sunset; and a council rotation takes effect no sooner than
+    `COUNCIL_ROTATION_LEAD_BLOCKS` (86,400) after it lands, needs a quorum of
+    the council in force and a signed acceptance from every new member, names
+    a strict-majority set of 1 to 32 distinct valid keys, and replaces any
+    pending rotation. Both constants are compiled in
+    `crates/governance/src/limits.rs`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and
     `crates/node/tests/council_pause_tests.rs`
-    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
+    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`,
+    `the_council_can_neither_pause_nor_resume_governance`,
+    `a_council_pause_cannot_be_renewed_within_the_cooldown`,
+    `a_council_pause_that_expires_unresumed_cools_down_from_its_end`,
+    `a_rotation_naming_a_key_nobody_signed_for_is_refused`,
+    `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
+    `a_rotation_takes_effect_at_its_height_and_not_before`) and the
+    `state::council` unit test
+    `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
     — ADR-082.

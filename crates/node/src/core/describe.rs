@@ -470,6 +470,26 @@ pub fn describe_kind(kind: &TxKind) -> Description {
                 ),
                 Careful,
             ),
+            CouncilKind::Rotate { rotation, .. } => Description::new(
+                format!(
+                    "Council: hand over to {} new member key(s), {} needed, from height {}.",
+                    rotation.members.len(),
+                    rotation.threshold,
+                    rotation.activation
+                ),
+                Careful,
+            )
+            // Which keys, not only how many: the same 32-hex BLAKE3 prefix
+            // the ceremony's commitment sheet prints, so a signer can compare.
+            .with(
+                "new members",
+                rotation
+                    .members
+                    .iter()
+                    .map(|k| blake3::hash(k).to_hex()[..32].to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
         },
         TxKind::Vault(action) => describe_vault(action),
         TxKind::MiningShare(m) => Description::new(

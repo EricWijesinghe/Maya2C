@@ -5,9 +5,15 @@
 //! genesis-ceremony council key      --label pc --passphrase-file F [--out-dir D]
 //! genesis-ceremony council approve  --key pc.council.sealed --passphrase-file F
 //!                                   --council D --genesis G --nonce N
-//!                                   (--pause MODULE --blocks N | --resume MODULE)
+//!                                   (--pause MODULE --blocks N | --resume MODULE
+//!                                    | --rotate NEW_DIR --threshold T --activation H
+//!                                      ACCEPTANCE...)
+//! genesis-ceremony council accept   (see `council_rotate`)
 //! genesis-ceremony council combine  --council D --genesis G APPROVAL...
 //! ```
+//!
+//! `--council D` is the council in force: after a rotation takes over, it is
+//! the rotation's `NEW_DIR`, because member indices are the new set's.
 //!
 //! `key` writes the secret only sealed (ADR-049: Argon2id + ChaCha20-Poly1305)
 //! and the public half as hex. `assemble --council D` puts the public halves in
@@ -30,6 +36,8 @@ use custom_l1_node::genesis::{CouncilGenesis, GenesisConfig};
 use custom_l1_node::state::invariant_guard::Module;
 use maya_signer::sealed;
 
+use crate::council_rotate as rotate;
+
 /// The sealed file's `kind`, so a council key cannot be opened as a validator
 /// key or the other way round.
 const SEALED_KIND: &str = "council-ml-dsa-65";
@@ -37,7 +45,7 @@ const PUBLIC_SUFFIX: &str = ".council.public";
 const SEALED_SUFFIX: &str = ".council.sealed";
 const APPROVAL_HEADER: &str = "maya2c-council-approval v1";
 
-type Res<T> = Result<T, Box<dyn Error>>;
+pub(crate) type Res<T> = Result<T, Box<dyn Error>>;
 
 /// One member as the coordinator sees it: a label and a public key.
 pub struct Member {
@@ -52,13 +60,14 @@ pub type Council = (CouncilGenesis, Vec<Member>);
 pub fn run(argv: &[String]) -> Res<()> {
     let (sub, rest) = argv
         .split_first()
-        .ok_or("council: key, approve or combine")?;
+        .ok_or("council: key, approve, accept or combine")?;
     let flags = Flags::parse(rest)?;
     match sub.as_str() {
         "key" => make_key(&flags),
         "approve" => approve(&flags),
+        "accept" => accept(&flags),
         "combine" => combine(&flags),
-        other => Err(format!("council {other}: expected key, approve or combine").into()),
+        other => Err(format!("council {other}: expected key, approve, accept or combine").into()),
     }
 }
 
@@ -74,6 +83,9 @@ struct Flags {
     pause: Option<String>,
     blocks: Option<u64>,
     resume: Option<String>,
+    rotate: Option<PathBuf>,
+    threshold: Option<u8>,
+    activation: Option<u64>,
     genesis: Option<PathBuf>,
     files: Vec<PathBuf>,
 }
@@ -99,6 +111,9 @@ impl Flags {
                 "--pause" => f.pause = Some(value()?),
                 "--blocks" => f.blocks = Some(value()?.parse()?),
                 "--resume" => f.resume = Some(value()?),
+                "--rotate" => f.rotate = Some(value()?.into()),
+                "--threshold" => f.threshold = Some(value()?.parse()?),
+                "--activation" => f.activation = Some(value()?.parse()?),
                 "--genesis" => f.genesis = Some(value()?.into()),
                 other if other.starts_with("--") => {
                     return Err(format!("unknown flag {other}").into());
@@ -279,7 +294,21 @@ fn module(name: &str) -> Res<u8> {
         .ok_or_else(|| format!("unknown module {name}").into())
 }
 
-fn requested_kind(f: &Flags) -> Res<CouncilKind> {
+fn requested_kind(f: &Flags, chain: &ChainTag) -> Res<CouncilKind> {
+    if let Some(dir) = &f.rotate {
+        if f.pause.is_some() || f.resume.is_some() || f.blocks.is_some() {
+            return Err(
+                "--rotate is an action of its own: no --pause, --resume or --blocks".into(),
+            );
+        }
+        let (rotation, _) =
+            rotate::requested(load_members(dir, false)?, f.threshold, f.activation)?;
+        let acceptances = rotate::acceptances_from(&rotation, chain, &f.files)?;
+        return Ok(CouncilKind::Rotate {
+            rotation,
+            acceptances,
+        });
+    }
     match (&f.pause, &f.resume) {
         (Some(m), None) => Ok(CouncilKind::Pause {
             module: module(m)?,
@@ -290,8 +319,8 @@ fn requested_kind(f: &Flags) -> Res<CouncilKind> {
     }
 }
 
-fn approve(f: &Flags) -> Res<()> {
-    let members = load_members(f.council_dir()?, false)?;
+/// The member's own key, unsealed on this device, and its public half.
+fn open_key(f: &Flags) -> Res<(SigningKey, Vec<u8>)> {
     let key_path = f.key.as_ref().ok_or("--key is required")?;
     let (secret, public) = sealed::open(
         &fs::read_to_string(key_path)?,
@@ -306,18 +335,58 @@ fn approve(f: &Flags) -> Res<()> {
     if key.verifying_key().to_bytes().as_slice() != public.as_slice() {
         return Err("sealed key: the public key does not match the secret".into());
     }
+    Ok((key, public))
+}
+
+/// A new member accepts its seat in a rotation: proof the key has a holder.
+fn accept(f: &Flags) -> Res<()> {
+    let dir = f
+        .rotate
+        .as_ref()
+        .ok_or("--rotate <NEW_DIR> is required: the new council")?;
+    let (rotation, members) =
+        rotate::requested(load_members(dir, false)?, f.threshold, f.activation)?;
+    let (key, public) = open_key(f)?;
+    let index = members
+        .iter()
+        .position(|m| m.key.as_slice() == public.as_slice())
+        .ok_or("this key is not a member of that new council")?;
+    let message = rotation.acceptance_message(&f.chain()?);
+    let out = f
+        .out
+        .clone()
+        .unwrap_or_else(|| format!("{}.acceptance", members[index].label).into());
+    fs::write(
+        &out,
+        rotate::acceptance_text(index, &message, &key.sign(&message)?),
+    )?;
+    println!(
+        "seat {index} ({}) of {} accepted, {} needed, from height {}: {}",
+        members[index].label,
+        members.len(),
+        rotation.threshold,
+        rotation.activation,
+        out.display()
+    );
+    Ok(())
+}
+
+fn approve(f: &Flags) -> Res<()> {
+    let members = load_members(f.council_dir()?, false)?;
+    let (key, public) = open_key(f)?;
+    let chain = f.chain()?;
     let index = members
         .iter()
         .position(|m| m.key.as_slice() == public.as_slice())
         .ok_or("this key is not a member of that council")?;
     let action = CouncilAction {
-        kind: requested_kind(f)?,
+        kind: requested_kind(f, &chain)?,
         nonce: f
             .nonce
             .ok_or("--nonce is required: the council's current nonce")?,
         approvals: Vec::new(),
     };
-    let message = action.signing_message(&f.chain()?);
+    let message = action.signing_message(&chain);
     let text = format!(
         "{APPROVAL_HEADER}\nmember {index}\naction {}\nsignature {}\n",
         hex::encode(&message),

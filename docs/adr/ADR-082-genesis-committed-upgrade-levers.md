@@ -204,3 +204,113 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   compiled into `limits.rs` like the other governance bounds (invariant 12).
 - **One version per feature** (the rules epoch and the feature share a number).
   Rejected: it forces every dark feature to wait for the one before it.
+
+## Amendment 2026-11-14: council hardening (founder audit Q7, Q8)
+
+**Status:** Accepted, 2026-11-14. Eric chose the recommended option on every
+founder-audit question ("I approve everything, proceed"): Q7 A plus a cooldown,
+Q8 A. Pre-genesis: it changes the council action wire format and the council
+record, so it ships in the re-freeze binary.
+
+The audit found three gaps in the council this ADR made the fast path for
+sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
+
+1. **The council could pause Governance.** `Module::Governance` covers stake,
+   proposals and votes, and also mining shares and work claims
+   (`Module::of`: `MiningShare` and `ClaimWork` pay out of the reserve, so
+   ADR-044 put them under one breaker with staking). A council pause could
+   freeze the vote that would answer the council. **Decision:** a council
+   action that names Governance, pause or resume, is refused. Governance is
+   never council-paused. The automatic breaker never named it either (its two
+   checks gate the DEX and the shielded pool), so Governance is now ungated.
+   *Deviation from the audit's wording:* option A said "remove Governance from
+   `MODULES`". `MODULES` keeps it, because it lists every module tag and tags
+   are permanent; the council action naming it is refused instead. The effect
+   is the one option A asked for.
+   *Trade-off, recorded in the audit:* the council can no longer slow an attack
+   on governance itself, and it can no longer halt mining-share or work-claim
+   payouts either. Those defences now rest on governance's own floors
+   (invariant 12), the 30-day upgrade lead, and the work kinds' own checks.
+2. **Renewals were unbounded.** A 2-of-3 quorum could renew a bounded pause
+   back to back, so the bound meant nothing. **Decision:**
+   `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` (86,400 blocks, one day at one block per
+   second; `crates/governance/src/limits.rs`). A council pause of a module is
+   refused while the last council pause of that module holds, and for the
+   cooldown after it ends. A council resume ends a pause, so the cooldown runs
+   from the resume. A council sunset is refused within the cooldown of the
+   council's last sunset (`last_sunset_at` in the record). The end of each
+   module's last council pause is kept in the council record too
+   (`last_pause_end`, by module tag). It is not read back from the breaker
+   record, because an automatic trip (`trip_breaker`) overwrites that record:
+   reading it there let an automatic trip during the cooldown clear the
+   council's clock (review of PR #544, 2026-11-14).
+   *Residual, from the audit:* nothing caps how many modules the council has
+   paused at once. Each module has its own cooldown; the council can still
+   pause every pausable module in one stretch.
+3. **The council could not rotate.** If a key was lost or compromised, the
+   only way to recover was re-genesis. **Decision:** a new action,
+   `CouncilKind::Rotate` (wire kind 3). A quorum of the council *in force*
+   signs a new member set and threshold under the rule genesis now applies
+   too: 1 to `MAX_COUNCIL_MEMBERS` (32, one approval each must fit in
+   `MAX_APPROVALS`) distinct, valid ML-DSA-65 keys, and a strict-majority
+   threshold. *Genesis change:* before this amendment `CouncilGenesis::record`
+   had no upper bound on members; it now refuses more than 32 (pinned by
+   `a_genesis_council_of_more_than_32_members_is_refused`). A larger genesis
+   council could never have acted, since a strict majority of 33 does not fit
+   in 32 approvals. Every new member also signs an acceptance (domain
+   `maya2c/security-council/rotation-accept/v1`, the chain tag and the
+   rotation), carried in the action and checked when it lands. A key a typo or
+   a hostile transaction builder put in the set has no holder to sign, so the
+   rotation is refused rather than handing the council to nobody. The signing
+   description shows each new key's 32-hex BLAKE3 prefix, the form the
+   ceremony's commitment sheet prints, and `genesis-ceremony council accept`
+   and `approve --rotate` build the action. The new set takes over at an activation height at least
+   `COUNCIL_ROTATION_LEAD_BLOCKS` (86,400) after the block that carries it and
+   no more than `MAX_SCHEDULE_HORIZON_BLOCKS` after it. Until then it sits in
+   the council record as `pending`, which is in the state root, so the handover
+   is public for the whole lead. A later rotation replaces a pending one, and
+   it must clear the lead again from its own block. That is how a mistaken
+   rotation is withdrawn. The nonce carries on across the handover, so no
+   approval from before the handover is valid after it. The handover is applied
+   when the record is next read at or past the activation height:
+   `CouncilRecord::at(height)` is a pure function of the record and the height,
+   so every node agrees on the council in force at every height, and no
+   per-block hook was added to the apply path. `StateDB::committed_council`
+   takes a height and applies `at`, so a read after the activation shows the
+   new set even before the council's next action writes the record back.
+   *Deviation from the brief, which asked for the rotation to be "logged as an
+   event":* this chain has no event log apart from the VM's. The rotation is
+   recorded by the transaction that carries it and by the `pending` field in
+   the record, which is in the state root. A separate event stream is not
+   built.
+   *Limit:* a rotation needs a live quorum of the council in force. If more
+   keys are lost than the threshold allows (two of three, today), there is no
+   on-chain recovery, and re-genesis remains the only path. Rotation recovers
+   from a lost or compromised key while a quorum still holds.
+
+**Record format.** The council record gains a version 2 that adds
+`last_sunset_at`, `pending` and `last_pause_end` (module tags ascending,
+each a known module). A council that has never acted still encodes as
+version 1, byte for byte. Its genesis root is unchanged. Version 2 with every
+added field empty, a stray sunset height, or pause ends out of order or for an
+unknown module does not decode, so each value has one form.
+
+**What this does not fix.** The council keys are still one operator's three
+devices (DECISIONS.md 2026-10-18; audit Q9, the owner's decision). Rotation
+lets those keys be replaced. It does not make the holders independent.
+
+Pinned by `crates/node/tests/council_pause_tests.rs`:
+`the_council_can_neither_pause_nor_resume_governance`,
+`a_council_pause_cannot_be_renewed_within_the_cooldown`,
+`a_council_pause_that_expires_unresumed_cools_down_from_its_end`,
+`a_council_sunset_cannot_follow_another_within_the_cooldown`,
+`a_rotation_with_too_few_approvals_is_refused`,
+`a_rotation_must_clear_the_lead_and_name_a_sound_set`,
+`a_rotation_past_the_schedule_horizon_is_refused`,
+`a_rotation_naming_a_key_nobody_signed_for_is_refused`,
+`a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
+`a_rotation_takes_effect_at_its_height_and_not_before`,
+`the_committed_council_read_after_activation_is_the_new_one`,
+`a_genesis_council_of_more_than_32_members_is_refused`; and by the
+`state::council` unit tests `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
+and `the_record_round_trips` (one form per record).

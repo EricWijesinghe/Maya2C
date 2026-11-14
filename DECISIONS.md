@@ -901,3 +901,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — Council hardening before genesis: no Governance pause, a renewal cooldown, key rotation (Eric 2026-11-14)
+
+Eric chose the recommended answers to founder-audit Q7 and Q8 ("I approve everything, proceed", Eric 2026-11-14). ADR-082 amendment 2026-11-14, invariant 34, spec CNL-1 to CNL-4.
+
+- **Q7 A, Governance is not council-pausable:** a council pause or resume that names Governance is refused. The council could otherwise freeze the stake vote that answers it. Trade-off: the council can no longer slow an attack on governance itself, and since `Module::Governance` also covers mining shares and work claims (ADR-044), it can no longer halt those payouts either. Deviation from A's wording ("remove Governance from MODULES"): the tag stays in `MODULES`, because tags are permanent, and the action is refused instead.
+- **Cooldown:** `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` = 86,400 (one day at one block per second). A council pause of a module is refused while the last one holds and for a day after it ends or is resumed. The end is kept per module in the council record (`last_pause_end`), so an automatic breaker trip, which overwrites the breaker record, does not reset it (PR #544 review). A council sunset is refused within a day of the council's last sunset. The value is this session's choice under Eric's approval of the recommended option. The audit named no figure. Residual, from the audit: nothing caps how many modules are paused at once.
+- **Q8 A, rotation:** `CouncilKind::Rotate`. A quorum of the council in force names a new set: 1 to 32 distinct keys under a strict majority, and every new member signs an acceptance, so a key nobody holds cannot enter the set. The set takes over no sooner than `COUNCIL_ROTATION_LEAD_BLOCKS` = 86,400 after the block that carries it. It is public in the council record (`pending`) for that whole time. A later rotation replaces a pending one. Limit: rotation needs a live quorum; with more keys lost than the threshold allows, re-genesis is still the only path.
+- **Genesis change:** genesis now applies the same member rule, so a genesis council of more than 32 members is refused. Before, genesis had no upper bound; such a council could never have acted.
+- **Not built:** the brief asked for the rotation to be "logged as an event". The chain has no event log outside the VM; the transaction and the `pending` record are the log.
+- **Not decided here:** Q9, who holds the keys. It stays one operator's three devices (2026-10-18 entry) until Eric decides otherwise.
