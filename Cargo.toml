@@ -61,6 +61,8 @@ members = [
     "bins/genesis-ceremony",
     "bins/maya2c-peerid",
     "bins/maya2c-gpu-miner",
+    # Standalone supply verifier: depends on the arithmetic and the spec, never the node.
+    "bins/maya2c-audit",
     # Deterministic simulation: seeded RNG, virtual clock, modelled network,
     # fault-injecting disk. Dependency-free, because a dependency is a second
     # source of decisions and any one of them makes a replay a different run
