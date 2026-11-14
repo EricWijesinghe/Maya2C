@@ -932,6 +932,11 @@ impl StateDB {
         // assembling this block must not be able to place a transaction ahead
         // of it. See `crate::state::sealed_exec`.
         self.settle_sealed(&mut overlay, context)?;
+        // After every transaction, sealed reveals included, so a cancel in
+        // the due block wins over the run (ADR-135 P-7, S-7); bounded per
+        // block (invariant 33). Its RUN_FEE reaches the collector before
+        // `settle_fees` and staking, so it joins the tips.
+        self.settle_schedules(&mut overlay, context)?;
 
         self.settle_trading(&mut overlay, context)?;
         // After trading, so a contract or a swap in this block sees the

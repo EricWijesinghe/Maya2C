@@ -2652,6 +2652,17 @@ tests = ["crates/node/tests/asset_mint_tests.rs", "crates/node/tests/asset_confo
 note = "ADR-135 P-1 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 41, ASSET_MINT_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 55-58, record v2 (136 B) under d:asset:. AssetRegistrationFee (governance tag 11) defaults to zero: Eric answered O-2 on 2026-11-12 (bytes only, any fee burned). V4_VERSION and the SUPPORTED_PROTOCOL_VERSION rise are not assigned in this change."
 
 [[subsystem]]
+id = "scheduled-payments"
+name = "Scheduled payments (v4 P-7)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/state/scheduled.rs`, `crates/node/src/core/schedule_payload.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/scheduled_payment_tests.rs", "crates/node/tests/schedule_conformance.rs", "crates/node/tests/v4_redteam_schedules.rs"]
+note = "ADR-135 P-7 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 46, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 67-68, layer sp: (StateLayer 21), breaker module 16, ScheduleRunFee governance tag 16 (ADR-135 allocation table); RUN_FEE defaults to a small non-zero governed value, one minimal transfer's byte fee (Eric 2026-11-12). End-of-block step capped at MAX_DUE_PER_BLOCK = 256 with carry-over. CI-first: not compiled locally, so stub until CI and a fix wave run the tests."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

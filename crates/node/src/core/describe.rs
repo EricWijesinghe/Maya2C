@@ -477,6 +477,33 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             Routine,
         ),
         TxKind::AssetMint(action) => describe_asset_mint(action),
+        TxKind::Schedule(action) => describe_schedule(action),
+    }
+}
+
+fn describe_schedule(action: &crate::core::schedule_payload::ScheduleAction) -> Description {
+    use crate::core::schedule_payload::ScheduleAction as A;
+    match action {
+        A::Create {
+            payee,
+            amount,
+            first_due,
+            interval,
+            runs,
+        } => Description::new(
+            format!(
+                "Pay {} {runs} times to {}, every {interval} blocks from block {first_due}. All of it, and the run fees, leave your balance now.",
+                group_digits(*amount),
+                short(payee)
+            ),
+            Review::Careful,
+        )
+        .with("pay to", full(payee)),
+        A::Cancel { schedule_id } => Description::new(
+            "Cancel a scheduled payment. What it has not paid yet comes back to you.",
+            Review::Routine,
+        )
+        .with("schedule", full(schedule_id)),
     }
 }
 

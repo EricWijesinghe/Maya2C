@@ -109,6 +109,10 @@ pub enum StateLayer {
     /// Outside the root until 2026-09-11. A snapshot that left a nullifier out
     /// would have produced a node that accepts the second spend of that note.
     Nullifiers,
+    /// Scheduled payments under `sp:` (ADR-135 P-7). A new tag, folded after
+    /// `Vault`, and absent on a chain that never creates a schedule, so it
+    /// moves no existing root.
+    Scheduled,
 }
 
 /// Every layer, in fold order.
@@ -131,6 +135,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     // Swapping these two moves no root a genesis can seed: none seeds `sl:`.
     // New record layers go here, after `Vault`, in the ADR-135 allocation
     // order (#447's account authority, then NFT, names, scheduled payments).
+    StateLayer::Scheduled,
     StateLayer::Stateless,
     StateLayer::UpgradeSchedule,
     StateLayer::Shielded,
@@ -164,6 +169,7 @@ impl StateLayer {
             Self::Stateless => "maya stateless state root v1",
             Self::Vault => "maya vault state root v1",
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
+            Self::Scheduled => "maya scheduled payments state root v1",
         }
     }
 
@@ -188,6 +194,7 @@ impl StateLayer {
             Self::Staking => 15,
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
+            Self::Scheduled => 21,
         }
     }
 
@@ -212,6 +219,7 @@ impl StateLayer {
             15 => Some(Self::Staking),
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
+            21 => Some(Self::Scheduled),
             _ => None,
         }
     }
@@ -245,6 +253,7 @@ impl StateLayer {
             Self::Iot => "iot",
             Self::Staking => "staking",
             Self::Vault => "vault",
+            Self::Scheduled => "scheduled",
             Self::UpgradeSchedule => "upgrade-schedule",
         }
     }

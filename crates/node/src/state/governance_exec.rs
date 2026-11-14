@@ -436,6 +436,13 @@ impl StateDB {
                     activation: context.asset_mint_activation,
                 });
             }
+            // Tag 16 likewise until bit 46 (ADR-135 P-7).
+            if key == ParameterKey::ScheduleRunFee && !context.scheduled_active() {
+                return Err(NodeError::ScheduleInactive {
+                    height: context.height,
+                    activation: context.scheduled_activation,
+                });
+            }
         }
 
         let proposal = Proposal::open(

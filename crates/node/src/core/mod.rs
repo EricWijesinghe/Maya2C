@@ -16,6 +16,7 @@ pub mod multisig_tx;
 pub mod oracle_payload;
 pub mod payload;
 pub mod rwa_payload;
+pub mod schedule_payload;
 pub mod sealed_payload;
 pub mod staking_payload;
 pub mod suite_tx;

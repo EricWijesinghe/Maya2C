@@ -57,6 +57,10 @@ pub(crate) const RECORD_LAYERS: &[(&[u8], StateLayer)] = &[
     (crate::state::staking::STAKING_PREFIX, StateLayer::Staking),
     (crate::state::vault::VAULT_PREFIX, StateLayer::Vault),
     (
+        crate::state::scheduled::SCHEDULED_PREFIX,
+        StateLayer::Scheduled,
+    ),
+    (
         crate::state::stateless::STATELESS_PREFIX,
         StateLayer::Stateless,
     ),
