@@ -7,6 +7,11 @@ head:
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
+import PausedNote from "../../../components/PausedNote.astro";
+import { publicTab } from "../../../data/paused.ts";
+import { release, releaseHref } from "../../../data/release.ts";
+
+<PausedNote line="Registration and the bootnode need the public testnet, so they wait for the next genesis. Every step below has a local devnet tab that works today." />
 
 ## In plain words
 
@@ -63,9 +68,9 @@ how mainnet will work.
 
 ## Steps
 
-1. **Install** `maya2c-node` and `l1-wallet` from the
-   [releases page](https://github.com/EricWijesinghe/Maya2C/releases), and check
-   them against `SHA256SUMS`.
+1. **Install** `maya2c-node` and `l1-wallet` from the tagged preview
+   (<a href={releaseHref}>{release.tag}</a>), or build them from source with the
+   [quickstart](/guides/quickstart/), and check downloads against `SHA256SUMS`.
 2. **Make a validator key.** This prints its public key:
 
    ```bash
@@ -82,10 +87,20 @@ how mainnet will work.
    with the public key and the address. Never paste a key file.
 5. **Once approved and funded, register:**
 
+   <Tabs syncKey="net">
+   <TabItem label="Local devnet">
+   ```bash
+   l1-wallet register-validator \
+     --validator-key validator.key --bond <the amount agreed>
+   ```
+   </TabItem>
+   <TabItem label={publicTab}>
    ```bash
    l1-wallet --rpc-url https://rpc.maya2c.dev/rpc register-validator \
      --validator-key validator.key --bond <the amount agreed>
    ```
+   </TabItem>
+   </Tabs>
 
    The flags are those in `bins/l1-wallet/src/main.rs`: `--validator-key`,
    `--bond` (required), `--commission-bps` (default 0). The command prints your
@@ -102,12 +117,24 @@ how mainnet will work.
 7. **Run the node.** It dials the bootnode over WebSocket, so it works from behind
    NAT. Flags from `print_usage` in `bins/maya2c-node/src/main.rs`:
 
+   <Tabs syncKey="net">
+   <TabItem label="Local devnet">
+   ```bash
+   maya2c-node --genesis genesis.json --data-dir data \
+     --rpc-addr 127.0.0.1:8545 --validator-key validator.key
+   ```
+   A local devnet uses the genesis you write in the
+   [quickstart](/guides/quickstart/), not the testnet file above.
+   </TabItem>
+   <TabItem label={publicTab}>
    ```bash
    maya2c-node --genesis genesis.json --data-dir data \
      --validator-key validator.key \
      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB \
      --prune-depth 3600
    ```
+   </TabItem>
+   </Tabs>
 
    - `--prune-depth 3600` prunes block bodies older than 3,600 blocks; it implies
      `--prune`.

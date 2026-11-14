@@ -1,0 +1,57 @@
+---
+// The one paused notice for every guide that would otherwise send a reader
+// to a stopped network (lane L04). It reads network-state.ts, so it renders
+// nothing once `testnet.paused` is false. Amber and calm: the stop was on
+// purpose, so this is information, not an alarm. Amber marks the edge and
+// the icon only; the words stay in the text colours, which pass AA in both
+// themes on their own.
+import { testnet } from "../data/network-state.ts";
+import { LOCAL_DEVNET_HREF } from "../data/paused.ts";
+
+interface Props {
+  /** One line on what this page cannot do while paused. */
+  line?: string;
+}
+const { line } = Astro.props;
+const height = testnet.last.height.toLocaleString("en-US");
+---
+
+{testnet.paused && (
+  <aside class="paused-note not-content" aria-labelledby="paused-note-title" data-paused-note>
+    <span class="paused-note__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1.5" /><rect x="14" y="5" width="4" height="14" rx="1.5" /></svg>
+    </span>
+    <div class="paused-note__body">
+      <p class="paused-note__title" id="paused-note-title">The public testnet is paused</p>
+      <p>
+        Stopped on purpose on {testnet.since} after {testnet.last.run} with {testnet.last.halts} halts.
+        Last block <a href={testnet.report}>{height}</a>, {testnet.last.at}. It returns with the next genesis.
+      </p>
+      {line && <p>{line}</p>}
+      <p class="paused-note__links">
+        <a href={LOCAL_DEVNET_HREF}>Run a local devnet instead</a>
+        <a href={testnet.report}>Why it stopped</a>
+      </p>
+    </div>
+  </aside>
+)}
+
+<style>
+  .paused-note {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3);
+    margin-block: var(--space-4) var(--space-6); padding: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+    border-inline-start: 3px solid var(--warn);
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--warn) 8%, var(--surface-1));
+    color: var(--text-2); font-size: var(--type-body-size); line-height: var(--line-body);
+  }
+  .paused-note__icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn) 18%, transparent); fill: var(--warn); }
+  .paused-note__body { display: grid; gap: var(--space-2); min-width: 0; }
+  .paused-note p { margin: 0; overflow-wrap: anywhere; }
+  .paused-note__title { color: var(--text); font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
+  .paused-note a { color: var(--text); text-decoration: underline; text-decoration-color: var(--warn); text-underline-offset: 3px; }
+  .paused-note__links { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); }
+  .paused-note__links a { display: inline-flex; align-items: center; min-height: 44px; font-weight: var(--weight-medium); }
+  .paused-note a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+</style>

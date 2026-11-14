@@ -26,8 +26,11 @@ are the defaults; a live chain reads them from state.
 ## Gas is a halting bound, not a price
 
 Gas maps one-to-one onto wasmtime fuel. It exists so a contract cannot run
-forever, not to charge for computation — there is no fee market on this chain
-today, and nothing bills the gas a call consumes.
+forever, not to charge for computation. A transaction pays base fees per byte
+where genesis sets `bft.fees`
+([ADR-029](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-029-fee-market-live.md);
+see [transactions](/guides/transactions/)), but nothing bills the gas a call
+consumes.
 
 Read that as: your contract must **terminate**, and the ceiling is generous.
 Do not micro-optimise instruction counts.

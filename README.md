@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>A layer-1 blockchain in Rust where every transaction carries two post-quantum signatures from different families, and both must verify.</b>
+  <b>A post-quantum layer-1 blockchain in Rust: every transaction carries two signatures from different post-quantum families, and both must verify.</b>
 </p>
 
 <p align="center">
@@ -26,8 +26,11 @@
 </p>
 
 > **Where things stand.** The public testnet is **paused**: it ran 7 days
-> 15 hours with zero halts (blocks 0 to 393,812) and was stopped on purpose
-> on 2026-10-28 ([proof](reports/sessions/2026-10-28-testnet-stopped.md)). It
+> 15 hours with zero halts (a halt is any gap over 60 s; blocks 0 to 393,812)
+> and was stopped on purpose on 2026-10-28
+> ([proof](reports/sessions/2026-10-28-testnet-stopped.md)). Two caveats were
+> recorded with it: one validator held 71% of stake, so it finalized alone,
+> and the run was on the pre-mining build. It
 > returns with the next genesis; until then the status page has no network to
 > report. Mainnet is to launch labelled "external audit pending" until a report
 > lands ([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers
@@ -57,8 +60,8 @@ signature-suite registry can add or retire a scheme at an activation height
 
 ### How it differs
 
-Other chains are adding post-quantum signatures too; Maya2C is not the first.
-The difference is in how. From the dated search in
+Other chains are adding post-quantum signatures too. The difference is in how.
+From the dated search in
 [docs/prior-art/pq-l1-comparison-2026-11.md](docs/prior-art/pq-l1-comparison-2026-11.md)
 (accessed 2026-11-01; read its source weights before quoting it):
 

@@ -4,6 +4,11 @@ description: Make a wallet, take free test coins, and send a post-quantum-signed
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
+import PausedNote from "../../../components/PausedNote.astro";
+import { testnet } from "../../../data/network-state.ts";
+import { pausedReason, publicTab } from "../../../data/paused.ts";
+
+<PausedNote line="It stopped so the next build (256-bit amounts, mining rewards that never end, ML-DSA-87 validator keys) starts from a fresh genesis. The faucet and the public commands below are offline until then; each has a local devnet twin that works today." />
 
 ## In plain words
 
@@ -15,14 +20,12 @@ some play coins, send them to a friend, and watch the notebook record it. Every
 note is signed with two different post-quantum locks, and the notebook checks
 both.
 
-:::note[Paused: the 7-day run is complete]
-maya-testnet-1 ran **7 days 15 hours 42 minutes without a single halt** (661,357 s,
-blocks 0 → 393,812, genesis 2026-10-20 15:54 UTC). It was stopped on purpose at
-**2026-10-28 07:36 UTC** so the next build (256-bit amounts, forever mining
-rewards, ML-DSA-87 validator keys) can start from a fresh genesis. The faucet and
-transfers are offline until then. Evidence:
-[soak report](https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md).
-:::
+The last run: **7 days 15 hours 42 minutes with zero halts** (a halt is any gap
+over 60 s; 661,357 s, blocks 0 → 393,812, genesis 2026-10-20 15:54 UTC), stopped
+on purpose at **2026-10-28 07:36 UTC**. Two caveats were recorded with it: one
+validator held 71% of stake, so it finalized alone, and the run was on the
+pre-mining build. Evidence:
+[stop report](https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md).
 
 :::caution[Test coins only]
 Testnet coins have **no value** and cannot be bought or sold. Anyone offering to
@@ -50,28 +53,43 @@ yet, so Windows and macOS warn about an unknown publisher.
 
 ## 2. Take free test coins
 
-<form id="faucet-form" class="faucet-form">
-  <label for="faucet-address">Your address</label>
-  <input id="faucet-address" name="address" autocomplete="off" spellcheck="false"
-         placeholder="64 hex characters" required />
-  <button type="submit">Send me test coins</button>
+<Tabs syncKey="net">
+<TabItem label="Local devnet">
+
+A local devnet needs no faucet: its genesis funds your wallet. Follow the
+[quickstart](/guides/quickstart/) and the wallet starts with a balance.
+
+</TabItem>
+<TabItem label={publicTab}>
+
+<form id="faucet-form" class="faucet-form" aria-describedby={pausedReason ? "faucet-paused" : undefined}>
+  <fieldset disabled={testnet.paused}>
+    <label for="faucet-address">Your address</label>
+    <input id="faucet-address" name="address" autocomplete="off" spellcheck="false"
+           placeholder="64 hex characters" required />
+    <button type="submit">{testnet.paused ? "Faucet paused" : "Send me test coins"}</button>
+  </fieldset>
+  {pausedReason && <p id="faucet-paused" class="faucet-paused">{pausedReason}</p>}
   <p id="faucet-result" role="status" aria-live="polite"></p>
 </form>
-<script src="/faucet.js" defer></script>
+{!testnet.paused && <script src="/faucet.js" defer></script>}
 
 {/* Braces inside a <style> body are MDX expressions, so the CSS is a string. */}
 <style>{`
   .faucet-form { display: grid; gap: 0.5rem; max-width: 42rem; }
-  .faucet-form input { font-family: var(--sl-font-mono); padding: 0.5rem; }
-  .faucet-form button { justify-self: start; padding: 0.5rem 1rem; cursor: pointer; }
+  .faucet-form fieldset { display: grid; gap: 0.5rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .faucet-form input { font-family: var(--sl-font-mono); padding: 0.5rem; min-height: 44px; max-width: 100%; }
+  .faucet-form button { justify-self: start; min-height: 44px; padding: 0.5rem 1rem; cursor: pointer; }
+  .faucet-form fieldset:disabled input, .faucet-form fieldset:disabled button { cursor: not-allowed; }
+  .faucet-form .faucet-paused { margin: 0; padding: 0.75rem 1rem; border-radius: var(--r-md); border-inline-start: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface-1)); color: var(--text); }
   .faucet-form [data-state="error"] { color: var(--sl-color-red); }
 `}</style>
 
 The faucet limits requests **per address and per IP** over a 24-hour window
 (`apps/faucet/src/limit.rs`). Its code defaults are 1,000 base units per grant
 (`MAYA_FAUCET_DISPENSE`) and 1,000,000 base units per day (`MAYA_FAUCET_DAILY_CAP`,
-`apps/faucet/src/main.rs`). The operator sets the live values, so check the
-[status page](https://status.maya2c.dev/) for current figures.
+`apps/faucet/src/main.rs`). The operator sets the live values, which the status
+page shows while the testnet runs.
 
 The same request from a terminal:
 
@@ -84,7 +102,25 @@ curl -X POST https://faucet.maya2c.dev/request \
 A `429` response says which limit was hit: `rate_limited_ip` or
 `rate_limited_address`. Back off, and wait for the window.
 
+</TabItem>
+</Tabs>
+
 ## 3. Send a transaction
+
+<Tabs syncKey="net">
+<TabItem label="Local devnet">
+
+`l1-wallet` talks to `http://127.0.0.1:8545`, a node on your own machine,
+unless told otherwise:
+
+```bash
+l1-wallet --keystore my.key balance
+
+l1-wallet --keystore my.key send --to <recipient address> --amount 100
+```
+
+</TabItem>
+<TabItem label={publicTab}>
 
 ```bash
 l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
@@ -92,6 +128,9 @@ l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
 l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc \
     send --to <recipient address> --amount 100
 ```
+
+</TabItem>
+</Tabs>
 
 Each transfer is about 13 KB, because it carries two post-quantum signatures, and
 the fee is charged per byte. The fee rule and the minimum are in
@@ -103,8 +142,8 @@ the fee is charged per byte. The fee rule and the minimum are in
 |---|---|
 | Chain id | `maya-testnet-1` (from `docs/site/public/testnet/genesis.json`) |
 | Genesis file SHA-256 | `dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d` |
-| Public API | `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)) |
-| Faucet | `https://faucet.maya2c.dev` |
+| Public API | `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)){testnet.paused && ", paused"} |
+| Faucet | `https://faucet.maya2c.dev`{testnet.paused && ", paused"} |
 | Bootnode | `/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/<peer id>`, WebSocket over TLS |
 | Consensus | DAG-BFT: see [consensus and finality](/guides/consensus/) |
 

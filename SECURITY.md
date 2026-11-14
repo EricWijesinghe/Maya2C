@@ -2,14 +2,15 @@
 
 ## Reporting a vulnerability
 
-**Do not open a public issue for a security problem.** Report privately
-through GitHub's *Report a vulnerability* (private vulnerability reporting) on
-this repository: <https://github.com/EricWijesinghe/Maya2C/security/advisories/new>.
+**Do not open a public issue for a security problem.**
+
+First channel: GitHub private vulnerability reporting, https://github.com/EricWijesinghe/Maya2C/security/advisories/new
 
 | Channel | Status |
 |---|---|
 | GitHub private vulnerability reporting | **Use this.** Enabled; only the maintainer sees the report. |
 | `security@maya2c.dev` | Reserved for disclosures, **not receiving mail yet**: the domain had no MX record when checked on 2026-11-13. This file will say when it works. Until then, use the GitHub form. |
+| Encrypted channel (PGP or similar) | **None exists yet.** No key is published. The GitHub form travels over TLS and only the maintainer can read it, but it is not end-to-end encrypted. This file will say when a key exists. |
 
 Include what you found, the steps to reproduce it, the commit or release you
 tested, and what you think an attacker could do with it. A proof of concept

@@ -1,0 +1,54 @@
+---
+// "Get the wallet" (lane L04): one button per OS, deep-linked to the exact
+// asset of the tagged pre-release in data/release.ts, never /releases/latest.
+// Until that release is published every button is a disabled control with
+// the reason, because a link to a file that does not exist yet is a 404.
+import { Code } from "@astrojs/starlight/components";
+import { assetHref, release, releaseHref, unpublishedReason, wallet, walletOsLabel, type WalletOs } from "../data/release.ts";
+
+const oses = Object.keys(wallet) as WalletOs[];
+const offId = "gw-off";
+---
+
+<div class="gw not-content" data-get-wallet>
+  <p class="gw-today"><b>What it does today:</b> make and encrypt your keys, show your address, and talk to a node on your own machine (a local devnet). There is no public network for it to reach until the next genesis, and mainnet is not live.</p>
+  <div class="gw-os" role="group" aria-label={`Download from ${release.tag}`}>
+    {oses.map((os) => {
+      const name = release.published ? wallet[os] : null;
+      return name ? (
+        <a class="gw-btn" href={assetHref(name)} data-asset={name}>
+          <span class="gw-btn__os">{walletOsLabel[os]}</span>
+          <span class="gw-btn__file">{name}</span>
+        </a>
+      ) : (
+        <button type="button" class="gw-btn" disabled aria-describedby={offId}>
+          <span class="gw-btn__os">{walletOsLabel[os]}</span>
+          <span class="gw-btn__file">not published yet</span>
+        </button>
+      );
+    })}
+  </div>
+  {unpublishedReason && <p class="gw-off" id={offId}>{unpublishedReason} <a href={releaseHref}>Read the {release.tag} notes</a></p>}
+  <p class="gw-label">Check the file before you open it (Linux; on macOS use <code>shasum -a 256</code> in place of <code>sha256sum</code>):</p>
+  <Code code="sha256sum --ignore-missing -c SHA256SUMS" lang="bash" />
+  <p class="gw-note">The installers are not code-signed yet, so Windows and macOS warn about an unknown publisher. The <code>SHA256SUMS</code> check, not the warning, is what tells you the file is the one this project built.</p>
+</div>
+
+<style>
+  .gw { display: grid; gap: var(--space-3); margin-block: var(--space-4) var(--space-6); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); }
+  .gw p { margin: 0; color: var(--text-2); font-size: var(--type-body-size); line-height: var(--line-body); overflow-wrap: anywhere; }
+  .gw b, .gw .gw-today b { color: var(--text); }
+  .gw code { font: var(--type-mono-size) var(--font-mono); padding: .1em .35em; border-radius: var(--r-xs); background: var(--surface-2); border: 1px solid var(--border); }
+  .gw-os { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: var(--space-2); }
+  .gw-btn { display: grid; gap: 2px; min-height: 52px; padding: var(--space-2) var(--space-4); border-radius: var(--r-md); border: 1px solid var(--accent-grad-to); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font: inherit; text-align: left; text-decoration: none; cursor: pointer; transition: transform var(--dur-1) var(--ease); }
+  .gw-btn:hover { transform: translateY(-1px); }
+  .gw-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .gw-btn:disabled { cursor: not-allowed; transform: none; background: var(--surface-2); border: 1px dashed var(--border-strong); color: var(--text-2); }
+  .gw-btn__os { font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
+  .gw-btn__file { font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
+  .gw-off { padding: var(--space-3) var(--space-4); border-radius: var(--r-md); border-inline-start: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface-1)); color: var(--text) !important; }
+  .gw-off a { color: var(--text); text-decoration-color: var(--warn); text-underline-offset: 3px; font-weight: var(--weight-medium); }
+  .gw-label { font-size: var(--type-body-sm-size) !important; }
+  .gw-note { font-size: var(--type-body-sm-size) !important; }
+  .gw :global(.expressive-code) { margin: 0; }
+</style>

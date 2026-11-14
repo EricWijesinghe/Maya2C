@@ -8,6 +8,9 @@ description: For anyone who wants to help, no technical background needed. Pick 
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 import InstallPicker from '../../../components/InstallPicker.astro';
+import PausedNote from '../../../components/PausedNote.astro';
+
+<PausedNote line="Every step below joins the public testnet, so there is nothing to join until the next genesis. The steps stay here because they will be the same then; Copy is off until it returns." />
 
 Thank you for helping. Your computer becomes one of the machines that keep
 the Maya2C test network running. Setting it up takes about five minutes, and you can
@@ -53,11 +56,13 @@ maya2c-validator status
 </TabItem>
 </Tabs>
 
+The block numbers in this table are examples; yours will differ.
+
 | You see | It means |
 |---|---|
 | **the node is running** | Installed and running |
-| **catching up: block 501,615 of 507,191** | Still downloading. Check again later |
-| **in sync: block 507,191** | Done. Your node is following the network |
+| **catching up: block 101,615 of 107,191** (example) | Still downloading. Check again later |
+| **in sync: block 107,191** (example) | Done. Your node is following the network |
 | **validating** | You are a validator (step 3) |
 | **the node is not running** | See [Fix a problem](#fix-a-problem) |
 
