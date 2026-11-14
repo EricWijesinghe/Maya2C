@@ -22,6 +22,9 @@ maya-amount = { path = "../../../crates/amount" }
 # Text address form (ADR-081): a recipient may be pasted as Bech32m or hex.
 maya-address = { path = "../../../crates/address" }
 custom-l1-node = { path = "../../../crates/node" }
+# Mnemonic entropy passes SP 800-90B start-up and continuous health tests
+# before it becomes a wallet (ADR-137 HW-5). Not linked by the node binary.
+maya-entropy = { path = "../../../hal/entropy" }
 # The pre-sign review (ADR-086 §6): the confirm screen's warnings, the
 # look-alike check and the grouped Bech32m display.
 maya-clear-sign = { path = "../../../crates/clear-sign" }

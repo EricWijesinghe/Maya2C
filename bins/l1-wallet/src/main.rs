@@ -30,7 +30,7 @@ use clap::{Parser, Subcommand};
 use custom_l1_node::core::council_payload::CouncilAction;
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
-use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
+use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::rpc::ChainInfo;
 
 use l1_wallet::client::NodeClient;
@@ -306,7 +306,11 @@ fn command_generate(path: &Path, network: Network) -> Result<()> {
     }
 
     let password = read_password(true)?;
-    let signing_key = generate_signing_key()?;
+    // The same derivation `generate_signing_key` uses, fed a 32-byte chain key
+    // that passed the entropy health tests; a failure stops here, typed, with
+    // no fallback and no sample in the message.
+    let chain_key = maya_entropy::keygen::KeygenEntropy::os()?.seed::<32>()?;
+    let signing_key = signing_key_from_seed(&chain_key)?;
     let address = signing_key.address();
 
     let blob = keystore::encrypt(&signing_key, &password)?;

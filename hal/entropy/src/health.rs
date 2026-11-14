@@ -26,20 +26,43 @@ pub const APT_WINDOW: usize = 512;
 /// −log₂ α, where α = 2⁻²⁰ is the false-positive probability per test.
 const ALPHA_EXPONENT: u32 = 20;
 
+/// Fixed-point scale of the adaptive-proportion computation: probabilities
+/// and binomial weights are integers in units of 2⁻⁵⁶. The largest product it
+/// forms is `w · (W − k) · p` with `w, p ≤ 2⁵⁶` and `W − k ≤ 2⁹`, so 2¹²¹ —
+/// inside a `u128`.
+const FRAC_BITS: u32 = 56;
+
+/// 1.0 at [`FRAC_BITS`].
+const ONE: u128 = 1 << FRAC_BITS;
+
+/// Scale of the square-root chain behind [`two_pow_neg`]: Q62, so a square
+/// root `isqrt(x << 62)` and a product of two factors both stay under 2¹²⁴.
+const SQRT_BITS: u32 = 62;
+
+/// Bits of the binary expansion of `H mod 1` that [`two_pow_neg`] uses. A
+/// declared H is a multiple of 1/1000; truncating its fraction after 30 bits
+/// moves `2^−H` by less than one part in 2³⁰, far below what shifts a cutoff.
+const EXP_BITS: u32 = 30;
+
 /// Why a source was disabled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Carries the counts and the cutoff, never the sample value: a failure is
+/// logged and shown to users, and a byte from a key-generation stream is not
+/// something either should ever see (Standing Order 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum HealthFailure {
-    /// `run` identical samples in a row, at or above `cutoff`.
+    /// `cutoff` identical samples in a row (SP 800-90B §4.4.1).
+    #[error("repetition count test: {cutoff} identical samples in a row")]
     RepetitionCount {
-        /// The repeated value.
-        value: u8,
         /// The cutoff.
         cutoff: usize,
     },
-    /// One value filled `count` of a 512-sample window, at or above `cutoff`.
+    /// One value filled `count` of a 512-sample window, at or above `cutoff`
+    /// (SP 800-90B §4.4.2).
+    #[error(
+        "adaptive proportion test: one value {count} times in {APT_WINDOW} samples (cutoff {cutoff})"
+    )]
     AdaptiveProportion {
-        /// The over-represented value.
-        value: u8,
         /// How many times it appeared.
         count: usize,
         /// The cutoff.
@@ -47,7 +70,9 @@ pub enum HealthFailure {
     },
 }
 
-/// The repetition-count cutoff for a declared min-entropy.
+/// The repetition-count cutoff for a declared min-entropy, SP 800-90B
+/// §4.4.1: `C = 1 + ⌈−log₂ α / H⌉ = 1 + ⌈20 / H⌉`, with H in millibits so
+/// the ceiling is an integer division: `1 + ⌈20,000 / millibits⌉`.
 #[must_use]
 pub fn repetition_cutoff(millibits: u32) -> usize {
     let h = millibits.clamp(1, MAX_MILLIBITS_PER_BYTE);
@@ -55,33 +80,70 @@ pub fn repetition_cutoff(millibits: u32) -> usize {
     1 + exponent_milli.div_ceil(h) as usize
 }
 
+/// `2^(−millibits / 1000)` in units of 2⁻⁵⁶, integer arithmetic only.
+///
+/// `2^−H = 2^−⌊H⌋ · 2^−f` with `f = H mod 1`. Writing `f` in binary,
+/// `f = Σ bᵢ 2⁻ⁱ`, gives `2^−f = Π_{bᵢ = 1} 2^(−2⁻ⁱ)`, and each factor
+/// `2^(−2⁻ⁱ)` is the square root of the one before it, starting from
+/// `2^(−1/2) = √½`. The bits of `f = r / 1000` come out of long division.
+fn two_pow_neg(millibits: u32) -> u128 {
+    let (whole, mut rem) = (millibits / 1_000, millibits % 1_000);
+    let mut result: u128 = 1 << SQRT_BITS;
+    // √½ in Q62: isqrt(2⁶¹ · 2⁶²).
+    let mut factor: u128 = (1u128 << (2 * SQRT_BITS - 1)).isqrt();
+    for _ in 0..EXP_BITS {
+        rem *= 2;
+        if rem >= 1_000 {
+            rem -= 1_000;
+            result = (result * factor) >> SQRT_BITS;
+        }
+        factor = (factor << SQRT_BITS).isqrt();
+    }
+    (result >> (SQRT_BITS - FRAC_BITS)) >> whole
+}
+
 /// The adaptive-proportion cutoff for a declared min-entropy, W = 512.
 ///
-/// The smallest `c` with `P[Binomial(W, 2^−H) ≥ c] ≤ α`, found by summing
-/// the binomial distribution in log space. Floating point is acceptable here:
-/// this is a threshold for a local health alarm, never a consensus rule.
+/// SP 800-90B §4.4.2: `C = 1 + CRITBINOM(W, 2^−H, 1 − α)`, i.e. the smallest
+/// `c` with `P[Binomial(W, p) ≥ c] ≤ α`, `p = 2^−H`.
+///
+/// Integer arithmetic only, so the cutoff is the same on every platform and
+/// compiler. The binomial weights are computed relative to the mode
+/// `m = ⌊(W + 1) p⌋`, where the weight is largest: `w(m) = 1` and the ratio
+/// recurrences `w(k+1) = w(k) · (W−k) p / ((k+1) q)` and
+/// `w(k−1) = w(k) · k q / ((W−k+1) p)` fill the rest, so nothing overflows and
+/// nothing near the cutoff underflows. Then `P[X ≥ c] ≤ α` is
+/// `2²⁰ · Σ_{k≥c} w(k) ≤ Σ_k w(k)`, summed down from `k = W`.
 #[must_use]
-#[allow(clippy::cast_precision_loss)] // k ≤ 512: exact in an f64
+#[allow(clippy::cast_possible_truncation)] // the mode is ≤ W = 512
 pub fn adaptive_proportion_cutoff(millibits: u32) -> usize {
-    let h = f64::from(millibits.clamp(1, MAX_MILLIBITS_PER_BYTE)) / 1_000.0;
-    let p = (-h).exp2();
-    let target = 1.0 - (-f64::from(ALPHA_EXPONENT)).exp2();
-    let n = APT_WINDOW as f64;
-    let (ln_p, ln_q) = (p.ln(), (1.0 - p).ln());
+    let p = two_pow_neg(millibits.clamp(1, MAX_MILLIBITS_PER_BYTE));
+    let q = ONE - p; // > 0: H ≥ 1 millibit makes p < 1
+    let n = APT_WINDOW as u128;
+    let mode = (((n + 1) * p) >> FRAC_BITS).min(n) as usize;
 
-    let mut ln_choose = 0.0; // ln C(W, 0)
-    let mut cdf = 0.0;
-    for k in 0..=APT_WINDOW {
-        let kf = k as f64;
-        if k > 0 {
-            ln_choose += ((n - kf + 1.0) / kf).ln();
-        }
-        cdf += (ln_choose + kf * ln_p + (n - kf) * ln_q).exp();
-        if cdf >= target {
-            return 1 + k;
+    let mut w = [0u128; APT_WINDOW + 1];
+    w[mode] = ONE;
+    for k in mode..APT_WINDOW {
+        let kk = k as u128;
+        w[k + 1] = w[k] * (n - kk) * p / ((kk + 1) * q);
+    }
+    for k in (1..=mode).rev() {
+        let kk = k as u128;
+        w[k - 1] = w[k] * kk * q / ((n - kk + 1) * p);
+    }
+
+    let total: u128 = w.iter().sum();
+    let mut tail: u128 = 0;
+    for k in (0..=APT_WINDOW).rev() {
+        tail += w[k];
+        if tail << ALPHA_EXPONENT > total {
+            return k + 1;
         }
     }
-    APT_WINDOW
+    // Unreachable: by k = mode the tail holds w(m) = 2⁵⁶, and 2⁵⁶ · 2²⁰
+    // exceeds the total, which is at most 513 · 2⁵⁶.
+    1
 }
 
 /// Both tests over one source's sample stream.
@@ -153,7 +215,6 @@ impl HealthMonitor {
         }
         if self.run >= self.rct_cutoff {
             self.failure.get_or_insert(HealthFailure::RepetitionCount {
-                value: sample,
                 cutoff: self.rct_cutoff,
             });
         }
@@ -172,7 +233,6 @@ impl HealthMonitor {
             if self.window_count >= self.apt_cutoff {
                 self.failure
                     .get_or_insert(HealthFailure::AdaptiveProportion {
-                        value: first,
                         count: self.window_count,
                         cutoff: self.apt_cutoff,
                     });
@@ -187,6 +247,30 @@ impl HealthMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// §4.4.1's worked example: α = 2⁻²⁰ and H = 2.0 give a repetition
+    /// cutoff of `1 + ⌈20 / 2.0⌉ = 11`.
+    #[test]
+    fn the_repetition_cutoff_matches_the_section_4_4_1_example() {
+        assert_eq!(repetition_cutoff(2_000), 11);
+    }
+
+    /// The integer `2^−H` is exact where H has a short binary fraction.
+    #[test]
+    fn two_pow_neg_is_exact_on_dyadic_entropy_claims() {
+        assert_eq!(two_pow_neg(8_000), ONE >> 8);
+        assert_eq!(two_pow_neg(1_000), ONE >> 1);
+        // 2^−0.5 = √½ to within one unit of 2⁻⁵⁶.
+        let half_sqrt = (ONE * ONE / 2).isqrt();
+        assert!(two_pow_neg(500).abs_diff(half_sqrt) <= 1);
+    }
+
+    /// Below a claim of about 0.001 bit the cutoff exceeds the window: the
+    /// test cannot fire, which is the formula's answer, not a defect.
+    #[test]
+    fn a_near_zero_claim_gives_an_unreachable_cutoff() {
+        assert_eq!(adaptive_proportion_cutoff(1), APT_WINDOW + 1);
+    }
 
     #[test]
     fn cutoffs_match_sp_800_90b_table_2() {
@@ -217,10 +301,7 @@ mod tests {
         assert_eq!(monitor.check(&[1, 2, 3]), Ok(()));
         assert_eq!(
             monitor.check(&[9, 9, 9, 9]),
-            Err(HealthFailure::RepetitionCount {
-                value: 9,
-                cutoff: 4
-            })
+            Err(HealthFailure::RepetitionCount { cutoff: 4 })
         );
         // Latched.
         assert!(monitor.check(&[1, 2, 3]).is_err());
@@ -235,11 +316,7 @@ mod tests {
             .collect();
         assert!(matches!(
             monitor.check(&biased),
-            Err(HealthFailure::AdaptiveProportion {
-                value: 7,
-                cutoff: 13,
-                ..
-            })
+            Err(HealthFailure::AdaptiveProportion { cutoff: 13, .. })
         ));
     }
 
