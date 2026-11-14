@@ -3598,6 +3598,17 @@ tests = ["xtask/src/kit.rs", "xtask/src/up.rs", "xtask/src/attacknet.rs"]
 note = "catalog testnet-kit. Unit tests cover status probing, the attack argument list, the port guard and the scenario table. `kit up` and `kit attack` have not yet been run end to end in this tree; attacknet itself is the existing verified run."
 
 [[subsystem]]
+id = "netfault-relay"
+name = "Netfault relay: partition, latency, jitter, loss and bandwidth between validators (`cargo xtask netfault`, `attacknet --netfault`)"
+domain = "Developer and operator tooling"
+paths = "`xtask/src/netfault.rs`, `xtask/src/localnet.rs` (route option), `xtask/src/attacknet.rs` (`--netfault`)"
+tier = "extended"
+class = "SIM"
+status = "stub"
+tests = ["xtask/src/netfault.rs", "xtask/src/attacknet.rs", "xtask/src/localnet.rs"]
+note = "ADR-097. Test-only tooling; SIM because the faults are applied by a relay in the harness, not by the network. Unit tests run in CI without a node: seeded determinism, jitter bound, loss stall, bandwidth arithmetic, partition sides, and in-process relay tests over real sockets. Status stays stub until `cargo xtask netfault` runs the partition, latency and loss scenarios with real output in reports/netfault/. The node is not touched; validators run without --allow-private-peers so no direct link is learned, and the partition scenario checks get_peers for leaks."
+
+[[subsystem]]
 id = "node-in-a-box"
 name = "Node in a box: host checks, node config, key permissions and service text (`cargo xtask node`)"
 domain = "Developer and operator tooling"

@@ -40,6 +40,7 @@ mod kit;
 mod localnet;
 mod mesh_check;
 mod mining_localnet;
+mod netfault;
 mod node_box;
 mod og_card;
 mod ordered_json;
@@ -99,6 +100,7 @@ fn main() -> ExitCode {
         "proof-ratchet" => proof_ratchet::run(rest),
         "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
+        "netfault" => netfault::netfault(rest),
         "up" => up::up(),
         "down" => up::down(),
         "kit" => kit::run(rest),
@@ -220,7 +222,11 @@ cargo xtask <command>
   hub-bundle            Build the release miner and package the Maya2C Hub
                         with it: NSIS/MSI on Windows, deb/rpm/AppImage on
                         Linux (run in WSL).
-  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME]
+  netfault [--scenario partition|latency|loss|all] [--seed N]
+                        Four validators with every p2p link through a fault relay
+                        (ADR-097): a 2|2 partition must not finalise and must heal;
+                        latency and loss profiles are timed. Report in reports/netfault/.
+  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME] [--netfault latency|loss]
                         Seven validators as processes, attacked (--scenario: one attack once):
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery

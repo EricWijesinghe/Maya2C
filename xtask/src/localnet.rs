@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::devnet::{self, Procs, Result};
+use crate::netfault;
 
 pub(crate) const VALIDATORS: u16 = 4;
 const RPC_BASE: u16 = devnet::RPC_PORT;
@@ -47,7 +48,7 @@ pub(crate) fn use_port_offset(offset: u16) {
     PORT_OFFSET.store(offset, Ordering::Relaxed);
 }
 
-fn p2p_port(i: u16) -> u16 {
+pub(crate) fn p2p_port(i: u16) -> u16 {
     P2P_BASE + PORT_OFFSET.load(Ordering::Relaxed) + i
 }
 
@@ -73,7 +74,7 @@ pub(crate) fn ports_free() -> Result<()> {
     Ok(())
 }
 
-fn rpc(i: u16, method: &str, params: &Value) -> Result<Value> {
+pub(crate) fn rpc(i: u16, method: &str, params: &Value) -> Result<Value> {
     let request = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
     let (_, reply) = devnet::post(&rpc_addr(i), "/", &request)?;
     match reply.get("error") {
@@ -168,7 +169,11 @@ pub(crate) fn setup_tweaked(work: &Path, tweak: &dyn Fn(&mut Value)) -> Result<S
 }
 
 /// As [`setup`]; with `remote`, the last validator's key is the signer's.
-fn setup_with(work: &Path, remote: Option<&Remote>, tweak: &dyn Fn(&mut Value)) -> Result<String> {
+pub(crate) fn setup_with(
+    work: &Path,
+    remote: Option<&Remote>,
+    tweak: &dyn Fn(&mut Value),
+) -> Result<String> {
     let mut validators = Vec::new();
     for i in 0..VALIDATORS {
         let dir = work.join(format!("v{i}"));
@@ -209,10 +214,15 @@ fn setup_with(work: &Path, remote: Option<&Remote>, tweak: &dyn Fn(&mut Value)) 
 }
 
 pub(crate) fn start(work: &Path, i: u16) -> Result<Child> {
-    start_with(work, i, None)
+    start_with(work, i, None, None)
 }
 
-fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
+pub(crate) fn start_with(
+    work: &Path,
+    i: u16,
+    remote: Option<&Remote>,
+    route: Option<&netfault::Relay>,
+) -> Result<Child> {
     let dir = work.join(format!("v{i}"));
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -247,12 +257,22 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
         }
     }
     // Every validator here is on 127.0.0.1; discovery needs its private addresses.
-    cmd.arg("--allow-private-peers");
+    // A relayed run leaves it off: the loopback addresses identify announces then
+    // stay out of Kademlia, so every link goes through the relay (ADR-097).
+    if route.is_none() {
+        cmd.arg("--allow-private-peers");
+    }
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
-        cmd.args([
-            "--bootnode",
-            &format!("/ip4/127.0.0.1/tcp/{}", p2p_port(peer)),
-        ]);
+        let bootnode = match route {
+            Some(relay) => {
+                let addr = relay
+                    .listen(i, peer)
+                    .ok_or_else(|| format!("no relay link from {i} to {peer}"))?;
+                netfault::multiaddr(addr)
+            }
+            None => format!("/ip4/127.0.0.1/tcp/{}", p2p_port(peer)),
+        };
+        cmd.args(["--bootnode", &bootnode]);
     }
     cmd.stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log)
@@ -339,7 +359,7 @@ fn run(work: &Path, with_signer: bool) -> Result<()> {
     let mut procs = Procs::default();
     let started = Instant::now();
     for i in 0..VALIDATORS {
-        procs.push(start_with(work, i, remote.as_ref())?);
+        procs.push(start_with(work, i, remote.as_ref(), None)?);
     }
     let all: Vec<u16> = (0..VALIDATORS).collect();
     let t = wait_until("four nodes on one chain", || agree(&all, &address, 3))?;
@@ -368,7 +388,7 @@ fn run(work: &Path, with_signer: bool) -> Result<()> {
 
     procs.replace(
         usize::from(VALIDATORS - 1),
-        start_with(work, VALIDATORS - 1, remote.as_ref())?,
+        start_with(work, VALIDATORS - 1, remote.as_ref(), None)?,
     );
     let target = tip(0, &address)?.0;
     let t = wait_until("the restarted validator catching up", || {
