@@ -22,6 +22,10 @@ maya-amount = { path = "../../../crates/amount" }
 # Text address form (ADR-081): a recipient may be pasted as Bech32m or hex.
 maya-address = { path = "../../../crates/address" }
 custom-l1-node = { path = "../../../crates/node" }
+# m-of-n multisig accounts (P-16): the policy, its checks and per-suite
+# verification. Already linked through the node; named so the wallet uses the
+# same types the node verifies with.
+maya-crypto-pq = { path = "../../../crates/crypto-pq" }
 # The pre-sign review (ADR-086 §6): the confirm screen's warnings, the
 # look-alike check and the grouped Bech32m display.
 maya-clear-sign = { path = "../../../crates/clear-sign" }

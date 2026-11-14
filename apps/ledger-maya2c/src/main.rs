@@ -350,8 +350,10 @@ mod device {
             value: nonce.as_str(),
         };
         // ADR-036: the signature is valid on this genesis and no other.
+        // "Genesis", not "Network genesis": Nano S Plus cut that label to
+        // "Netwo...sis" once the pager added "(1/2)" (ledger_tests.rs).
         fields[n + 2] = Field {
-            name: "Network genesis",
+            name: "Genesis",
             value: network.as_str(),
         };
         n += 3;

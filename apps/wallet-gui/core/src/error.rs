@@ -115,6 +115,11 @@ pub enum WalletError {
     #[error("address book: {0}")]
     Contact(String),
 
+    /// A multisig account or proposal was refused (P-16): a bad policy, an
+    /// approval that does not verify, or a proposal this wallet will not sign.
+    #[error("multisig: {0}")]
+    Multisig(String),
+
     /// A payment request has passed its `exp` time.
     #[error("payment request expired")]
     Expired,

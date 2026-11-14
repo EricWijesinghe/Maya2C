@@ -56,10 +56,10 @@ pub struct Session {
 }
 
 /// Holds the single confirm-screen slot; releases it on every return path.
-struct DialogSlot<'a>(&'a AtomicBool);
+pub(crate) struct DialogSlot<'a>(&'a AtomicBool);
 
 impl<'a> DialogSlot<'a> {
-    fn take(flag: &'a AtomicBool) -> Result<Self, String> {
+    pub(crate) fn take(flag: &'a AtomicBool) -> Result<Self, String> {
         if flag.swap(true, Ordering::AcqRel) {
             return Err("a confirm screen is already open; nothing was signed".to_string());
         }
@@ -75,7 +75,10 @@ impl Drop for DialogSlot<'_> {
 
 impl Session {
     /// Runs `body` against the unlocked wallet.
-    fn with<T>(&self, body: impl FnOnce(&mut Wallet) -> Result<T, String>) -> Result<T, String> {
+    pub(crate) fn with<T>(
+        &self,
+        body: impl FnOnce(&mut Wallet) -> Result<T, String>,
+    ) -> Result<T, String> {
         let mut guard = self
             .wallet
             .lock()
@@ -84,6 +87,11 @@ impl Session {
             Some(wallet) => body(wallet),
             None => Err("the wallet is locked".to_string()),
         }
+    }
+
+    /// The one native confirm screen's slot, shared by every signing command.
+    pub(crate) fn dialog_open(&self) -> &AtomicBool {
+        &self.dialog_open
     }
 
     /// Opens a session over `wallet`, stored under `name`.
@@ -127,7 +135,7 @@ impl Session {
     ///
     /// shortcut: no balances, so `DrainsBalance` is not raised in the GUI yet;
     /// pass the node-read balance in once the core reads it itself.
-    fn review_context(&self, app: &tauri::AppHandle) -> Result<Context, String> {
+    pub(crate) fn review_context(&self, app: &tauri::AppHandle) -> Result<Context, String> {
         self.with_book(app, false, |book, _| {
             Ok(Context {
                 contacts: book.review_contacts(),
@@ -565,7 +573,7 @@ pub fn preview_transfer(
 
 /// Parses an amount argument from the frontend: plain base-unit digits only.
 /// The name goes into the error so the user sees which field was refused.
-fn parse_amount_arg(name: &str, text: &str) -> Result<primitive_types::U256, String> {
+pub(crate) fn parse_amount_arg(name: &str, text: &str) -> Result<primitive_types::U256, String> {
     maya_wallet_core::amount::parse_base_units(text).map_err(|e| format!("{name}: {e}"))
 }
 
@@ -654,7 +662,7 @@ async fn approved_on_screen(
 
 /// A native OK/Cancel dialog with words the core wrote; `ok` labels the
 /// button that proceeds.
-async fn native_ok(
+pub(crate) async fn native_ok(
     app: &tauri::AppHandle,
     window: &tauri::WebviewWindow,
     title: &str,
@@ -678,7 +686,7 @@ async fn native_ok(
 }
 
 /// A genesis id as `fee_options` returned it: 64 hex characters.
-fn parse_genesis(genesis: &str) -> Result<ChainTag, String> {
+pub(crate) fn parse_genesis(genesis: &str) -> Result<ChainTag, String> {
     hex::decode(genesis)
         .ok()
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
@@ -811,12 +819,27 @@ pub async fn fee_options(
     nonce: u64,
     session: tauri::State<'_, Session>,
 ) -> Result<FeeTerms, String> {
-    let quote = wallet::fee_quote(&node_url)
+    priced_fee_terms(&node_url, |chain, collector| {
+        session.with(|wallet| {
+            wallet
+                .transfer_size(index, collector, nonce, chain)
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+}
+
+/// [`fee_options`] for a transaction of `size(chain, collector)` bytes.
+pub(crate) async fn priced_fee_terms(
+    node_url: &str,
+    size: impl FnOnce(&ChainTag, &str) -> Result<u64, String>,
+) -> Result<FeeTerms, String> {
+    let quote = wallet::fee_quote(node_url)
         .await
         .map_err(|e| e.to_string())?;
     // The genesis the transfer will be signed for, refused when the node
     // claims to be mainnet without the pinned genesis (networks.rs).
-    let status = wallet::network_status(&node_url)
+    let status = wallet::network_status(node_url)
         .await
         .map_err(|e| e.to_string())?;
     if status.class == maya_wallet_core::networks::NetworkClass::Impostor {
@@ -842,11 +865,7 @@ pub async fn fee_options(
                 .collect(),
         });
     }
-    let size = session.with(|wallet| {
-        wallet
-            .transfer_size(index, &quote.collector, nonce, &chain)
-            .map_err(|e| e.to_string())
-    })?;
+    let size = size(&chain, &quote.collector)?;
     let fees = payment::priced_fee_tiers(quote.base_fee, size).map_err(|e| e.to_string())?;
     Ok(FeeTerms {
         collector: Some(quote.collector),

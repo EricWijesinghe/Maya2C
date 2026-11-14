@@ -10,6 +10,7 @@
 
 pub mod commands;
 pub mod deeplink;
+pub mod multisig;
 
 use commands::Session;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -84,6 +85,16 @@ pub fn run() {
             commands::export_contacts,
             commands::import_contacts,
             commands::check_recipient,
+            multisig::multisig_member_key,
+            multisig::multisig_create,
+            multisig::multisig_open,
+            multisig::multisig_fee_options,
+            multisig::multisig_propose,
+            multisig::multisig_status,
+            multisig::multisig_preview,
+            multisig::multisig_approve,
+            multisig::multisig_merge,
+            multisig::multisig_finish,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");

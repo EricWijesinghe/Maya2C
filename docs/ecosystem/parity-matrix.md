@@ -24,7 +24,7 @@ Queue abbreviations: P-1..P-16 = `.claude/plans/q1-90day-roadmap.plan.md`; V3-*,
 | Social / guardian recovery | Sui, Argent, Safe (S) | https://members.delphidigital.io/reports/suis-q3-report-sui-stack-and-momentum-picking-up | `features.toml:3432` vault-accounts REAL/verified; ADR-056 guardians | shipped |
 | Named / human-readable accounts | NEAR named accounts (T); ENS, SuiNS, TON DNS, Permaweb Names (S) | https://coinpaprika.com/education/near-protocol-explained | **none** | P-3 |
 | Sponsored fees / paymaster | Sui, Starknet, zkSync, ERC-4337 (S) | https://members.delphidigital.io/reports/suis-q2-on-chain-ux-primitives-btcfi-expansion-scaling-production | **none** | P-4 |
-| Multisig (m-of-n) | all; Algorand plans multi-scheme PQ multisig end-2026 (P) | https://algorand.co/blog/algorand-targets-broad-quantum-resilience-by-2027 | `features.toml:1870` m-of-n ML-DSA multisig REAL/verified; mixed-suite signers **none** | P-16 UI; gap P-18 |
+| Multisig (m-of-n) | all; Algorand plans multi-scheme PQ multisig end-2026 (P) | https://algorand.co/blog/algorand-targets-broad-quantum-resilience-by-2027 | `features.toml:1870` m-of-n ML-DSA multisig REAL/verified; mixed-suite signers **none** | P-16 UI partial (2026-11-14: wallet flow, hybrid approvers only; ADR-117 floor not built); gap P-18 |
 | Chain signatures (sign for other chains from one account) | NEAR chain signatures, 11-of-16 MPC (S); ICP threshold ECDSA/Schnorr (P) | https://blockworks.co/news/near-protocol-chain-signatures-multichain-DeFi ; https://medium.com/dfinity/the-internet-computer-roadmap-62487bdce289 | `features.toml:1859` custody-mpc (vault only, inv 18/19); foreign-chain signing **none** | gap P-19 |
 
 ### Tokens, NFTs, data carriers

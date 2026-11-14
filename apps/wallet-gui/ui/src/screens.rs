@@ -552,6 +552,10 @@ pub mod wallet {
                         <span class="icon" aria-hidden="true">"\u{263a}"</span>
                         "Contacts"
                     </button>
+                    <button class="action" on:click=move |_| go(Screen::Multisig)>
+                        <span class="icon" aria-hidden="true">"\u{2687}"</span>
+                        "Multisig"
+                    </button>
                 </div>
             </section>
 

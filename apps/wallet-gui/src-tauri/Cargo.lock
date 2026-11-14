@@ -4515,6 +4515,7 @@ dependencies = [
  "maya-address",
  "maya-amount",
  "maya-clear-sign",
+ "maya-crypto-pq",
  "maya-zk-stark",
  "pbkdf2",
  "primitive-types",
