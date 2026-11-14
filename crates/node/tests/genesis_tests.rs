@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
 use primitive_types::U256;
 use std::sync::Arc;
 
@@ -402,7 +403,7 @@ fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
     sunset.suite_deprecations = vec![SuiteDeprecationGenesis {
         suite: 0x10,
         announced_at: 100,
-        sunset_height: 1_000_100,
+        sunset_height: 100 + MIN_MIGRATION_WINDOW,
         emergency: false,
     }];
     let mut floor = config();
@@ -441,14 +442,14 @@ fn a_genesis_names_only_valid_suite_deprecations() {
     config.suite_deprecations = vec![SuiteDeprecationGenesis {
         suite: 0x02,
         announced_at: 100,
-        sunset_height: 1_000_100,
+        sunset_height: 100 + MIN_MIGRATION_WINDOW,
         emergency: false,
     }];
     assert!(config.validate().is_err(), "unknown suite byte");
     config.suite_deprecations[0].suite = 0x10;
     config.suite_deprecations[0].sunset_height = 50;
     assert!(config.validate().is_err(), "sunset before announcement");
-    config.suite_deprecations[0].sunset_height = 1_000_100;
+    config.suite_deprecations[0].sunset_height = 100 + MIN_MIGRATION_WINDOW;
     assert!(config.validate().is_ok());
 
     assert_eq!(

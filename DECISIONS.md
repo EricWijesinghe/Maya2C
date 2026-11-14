@@ -901,3 +901,27 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-13 — Governance and migration windows sized at 1 block/s (re-freeze bundle, Eric)
+
+The chain makes about one block a second (`docs/block-time.md`), and four compiled windows were sized at the 15 s PoW spacing, so each was 15x shorter in wall-clock than its comment said. Eric approved re-sizing them in the re-freeze bundle (PR #500):
+
+- **`MIN_VOTING_BLOCKS`** 480 -> 7,200 (2 h) and **`MIN_TIMELOCK_BLOCKS`** 960 -> 14,400 (4 h), `crates/governance/src/limits.rs` (invariant 12).
+- **`MIN_MIGRATION_WINDOW`** 172,800 -> 2,592,000 (30 d) and **`MIN_EMERGENCY_WINDOW`** 17,280 -> 259,200 (3 d), `crates/crypto-pq/src/agility/mod.rs`. This replaces the 2026-11-08 "2-day migration window stays".
+- **Council sunset lead** follows, being derived: 1,172,800 -> 3,592,000 blocks (about 41.6 d), replacing the 13.6 d recorded on 2026-11-08 (ADR-082 H3).
+- **The rate is pinned:** a `maya-mainnet` genesis must set `bft.round_interval_ms = 500`, refused otherwise by `GenesisConfig::validate` and `cargo xtask genesis-check`.
+- **Not changed, flagged:** `MAX_VOTING_BLOCKS`, `MAX_TIMELOCK_BLOCKS` and `EXECUTION_GRACE_BLOCKS` are still 15 s-sized (27.8 h, 55.6 h, 27.8 h at 1 s). They are ceilings, so not a safety hole; left for Eric. (Superseded the same day: see "Eric: governance caps x15" below.)
+
+## 2026-11-13 — Eric: governance caps x15 (re-freeze bundle, PR #500)
+
+Eric chose (MCQ, recommended option) to scale the three governance ceilings x15 so they keep the wall-clock durations their 15 s sizes meant, now that the chain makes one block a second. `crates/governance/src/limits.rs`:
+
+- **`MAX_VOTING_BLOCKS`** 100,000 -> 1,500,000 (about 17.4 d).
+- **`MAX_TIMELOCK_BLOCKS`** 200,000 -> 3,000,000 (about 34.7 d).
+- **`EXECUTION_GRACE_BLOCKS`** 100,000 -> 1,500,000 (about 17.4 d).
+
+Floors unchanged and still under their ceilings (7,200 <= 1,500,000; 14,400 <= 3,000,000; the `const` block in `limits_tests.rs` fails the build otherwise). The schedule horizon (`MAX_SCHEDULE_HORIZON_BLOCKS`, 31,536,000) is measured from `expires_after`, so a longer grace does not shrink it at proposal time; the stake-lock requirement is `executable_from`, unaffected by grace. All schedule arithmetic is `saturating_add` on `u64`. Pinned by `the_ceilings_keep_their_15_second_era_durations_at_one_block_per_second`.
+
+## 2026-11-13 — The governance settlement pass reads only due proposals (re-freeze bundle, PR #500)
+
+The end-of-block pass read every proposal record ever written, settled ones included, on every block. Measured on the test profile: 286 ms a block at 100,000 records, linear at about 2.9 µs a record (`reports/sessions/2026-11-13-governance-settle-index.md`). An attacker could reach that in 3,125 blocks for fees alone: the deposit is refundable, nothing limits proposals per account, and settled records stayed in the scan. Fix, recorded as an ADR-082 amendment: a settlement index `g:due:<height BE><id>` under the existing governance layer (no new prefix, invariant 25 unchanged). `propose` writes keys at `voting_closes + 1` and `executable_from`, at most `MAX_PROPOSALS_DUE_PER_HEIGHT` = 64 per height, and refuses a proposal that would overflow one. The pass consumes keys at or below its height in proposal-identifier order. Rejected: a cap on open proposals (an attacker holding it blocks governance for refundable capital) and a per-block budget with carry-over (it shifts when proposals finalize, and a flood delays honest ones). It changes the governance layer's root whenever a proposal exists, which is why it lands before genesis. Pinned by `the_pass_reads_no_proposal_that_is_not_due`, `the_indexed_pass_matches_the_full_scan` and `a_height_takes_at_most_the_capped_number_of_due_proposals`.

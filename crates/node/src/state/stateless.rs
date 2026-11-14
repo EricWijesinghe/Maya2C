@@ -22,7 +22,7 @@
 //! | `settle_sealed` | envelopes due at this height (`m:`) | the sealed layer is absent |
 //! | `settle_trading` | pairs this block's DEX transactions touched | no transaction is a DEX kind |
 //! | `settle_oracle` | the authority registry (`o:`) | the oracle layer is absent |
-//! | `settle_governance` | every proposal (`g:`) | the governance layer is absent |
+//! | `settle_governance` | proposals due at this height (`g:due:`, `g:prop:`) | the governance layer is absent |
 //! | `check_anomalies` | pool records and the shielded pool the block wrote | no transaction is a DEX or shielded kind |
 //!
 //! Conservation holds by construction for transfers — a debit of exactly the

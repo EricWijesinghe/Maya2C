@@ -199,8 +199,8 @@ fn dex_front_end_quotes_from_the_curve_refuses_look_alikes_and_catches_a_lying_p
 }
 
 const RULES: Rules = Rules {
-    voting_blocks: 480,
-    timelock_blocks: 960,
+    voting_blocks: 7_200,
+    timelock_blocks: 14_400,
     quorum_bps: 2_000,
     approval_bps: 6_000,
     eligible: Amount::from_u64(1_000),
@@ -208,9 +208,11 @@ const RULES: Rules = Rules {
 
 #[test]
 fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
+    // Epoch 100_000 blocks, so both spends below fall in one epoch: the limit
+    // binds. Heights are scaled to the 7_200 / 14_400 windows (1 block/s).
     let mut t = Treasury::new(
         Amount::from_u64(100_000),
-        10_000,
+        100_000,
         Amount::from_u64(30_000),
         1,
     );
@@ -226,12 +228,12 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
     dao::vote(&mut g, Choice::For, Amount::from_u64(300), 20).unwrap();
     dao::vote(&mut g, Choice::Against, Amount::from_u64(100), 21).unwrap();
     assert!(matches!(
-        dao::execute(&mut t, &mut g, &RULES, 900),
+        dao::execute(&mut t, &mut g, &RULES, 8_000),
         Err(DaoError::Governance(
             GovernanceError::TimelockNotElapsed { .. }
         ))
     ));
-    dao::execute(&mut t, &mut g, &RULES, 1_450).unwrap();
+    dao::execute(&mut t, &mut g, &RULES, 21_700).unwrap();
     assert_eq!(t.balance, Amount::from_u64(80_000));
 
     let mut second = dao::propose(
@@ -240,12 +242,12 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
         [8; 32],
         Amount::from_u64(20_000),
         "second",
-        1_460,
+        21_800,
     )
     .unwrap();
-    dao::vote(&mut second, Choice::For, Amount::from_u64(900), 1_470).unwrap();
+    dao::vote(&mut second, Choice::For, Amount::from_u64(900), 21_810).unwrap();
     assert_eq!(
-        dao::execute(&mut t, &mut second, &RULES, 2_900),
+        dao::execute(&mut t, &mut second, &RULES, 43_500),
         Err(DaoError::Treasury(SpendError::OverEpochLimit)),
         "a captured vote still cannot exceed the epoch limit"
     );
@@ -256,12 +258,12 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
         [9; 32],
         Amount::from_u64(1),
         "no quorum",
-        3_000,
+        43_600,
     )
     .unwrap();
-    dao::vote(&mut failed, Choice::For, Amount::from_u64(50), 3_010).unwrap();
+    dao::vote(&mut failed, Choice::For, Amount::from_u64(50), 43_610).unwrap();
     assert_eq!(
-        dao::execute(&mut t, &mut failed, &RULES, 4_500),
+        dao::execute(&mut t, &mut failed, &RULES, 65_300),
         Err(DaoError::Rejected)
     );
 }

@@ -72,11 +72,22 @@ const fn default_anchor_timeout_ms() -> u64 {
     1_000
 }
 
+/// The node's `CANONICAL_ROUND_INTERVAL_MS` (crates/node/src/genesis.rs): one
+/// block per second, the rate every block-counted governance window assumes.
+/// Also the node's default, so an absent field passes.
+const CANONICAL_ROUND_INTERVAL_MS: u64 = 500;
+
+const fn default_round_interval_ms() -> u64 {
+    CANONICAL_ROUND_INTERVAL_MS
+}
+
 #[derive(Deserialize)]
 struct Bft {
     validators: Vec<String>,
     #[serde(default = "default_anchor_timeout_ms")]
     anchor_timeout_ms: u64,
+    #[serde(default = "default_round_interval_ms")]
+    round_interval_ms: u64,
     staking: Staking,
     #[serde(default)]
     fees: Option<Fees>,
@@ -326,6 +337,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
             g.bft.anchor_timeout_ms
         ));
     }
+    if g.bft.round_interval_ms != CANONICAL_ROUND_INTERVAL_MS {
+        out.push(format!(
+            "bft.round_interval_ms {} is not {CANONICAL_ROUND_INTERVAL_MS}: the governance and migration windows are counted at one block per second",
+            g.bft.round_interval_ms
+        ));
+    }
     if g.bft.validators.len() != g.bft.staking.bonds.len() {
         out.push("validators and bonds differ in number".to_string());
     }
@@ -511,6 +528,30 @@ mod tests {
             assert!(check(&with(accepted)).unwrap().is_empty(), "{accepted}");
         }
         // Absent means the node's default, 1000 ms.
+        assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_round_interval_off_one_block_per_second_is_refused_and_the_default_passes() {
+        let with = |ms: u64| {
+            genesis(20, true, &EVEN).replace(
+                "\"bft\":{",
+                &format!("\"bft\":{{\"round_interval_ms\":{ms},"),
+            )
+        };
+        for refused in [0, 499, 501, 1_000, 15_000] {
+            let found = check(&with(refused)).unwrap();
+            assert!(
+                found.iter().any(|p| p.contains("round_interval_ms")),
+                "{refused}: {found:?}"
+            );
+        }
+        assert!(
+            check(&with(CANONICAL_ROUND_INTERVAL_MS))
+                .unwrap()
+                .is_empty()
+        );
+        // Absent means the node's default, which is the canonical rate.
         assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
     }
 

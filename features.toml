@@ -2049,7 +2049,7 @@ paths = "`crates/governance`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/treasury_tests.rs"]
+tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/governance_due_tests.rs", "crates/node/tests/treasury_tests.rs"]
 
 [[subsystem]]
 id = "amount-256"
