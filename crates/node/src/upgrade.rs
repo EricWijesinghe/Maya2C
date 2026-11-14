@@ -29,7 +29,7 @@ use crate::state::context::{
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
     ZKML_ACTIVATION_HEIGHT,
 };
-use crate::state::upgrades::ASSET_MINT_ACTIVATION_HEIGHT;
+use crate::state::upgrades::{ASSET_MINT_ACTIVATION_HEIGHT, SPONSORED_FEES_ACTIVATION_HEIGHT};
 
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
@@ -60,8 +60,11 @@ impl FeatureSet {
     /// Capped-asset mint and burn, tags 55-58 (ADR-135 P-1). Bits 8-40 are
     /// claimed by other open ADRs (`adr-claims.txt`), not defined here.
     pub const ASSET_MINT: u64 = 1 << 41;
+    /// Wire-v13 sponsored fees (ADR-135 P-4). Bits 42, 43, 45 and 46 are the
+    /// other v4 features' claims, not defined here.
+    pub const SPONSORED_FEES: u64 = 1 << 44;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ASSET_MINT | Self::SPONSORED_FEES;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -101,6 +104,8 @@ pub struct FeatureActivations {
     pub rwa_strict: u64,
     /// Capped-asset mint and burn (bit 41).
     pub asset_mint: u64,
+    /// Wire-v13 sponsored fees (bit 44).
+    pub sponsored_fees: u64,
 }
 
 impl Default for FeatureActivations {
@@ -116,6 +121,7 @@ impl Default for FeatureActivations {
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             asset_mint: ASSET_MINT_ACTIVATION_HEIGHT,
+            sponsored_fees: SPONSORED_FEES_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -226,6 +232,7 @@ impl UpgradeSchedule {
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
             asset_mint: at(FeatureSet::ASSET_MINT, never.asset_mint),
+            sponsored_fees: at(FeatureSet::SPONSORED_FEES, never.sponsored_fees),
         }
     }
 
@@ -364,6 +371,20 @@ mod tests {
         // The neighbours of bit 41 are other ADRs' claims, not features here.
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 40)]).is_err());
         assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 42)]).is_err());
+    }
+
+    #[test]
+    fn sponsored_fees_are_dark_until_an_entry_names_bit_44() {
+        assert_eq!(FeatureActivations::default().sponsored_fees, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 77, FeatureSet::SPONSORED_FEES)]).unwrap();
+        assert_eq!(s.features().sponsored_fees, 77);
+        assert_eq!(
+            s.features().asset_mint,
+            u64::MAX,
+            "bit 44 switches on nothing else"
+        );
+        // Bit 45 is another v4 feature's claim, not a feature here.
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 45)]).is_err());
     }
 
     #[test]

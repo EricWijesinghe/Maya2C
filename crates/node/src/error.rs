@@ -516,6 +516,24 @@ pub enum NodeError {
         reason: &'static str,
     },
 
+    /// A wire-v13 sponsored frame before feature bit 44 activates (ADR-135
+    /// P-4). Refused on admission and on apply by the same check.
+    #[error("sponsored fees are not active at height {height} (from {activation})")]
+    SponsoredFeesInactive {
+        /// Height the transaction was judged at.
+        height: u64,
+        /// First height at which v13 frames apply; `u64::MAX` means never.
+        activation: u64,
+    },
+
+    /// A wire-v13 sponsorship broke one of its rules (ADR-135 P-4). The whole
+    /// frame is refused, so the sender's nonce is not consumed.
+    #[error("sponsorship refused: {reason}")]
+    SponsorshipRefused {
+        /// The rule that failed.
+        reason: &'static str,
+    },
+
     /// A registration landed on an identifier that already exists.
     ///
     /// Requires the same sender, nonce, and symbol, so it is unreachable while

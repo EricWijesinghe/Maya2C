@@ -46,6 +46,16 @@ pub const COUNCIL_SUNSET_LEAD_BLOCKS: u64 =
 /// height, never a cargo feature).
 pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
+/// First height at which wire-v13 sponsored frames (`FeatureSet::SPONSORED_FEES`,
+/// bit 44, ADR-135 P-4) apply, for a schedule that never names the bit: never.
+/// Until the v4 entry moves it, every v13 frame is refused on admission and on
+/// apply by the one check both call (`state::sponsor::require_active`).
+///
+/// Not to be written while M1 (spec 02, "Open residuals": the sponsor does
+/// not sign the inner frame's approvals, so a relay can grow the frame it
+/// pays for) and M3 (the builder's overlay copy) are open.
+pub const SPONSORED_FEES_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 /// Prefix of every upgrade-schedule record. A committed layer
 /// (`StateLayer::UpgradeSchedule`), so it is under the state root (invariant 25).
 pub const UPGRADE_PREFIX: &[u8] = b"up:";

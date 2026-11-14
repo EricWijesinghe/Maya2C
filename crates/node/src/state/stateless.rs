@@ -356,8 +356,10 @@ fn check_eligible(
     if let Some(tx) = block
         .transactions
         .iter()
-        .find(|tx| !matches!(tx.kind, TxKind::Transfer))
+        .find(|tx| !matches!(tx.kind, TxKind::Transfer) || tx.sponsor.is_some())
     {
+        // A sponsored transfer debits a sponsor no output names, which
+        // `apply_transfer` would miss and then call an honest block invalid.
         return Err(StatelessError::Unverifiable(format!(
             "a {} transaction reads state no witness names",
             tx.kind.label()
