@@ -59,6 +59,9 @@ jobs:
       - name: Install dependencies (no lifecycle scripts)
         working-directory: docs/site
         run: npm ci --ignore-scripts
+      - name: Unit tests (page data mapping, node --test)
+        working-directory: docs/site
+        run: npm test
       - name: Build the site
         working-directory: docs/site
         run: npm run build

@@ -1,0 +1,149 @@
+---
+// The live network, drawn: validators on a ring, each new block a pulse out
+// to the voters, each quorum checkpoint a flash of the ring. Read in the
+// visitor's browser from the explorer, the public gateway and the status
+// monitor (all already in the site's connect-src); nothing is baked in at
+// build. Offline, the page says so and nothing moves. `?demo` shows a sample,
+// labelled DEMO on screen. Logic: src/scripts/live-network{,-view}.ts.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+
+const tiles = [
+  { id: "ln-final", label: "finalized", sub: "ln-sigs", explain: "The newest block a quorum of the committee has signed (get_checkpoint, ADR-038). It cannot be reverted." },
+  { id: "ln-epoch", label: "epoch", explain: "The staking epoch: the committee is fixed for the whole epoch, then re-elected from stake." },
+  { id: "ln-committee", label: "committee", explain: "How many validators hold a seat and vote this epoch." },
+  { id: "ln-round", label: "committed round", explain: "The DAG-BFT round of the last anchor the gateway's node committed (get_bft_status)." },
+  { id: "ln-age", label: "last block", explain: "How long since the newest block's own header timestamp, not since this page loaded." },
+];
+const legend = [
+  { cls: "voting", label: "voting", explain: "Up and holding a seat: it signs blocks and checkpoints." },
+  { cls: "follower", label: "following", explain: "Up but catching up from attested blocks, so it does not vote yet." },
+  { cls: "idle", label: "no seat", explain: "Up and in sync, but not in this epoch's committee." },
+  { cls: "down", label: "down", explain: "Did not answer the status monitor's last poll." },
+  { cls: "unknown", label: "stake only", explain: "Known from the stake record; no public monitor reports whether it is up." },
+];
+---
+
+<StarlightPage frontmatter={{ title: "Live network", description: "maya-testnet-1 as it runs: validators, each new block, finality, epoch and committee, read live from the public explorer and gateway.", template: "splash" }}>
+  <section class="ln" id="ln" data-state="connecting" aria-label="maya-testnet-1, live network">
+    <p class="ln-banner" id="ln-banner" role="status">Connecting…</p>
+
+    <div class="ln-stage">
+      <svg class="ln-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+        <ellipse class="ln-ring" cx="50" cy="50" rx="40" ry="34" />
+        <ellipse class="ln-flash" id="ln-ring-flash" cx="50" cy="50" rx="40" ry="34" />
+        <g id="ln-links"></g>
+      </svg>
+      <div class="ln-sparks" id="ln-sparks" aria-hidden="true"></div>
+      <button type="button" class="ln-core" data-explain="The chain tip: the highest block the explorer has indexed. Each new one pulses out to the voting validators.">
+        <span class="ln-k" id="ln-height-label">height</span>
+        <strong id="ln-height">—</strong>
+      </button>
+      <ul class="ln-nodes" id="ln-nodes" aria-label="Validators"></ul>
+    </div>
+
+    <ul class="ln-tiles" aria-label="Consensus">
+      {tiles.map((t) => (
+        <li>
+          <button type="button" class="ln-tile" data-explain={t.explain}>
+            <span class="ln-k">{t.label}</span>
+            <strong id={t.id}>—</strong>
+            {t.sub && <span class="ln-sub" id={t.sub}></span>}
+          </button>
+        </li>
+      ))}
+    </ul>
+
+    <h2 class="ln-h">Recent blocks</h2>
+    <div class="ln-timeline" id="ln-timeline" aria-label="Recent blocks, oldest left"></div>
+    <p class="ln-empty" id="ln-timeline-empty">No block list from the explorer right now.</p>
+
+    <ul class="ln-legend" aria-label="Legend">
+      {legend.map((l) => (
+        <li><button type="button" data-explain={l.explain}><i class={`ln-dot ${l.cls}`}></i>{l.label}</button></li>
+      ))}
+      <li><button type="button" data-explain="A tall bar is a block with more transactions; a green one is finalized."><i class="ln-bar"></i>block</button></li>
+    </ul>
+
+    <p class="ln-explain" id="ln-explain" aria-live="polite">Select anything above for a one-line explanation.</p>
+
+    <p class="ln-sources">
+      Sources, polled every 15 s: the <a href="https://explorer.maya2c.dev/">explorer</a> (blocks, and a stream of each new one); the <a href="https://status.maya2c.dev/">status monitor</a> (which validators answer); the gateway <code>rpc.maya2c.dev</code> (<code>get_bft_status</code>, <code>get_checkpoint</code>).
+      To see it move without the network: <a href="?demo">demo mode</a>, labelled as such. History of halts: <a href="/health/">Live health</a>.
+    </p>
+  </section>
+
+  <script>
+    import { start } from "../scripts/live-network-view";
+    start();
+  </script>
+
+  <!-- Global, not scoped: the nodes, links and bars are made by the script and never carry Astro's scope class. Every selector is ln-prefixed. -->
+  <style is:global>
+    .ln { max-width: 980px; margin: 0 auto; padding: 8px 0 64px; display: grid; gap: 20px; color: var(--text); }
+    .ln-banner { margin: 0; padding: 10px 14px; border-radius: var(--r-m); border: 1px solid var(--glass-edge); background: var(--glass); font: 500 14px/1.4 var(--sans); color: var(--muted); }
+    .ln[data-state="live"] .ln-banner { color: var(--verified); border-color: var(--verified); }
+    .ln[data-state="stalled"] .ln-banner, .ln[data-state="partial"] .ln-banner { color: var(--signal); border-color: var(--signal); }
+    .ln[data-state="offline"] .ln-banner { color: var(--text); border-left: 4px solid var(--muted); }
+    .ln[data-state="demo"] .ln-banner { color: var(--signal); border: 2px dashed var(--signal); font-weight: 700; letter-spacing: .02em; }
+
+    .ln-stage { position: relative; aspect-ratio: 16 / 10; min-height: 300px; border-radius: var(--r-l); border: 1px solid var(--glass-edge); background: radial-gradient(ellipse at 50% 55%, var(--glass), var(--deep)); overflow: hidden; }
+    .ln-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+    .ln-svg ellipse, .ln-svg line { fill: none; vector-effect: non-scaling-stroke; }
+    .ln-ring { stroke: var(--glass-edge); stroke-width: 1.5; }
+    .ln[data-state="offline"] .ln-ring { stroke: var(--muted); stroke-dasharray: 4 6; }
+    .ln-link { stroke: var(--cherenkov); stroke-opacity: .45; stroke-width: 1.5; }
+    .ln-link.dim { stroke: var(--muted); stroke-opacity: .25; stroke-dasharray: 3 5; }
+    /* A block travelling out: one spark per voting validator, tip to node, once. */
+    .ln-sparks { position: absolute; inset: 0; pointer-events: none; }
+    .ln-spark { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--cherenkov-hi); box-shadow: 0 0 12px var(--cherenkov-hi); animation: ln-travel 1.1s ease-out forwards; }
+    @keyframes ln-travel { from { left: 50%; top: 50%; opacity: 1; } 85% { opacity: 1; } to { left: var(--x); top: var(--y); opacity: 0; } }
+    /* A quorum checkpoint: the ring lights once. */
+    .ln-flash { stroke: var(--verified); stroke-width: 4; opacity: 0; transform-box: fill-box; transform-origin: center; }
+    .ln-flash.go { animation: ln-flash 1.1s ease-out; }
+    @keyframes ln-flash { from { opacity: 1; transform: scale(.94); } to { opacity: 0; transform: scale(1.06); } }
+    @media (prefers-reduced-motion: reduce) { .ln-spark { display: none; } .ln-flash.go { animation: none; } }
+    .ln-core { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; gap: 2px; min-width: 112px; padding: 14px 18px; border-radius: 999px; border: 1px solid var(--cherenkov); background: var(--deep); color: var(--text); cursor: pointer; }
+    .ln-core strong { font: 300 clamp(22px, 4vw, 34px)/1 var(--display); font-variant-numeric: tabular-nums; }
+    .ln[data-state="offline"] .ln-core { border-style: dashed; border-color: var(--muted); }
+    .ln-k { font: 500 11px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+    .ln-nodes { list-style: none; margin: 0; padding: 0; }
+    .ln-node-li { margin: 0 !important; }
+    .ln-node { position: absolute; transform: translate(-50%, -50%) scale(var(--s, 1)); width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--muted); background: var(--deep); color: var(--text); cursor: pointer; display: grid; place-items: center; padding: 0; }
+    .ln-node-name { position: absolute; top: 100%; margin-top: 4px; font: 500 11px/1 var(--mono); white-space: nowrap; color: var(--lede); }
+    .ln-node.voting, .ln-dot.voting { border-color: var(--verified); background: color-mix(in srgb, var(--verified) 28%, var(--deep)); }
+    .ln-node.follower, .ln-dot.follower { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 22%, var(--deep)); }
+    .ln-node.idle, .ln-dot.idle { border-color: var(--cherenkov); }
+    .ln-node.down, .ln-dot.down { border-color: var(--muted); border-style: dashed; opacity: .7; }
+    .ln-node.unknown, .ln-dot.unknown { border-color: var(--cherenkov); border-style: dotted; }
+    .ln button:focus-visible { outline: 3px solid var(--cherenkov-hi); outline-offset: 3px; }
+
+    .ln-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .ln-tiles li { margin: 0 !important; }
+    .ln-tile { width: 100%; height: 100%; display: grid; gap: 6px; text-align: left; padding: 14px 16px; border-radius: var(--r-m); border: 1px solid var(--glass-edge); background: var(--deep); color: var(--text); cursor: pointer; }
+    .ln-tile strong { font: 300 24px/1 var(--display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .ln-sub { font: 400 12px/1 var(--sans); color: var(--muted); }
+
+    .ln .ln-h { font: 650 20px/1.2 var(--display); margin: 12px 0 0; }
+    .ln-timeline { position: relative; height: 72px; border-radius: var(--r-m); border: 1px solid var(--glass-edge); background: var(--deep); }
+    .ln-block { position: absolute; bottom: 10px; transform: translateX(-50%); width: 14px; height: calc(52px * var(--h, .5)); min-height: 24px; padding: 0; border: 0; border-radius: 4px; background: var(--cherenkov); cursor: pointer; }
+    .ln-block.final { background: var(--verified); }
+    .ln-empty { margin: 0; font: 400 13px/1.4 var(--sans); color: var(--muted); }
+
+    .ln-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 10px; }
+    .ln-legend li { margin: 0 !important; }
+    .ln-legend button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--glass-edge); background: transparent; color: var(--lede); font: 500 13px/1 var(--sans); cursor: pointer; }
+    .ln-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); }
+    .ln-bar { width: 6px; height: 14px; border-radius: 2px; background: var(--cherenkov); }
+
+    .ln-explain { margin: 0; min-height: 3em; padding: 12px 14px; border-left: 3px solid var(--cherenkov); background: var(--deep); border-radius: var(--r-s); font: 400 15px/1.5 var(--sans); color: var(--text); }
+    .ln-sources { margin: 0; font: 400 13px/1.6 var(--sans); color: var(--muted); }
+    .ln code { font: 500 12px var(--mono); color: var(--cherenkov-hi); }
+
+    @media (max-width: 560px) {
+      .ln-stage { aspect-ratio: 1 / 1; min-height: 0; }
+      .ln-node { width: 36px; height: 36px; }
+      .ln-core { min-width: 92px; padding: 10px 12px; }
+    }
+  </style>
+</StarlightPage>

@@ -30,7 +30,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         <div><dt>Committed round</dt><dd id="gCommitted">—</dd></div>
         <div><dt>Committee</dt><dd id="gCommittee">—</dd></div>
       </dl>
-      <p class="hl-note">This is the one node the gateway answers from (<code>get_bft_status</code>, <code>get_chain_info</code>). It is not a list of validators.</p>
+      <p class="hl-note">This is the one node the gateway answers from (<code>get_bft_status</code>, <code>get_chain_info</code>). It is not a list of validators. The validators the status monitor watches, drawn live: <a href="/network/">Live network</a>.</p>
       <div class="hl-gap" role="note">
         <strong>Per-validator state is not public.</strong>
         <span><code>get_peers</code> returns <em>method not available through the gateway</em>, checked 2026-10-19. Until a public method exists, this page shows no validator list.</span>
