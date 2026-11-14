@@ -37,12 +37,54 @@ Light-client proofs and `spec-ref` depend on the tree shape, so the spec and
 conformance vectors change with it. The live testnet cannot follow either; both
 need the planned re-genesis.
 
+## Amendment 2026-11-13: per-block work against stored records
+
+The 2026-10-28 deferral of both halves (DECISIONS.md) assumed state grows
+organically and said to revisit "when accounts pass ~50k or block time is
+threatened". A sweep of every end-of-block pass and the root, after PR #500
+found the same pattern in governance, measured it against records an attacker
+creates. Test profile (node at opt-level 0), median of 3,
+`state::scan_bounds_tests`, report `reports/sessions/2026-11-13-per-block-scan-bounds.md`.
+
+**Fixed in this change** (`fix/per-block-scan-bounds`, no key layout change):
+
+| Site | Before | Bound now | Measured at the bound |
+|---|---|---|---|
+| `settle_sealed`: one reveal height could inherit 255 × 128 = 32,640 envelopes, and `merged_records` walked the whole overlay per envelope | 18.95 s at 32,640 | `MAX_SEALED_PER_REVEAL_HEIGHT` = 128, checked at submission; `Overlay::records_under` ranges the overlay | 0.39 ms at 128 (183 ms at 32,640 with the range alone) |
+| `settle_trading` rebuilds every touched book whole; the per-book ceiling times the pairs one block touches was the real bound | 549 ms for 16 full books; a block at the fee target touches about 190 | `MAX_BOOK_ORDERS_PER_BLOCK` = 16,384 resting orders across touched books; the first book is always admitted | 86 ms for 4 full books |
+| The staking record is one value, decoded and re-encoded by every block and every staking transaction; the cap was 8 MiB | 87,000 delegations (8.35 MB): 250–289 ms a block, 152 ms a transaction | record cap 1 MiB (about 10,900 delegations); `MAX_STAKING_TX_PER_BLOCK` = 16, evidence exempt (both removed by the 2026-11-15 amendment below, ADR-062b) | 10,000 delegations (0.96 MB): 28 ms a block, 15 ms a transaction |
+
+Each refusal is a transaction failing, never a block. Rejected: a counter
+record per reveal height (a new key for a bound the scan of at most 128 keys
+already gives); skipping the book pass for pairs touched only by swaps (changes
+matching semantics, and a placement touches a pair as cheaply); caching the
+decoded staking record across a block (`select_applicable` clones the overlay
+per non-transfer transaction, so the clone would cost what the decode did).
+
+**Not fixed here, CRITICAL:** the state root itself. `root_with_overlay`
+re-reads and hashes every account and every committed record each block:
+1.3–1.8 µs an account and 2.1 µs a 200-byte record on the test profile
+(131 ms at 100,000 accounts), 0.48 µs an account in release
+(`reports/12-performance.md`). One output to a fresh address creates an
+account; a 4 MiB transfer carries about 65,000 outputs, so 2.1 million
+accounts (about 1 s of root in release) take some 26 full blocks, and the fee
+from the floor costs well under a millionth of a coin (about 1,000 coins even
+at the compiled ceiling). That is ADR-062a (an incremental root) or a
+state-creation price, both decisions for Eric. Every per-record bound above
+still leaves its records in this fold.
+
+**Residual, for Eric:** the default `min_delegation` is 10 base units, so the
+1 MiB record (and the old 8 MiB one) can be filled with dust for fees alone,
+after which every new delegation is refused until it drains. A real minimum,
+or ADR-062b, ends that. ADR-062b also removes the 10,900-delegation ceiling
+this amendment introduces.
+
 ## Amendment 2026-11-15: per-delegation staking records (ADR-062b), built
 
 Eric 2026-11-14 MCQ: "per-delegation records". Staking option (b) ships in the
 re-genesis; the 2026-10-28 deferral of 062b is withdrawn.
 
-**Layout** (`spec/06-staking.md` STK-1..STK-8, `state/staking_records.rs`):
+**Layout** (`spec/06-staking.md` STK-1..STK-10 with byte layouts, vectors `spec/tests/staking.json`, `state/staking_records.rs`):
 `k:state` keeps only parameters, epoch, committee and the epoch's slot counts
 (record version 4; versions 1–3 are refused). Each validator is `k:v:<id>`,
 each delegation `k:d:<validator><delegator>`, each unbonding entry
@@ -68,26 +110,54 @@ first. What rounding leaves is burned once nobody is owed. Total burned equals
 the old dust. The change users see: a reward is spendable some blocks after
 the boundary, not in the boundary block.
 
-**Bounds.**
-- A staking transaction reads its own records only.
+**Bounds** (revised after the first review of PR #555, same day).
+- A staking transaction reads its own records only. A report of equivocation
+  against an unknown or already tombstoned validator is refused after one
+  record read, so a public equivocation pair cannot be replayed into blocks
+  (STK-3).
 - A boundary reads every validator, the offenders' delegations and unbonding
   entries, and the entries due.
 - A plain block reads the meta record plus at most 1,024 delegations.
-- A new delegation record is refused once the chain holds
-  `1,024 × epoch_blocks / 2` of them, so payouts drain in half an epoch.
-  That is 1,843,200 at 3,600-block epochs. The 8 MiB record cap on master and
-  the 1 MiB cap from #522 are no longer needed.
+- **Chain-wide ceiling:** a new delegation record is refused once the chain
+  holds `min(131,072, 1,024 × epoch_blocks / 2)` of them (STK-7). The first
+  draft used `1,024 × epoch_blocks / 2` alone, 1,843,200 at 3,600-block
+  epochs. That counted only execution: the staking layer's root still folds
+  every `k:` record each block, so the old 8 MiB record's limit (about 87,000
+  delegations) had also been a limit on the root, and dropping it would have
+  let the root grow about 21-fold. 131,072 keeps the root near master's worst
+  case: measured on the test profile, the state root over 131,072 delegation
+  records takes 142.8 ms (100,000: 102.0 ms; 10,000: 9.0 ms), against
+  250–289 ms a block for master's 87,000-delegation record in
+  `settle_staking` alone (the 2026-11-13 amendment above). Release profile:
+  MISSING.
+- **Per-validator ceiling:** a new delegation record to a validator holding
+  16,384 is refused (STK-9). It bounds what one slash or downtime boundary
+  reads, settles and rewrites: a double-sign slash over 16,384 delegations
+  takes 69.3 ms, and a downtime boundary over the same crowd 75.5 ms, on the
+  test profile. A crowd has to fill eight validators to reach the chain-wide
+  ceiling.
+- A delegation record is rewritten only when its meaning changes (STK-10). A
+  downtime cut of zero from 16,384 dust delegations writes none of them
+  (16,384 before this rule).
+- The 8 MiB record cap on master, and #522's 1 MiB cap and 16 staking
+  transactions a block, are removed: #522 is merged into this PR. The 64th
+  staking transaction of a block reads what the first does.
 
 **Not bounded by this change, reported:**
-1. A slash reads every delegation and unbonding entry of its offender. That is
-   proportional to the offender's records, not to the chain's.
-2. The staking layer's root still folds every `k:` record each block. That is
-   the general state-root cost PR #522's 2026-11-13 amendment records (ADR-062a). Per
-   record it is now about one leaf per delegation where it was one leaf for
-   all of them.
-3. `min_delegation` (10 base units by default) is still Eric's decision. The
-   ceiling above stops a dust crowd from making the payout backlog unbounded,
-   but a crowd that reaches the ceiling still blocks *new* delegation records
-   until some leave.
+1. **PARTIAL: per-block cost independent of total delegations.** Execution
+   is; the state root is not. The root folds every staking record each block,
+   up to the chain-wide ceiling. An incremental staking-layer root (ADR-062a
+   extended past accounts) removes this, and only then should the ceiling
+   rise, by an upgrade.
+2. A slash or downtime boundary still does its offender's work in one block,
+   bounded now by the per-validator ceiling, not by the chain's.
+3. `min_delegation` (10 base units by default) is still Eric's decision, and
+   should be made before the freeze closes, since it is a genesis parameter.
+   With the per-validator ceiling, dust that fills one validator no longer
+   closes delegation to others, but dust spread over eight validators still
+   fills the chain-wide ceiling for fees alone.
+4. The payout pass's drain within half an epoch is the typical case, not a
+   proved bound under churn (STK-7); a payout that outlives the next boundary
+   stays correct.
 
 Measured figures: `reports/sessions/2026-11-15-per-delegation-staking.md`.

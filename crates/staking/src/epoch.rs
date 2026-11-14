@@ -418,6 +418,14 @@ pub struct Payout {
 
 /// What a delegation earning `earning` is owed from a [`Payout`]: the amount
 /// [`Staking::end_epoch`] credits it, `rest × earning / total` rounded down.
+///
+/// Bound (Eric's 2026-11-01 rule: a 512-bit intermediate only with a written
+/// bound): `earning ≤ total`, since a delegation's earning stake is part of
+/// its validator's, so the quotient is at most `rest` and fits 256 bits;
+/// only the product `rest × earning` needs the wide intermediate inside
+/// `Amount::mul_div`. This is the arithmetic `end_epoch` already used, kept
+/// identical so the deferred payout pays the same amounts; whether to remove
+/// the 512-bit step is the open decision recorded in DECISIONS.md.
 #[must_use]
 pub fn delegator_share(rest: Amount, earning: Amount, total: Amount) -> Amount {
     share_of(rest, earning, total)

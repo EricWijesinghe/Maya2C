@@ -14,7 +14,7 @@
 //!
 //! | Asset | Held in |
 //! |---|---|
-//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `q:w:` vault withdrawals, `k:state` validator stake |
+//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `q:w:` vault withdrawals, staking records `k:v:` (self bond), `k:d:` (delegations), `k:u:` (unbonding) and `k:pj:` (owed payouts) (ADR-062b) |
 //! | Registered | `d:bal:` balances, `d:pool:` reserves, `d:ord:` escrow |
 //! | LP share | `d:bal:` balances |
 //!

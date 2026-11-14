@@ -112,6 +112,10 @@ pub(crate) struct Overlay {
     /// an end-of-block pass. Ordered, so the pass visits them identically on
     /// every node.
     pub(crate) touched_pairs: BTreeSet<PairId>,
+    /// Resting orders in the books of `touched_pairs` when each was first
+    /// touched, against `MAX_BOOK_ORDERS_PER_BLOCK`: the end-of-block pass
+    /// rebuilds each of those books whole.
+    pub(crate) book_orders: u64,
     /// Order fills produced so far, against the per-block ceiling.
     pub(crate) fills: usize,
     /// The VRF output proved for this block, if a valid proof arrived.
@@ -165,6 +169,29 @@ pub(crate) struct Overlay {
 impl Overlay {
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// The staged records under `prefix`, in key order: a range of the map,
+    /// not a filter over all of it. A pass that reads one prefix per item
+    /// (an envelope, a pair) would otherwise walk the whole block's writes
+    /// each time, which is quadratic in the block.
+    pub(crate) fn records_under<'a>(
+        &'a self,
+        prefix: &'a [u8],
+    ) -> impl Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a {
+        self.records_from(prefix)
+            .take_while(move |(key, _)| key.starts_with(prefix))
+    }
+
+    /// The staged records from `start` on, in key order: the one overlay
+    /// range primitive. [`Self::records_under`] and [`StateDB::scan_range`]
+    /// both stop it where they need to.
+    pub(crate) fn records_from<'a>(
+        &'a self,
+        start: &[u8],
+    ) -> impl Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a {
+        self.records
+            .range::<[u8], _>((std::ops::Bound::Included(start), std::ops::Bound::Unbounded))
     }
 }
 
@@ -434,15 +461,14 @@ impl StateDB {
         end: &[u8],
         limit: usize,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        use std::ops::Bound::{Excluded, Included};
         let mut disk = self
             .db
             .iterator(IteratorMode::From(start, rocksdb::Direction::Forward))
             .map(|item| item.map_err(storage_err))
             .take_while(|item| item.as_ref().map_or(true, |(key, _)| &key[..] < end));
         let mut staged = overlay
-            .records
-            .range::<[u8], _>((Included(start), Excluded(end)))
+            .records_from(start)
+            .take_while(|(key, _)| key.as_slice() < end)
             .peekable();
         let mut next_disk = disk.next().transpose()?;
         let mut out = Vec::new();
@@ -824,10 +850,7 @@ impl StateDB {
     ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         let mut merged: BTreeMap<Vec<u8>, Vec<u8>> =
             self.scan_prefix(prefix)?.into_iter().collect();
-        for (key, value) in &overlay.records {
-            if !key.starts_with(prefix) {
-                continue;
-            }
+        for (key, value) in overlay.records_under(prefix) {
             match value {
                 Some(bytes) => merged.insert(key.clone(), bytes.clone()),
                 None => merged.remove(key),

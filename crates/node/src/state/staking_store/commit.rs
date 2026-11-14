@@ -28,14 +28,20 @@ impl StateDB {
         let mut budget = budget;
         let mut effects = Vec::new();
         let mut writes = Vec::new();
+        // Each round either finishes its payout or spends the budget, so the
+        // next payout key is after this one: resume there rather than skip
+        // again over everything before it.
+        let mut from = PAYOUT_PREFIX.to_vec();
         while budget > 0 {
             let Some((key, _)) = self
-                .staking_range(overlay, PAYOUT_PREFIX, &prefix_end(PAYOUT_PREFIX), 1)?
+                .staking_range(overlay, &from, &prefix_end(PAYOUT_PREFIX), 1)?
                 .into_iter()
                 .next()
             else {
                 break;
             };
+            from.clone_from(&key);
+            from.push(0);
             let (validator, payout_epoch) = parse_payout_key(&key)?;
             let mut jobs = self.payouts(overlay, &validator)?;
             let prefix = delegations_of(&validator);
@@ -61,6 +67,10 @@ impl StateDB {
                 }
                 last = Some(delegator);
             }
+            // A later payout of the same validator starts its own walk from
+            // the front once this one is done: the lower key is always
+            // finished first, so it re-reads at most one budget of
+            // delegations this walk already settled before its count runs out.
             if let Some(job) = jobs.get_mut(&payout_epoch)
                 && job.remaining > 0
             {
@@ -175,16 +185,28 @@ impl Commit<'_> {
                     .unwrap_or(Amount::ZERO);
                 c.count_new += 1;
                 c.pending_new = add(c.pending_new, pending)?;
+                // `settle` already moved a loaded record's payout mark, or
+                // left it where it means the same; a new one owes nothing yet.
+                let next_payout_epoch = loaded.map_or(epoch, |old| old.next_payout_epoch);
                 let d = StoredDelegation {
                     amount: *amount,
                     pending,
                     pending_epoch: epoch,
-                    next_payout_epoch: epoch,
+                    next_payout_epoch,
                 };
                 if loaded.is_none() {
                     self.delegation_records += 1;
                 }
-                if loaded.as_ref() != Some(&d) {
+                // Equal in meaning, not only in bytes: a record whose pending
+                // part merely went stale reads the same and is not rewritten
+                // (a slash that cuts nothing from a dust delegation writes
+                // nothing for it).
+                let unchanged = loaded.is_some_and(|old| {
+                    old.amount == d.amount
+                        && old.pending_at(epoch) == d.pending
+                        && old.next_payout_epoch == d.next_payout_epoch
+                });
+                if !unchanged {
                     self.records.push((record_key, Some(d.encode())));
                 }
             } else if loaded.is_some() {
@@ -344,7 +366,7 @@ impl Commit<'_> {
         }
         for ((validator, e), job) in &view.new_payouts {
             // A delegation loaded here would be marked paid past this payout.
-            if view.delegations.keys().any(|(_, v)| v == validator) {
+            if view.read_delegations_of(validator) {
                 return Err(corrupt(
                     "a payout owed by the view that loaded its delegations",
                 ));

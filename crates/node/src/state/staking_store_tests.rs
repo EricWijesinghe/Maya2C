@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use maya_staking::{Amount, Effect, Params, Participation, Staking};
+use maya_staking::{Amount, Effect, Params, Participation, StakeError, Staking, Status};
 use primitive_types::U256;
 use tempfile::TempDir;
 
@@ -21,10 +21,13 @@ use crate::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
 use crate::state::shielded::FEE_SINK;
 use crate::state::staking::{STAKING_PREFIX, StakingRecord};
 use crate::state::staking_records::{
-    DELEGATION_PREFIX, StoredDelegation, StoredValidator, UNBONDING_PREFIX, VALIDATOR_PREFIX,
-    decode_unbonding, parse_delegation_key, parse_unbonding_key,
+    DELEGATION_PREFIX, PAYOUT_PREFIX, PayoutJob, StoredDelegation, StoredValidator,
+    UNBONDING_PREFIX, VALIDATOR_PREFIX, decode_unbonding, parse_delegation_key, parse_payout_key,
+    parse_unbonding_key,
 };
-use crate::state::staking_store::{PAYOUTS_PER_BLOCK, RECORDS_READ, StakeOp, commit_view};
+use crate::state::staking_store::{
+    MAX_DELEGATIONS_PER_VALIDATOR, PAYOUTS_PER_BLOCK, RECORDS_READ, StakeOp, commit_view,
+};
 
 /// splitmix64: deterministic, so a failure replays exactly.
 struct Rng(u64);
@@ -185,6 +188,17 @@ impl Pair {
             StakeOp::Undelegate { validator, amount } => {
                 self.reference.undelegate(sender, validator, amount)
             }
+            // The node refuses evidence against a tombstoned validator, where
+            // the rule would accept it and do nothing (STK-3).
+            StakeOp::Slash(id)
+                if self
+                    .reference
+                    .validators
+                    .get(&id)
+                    .is_some_and(|v| v.status == Status::Tombstoned) =>
+            {
+                Err(StakeError::UnknownValidator)
+            }
             StakeOp::Slash(id) => self.reference.slash_double_sign(id),
         };
         let reference_ok = match reference {
@@ -339,6 +353,23 @@ impl Pair {
                 *u = u.saturating_add(decode_unbonding(value).unwrap());
             }
         }
+        // Each open payout is still owed by exactly the delegations of its
+        // validator whose payout mark has not passed it: a drift here is the
+        // halt STK-6 describes, so it is recounted after every step.
+        for (key, value) in &records {
+            if key.starts_with(PAYOUT_PREFIX) {
+                let (v, e) = parse_payout_key(key).unwrap();
+                let owed_by = records
+                    .iter()
+                    .filter(|(k, _)| k.starts_with(DELEGATION_PREFIX))
+                    .filter(|(k, d)| {
+                        parse_delegation_key(k).unwrap().1 == v
+                            && StoredDelegation::decode(d).unwrap().next_payout_epoch <= e
+                    })
+                    .count() as u64;
+                assert_eq!(PayoutJob::decode(value).unwrap().remaining, owed_by);
+            }
+        }
         for (key, value) in &records {
             if let Some(id) = key.strip_prefix(VALIDATOR_PREFIX) {
                 let id: [u8; 32] = id.try_into().unwrap();
@@ -427,7 +458,21 @@ fn random_op(pair: &mut Pair, rng: &mut Rng, validators: &mut u64, delegators: u
         }
         8 => {
             let i = *validators;
-            if i < 7 {
+            if i >= 7 {
+                // Re-registration: refused while the id is held, accepted
+                // once a boundary removed the emptied validator.
+                let j = rng.below(i);
+                if pair.op(
+                    operator(j),
+                    StakeOp::Register {
+                        id: validator(j),
+                        bond: amount(1_000 + rng.below(5_000)),
+                        commission_bps: 700,
+                    },
+                ) {
+                    *pair.accepted.entry("re-register").or_default() += 1;
+                }
+            } else {
                 let bond = amount(1_000 + rng.below(20_000));
                 if pair.op(
                     operator(i),
@@ -547,19 +592,21 @@ fn measured<T>(f: impl FnOnce() -> T) -> (u64, std::time::Duration, T) {
     )
 }
 
-/// A chain with `crowd` minimum delegations to its first validator, seeded
+/// A chain of eight validators with `crowd` minimum delegations spread over
+/// them, as the per-validator ceiling makes an attacker spread them, seeded
 /// straight into state (built through the rules, written as records).
 fn crowded(crowd: u64) -> Pair {
-    crowded_with(crowd, 600)
+    crowded_with(crowd, 600, 8)
 }
 
-/// As [`crowded`], with epochs of `epoch_blocks`.
-fn crowded_with(crowd: u64, epoch_blocks: u64) -> Pair {
-    let mut pair = Pair::new(4, epoch_blocks);
+/// As [`crowded`], with epochs of `epoch_blocks` and the crowd on the first
+/// `spread` validators.
+fn crowded_with(crowd: u64, epoch_blocks: u64, spread: u64) -> Pair {
+    let mut pair = Pair::new(spread.max(4), epoch_blocks);
     let min = Params::DEVNET.min_delegation;
     for i in 0..crowd {
         pair.reference
-            .delegate(addr(0xD0, i), validator(0), min)
+            .delegate(addr(0xD0, i), validator(i % spread), min)
             .unwrap();
     }
     pair.reference.pending_delegations.clear();
@@ -581,7 +628,7 @@ fn crowded_with(crowd: u64, epoch_blocks: u64) -> Pair {
 fn past_the_ceiling_a_new_delegation_record_is_refused_and_a_top_up_is_not() {
     // Two-block epochs: the ceiling is 1,024 × 2 / 2 = 1,024 records.
     let ceiling = crate::state::staking_store::max_delegation_records(2);
-    let mut pair = crowded_with(ceiling, 2);
+    let mut pair = crowded_with(ceiling, 2, 1);
     let fresh = StakeOp::Delegate {
         validator: validator(1),
         amount: amount(1_000),
@@ -689,16 +736,16 @@ fn per_block_staking_work_does_not_grow_with_total_delegations() {
     assert_eq!(rows[0].0, rows[1].0, "a plain block reads the same");
     assert_eq!(rows[0].1, rows[1].1, "the boundary reads the same");
     // The pass reads up to its budget of delegations plus its payout keys.
-    let bound = PAYOUTS_PER_BLOCK as u64 + 8;
+    let bound = PAYOUTS_PER_BLOCK as u64 + 16;
     assert!(rows[0].2 <= bound && rows[1].2 <= bound, "{rows:?}");
 }
 
 #[test]
 fn a_slash_reaches_every_delegation_of_a_crowded_validator() {
     // Complete, and a key range: what a slash reads is the offender's own
-    // records, and it is the one staking operation whose cost they set.
-    let crowd = 100_000;
-    let mut pair = crowded(crowd);
+    // records, at most the per-validator ceiling of them.
+    let crowd = MAX_DELEGATIONS_PER_VALIDATOR;
+    let mut pair = crowded_with(crowd, 600, 1);
     let (reads, time, ok) = measured(|| {
         pair.db.apply_stake_op(
             &mut pair.overlay,
@@ -722,4 +769,227 @@ fn a_slash_reaches_every_delegation_of_a_crowded_validator() {
         .all(|(_, v)| StoredDelegation::decode(v).unwrap().amount == amount(left));
     assert!(cut, "every delegation was cut");
     assert!(reads >= crowd);
+}
+
+#[test]
+fn a_crowd_at_one_validators_ceiling_leaves_every_other_validator_open() {
+    let mut pair = crowded_with(MAX_DELEGATIONS_PER_VALIDATOR, 600, 1);
+    let into = |v| StakeOp::Delegate {
+        validator: v,
+        amount: amount(1_000),
+    };
+    let refused = pair
+        .db
+        .apply_stake_op(&mut pair.overlay, &delegator(0), into(validator(0)))
+        .expect_err("a new record past the validator's ceiling");
+    assert!(refused.to_string().contains("per-validator"), "{refused}");
+    // A member of the crowd may still top up.
+    pair.fund(addr(0xD0, 3));
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &addr(0xD0, 3), into(validator(0)))
+        .unwrap();
+    // Every other validator, and one registered after the crowd, still
+    // takes new delegations.
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &delegator(0), into(validator(1)))
+        .unwrap();
+    pair.fund(operator(9));
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(9),
+            StakeOp::Register {
+                id: validator(9),
+                bond: amount(5_000),
+                commission_bps: 500,
+            },
+        )
+        .unwrap();
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &delegator(0), into(validator(9)))
+        .expect("a new validator beside a full crowd");
+}
+
+#[test]
+fn a_replayed_equivocation_report_reads_one_validator_and_writes_nothing() {
+    let crowd = 2_000;
+    let mut pair = crowded_with(crowd, 600, 1);
+    let slash = StakeOp::Slash(validator(0));
+    let (first, _, ok) = measured(|| {
+        pair.db
+            .apply_stake_op(&mut pair.overlay, &addr(0xEE, 0), slash)
+    });
+    ok.unwrap();
+    assert!(
+        first >= crowd,
+        "the first report reaches the crowd: {first}"
+    );
+    let before = pair.overlay.records.clone();
+    let (again, _, refused) = measured(|| {
+        pair.db
+            .apply_stake_op(&mut pair.overlay, &addr(0xEE, 0), slash)
+    });
+    let refused = refused.expect_err("evidence against a tombstoned validator");
+    assert!(refused.to_string().contains("tombstoned"), "{refused}");
+    assert!(again <= 2, "the meta and validator records only: {again}");
+    assert_eq!(pair.overlay.records, before, "nothing staged");
+    // Unknown validators are refused the same way.
+    let (unknown, _, refused) = measured(|| {
+        pair.db.apply_stake_op(
+            &mut pair.overlay,
+            &addr(0xEE, 0),
+            StakeOp::Slash([0x77; 32]),
+        )
+    });
+    assert!(refused.is_err() && unknown <= 2, "{unknown}");
+}
+
+#[test]
+fn a_downtime_boundary_over_a_dust_crowd_rewrites_no_delegation() {
+    // One per cent of a ten-unit delegation is nothing: the boundary reads
+    // the offender's crowd to slash it, and writes none of it back.
+    let crowd = MAX_DELEGATIONS_PER_VALIDATOR;
+    let mut pair = crowded_with(crowd, 600, 1);
+    pair.commit();
+    let expected: BTreeMap<[u8; 32], u64> =
+        pair.reference.active.iter().map(|id| (*id, 10)).collect();
+    let mut authored = expected.clone();
+    authored.insert(validator(0), 0);
+    let (reads, time, ()) = measured(|| pair.node_end_epoch(expected, authored, 1_000));
+    let written = pair
+        .overlay
+        .records
+        .keys()
+        .filter(|k| k.starts_with(DELEGATION_PREFIX))
+        .count();
+    eprintln!(
+        "downtime boundary over {crowd} dust delegations: {reads} records read, {written} delegation records written, {time:?}"
+    );
+    assert!(reads >= crowd, "the offender's crowd was read: {reads}");
+    assert_eq!(written, 0, "an unchanged delegation is not rewritten");
+}
+
+#[test]
+fn the_payout_pass_under_churn_stays_correct_and_rereads_one_budget_at_most() {
+    // A second payout opens while the first is part-way through one
+    // validator's 3,000 delegations, with churn behind and ahead of the
+    // cursor between blocks. The outcome matches the reference, and the
+    // second payout's walk from the front re-reads at most one budget of
+    // delegations the first walk already settled.
+    let mut rng = Rng(9);
+    let crowd = 3_000;
+    let mut pair = crowded_with(crowd, 600, 1);
+    for i in 0..crowd {
+        pair.fund(addr(0xD0, i));
+    }
+    for round in 0..8 {
+        pair.fund(addr(0xD1, round));
+    }
+    pair.commit();
+    pair.end_epoch_with(&mut rng, false);
+    let (mut walked, _, ()) = measured(|| pair.pay(PAYOUTS_PER_BLOCK));
+    pair.end_epoch_with(&mut rng, false);
+    pair.commit();
+    assert!(pair.open_payouts() >= 2, "two epochs owed");
+    for round in 0..8u64 {
+        let (reads, _, ()) = measured(|| pair.pay(PAYOUTS_PER_BLOCK));
+        walked += reads;
+        // Behind the cursor and ahead of it: leave, and arrive.
+        let behind = addr(0xD0, round * 10);
+        let ahead = addr(0xD0, crowd - 1 - round * 10);
+        for d in [behind, ahead] {
+            pair.op(
+                d,
+                StakeOp::Undelegate {
+                    validator: validator(0),
+                    amount: Params::DEVNET.min_delegation,
+                },
+            );
+        }
+        pair.op(
+            addr(0xD1, round),
+            StakeOp::Delegate {
+                validator: validator(0),
+                amount: amount(50),
+            },
+        );
+        pair.commit();
+        pair.check_state();
+    }
+    assert_eq!(pair.open_payouts(), 0, "both payouts finished");
+    eprintln!("pass over two payouts of {crowd} delegations: {walked} records read");
+    // The first payout's walk (crowd), the second's re-walk of what the
+    // first had passed before it opened (one budget), one budget of
+    // overshoot, and the payout keys.
+    let bound = crowd + 2 * PAYOUTS_PER_BLOCK as u64 + 64;
+    assert!(walked <= bound, "{walked} records read, bound {bound}");
+    pair.check_balances();
+}
+
+#[test]
+fn a_validator_emptied_removed_and_registered_again_keeps_every_aggregate_exact() {
+    // The removal and re-registration path random histories rarely reach:
+    // every aggregate and payout count is recounted after each step.
+    let mut rng = Rng(21);
+    let mut pair = Pair::new(5, 600);
+    let v = validator(4);
+    for i in 0..6 {
+        pair.fund(delegator(i));
+        assert!(pair.op(
+            delegator(i),
+            StakeOp::Delegate {
+                validator: v,
+                amount: amount(300 + i),
+            }
+        ));
+    }
+    pair.end_epoch_with(&mut rng, false);
+    pair.pay(2);
+    pair.check_state();
+    let bond = pair.reference.validators[&v].self_bond;
+    assert!(pair.op(
+        operator(4),
+        StakeOp::Unbond {
+            validator: v,
+            amount: bond,
+        }
+    ));
+    for i in 0..6 {
+        let held = pair.reference.delegations[&(delegator(i), v)];
+        assert!(pair.op(
+            delegator(i),
+            StakeOp::Undelegate {
+                validator: v,
+                amount: held,
+            }
+        ));
+        pair.check_state();
+    }
+    let register = StakeOp::Register {
+        id: v,
+        bond: amount(4_000),
+        commission_bps: 900,
+    };
+    assert!(
+        !pair.op(operator(4), register),
+        "the id is held while funds unbond"
+    );
+    for _ in 0..=Params::DEVNET.unbonding_epochs {
+        pair.end_epoch_with(&mut rng, false);
+        pair.commit();
+        pair.check_state();
+    }
+    assert!(!pair.reference.validators.contains_key(&v), "removed");
+    assert!(pair.op(operator(4), register), "registered again");
+    assert!(pair.op(
+        delegator(0),
+        StakeOp::Delegate {
+            validator: v,
+            amount: amount(500),
+        }
+    ));
+    pair.end_epoch_with(&mut rng, false);
+    pair.end_epoch_with(&mut rng, false);
+    pair.check_state();
+    pair.check_balances();
 }

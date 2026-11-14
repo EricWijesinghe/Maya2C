@@ -38,13 +38,30 @@ use crate::state::staking_records::{
 /// block spends on owed rewards whatever the number of delegations.
 pub(crate) const PAYOUTS_PER_BLOCK: usize = 1_024;
 
+/// Most delegation records the whole chain may hold, whatever the epoch
+/// length. Every block's state root still folds every `k:` record (ADR-062a
+/// covers accounts only), so this is a per-block cost bound, set near what
+/// master's 8 MiB single record allowed (about 87,000 delegations): see
+/// `scan_bounds_tests::staking_cost_against_delegation_records`. Raise it, by
+/// an upgrade, once the staking layer's root is incremental.
+pub(crate) const MAX_DELEGATION_RECORDS: u64 = 1 << 17;
+
+/// Most delegation records one validator may hold. A double-sign slash and a
+/// downtime boundary read, settle and rewrite every delegation of the
+/// offender in one block, so this bounds that block. It is an eighth of
+/// [`MAX_DELEGATION_RECORDS`], so crowds on up to seven validators still
+/// leave room for delegations to every other.
+pub(crate) const MAX_DELEGATIONS_PER_VALIDATOR: u64 = MAX_DELEGATION_RECORDS / 8;
+// Seven validators full to their ceiling still leave the chain room.
+const _: () = assert!(7 * MAX_DELEGATIONS_PER_VALIDATOR < MAX_DELEGATION_RECORDS);
+
 /// Most delegation records a chain with epochs of `epoch_blocks` blocks may
-/// hold: what the per-block pass pays in half an epoch, so every epoch's
-/// payouts are done before the next boundary owes more. A new delegation
-/// past it is refused; topping up an existing one never is.
+/// hold: [`MAX_DELEGATION_RECORDS`], or on short epochs what the per-block
+/// pass pays in half an epoch. A new delegation past it is refused; topping
+/// up an existing one never is.
 #[must_use]
 pub(crate) fn max_delegation_records(epoch_blocks: u64) -> u64 {
-    (PAYOUTS_PER_BLOCK as u64).saturating_mul(epoch_blocks) / 2
+    ((PAYOUTS_PER_BLOCK as u64).saturating_mul(epoch_blocks) / 2).min(MAX_DELEGATION_RECORDS)
 }
 
 #[cfg(test)]
@@ -166,6 +183,10 @@ pub(crate) struct StakingWrites {
 /// marks it paid up to `epoch`. A payout's share is computed from the
 /// delegation as it stood at that boundary: nothing changed it since, or it
 /// would have been settled then.
+///
+/// With no payout owed it changes nothing, not even `next_payout_epoch`: no
+/// payout for an epoch before `epoch` can be created later, so the old mark
+/// means the same, and an untouched record is not rewritten.
 fn settle(
     d: &mut StoredDelegation,
     delegator: &Address,
@@ -173,7 +194,11 @@ fn settle(
     epoch: u64,
     effects: &mut Vec<Effect>,
 ) -> Result<()> {
-    for (payout_epoch, job) in payouts.range_mut(d.next_payout_epoch..) {
+    let mut owed = payouts.range_mut(d.next_payout_epoch..).peekable();
+    if owed.peek().is_none() {
+        return Ok(());
+    }
+    for (payout_epoch, job) in owed {
         let earning = d.amount.saturating_sub(d.pending_at(*payout_epoch));
         let cut = delegator_share(job.rest, earning, job.total);
         job.owed = job
@@ -211,6 +236,12 @@ impl StakingView {
                 Some((*id, v.delegated.saturating_sub(pending)))
             })
             .collect()
+    }
+
+    /// Whether this view read any delegation of `validator`: each such read
+    /// loads the validator's payouts first, so this is one map lookup.
+    fn read_delegations_of(&self, validator: &[u8; 32]) -> bool {
+        self.payouts.contains_key(validator)
     }
 
     /// Delegation records the validator holds as last stored.
@@ -622,6 +653,11 @@ impl StateDB {
                         "staking refused: the chain holds {ceiling} delegation records, its ceiling; top up an existing delegation instead"
                     )));
                 }
+                if fresh && view.stored_delegations(&validator) >= MAX_DELEGATIONS_PER_VALIDATOR {
+                    return Err(NodeError::Network(format!(
+                        "staking refused: the validator holds {MAX_DELEGATIONS_PER_VALIDATOR} delegation records, its per-validator ceiling; top up an existing delegation or choose another validator"
+                    )));
+                }
                 view.record
                     .staking
                     .delegate(*sender, validator, amount)
@@ -638,6 +674,20 @@ impl StateDB {
                     .map_err(refused)
             }
             StakeOp::Slash(id) => {
+                // The validator record first: evidence against an unknown or
+                // already tombstoned validator is refused for one read, so a
+                // public equivocation pair cannot be replayed into blocks
+                // that each read the offender's whole key ranges.
+                self.load_validator(overlay, view, &id)?;
+                match view.record.staking.validators.get(&id).map(|v| v.status) {
+                    None => return Err(refused(maya_staking::StakeError::UnknownValidator)),
+                    Some(maya_staking::Status::Tombstoned) => {
+                        return Err(NodeError::Network(
+                            "staking refused: the validator is already tombstoned".to_string(),
+                        ));
+                    }
+                    Some(_) => {}
+                }
                 self.load_delegations_of(overlay, view, &id)?;
                 self.load_unbondings_of(overlay, view, &id)?;
                 view.record.staking.slash_double_sign(id).map_err(refused)
@@ -737,10 +787,13 @@ mod tests {
     }
 
     #[test]
-    fn the_delegation_ceiling_lets_one_epoch_of_payouts_drain_twice_over() {
+    fn the_delegation_ceilings_hold_their_stated_relations() {
         let epoch_blocks = 3_600;
         let ceiling = max_delegation_records(epoch_blocks);
+        assert_eq!(ceiling, MAX_DELEGATION_RECORDS);
         assert!(ceiling * 2 <= PAYOUTS_PER_BLOCK as u64 * epoch_blocks);
         assert!(ceiling >= 100_000, "a dust crowd of 100k fits: {ceiling}");
+        // Short epochs: the drain bound is the lower one.
+        assert_eq!(max_delegation_records(2), PAYOUTS_PER_BLOCK as u64);
     }
 }

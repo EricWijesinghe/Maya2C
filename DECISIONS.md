@@ -922,3 +922,47 @@ after mainnet (the 2026-10-28 deferral is withdrawn). Choices made while buildin
   existed only because every staking transaction decoded the whole record).
 - **Still Eric's:** a real `min_delegation`. The ceiling bounds the backlog, but dust that fills it
   still refuses new delegation records.
+
+### 2026-11-15 — ADR-062b review round 1 (PR #555, Eric 2026-11-14 MCQ "per-delegation records")
+
+Choices made fixing the first review (Claude; the MCQ decision itself is Eric's):
+
+- **Merged #522 into #555, not rebased** (no force-push). #555 now carries #522's sealed and DEX
+  bounds and removes its staking parts: the 1 MiB record cap and its test, `MAX_STAKING_TX_PER_BLOCK`
+  and `Overlay::staking_actions`. The 16-per-block count is **removed**, not kept: each staking
+  transaction reads its own records, so the 64th in a block costs the 1st
+  (`scan_bounds_tests::a_block_of_staking_transactions_costs_each_one_the_same`), and the block's
+  byte cap bounds their number. `StateDB::scan_range` uses #522's overlay range
+  (`Overlay::records_from`, which `records_under` also uses). Merge order: #522 first, or #555
+  alone (it contains #522).
+- **Chain-wide ceiling fixed at 131,072 delegation records** (`MAX_DELEGATION_RECORDS`, or the
+  half-epoch drain bound on short epochs), down from `1,024 × epoch_blocks / 2` = 1,843,200. The
+  state root still folds every staking record each block (ADR-062a covers accounts only), so the
+  ceiling is a per-block root cost bound, set near master's 8 MiB record (about 87,000
+  delegations). Measured figure: the session report.
+- **Per-validator ceiling 16,384** (`MAX_DELEGATIONS_PER_VALIDATOR`, an eighth of the chain's).
+  It bounds one slash or downtime boundary, and a dust crowd now has to fill eight validators to
+  close delegation for everyone. Top-ups are never refused.
+- **Evidence against a tombstoned or unknown validator is refused** after one record read, where
+  the rule returned `Ok(empty)`. A public equivocation pair can no longer be replayed into blocks
+  that each read the offender's whole key ranges.
+- **A delegation record is rewritten only when its meaning changes**, and settling with nothing owed
+  leaves `next_payout_epoch` alone: a slash or downtime cut of zero writes nothing.
+- **The payout pass resumes after the last payout key** within a block and shares a validator's walk
+  between its open payouts.
+- **512-bit step in `delegator_share`** (`Amount::mul_div`): kept, with its bound written beside it
+  (`earning ≤ total`, so the result is at most `rest`). It is the same arithmetic `end_epoch` used,
+  and removing it is the open 512-bit decision (Eric 2026-11-01, `u256-ceiling-no-512`), not this
+  PR's.
+- **Still Eric's, before the freeze closes:** `min_delegation` as a genesis parameter. At the
+  default 10 base units, eight validators' worth of dust (131,072 records) still costs only fees.
+  For example 1 coin would make filling the chain-wide ceiling cost 131,072 coins locked.
+## 2026-11-13 — Per-block work is bounded by caps, not by how much state exists (Claude, re-freeze bundle)
+
+A sweep of the apply path after PR #500's governance index measured every end-of-block pass against attacker-created records (ADR-062 amendment 2026-11-13, `reports/sessions/2026-11-13-per-block-scan-bounds.md`). Three were fixed with caps that refuse a transaction, never a block, and no key layout change:
+
+- **Sealed mempool:** at most 128 envelopes per reveal height (`MAX_SEALED_PER_REVEAL_HEIGHT`), so a reveal block does what the per-block cap was written to allow. 32,640 at one height cost 18.95 s before.
+- **DEX:** the books one block touches may hold 16,384 resting orders between them (`MAX_BOOK_ORDERS_PER_BLOCK`); the first book is always admitted. 16 full books cost 549 ms before.
+- **Staking:** the one-value record is capped at 1 MiB (was 8 MiB) and a block carries at most 16 staking transactions, slashing evidence exempt. A full 8 MiB record cost 289 ms every block and 152 ms per staking transaction.
+- `merged_records` and two sibling loops read the overlay by range instead of filtering every staged record; an equivalence test pins the output.
+- **Not fixed, for Eric:** the state root is O(all state) per block, and accounts cost fees alone to create (ADR-062a or a state-creation price); dust delegations at the default `min_delegation` (10 base units) can fill the staking record; the VM's `gas_limit` is uncapped (`state/context.rs` already says so) and `storage_set` carries no host charge.
