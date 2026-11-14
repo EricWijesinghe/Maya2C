@@ -17,7 +17,7 @@ Known mismatches with this tree, recorded on arrival (Standing Order 9):
   (invariants 29, 30, 31). A threshold scheme here would need a PQ threshold
   construction — a research item, not a selection among the listed six.
 - "Machine-learning anomaly detection" driving halts conflicts with the recorded
-  rule that AI proposes and never acts, and with invariant 20 (no floats in
+  rule that AI proposes and never acts, and with invariant 36 (no floats in
   consensus). Recovery without rewind is already ADR-077.
 - Halt-before-fork exists (`protocol-upgrade-halt`, ADR-082, invariant 34).
 - Per-subsystem scores of 9.8/10 have no measurement behind them and are not

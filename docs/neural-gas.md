@@ -19,7 +19,7 @@ and the neural rule has a second switch, `neural_activation_height`, which is
 | Brief | This chain | What was built |
 |---|---|---|
 | "zkML-driven" | Every validator holds the features and the weights. A proof of inference proves only what re-running proves; one halo2 verification costs as much as re-running a ~5.3 M-multiply model (`docs/zkml.md`), and the network here is 112 | **native integer inference**, no proof |
-| a quantized network "inside the node state machine" | Invariant 20: no floats and no ONNX runtime in a consensus rule | `i16`/`i32` weights, `i64` accumulators, bound by construction. Training and quantization happen in `neural-gas-trainer`, which the node does not link |
+| a quantized network "inside the node state machine" | Invariant 36 (retired 20 before it): no floats and no ML runtime in a consensus rule, and a model decides nothing. The model ships dormant, and giving `neural_activation_height` a finite value amends invariant 36 | `i16`/`i32` weights, `i64` accumulators, bound by construction. Training and quantization happen in `neural-gas-trainer`, which the node does not link |
 | trained on "historical DAG vertex metrics" | The DAG is the proof-of-work dataset, not a transaction graph. `genesis.json` allocates nothing; there is no history | a **synthetic** demand simulator. The model learns the simulator's assumptions, which are written down in `bins/neural-gas-trainer/src/simulator.rs` |
 | memory allocation depth | allocator- and node-dependent: a fee reading it would split the chain | declared contract fuel per byte |
 | state access overlap | execution builds one merged overlay per block | accounts named by more than one transaction (static) |

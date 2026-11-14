@@ -92,6 +92,12 @@ jobs:
       - name: Superlative claims
         run: cargo xtask claims-check
 
+      # Invariant 36: no float token in code the node binary links (scope from
+      # its manifests, minus written exclusions), and no ML runtime in its
+      # Cargo.lock closure. Lexes source; builds nothing but xtask.
+      - name: No float in consensus
+        run: cargo xtask float-check
+
       # ADR-078 O3: the chain's immune memory may grow, never shrink. Fails if
       # Kani harnesses, conformance vectors, exploit replays, ACVP files or
       # fuzz targets fall below proof-ratchet.txt.

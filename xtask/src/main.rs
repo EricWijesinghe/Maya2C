@@ -29,6 +29,8 @@ mod disk;
 mod eco_metrics;
 mod eth_fixtures;
 mod evidence;
+mod float_check;
+mod float_scope;
 mod gap_register;
 mod genesis_check;
 mod go_no_go;
@@ -84,6 +86,7 @@ fn main() -> ExitCode {
         "genesis-check" => genesis_check::run(rest),
         "eco-metrics" => eco_metrics::run(rest),
         "claims-check" => claims_check::run(rest),
+        "float-check" => float_check::run(rest),
         "mesh-check" => mesh_check::run(rest),
         "sdk-e2e" => sdk_e2e::run(rest),
         "guides-check" => guides_check::run(rest),
@@ -198,6 +201,9 @@ cargo xtask <command>
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
+  float-check           Fail on an f32/f64 or float literal in code the node
+                        binary links, or an ML runtime in its dependency
+                        closure (invariant 36).
   mesh-check            Run mesh-cli check:data against a one-validator
                         devnet and maya2c-mesh [--mesh-cli PATH]
                         [--timeout SECS] [--workdir DIR].
