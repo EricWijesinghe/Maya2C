@@ -191,7 +191,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
     let other_terms = SignTerms {
         fee,
         fee_to: None,
-        nonce: 4,
+        nonce: nonce(),
         chain: &other_chain,
         allow_high_fee: false,
     };
@@ -233,7 +233,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
                 0,
                 &recipient,
                 amount,
-                &terms(fee, 5),
+                &terms(fee, nonce().wrapping_add(1)),
                 &reviewed.signing_hash,
             ),
         ),
