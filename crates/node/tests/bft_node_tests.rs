@@ -153,6 +153,28 @@ fn seed_newer_version(state_dir: &PathBuf) {
     }
 }
 
+/// A feature bit no binary defines (ADR-082 amendment).
+const UNKNOWN_BIT: u64 = 1 << 63;
+
+/// Writes an entry for the version this binary implements, carrying a feature
+/// bit it does not, at [`HALT_AT`]. No genesis may carry it (boot refuses an
+/// unimplemented bit), so the record goes in directly, as a governance
+/// execution stores it; `unknown_bit_halt_tests.rs` passes it by vote.
+fn seed_unknown_bit(state_dir: &PathBuf) {
+    let entry = ProtocolUpgrade {
+        version: SUPPORTED_PROTOCOL_VERSION,
+        activation_height: HALT_AT,
+        features: FeatureSet(UNKNOWN_BIT),
+    };
+    let state = StateDB::open(state_dir).unwrap();
+    state
+        .raw_put_for_test(
+            &custom_l1_node::state::upgrades::version_key(entry.version),
+            &common::version_record(&entry),
+        )
+        .unwrap();
+}
+
 impl Mesh {
     /// Four validators and `observers` keyless followers.
     fn new(observers: usize) -> Self {
@@ -162,6 +184,11 @@ impl Mesh {
     /// As [`Mesh::new`], with the validators in `old` running a binary that
     /// does not implement the version scheduled at [`HALT_AT`].
     fn with_old(observers: usize, old: &[usize]) -> Self {
+        Self::with_old_seeded(observers, old, seed_newer_version)
+    }
+
+    /// As [`Mesh::with_old`], with `seed` writing what the old members lack.
+    fn with_old_seeded(observers: usize, old: &[usize], seed: fn(&PathBuf)) -> Self {
         let root = TempDir::new().unwrap();
         let (keys, committee) = signers();
         let params = Params {
@@ -187,7 +214,7 @@ impl Mesh {
             let state_dir = root.path().join(format!("state-{i}"));
             let bft_dir = root.path().join(format!("bft-{i}"));
             if old.contains(&i) {
-                seed_newer_version(&state_dir);
+                seed(&state_dir);
             }
             let mut chain = open_chain(&state_dir, true);
             let (driver, step) = BftDriver::open(&setup, &bft_dir, &mut chain, 0).unwrap();
@@ -493,6 +520,34 @@ fn a_validator_without_the_scheduled_version_goes_silent_at_its_height_and_the_r
             .iter()
             .all(|s| s.1.is_empty() && s.2.is_empty())
     );
+    assert_eq!(mesh.members[3].chain.height(), HALT_AT - 1);
+}
+
+/// The same halt through the driver for an entry whose version this binary
+/// implements but whose feature bits it does not: the old member stops at
+/// `HALT_AT - 1`, names the bit once, and the other three carry on.
+#[test]
+fn a_validator_whose_schedule_names_an_unknown_feature_bit_goes_silent_at_its_height() {
+    let mut mesh = Mesh::with_old_seeded(0, &[3], seed_unknown_bit);
+    mesh.run_to_among(&[0, 1, 2], HALT_AT + 3);
+
+    assert_eq!(mesh.members[3].chain.height(), HALT_AT - 1);
+    let common = mesh.agree_among(&[0, 1, 2]);
+    assert!(
+        common >= HALT_AT + 3,
+        "the upgraded 3 of 4 stalled at {common}"
+    );
+    mesh.assert_went_silent_at_halt(3);
+    let bit = format!("{UNKNOWN_BIT:#x}");
+    assert!(
+        mesh.old_steps
+            .iter()
+            .flat_map(|s| &s.2)
+            .any(|n| n.contains(&bit)),
+        "the halt notice names the unknown bit"
+    );
+    assert_eq!(mesh.equivocations, 0);
+    mesh.rounds(20);
     assert_eq!(mesh.members[3].chain.height(), HALT_AT - 1);
 }
 

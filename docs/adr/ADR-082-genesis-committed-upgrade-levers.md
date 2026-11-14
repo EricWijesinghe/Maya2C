@@ -61,9 +61,12 @@ the suite policy, the mempool, and the RPC.
   governance sets may not name a suite a schedule entry already retires, and a
   proposal whose own changes would break these rules expires instead of
   stalling the chain (H2).
-- **zkML** cannot be scheduled until `zkml::verdict` is a real verifier (M3).
-  The refusal is in `UpgradeSchedule::new`, so admission and genesis both apply it.
-- **Feature bits** must be defined (`FeatureSet::is_known`).
+- **zkML** never switches on until `zkml::verdict` is a real verifier (M3).
+  Since the 2026-11-12 amendment it is not refused: the bit is outside
+  `FeatureSet::IMPLEMENTED`, so an entry carrying it is unsupported and halts
+  this binary at its height. A genesis that names it is still refused at boot.
+- **Feature bits** a binary does not define make the entry unsupported, not
+  invalid (amendment, 2026-11-12).
 - **Nothing is cancelled or moved.** A record is written once. There is no
   removal path.
 - **No funds, no minting.** An entry switches a dark feature on or retires a
@@ -106,6 +109,45 @@ that switches it on (`UpgradeSchedule::features`). An entry above it does not
 enable anything here, and its height is the halt: a block at or past it is refused
 with `UpgradeRequired`, so an old binary stops rather than validating under rules it
 lacks. `SUPPORTED_PROTOCOL_VERSION` is 2, the first epoch with the gates.
+
+### Amendment (2026-11-12): unknown feature bits halt, they do not refuse
+
+The first version refused any entry with a bit outside `FeatureSet::KNOWN`, at
+admission and when decoding a stored record. Every later upgrade adds bits, so
+the genesis binary would refuse the governance block that schedules them: old
+nodes reject that block at proposal or let the proposal expire at execution
+while new nodes write the entry. That is a stall or a fork at the vote, months
+before the activation.
+
+Now validity does not depend on the binary, and support does. An entry is
+**supported** by a binary only if its version is at most
+`SUPPORTED_PROTOCOL_VERSION` *and* every bit is in `FeatureSet::IMPLEMENTED`
+(`ProtocolUpgrade::is_supported_by`). `IMPLEMENTED` is `KNOWN` less zkML, which
+has no verifier (M3). An entry with any other bit is admitted under every other
+rule (lead, horizon, ordering, sunsets), written, and decoded.
+`first_unsupported` returns it, so `check_halt` refuses its activation height
+with `UpgradeRequired` (the message names the bits) and the node stops there, as
+for an unsupported version. Before that height nothing changes for the old
+node, and the entry switches none of its features on in that binary.
+`FeatureSet::is_known` stays the rule for which features a binary defines;
+`IMPLEMENTED` for which it executes.
+
+zkML moved from a refusal in `UpgradeSchedule::new` to "not implemented" for the
+same reason. A refusal there made validity depend on the binary: a later binary
+with a verifier would admit a zkML entry that this one refuses, a fork at the
+vote. Now every binary admits it, and each one without a verifier halts at its
+height, so unverified proofs still never run. A genesis is written for one
+binary, so `GenesisConfig::upgrade_schedule` still refuses a bit outside
+`IMPLEMENTED` at boot.
+
+Governance gains no power: it could already schedule a version this binary does
+not implement, which halts it at the same height. A sunset-only entry still
+cannot switch any feature on, known or unknown, so the council's lever is
+unchanged. Parameter tags (`ParameterKey::from_tag`) and suite bytes in a sunset
+stay strict: a later binary may accept a new tag or suite only once its own
+version has activated, by which height an older binary has already halted at
+that version's entry. Accepting either earlier would stop older nodes at the
+block carrying the proposal; that rule binds every future binary.
 
 ### What an old validator does at the halt (DAG-BFT)
 
