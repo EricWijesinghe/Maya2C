@@ -1,5 +1,5 @@
-name: Suggestion
-description: Propose a change. The maintainer reviews every suggestion and decides.
+name: Feature request
+description: Propose a feature or change. The maintainer reviews every request and decides.
 labels: ["suggestion"]
 body:
   - type: markdown
@@ -25,3 +25,8 @@ body:
     attributes:
       label: Security or consensus impact
       description: Could this change fees, state roots, key handling or validator behaviour? Say so if unsure.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How we would know it works
+      description: The test or measurement that would fail without it. Numbers only if you measured them.
