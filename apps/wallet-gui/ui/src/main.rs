@@ -20,6 +20,7 @@
 mod amount;
 mod bridge;
 mod camera;
+mod contacts;
 mod receive;
 mod screens;
 
@@ -57,6 +58,8 @@ pub enum Screen {
     Receive,
     /// A transfer was broadcast.
     Sent(receive::SentTransfer),
+    /// The address book.
+    Contacts,
 }
 
 /// Application state shared across screens.
@@ -122,6 +125,15 @@ impl AppState {
         self.error.set(None);
         self.notice.set(None);
     }
+
+    /// The connected node's genesis id, hex, or empty before it answers: the
+    /// core decides the address prefix from it, never from the node's name.
+    pub fn genesis(&self) -> String {
+        self.network
+            .get_untracked()
+            .map(|n| n.genesis)
+            .unwrap_or_default()
+    }
 }
 
 /// The application root.
@@ -159,7 +171,9 @@ fn App() -> impl IntoView {
             return;
         }
         leptos::task::spawn_local(async move {
-            if let Ok(Some(request)) = bridge::take_pending_pay().await {
+            // A refused link (wrong network, expired) is dropped, as the OS
+            // handler drops a malformed one.
+            if let Ok(Some(request)) = bridge::take_pending_pay(&state.genesis()).await {
                 state.screen.set(Screen::Send(request));
             }
         });
@@ -221,6 +235,7 @@ fn App() -> impl IntoView {
                     }
                     Screen::Receive => view! { <receive::Receive/> }.into_any(),
                     Screen::Sent(sent) => view! { <receive::Sent sent=sent/> }.into_any(),
+                    Screen::Contacts => view! { <contacts::Contacts/> }.into_any(),
                 }}
             </main>
         </div>
