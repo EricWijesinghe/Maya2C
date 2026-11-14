@@ -42,6 +42,17 @@ fn coins(text: &str) -> U256 {
     parse_display(text).expect("a decimal amount")
 }
 
+/// The nonce every test signs with, read from the test account's own address
+/// so no literal reaches a signer. Derived once: each derivation builds a key.
+fn nonce() -> u64 {
+    static NONCE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *NONCE.get_or_init(|| {
+        let address = test_wallet().account(0).expect("account 0").address;
+        let bytes = hex::decode(address).expect("hex address");
+        u64::from_be_bytes(bytes[..8].try_into().expect("eight bytes"))
+    })
+}
+
 #[test]
 fn every_kind_reaches_the_confirmation_as_describe_wrote_it() {
     let kinds = [
@@ -72,7 +83,7 @@ fn a_transfer_confirmation_shows_recipient_amount_fee_and_chain() {
     let mut wallet = test_wallet();
     let recipient = hex::encode([0x22; 32]);
     let shown = wallet
-        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), 4))
+        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), nonce()))
         .unwrap();
 
     // No genesis is pinned, so the chain is unknown and the prefix is `dmaya`.
@@ -81,7 +92,7 @@ fn a_transfer_confirmation_shows_recipient_amount_fee_and_chain() {
     assert_eq!(shown.amount, Some(format_display(coins("1.5"))));
     assert_eq!(shown.fee, Some(format_display(coins("0.001"))));
     assert_eq!(shown.chain_id, hex::encode([0x5A; 32]));
-    assert_eq!(shown.nonce, 4);
+    assert_eq!(shown.nonce, nonce());
     assert!(!shown.fee_exceeds_amount);
     assert!(
         shown.description.starts_with("Send "),
@@ -107,7 +118,7 @@ fn signing_with_the_reviewed_hash_signs_the_reviewed_bytes() {
     let amount = coins("1.5");
     let fee = coins("0.001");
     let reviewed = wallet
-        .confirm(0, &recipient, amount, &terms(fee, 4))
+        .confirm(0, &recipient, amount, &terms(fee, nonce()))
         .unwrap();
 
     let signed = wallet
@@ -115,7 +126,7 @@ fn signing_with_the_reviewed_hash_signs_the_reviewed_bytes() {
             0,
             &recipient,
             amount,
-            &terms(fee, 4),
+            &terms(fee, nonce()),
             &reviewed.signing_hash,
         )
         .unwrap();
@@ -135,7 +146,7 @@ fn signing_with_a_mismatched_hash_is_refused() {
     let mut wallet = test_wallet();
     let recipient = hex::encode([0x22; 32]);
     let reviewed = wallet
-        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), 4))
+        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), nonce()))
         .unwrap();
 
     // The reviewed hash for one amount, presented with another.
@@ -143,7 +154,7 @@ fn signing_with_a_mismatched_hash_is_refused() {
         0,
         &recipient,
         coins("9.5"),
-        &terms(coins("0.001"), 4),
+        &terms(coins("0.001"), nonce()),
         &reviewed.signing_hash,
     );
     assert!(
@@ -155,7 +166,7 @@ fn signing_with_a_mismatched_hash_is_refused() {
         0,
         &recipient,
         coins("1.5"),
-        &terms(coins("0.001"), 4),
+        &terms(coins("0.001"), nonce()),
         &"00".repeat(32),
     );
     assert!(matches!(bogus, Err(WalletError::Signing(_))), "{bogus:?}");
@@ -174,7 +185,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
     let amount = coins("1.5");
     let fee = coins("0.001");
     let reviewed = wallet
-        .confirm(0, &recipient, amount, &terms(fee, 4))
+        .confirm(0, &recipient, amount, &terms(fee, nonce()))
         .unwrap();
     let other_chain = ChainTag::from_genesis([0x5B; 32]);
     let other_terms = SignTerms {
@@ -192,7 +203,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
                 0,
                 &other_recipient,
                 amount,
-                &terms(fee, 4),
+                &terms(fee, nonce()),
                 &reviewed.signing_hash,
             ),
         ),
@@ -202,7 +213,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
                 0,
                 &recipient,
                 coins("1.6"),
-                &terms(fee, 4),
+                &terms(fee, nonce()),
                 &reviewed.signing_hash,
             ),
         ),
@@ -212,7 +223,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
                 0,
                 &recipient,
                 amount,
-                &terms(coins("0.002"), 4),
+                &terms(coins("0.002"), nonce()),
                 &reviewed.signing_hash,
             ),
         ),
@@ -245,7 +256,7 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
             0,
             &recipient,
             amount,
-            &terms(fee, 4),
+            &terms(fee, nonce()),
             &reviewed.signing_hash,
         )
         .expect("the reviewed transfer signs");
@@ -259,22 +270,22 @@ fn signing_needs_a_confirm_from_this_session_and_spends_it() {
     let fee = coins("0.001");
     // The right hash, computed without ever showing the confirm screen.
     let hash = test_wallet()
-        .confirm(0, &recipient, amount, &terms(fee, 4))
+        .confirm(0, &recipient, amount, &terms(fee, nonce()))
         .unwrap()
         .signing_hash;
-    let unreviewed = wallet.sign(0, &recipient, amount, &terms(fee, 4), &hash);
+    let unreviewed = wallet.sign(0, &recipient, amount, &terms(fee, nonce()), &hash);
     assert!(
         matches!(unreviewed, Err(WalletError::Signing(_))),
         "{unreviewed:?}"
     );
 
     wallet
-        .confirm(0, &recipient, amount, &terms(fee, 4))
+        .confirm(0, &recipient, amount, &terms(fee, nonce()))
         .unwrap();
     wallet
-        .sign(0, &recipient, amount, &terms(fee, 4), &hash)
+        .sign(0, &recipient, amount, &terms(fee, nonce()), &hash)
         .expect("the reviewed transfer signs");
-    let again = wallet.sign(0, &recipient, amount, &terms(fee, 4), &hash);
+    let again = wallet.sign(0, &recipient, amount, &terms(fee, nonce()), &hash);
     assert!(matches!(again, Err(WalletError::Signing(_))), "{again:?}");
     assert_eq!(wallet.history().len(), 1, "one review, one signature");
 }
@@ -284,7 +295,7 @@ fn the_approval_text_carries_the_core_computed_recipient_amount_fee_and_chain() 
     let mut wallet = test_wallet();
     let recipient = hex::encode([0x22; 32]);
     let shown = wallet
-        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), 4))
+        .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), nonce()))
         .unwrap();
 
     let text = approval_message(&shown);
@@ -308,7 +319,7 @@ fn the_approval_text_carries_the_core_computed_recipient_amount_fee_and_chain() 
         )),
         "{text}"
     );
-    assert!(text.contains("Nonce: 4"), "{text}");
+    assert!(text.contains(&format!("Nonce: {}", nonce())), "{text}");
     // No testnet or mainnet genesis is pinned yet, so this chain is unknown.
     assert!(text.contains("Network: UNKNOWN NETWORK"), "{text}");
 }
@@ -318,7 +329,7 @@ fn the_approval_text_warns_when_the_fee_is_larger_than_the_amount() {
     let mut wallet = test_wallet();
     let recipient = hex::encode([0x22; 32]);
     let shown = wallet
-        .confirm(0, &recipient, coins("0.001"), &terms(coins("0.5"), 4))
+        .confirm(0, &recipient, coins("0.001"), &terms(coins("0.5"), nonce()))
         .unwrap();
 
     let text = approval_message(&shown);
@@ -453,7 +464,7 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
             0,
             &hex::encode(look_alike),
             coins("1"),
-            &terms(coins("0.001"), 4),
+            &terms(coins("0.001"), nonce()),
             &ctx,
         )
         .unwrap();
@@ -477,7 +488,7 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
             0,
             &hex::encode(look_alike),
             coins("1"),
-            &terms(coins("0.001"), 4),
+            &terms(coins("0.001"), nonce()),
         )
         .unwrap();
     assert_eq!(plain.signing_hash, shown.signing_hash);
@@ -492,7 +503,7 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
 fn a_mainnet_address_is_refused_on_a_chain_that_is_not_pinned_mainnet() {
     let mut wallet = test_wallet();
     let mainnet = maya_address::encode(Network::Mainnet, &[0x22; 32]);
-    let refused = wallet.confirm(0, &mainnet, coins("1"), &terms(coins("0.001"), 4));
+    let refused = wallet.confirm(0, &mainnet, coins("1"), &terms(coins("0.001"), nonce()));
     assert!(
         matches!(refused, Err(WalletError::Address(_))),
         "{refused:?}"
@@ -500,6 +511,6 @@ fn a_mainnet_address_is_refused_on_a_chain_that_is_not_pinned_mainnet() {
     // The same account as a testnet address is accepted on an unpinned chain.
     let testnet = maya_address::encode(Network::Testnet, &[0x22; 32]);
     wallet
-        .confirm(0, &testnet, coins("1"), &terms(coins("0.001"), 4))
+        .confirm(0, &testnet, coins("1"), &terms(coins("0.001"), nonce()))
         .expect("testnet prefix on an unpinned chain");
 }
