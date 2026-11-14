@@ -37,6 +37,26 @@ export interface Supply {
   total: string;
 }
 
+/** Chain identification for signing (ADR-036), from `/v1/chain`. */
+export interface ChainInfo {
+  /** Hex genesis block id: the chain tag every signature commits to. */
+  genesis: string;
+  /** The name the node was given, if any. A claim, never an identity. */
+  chain_id: string | null;
+  /** The node's tip height when it answered. */
+  height: number;
+}
+
+/** The fee market's quote, from `/v1/fees`. */
+export interface FeeInfo {
+  /** Whether this chain charges fees at all. */
+  active: boolean;
+  /** Base fee per serialized byte for the next block. */
+  base_fee: number;
+  /** Hex address a transaction pays its fee to. */
+  collector: string;
+}
+
 /** A transaction the gateway accepted. */
 export interface TransactionAccepted {
   /** Hex-encoded transaction hash. */
@@ -167,6 +187,16 @@ export class MayaClient {
   /** Circulating and total supply. */
   async getSupply(): Promise<Supply> {
     return this.#request("/v1/supply");
+  }
+
+  /** The genesis id and name a signature must commit to (ADR-036). */
+  async getChain(): Promise<ChainInfo> {
+    return this.#request("/v1/chain");
+  }
+
+  /** The current fee quote. */
+  async getFees(): Promise<FeeInfo> {
+    return this.#request("/v1/fees");
   }
 
   /** Submits a hex-encoded signed transaction. */

@@ -6609,13 +6609,25 @@ dependencies = [
 name = "maya-sdk-wasm"
 version = "0.1.0"
 dependencies = [
+ "argon2",
+ "bip39",
  "blake3",
+ "custom-l1-node",
  "fips204",
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "hex",
+ "hmac 0.12.1",
+ "maya-amount",
+ "maya-clear-sign",
  "maya-crypto-pq",
+ "maya-wallet-core",
+ "pbkdf2",
+ "primitive-types",
+ "serde_json",
+ "sha2 0.10.9",
  "wasm-bindgen",
+ "zeroize",
 ]
 
 [[package]]

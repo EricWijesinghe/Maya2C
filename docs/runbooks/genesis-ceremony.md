@@ -48,7 +48,9 @@ Three devices by default: this PC, the MacBook, and an offline backup. Every app
    (`docs/site/authored/testnet.mdx` and the release notes). A match means a
    testnet signature would be valid on mainnet: stop.
 7b. Pin it. Add the genesis id, lower-case hex, to `MAINNET_GENESIS` in
-   `apps/wallet-gui/core/src/networks.rs`, merge, and tag the release from
+   `apps/wallet-gui/core/src/networks.rs`, and to its copies for the browser
+   extension in `sdks/sdk-wasm/src/wallet.rs` (a parity test fails until they
+   agree) and `apps/wallet-extension/src/lib/network.ts`; merge, and tag the release from
    that commit. Until then the wallet shows no network as MAINNET and
    refuses to sign for a node that claims to be one. Publish the
    fingerprint (first and last eight hex characters) wherever the network is

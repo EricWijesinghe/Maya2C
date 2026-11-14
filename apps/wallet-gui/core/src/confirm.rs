@@ -11,7 +11,7 @@ use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::vault_payload::VaultAction;
 use custom_l1_node::core::{ChainTag, Transaction};
 use maya_amount::Amount;
-use maya_clear_sign::{Context, Effect, Network, Warning, grouped, review};
+use maya_clear_sign::{Context, Effect, Network, grouped, review};
 use primitive_types::U256;
 use serde::Serialize;
 
@@ -212,23 +212,9 @@ fn effects_of(tx: &Transaction) -> Vec<Effect> {
     }
 }
 
-/// One line per warning, in the words the confirm screen shows.
-#[must_use]
-pub fn warning_text(w: Warning) -> &'static str {
-    match w {
-        Warning::ClaimMismatch => "What the app claims differs from what this transaction does.",
-        Warning::ControlChange => "This changes who controls an account or a contract.",
-        Warning::UnlimitedApproval => "This allows spending with no practical limit.",
-        Warning::ApproveAll => "This hands every item of a collection to someone else.",
-        Warning::PermitSignature => "This signature can be used to spend later without asking you.",
-        Warning::LookAlikeRecipient => {
-            "This recipient looks like one of your contacts but is a different address. Compare every group."
-        }
-        Warning::DrainsBalance => "This sends 90% or more of your balance.",
-        Warning::UnverifiedSpender => "The spender is not a verified contract.",
-        Warning::UnverifiedContract => "This calls a contract that is not verified.",
-    }
-}
+/// One line per warning, in the words the confirm screen shows. Lives in
+/// `maya_clear_sign` so the browser extension shows the same words.
+pub use maya_clear_sign::warning_text;
 
 /// A 32-byte address as hex with an EIP-55-style case checksum, keyed by BLAKE3.
 ///
