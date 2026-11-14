@@ -99,6 +99,10 @@ pub struct IndexedTx {
     /// Whether signing it needs a closer look than a routine payment.
     #[serde(default)]
     pub careful: bool,
+    /// Plain-language explanation from the clear-sign renderer
+    /// ([`crate::explain::explain_tx`]). Empty in a row indexed before it.
+    #[serde(default)]
+    pub explanation: String,
 }
 
 impl IndexedTx {
@@ -125,6 +129,7 @@ impl IndexedTx {
                 kind: tx.kind.clone(),
                 summary: tx.summary.clone(),
                 careful: tx.careful,
+                explanation: crate::explain::explain_tx(tx),
             })
             .collect()
     }

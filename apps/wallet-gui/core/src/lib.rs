@@ -37,6 +37,7 @@
 
 #![warn(missing_docs)]
 
+pub mod address_book;
 pub mod airgap;
 pub mod amount;
 pub mod compose;

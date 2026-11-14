@@ -1,4 +1,4 @@
-# 3. State transition — v0.1.0
+# 3. State transition — v0.1.1
 
 The accounts-only transfer path. Reference: `crates/spec-ref/src/{stf,root}.rs`.
 Node: `StateDB::stage_transaction`, `StateDB::apply_block`,
@@ -22,7 +22,7 @@ order, and the first rule that fails is the result:
 - **ROOT-2** An internal node is `blake3(0x01 ‖ left ‖ right)`. *(positive only: defines a value)*
 - **ROOT-3** Leaves are paired left to right; an unpaired last node is promoted unchanged, not duplicated; this repeats until one node remains. With no leaves the root is 32 zero bytes. *(positive only: defines a value)*
 - **ROOT-4** Leaves are ordered by ascending address. With no other state layer present, the state root is this accounts root. *(positive only: defines a value)*
-- **ROOT-5** Each further layer (channels, notes, trading, governance, …) is folded in, in the order `state::proof::StateLayer` fixes, only once it holds a record, so a chain that never used a layer keeps the root it always had. *(positive only: defines a value)*
+- **ROOT-5** Each further layer (channels, notes, trading, governance, …) is folded in, in the order `state::proof::LAYER_ORDER` lists (the order `StateDB::state_layers` folds: channels, then the record layers in `RECORD_LAYERS` order, with stateless `sl:` before upgrade-schedule `up:`, then shielded, contracts, nullifiers; not the `StateLayer` declaration order), only once it holds a record, so a chain that never used a layer keeps the root it always had. *(positive only: defines a value)*
 
 ## Capped assets (ADR-135 P-1, dark until feature bit 41)
 

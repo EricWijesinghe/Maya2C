@@ -260,10 +260,15 @@ phase that did it.
     already written.** Governance's `ScheduleUpgrade` needs
     `MIN_UPGRADE_LEAD_BLOCKS` (30 days at one block per second) between the last
     height its proposal can execute at and its activation. The security council's
-    `SunsetSuites` needs `MIN_COUNCIL_SUNSET_LEAD_BLOCKS` (7 days) and may schedule
-    nothing else. Neither can move funds or mint: a schedule entry switches on a
-    dark feature or retires a suite. Both leads are compiled in
-    `crates/governance/src/limits.rs` (invariant 12), so no proposal shortens them.
+    `SunsetSuites` needs `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about
+    13.6 days) and may schedule nothing else. Neither can move funds or mint: a
+    schedule entry switches on a dark feature or retires a suite. Both leads are
+    compiled, so no proposal shortens them: `MIN_UPGRADE_LEAD_BLOCKS` in
+    `crates/governance/src/limits.rs` (invariant 12), and
+    `COUNCIL_SUNSET_LEAD_BLOCKS` in `crates/node/src/state/upgrades.rs`, derived
+    as `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW`
+    (1,000,000 + 172,800) so a vault withdrawal a sunset announcement starts can
+    finish before the sunset height (ADR-082).
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and

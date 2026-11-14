@@ -203,14 +203,9 @@ impl Dispenser for NodeDispenser {
         amount: primitive_types::U256,
     ) -> Result<String, DispenseError> {
         let fees = self.fees().await?;
-        let raw = sign_transfer(
-            &self.key,
-            recipient,
-            amount,
-            fees,
-            self.next_nonce.fetch_add(1, Ordering::SeqCst),
-            &self.chain,
-        )?;
+        let raw = at_next_nonce(&self.next_nonce, |nonce| {
+            sign_transfer(&self.key, recipient, amount, fees, nonce, &self.chain)
+        })?;
 
         let result: serde_json::Value = self
             .client
@@ -224,6 +219,27 @@ impl Dispenser for NodeDispenser {
             .map(str::to_owned)
             .ok_or_else(|| DispenseError::Node("submission response has no txid".to_string()))
     }
+}
+
+/// Reserves the next nonce for `sign`, and gives it back if signing fails.
+///
+/// Nothing was sent, so keeping the reservation would only leave a gap that
+/// stalls every later grant until a restart. It is given back only while no
+/// other grant has reserved a later nonce; after that the gap is unavoidable
+/// and, as for a rejected submission, a restart re-reads the nonce.
+fn at_next_nonce<T>(
+    counter: &AtomicU64,
+    sign: impl FnOnce(u64) -> Result<T, DispenseError>,
+) -> Result<T, DispenseError> {
+    let nonce = counter.fetch_add(1, Ordering::SeqCst);
+    sign(nonce).inspect_err(|_| {
+        let _ = counter.compare_exchange(
+            nonce.saturating_add(1),
+            nonce,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+    })
 }
 
 /// Signs a transfer and returns the hex a node accepts.
@@ -358,6 +374,36 @@ mod tests {
         assert_eq!(tx.sender(), key.address());
         // ADR-036: the same bytes are worthless on any other chain.
         assert!(tx.verify(&ChainTag::from_genesis([0xB2; 32])).is_err());
+    }
+
+    #[test]
+    fn a_signing_failure_gives_its_nonce_back() {
+        let counter = AtomicU64::new(5);
+        let failed: Result<(), _> =
+            at_next_nonce(&counter, |_| Err(DispenseError::Signing("no".into())));
+        assert!(failed.is_err());
+        // Otherwise every later grant carries a nonce after a hole the chain
+        // never fills, and is never mined.
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            5,
+            "nonce gap after a failed signature"
+        );
+        assert_eq!(at_next_nonce(&counter, Ok).unwrap(), 5);
+        assert_eq!(counter.load(Ordering::SeqCst), 6);
+    }
+
+    #[test]
+    fn a_nonce_is_not_given_back_once_a_later_grant_holds_one() {
+        let counter = AtomicU64::new(5);
+        let failed: Result<(), _> = at_next_nonce(&counter, |_| {
+            // A concurrent grant reserves 6 while this one is signing.
+            assert_eq!(counter.fetch_add(1, Ordering::SeqCst), 6);
+            Err(DispenseError::Underfunded)
+        });
+        assert!(failed.is_err());
+        // Handing 5 back now would issue 6 twice.
+        assert_eq!(counter.load(Ordering::SeqCst), 7);
     }
 
     #[test]

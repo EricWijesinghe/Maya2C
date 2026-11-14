@@ -4,6 +4,7 @@ description: "From a signed transaction in your wallet to a balance change on ev
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
+import TxJourney from "../../../components/TxJourney.astro";
 
 ## In plain words
 
@@ -26,6 +27,8 @@ notebook:
    size. The fee is destroyed, so it does not go to anyone.
 
 When enough of the town agrees on a page, that page is final.
+
+<TxJourney />
 
 <Tabs>
 <TabItem label="For engineers">

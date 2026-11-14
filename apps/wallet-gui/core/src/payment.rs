@@ -34,20 +34,56 @@ pub const URI_SCHEME: &str = "maya:";
 /// would be an easy way to make the wallet spend unbounded time.
 pub const MAX_QR_PIXELS: u32 = 4096;
 
-/// A request to pay someone.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// Longest payment-request `id`, in characters (ADR-086 §7).
+pub const MAX_REQUEST_ID_CHARS: usize = 32;
+/// Longest `label`, in characters after invisible characters are removed.
+pub const MAX_LABEL_CHARS: usize = 128;
+/// Longest `message`, in characters after invisible characters are removed.
+pub const MAX_MESSAGE_CHARS: usize = 256;
+
+/// A request's label or message: percent-decoded, invisible and bidi
+/// characters removed, and refused past `max` characters.
+fn claimed_text(value: &str, max: usize, what: &str) -> Result<String> {
+    let text = crate::address_book::strip_invisible(&percent_decode(value));
+    if text.chars().count() > max {
+        return Err(WalletError::Qr(format!(
+            "{what} is longer than {max} characters"
+        )));
+    }
+    Ok(text)
+}
+
+/// A request to pay someone (ADR-086 §7, v2):
+/// `maya:<bech32m>?amount=<base units>&label=&message=&exp=<unix s>&id=`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PaymentRequest {
     /// Hex-encoded recipient address.
     pub recipient: String,
+    /// The address prefix the request was written for (`maya`, `tmaya`,
+    /// `dmaya`); `None` for a hex address, which names no network.
+    #[serde(default)]
+    pub network: Option<String>,
     /// Amount in base units, if the request specifies one: 256-bit (ADR-046),
     /// a decimal string in JSON.
-    #[serde(with = "optional_amount")]
+    #[serde(with = "optional_amount", default)]
     pub amount: Option<primitive_types::U256>,
     /// Free-text label supplied by the requester.
     ///
     /// Untrusted and unauthenticated — anyone can put any name here. The UI
-    /// must present it as a claim, never as an identity.
+    /// must present it as a claim, never as an identity, and never save it as
+    /// a contact's name.
     pub label: Option<String>,
+    /// Free-text message from the requester. Untrusted, like `label`.
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Unix seconds after which the request is stale. Wallet wall-clock, not
+    /// consensus: a sender's clock decides, and a wrong clock only refuses.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
+    /// The requester's reference, matched locally (at most
+    /// [`MAX_REQUEST_ID_CHARS`] printable ASCII characters).
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
 impl PaymentRequest {
@@ -56,18 +92,17 @@ impl PaymentRequest {
     /// Accepted forms:
     ///
     /// ```text
-    /// maya:<64-hex-address>
-    /// maya:<64-hex-address>?amount=1000
-    /// maya:<64-hex-address>?amount=1000&label=Coffee
+    /// maya:<bech32m-or-64-hex-address>
+    /// maya:<address>?amount=1000&label=Coffee&message=Table%204&exp=1767225600&id=inv-42
     /// ```
     ///
-    /// A bare 64-character hex address is also accepted, since that is what
-    /// most people paste.
+    /// A bare address is also accepted, since that is what most people paste.
+    /// Unknown parameters are ignored.
     ///
     /// # Errors
     ///
-    /// Returns [`WalletError::Qr`] for a malformed URI, an address that is not
-    /// 32 bytes of hex, or an unparseable amount.
+    /// Returns [`WalletError::Qr`] for a malformed URI or parameter, and
+    /// [`WalletError::Address`] for an address that does not decode.
     pub fn parse(input: &str) -> Result<Self> {
         let trimmed = input.trim();
         let body = trimmed.strip_prefix(URI_SCHEME).unwrap_or(trimmed);
@@ -78,15 +113,28 @@ impl PaymentRequest {
         };
 
         let recipient = normalize_address(address)?;
+        let compact: String = address.split_whitespace().collect();
+        let network = maya_address::decode_any(&compact)
+            .ok()
+            .map(|(n, _)| n.hrp().to_string());
 
         let mut amount = None;
         let mut label = None;
+        let mut message = None;
+        let mut expires_at = None;
+        let mut id = None;
 
         if let Some(query) = query {
+            let mut seen = std::collections::BTreeSet::new();
             for pair in query.split('&').filter(|p| !p.is_empty()) {
                 let (key, value) = pair.split_once('=').ok_or_else(|| {
                     WalletError::Qr(format!("malformed query parameter '{pair}'"))
                 })?;
+                // Two values for one key let a code show one and pay another,
+                // depending on which a reader takes. The key is not echoed.
+                if !seen.insert(key) {
+                    return Err(WalletError::Qr("a parameter appears twice".to_string()));
+                }
                 match key {
                     "amount" => {
                         // Strict decimal base units: a QR code is untrusted input.
@@ -95,7 +143,27 @@ impl PaymentRequest {
                             WalletError::Qr(format!("amount is not valid base units: {e}"))
                         })?);
                     }
-                    "label" => label = Some(percent_decode(value)),
+                    "label" => label = Some(claimed_text(value, MAX_LABEL_CHARS, "label")?),
+                    "message" => {
+                        message = Some(claimed_text(value, MAX_MESSAGE_CHARS, "message")?);
+                    }
+                    "exp" => {
+                        expires_at = Some(value.parse::<u64>().map_err(|_| {
+                            WalletError::Qr("exp is not a whole number of seconds".to_string())
+                        })?);
+                    }
+                    "id" => {
+                        let value = percent_decode(value);
+                        if value.is_empty()
+                            || value.chars().count() > MAX_REQUEST_ID_CHARS
+                            || !value.bytes().all(|b| b.is_ascii_graphic())
+                        {
+                            return Err(WalletError::Qr(format!(
+                                "id must be 1 to {MAX_REQUEST_ID_CHARS} printable ASCII characters"
+                            )));
+                        }
+                        id = Some(value);
+                    }
                     // Unknown parameters are ignored rather than rejected, so a
                     // newer wallet's extra fields do not break an older one.
                     _ => {}
@@ -105,27 +173,102 @@ impl PaymentRequest {
 
         Ok(Self {
             recipient,
+            network,
             amount,
             label,
+            message,
+            expires_at,
+            id,
         })
     }
 
-    /// Renders this request as a `maya:` URI.
-    #[must_use]
-    pub fn to_uri(&self) -> String {
-        let mut uri = format!("{URI_SCHEME}{}", self.recipient);
-        let mut separator = '?';
-        if let Some(amount) = self.amount {
-            uri.push(separator);
-            uri.push_str(&format!("amount={amount}"));
-            separator = '&';
+    /// Refuses a request the send form must not open: one written for another
+    /// network than `chain`, or one past its `exp` at `now_unix`.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Address`] for the wrong network, [`WalletError::Expired`]
+    /// for a stale request.
+    pub fn check(&self, chain: maya_address::Network, now_unix: u64) -> Result<()> {
+        if let Some(hrp) = &self.network {
+            let named = maya_address::Network::from_hrp(hrp)
+                .ok_or_else(|| WalletError::Address(format!("unknown prefix '{hrp}'")))?;
+            if !network_accepts(chain, named) {
+                return Err(WalletError::Address(format!(
+                    "this request is for the '{hrp}' network; the wallet is on '{}'",
+                    chain.hrp()
+                )));
+            }
         }
-        if let Some(label) = &self.label {
-            uri.push(separator);
-            uri.push_str(&format!("label={}", percent_encode(label)));
+        match self.expires_at {
+            Some(exp) if now_unix > exp => Err(WalletError::Expired),
+            _ => Ok(()),
         }
-        uri
     }
+
+    /// Renders this request as a `maya:` URI, the address in Bech32m for
+    /// `network` (ADR-086 §7: output is always Bech32m).
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Address`] if `recipient` is not an address.
+    pub fn to_uri(&self, network: maya_address::Network) -> Result<String> {
+        let address = maya_address::encode(network, &decode_address(&self.recipient)?);
+        let mut uri = format!("{URI_SCHEME}{address}");
+        let mut params = Vec::new();
+        if let Some(amount) = self.amount {
+            params.push(format!("amount={amount}"));
+        }
+        for (key, value) in [
+            ("label", &self.label),
+            ("message", &self.message),
+            ("id", &self.id),
+        ] {
+            if let Some(value) = value {
+                params.push(format!("{key}={}", percent_encode(value)));
+            }
+        }
+        if let Some(exp) = self.expires_at {
+            params.push(format!("exp={exp}"));
+        }
+        if !params.is_empty() {
+            uri.push('?');
+            uri.push_str(&params.join("&"));
+        }
+        Ok(uri)
+    }
+}
+
+/// Whether a wallet on `chain` takes an address written for `named`. Equal
+/// networks always; on a chain whose genesis is not pinned (shown as the
+/// development prefix) any non-mainnet prefix, since which public test
+/// network it is cannot be known from the genesis alone. A mainnet address
+/// only on the pinned mainnet.
+#[must_use]
+pub fn network_accepts(chain: maya_address::Network, named: maya_address::Network) -> bool {
+    use maya_address::Network::{Devnet, Mainnet};
+    chain == named || (chain == Devnet && named != Mainnet)
+}
+
+/// Decodes an address a person pasted for a wallet on `chain`: hex, or
+/// Bech32m whose prefix [`network_accepts`]. Spaces (from a grouped display)
+/// are ignored.
+///
+/// # Errors
+///
+/// [`WalletError::Address`] for anything else.
+pub fn decode_address_for(text: &str, chain: maya_address::Network) -> Result<[u8; 32]> {
+    let compact: String = text.split_whitespace().collect();
+    if let Ok((named, _)) = maya_address::decode_any(&compact)
+        && !network_accepts(chain, named)
+    {
+        return Err(WalletError::Address(format!(
+            "this address is for the '{}' network; the wallet is on '{}'",
+            named.hrp(),
+            chain.hrp()
+        )));
+    }
+    decode_address(&compact)
 }
 
 /// Validates and lowercases a hex address.
@@ -134,7 +277,11 @@ impl PaymentRequest {
 ///
 /// Returns [`WalletError::Address`] unless the input is exactly 32 bytes of hex.
 pub fn normalize_address(address: &str) -> Result<String> {
-    let cleaned = address.trim().trim_start_matches("0x");
+    // A grouped display (`maya1 q8f3 …`) copied whole carries spaces; the
+    // checksum still covers every character, so dropping them is safe.
+    let compact: String = address.split_whitespace().collect();
+    let address = compact.as_str();
+    let cleaned = address.trim_start_matches("0x");
     // A Bech32m text address (ADR-081) carries its own checksum, so the mixed-case
     // check below does not apply to it. The node still checks the network.
     if !cleaned.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -261,8 +408,8 @@ const RECEIVE_QR_PIXELS: u32 = 240;
 /// # Errors
 ///
 /// [`WalletError::Qr`] if the URI does not fit in a QR code.
-pub fn payment_qr_svg(request: &PaymentRequest) -> Result<String> {
-    let code = payment_qr(request)?;
+pub fn payment_qr_svg(request: &PaymentRequest, network: maya_address::Network) -> Result<String> {
+    let code = payment_qr(request, network)?;
     Ok(code
         .render::<qrcode::render::svg::Color<'_>>()
         .min_dimensions(RECEIVE_QR_PIXELS, RECEIVE_QR_PIXELS)
@@ -274,8 +421,8 @@ pub fn payment_qr_svg(request: &PaymentRequest) -> Result<String> {
 
 /// The QR code for `request`'s URI, at medium error correction (15%): room
 /// for a scuffed screen or a glare spot without growing the code much.
-fn payment_qr(request: &PaymentRequest) -> Result<qrcode::QrCode> {
-    qrcode::QrCode::with_error_correction_level(request.to_uri(), qrcode::EcLevel::M)
+fn payment_qr(request: &PaymentRequest, network: maya_address::Network) -> Result<qrcode::QrCode> {
+    qrcode::QrCode::with_error_correction_level(request.to_uri(network)?, qrcode::EcLevel::M)
         .map_err(|e| WalletError::Qr(format!("cannot encode the request: {e}")))
 }
 

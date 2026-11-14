@@ -7,10 +7,13 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Clear signing: a transaction intent standard, plain-language rendering, and pre-sign review of claimed versus simulated effects"
 
-# Dependency-free: a wallet, the Ledger app and the explorer must all render
-# the same words from the same bytes.
+# Workspace crates only: a wallet, the Ledger app and the explorer must all
+# render the same words from the same bytes.
 [dependencies]
 maya-amount = { path = "../amount" }
+# The full Bech32m text form (ADR-081) that `render` and the look-alike check
+# read, so both see the address exactly as a person does. Depends on thiserror only.
+maya-address = { path = "../address" }
 
 [lints]
 workspace = true

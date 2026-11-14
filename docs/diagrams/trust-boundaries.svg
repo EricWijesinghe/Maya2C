@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-labelledby="t d">
+<title id="t">Maya2C trust boundaries</title>
+<desc id="d">Four boundaries between the untrusted internet and validator keys: the public edge (gateway allowlist, rate limits, cheap checks first), the peer edge (Noise prologue bound to the genesis, ML-KEM, gossip scoring), consensus (both signatures, state root, block byte cap, invariant guard) and keys (remote signer, sealed key file, zeroized secrets). Read-only tools hold no keys. External audit is pending.</desc>
+<style>
+  text { font-family: Manrope, Inter, "Segoe UI", Helvetica, Arial, sans-serif; fill: #eef3f3; }
+  .z { font-size: 12px; font-weight: 800; letter-spacing: 2px; }
+  .h { font-size: 14px; font-weight: 700; }
+  .s { font-size: 11.5px; fill: #b9c6ca; }
+  .p { font-size: 10.5px; fill: #8a9ca3; font-family: ui-monospace, Consolas, monospace; }
+  .item { fill: #0c171d; stroke: #2cc3cf; stroke-opacity: .7; stroke-width: 1.2; }
+  .key { fill: #1d1709; stroke: #d9b97a; stroke-width: 1.4; }
+  .wall { stroke: #d9b97a; stroke-width: 2; stroke-dasharray: 8 6; }
+</style>
+<rect width="1200" height="600" fill="#050b0f"/>
+<text x="30" y="38" font-size="20" font-weight="800">Trust boundaries</text>
+<text x="1170" y="38" text-anchor="end" class="s">each dashed line is a boundary an input must cross; THREAT_MODEL.md lists the gaps</text>
+
+<rect x="30" y="60" width="190" height="400" rx="12" fill="#1f0d0b" stroke="#ff7a6b" stroke-opacity=".6"/>
+<text x="125" y="86" text-anchor="middle" class="z" fill="#ff7a6b">UNTRUSTED</text>
+<text x="125" y="130" text-anchor="middle" class="h">Anyone on the internet</text>
+<text x="125" y="160" text-anchor="middle" class="s">wallets and dapps</text>
+<text x="125" y="180" text-anchor="middle" class="s">RPC callers</text>
+<text x="125" y="200" text-anchor="middle" class="s">unknown peers</text>
+<text x="125" y="220" text-anchor="middle" class="s">nodes from other geneses</text>
+<text x="125" y="240" text-anchor="middle" class="s">spam and floods</text>
+<text x="125" y="300" text-anchor="middle" class="s">every byte from here</text>
+<text x="125" y="318" text-anchor="middle" class="s">is attacker-chosen</text>
+
+<line class="wall" x1="232" y1="60" x2="232" y2="460"/>
+<text x="330" y="86" text-anchor="middle" class="z" fill="#2cc3cf">PUBLIC EDGE</text>
+<rect class="item" x="245" y="104" width="170" height="92" rx="9"/>
+<text x="330" y="128" text-anchor="middle" class="h">Gateway allowlist</text><text x="330" y="148" text-anchor="middle" class="s">node RPC has no auth,</text><text x="330" y="164" text-anchor="middle" class="s">so methods are</text><text x="330" y="180" text-anchor="middle" class="s">default-deny</text>
+<rect class="item" x="245" y="208" width="170" height="76" rx="9"/>
+<text x="330" y="232" text-anchor="middle" class="h">Per-IP rate limit</text><text x="330" y="252" text-anchor="middle" class="s">token bucket, 429</text><text x="330" y="270" text-anchor="middle" class="p">rpc/limit.rs</text>
+<rect class="item" x="245" y="296" width="170" height="92" rx="9"/>
+<text x="330" y="320" text-anchor="middle" class="h">dos-guard</text><text x="330" y="340" text-anchor="middle" class="s">a cheap check before</text><text x="330" y="356" text-anchor="middle" class="s">each expensive one</text><text x="330" y="374" text-anchor="middle" class="p">crates/dos-guard</text>
+
+<line class="wall" x1="428" y1="60" x2="428" y2="460"/>
+<text x="526" y="86" text-anchor="middle" class="z" fill="#2cc3cf">PEER EDGE</text>
+<rect class="item" x="441" y="104" width="170" height="92" rx="9"/>
+<text x="526" y="128" text-anchor="middle" class="h">Genesis-bound Noise</text><text x="526" y="148" text-anchor="middle" class="s">prologue carries the</text><text x="526" y="164" text-anchor="middle" class="s">chain tag: another</text><text x="526" y="180" text-anchor="middle" class="s">genesis cannot connect</text>
+<rect class="item" x="441" y="208" width="170" height="76" rx="9"/>
+<text x="526" y="232" text-anchor="middle" class="h">ML-KEM layer</text><text x="526" y="252" text-anchor="middle" class="s">1024, 768 fallback</text><text x="526" y="270" text-anchor="middle" class="p">network/pq</text>
+<rect class="item" x="441" y="296" width="170" height="92" rx="9"/>
+<text x="526" y="320" text-anchor="middle" class="h">Gossip scoring</text><text x="526" y="340" text-anchor="middle" class="s">peers that send junk</text><text x="526" y="356" text-anchor="middle" class="s">lose standing</text><text x="526" y="374" text-anchor="middle" class="p">gossip_score.rs</text>
+
+<line class="wall" x1="624" y1="60" x2="624" y2="460"/>
+<text x="742" y="86" text-anchor="middle" class="z" fill="#2cc3cf">CONSENSUS</text>
+<rect class="item" x="637" y="104" width="210" height="60" rx="9"/>
+<text x="742" y="128" text-anchor="middle" class="h">Both signatures verify</text><text x="742" y="148" text-anchor="middle" class="s">ML-DSA-65 and SLH-DSA</text>
+<rect class="item" x="637" y="174" width="210" height="60" rx="9"/>
+<text x="742" y="198" text-anchor="middle" class="h">State root must reproduce</text><text x="742" y="218" text-anchor="middle" class="s">invariant 24</text>
+<rect class="item" x="637" y="244" width="210" height="60" rx="9"/>
+<text x="742" y="268" text-anchor="middle" class="h">Block byte cap</text><text x="742" y="288" text-anchor="middle" class="s">MAX_BLOCK_BYTES, invariant 33</text>
+<rect class="item" x="637" y="314" width="210" height="74" rx="9"/>
+<text x="742" y="338" text-anchor="middle" class="h">Invariant guard</text><text x="742" y="358" text-anchor="middle" class="s">halts modules, never</text><text x="742" y="374" text-anchor="middle" class="s">a transfer (invariant 28)</text>
+<text x="742" y="414" text-anchor="middle" class="s">no floats, no HashMap order,</text><text x="742" y="430" text-anchor="middle" class="s">no wall-clock in consensus</text>
+
+<line class="wall" x1="860" y1="60" x2="860" y2="460"/>
+<text x="1015" y="86" text-anchor="middle" class="z" fill="#d9b97a">KEYS</text>
+<rect class="key" x="873" y="104" width="297" height="76" rx="9"/>
+<text x="1021" y="128" text-anchor="middle" class="h">Remote validator signer</text><text x="1021" y="148" text-anchor="middle" class="s">separate process, loopback, one allowed node key</text><text x="1021" y="166" text-anchor="middle" class="p">bins/maya2c-signer</text>
+<rect class="key" x="873" y="192" width="297" height="60" rx="9"/>
+<text x="1021" y="216" text-anchor="middle" class="h">Sealed validator key file</text><text x="1021" y="236" text-anchor="middle" class="s">passphrase read from a file, wiped after use</text>
+<rect class="key" x="873" y="264" width="297" height="60" rx="9"/>
+<text x="1021" y="288" text-anchor="middle" class="h">Typed, zeroized secrets</text><text x="1021" y="308" text-anchor="middle" class="s">ZeroizeOnDrop; Debug prints &lt;redacted&gt;</text>
+<rect class="key" x="873" y="336" width="297" height="52" rx="9"/>
+<text x="1021" y="358" text-anchor="middle" class="h">Wallet keys stay in the Rust core</text><text x="1021" y="376" text-anchor="middle" class="p">apps/wallet-gui/core</text>
+
+<rect x="30" y="480" width="560" height="96" rx="12" fill="#0c171d" stroke="#8a9ca3" stroke-opacity=".6"/>
+<text x="50" y="506" class="z" fill="#b9c6ca">READ-ONLY BY DESIGN</text>
+<text x="50" y="530" class="s">MCP server: holds no keys, no tool signs or submits; drafts only (bins/maya2c-mcp)</text>
+<text x="50" y="550" class="s">Sentinel: polls nodes and pages a human, never acts on the chain (apps/sentinel)</text>
+<text x="50" y="570" class="s">Hub: runs only a miner whose SHA-256 was pinned at build time</text>
+
+<rect x="610" y="480" width="560" height="96" rx="12" fill="#1d1709" stroke="#d9b97a"/>
+<text x="630" y="506" class="z" fill="#d9b97a">EXTERNAL AUDIT: PENDING</text>
+<text x="630" y="530" class="s">No independent audit of the cryptography or consensus yet.</text>
+<text x="630" y="550" class="p">CIRCUIT_IS_AUDITED = false · crates/zk-stark/src/pool/mod.rs</text>
+<text x="630" y="570" class="s">Self-run attack rounds are not independent review.</text>
+</svg>
