@@ -544,7 +544,7 @@ pub fn account_page(
         <Shell title="Account".to_string()>
             <h1>"Account"</h1>
             <form class="search" method="get" action="/account">
-                <input name="address" placeholder="address (64 hex chars)" value=address.clone()/>
+                <input name="address" placeholder="address (64 hex chars or maya1 text)" value=address.clone()/>
                 <button type="submit">"Look up"</button>
             </form>
             {message}

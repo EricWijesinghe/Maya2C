@@ -1,6 +1,6 @@
 # ADR-075: Node "update available" notice, notify only
 
-**Status:** Proposed (2026-11-01). Backlog B4. Nothing here installs anything.
+**Status:** Implemented (2026-11-01), approval not recorded. Backlog B4. Nothing here installs anything. Shipped: `bins/maya2c-node/src/update_notice.rs` (version compare, no I/O).
 **Date:** 2026-11-01
 
 ## Context

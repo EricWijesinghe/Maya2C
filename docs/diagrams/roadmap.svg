@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
+<title id="t">Maya2C milestone ladder</title>
+<desc id="d">Ten milestones from docs/MISSION.md: M0 Truth, M1 Core solid, M2 Fast and proven, M3 Usable, M4 Connected, M5 Operable, M6 Public testnet, M7 Audited, M8 Mainnet, M9 Ecosystem. Each advances only when the previous one's exit criteria are met and recorded.</desc>
+<style>
+  text { font-family: Manrope, Inter, "Segoe UI", Helvetica, Arial, sans-serif; fill: #eef3f3; }
+  .m { font-size: 13px; font-weight: 800; fill: #2cc3cf; }
+  .mb { font-size: 13px; font-weight: 800; fill: #d9b97a; }
+  .h { font-size: 13.5px; font-weight: 700; }
+  .s { font-size: 11px; fill: #b9c6ca; }
+  .dot { fill: #0c171d; stroke: #2cc3cf; stroke-width: 2; }
+  .gate { fill: #1d1709; stroke: #d9b97a; stroke-width: 2; }
+</style>
+<rect width="1200" height="340" fill="#050b0f"/>
+<text x="30" y="38" font-size="20" font-weight="800">Milestone ladder</text>
+<text x="1170" y="38" text-anchor="end" class="s">order from docs/MISSION.md · where the project stands: STATE.md</text>
+<line x1="75" y1="130" x2="1125" y2="130" stroke="#2cc3cf" stroke-opacity=".4" stroke-width="3"/>
+
+<g text-anchor="middle">
+  <circle class="dot" cx="75" cy="130" r="16"/><text x="75" y="135" class="m">M0</text><text x="75" y="178" class="h">Truth</text><text x="75" y="196" class="s">know exactly</text><text x="75" y="210" class="s">what works</text>
+  <circle class="dot" cx="191" cy="130" r="16"/><text x="191" y="135" class="m">M1</text><text x="191" y="178" class="h">Core solid</text><text x="191" y="196" class="s">tests, fuzzing,</text><text x="191" y="210" class="s">invariants</text>
+  <circle class="dot" cx="307" cy="130" r="16"/><text x="307" y="135" class="m">M2</text><text x="307" y="178" class="h">Fast, proven</text><text x="307" y="196" class="s">performance and</text><text x="307" y="210" class="s">PQ weight measured</text>
+  <circle class="dot" cx="423" cy="130" r="16"/><text x="423" y="135" class="m">M3</text><text x="423" y="178" class="h">Usable</text><text x="423" y="196" class="s">accounts, wallet,</text><text x="423" y="210" class="s">explorer, dev tools</text>
+  <circle class="dot" cx="539" cy="130" r="16"/><text x="539" y="135" class="m">M4</text><text x="539" y="178" class="h">Connected</text><text x="539" y="196" class="s">proof-verified</text><text x="539" y="210" class="s">interop</text>
+  <circle class="dot" cx="655" cy="130" r="16"/><text x="655" y="135" class="m">M5</text><text x="655" y="178" class="h">Operable</text><text x="655" y="196" class="s">spec, key handling,</text><text x="655" y="210" class="s">runbooks</text>
+  <circle class="dot" cx="771" cy="130" r="16"/><text x="771" y="135" class="m">M6</text><text x="771" y="178" class="h">Public testnet</text><text x="771" y="196" class="s">outside validators,</text><text x="771" y="210" class="s">attack round</text>
+  <circle class="gate" cx="887" cy="130" r="16"/><text x="887" y="135" class="mb">M7</text><text x="887" y="178" class="h">Audited</text><text x="887" y="196" class="s">external audits,</text><text x="887" y="210" class="s">no open crit/high</text>
+  <circle class="gate" cx="1003" cy="130" r="16"/><text x="1003" y="135" class="mb">M8</text><text x="1003" y="178" class="h">Mainnet</text><text x="1003" y="196" class="s">go/no-go,</text><text x="1003" y="210" class="s">genesis</text>
+  <circle class="dot" cx="1119" cy="130" r="16"/><text x="1119" y="135" class="m">M9</text><text x="1119" y="178" class="h">Ecosystem</text><text x="1119" y="196" class="s">chat, wallet, AI</text><text x="1119" y="210" class="s">on one identity</text>
+</g>
+<rect x="30" y="250" width="1140" height="56" rx="10" fill="#1d1709" stroke="#d9b97a" stroke-opacity=".7"/>
+<text x="50" y="274" class="s" font-weight="700" fill="#d9b97a">Bronze = a gate code alone cannot pass: an audit report, a go/no-go decision.</text>
+<text x="50" y="294" class="s">Nothing advances until the previous milestone's exit criteria are met and recorded (docs/EMPIRE.md). Dates are not promised here.</text>
+<text x="600" y="322" text-anchor="middle" class="s" fill="#d9b97a">ADR-042: mainnet may launch labelled "external audit pending" before the M7 report lands.</text>
+</svg>

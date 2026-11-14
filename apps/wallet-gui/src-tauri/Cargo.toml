@@ -28,6 +28,9 @@ tauri-build = { version = "2", features = [] }
 # The wallet core's amounts are 256-bit (ADR-046).
 primitive-types = { version = "0.12.2", default-features = false }
 maya-wallet-core = { path = "../core" }
+# The Bech32m text form and the grouped display the address book and Receive use.
+maya-address = { path = "../../../crates/address" }
+maya-clear-sign = { path = "../../../crates/clear-sign" }
 tauri = { version = "2", features = [] }
 # The native confirm screen for a signature (`sign_transfer`). Already resolved
 # in Cargo.lock through maya-app-update; registered there, not here.
@@ -37,8 +40,6 @@ tauri-plugin-dialog = "2"
 # single-instance `deep-link` feature forwards a second launch's URL here.
 tauri-plugin-deep-link = "=2.6.3"
 tauri-plugin-single-instance = { version = "=2.5.5", features = ["deep-link"] }
-# Address check for `pay?to=` links: bech32m text, checksum and network HRP.
-maya-address = { path = "../../../crates/address" }
 # In-app updates: check, ask, verify against the signing key, install.
 maya-app-update = { path = "../../app-update" }
 serde = { version = "1", features = ["derive"] }

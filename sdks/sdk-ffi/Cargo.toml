@@ -18,6 +18,8 @@ name = "maya_sdk_ffi"
 uniffi = { version = "0.32", features = ["cli"] }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }
 custom-l1-node = { path = "../../crates/node" }
+# ADR-081: the Bech32m text form, additive to the hex address().
+maya-address = { path = "../../crates/address" }
 thiserror.workspace = true
 hex.workspace = true
 
