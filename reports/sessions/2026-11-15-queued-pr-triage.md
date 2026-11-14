@@ -31,9 +31,9 @@ Method: `gh pr update-branch` (merge of master into the PR branch, no force push
 
 ## Root causes found in this session
 
-1. cargo-deny on older PR bases: `error[vulnerability]: Unbounded backoff state from PRUNE messages for unknown topics` (RUSTSEC-2026-0534, libp2p-gossipsub). Run 43378870790, branch docs/adr-110-115-gaps (base before #520). Fixed on master by #520. Updating each PR to master clears this. Verified on the 2 updated PRs that now pass cargo-deny: #471 and #410.
+1. cargo-deny on older PR bases: `error[vulnerability]: Unbounded backoff state from PRUNE messages for unknown topics` (RUSTSEC-2026-0534, libp2p-gossipsub). Run 43378870790, branch docs/adr-110-115-gaps (base before #520). Fixed on master by #520. Updating each PR to master clears this. Verified on the updated PRs: #471 and #410 pass cargo-deny (earlier poll). #512 (run 43621418063, job 132529668356) and #486 (run 43621422419, job 132536490100) pass cargo-deny at the last poll. #468 and #469: cargo-deny state not recorded (no matching check line at the last poll).
 2. The toolchain-install error in the same log (`override toolchain 'nightly-2026-07-15-x86_64-unknown-linux-musl' is not installed`) is printed but cargo-deny still ran to its own verdict, so it is not the failure cause. Advisory was.
-3. clippy on #539 and #497: error-mapper functions take their error by value (`needless_pass_by_value`). The fix belongs to the PR owner, not this triage.
+3. clippy on #539: error-mapper functions take their error by value (`needless_pass_by_value`), read from run 43490659952. #497's clippy failure was not read from its own log; it is suspected to be the same lint, unverified. The fix belongs to the PR owner, not this triage.
 
 ## Not verified
 
