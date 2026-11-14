@@ -17,7 +17,7 @@ the rule that AI proposes and never acts.
    `get_chain_info`, `get_balance`, `get_block_by_height`, `get_validators`,
    `get_supply` and `get_fee_info`. The allowlist is checked at the single
    point where requests leave the process (`bins/maya2c-mcp/src/node.rs`), and
-   a test pins it.
+   a test pins it. (Amended by v3 P6, PR #482: a seventh read, `get_balance_at_height`, for `compare_account`, and an eighth, `get_tip_height`, so `replay_block` fetches its blocks through this same allowlist and limiter, paced, capped at height 10,000.)
 2. **No signing tool, no submit tool.** `rpc_call` is removed. A test calls
    every listed tool and checks that the node receives nothing outside the allowlist
    methods.

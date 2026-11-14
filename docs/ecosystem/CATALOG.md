@@ -82,7 +82,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | sdks-1.0 | Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`) | `sdks/`, `bins/l1-wallet` | publishing approval (Eric) | M | W1 |
 | dev-portal | Docs, tutorials, playground and contract templates | `apps/dev-hub`, `apps/portal`, `docs/ecosystem/COURSE.md` | none | M | W1 |
 | public-api | Indexer API (REST, later GraphQL) for wallets and dashboards | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
-| mcp-server | AI assistants can read the chain and draft (never sign) transactions | `bins/maya2c-mcp` | key-safety review (pending, Eric); built per ADR-084 | S | W1 |
+| mcp-server | AI assistants can read the chain and draft (never sign) transactions. **Status:** read-only debugging tools (replay, trace, explain refusal, compare account) built, v3 P6 | `bins/maya2c-mcp` | key-safety review (pending, Eric); built per ADR-084 | S | W1 |
 | node-in-a-box | One-click validator and node installer with health checks | one-line-node-join, `apps/status` | none | M | W1 |
 | validator-console | Validator dashboard: uptime, rewards, slashing risk, alerts | `apps/sentinel`, staking RPC | none | M | W2 |
 | pool-dashboard | Pool operators' and miners' web view | `bins/pool-service` dashboard | B34 to B37 pool items | M | W2 |

@@ -14,6 +14,15 @@ maya-clear-sign = { path = "../../crates/clear-sign" }
 primitive-types.workspace = true
 serde_json.workspace = true
 hex.workspace = true
+# The read-only debugging tools reuse `maya2c replay` and `maya2c debug`
+# through the CLI's library, rather than a second copy of either.
+maya2c-cli = { path = "../maya2c-cli" }
+# The replay's scratch copy: unpredictable, removed on drop.
+tempfile.workspace = true
+
+[dev-dependencies]
+custom-l1-node = { path = "../../crates/node" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

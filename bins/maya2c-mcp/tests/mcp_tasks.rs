@@ -26,9 +26,11 @@ const BASE_FEE: u64 = 1000;
 const BALANCE: &str = "10000000000000000000000000";
 const NONCE: u64 = 3;
 /// Mirrors `READ_METHODS` in `src/node.rs`: the only methods the server may send.
-const READ_METHODS: [&str; 6] = [
+const READ_METHODS: [&str; 8] = [
     "get_chain_info",
+    "get_tip_height",
     "get_balance",
+    "get_balance_at_height",
     "get_block_by_height",
     "get_validators",
     "get_supply",
@@ -219,7 +221,7 @@ fn real_signed_size() -> usize {
 }
 
 #[test]
-fn starts_and_lists_eleven_tools_none_of_which_signs_or_submits() {
+fn starts_and_lists_fifteen_tools_none_of_which_signs_or_submits() {
     let replies = session(
         None,
         &[
@@ -229,7 +231,7 @@ fn starts_and_lists_eleven_tools_none_of_which_signs_or_submits() {
     );
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "maya2c-mcp");
     let names = tool_names();
-    assert_eq!(names.len(), 11, "{names:?}");
+    assert_eq!(names.len(), 15, "{names:?}");
     for name in &names {
         for banned in ["sign", "submit", "send", "broadcast", "rpc"] {
             assert!(!name.contains(banned), "tool {name} looks like a write");

@@ -90,6 +90,23 @@ pub fn copy(
     cap: Option<u64>,
     runtime: tokio::runtime::Handle,
 ) -> anyhow::Result<(Arc<StateDB>, Chain, RpcBootstrapSource)> {
+    let remote = RpcBootstrapSource::new(&source.url, runtime)?;
+    let (state, chain) = copy_from(source, cap, &remote)?;
+    Ok((state, chain, remote))
+}
+
+/// [`copy`] from any [`BootstrapSource`]: how a caller with its own transport
+/// (the MCP server's allowlisted, rate-limited client) reuses the same
+/// verified bootstrap. `source.url` is not read.
+///
+/// # Errors
+///
+/// As for [`copy`].
+pub fn copy_from(
+    source: &Source,
+    cap: Option<u64>,
+    remote: &dyn BootstrapSource,
+) -> anyhow::Result<(Arc<StateDB>, Chain)> {
     let config = GenesisConfig::from_json(
         &std::fs::read_to_string(&source.genesis).context("reading the genesis")?,
     )?;
@@ -97,7 +114,6 @@ pub fn copy(
         std::fs::remove_dir_all(&source.dir)?;
     }
     let state = Arc::new(StateDB::open(&source.dir)?);
-    let remote = RpcBootstrapSource::new(&source.url, runtime)?;
     let tip = remote.tip_height()?.min(cap.unwrap_or(u64::MAX));
     let chain = match source.snapshot_depth {
         Some(depth) => bootstrap_pruned(
@@ -105,15 +121,15 @@ pub fn copy(
             config.genesis_block()?,
             chain_config(&config)?,
             &Capped {
-                inner: &remote,
+                inner: remote,
                 cap: tip,
             },
             depth,
         )
         .context("bootstrapping from the source's snapshot")?,
-        None => full_sync(&config, &state, &remote, tip)?,
+        None => full_sync(&config, &state, remote, tip)?,
     };
-    Ok((state, chain, remote))
+    Ok((state, chain))
 }
 
 /// Seeds genesis exactly as the node does, then executes every block up to
@@ -121,7 +137,7 @@ pub fn copy(
 fn full_sync(
     config: &GenesisConfig,
     state: &Arc<StateDB>,
-    remote: &RpcBootstrapSource,
+    remote: &dyn BootstrapSource,
     tip: u64,
 ) -> anyhow::Result<Chain> {
     config.seed_state(state)?;
@@ -167,10 +183,27 @@ pub fn replay(
     height: u64,
     runtime: tokio::runtime::Handle,
 ) -> anyhow::Result<Replay> {
+    replay_from(
+        source,
+        &RpcBootstrapSource::new(&source.url, runtime)?,
+        height,
+    )
+}
+
+/// [`replay`] from any [`BootstrapSource`] (see [`copy_from`]).
+///
+/// # Errors
+///
+/// As for [`replay`].
+pub fn replay_from(
+    source: &Source,
+    remote: &dyn BootstrapSource,
+    height: u64,
+) -> anyhow::Result<Replay> {
     if height == 0 {
         bail!("genesis is not executed; there is nothing to replay");
     }
-    let (state, mut chain, remote) = copy(source, Some(height - 1), runtime)?;
+    let (state, mut chain) = copy_from(source, Some(height - 1), remote)?;
     if chain.height() != height - 1 {
         bail!(
             "the local copy stopped at {}, not {}",

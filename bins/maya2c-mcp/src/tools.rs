@@ -396,7 +396,7 @@ fn review_intent(args: &Value) -> Result<Value, String> {
     ))
 }
 
-fn explain(kind: &str) -> Result<Value, String> {
+pub(crate) fn explain(kind: &str) -> Result<Value, String> {
     let (text, rule) = match kind {
         "InvalidNonce" => (
             "The transaction's nonce is not the sender's next nonce: it was already used (a replay) or one is missing before it. Resend with the nonce `get_balance` reports.",

@@ -3333,8 +3333,8 @@ paths = "`bins/maya2c-mcp`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "crate:maya2c-mcp"]
-note = "Master Prompt 24 §5, ADR-084. Read-only: 6 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending."
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "bins/maya2c-mcp/tests/debug_tools_tests.rs", "crate:maya2c-mcp"]
+note = "Master Prompt 24 §5, ADR-084. Read-only: 7 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending. v3 P6 (gap S6): read-only debugging tools replay_block (maya2c_cli::fork::replay), trace_transaction (maya2c_cli::record_spec), explain_refusal (parsed from crates/node/src/error.rs at build time) and compare_account (get_balance_at_height twice, through the allowlist), tested against an in-process dev chain served by the node RPC. Trace starts from empty contract storage."
 
 [[subsystem]]
 id = "interop-proof-routes"
