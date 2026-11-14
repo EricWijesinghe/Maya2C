@@ -8,8 +8,13 @@
 //! Classes tried (V4-V1 brief): value creation, fee bypass, unbounded
 //! per-block work, replay, squatting. Per-block work is pinned by
 //! `names_tests::the_prune_cap_carries_the_remainder_to_the_next_block_in_key_order`
-//! (the one end-of-block pass) and by construction for every form (a fixed
-//! number of record reads and writes, no loop).
+//! (the one end-of-block pass). Executing a form reads and writes a fixed
+//! number of records, no loop, but the block builder's filter (`StateDB::select_applicable_within`) copies the
+//! whole overlay for every frame that is not a plain transfer, so a block full
+//! of v4 forms (or sponsored transfers) costs every builder work quadratic in
+//! the state the block touches. Open as M3 (BACKLOG, v4 activation blockers):
+//! one benchmark over a block of v4 forms before any v4 activation height is
+//! written.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -34,7 +39,7 @@ mod common;
 
 const V4: u64 = 1;
 const SALT: [u8; 32] = [0x6B; 32];
-/// Far above any name fee here (the 5+ class is 10^15 a year by default).
+/// Far above any name fee here (the 5+ class is 10^21 a year by default).
 const FUNDS: u128 = 1_000_000_000_000_000_000_000_000_000;
 const FILLERS: u8 = 64;
 
@@ -244,7 +249,7 @@ fn a_lapsed_name_reregistered_by_a_stranger_carries_no_old_reverse_record() {
 fn a_reveal_that_cannot_pay_the_name_fee_is_refused_and_the_commitment_survives() {
     let (rich, poor) = (key(0x45), key(0x46));
     let mut n = Net::new(&[rich.address()]);
-    // A balance that covers no 3-byte name (10^18 a year by default).
+    // A balance that covers no 3-byte name (10^24 a year by default).
     n.apply(vec![pay(&rich, 0, poor.address(), 1_000)], 2)
         .unwrap();
     n.apply(vec![signed(commit(b"abc", &poor), 0, &poor)], 3)

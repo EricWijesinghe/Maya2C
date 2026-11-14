@@ -304,6 +304,23 @@ impl StateDB {
             .transpose()
     }
 
+    /// Whether the expiry index (`nm:x:`) holds the row of `commitment` made
+    /// by `committer` at `committed_at`. It is written and deleted with the
+    /// commitment row; the conformance vectors check that both go together.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Storage`] on a read failure.
+    pub fn commitment_indexed(
+        &self,
+        committer: &Address,
+        commitment: &[u8; 32],
+        committed_at: u64,
+    ) -> Result<bool> {
+        let key = expiry_key(commit_expiry(committed_at), committer, commitment);
+        Ok(self.raw_get(&key)?.is_some())
+    }
+
     /// Executes one name form for `sender`.
     pub(crate) fn apply_name(
         &self,

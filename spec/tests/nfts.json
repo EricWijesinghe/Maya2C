@@ -166,6 +166,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "max_items must be 1 to 2^32",
     "result": "error"
    },
    "height": "10",
@@ -206,6 +207,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "max_items must be 1 to 2^32",
     "result": "error"
    },
    "height": "10",
@@ -257,6 +259,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the collection is full",
     "result": "error"
    },
    "height": "10",
@@ -284,6 +287,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "not the collection's creator",
     "result": "error"
    },
    "height": "10",
@@ -340,6 +344,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "does not own this item",
     "result": "error"
    },
    "height": "10",
@@ -369,6 +374,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "changes nothing",
     "result": "error"
    },
    "height": "10",
@@ -467,6 +473,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "does not own this item",
     "result": "error"
    },
    "height": "10",
@@ -501,6 +508,7 @@
   {
    "activation": "11",
    "expect": {
+    "error": "unique assets are not active",
     "result": "error"
    },
    "height": "10",
@@ -541,6 +549,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "a vault account may not send",
     "result": "error"
    },
    "height": "10",

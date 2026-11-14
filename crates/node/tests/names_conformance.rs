@@ -225,6 +225,19 @@ fn check_expect(db: &StateDB, actors: &Actors, case: &Value) {
             c["height"].as_str().map(|h| h.parse().unwrap()),
             "{id}: commitment row"
         );
+        // The expiry index row (`nm:x:`) lives and dies with the commitment
+        // row: checked at every height this sender committed this label.
+        for step in case["steps"].as_array().unwrap() {
+            let same = step["from"] == c["from"] && step["label"] == c["label"];
+            if step["kind"] == "commit" && same {
+                let at = num(&step["height"]);
+                assert_eq!(
+                    db.commitment_indexed(&from, &commitment, at).unwrap(),
+                    got == Some(at),
+                    "{id}: expiry index row of the commit at {at}"
+                );
+            }
+        }
     }
     if let Some(burned) = e.get("burned") {
         let sink = db.get_account(&FEE_SINK).unwrap().balance;
@@ -280,7 +293,18 @@ fn apply_case(actors: &Actors, case: &Value) {
             continue;
         }
         if !ok(case) {
-            assert!(result.is_err(), "{id}: the last step was applied");
+            let Err(err) = result else {
+                panic!("{id}: the last step was applied");
+            };
+            // The reason, when the vector names one: without it a refusal for an
+            // unrelated failure would pass as this rule's.
+            if let Some(reason) = case["expect"]["error"].as_str() {
+                let err = err.to_string();
+                assert!(
+                    err.contains(reason),
+                    "{id}: refused for `{err}`, not `{reason}`"
+                );
+            }
             return;
         }
         result.unwrap_or_else(|e| panic!("{id}: {e}"));

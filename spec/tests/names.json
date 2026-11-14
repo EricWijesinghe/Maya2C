@@ -138,6 +138,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "a commitment already exists",
     "result": "error"
    },
    "id": "NM-commit-duplicate",
@@ -232,6 +233,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "too young to reveal",
     "result": "error"
    },
    "id": "NM-reg-too-young",
@@ -259,6 +261,11 @@
   {
    "activation": "10",
    "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": null,
+     "label": "alice"
+    },
     "name": {
      "expires_at": "31622410",
      "label": "alice",
@@ -292,6 +299,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the commitment has expired",
     "result": "error"
    },
    "id": "NM-reg-too-old",
@@ -320,6 +328,11 @@
    "activation": "10",
    "expect": {
     "burned": "10000000000000000000000",
+    "commitment": {
+     "from": "k0",
+     "height": null,
+     "label": "alice"
+    },
     "name": {
      "expires_at": "315360070",
      "label": "alice",
@@ -354,6 +367,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "periods are 1 to 10",
     "result": "error"
    },
    "id": "NM-reg-periods-11",
@@ -381,6 +395,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "periods are 1 to 10",
     "result": "error"
    },
    "id": "NM-reg-periods-0",
@@ -408,6 +423,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "no commitment for this name by this sender",
     "result": "error"
    },
    "id": "NM-reg-wrong-committer",
@@ -435,6 +451,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the name is taken",
     "result": "error"
    },
    "id": "NM-reg-taken",
@@ -476,6 +493,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the name is taken",
     "result": "error"
    },
    "id": "NM-reg-in-grace",
@@ -703,6 +721,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "already held for ten years",
     "result": "error"
    },
    "id": "NM-renew-at-cap-refused",
@@ -777,6 +796,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "only the owner may renew during grace",
     "result": "error"
    },
    "id": "NM-renew-grace-stranger",
@@ -811,6 +831,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "lapsed past grace",
     "result": "error"
    },
    "id": "NM-renew-after-grace",
@@ -922,6 +943,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "does not target the sender",
     "result": "error"
    },
    "id": "NM-set-reverse-not-target",
@@ -1053,6 +1075,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the name has expired; renew it first",
     "result": "error"
    },
    "id": "NM-update-expired",
@@ -1087,6 +1110,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "only the owner may change the name",
     "result": "error"
    },
    "id": "NM-update-non-owner",
@@ -1121,6 +1145,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the label is reserved",
     "result": "error"
    },
    "id": "NM-reserved-refused",
@@ -1186,6 +1211,7 @@
   {
    "activation": "11",
    "expect": {
+    "error": "names are not active",
     "result": "error"
    },
    "id": "NM-before-activation",
@@ -1285,6 +1311,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "is halted until block",
     "result": "error"
    },
    "id": "NM-breaker-halts-commit",
@@ -1309,6 +1336,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "is halted until block",
     "result": "error"
    },
    "id": "NM-breaker-halts-update",
