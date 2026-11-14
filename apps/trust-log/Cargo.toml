@@ -1,0 +1,34 @@
+[package]
+name = "maya-trust-log"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Signed, chain-anchored release statements, incident records and a foundation canary"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "maya2c-trust"
+path = "src/main.rs"
+
+[dependencies]
+maya-crypto-pq = { path = "../../crates/crypto-pq" }
+blake3.workspace = true
+clap = { workspace = true, features = ["derive"] }
+getrandom.workspace = true
+hex.workspace = true
+jsonrpsee = { workspace = true, features = ["http-client"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+zeroize.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
