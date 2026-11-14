@@ -41,7 +41,27 @@ fn supply(total: u64, circulating: u64, burned: u64) -> Option<Supply> {
         total: U256::from(total),
         circulating: U256::from(circulating),
         burned: U256::from(burned),
+        reserve: U256::zero(),
     })
+}
+
+#[test]
+fn the_mining_reserve_is_its_own_bucket_in_the_sum() {
+    // A reward paid from the reserve moves units from `reserve` into
+    // `circulating` and leaves `burned` alone. The buckets must still close.
+    let mut d = Detector::new(Thresholds::default());
+    let mut a = obs(7, "aa", 0);
+    a.supply = Some(Supply {
+        total: U256::from(100),
+        circulating: U256::from(60),
+        burned: U256::from(30),
+        reserve: U256::from(10),
+    });
+    let f = d.evaluate(0, &[up("a", a)]);
+    assert!(
+        !keys(&f).iter().any(|k| k.starts_with("supply-mismatch")),
+        "{f:?}"
+    );
 }
 
 fn keys(findings: &[Finding]) -> Vec<&str> {
