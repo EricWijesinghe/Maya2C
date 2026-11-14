@@ -56,7 +56,7 @@ if (path === "/guides/faq/") {
 // A card per main page (scripts/gen-og.mjs, committed); otherwise one 1200x630 card per section, in that section's motif.
 const slug = parts.join("/");
 const pageCard = ogPages.find((p) => p.slug === slug);
-const CARDS: Record<string, string> = { guides: "guides", reference: "reference", experience: "experience", support: "support" };
+const CARDS: Record<string, string> = { guides: "guides", reference: "reference", support: "support" };
 const sectionCard = parts[0] && CARDS[parts[0]] ? `${site}/og/${CARDS[parts[0]]}.png` : `${site}/og-card.png`;
 const card = pageCard ? `${site}/og/pages/${slug.replace(/\//g, "-")}.png` : sectionCard;
 const cardAlt = pageCard

@@ -34,12 +34,17 @@ export function unreachableLabel(last: Reading | null): string {
   return `unreachable, last known ${last.value} ${at} UTC`;
 }
 
-/** Every calendar day (UTC, YYYY-MM-DD) the run touched, first and last included: one bar each in the uptime strip. */
-export function runDays(from: string, to: string): string[] {
-  const days: string[] = [];
-  const end = Date.parse(`${to}T00:00:00Z`);
-  for (let t = Date.parse(`${from}T00:00:00Z`); t <= end; t += 86_400_000) days.push(new Date(t).toISOString().slice(0, 10));
-  return days;
+const DAY_SECONDS = 86_400;
+
+/**
+ * One entry per 24 h of the run, from genesis: 1 for a full day, the fraction
+ * for the last, partial one. 7 d 15 h is eight bars, the last at 0.65, so the
+ * strip and its "7 d 15 h" label agree (calendar days would draw nine).
+ */
+export function runSpans(startUnix: number, endUnix: number): number[] {
+  const spans: number[] = [];
+  for (let t = startUnix; t < endUnix; t += DAY_SECONDS) spans.push(Math.min(1, (endUnix - t) / DAY_SECONDS));
+  return spans;
 }
 
 /** The finality scale ends at the next whole second above the figure, so the marker never sits on the edge. */

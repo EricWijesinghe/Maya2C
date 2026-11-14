@@ -137,18 +137,27 @@ a {
 
 /* Homepage (U3): sections on the 4 px scale, one heading style, no pill
    eyebrows, no scroll-in motion. The hero (Hero.astro) is the page's h1. */
-.home-h2 { margin: var(--space-20) 0 var(--space-6) !important; font: var(--type-display-2-weight) clamp(var(--type-display-2-size-phone), 3vw, var(--type-display-2-size))/1.15 var(--font-sans) !important; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
-.home-lede { margin: 0 0 var(--space-6) !important; max-width: 64ch; color: var(--text-2); font-size: var(--type-body-size); }
+.home-h2 { margin: var(--space-20) 0 var(--space-6) !important; font: var(--type-display-2-weight) clamp(var(--type-display-2-size-phone), 3vw, var(--type-display-2-size))/1.15 var(--font-sans) !important; letter-spacing: -0.02em; color: var(--text); text-wrap: balance; }
+/* One intro scale under every section heading: 17-18 px, between the hero's 18-20 px sub and body text. */
+.home-lede { margin: 0 0 var(--space-6) !important; max-width: 64ch; color: var(--text-2) !important; font-size: clamp(17px, 16px + .3vw, 18px); line-height: 1.55; }
+/* Section bands (owner, 2026-11-14): each home section carries its own wash (closest-side, so it fades out before its box ends),
+   so the colour runs down the page instead of stopping at the hero. Full
+   bleed; <html> clips overflow-x, and the band is behind its section only. */
+.home-band { position: relative; isolation: isolate; }
+.home-band::before { content: ""; position: absolute; z-index: -1; top: calc(-1 * var(--space-10)); bottom: calc(-1 * var(--space-10)); left: 50%; width: 100vw; transform: translateX(-50%); background: var(--band); pointer-events: none; }
+.band-proof { --band: radial-gradient(closest-side at 22% 50%, color-mix(in srgb, var(--accent) 20%, transparent), transparent), radial-gradient(closest-side at 85% 60%, color-mix(in srgb, var(--bronze) 15%, transparent), transparent); }
+.band-txp { --band: radial-gradient(closest-side at 50% 55%, color-mix(in srgb, var(--accent) 24%, transparent), transparent); }
+.band-tl { --band: radial-gradient(closest-side at 40% 55%, color-mix(in srgb, var(--bronze) 22%, transparent), transparent); }
+.band-close { --band: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 14%, transparent) 35%, color-mix(in srgb, var(--bronze) 12%, transparent) 70%, transparent); }
+.home-close { padding-bottom: var(--space-4); }
 .home-code .home-h2 { margin-bottom: var(--space-3) !important; }
 .home-code starlight-tabs { margin-top: var(--space-4); }
 .home-note { margin: 0 !important; font-size: var(--type-body-sm-size); color: var(--text-2); }
-/* Tab labels stay on one line (the row scrolls if it must); code reads at 13 px on a phone, 14 px from 768 px, and wraps instead of hiding past the edge. */
-.home-code starlight-tabs [role="tab"] { white-space: nowrap; }
-/* The inline-code rule (.sl-markdown-content code, .875em) also shrinks block code to 11.4 px; undo it here. */
+/* Each tab label stays on one line; code reads at 13 px on a phone, 14 px from 768 px, and a long line scrolls inside its box rather than wrapping mid-token. */
+.home-code starlight-tabs [role="tab"] { white-space: nowrap; }/* The inline-code rule (.sl-markdown-content code, .875em) also shrinks block code to 11.4 px; undo it here. */
 .home-code .expressive-code pre > code { font-size: 13px !important; }
 @media (min-width: 768px) { .home-code .expressive-code pre > code { font-size: 14px !important; } }
 .home-faq .home-lede { margin-top: var(--space-4) !important; }
-.maya-footnote { margin: var(--space-16) 0 var(--space-6) !important; max-width: 72ch; color: var(--text-2); font-size: var(--type-body-sm-size); }
 
 /* Homepage: the hero starts right under the nav. Starlight's title panel is
    kept for screen readers but takes no space, and the hero's panel loses its

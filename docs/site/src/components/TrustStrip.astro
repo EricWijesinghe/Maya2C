@@ -34,7 +34,9 @@ const items = [
   .audit-item { grid-column: 1 / -1; }
   .trust a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0; font-size: var(--type-body-sm-size); color: var(--text-2); text-decoration: none; transition: color var(--dur-1) var(--ease); }
   .trust a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
-  .trust li:not(.audit-item) a { flex-wrap: wrap; column-gap: var(--space-1); row-gap: 0; padding-block: var(--space-1); }
+  /* Phone: every fact the same shape, value over label, in a 2x2 grid. */
+  .trust li:not(.audit-item) a { flex-direction: column; align-items: flex-start; gap: 0; padding-block: var(--space-1); }
+  .trust b { font-size: var(--type-body-lg-size); }
   .trust b { white-space: nowrap; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--text); }
   .audit { padding: 0 var(--space-4) !important; border: 1px solid color-mix(in srgb, var(--bronze) 55%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 12%, transparent); color: var(--text) !important; font-weight: var(--weight-semibold); }
   .mark { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 22%, transparent); }
@@ -42,5 +44,7 @@ const items = [
     .trust { display: flex; flex-wrap: nowrap; gap: var(--space-6); }
     .audit-item { margin-inline-end: var(--space-2); }
     .trust a { white-space: nowrap; }
+    .trust li:not(.audit-item) a { flex-direction: row; align-items: center; gap: var(--space-1); }
+    .trust b { font-size: inherit; }
   }
 </style>

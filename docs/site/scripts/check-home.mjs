@@ -35,11 +35,12 @@ const title = decode(html.match(/<title>([^<]*)<\/title>/)?.[1] ?? "");
 if (title !== TITLE) fail(`title is "${title}", want "${TITLE}"`);
 
 // 2. Paused state.
-// The page's own content, hero to footnote; the shared header and footer have their own checks.
+// The page's own content, hero to the closing band; the shared header and footer have their own checks.
 const from = html.search(/<section\b[^>]*class="hero\b/);
-const to = html.indexOf("</p>", html.indexOf('class="maya-footnote'));
+const endBand = html.indexOf("data-home-end");
+const to = endBand >= 0 ? html.indexOf("</section>", endBand) : -1;
 const main = from >= 0 && to > from ? html.slice(from, to) : "";
-if (!main) fail("homepage content (hero to footnote) not found in dist/index.html");
+if (!main) fail("homepage content (hero to closing band) not found in dist/index.html");
 const primaries = [...main.matchAll(/<a\b[^>]*class="[^"]*ui-btn--primary[^"]*"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => textOf(m[1]).trim());
 if (testnet.paused) {
   if (primaries.some((p) => /start mining/i.test(p))) fail("paused, but a primary button says Start mining");
@@ -85,6 +86,7 @@ const sources = new Map();
 const add = (src, ...vals) => vals.forEach((v) => v != null && sources.set(String(v), src));
 add("network-state.ts testnet.last (stop report)", run.height.toLocaleString("en-US"), run.from, run.to, run.halts, `${Math.floor(run.uptime * 100)}%`, `${run.haltSeconds}`, ...run.at.split(" "), ...run.run.match(/\d+/g), `${parseInt(run.run, 10)}-day`);
 add("network-state.ts testnet.since", testnet.since);
+add("network-state.ts testnet.last.topStakePct (stop report caveat)", `${run.topStakePct}%`);
 add("progress.json gates", progress.gates?.met, progress.gates?.total);
 add("progress.json proofs", progress.proofs?.kani_harnesses?.toLocaleString("en-US"), progress.proofs?.conformance_vectors?.toLocaleString("en-US"));
 if (progress.finality) {

@@ -1,8 +1,7 @@
 [
-  { "card": "og-card.png", "title": "Every transaction signed twice", "line": "ML-DSA and SLH-DSA on every transaction, so one broken algorithm cannot forge it. DAG-BFT makes each block final." },
+  { "card": "og-card.png", "title": "Every transaction signed twice", "line": "Forging one requires breaking both ML-DSA and SLH-DSA. DAG-BFT: final while at most f of n validators are faulty." },
   { "card": "og/guides.png", "title": "Guides", "line": "Start a local chain, mine, run a validator and build a wallet: commands in order, with what each step checks." },
   { "card": "og/reference.png", "title": "Reference", "line": "How each subsystem works, the decision behind it, and the test or report that backs each claim." },
-  { "card": "og/experience.png", "title": "Experience Maya2C", "line": "Touch every part of Maya2C: blocks, real API calls, post-quantum signatures, wallet, chat and more." },
   { "card": "og/support.png", "title": "Support Maya2C", "line": "How to help Maya2C today: star it, contribute, or run a local devnet. Testnet run complete; paused since 2026-10-28." },
   { "slug": "experience", "title": "Experience Maya2C", "line": "Touch every part of the Maya2C network: blocks, real API calls, post-quantum signatures, wallet, chat and more." },
   { "slug": "fields", "title": "Fields", "line": "Every field Maya2C spans, and the honest status of each part: shipped, research, simulator or planned." },
@@ -19,7 +18,7 @@
   { "slug": "guides/validators", "title": "Run a post-quantum validator", "line": "Run a DAG-BFT validator on maya-testnet-1: commands in order, penalties, and what still blocks open registration." },
   { "slug": "guides/pq-comparison", "title": "How Maya2C compares on post-quantum security", "line": "A dated comparison with 18 post-quantum chain entries. Every cell is sourced, and where others are ahead is listed too." },
   { "slug": "guides/mining", "title": "Mining, validators and rewards", "line": "How GPU miners are rewarded on Maya2C, why validators order the blocks, and what is built today." },
-  { "slug": "reference/hybrid-signatures", "title": "Hybrid ML-DSA + SLH-DSA transaction signatures", "line": "Every transaction carries two signatures over the same bytes: a lattice proof under FIPS 204 and a hash-based proof under FIPS 205." },
+  { "slug": "reference/hybrid-signatures", "title": "Hybrid ML-DSA + SLH-DSA transaction signatures", "line": "Two signatures over the same bytes: lattice-based FIPS 204 and hash-based FIPS 205." },
   { "slug": "reference/pq-transport", "title": "Post-quantum P2P transport", "line": "Every libp2p connection carries an ML-KEM key exchange above its Noise session, and every byte above that is sealed." },
   { "slug": "learn/signatures-live", "title": "Post-quantum signatures, step by step", "line": "One Maya2C transaction carries an ML-DSA-65 and an SLH-DSA signature. Each check, with the real FIPS parameter sizes." }
 ]

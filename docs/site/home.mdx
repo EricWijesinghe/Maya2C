@@ -1,6 +1,6 @@
 ---
 title: Maya2C
-description: Maya2C is a post-quantum layer-1 blockchain in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA and SLH-DSA, and DAG-BFT makes each block final. Pre-mainnet; the 7-day testnet run is complete.
+description: "Maya2C is a post-quantum layer-1 blockchain in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA and SLH-DSA, so forging one requires breaking both. DAG-BFT finality holds while at most f of n validators are faulty. Pre-mainnet; the 7-day testnet run is complete."
 template: splash
 head:
   # The tab and search-result title (L03): what the site is, in the words
@@ -42,39 +42,54 @@ import FearsFaq from "../../components/FearsFaq.astro";
 <h2 id="code-title" class="home-h2">Read the chain in a few lines</h2>
 <p class="home-lede">Each snippet talks to a chain on your own machine: the <a href="/guides/quickstart/">local devnet</a> serves JSON-RPC on 127.0.0.1:8545, and the gateway in front of it listens on 127.0.0.1:8080. Signing happens client-side; the gateway holds no keys. <a href="/reference/sdk/">SDK reference</a></p>
 
-<p class="home-note">Every tab is built from source: no SDK is on a package registry yet.</p>
+<p class="home-note">No SDK is on a package registry yet, so each tab builds from source. Long lines scroll inside the code box.</p>
+
+{/* Short lines so most fit a 360 px phone; the address is a spec test vector
+    (spec/address-vectors.json) on its own line, and scrolls inside the box
+    rather than wrapping mid-token. Each tab says "from source" in its code
+    frame's title: in the tab labels, the three no longer fit a phone's row. */}
 
 <Tabs>
 <TabItem label="Rust">
 
-```rust title="sdks/rust (gateway client)" wrap
-let client = maya2c_sdk::Client::new("http://127.0.0.1:8080")?;
-let balance = client.balance("maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f")?;
-println!("{} units, next nonce {}", balance.balance, balance.nonce);
+```rust title="sdks/rust · from source"
+use maya2c_sdk::Client;
+
+let url = "http://127.0.0.1:8080";
+let client = Client::new(url)?;
+// A spec test vector address:
+let addr = "maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f";
+let bal = client.balance(addr)?;
+println!("{} units", bal.balance);
 ```
 
 </TabItem>
 <TabItem label="TypeScript">
 
-```ts title="sdks/sdk-js (gateway client)" wrap
+```ts title="sdks/sdk-js · from source"
 import { MayaClient } from "maya2c.js";
 
-const client = new MayaClient("http://127.0.0.1:8080");
-
-const balance = await client.getBalance("a71cf0…");
-const supply  = await client.getSupply();
-const block   = await client.getBlock(1);
+const url = "http://127.0.0.1:8080";
+const client = new MayaClient(url);
+// A spec test vector address:
+const addr = "maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f";
+const bal =
+  await client.getBalance(addr);
 ```
 
 </TabItem>
 <TabItem label="Python">
 
-```python title="sdks/python (node JSON-RPC)" wrap
+```python title="sdks/python · from source"
+from getpass import getpass
 from maya2c_sdk import Client, Wallet
 
-client = Client("http://127.0.0.1:8545")
-wallet = Wallet("l1-wallet", "wallet.key", password, client)
-txid = wallet.transfer(recipient, 1_000)
+url = "http://127.0.0.1:8545"
+client = Client(url)
+wallet = Wallet("l1-wallet",
+    "wallet.key", getpass(), client)
+to = "maya1qq657tlpk6cucz6mh4x4kvx2hthu90an4qw5wx0g9y44pynj86lxsgd736f"
+txid = wallet.transfer(to, 1_000)
 ```
 
 </TabItem>
@@ -89,4 +104,9 @@ txid = wallet.transfer(recipient, 1_000)
 <p class="home-lede">More answers: <a href="/guides/faq/">FAQ</a>. Uptime and every halt: <a href="/health/">status</a>. Build and CI: <a href="/stats/#developers">developer transparency</a>.</p>
 </section>
 
-<p class="maya-footnote">No token is for sale, and nothing here is an offer of one. Each release lists SHA256SUMS and a build attestation; Windows and macOS code signing is pending: <a href="/guides/code-signing-policy/">code signing policy</a>.</p>
+{/* The page ends on a closing band, not a footnote: the three doors again, compact. The legal line lives in the footer. */}
+
+<section class="not-content home-close home-band band-close" aria-labelledby="close-title" data-home-end="">
+<h2 id="close-title" class="home-h2">Start where you are</h2>
+<HomeDoors label="Where to start, again" compact />
+</section>

@@ -10,7 +10,7 @@ import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
 import { testnet } from "../data/network-state";
-import { uptimePercent, runDays, finalityScaleSeconds } from "../data/home";
+import { uptimePercent, runSpans, finalityScaleSeconds } from "../data/home";
 
 const p = progress as { gates?: { met: number; total: number } | null; finality?: { p50_ms: number; validators: number } | null };
 const gates = p.gates ?? null;
@@ -21,38 +21,45 @@ const total = health.ledger.total;
 const paused = testnet.paused;
 const run = testnet.last;
 const haltRule = `a halt is any gap over ${run.haltSeconds} s`;
-// One bar per day of the run. All bars are filled only when the run had no halt;
-// with halts the per-day split is not in the report, so one proportional bar is drawn instead.
-const days = paused ? runDays(run.from, run.to) : [];
+// One bar per 24 h of the run, the last one as wide as its share of a day, so
+// the bars agree with the "7 d 15 h" label. All bars are filled only when the
+// run had no halt; with halts the per-day split is not in the report, so one
+// proportional bar is drawn instead.
+const spans = paused ? runSpans(run.startUnix, run.endUnix) : [];
 const perDay = paused && run.halts === 0;
 const scale = finality ? finalityScaleSeconds(finality.p50_ms) : 0;
 // The gates ring: one arc per gate, filled for each one met (pathLength 100).
 const seg = gates ? 100 / gates.total : 0;
 ---
 
-<section class="not-content proof" aria-label="Proof numbers" data-proof data-paused={paused ? "" : undefined}>
+<section class="not-content proof home-band band-proof" aria-label="Proof numbers" data-proof data-paused={paused ? "" : undefined}>
+  <p class="claims">Claims link to their source.</p>
   <ul class="tiles">
     <li class="tile tone-teal">
-      <p class="lbl">{paused ? "Uptime, 7-day run" : "Uptime since genesis"}</p>
-      <p class="val" data-live={paused ? undefined : "uptime"}>{paused ? uptimePercent(run.uptime) : "…"}</p>
-      {perDay ? (
-        <div class="days" role="img" aria-label={`One bar per day of the run, ${run.from} to ${run.to}, no halt on any day`}>
-          {days.map(() => <span class="day" />)}
-        </div>
-      ) : (
-        <div class="meter" aria-hidden="true"><span data-uptime-bar style={paused ? `width:${Math.floor(run.uptime * 100)}%` : "width:0"} /></div>
-      )}
+      <p class="lbl">{paused ? <>Uptime, <span class="nw">{run.run}</span> run</> : "Uptime since genesis"}</p>
+      <p class="val" data-live={paused ? undefined : "uptime"}>{paused ? uptimePercent(run.uptime) : "unavailable without JavaScript"}</p>
+      <div class="gfx">
+        {perDay ? (
+          <div class="days" role="img" aria-label={`One bar per 24 hours of the ${run.run} run, no halt in any of them`}>
+            {spans.map((f) => <span class="day" style={`flex:${f}`} />)}
+          </div>
+        ) : (
+          <div class="meter" aria-hidden="true"><span data-uptime-bar style={paused ? `width:${Math.floor(run.uptime * 100)}%` : "width:0"} /></div>
+        )}
+      </div>
       <p class="note">
-        {paused ? <>{run.from} to {run.to}, {run.halts} {run.halts === 1 ? "halt" : "halts"}, last block {run.height.toLocaleString("en-US")}; {haltRule}</> : <>block <span data-live="height">…</span>; {haltRule}</>}
-        <SourceTip text={paused ? "status.maya2c.dev /api/status before the stop, in the stop report" : "status.maya2c.dev /api/status and the explorer /api/stats"} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} />
+        {paused ? <span>{run.halts} {run.halts === 1 ? "halt" : "halts"}, ended <span class="nw">{run.to}</span></span> : <>block <span data-live="height">unavailable without JavaScript</span></>}
+        <SourceTip text={paused ? `status.maya2c.dev /api/status before the stop, in the stop report; ${haltRule}` : `status.maya2c.dev /api/status and the explorer /api/stats; ${haltRule}`} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} />
       </p>
+      {/* The stop report's own caveat, beside the figure it qualifies: the run never needed a multi-validator quorum. */}
+      {paused && <p class="caveat"><a href={testnet.report}>One validator held {run.topStakePct}% of stake and finalized alone</a></p>}
     </li>
 
     <li class="tile tone-bronze">
       <p class="lbl">Mainnet gates met</p>
       <p class="val">{gates ? `${gates.met} / ${gates.total}` : "MISSING"}</p>
       {gates && (
-        <svg class="ring" viewBox="0 0 64 64" role="img" aria-label={`${gates.met} of ${gates.total} gates met`}>
+        <svg class="ring gfx" viewBox="0 0 64 64" role="img" aria-label={`${gates.met} of ${gates.total} gates met`}>
           {Array.from({ length: gates.total }, (_, i) => (
             <circle cx="32" cy="32" r="26" pathLength="100" class={i < gates.met ? "arc on" : "arc"} stroke-dasharray={`${seg - 2.5} ${100 - seg + 2.5}`} stroke-dashoffset={`${-i * seg}`} />
           ))}
@@ -64,7 +71,7 @@ const seg = gates ? 100 / gates.total : 0;
     <li class="tile tone-steel">
       <p class="lbl">Verified subsystems</p>
       <p class="val">{verified} / {total}</p>
-      <div class="meter" role="img" aria-label={`${verified} of ${total} subsystems verified`}><span style={`width:${total ? (verified / total) * 100 : 0}%`} /></div>
+      <div class="gfx"><div class="meter" role="img" aria-label={`${verified} of ${total} subsystems verified`}><span style={`width:${total ? (verified / total) * 100 : 0}%`} /></div></div>
       <p class="note">each names a test CI runs <SourceTip text="features.toml, status = verified, counted at build by scripts/gen-health.mjs" href="/health/" /></p>
     </li>
 
@@ -72,7 +79,7 @@ const seg = gates ? 100 / gates.total : 0;
       <p class="lbl">Finality p50</p>
       <p class="val">{finality ? `${finality.p50_ms.toLocaleString("en-US")} ms` : "MISSING"}</p>
       {finality && (
-        <div class="scale" role="img" aria-label={`Marker at ${finality.p50_ms.toLocaleString("en-US")} ms on a scale from 0 to ${scale} s`}>
+        <div class="scale gfx" role="img" aria-label={`Marker at ${finality.p50_ms.toLocaleString("en-US")} ms on a scale from 0 to ${scale} s`}>
           <span class="track" />
           <span class="mark" style={`left:${(finality.p50_ms / (scale * 1000)) * 100}%`} />
           <span class="end end-0" aria-hidden="true">0</span>
@@ -90,6 +97,8 @@ const seg = gates ? 100 / gates.total : 0;
   const root = document.querySelector<HTMLElement>("[data-proof]");
   // Paused: every figure is already the dated last reading; nothing to fetch.
   if (root && !root.hasAttribute("data-paused")) {
+    // The markup says "unavailable without JavaScript"; with it, say what is happening until the first answer.
+    root.querySelectorAll("[data-live]").forEach((el) => { el.textContent = "loading…"; });
     const tiles = new Map<string, { fails: number; last: Reading | null }>();
     // A value is shown as current only while its source answers; after two
     // misses in a row the tile says so and keeps the last value, dated.
@@ -115,47 +124,65 @@ const seg = gates ? 100 / gates.total : 0;
 </script>
 
 <style>
-  .proof { margin: var(--space-8) 0 0; }
-  .tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+  .proof { margin: var(--space-10) 0 0; }
+  .claims { margin: 0 0 var(--space-3); font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+  /* Phone: one tile per row, the value at display size with its graphic beside it. */
+  .tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .tile {
     --tone: var(--accent);
-    position: relative; margin: 0; min-width: 0; display: grid; gap: var(--space-2); align-content: start;
-    padding: var(--space-4); border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border)); border-radius: var(--r-lg);
-    background: linear-gradient(170deg, color-mix(in srgb, var(--tone) 14%, var(--surface-1)), var(--surface-1) 75%);
+    position: relative; margin: 0; min-width: 0;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "lbl lbl" "val gfx" "note note" "caveat caveat";
+    gap: var(--space-2) var(--space-5); align-items: center;
+    padding: var(--space-5); border: 1px solid color-mix(in srgb, var(--tone) 22%, transparent); border-radius: var(--r-lg);
+    /* A raised, filled panel: a tone glow from the top-left corner over surface-2, not an outline on black. */
+    background:
+      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--tone) 28%, transparent), transparent 65%),
+      linear-gradient(170deg, color-mix(in srgb, var(--tone) 12%, var(--surface-2)), var(--surface-2) 80%);
+    box-shadow: 0 20px 44px -28px color-mix(in srgb, var(--tone) 70%, transparent);
     overflow: hidden;
   }
-  /* A coloured top rule per tone. */
-  .tile::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--tone); }
+  .tile::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 25%, transparent)); }
   .tone-bronze { --tone: var(--bronze); }
   .tone-steel { --tone: color-mix(in srgb, var(--steel) 55%, var(--accent)); }
   .tile p { margin: 0; }
-  .lbl { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
-  .val { font: var(--weight-semibold) var(--type-title-3-size)/1.15 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
-  .val.stale { font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
-  .note { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  .lbl { grid-area: lbl; font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
+  /* .tile .val: outranks the content rule .sl-markdown-content :is(p, li), which greys every p. */
+  .tile .val { grid-area: val; font: 700 clamp(2.25rem, 1.75rem + 2vw, 3rem)/1 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--tone); }
+  .tile .val:not([data-live]) { white-space: nowrap; }
+  .tile .val.stale { white-space: normal; font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
+  .gfx { grid-area: gfx; min-width: 0; }
+  .note { grid-area: note; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  .caveat { grid-area: caveat; padding-top: var(--space-2); border-top: 1px solid color-mix(in srgb, var(--bronze) 30%, transparent); font-size: var(--type-body-sm-size); line-height: 1.4; }
+  .caveat a { color: var(--text); text-decoration-color: var(--bronze); text-underline-offset: 3px; }
+  .nw { white-space: nowrap; }
 
-  /* Uptime: one bar per day of the run. */
-  .days { display: flex; gap: 3px; height: 28px; align-items: end; }
-  .day { flex: 1; height: 100%; border-radius: 3px; background: linear-gradient(180deg, var(--tone), color-mix(in srgb, var(--tone) 55%, transparent)); }
+  /* Uptime: one bar per 24 h of the run, the last one as wide as its share of a day. */
+  .days { display: flex; gap: 4px; height: 44px; align-items: end; }
+  .day { min-width: 0; height: 100%; border-radius: 4px; background: linear-gradient(180deg, var(--tone), color-mix(in srgb, var(--tone) 45%, transparent)); box-shadow: 0 0 12px -4px var(--tone); }
   /* Verified, and uptime while live: a meter. */
-  .meter { height: 10px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--tone) 16%, transparent); overflow: hidden; }
-  .meter span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 70%, transparent), var(--tone)); }
+  .meter { height: 12px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--tone) 18%, transparent); overflow: hidden; }
+  .meter span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 65%, transparent), var(--tone)); box-shadow: 0 0 14px var(--tone); }
   /* Gates: one arc per gate. */
-  .ring { width: 64px; height: 64px; transform: rotate(-90deg); }
-  .arc { fill: none; stroke: color-mix(in srgb, var(--tone) 20%, transparent); stroke-width: 7; }
+  .ring { justify-self: end; width: 72px; height: 72px; transform: rotate(-90deg); }
+  .arc { fill: none; stroke: color-mix(in srgb, var(--tone) 22%, transparent); stroke-width: 7; }
   .arc.on { stroke: var(--tone); }
   /* Finality: a marker on a short scale, 0 to the next whole second. */
-  .scale { position: relative; height: 34px; }
-  .track { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: var(--r-pill); background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 60%, transparent), color-mix(in srgb, var(--tone) 12%, transparent)); }
-  .scale .mark { position: absolute; top: 2px; width: 16px; height: 16px; margin-left: -8px; border-radius: var(--r-pill); background: var(--tone); box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 25%, transparent); }
-  .end { position: absolute; top: 18px; font: 500 12px/1.3 var(--font-mono, monospace); color: var(--text-2); }
+  .scale { position: relative; height: 38px; }
+  .track { position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: var(--r-pill); background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 15%, transparent)); }
+  .scale .mark { position: absolute; top: 1px; width: 20px; height: 20px; margin-left: -10px; border-radius: var(--r-pill); background: var(--tone); box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone) 25%, transparent), 0 0 18px var(--tone); }
+  .end { position: absolute; top: 22px; font: 500 12px/1.3 var(--font-mono, monospace); color: var(--text-2); }
   .end-0 { left: 0; }
   .end-1 { right: 0; }
 
+  /* Two columns and up: stacked tiles of equal height, the graphic on its own row so every tile carries the same weight. */
+  @media (min-width: 520px) {
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tile { grid-template-columns: minmax(0, 1fr); grid-template-areas: "lbl" "val" "gfx" "note" "caveat"; grid-template-rows: auto auto 1fr auto auto; align-items: start; }
+    .gfx { align-self: center; }
+    .ring { justify-self: start; }
+  }
   @media (min-width: 960px) {
     .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
-    .tile { padding: var(--space-5); }
-    .val { font-size: var(--type-title-2-size); }
   }
-  @media (max-width: 420px) { .tile { padding: var(--space-3); } }
 </style>
+

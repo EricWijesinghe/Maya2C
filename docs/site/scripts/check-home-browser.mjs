@@ -4,6 +4,8 @@
 //   - no two footer blocks draw over each other, and none overflows its column;
 //   - with prefers-reduced-motion, no animation is running anywhere on /, light and dark;
 //   - axe-core finds 0 WCAG 2.2 A/AA violations, light and dark;
+//   - on a 360x640 and a 390x700 phone screen the hero's primary button is
+//     fully visible without scrolling (that is also the first-screen shot);
 //   - screenshots at 360, 390 and 1440 px in both themes, when --shots <dir>:
 //     the first screen at scroll 0, and the full page with the sticky header
 //     put back in the flow (a full-page capture otherwise paints it mid-page).
@@ -22,6 +24,8 @@ const shots = arg("--shots", null);
 const WIDTHS = [360, 390, 430, 768, 1024, 1440];
 const SHOT_WIDTHS = [360, 390, 1440];
 const THEMES = ["dark", "light"];
+// Real phone viewports (after browser chrome): the primary button must be on the first screen.
+const PHONE_SCREENS = [[360, 640], [390, 700]];
 
 const mod = process.env.PLAYWRIGHT_MODULE ? pathToFileURL(join(process.env.PLAYWRIGHT_MODULE, "index.mjs")).href : "playwright";
 const { chromium } = await import(mod);
@@ -29,8 +33,8 @@ const axeSource = readFileSync(process.env.AXE_PATH ?? "node_modules/axe-core/ax
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const fails = [];
 
-async function open(width, theme, reducedMotion = "no-preference") {
-  const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: theme, reducedMotion, deviceScaleFactor: 1, bypassCSP: true });
+async function open(width, theme, reducedMotion = "no-preference", height = 900) {
+  const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: theme, reducedMotion, deviceScaleFactor: 1, bypassCSP: true });
   const page = await ctx.newPage();
   await page.goto(url, { waitUntil: "networkidle" });
   return { ctx, page };
@@ -76,14 +80,17 @@ for (const theme of THEMES) {
     if (overlaps.length) fails.push(`footer overlap at ${width}px ${theme}`);
     if (shots && SHOT_WIDTHS.includes(width)) {
       mkdirSync(shots, { recursive: true });
-      // The first screen as a visitor sees it, at scroll 0...
-      const first = join(shots, `home-${theme}-${width}-first-screen.png`);
-      await page.screenshot({ path: first, animations: "disabled" });
+      // The desktop first screen at scroll 0 (phones get theirs at a real phone height, below)...
+      if (!PHONE_SCREENS.some(([w]) => w === width)) {
+        const first = join(shots, `home-${theme}-${width}-first-screen.png`);
+        await page.screenshot({ path: first, animations: "disabled" });
+        console.log(`shot ${first}`);
+      }
       // ...and the whole page, with the sticky header put back in the flow so it is not painted mid-page.
       await page.addStyleTag({ content: "header.header, .header { position: static !important; } .page { padding-top: 0 !important; } .main-frame { padding-top: 0 !important; }" });
       const file = join(shots, `home-${theme}-${width}.png`);
       await page.screenshot({ path: file, fullPage: true, animations: "disabled" });
-      console.log(`shot ${first}\nshot ${file}`);
+      console.log(`shot ${file}`);
     }
     if (width === 390 || width === 1440) {
       await page.addScriptTag({ content: axeSource });
@@ -92,6 +99,23 @@ for (const theme of THEMES) {
       console.log(`axe ${theme} ${width}px: ${v.length} violations, ${axe.passes.length} rules passed`);
       for (const x of v) console.log(`  ${x.id} (${x.impact}): ${x.nodes.length} nodes, e.g. ${x.nodes[0]?.target.join(" ")}`);
       if (v.length) fails.push(`axe ${theme} ${width}px`);
+    }
+    await ctx.close();
+  }
+}
+
+// The first screen on a phone: chip, headline and the primary button, without scrolling.
+for (const theme of THEMES) {
+  for (const [width, height] of PHONE_SCREENS) {
+    const { ctx, page } = await open(width, theme, "no-preference", height);
+    const bottom = await page.evaluate(() => document.querySelector(".hero .ui-btn--primary")?.getBoundingClientRect().bottom ?? Infinity);
+    const ok = bottom <= height;
+    console.log(`first screen ${theme} ${width}x${height}: primary button bottom ${Math.round(bottom)} ${ok ? "ok" : "FAIL"}`);
+    if (!ok) fails.push(`primary button below the first screen at ${width}x${height} ${theme}`);
+    if (shots) {
+      const first = join(shots, `home-${theme}-${width}-first-screen.png`);
+      await page.screenshot({ path: first, animations: "disabled" });
+      console.log(`shot ${first}`);
     }
     await ctx.close();
   }

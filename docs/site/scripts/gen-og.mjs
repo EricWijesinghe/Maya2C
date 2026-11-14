@@ -31,6 +31,8 @@ const MAX_BYTES = 150 * 1024;
 const C = {
   bg: "#081c28", deep: "#05121a", ink: "#f2f9fa", muted: "#bcd0d7",
   teal: "#1fd3cc", bronze: "#ffbb6b", ring: "#2b4a57",
+  // A mid-teal lift for the left half, so a card reads luminous rather than near-black in a feed.
+  lift: "#0e4d57",
 };
 const FONT = "Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
 
@@ -91,9 +93,9 @@ export function cardSvg(entry, { emblemHref, fontCss = "", status }) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <style>${fontCss} text { font-family: ${FONT}; }</style>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${C.bg}"/><stop offset="1" stop-color="${C.deep}"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2=".45"><stop offset="0" stop-color="${C.lift}"/><stop offset=".55" stop-color="${C.bg}"/><stop offset="1" stop-color="${C.deep}"/></linearGradient>
     <radialGradient id="aurora-t" cx="0.82" cy="0.1" r="0.6"><stop offset="0" stop-color="${C.teal}" stop-opacity=".30"/><stop offset="1" stop-color="${C.teal}" stop-opacity="0"/></radialGradient>
-    <radialGradient id="aurora-b" cx="0.7" cy="0.95" r="0.5"><stop offset="0" stop-color="${C.bronze}" stop-opacity=".20"/><stop offset="1" stop-color="${C.bronze}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="aurora-b" cx="0.84" cy="0.94" r="0.2"><stop offset="0" stop-color="${C.bronze}" stop-opacity=".34"/><stop offset="1" stop-color="${C.bronze}" stop-opacity="0"/></radialGradient>
     <radialGradient id="core"><stop offset="0" stop-color="${C.teal}" stop-opacity=".28"/><stop offset="1" stop-color="${C.teal}" stop-opacity="0"/></radialGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${C.teal}"/><stop offset="1" stop-color="${C.bronze}"/></linearGradient>
     <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${C.teal}"/><stop offset="1" stop-color="${C.bronze}"/></linearGradient>

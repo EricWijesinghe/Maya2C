@@ -23,7 +23,9 @@ const year = new Date().getFullYear();
     <dl>
       <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
       <div><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
-      <div><dt>Peers online</dt><dd data-fp-peers>{testnet.paused ? "paused" : "—"}</dd></div>
+      {testnet.paused
+        ? <div><dt>Network</dt><dd>paused</dd></div>
+        : <div><dt>Peers online</dt><dd data-fp-peers>—</dd></div>}
     </dl>
   </div>
   <div class="maya-footer__about">
@@ -44,7 +46,10 @@ const year = new Date().getFullYear();
   <p class="maya-footer__legal">
     © {year} Eric Wijesinghe. Code licensed under{" "}
     <a href="https://github.com/EricWijesinghe/Maya2C/blob/master/LICENSE">Apache 2.0</a>.
-    Testnet only; the coins have no value.
+    Testnet only; the coins have no value. No token is for sale, and nothing
+    here is an offer of one. Each release lists SHA256SUMS and a build
+    attestation; Windows and macOS code signing is pending:{" "}
+    <a href="/guides/code-signing-policy/">code signing policy</a>.
   </p>
 </footer>
 
@@ -72,12 +77,17 @@ const year = new Date().getFullYear();
   .maya-footer {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+    width: 100%;
     gap: 1rem 2rem;
     margin-top: 3rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--sl-color-hairline);
     font-size: var(--sl-text-sm);
     color: var(--sl-color-gray-3);
+  }
+  /* The legal row spans every track, so auto-fit never collapses the empty ones: name the three columns once there is room. */
+  @media (min-width: 50rem) {
+    .maya-footer { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   .maya-footer p {
     margin: 0 0 0.6rem;

@@ -25,6 +25,7 @@ import { heroCtas } from "../data/home";
 
 const { primary, secondary } = heroCtas(testnet.paused);
 const halts = testnet.last.halts;
+const ended = testnet.last.to;
 // Committee seats on the orbit: decoration, not a validator count.
 const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
   const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
@@ -42,12 +43,12 @@ const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
       <p class="chip">
         <span class="dot" aria-hidden="true"></span>
         {testnet.paused ? (
-          <span>Pre-mainnet · <span class="nw">7-day run, {halts} {halts === 1 ? "halt" : "halts"}</span> · <a href={testnet.report}>report</a></span>
+          <span>Pre-mainnet · <span class="nw">testnet run ended {ended},</span> <span class="nw">{halts} {halts === 1 ? "halt" : "halts"} · <a href={testnet.report}>report</a></span></span>
         ) : (
           <span>Pre-mainnet · maya-testnet-1 <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
         )}
       </p>
-      <h1 id="hero-title">Every transaction signed twice, so one broken algorithm cannot forge it.</h1>
+      <h1 id="hero-title">Every transaction signed twice, so one broken algorithm alone cannot forge it.</h1>
       <p class="sub">Maya2C is a post-quantum <span class="nw">layer-1</span> blockchain, written in Rust and open source.</p>
       <div class="cta">
         <a class="ui-btn ui-btn--primary" href={primary.href}>{primary.label}</a>
@@ -108,15 +109,15 @@ const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
       radial-gradient(70% 60% at 0% 100%, color-mix(in srgb, var(--bronze) 16%, transparent), transparent 70%),
       linear-gradient(165deg, var(--wash-1) 0%, var(--wash-2) 55%, transparent 100%);
   }
-  /* The page below keeps a tint, so the hero does not end in a flat black slab. */
-  :global(body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--bg)) 0, color-mix(in srgb, var(--accent) 4%, var(--bg)) 70rem, color-mix(in srgb, var(--bronze) 4%, var(--bg)) 100%); }
-  /* Light: a warm paper wash of its own (bronze top-left, teal behind the orbit), no cloud. */
+  /* The page below keeps a perceptible tint, so the hero does not end in a flat black slab; each section adds its own band (maya.css .home-band). */
+  :global(body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--bg)) 0, color-mix(in srgb, var(--accent) 6%, var(--bg)) 60rem, color-mix(in srgb, var(--bronze) 8%, var(--bg)) 100%); }
+  /* Light: clean paper with one confident teal-to-mint band and a separate bronze corner, so the two never mix to grey. */
+  :global([data-theme="light"] body:has(.hero)) { background: var(--bg); }
   :global([data-theme="light"]) .hero {
     --ink: var(--text);
     --hero-bg:
-      radial-gradient(70% 80% at 0% 0%, color-mix(in srgb, var(--bronze) 20%, transparent), transparent 70%),
-      radial-gradient(60% 70% at 85% 45%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
-      linear-gradient(180deg, color-mix(in srgb, var(--bronze) 7%, var(--bg)) 0%, transparent 100%);
+      radial-gradient(45% 55% at 100% 100%, color-mix(in srgb, var(--bronze) 22%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--accent) 26%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent) 10%, var(--surface-1)) 50%, var(--surface-1) 100%);
   }
   .bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
   /* The wash fades into the page tint instead of ending on a hard edge. */
@@ -131,12 +132,12 @@ const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
 
   .inner { max-width: var(--sl-content-width, var(--content-max)); margin: 0 auto; display: grid; gap: var(--space-6); align-items: center; }
   .copy { min-width: 0; }
-  .chip { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--bronze) 50%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 14%, var(--surface-1)); font-size: var(--type-body-size); line-height: 1.4; color: var(--text); }
+  .hero .chip { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--bronze) 50%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 14%, var(--surface-1)); font-size: var(--type-body-size); line-height: 1.4; color: var(--text); }
   .chip b { font-weight: var(--weight-semibold); }
   .chip a { color: var(--text); font-weight: var(--weight-semibold); text-decoration-color: var(--bronze); text-underline-offset: 3px; }
   .dot { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 25%, transparent); }
   .hero.live .dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
-  h1 { margin: var(--space-5) 0 var(--space-4); max-width: 22ch; font: 700 clamp(2rem, 1.25rem + 3.4vw, 3.5rem)/1.08 var(--type-display-1-font); letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
+  h1 { margin: var(--space-5) 0 var(--space-4); max-width: 22ch; font: 700 clamp(2rem, 1.25rem + 3.4vw, 3.5rem)/1.1 var(--type-display-1-font); letter-spacing: -0.02em; color: var(--text); text-wrap: balance; }
   .nw { white-space: nowrap; }
   .sub { margin: 0; max-width: 36rem; font-size: clamp(18px, 16px + .5vw, 20px); line-height: 1.5; color: var(--text-2); text-wrap: pretty; }
   .cta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-6); }
@@ -146,14 +147,15 @@ const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
   .cta .ui-btn--secondary { color: var(--text); }
   .trust-row { min-width: 0; }
 
-  /* The orbit: on a phone it comes first (one graphic on the first screen), sized from the column so it never pushes the page wider. */
-  .art { position: relative; order: -1; justify-self: center; width: min(62vw, 13rem); aspect-ratio: 1; }
+  /* The orbit: on a phone it follows the buttons, so chip, headline and the primary button fit a 360x640 screen; sized from the column so it never pushes the page wider. */
+  .art { position: relative; justify-self: center; width: min(56vw, 12rem); aspect-ratio: 1; margin-block: var(--space-2); }
   .orbit { position: relative; width: 100%; height: 100%; overflow: visible; }
   .aurora { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
   .aurora-teal { inset: -30%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 50%, transparent), transparent); }
   .aurora-bronze { inset: -10% -40% -40% -10%; background: radial-gradient(closest-side, color-mix(in srgb, var(--bronze) 30%, transparent), transparent); }
-  :global([data-theme="light"]) .aurora-teal { opacity: .55; }
-  :global([data-theme="light"]) .aurora-bronze { opacity: .7; }
+  :global([data-theme="light"]) .aurora-teal { opacity: .6; }
+  /* Light: the bronze lives in the corner wash and the ring, not over the teal glow, where it turned muddy. */
+  :global([data-theme="light"]) .aurora-bronze { display: none; }
   .stop-teal { stop-color: var(--accent); }
   .stop-bronze { stop-color: var(--bronze); }
   .seat-in { stop-color: color-mix(in srgb, var(--accent) 34%, var(--ink)); }
@@ -168,7 +170,9 @@ const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
   .seat-dot { fill: var(--accent); }
   .seat-bronze .seat-halo { fill: color-mix(in srgb, var(--bronze) 28%, transparent); }
   .seat-bronze .seat-dot { fill: var(--bronze); }
-  .art :global(.emblem) { position: absolute; top: 50%; left: 50%; width: 37.5%; height: auto; transform: translate(-50%, -50%); border-radius: 50%; }
+  .art :global(.emblem) { position: absolute; top: 50%; left: 50%; width: 37.5%; height: auto; transform: translate(-50%, -50%); border-radius: 50%;
+    /* A teal frame seats the dark-edged emblem in the orbit instead of leaving it a pasted disc on pale paper. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent), 0 0 0 9px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 48px color-mix(in srgb, var(--accent) 55%, transparent); }
 
   /* One-shot motion, armed by the script only when motion is welcome. */
   .armed .aurora { animation: settle 1.6s var(--ease) both; }
@@ -185,7 +189,7 @@ const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
   @media (min-width: 960px) {
     .hero { padding-block: var(--space-16) var(--space-12); }
     .inner { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); column-gap: var(--space-10); }
-    .art { order: 0; width: min(100%, 24rem); }
+    .art { width: min(100%, 24rem); margin: 0; }
     .trust-row { grid-column: 1 / -1; }
   }
   @media (prefers-reduced-motion: reduce) { .armed .aurora, .armed .seat, .armed .spoke, .armed .ring-main { animation: none; } }
