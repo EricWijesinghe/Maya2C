@@ -1,0 +1,204 @@
+{
+  "cases": [
+    {
+      "expect": {
+        "kind_bytes": "360611111111111111111111111111111111111111111111111111111111111111116400000000000000000000000000000000000000000000000000000000000000320000000000000001000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+        "result": "ok"
+      },
+      "id": "AA-add-session-key-bytes",
+      "input": {
+        "expires_at": 50,
+        "key_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "max_amount": "100",
+        "recipients": [
+          "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0"
+        ]
+      },
+      "rules": [
+        "AA-7"
+      ]
+    },
+    {
+      "expect": {
+        "kind_bytes": "36071111111111111111111111111111111111111111111111111111111111111111",
+        "result": "ok"
+      },
+      "id": "AA-revoke-session-key-bytes",
+      "rules": [
+        "AA-7"
+      ]
+    },
+    {
+      "expect": {
+        "kind_bytes": "36089600000000000000000000000000000000000000000000000000000000000000",
+        "result": "ok"
+      },
+      "id": "AA-set-daily-limit-bytes",
+      "rules": [
+        "AA-7"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Decode",
+        "result": "error"
+      },
+      "id": "AA-seventeen-recipients",
+      "input": {
+        "kind_bytes": "36061111111111111111111111111111111111111111111111111111111111111111640000000000000000000000000000000000000000000000000000000000000032000000000000001100000022222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "rules": [
+        "AA-7"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "id": "AA-session-at-cap",
+      "input": {
+        "amount": "100",
+        "max_amount": "100"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-over-cap",
+      "input": {
+        "amount": "101",
+        "max_amount": "100"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "id": "AA-session-at-expiry",
+      "input": {
+        "expires_at": 50,
+        "height": 50
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-past-expiry",
+      "input": {
+        "expires_at": 50,
+        "height": 51
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-unlisted-recipient",
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-signed-sub-op",
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "AuthorityMoved",
+        "result": "error"
+      },
+      "id": "AA-session-revoked",
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "id": "AA-window-at-limit",
+      "input": {
+        "amount": "100",
+        "limit": "101",
+        "spent": "0"
+      },
+      "rules": [
+        "AA-9"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-window-owner-over-limit",
+      "input": {
+        "amount": "2",
+        "limit": "101",
+        "spent": "100"
+      },
+      "rules": [
+        "AA-9"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-window-refuses-a-kind-without-outputs",
+      "input": {
+        "funding": "500000",
+        "kind": "open_channel",
+        "limit": "100"
+      },
+      "rules": [
+        "AA-9"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-policy-before-bit-45",
+      "rules": [
+        "AA-10"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "roots_equal_dark_chain": true
+      },
+      "id": "AA-root-without-policy-rows",
+      "rules": [
+        "AA-10"
+      ]
+    }
+  ],
+  "description": "ADR-135 P-5 smart-account policy: session-key action encodings, session-frame scope, the spending window and activation. Regenerate with MAYA_REGEN_VECTORS=1 cargo test -p custom-l1-node --test account_policy_tests conformance; every implementation must agree."
+}

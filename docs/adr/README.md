@@ -100,3 +100,4 @@ The observation that would make this worth reopening.
 | [083](ADR-083-hub-wallet-and-chat-pages.md) | Hub Wallet and Chat pages: watch-only balances, keys stay in their apps; app launch via OS link scheme later | Accepted |
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
+| [135 amendment](ADR-135-amendment-2026-11-14-smart-account-policy.md) | ADR-135 P-5 as built (V4-I5): session keys bound to the granting authority generation, one window row per account, expired rows kept until revoked; to be appended to ADR-135 when PR #477 lands | Proposed |

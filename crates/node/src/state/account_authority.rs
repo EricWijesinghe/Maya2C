@@ -23,6 +23,10 @@
 //! A queued change takes effect by height, not by transaction, as in the
 //! vault: whoever reads the record at or after maturity sees the new value.
 //! No action here writes a balance.
+//!
+//! Session keys and the spending window (ADR-135 P-5) live beside these
+//! records in [`crate::state::account_policy`]: a v9 frame whose policy is
+//! not the account's authority is admitted only as a session-key frame.
 
 use std::collections::BTreeMap;
 
@@ -85,6 +89,18 @@ pub struct RecoveryRecord {
     pub quorum: Option<([u8; 32], u64)>,
 }
 
+fn is_policy_action(kind: &TxKind) -> bool {
+    matches!(
+        kind,
+        TxKind::Account(a) if matches!(
+            **a,
+            AccountAction::AddSessionKey { .. }
+                | AccountAction::RevokeSessionKey { .. }
+                | AccountAction::SetDailyLimit { .. }
+        )
+    )
+}
+
 fn refuse<T>(why: impl Into<String>) -> Result<T> {
     Err(NodeError::Account(why.into()))
 }
@@ -119,6 +135,17 @@ impl AuthorityRecord {
         match self.queued {
             Some((next, ready)) if ready <= height => next,
             _ => self.policy_digest,
+        }
+    }
+
+    /// The height the digest in force at `height` took effect: with
+    /// [`Self::effective`], the authority generation a session key is bound
+    /// to (ADR-135 P-5), so A->B->A is a new generation of A.
+    #[must_use]
+    pub fn effective_since(&self, height: u64) -> u64 {
+        match self.queued {
+            Some((_, ready)) if ready <= height => ready,
+            _ => self.since,
         }
     }
 
@@ -412,14 +439,16 @@ impl StateDB {
         ))
     }
 
-    /// Rules A and B, and the activation gate for wire version 9 and
-    /// `TxKind::Account`. Reads one record and writes nothing, so staging runs
-    /// it before the signature and the fee, and the mempool runs it at the tip.
+    /// Rules A and B, the session-key rule (ADR-135 P-5), and the activation
+    /// gates for wire version 9, `TxKind::Account` and the policy actions.
+    /// Reads at most two records and writes nothing, so staging runs it before
+    /// the signature and the fee, and the mempool runs it at the tip.
     ///
     /// # Errors
     ///
-    /// [`NodeError::Account`] below activation; [`NodeError::AuthorityMoved`]
-    /// when the frame is not the one the record admits.
+    /// [`NodeError::Account`] below activation or outside a session key's
+    /// scope; [`NodeError::AuthorityMoved`] when the frame is not one the
+    /// records admit.
     pub(crate) fn authority_check(
         &self,
         overlay: &Overlay,
@@ -427,8 +456,12 @@ impl StateDB {
         sender: &Address,
         height: u64,
         activation: u64,
+        policy_activation: u64,
     ) -> Result<()> {
         let bound = tx.multisig.as_deref().filter(|a| a.account().is_some());
+        if height < policy_activation && is_policy_action(&tx.kind) {
+            return refuse(format!("session keys are not active at height {height}"));
+        }
         if height < activation {
             if bound.is_some() {
                 return refuse(format!("wire version 9 is not active at height {height}"));
@@ -452,6 +485,14 @@ impl StateDB {
                 hex::encode(sender)
             )),
             (Some(auth), Some(r)) if r.effective(height) == auth.policy().digest() => Ok(()),
+            (Some(auth), Some(r)) if height >= policy_activation => self.session_check(
+                overlay,
+                tx,
+                auth,
+                sender,
+                (r.effective(height), r.effective_since(height)),
+                height,
+            ),
             (Some(_), Some(_)) => moved(format!(
                 "the policy presented is not the one signing for {}",
                 hex::encode(sender)
@@ -497,7 +538,48 @@ impl StateDB {
             AccountAction::WithdrawApproval { account } => {
                 self.withdraw_approval(overlay, &sender, account, context.height)
             }
+            AccountAction::AddSessionKey { .. }
+            | AccountAction::RevokeSessionKey { .. }
+            | AccountAction::SetDailyLimit { .. }
+                if !context.account_policy_active() =>
+            {
+                refuse(format!(
+                    "session keys are not active at height {}",
+                    context.height
+                ))
+            }
+            AccountAction::AddSessionKey { key_hash, scope } => {
+                self.add_session_key(overlay, tx, &sender, key_hash, scope, context)
+            }
+            AccountAction::RevokeSessionKey { key_hash } => {
+                self.revoke_session_key(overlay, &sender, key_hash)
+            }
+            AccountAction::SetDailyLimit { limit } => {
+                self.set_daily_limit(overlay, &sender, *limit, context.height)
+            }
         }
+    }
+
+    /// The authority generation signing for `owner` at `height` (digest and
+    /// the height it took effect), opting the account in first if it has no
+    /// record: the record becomes the policy that signed `tx` (Rule B).
+    pub(super) fn opt_in(
+        &self,
+        overlay: &mut Overlay,
+        tx: &Transaction,
+        owner: &Address,
+        height: u64,
+    ) -> Result<([u8; 32], u64)> {
+        if let Some(record) = self.authority_record(overlay, owner)? {
+            return Ok((record.effective(height), record.effective_since(height)));
+        }
+        let record = AuthorityRecord {
+            policy_digest: signer_policy(tx)?.digest(),
+            since: height,
+            queued: None,
+        };
+        StateDB::put_record(overlay, key(AUTHORITY_RECORD, owner), record.encode());
+        Ok((record.policy_digest, record.since))
     }
 
     fn adopt_policy(
@@ -541,15 +623,7 @@ impl StateDB {
     ) -> Result<()> {
         let height = context.height;
         validate(set, owner)?;
-        if self.authority_record(overlay, owner)?.is_none() {
-            // Opting in: the record is the policy that signed this (Rule B).
-            let record = AuthorityRecord {
-                policy_digest: signer_policy(tx)?.digest(),
-                since: height,
-                queued: None,
-            };
-            StateDB::put_record(overlay, key(AUTHORITY_RECORD, owner), record.encode());
-        }
+        self.opt_in(overlay, tx, owner, height)?;
         let record = match self.guardian_record(overlay, owner)? {
             None => GuardianRecord {
                 set: set.clone(),

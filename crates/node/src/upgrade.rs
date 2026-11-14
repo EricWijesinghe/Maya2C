@@ -27,9 +27,9 @@ use serde::{Deserialize, Serialize};
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::error::{NodeError, Result};
 use crate::state::context::{
-    ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT, DVP_ACTIVATION_HEIGHT, HTLC_L_ACTIVATION_HEIGHT,
-    IOT_ACTIVATION_HEIGHT, STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT,
-    WORK_CLAIM_ACTIVATION_HEIGHT, ZKML_ACTIVATION_HEIGHT,
+    ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT, ACCOUNT_POLICY_ACTIVATION_HEIGHT, DVP_ACTIVATION_HEIGHT,
+    HTLC_L_ACTIVATION_HEIGHT, IOT_ACTIVATION_HEIGHT, STATELESS_ACTIVATION_HEIGHT,
+    THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT, ZKML_ACTIVATION_HEIGHT,
 };
 
 /// The newest protocol version whose rules this binary implements.
@@ -62,8 +62,12 @@ impl FeatureSet {
     // so KNOWN skips it until that branch merges and makes KNOWN contiguous.
     /// Account authority, wire version 9 and guardian recovery (ADR-086).
     pub const ACCOUNT_AUTHORITY: u64 = 1 << 9;
+    /// Smart-account policy: session keys and the daily window (ADR-135
+    /// P-5). Bits 10-40 and 41-44 are other ADRs' claims, not defined here.
+    /// Schedulable only at or after `ACCOUNT_AUTHORITY` (ADR-135 S-10).
+    pub const ACCOUNT_POLICY: u64 = 1 << 45;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ACCOUNT_AUTHORITY;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::ACCOUNT_AUTHORITY | Self::ACCOUNT_POLICY;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -103,6 +107,8 @@ pub struct FeatureActivations {
     pub rwa_strict: u64,
     /// Account authority (ADR-086).
     pub account_authority: u64,
+    /// Smart-account policy (bit 45, ADR-135 P-5).
+    pub account_policy: u64,
 }
 
 impl Default for FeatureActivations {
@@ -118,6 +124,7 @@ impl Default for FeatureActivations {
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             account_authority: ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT,
+            account_policy: ACCOUNT_POLICY_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -156,7 +163,17 @@ impl UpgradeSchedule {
             activation_height: 0,
             features: FeatureSet::default(),
         };
+        let mut authority_scheduled = false;
         for u in &upgrades {
+            authority_scheduled |= u.features.contains(FeatureSet::ACCOUNT_AUTHORITY);
+            // ADR-135 S-10: session keys ride v9 frames, which exist only once
+            // account authority is on, at or before this entry's height.
+            if u.features.contains(FeatureSet::ACCOUNT_POLICY) && !authority_scheduled {
+                return Err(NodeError::Decode(format!(
+                    "protocol upgrade to version {} schedules account policy before account authority",
+                    u.version
+                )));
+            }
             if u.version <= last.version || u.activation_height <= last.activation_height {
                 return Err(NodeError::Decode(format!(
                     "protocol upgrade to version {} at height {} does not follow version {} at height {}",
@@ -228,6 +245,7 @@ impl UpgradeSchedule {
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
             account_authority: at(FeatureSet::ACCOUNT_AUTHORITY, never.account_authority),
+            account_policy: at(FeatureSet::ACCOUNT_POLICY, never.account_policy),
         }
     }
 
@@ -348,6 +366,40 @@ mod tests {
         assert_eq!(
             UpgradeSchedule::default().features().account_authority,
             u64::MAX
+        );
+    }
+
+    #[test]
+    fn account_policy_is_dark_and_needs_account_authority_first() {
+        assert_eq!(FeatureActivations::default().account_policy, u64::MAX);
+        let alone = UpgradeSchedule::new(vec![with(3, 40, FeatureSet::ACCOUNT_POLICY)]);
+        assert!(alone.is_err(), "bit 45 without bit 9");
+        let together = UpgradeSchedule::new(vec![with(
+            3,
+            40,
+            FeatureSet::ACCOUNT_AUTHORITY | FeatureSet::ACCOUNT_POLICY,
+        )])
+        .unwrap();
+        assert_eq!(together.features().account_policy, 40);
+        let after = UpgradeSchedule::new(vec![
+            with(2, 40, FeatureSet::ACCOUNT_AUTHORITY),
+            with(3, 90, FeatureSet::ACCOUNT_POLICY),
+        ])
+        .unwrap();
+        assert_eq!(after.features().account_policy, 90);
+        let before = UpgradeSchedule::new(vec![
+            with(2, 40, FeatureSet::ACCOUNT_POLICY),
+            with(3, 90, FeatureSet::ACCOUNT_AUTHORITY),
+        ]);
+        assert!(before.is_err(), "bit 45 ahead of bit 9");
+        // The neighbours of bit 45 are other ADRs' claims.
+        assert!(
+            UpgradeSchedule::new(vec![with(3, 40, FeatureSet::ACCOUNT_AUTHORITY | 1 << 44)])
+                .is_err()
+        );
+        assert!(
+            UpgradeSchedule::new(vec![with(3, 40, FeatureSet::ACCOUNT_AUTHORITY | 1 << 46)])
+                .is_err()
         );
     }
 
