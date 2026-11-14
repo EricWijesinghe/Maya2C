@@ -2649,7 +2649,7 @@ tier = "core"
 class = "RESEARCH"
 status = "stub"
 tests = ["crates/node/tests/asset_mint_tests.rs", "crates/node/tests/asset_conformance.rs", "crates/node/tests/v4_redteam_tokens.rs"]
-note = "ADR-135 P-1 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 41, ASSET_MINT_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 55-58, record v2 (136 B) under d:asset:. AssetRegistrationFee (governance tag 11) defaults to zero pending Eric O-2. V4_VERSION and the SUPPORTED_PROTOCOL_VERSION rise are not assigned in this change."
+note = "ADR-135 P-1 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 41, ASSET_MINT_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 55-58, record v2 (136 B) under d:asset:. AssetRegistrationFee (governance tag 11) defaults to zero: Eric answered O-2 on 2026-11-12 (bytes only, any fee burned). V4_VERSION and the SUPPORTED_PROTOCOL_VERSION rise are not assigned in this change."
 
 [[subsystem]]
 id = "jurisdictional-transfer-rules"
