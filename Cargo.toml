@@ -447,6 +447,9 @@ futures-util = "0.3"
 futures_ringbuf = "0.4"
 getrandom = "0.4"
 hex = "0.4"
+# HMAC-SHA256 over webhook bodies (api-gateway). Already in the lock at 0.12
+# through the wallet; matches `sha2` 0.10 (digest 0.10).
+hmac = "0.12"
 proptest = "1"
 http-body-util = "0.1"
 hyper = "1"

@@ -11,11 +11,14 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context as _;
 use clap::Parser;
+use maya_api_gateway::events::{self, Events, EventsConfig};
 use maya_api_gateway::limit::{self, ClientIp, RateLimit};
 use maya_api_gateway::node::RpcNodeClient;
+use maya_api_gateway::webhooks::HttpTransport;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -46,6 +49,13 @@ struct Args {
     /// public gateway.
     #[arg(long, env = "MAYA_GATEWAY_BOOTSTRAP")]
     bootstrap: bool,
+    /// How often the event feed polls the node for new blocks, in ms.
+    #[arg(long, default_value_t = 2_000, env = "MAYA_GATEWAY_EVENTS_POLL_MS")]
+    events_poll_ms: u64,
+    /// DEVELOPMENT ONLY: allow plain-http webhook targets. Private, loopback
+    /// and link-local targets stay refused.
+    #[arg(long, env = "MAYA_GATEWAY_WEBHOOKS_ALLOW_HTTP")]
+    webhooks_allow_http: bool,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -88,7 +98,24 @@ async fn main() -> anyhow::Result<()> {
         client_ip: args.client_ip.into(),
     };
     let limiter = limit::config(&limits).context("rate limit settings")?;
-    let app = maya_api_gateway::app_with_limiter(Arc::new(node), &limiter);
+    let node: Arc<dyn maya_api_gateway::node::NodeClient> = Arc::new(node);
+    if args.webhooks_allow_http {
+        tracing::warn!("webhooks: plain http targets allowed (development flag)");
+    }
+    let events = Events::new(
+        EventsConfig {
+            allow_http: args.webhooks_allow_http,
+            client_ip: limits.client_ip,
+            ..EventsConfig::default()
+        },
+        Arc::new(HttpTransport::new(args.webhooks_allow_http)),
+    );
+    events::spawn_poller(
+        Arc::clone(&node),
+        Arc::clone(&events),
+        Duration::from_millis(args.events_poll_ms.max(1)),
+    );
+    let app = maya_api_gateway::app_with_events(node, &limiter, events);
     limit::spawn_pruning(&limiter);
     tracing::info!(
         listen = %args.listen, node = %args.node, ?limits, "gateway serving"
