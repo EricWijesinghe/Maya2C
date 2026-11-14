@@ -3410,8 +3410,8 @@ paths = "`crates/staking`, `crates/node/src/state/staking.rs`, `crates/node/src/
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs"]
-note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. Not an external audit."
+tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
+note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. S-033 committee floor (ADR-070) is open at mainnet bonds: a down validator bonded at exactly min_self_bond is slashed below it and jailed whatever the floor says (docs/audit/FINDINGS.md). Not an external audit."
 
 [[subsystem]]
 id = "security-council-pause"
