@@ -112,7 +112,7 @@ The observation that would make this worth reopening.
 | [072](ADR-072-max-block-bytes.md) | A block has a byte cap; transactions past it wait for the next block | Proposed |
 | [073](ADR-073-hub-multi-rig-pool-profitability.md) | Hub multi-rig, pool view and on-chain profitability estimate | Proposed |
 | [074](ADR-074-chat-outbox-receipts-envelope-v2.md) | Chat sender outbox, signed delivery receipts, envelope v2 (and a send-path nonce-reuse fix) | Accepted in part |
-| [075](ADR-075-node-update-notice.md) | Node "update available" notice, notify only | Accepted |
+| [075](ADR-075-node-update-notice.md) | Node "update available" notice, notify only | Implemented, approval not recorded |
 | [076](ADR-076-base-fee-step-clamp-and-ceiling.md) | The base fee rises at most one denominator's share per block, and has a ceiling | Accepted |
 | [077](ADR-077-sentinel-recovery-network.md) | Sentinel Recovery Network: scoped quarantine and forward-only governed recovery (MIP-0001), after mainnet | Accepted |
 | [078](ADR-078-omega-durable-advantage.md) | Omega design: three-speed evolution (vote-activated, pre-shipped code), bounded integer controllers, test ratchet, moat indicators (MIP-0002) | Accepted |
@@ -125,9 +125,9 @@ The observation that would make this worth reopening.
 | [085](ADR-085-chat-v2-groups-on-mls.md) | Group chats on MLS with a hybrid post-quantum ciphersuite (chat-v2) | Proposed |
 | [086](ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) | wallet-v2: seedless smart-account recovery, clear signing, address book, payment requests | Proposed |
 | [087](ADR-087-shielded-pool-activation-after-genesis.md) | Enable the shielded pool after genesis through a scheduled upgrade | Proposed |
-| [089](ADR-089-native-finality-light-client.md) | Native finality light client (succinct proofs), phase 0 | Accepted (phase 0) |
+| [089](ADR-089-native-finality-light-client.md) | Native finality light client (succinct proofs), phase 0 | Implemented for phase 0, approval not recorded |
 | [090](ADR-090-testnet-kit-and-node-box.md) | Testnet kit and node-in-a-box live in xtask; `down` stops by PID and start time | Accepted |
-| [101](ADR-101-sentinel-v2.md) | Sentinel v2, phase 1: a dead-man heartbeat and consensus detectors | Accepted (phase 1); phases 2 to 5 Proposed |
+| [101](ADR-101-sentinel-v2.md) | Sentinel v2, phase 1: a dead-man heartbeat and consensus detectors | Implemented for phase 1, approval not recorded; phases 2 to 5 Proposed |
 | [102](ADR-102-stealth-addresses-ml-kem.md) | Stealth addresses over ML-KEM-768: hash-committed one-time addresses, view tag, v10 spend frame; spend reveals the spend address | Proposed |
 | [103](ADR-103-native-fungible-tokens.md) | Native fungible tokens: optional mint authority and an immutable 256-bit cap on the existing asset record; fee in native coin | Proposed |
 | [104](ADR-104-unique-assets.md) | Unique assets (NFTs): metadata hash only under `n:`, royalties settled on on-chain sales | Proposed |
