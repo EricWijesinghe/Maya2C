@@ -103,6 +103,11 @@ jobs:
       - name: Guide commands
         run: cargo xtask guides-check
 
+      # Every relative link in a tracked Markdown file names an existing file
+      # (issue #530; ADR-081 and ADR-082 shipped two renamed targets).
+      - name: Markdown links
+        run: cargo xtask md-links
+
   # The protocol spec's conformance suite (spec/README.md). The node side,
   # crates/node/tests/conformance.rs, runs in the `test` job with the rest of
   # the workspace; this job checks the vectors are what the reference
