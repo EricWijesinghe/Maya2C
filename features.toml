@@ -2792,6 +2792,18 @@ gate = "Go and Python unit tests run in the `sdks` workflow (.github/workflows/s
 note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. Tests run against an in-process mock gateway, not a live node: no live run is recorded yet, so this is not `verified`. Not published (publish needs Eric's APPROVED)."
 
 [[subsystem]]
+id = "cpp-sdk"
+name = "C++ SDK over sdk-ffi (maya2c::sdk)"
+domain = "Tooling and formal verification"
+paths = "`sdks/sdk-cpp`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["sdks/sdk-cpp/tests/keys_test.cpp", "sdks/sdk-cpp/tests/amount_test.cpp", "sdks/sdk-cpp/tests/address_test.cpp", "sdks/sdk-cpp/tests/error_test.cpp"]
+gate = "GoogleTest via CMake + ctest in the `sdks` workflow's `C++ SDK tests` job (.github/workflows/sdks.yml), after `cargo build -p maya-sdk-ffi --lib`. Ubuntu only."
+note = "P-43. Header-only C++20 over sdk-ffi's uniffi C ABI: move-only SigningKey handle freed through the FFI, Seed wiped on destruction, typed Result/Error mapped from SdkError, 256-bit Amount at exactly 24 decimals, Bech32m Address on the shared vectors. No transaction builder or RPC client (sdk-ffi has neither). Stub until the CI job has run green; never compiled locally."
+
+[[subsystem]]
 id = "latex-technical-reference-generator"
 name = "LaTeX technical reference generator"
 domain = "Tooling and formal verification"
