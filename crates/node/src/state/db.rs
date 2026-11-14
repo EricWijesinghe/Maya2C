@@ -808,6 +808,7 @@ impl StateDB {
             &sender_address,
             context.height,
             context.account_authority_activation,
+            context.account_policy_activation,
         )?;
 
         // Authorization — an unsigned or forged transaction must never reach
@@ -844,6 +845,17 @@ impl StateDB {
         // (ADR-030), checked before a unit moves.
         if let Some(vault) = self.vault_check(overlay, tx, &sender_address, context.height)? {
             StateDB::store_vault(overlay, &sender_address, &vault);
+        }
+        // An account's spending window (ADR-135 P-5) charges every frame
+        // acting for it, owner-signed or session-signed, the same way.
+        if let Some(window) = self.window_check(
+            overlay,
+            tx,
+            &sender_address,
+            context.height,
+            context.account_policy_activation,
+        )? {
+            StateDB::store_window(overlay, &sender_address, &window);
         }
         // The double-spend guard is the nonce check above: the first spend bumps
         // the nonce, so a replay of the same transaction no longer matches.

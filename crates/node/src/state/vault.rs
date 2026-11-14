@@ -296,7 +296,9 @@ impl StateDB {
     /// Value `tx` moves out: every output, except that the collector outputs
     /// up to the required fee are exempt. `charge_fee` already checked that
     /// fee at this base fee, so nothing above it is a fee and all of it counts.
-    fn vault_outflow(&self, overlay: &Overlay, tx: &Transaction) -> Result<U256> {
+    /// Also what a session key's `max_amount` and the account spending window
+    /// count (ADR-135 P-5), so one fee rule serves all three.
+    pub(crate) fn vault_outflow(&self, overlay: &Overlay, tx: &Transaction) -> Result<U256> {
         let collector = crate::state::fees::FEE_COLLECTOR;
         // Saturating: an outflow past 2^256 is past any limit either way.
         let sum = |fee: bool| -> U256 {

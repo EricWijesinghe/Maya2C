@@ -3452,6 +3452,17 @@ tests = ["crates/node/tests/account_authority_tests.rs"]
 note = "ADR-086 §3, phase P3 (dark): ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT = u64::MAX, FeatureSet bit 9. Rule A/B in stage_transaction and the mempool; ka: state layer (tag 18) folded only when non-empty; guardian bounds, F1/F3/F4/F6 semantics; cancel and withdraw never halted. Proposed invariant 35. Not active anywhere: needs a testnet schedule entry, two human reviewers and a governance ScheduleUpgrade. Vectors: spec/account-authority-vectors.json. Invariant 33 for v9 frames: `v9_frames_fill_the_block_cap_and_the_rest_carry_over` fills MAX_BLOCK_BYTES with recovered-account frames (184 2-of-3, 120 3-of-5), carries the next one over, and imports both blocks."
 
 [[subsystem]]
+id = "account-policy"
+name = "Smart-account policy on chain: session keys with a cap, an expiry and recipients, and a per-window spending limit (v9 frames, TxKind::Account actions 6-8)"
+domain = "Accounts"
+paths = "`crates/node/src/state/account_policy.rs`, `crates/node/src/core/account_payload.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/node/tests/account_policy_tests.rs"]
+note = "ADR-135 P-5 (V4-I5), dark: ACCOUNT_POLICY_ACTIVATION_HEIGHT = u64::MAX, FeatureSet bit 45, schedulable only with or after bit 9 (S-10). Built on account authority (PR #447, wire v9). ka:s: session rows carry the granting authority digest, so recovery or AdoptPolicy voids every older session key; ka:w: is one row per account. Session frames: plain transfers only (S-1), cap on the frame's outflow, expiry, listed recipients, 40-unit verification budget before any signature. Window counts owner-signed frames too (S-9). Vectors: spec/tests/account-policy.json (AA-7..AA-10). Not active anywhere: needs the v4 schedule entry, a testnet run and two human reviewers."
+
+[[subsystem]]
 id = "private-contract-state"
 name = "Private contract state: STARK-proved updates to a committed field, checked by the VM through opt-in maya_priv imports"
 domain = "Privacy"

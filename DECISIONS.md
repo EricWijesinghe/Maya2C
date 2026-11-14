@@ -901,3 +901,15 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — V4-I5 smart-account policy built dark; five changes to ADR-135 P-5 as written (Claude, under Eric 2026-11-14 "I approve everything, proceed")
+
+Built on `feat/v4-i5-smart-accounts`, stacked on PR #447 (account authority), post-genesis, draft. Feature bit 45 `ACCOUNT_POLICY`, compiled height `u64::MAX`. ADR-135 (PR #477) is not on this base, so its amendment is recorded here and in the PR body for the coordinator to append to ADR-135's "Amendment" section.
+
+- **Session keys die with the authority that granted them.** Not in ADR-135. Each `ka:s:` row stores `granted_by`, the authority digest in force when it was added, and counts only while that digest is still in force. Without it, a thief holding the owner key could add a session key for himself and keep spending after the guardians recovered the account. With it, recovery (or a matured `AdoptPolicy`) voids every older session key in O(1), with no sweep. Pinned by `an_authority_change_voids_every_session_key`.
+- **`ka:w:` is one row per account**, `limit ‖ window_start ‖ spent`, not `ka:w:‖account‖window_start` per window. The per-window key left one stale row per account per day, forever. This also moves `daily_limit` into this row instead of a v2 `ka:a:` record, so #447's record encoding is untouched.
+- **The cap is on the frame, not the output, and counts what the vault counts.** `max_amount` and the window both count the frame's outflow (every output, collector outputs up to the required fee exempt; `vault_outflow`, invariant 32). A per-output cap could be split across two outputs. A fee collector output is always an allowed recipient, so a session frame can pay its fee.
+- **Window = 86,400 blocks**, not 43,200. ADR-135 O-1 was answered "1 block/s" on 2026-11-12; 43,200 was the smart-account crate's 2 s figure.
+- **Methods are plain transfers only.** The brief asked for "allowed recipients/methods". ADR-135 P-5 binds the method to `Transfer` (S-1), and that is what was built: a method allow-list for contract calls would let value move where the cap does not see it. A per-kind allow-list is a later ADR.
+
+Also: the verification budget (40 units) applies to session-signed frames only, so #447's 3-of-5 hybrid owner frames (55 units) are unchanged; add refuses `expires_at` beyond one year (`MAX_SCHEDULE_HORIZON_BLOCKS`) and a session key equal to the authority digest; `RevokeSessionKey` is never halted by the guard, like `CancelRecovery`; a schedule naming bit 45 before (or without) bit 9 is refused (S-10). Spec rules AA-7..AA-10, vectors `spec/tests/account-policy.json`.

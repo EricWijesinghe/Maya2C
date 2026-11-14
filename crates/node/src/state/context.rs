@@ -79,6 +79,12 @@ pub struct BlockContext {
     /// [`ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT`] everywhere the node builds a
     /// context. Set from the upgrade schedule by [`Self::with_features`].
     pub account_authority_activation: u64,
+    /// First height at which smart-account policy (session keys and the
+    /// daily window, ADR-135 P-5) is in force.
+    ///
+    /// [`ACCOUNT_POLICY_ACTIVATION_HEIGHT`] everywhere the node builds a
+    /// context. Set from the upgrade schedule by [`Self::with_features`].
+    pub account_policy_activation: u64,
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
@@ -107,6 +113,13 @@ pub const DVP_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// every v9 frame and every `TxKind::Account` is refused, no `ka:` record can
 /// exist, and no state root moves.
 pub const ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which smart-account policy executes: none.
+///
+/// ADR-135 P-5, feature bit 45, part of the v4 entry. Until then every
+/// session-key action and every session-signed frame is refused, no `ka:s:`
+/// or `ka:w:` row can exist, and no state root moves.
+pub const ACCOUNT_POLICY_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which `IoT` anchor transactions execute: none.
 ///
@@ -217,6 +230,7 @@ impl BlockContext {
             dvp_activation: DVP_ACTIVATION_HEIGHT,
             rwa_strict_activation: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             account_authority_activation: ACCOUNT_AUTHORITY_ACTIVATION_HEIGHT,
+            account_policy_activation: ACCOUNT_POLICY_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
@@ -236,6 +250,7 @@ impl BlockContext {
             dvp_activation: features.dvp,
             rwa_strict_activation: features.rwa_strict,
             account_authority_activation: features.account_authority,
+            account_policy_activation: features.account_policy,
             ..self
         }
     }
@@ -262,6 +277,21 @@ impl BlockContext {
     #[must_use]
     pub const fn account_authority_active(self) -> bool {
         self.height >= self.account_authority_activation
+    }
+
+    /// The same context with smart-account policy active from `height` on.
+    #[must_use]
+    pub const fn with_account_policy_activation(self, height: u64) -> Self {
+        Self {
+            account_policy_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether session keys and the daily window (ADR-135 P-5) are in force.
+    #[must_use]
+    pub const fn account_policy_active(self) -> bool {
+        self.height >= self.account_policy_activation
     }
 
     /// The same context with RWA swaps active from `height` on.
