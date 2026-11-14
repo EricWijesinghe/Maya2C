@@ -1098,7 +1098,7 @@ mod ribbon_tests {
 mod validators_page_tests {
     use custom_l1_node::rpc::validators::{ValidatorInfo, ValidatorsInfo};
 
-    use super::validators_page;
+    use super::{name_page, validators_page};
 
     fn row(id: u8, status: &str, until: Option<u64>, in_committee: bool) -> ValidatorInfo {
         ValidatorInfo {

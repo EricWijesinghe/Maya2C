@@ -453,6 +453,50 @@ async fn get_validators_is_null_on_a_chain_without_staking() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_name_reads_the_committed_record_and_refuses_an_impossible_label() {
+    use custom_l1_node::rpc::NameInfo;
+    use custom_l1_node::state::names::NameRecord;
+
+    let node = start_node(&[], false).await;
+    let record = NameRecord {
+        label: b"alice".to_vec(),
+        owner: [0xAA; 32],
+        target: [0xBB; 32],
+        registered_at: 3,
+        expires_at: 31_536_003,
+    };
+    // `nm:n:` ‖ blake3(label), the key ADR-135 P-3 names.
+    let key = [&b"nm:n:"[..], blake3::hash(b"alice").as_bytes()].concat();
+    node.state
+        .raw_put_for_test(&key, &record.encode())
+        .expect("seed name");
+
+    for query in ["alice", "alice.maya"] {
+        let info: Option<NameInfo> = node
+            .client
+            .request("get_name", rpc_params![query])
+            .await
+            .expect("get_name");
+        let info = info.expect("registered");
+        assert_eq!(info.label, "alice");
+        assert_eq!(info.owner, "aa".repeat(32));
+        assert_eq!(info.target, "bb".repeat(32));
+        assert_eq!(info.expires_at, 31_536_003);
+    }
+    let free: Option<NameInfo> = node
+        .client
+        .request("get_name", rpc_params!["bobby"])
+        .await
+        .expect("get_name");
+    assert!(free.is_none());
+    for bad in ["ab", "Alice", "a--b", "-ab"] {
+        let refused: Result<Option<NameInfo>, _> =
+            node.client.request("get_name", rpc_params![bad]).await;
+        assert!(refused.is_err(), "{bad} must be refused, not looked up");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_range_stops_at_the_tip_and_matches_the_single_block_answer() {
     let node = start_node(&[], false).await;
 
