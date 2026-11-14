@@ -15,6 +15,13 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 primitive-types.workspace = true
 jsonrpsee = { workspace = true, features = ["http-client"] }
+# Incident log: SHA-256 chain, ML-DSA-65 operator signatures (as apps/chat does).
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+getrandom.workspace = true
+maya-crypto-pq = { path = "../../crates/crypto-pq" }
 # Halt alerts to a push topic (ntfy), off unless configured.
 reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
 

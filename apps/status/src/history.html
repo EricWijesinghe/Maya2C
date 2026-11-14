@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya2C Status history</title>
+<meta name="description" content="Incident timeline, mainnet launch gates and service levels for maya-testnet-1.">
+<meta name="theme-color" content="#050b0f">
+<link rel="icon" href="/brand/emblem.png" type="image/png">
+<style>
+  /* Same console as the status page: teal and bronze over dark. System fonts only. */
+  :root { color-scheme: dark; --void:#050b0f; --panel:rgba(12,24,30,.6); --edge:rgba(31,181,194,.16); --text:#e8f6f2;
+    --muted:#93a4aa; --teal:#1fb5c2; --teal2:#178f9a; --bronze:#d9b97a; --bronze2:#a8703a; --ok:#7eeaf0; --alert:#e6b260; --bad:#e26d6d;
+    --display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif; --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Consolas,monospace; }
+  * { box-sizing: border-box; }
+  html, body { overflow-x: hidden; }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(60rem 28rem at 15% -10%, rgba(31,181,194,.14), transparent 60%), var(--void);
+    color: var(--text); font: 400 16px/1.6 var(--sans); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
+  header a.brand { color: var(--text); text-decoration: none; font: 600 20px var(--display); display: flex; gap: 10px; align-items: center; }
+  header a.brand img { width: 34px; height: 34px; }
+  nav a { color: var(--teal); text-decoration: none; margin-left: 14px; font-size: 14px; }
+  nav a:hover { text-decoration: underline; }
+  .pill { padding: 8px 16px; border-radius: 999px; background: var(--panel); border: 1px solid var(--edge); font: 400 13px var(--mono); color: var(--muted); }
+  .pill.bad { border-color: rgba(226,109,109,.6); color: var(--bad); }
+  h2 { font: 300 clamp(22px,3.4vw,32px)/1.15 var(--display); margin: 44px 0 6px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+  .card { background: var(--panel); border: 1px solid var(--edge); border-radius: 18px; padding: 18px; }
+  .missing { color: var(--muted); font: 400 13px var(--mono); border: 1px dashed var(--edge); border-radius: 10px; padding: 4px 10px; display: inline-block; }
+
+  /* Timeline */
+  .track { position: relative; height: 84px; border-radius: 14px; background: rgba(5,11,15,.6); border: 1px solid var(--edge); }
+  .track .axis { position: absolute; left: 14px; right: 14px; top: 50%; height: 2px; background: linear-gradient(90deg, var(--teal2), var(--teal), var(--bronze)); opacity: .5; }
+  .mark { position: absolute; top: 50%; transform: translate(-50%,-50%); width: 22px; height: 22px; border-radius: 50%; padding: 0; cursor: pointer;
+    border: 2px solid var(--bronze); background: radial-gradient(circle, #f1d0a2 0 30%, var(--bronze) 60%, rgba(217,185,122,.15)); }
+  .mark.draft { border: 2px dashed var(--teal); background: radial-gradient(circle, rgba(31,181,194,.5), rgba(5,11,15,.9)); }
+  .mark.open { animation: pulse 1.6s ease-in-out infinite; }
+  .mark:focus-visible, .row:focus-visible, .tile:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+  @keyframes pulse { 50% { box-shadow: 0 0 16px -2px var(--alert); } }
+  .ends { display: flex; justify-content: space-between; color: var(--muted); font: 400 12px var(--mono); margin-top: 6px; }
+  .rows { display: grid; gap: 8px; margin-top: 14px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--edge);
+    cursor: pointer; color: var(--text); font: inherit; text-align: left; width: 100%; }
+  .row:hover { border-color: var(--teal); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--bronze); }
+  .dot.draft { background: transparent; border: 2px dashed var(--teal); }
+  .row .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .chip { font: 400 12px var(--mono); color: var(--muted); white-space: nowrap; }
+
+  /* Gates */
+  .gates-top { display: grid; grid-template-columns: 180px 1fr; gap: 18px; align-items: center; }
+  .ring { width: 160px; height: 160px; position: relative; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .val { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font: 300 30px/1 var(--display); }
+  .ring .val span { font: 400 12px var(--sans); color: var(--muted); margin-top: 4px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .tile { border-radius: 14px; padding: 12px; background: var(--panel); border: 1px solid var(--edge); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+  .tile:hover { border-color: var(--teal); }
+  .tile .n { font: 400 12px var(--mono); color: var(--muted); }
+  .tile .name { font-size: 14px; margin-top: 4px; }
+  .tile .st { display: inline-block; margin-top: 8px; font: 400 11px var(--mono); padding: 2px 8px; border-radius: 999px; }
+  .st.met { background: rgba(126,234,240,.15); color: var(--ok); }
+  .st.partial { background: rgba(230,178,96,.15); color: var(--alert); }
+  .st.open { background: rgba(147,164,170,.15); color: var(--muted); }
+
+  /* SLO */
+  .slo { display: grid; grid-template-columns: 180px 1fr; gap: 18px; align-items: center; }
+  .bars { display: grid; gap: 14px; }
+  .bar { cursor: pointer; background: none; border: 0; color: var(--text); font: inherit; text-align: left; padding: 0; width: 100%; }
+  .bar .lab { display: flex; justify-content: space-between; font: 400 13px var(--mono); color: var(--muted); }
+  .bar .rail { position: relative; height: 14px; border-radius: 7px; background: rgba(5,11,15,.7); border: 1px solid var(--edge); margin-top: 6px; }
+  .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 7px; background: linear-gradient(90deg, var(--teal2), var(--teal)); }
+  .bar .fill.over { background: linear-gradient(90deg, var(--bronze2), var(--alert)); }
+  .bar .target { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--bronze); }
+
+  .detail { margin-top: 22px; min-height: 56px; padding: 14px 18px; border-radius: 16px; background: var(--panel); border: 1px solid var(--edge);
+    color: var(--muted); font: 400 14px/1.6 var(--sans); overflow-wrap: anywhere; }
+  .detail b { color: var(--text); font-weight: 600; }
+  .detail a { color: var(--bronze); }
+  .empty { color: var(--muted); font-size: 14px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
+  footer a { color: var(--teal); text-decoration: none; }
+  @media (max-width: 680px) { .gates-top, .slo { grid-template-columns: 1fr; justify-items: center; } .bars { width: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .mark.open { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/"><img src="/brand/emblem.png" alt="">Maya2C status history</a>
+    <span class="pill" id="chain">checking the incident log…</span>
+  </header>
+  <nav style="margin-top:8px"><a href="/">Live status</a><a href="/live">Live network</a></nav>
+
+  <h2>Incidents</h2>
+  <p class="sub">Halts drafted from the chain, then published by an operator. Click any marker or row.</p>
+  <div class="card">
+    <div class="track" id="track" role="list" aria-label="Incident timeline"></div>
+    <div class="ends"><span id="t0">genesis</span><span id="t1">now</span></div>
+    <div class="rows" id="rows"></div>
+  </div>
+
+  <h2>Mainnet gates</h2>
+  <p class="sub">Recorded from docs/mainnet-v1-plan.md by an operator, not computed. Click a gate.</p>
+  <div class="card">
+    <div class="gates-top">
+      <div class="ring" aria-label="Gates met">
+        <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(31,181,194,.12)" stroke-width="10"/>
+          <circle id="gring" cx="60" cy="60" r="52" fill="none" stroke="url(#g)" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 400"/>
+          <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#178f9a"/><stop offset="1" stop-color="#d9b97a"/></linearGradient></defs></svg>
+        <div class="val"><div><b id="gmet">–</b>/<span id="gtot" style="font:inherit;color:inherit">–</span><span>gates met</span></div></div>
+      </div>
+      <div class="tiles" id="tiles"></div>
+    </div>
+  </div>
+
+  <h2>Service levels</h2>
+  <p class="sub">Measured from the chain and the node. A figure not measured reads MISSING.</p>
+  <div class="card slo">
+    <div class="ring" aria-label="Uptime, last 30 days">
+      <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(31,181,194,.12)" stroke-width="10"/>
+        <circle id="uring" cx="60" cy="60" r="52" fill="none" stroke="#1fb5c2" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 400"/></svg>
+      <div class="val"><div><b id="upct">MISSING</b><span>uptime, 30 d</span></div></div>
+    </div>
+    <div class="bars">
+      <button class="bar" id="bp50" type="button"><div class="lab"><span>finality p50</span><span id="vp50">MISSING</span></div>
+        <div class="rail"><div class="fill" id="fp50"></div><div class="target" id="tp50"></div></div></button>
+      <button class="bar" id="bp99" type="button"><div class="lab"><span>finality p99</span><span id="vp99">MISSING</span></div>
+        <div class="rail"><div class="fill" id="fp99"></div><div class="target" id="tp99"></div></div></button>
+    </div>
+  </div>
+
+  <div class="detail" id="detail" aria-live="polite">Select an incident, gate or service level to see its detail.</div>
+
+  <footer>
+    <a href="/api/incidents">incidents JSON</a><a href="/api/gates">gates JSON</a><a href="/api/slo">service levels JSON</a>
+  </footer>
+</div>
+<script>
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const HTTPS = /^https:\/\//;
+  const fmt = (n) => Number(n).toLocaleString("en-US");
+  const dur = (s) => { s = Math.max(0, Math.round(s)); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : m ? `${m} min ${s % 60} s` : `${s} s`; };
+  const when = (t) => new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  let chain = null, status = null;
+
+  // Detail text is always built with textContent; only https report links become anchors.
+  function show(lines) {
+    const d = $("detail");
+    d.textContent = "";
+    lines.forEach(([label, value]) => {
+      const p = document.createElement("div");
+      const b = document.createElement("b");
+      b.textContent = label + ": ";
+      p.appendChild(b);
+      if (label === "Report" && HTTPS.test(value)) {
+        const a = document.createElement("a");
+        a.href = value; a.rel = "noopener noreferrer"; a.textContent = value;
+        p.appendChild(a);
+      } else {
+        p.appendChild(document.createTextNode(String(value)));
+      }
+      d.appendChild(p);
+    });
+  }
+
+  function incidentDetail(i) {
+    const lines = [["Incident", i.title], ["State", i.published ? "published by an operator" : "draft, unsigned, awaiting an operator"],
+      ["Started", when(i.started)], ["Ended", i.ended ? when(i.ended) + " (" + dur(i.ended - i.started) + ")" : "still open"],
+      ["Severity", i.severity], ["Detail", i.body], ["Log record", "#" + i.seq]];
+    if (i.signer) lines.push(["Operator key", i.signer.slice(0, 24) + "…"]);
+    if (i.report) lines.push(["Report", i.report]);
+    show(lines);
+  }
+
+  function renderIncidents(log, genesis, now) {
+    const track = $("track"), rows = $("rows");
+    track.textContent = ""; rows.textContent = "";
+    if (log.status !== "verified") {
+      const msg = log.status === "off" ? "The incident log is not configured on this server."
+        : log.status === "tampered" ? "The incident log FAILS verification, so no rows are shown: " + log.error
+        : "The incident log cannot be read: " + log.error;
+      const p = document.createElement("p"); p.className = "missing"; p.textContent = msg; rows.appendChild(p);
+      return;
+    }
+    const span = Math.max(1, now - genesis);
+    if (!log.incidents.length) {
+      const p = document.createElement("p"); p.className = "empty"; p.textContent = "No incidents recorded since genesis."; rows.appendChild(p);
+    }
+    log.incidents.forEach((i) => {
+      const at = Math.min(100, Math.max(0, (i.started - genesis) / span * 100));
+      const m = document.createElement("button");
+      m.type = "button";
+      m.className = "mark" + (i.published ? "" : " draft") + (i.ended ? "" : " open");
+      m.style.left = `calc(14px + (100% - 28px) * ${(at / 100).toFixed(4)})`;
+      m.setAttribute("aria-label", i.title);
+      m.onclick = () => incidentDetail(i);
+      track.appendChild(m);
+
+      const r = document.createElement("button");
+      r.type = "button"; r.className = "row";
+      const dot = document.createElement("span"); dot.className = "dot" + (i.published ? "" : " draft");
+      const t = document.createElement("span"); t.className = "t"; t.textContent = i.title;
+      const c = document.createElement("span"); c.className = "chip";
+      c.textContent = (i.published ? "published" : "draft") + " · " + (i.ended ? dur(i.ended - i.started) : "open");
+      r.append(dot, t, c);
+      r.onclick = () => incidentDetail(i);
+      rows.appendChild(r);
+    });
+  }
+
+  function renderGates(g) {
+    $("gmet").textContent = g.progress.met;
+    $("gtot").textContent = g.progress.total;
+    $("gring").setAttribute("stroke-dasharray", `${(g.progress.met / Math.max(1, g.progress.total) * 326.7).toFixed(1)} 400`);
+    const tiles = $("tiles"); tiles.textContent = "";
+    g.gates.forEach((gate) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "tile";
+      const n = document.createElement("div"); n.className = "n"; n.textContent = "Gate " + gate.number;
+      const name = document.createElement("div"); name.className = "name"; name.textContent = gate.title;
+      const st = document.createElement("span"); st.className = "st " + gate.state; st.textContent = gate.state;
+      b.append(n, name, st);
+      b.onclick = () => show([["Gate " + gate.number, gate.title], ["State", gate.state], ["Evidence", gate.note],
+        ["Source", gate.evidence || "none recorded"], ["Plan", "docs/mainnet-v1-plan.md"]]);
+      tiles.appendChild(b);
+    });
+  }
+
+  function renderSlo(s) {
+    const up = s.uptime.percent;
+    $("upct").textContent = up == null ? "MISSING" : up.toFixed(3) + "%";
+    $("uring").setAttribute("stroke-dasharray", `${((up || 0) / 100 * 326.7).toFixed(1)} 400`);
+    const f = s.finality, t = s.targets;
+    const bar = (key, value, target, label) => {
+      $("v" + key).textContent = value == null ? "MISSING" : value.toFixed(2) + " s";
+      const max = target * 1.5;
+      $("f" + key).style.width = value == null ? "0" : Math.min(100, value / max * 100).toFixed(1) + "%";
+      $("f" + key).classList.toggle("over", value != null && value > target);
+      $("t" + key).style.left = (target / max * 100).toFixed(1) + "%";
+      $("b" + key).onclick = () => show([[label, value == null ? "MISSING (not measured)" : value.toFixed(3) + " s"],
+        ["Target", "≤ " + target + " s (design goal, docs/SLO.md)"],
+        ["Samples", f ? fmt(f.samples) + " blocks since the node started" : "none: node metrics not read"],
+        ["Source", "node metric maya_finality_latency_seconds"]]);
+    };
+    bar("p50", f ? f.p50_s : null, t.p50_s);
+    bar("p99", f ? f.p99_s : null, t.p99_s);
+    $("upct").onclick = () => show([["Uptime, 30 days", up == null ? "MISSING (not measured)" : up.toFixed(3) + "%"],
+      ["Target", s.uptime.target_percent + "%"], ["Method", "time with a block produced, from block timestamps; halts only"]]);
+  }
+
+  async function getJson(url) {
+    const r = await fetch(url, { cache: "no-store" });
+    return r.json();
+  }
+
+  async function refresh() {
+    try {
+      const [st, inc, gates, slo] = await Promise.all([getJson("/api/status"), getJson("/api/incidents"), getJson("/api/gates"), getJson("/api/slo")]);
+      status = st;
+      const pill = $("chain");
+      pill.classList.toggle("bad", inc.status === "tampered");
+      pill.textContent = inc.status === "verified" ? `chain log verified · ${inc.records} records · head ${inc.head.slice(0, 12)}…`
+        : inc.status === "tampered" ? "chain log FAILS verification" : inc.status === "off" ? "incident log off" : "incident log unreadable";
+      if (st.genesis) {
+        const now = st.stopped ? st.last_block : Math.max(st.last_block, Math.floor(Date.now() / 1000));
+        $("t0").textContent = "genesis · " + when(st.genesis);
+        $("t1").textContent = "now · " + when(now);
+        renderIncidents(inc, st.genesis, now);
+      } else {
+        renderIncidents(inc, 0, 1);
+      }
+      renderGates(gates);
+      renderSlo(slo);
+    } catch (e) {
+      $("chain").textContent = "status service unreachable";
+    }
+  }
+  refresh();
+  setInterval(refresh, 10000);
+</script>
+</body>
+</html>
