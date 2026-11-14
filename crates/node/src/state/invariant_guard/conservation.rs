@@ -239,8 +239,8 @@ impl StateDB {
                 fold_htlc_lock(staged, previous, ledger)?;
             } else if key.starts_with(crate::state::vault::WITHDRAWAL_PREFIX) {
                 fold_vault_withdrawal(staged, previous, ledger)?;
-            } else if key.as_slice() == crate::state::staking::STATE_KEY {
-                fold_staking(staged, previous, ledger)?;
+            } else if key.starts_with(crate::state::staking::STAKING_PREFIX) {
+                fold_staking(key, staged, previous, ledger)?;
             }
         }
         Ok(())
@@ -439,21 +439,18 @@ fn fold_vault_withdrawal(
     moved(ledger, NATIVE_ASSET, escrowed(staged)?, escrowed(previous)?)
 }
 
-/// `k:state`: native coin held by staking — bonds, delegations and funds
-/// waiting out the unbonding delay (ADR-028). One record, so the delta is
-/// the difference of two totals.
-fn fold_staking(staged: Option<&[u8]>, previous: Option<&[u8]>, ledger: &mut Ledger) -> Result<()> {
+/// `k:`: native coin held by one staking record — a self bond, a
+/// delegation, an unbonding entry, or rewards owed to delegators (ADR-028,
+/// ADR-062b, `staking_records::held_by`). Every other `k:` record holds none.
+fn fold_staking(
+    key: &[u8],
+    staged: Option<&[u8]>,
+    previous: Option<&[u8]>,
+    ledger: &mut Ledger,
+) -> Result<()> {
     let held = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            // An unrepresentable total is itself a conservation failure.
-            Some(bytes) => to_u256(
-                crate::state::staking::StakingRecord::decode(bytes)?
-                    .staking
-                    .held()
-                    .ok_or_else(|| {
-                        NodeError::InvariantViolation("staking holds past 2^256 - 1".into())
-                    })?,
-            ),
+            Some(bytes) => to_u256(crate::state::staking_records::held_by(key, bytes)?),
             None => U256::zero(),
         })
     };

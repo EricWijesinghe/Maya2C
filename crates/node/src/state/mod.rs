@@ -47,6 +47,10 @@ pub mod settlement;
 pub mod shielded;
 pub mod staking;
 pub mod staking_exec;
+pub(crate) mod staking_records;
+pub(crate) mod staking_store;
+#[cfg(test)]
+mod staking_store_tests;
 pub mod stateless;
 pub mod threat;
 pub mod threat_exec;

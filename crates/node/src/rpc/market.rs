@@ -102,8 +102,7 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
     // Bonds, delegations and unbonding funds were debited from accounts but
     // still exist; genesis counts them in total supply, so this must too.
     let staked = state
-        .committed_staking()?
-        .and_then(|r| r.staking.held())
+        .staking_held()?
         .map_or(U256::zero(), maya_stateless_core::amount::to_u256);
     let total = transparent.saturating_add(shielded).saturating_add(staked);
 
