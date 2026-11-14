@@ -6908,6 +6908,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-wgpu-verify"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "hex",
+ "maya-crypto-pq",
+ "pollster",
+ "serde_json",
+ "sha3 0.11.0",
+ "thiserror 2.0.21",
+ "wgpu",
+]
+
+[[package]]
 name = "maya-zk-stark"
 version = "0.1.0"
 dependencies = [

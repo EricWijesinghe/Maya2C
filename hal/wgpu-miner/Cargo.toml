@@ -27,12 +27,12 @@ hex.workspace = true
 # crate is split into `server` and `client` halves for exactly this.
 maya-telemetry = { path = "../../crates/telemetry", default-features = false, features = ["client"] }
 
-wgpu = { version = "27", optional = true }
+wgpu = { workspace = true, optional = true }
 # wgpu's API is async; the miner's control loop is not. `pollster` blocks on the
 # handful of setup futures rather than making adapter enumeration infect every
 # caller with async.
-pollster = { version = "0.4", optional = true }
-bytemuck = { version = "1", features = ["derive"], optional = true }
+pollster = { workspace = true, optional = true }
+bytemuck = { workspace = true, features = ["derive"], optional = true }
 
 [lints]
 workspace = true
