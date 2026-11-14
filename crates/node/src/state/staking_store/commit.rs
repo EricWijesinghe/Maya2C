@@ -103,6 +103,19 @@ impl StateDB {
     }
 }
 
+/// Whether `new` (written for its `pending_epoch`) reads the same as `old`
+/// in that epoch: a record whose pending parts merely went stale is not
+/// rewritten, so a boundary that changes no validator writes none (STK-10).
+fn same_meaning(old: &StoredValidator, new: &StoredValidator) -> bool {
+    let epoch = new.pending_epoch;
+    old.record == new.record
+        && old.pending_self_at(epoch) == new.pending_self
+        && old.pending_delegated_at(epoch) == new.pending_delegated
+        && old.delegations == new.delegations
+        && old.unbonding == new.unbonding
+        && old.unbonding_entries == new.unbonding_entries
+}
+
 /// One validator's aggregates, before and after: what the records it loaded
 /// held, and what they hold now.
 #[derive(Default)]
@@ -113,6 +126,8 @@ struct Change {
     pending_new: Amount,
     unbonding_old: Amount,
     unbonding_new: Amount,
+    entries_old: u64,
+    entries_new: u64,
 }
 
 /// A commit in progress: the record writes so far, and each validator's
@@ -122,6 +137,7 @@ struct Commit<'a> {
     records: Vec<(Vec<u8>, Option<Vec<u8>>)>,
     changes: BTreeMap<[u8; 32], Change>,
     delegation_records: u64,
+    unbonding_records: u64,
 }
 
 /// What `view` changed, as record writes plus the balance movements loading
@@ -137,6 +153,7 @@ pub(crate) fn commit_view(view: &StakingView) -> Result<StakingWrites> {
         records: Vec::new(),
         changes: BTreeMap::new(),
         delegation_records: view.delegation_records,
+        unbonding_records: view.unbonding_records,
     };
     commit.delegations()?;
     commit.unbonding()?;
@@ -153,6 +170,7 @@ pub(crate) fn commit_view(view: &StakingView) -> Result<StakingWrites> {
         expected: view.record.expected.clone(),
         authored: view.record.authored.clone(),
         delegation_records: commit.delegation_records,
+        unbonding_records: commit.unbonding_records,
     };
     let mut records = commit.records;
     records.push((STATE_KEY.to_vec(), Some(meta.encode())));
@@ -235,10 +253,15 @@ impl Commit<'_> {
             let c = self.changes.entry(key.0).or_default();
             if let Some(old) = loaded {
                 c.unbonding_old = add(c.unbonding_old, *old)?;
+                c.entries_old += 1;
             }
-            match now.get(key) {
+            // An entry a slash cut to zero is deleted: releasing it credits
+            // nothing and the rules' retain already ignores it (STK-2), and a
+            // stored zero entry would hold records past its counted position.
+            match now.get(key).filter(|amount| !amount.is_zero()) {
                 Some(amount) => {
                     c.unbonding_new = add(c.unbonding_new, *amount)?;
+                    c.entries_new += 1;
                     if loaded.as_ref() != Some(amount) {
                         let mut value = Vec::new();
                         crate::state::staking::put_amount(&mut value, *amount);
@@ -246,11 +269,16 @@ impl Commit<'_> {
                     }
                     if loaded.is_none() {
                         self.records.push((release_key(key), Some(Vec::new())));
+                        self.unbonding_records += 1;
                     }
                 }
                 None if loaded.is_some() => {
                     self.records.push((unbonding_key(key), None));
                     self.records.push((release_key(key), None));
+                    self.unbonding_records = self
+                        .unbonding_records
+                        .checked_sub(1)
+                        .ok_or_else(|| corrupt("unbonding entry count"))?;
                 }
                 None => {}
             }
@@ -285,7 +313,7 @@ impl Commit<'_> {
                 None => None,
             };
             match stored {
-                Some(stored) if loaded != Some(&stored) => {
+                Some(stored) if !loaded.is_some_and(|old| same_meaning(old, &stored)) => {
                     self.records.push((key, Some(stored.encode())));
                 }
                 None if loaded.is_some() => self.records.push((key, None)),
@@ -328,8 +356,13 @@ impl Commit<'_> {
             )?,
             c.unbonding_new,
         )?;
+        let unbonding_entries = loaded
+            .map_or(0, |v| v.unbonding_entries)
+            .checked_sub(c.entries_old)
+            .and_then(|n| n.checked_add(c.entries_new))
+            .ok_or_else(|| corrupt("unbonding entry count"))?;
         if view.boundary && !Staking::is_kept(record) && unbonding.is_zero() {
-            if delegations != 0 {
+            if delegations != 0 || unbonding_entries != 0 {
                 return Err(corrupt("delegations under an emptied validator"));
             }
             return Ok(None);
@@ -341,6 +374,7 @@ impl Commit<'_> {
             pending_delegated: add(pending_base, c.pending_new)?,
             delegations,
             unbonding,
+            unbonding_entries,
         }))
     }
 

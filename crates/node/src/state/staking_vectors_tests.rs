@@ -67,31 +67,37 @@ fn counts(case: &Value, name: &str) -> BTreeMap<[u8; 32], u64> {
         .collect()
 }
 
+/// The meta record a `meta` case's fields name.
+fn meta_of(case: &Value) -> Meta {
+    Meta {
+        params: Params::DEVNET,
+        epoch: num(case, "epoch"),
+        active: case["fields"]["active"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                hex::decode(v.as_str().unwrap())
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect(),
+        epoch_blocks: num(case, "epoch_blocks"),
+        last_round: num(case, "last_round"),
+        expected: counts(case, "expected"),
+        authored: counts(case, "authored"),
+        delegation_records: num(case, "delegation_records"),
+        unbonding_records: num(case, "unbonding_records"),
+    }
+}
+
 /// `(key, value)` the case's fields encode to, checking the value decodes
 /// back to the same fields.
 fn encoded(case: &Value) -> (Vec<u8>, Vec<u8>) {
     match case["kind"].as_str().unwrap() {
         "meta" => {
-            let meta = Meta {
-                params: Params::DEVNET,
-                epoch: num(case, "epoch"),
-                active: case["fields"]["active"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|v| {
-                        hex::decode(v.as_str().unwrap())
-                            .unwrap()
-                            .try_into()
-                            .unwrap()
-                    })
-                    .collect(),
-                epoch_blocks: num(case, "epoch_blocks"),
-                last_round: num(case, "last_round"),
-                expected: counts(case, "expected"),
-                authored: counts(case, "authored"),
-                delegation_records: num(case, "delegation_records"),
-            };
+            let meta = meta_of(case);
             let value = meta.encode();
             assert_eq!(Meta::decode(&value).unwrap(), meta);
             (STATE_KEY.to_vec(), value)
@@ -110,6 +116,7 @@ fn encoded(case: &Value) -> (Vec<u8>, Vec<u8>) {
                 pending_delegated: amt(case, "pending_delegated"),
                 delegations: num(case, "delegations"),
                 unbonding: amt(case, "unbonding"),
+                unbonding_entries: num(case, "unbonding_entries"),
             };
             let value = v.encode();
             assert_eq!(StoredValidator::decode(&value).unwrap(), v);

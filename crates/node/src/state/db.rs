@@ -461,9 +461,17 @@ impl StateDB {
         end: &[u8],
         limit: usize,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        // The bound stops RocksDB at `end` rather than skipping deletion
+        // tombstones past it until the next live key (released unbonding
+        // entries, paid payouts); the `take_while` below stays the rule.
+        let mut bounded = rocksdb::ReadOptions::default();
+        bounded.set_iterate_upper_bound(end.to_vec());
         let mut disk = self
             .db
-            .iterator(IteratorMode::From(start, rocksdb::Direction::Forward))
+            .iterator_opt(
+                IteratorMode::From(start, rocksdb::Direction::Forward),
+                bounded,
+            )
             .map(|item| item.map_err(storage_err))
             .take_while(|item| item.as_ref().map_or(true, |(key, _)| &key[..] < end));
         let mut staged = overlay

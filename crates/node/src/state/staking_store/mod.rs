@@ -38,27 +38,32 @@ use crate::state::staking_records::{
 /// block spends on owed rewards whatever the number of delegations.
 pub(crate) const PAYOUTS_PER_BLOCK: usize = 1_024;
 
-/// Most delegation records the whole chain may hold, whatever the epoch
-/// length. Every block's state root still folds every `k:` record (ADR-062a
-/// covers accounts only), so this is a per-block cost bound, set near what
-/// master's 8 MiB single record allowed (about 87,000 delegations): see
-/// `scan_bounds_tests::staking_cost_against_delegation_records`. Raise it, by
-/// an upgrade, once the staking layer's root is incremental.
+/// Most positions (delegation records plus unbonding entries) the whole
+/// chain may hold, whatever the epoch length. An unbonding entry keeps its
+/// position until it is released, so delegating and leaving at once frees
+/// nothing (spec STK-7). Every block's state root still folds every `k:`
+/// record (ADR-062a covers accounts only), so this is a per-block cost bound,
+/// set near what master's 8 MiB single record allowed (about 87,000
+/// delegations): see `scan_bounds_tests::staking_cost_against_delegation_records`.
+/// It also bounds what one boundary releases. Raise it, by an upgrade, once
+/// the staking layer's root is incremental.
 pub(crate) const MAX_DELEGATION_RECORDS: u64 = 1 << 17;
 
-/// Most delegation records one validator may hold. A double-sign slash and a
-/// downtime boundary read, settle and rewrite every delegation of the
-/// offender in one block, so this bounds that block. It is an eighth of
-/// [`MAX_DELEGATION_RECORDS`], so crowds on up to seven validators still
-/// leave room for delegations to every other.
+/// Most positions one validator may hold. A double-sign slash and a downtime
+/// boundary read, settle and rewrite every delegation and unbonding entry of
+/// the offender in one block, so this (plus the operator's own entries, one
+/// per release epoch) bounds that block. It is an eighth of
+/// [`MAX_DELEGATION_RECORDS`]: crowds on seven validators leave room for
+/// delegations to every other, and crowds on eight fill the chain (spec Gaps).
 pub(crate) const MAX_DELEGATIONS_PER_VALIDATOR: u64 = MAX_DELEGATION_RECORDS / 8;
-// Seven validators full to their ceiling still leave the chain room.
 const _: () = assert!(7 * MAX_DELEGATIONS_PER_VALIDATOR < MAX_DELEGATION_RECORDS);
+const _: () = assert!(8 * MAX_DELEGATIONS_PER_VALIDATOR == MAX_DELEGATION_RECORDS);
 
-/// Most delegation records a chain with epochs of `epoch_blocks` blocks may
-/// hold: [`MAX_DELEGATION_RECORDS`], or on short epochs what the per-block
-/// pass pays in half an epoch. A new delegation past it is refused; topping
-/// up an existing one never is.
+/// Most positions a chain with epochs of `epoch_blocks` blocks may hold:
+/// [`MAX_DELEGATION_RECORDS`], or on short epochs what the per-block pass
+/// pays in half an epoch. A new delegation record, or a partial exit opening
+/// a new unbonding entry, past it is refused; a top-up, a full exit and an
+/// operator's unbond never are.
 #[must_use]
 pub(crate) fn max_delegation_records(epoch_blocks: u64) -> u64 {
     ((PAYOUTS_PER_BLOCK as u64).saturating_mul(epoch_blocks) / 2).min(MAX_DELEGATION_RECORDS)
@@ -154,6 +159,8 @@ pub(crate) struct StakingView {
     pub(crate) record: StakingRecord,
     /// `Meta::delegation_records` when opened.
     delegation_records: u64,
+    /// `Meta::unbonding_records` when opened.
+    unbonding_records: u64,
     /// The epoch when opened; the pending parts of what was loaded belong to it.
     loaded_epoch: u64,
     /// Every validator record read, `None` for an absent one.
@@ -250,6 +257,32 @@ impl StakingView {
             .get(id)
             .and_then(Option::as_ref)
             .map_or(0, |v| v.delegations)
+    }
+
+    /// Refuses an operation that would add a position (spec STK-7, STK-9)
+    /// to a chain or a validator already at its ceiling.
+    fn refuse_new_position(&self, validator: &[u8; 32]) -> Result<()> {
+        let ceiling = max_delegation_records(self.record.epoch_blocks);
+        if self
+            .delegation_records
+            .saturating_add(self.unbonding_records)
+            >= ceiling
+        {
+            return Err(NodeError::Network(format!(
+                "staking refused: the chain holds {ceiling} delegation records and unbonding entries, its ceiling; top up an existing delegation instead"
+            )));
+        }
+        let held = self
+            .validators
+            .get(validator)
+            .and_then(Option::as_ref)
+            .map_or(0, |v| v.delegations.saturating_add(v.unbonding_entries));
+        if held >= MAX_DELEGATIONS_PER_VALIDATOR {
+            return Err(NodeError::Network(format!(
+                "staking refused: the validator holds {MAX_DELEGATIONS_PER_VALIDATOR} delegation records and unbonding entries, its per-validator ceiling; top up an existing delegation or choose another validator"
+            )));
+        }
+        Ok(())
     }
 
     /// Records a payout this view's boundary owes.
@@ -365,6 +398,7 @@ impl StateDB {
         Ok(Some(StakingView {
             record: meta.view()?,
             delegation_records: meta.delegation_records,
+            unbonding_records: meta.unbonding_records,
             loaded_epoch: meta.epoch,
             validators: BTreeMap::new(),
             delegations: BTreeMap::new(),
@@ -560,7 +594,8 @@ impl StateDB {
         Ok(())
     }
 
-    /// Every unbonding entry from `validator`: one key range.
+    /// Every unbonding entry from `validator`: one key range, at most its
+    /// positions plus its operator's own entries (spec STK-9).
     pub(crate) fn load_unbondings_of(
         &self,
         overlay: &Overlay,
@@ -582,7 +617,8 @@ impl StateDB {
 
     /// Every unbonding entry released at or before `epoch`: the front of the
     /// release index. Each boundary releases everything due, so this is
-    /// exactly the entries this boundary pays out.
+    /// exactly the entries this boundary pays out: at most every open entry,
+    /// which the position ceiling bounds (spec STK-7).
     pub(crate) fn load_due_unbonding(
         &self,
         overlay: &Overlay,
@@ -646,17 +682,8 @@ impl StateDB {
             }
             StakeOp::Delegate { validator, amount } => {
                 self.load_delegation(overlay, view, sender, &validator)?;
-                let fresh = matches!(view.delegations.get(&(*sender, validator)), Some(None));
-                let ceiling = max_delegation_records(view.record.epoch_blocks);
-                if fresh && view.delegation_records >= ceiling {
-                    return Err(NodeError::Network(format!(
-                        "staking refused: the chain holds {ceiling} delegation records, its ceiling; top up an existing delegation instead"
-                    )));
-                }
-                if fresh && view.stored_delegations(&validator) >= MAX_DELEGATIONS_PER_VALIDATOR {
-                    return Err(NodeError::Network(format!(
-                        "staking refused: the validator holds {MAX_DELEGATIONS_PER_VALIDATOR} delegation records, its per-validator ceiling; top up an existing delegation or choose another validator"
-                    )));
+                if matches!(view.delegations.get(&(*sender, validator)), Some(None)) {
+                    view.refuse_new_position(&validator)?;
                 }
                 view.record
                     .staking
@@ -667,6 +694,22 @@ impl StateDB {
                 self.load_delegation(overlay, view, sender, &validator)?;
                 if let Some(release) = release {
                     self.load_unbonding(overlay, view, (validator, release, *sender))?;
+                }
+                // A partial exit that opens a new entry adds a position. A full
+                // one trades its delegation record for the entry, and folding
+                // into this release epoch's entry adds nothing: neither is ever
+                // refused, so leaving is always possible.
+                let opens_entry = release.is_some_and(|r| {
+                    matches!(view.unbonding.get(&(validator, r, *sender)), Some(None))
+                });
+                let keeps_some = view
+                    .record
+                    .staking
+                    .delegations
+                    .get(&(*sender, validator))
+                    .is_some_and(|held| amount < *held);
+                if opens_entry && keeps_some {
+                    view.refuse_new_position(&validator)?;
                 }
                 view.record
                     .staking
@@ -679,20 +722,28 @@ impl StateDB {
                 // public equivocation pair cannot be replayed into blocks
                 // that each read the offender's whole key ranges.
                 self.load_validator(overlay, view, &id)?;
-                match view.record.staking.validators.get(&id).map(|v| v.status) {
-                    None => return Err(refused(maya_staking::StakeError::UnknownValidator)),
-                    Some(maya_staking::Status::Tombstoned) => {
-                        return Err(NodeError::Network(
-                            "staking refused: the validator is already tombstoned".to_string(),
-                        ));
-                    }
-                    Some(_) => {}
-                }
+                slashable(view.record.staking.validators.get(&id).map(|v| v.status))?;
                 self.load_delegations_of(overlay, view, &id)?;
                 self.load_unbondings_of(overlay, view, &id)?;
                 view.record.staking.slash_double_sign(id).map_err(refused)
             }
         }
+    }
+
+    /// Refuses evidence against `id` when it is unknown or already
+    /// tombstoned, for one record read: the evidence check calls this before
+    /// it reads any key or verifies a signature (spec STK-3).
+    ///
+    /// # Errors
+    ///
+    /// Unknown or tombstoned, or a damaged record.
+    pub(crate) fn refuse_unslashable(&self, overlay: &Overlay, id: &[u8; 32]) -> Result<()> {
+        let status = self
+            .staking_get(overlay, &validator_key(id))?
+            .map(|bytes| StoredValidator::decode(&bytes))
+            .transpose()?
+            .map(|v| v.record.status);
+        slashable(status)
     }
 
     /// Runs `op` from `sender` and stages its records and balance moves, or
@@ -771,6 +822,22 @@ impl StateDB {
             overlay.records.insert(key, value);
         }
         Ok(())
+    }
+}
+
+/// Evidence reaches a validator that exists and is not yet tombstoned. A
+/// tombstoned one was a valid no-op under the single-record rules; refusing
+/// it makes the transaction invalid, on purpose (ADR-062b, STK-3).
+fn slashable(status: Option<maya_staking::Status>) -> Result<()> {
+    match status {
+        None => Err(NodeError::Network(format!(
+            "staking refused: {:?}",
+            maya_staking::StakeError::UnknownValidator
+        ))),
+        Some(maya_staking::Status::Tombstoned) => Err(NodeError::Network(
+            "staking refused: the validator is already tombstoned".to_string(),
+        )),
+        Some(_) => Ok(()),
     }
 }
 

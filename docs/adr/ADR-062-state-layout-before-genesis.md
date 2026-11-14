@@ -110,11 +110,13 @@ first. What rounding leaves is burned once nobody is owed. Total burned equals
 the old dust. The change users see: a reward is spendable some blocks after
 the boundary, not in the boundary block.
 
-**Bounds** (revised after the first review of PR #555, same day).
+**Bounds** (revised after the first and second reviews of PR #555, same day).
 - A staking transaction reads its own records only. A report of equivocation
-  against an unknown or already tombstoned validator is refused after one
-  record read, so a public equivocation pair cannot be replayed into blocks
-  (STK-3).
+  against an unknown or already tombstoned validator is refused after reading
+  the committee record and that validator's record, before any key is read or
+  signature verified (second review), so a public equivocation pair cannot be
+  replayed into blocks at the builder's cost (STK-3). On master such a report
+  was a valid no-op; making it invalid is intended.
 - A boundary reads every validator, the offenders' delegations and unbonding
   entries, and the entries due.
 - A plain block reads the meta record plus at most 1,024 delegations.
@@ -135,10 +137,39 @@ the boundary, not in the boundary block.
   reads, settles and rewrites: a double-sign slash over 16,384 delegations
   takes 69.3 ms, and a downtime boundary over the same crowd 75.5 ms, on the
   test profile. A crowd has to fill eight validators to reach the chain-wide
-  ceiling.
+  ceiling. Since the second review both ceilings count positions (next item).
+- **Positions, not delegation records** (second review). Both ceilings
+  count a validator's delegation records plus its unbonding entries, and an
+  entry keeps its position until it is released. Before this, a fresh
+  address could delegate the minimum and leave at once: the delegation record
+  went, the entry stayed, and neither ceiling ever filled, so the entries
+  (two records each) grew without bound into the slash, the boundary's
+  release and the root. Refused at a full chain or validator: a new
+  delegation record, and a partial undelegation that would open a new entry.
+  Never refused: a top-up, a full undelegation (its record becomes the
+  entry), folding into this epoch's entry, and an operator's unbond (one
+  entry per release epoch, at most `unbonding_epochs` open). A slash now
+  reads at most 16,384 positions plus those operator entries; a boundary
+  releases at most every position; the root folds at most twice the
+  positions in records. Measured on the test profile with every one of
+  131,072 positions an unbonding entry: state root 238.6 ms, the boundary
+  that releases them all 797.9 ms (262,153 records read), and the
+  release-index front over the 131,072 tombstones left behind 8.4 ms
+  (`scan_bounds_tests::staking_cost_against_unbonding_entries`); with the
+  node at opt-level 3 (no LTO, not the release profile) 167.2 ms and
+  367.6 ms, and the root over 131,072 delegations 103.0 ms. An entry a
+  slash cuts to zero is deleted with its index entry, so no record outlives
+  its counted position. `StoredValidator` gains `unbonding_entries` and the
+  meta record `unbonding_records` (both u64, vectors in
+  `spec/tests/staking.json`).
 - A delegation record is rewritten only when its meaning changes (STK-10). A
   downtime cut of zero from 16,384 dust delegations writes none of them
-  (16,384 before this rule).
+  (16,384 before this rule). The same holds for validator records (second
+  review): a boundary that changes no validator rewrote every one, because
+  the stored pending epoch always moved; now none.
+- `Params::is_valid` refuses `min_delegation` = 0 (second review): it admits
+  `delegate(0)`, a zero delegation record that does not decode, so every
+  later read of that validator would halt the chain.
 - The 8 MiB record cap on master, and #522's 1 MiB cap and 16 staking
   transactions a block, are removed: #522 is merged into this PR. The 64th
   staking transaction of a block reads what the first does.
@@ -148,14 +179,28 @@ the boundary, not in the boundary block.
    is; the state root is not. The root folds every staking record each block,
    up to the chain-wide ceiling. An incremental staking-layer root (ADR-062a
    extended past accounts) removes this, and only then should the ceiling
-   rise, by an upgrade.
+   rise, by an upgrade. Accepting PARTIAL for genesis is open for Eric
+   (DECISIONS.md 2026-11-15, review round 2); it is not marked met.
 2. A slash or downtime boundary still does its offender's work in one block,
-   bounded now by the per-validator ceiling, not by the chain's.
-3. `min_delegation` (10 base units by default) is still Eric's decision, and
-   should be made before the freeze closes, since it is a genesis parameter.
-   With the per-validator ceiling, dust that fills one validator no longer
-   closes delegation to others, but dust spread over eight validators still
-   fills the chain-wide ceiling for fees alone.
+   bounded now by the per-validator ceiling, not by the chain's. Likewise the
+   boundary that releases due unbonding entries does them all in one block,
+   bounded by the chain's ceiling (797.9 ms at the worst case, test profile);
+   a budgeted release pass, like the payout pass, would bound it per block
+   but changes when funds arrive and what a slash can still reach, so it is
+   not done here.
+3. **Dust lockout (PARTIAL, open for Eric).** The mainnet floor is decided:
+   `min_delegation` = 1 coin, required at the ceremony and enforced by
+   `cargo xtask genesis-check` (DECISIONS.md 2026-10-30); 10 base units is
+   only the devnet default. At that floor, 16,384 positions close one chosen
+   validator to every new delegator: 16,384 coins locked, refunded after the
+   unbonding window. This is a targeted attack on honest validators, a new
+   competitor among them, and the per-validator ceiling added it. 131,072
+   positions (eight such crowds; seven leave room) close every new delegation
+   record on the chain: 131,072 coins locked. Top-ups and exits always pass.
+   A per-record deposit, a floor that rises as the ceiling fills, or an
+   incremental staking root that lets the ceiling rise would change this;
+   each changes economics, so it is Eric's call (DECISIONS.md 2026-11-15,
+   review round 2).
 4. The payout pass's drain within half an epoch is the typical case, not a
    proved bound under churn (STK-7); a payout that outlives the next boundary
    stays correct.

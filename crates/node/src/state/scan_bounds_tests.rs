@@ -367,6 +367,65 @@ fn staking_cost_against_delegation_records() {
     println!("staking slash of {MAX_DELEGATIONS_PER_VALIDATOR} delegations: median={slash:?}");
 }
 
+/// The worst case the position ceiling allows for the root and a boundary:
+/// every position an unbonding entry (two records each, the entry and its
+/// release index), all released by one boundary; then the release index's
+/// front read over the tombstones that release left on disk.
+#[test]
+#[ignore = "timing; run with --ignored --nocapture"]
+fn staking_cost_against_unbonding_entries() {
+    let n = MAX_DELEGATION_RECORDS;
+    let validators = n.div_ceil(MAX_DELEGATIONS_PER_VALIDATOR);
+    let mut record = staking_record(0, validators);
+    let min = maya_staking::Params::DEVNET.min_delegation;
+    for i in 0..n {
+        record.staking.unbonding.push(maya_staking::Unbonding {
+            owner: id_of(i),
+            validator: staking_validator(i % validators),
+            amount: min,
+            release_epoch: 1,
+        });
+    }
+    let (db, _dir) = open();
+    for (key, value) in record.to_records().unwrap() {
+        db.raw_put(&key, &value).unwrap();
+    }
+    let root = median(|| {
+        timed(|| {
+            db.state_root().unwrap();
+        })
+    });
+    // The boundary ending epoch 0 releases every entry (release epoch 1).
+    let mut overlay = Overlay::default();
+    let (release, reads) = {
+        RECORDS_READ.with(|c| c.set(0));
+        let t = timed(|| {
+            let mut view = db.staking_view(&overlay).unwrap().unwrap();
+            let effects = db.end_epoch(&mut overlay, &mut view).unwrap();
+            let writes = crate::state::staking_store::commit_view(&view).unwrap();
+            db.stage_staking(&mut overlay, None, writes, &effects)
+                .unwrap();
+        });
+        (t, RECORDS_READ.with(std::cell::Cell::get))
+    };
+    db.commit_overlay_for_test(&overlay).unwrap();
+    let release_prefix = crate::state::staking_records::RELEASE_PREFIX;
+    let mut end = release_prefix.to_vec();
+    end.push(0xFF);
+    let front = median(|| {
+        timed(|| {
+            assert!(
+                db.scan_range(&Overlay::default(), release_prefix, &end, usize::MAX)
+                    .unwrap()
+                    .is_empty()
+            );
+        })
+    });
+    println!(
+        "staking unbonding_entries={n} over {validators} validators: state_root={root:?}; release boundary={release:?} ({reads} records read); release-index front over {n} tombstones={front:?}"
+    );
+}
+
 /// `count_slots` walks every anchor slot a round gap skipped, up to
 /// `MAX_SLOTS_PER_BLOCK`.
 #[test]
@@ -523,6 +582,54 @@ fn the_ranged_merge_matches_the_full_scan() {
                 db.merged_records(&overlay, &prefix).unwrap(),
                 merged_records_full_scan(&db, &overlay, &prefix),
                 "prefix {prefix:?}"
+            );
+        }
+    }
+}
+
+/// `scan_range`, the read behind slashes, the release index and the payout
+/// pass, returns exactly the merged view between its bounds, cut at `limit`:
+/// staged deletions hide committed keys, a staged value supersedes a
+/// committed one on a tie, staged-only keys appear, and `end` is exclusive.
+#[test]
+fn a_range_scan_matches_the_merged_view_between_its_bounds() {
+    let mut rng = XorShift(0x2545_f491_4f6c_dd1d);
+    for _ in 0..20 {
+        let (db, _dir) = open();
+        let mut overlay = Overlay::default();
+        let mut committed = Vec::new();
+        for _ in 0..60 {
+            let key = rng.key();
+            db.raw_put(&key, &[rng.below(256) as u8]).unwrap();
+            committed.push(key);
+        }
+        for _ in 0..60 {
+            // Half the staged keys land on committed ones: ties and deletions.
+            let key = if rng.below(2) == 0 {
+                committed[rng.below(committed.len() as u64) as usize].clone()
+            } else {
+                rng.key()
+            };
+            let value = (rng.below(3) != 0).then(|| vec![rng.below(256) as u8]);
+            overlay.records.insert(key, value);
+        }
+        let all = merged_records_full_scan(&db, &overlay, &[]);
+        for _ in 0..40 {
+            let (a, b) = (rng.key(), rng.key());
+            let (start, end) = if a <= b { (a, b) } else { (b, a) };
+            let limit = match rng.below(3) {
+                0 => usize::MAX,
+                _ => rng.below(8) as usize,
+            };
+            let want: Vec<(Vec<u8>, Vec<u8>)> = all
+                .range(start.clone()..end.clone())
+                .take(limit)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            assert_eq!(
+                db.scan_range(&overlay, &start, &end, limit).unwrap(),
+                want,
+                "range {start:?}..{end:?} limit {limit}"
             );
         }
     }

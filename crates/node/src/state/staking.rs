@@ -285,6 +285,9 @@ pub(crate) struct Meta {
     pub(crate) authored: BTreeMap<[u8; 32], u64>,
     /// Delegation records in state, against the ceiling in `staking_store`.
     pub(crate) delegation_records: u64,
+    /// Unbonding entries in state: each holds a position against the same
+    /// ceiling until it is released (spec STK-7).
+    pub(crate) unbonding_records: u64,
 }
 
 impl Meta {
@@ -300,6 +303,7 @@ impl Meta {
         put_counts(&mut out, &self.expected);
         put_counts(&mut out, &self.authored);
         put_u64(&mut out, self.delegation_records);
+        put_u64(&mut out, self.unbonding_records);
         out
     }
 
@@ -330,6 +334,7 @@ impl Meta {
             expected: read_counts(&mut r)?,
             authored: read_counts(&mut r)?,
             delegation_records: r.read_u64()?,
+            unbonding_records: r.read_u64()?,
         };
         r.finish()?;
         if meta.epoch_blocks == 0 {
@@ -377,6 +382,7 @@ mod tests {
             expected: BTreeMap::from([([9; 32], 11)]),
             authored: BTreeMap::from([([9; 32], 10)]),
             delegation_records: 7,
+            unbonding_records: 3,
         };
         let bytes = meta.encode();
         assert_eq!(Meta::decode(&bytes).unwrap(), meta);

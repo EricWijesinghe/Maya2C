@@ -173,6 +173,16 @@ impl StateDB {
             .ok_or_else(|| {
                 NodeError::Network(format!("no committee on record for epoch {}", a.epoch))
             })?;
+        // Who the evidence accuses, and whether it can still be slashed,
+        // before reading any key or verifying either signature: a replayed
+        // report against a tombstoned validator costs two record reads (STK-3).
+        let author = committee
+            .get(usize::from(a.author))
+            .copied()
+            .ok_or_else(|| {
+                NodeError::Decode("evidence author outside the committee".to_string())
+            })?;
+        self.refuse_unslashable(overlay, &author)?;
         let keys: Arc<[VerifyingKey]> = self.validator_keys(&committee)?.into();
         let evidence = Equivocation {
             first: a,

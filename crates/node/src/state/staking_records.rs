@@ -141,6 +141,9 @@ pub(crate) struct StoredValidator {
     pub(crate) delegations: u64,
     /// Sum of its unbonding entries.
     pub(crate) unbonding: Amount,
+    /// Its unbonding entries: with `delegations`, the positions counted
+    /// against the per-validator ceiling (spec STK-9).
+    pub(crate) unbonding_entries: u64,
 }
 
 impl StoredValidator {
@@ -164,7 +167,7 @@ impl StoredValidator {
 
     pub(crate) fn encode(&self) -> Vec<u8> {
         let v = &self.record;
-        let mut out = Vec::with_capacity(32 + 32 * 5 + 2 + 9 + 16);
+        let mut out = Vec::with_capacity(32 + 32 * 5 + 2 + 9 + 24);
         out.extend_from_slice(&v.operator);
         put_amount(&mut out, v.self_bond);
         put_amount(&mut out, v.delegated);
@@ -175,6 +178,7 @@ impl StoredValidator {
         put_amount(&mut out, self.pending_delegated);
         put_u64(&mut out, self.delegations);
         put_amount(&mut out, self.unbonding);
+        put_u64(&mut out, self.unbonding_entries);
         out
     }
 
@@ -196,6 +200,7 @@ impl StoredValidator {
             pending_delegated: read_amount(&mut r)?,
             delegations: r.read_u64()?,
             unbonding: read_amount(&mut r)?,
+            unbonding_entries: r.read_u64()?,
         };
         r.finish()?;
         // A corrupt record must not make stake look larger than it is.
@@ -379,6 +384,7 @@ impl StakingRecord {
                     pending_delegated: Amount::ZERO,
                     delegations: 0,
                     unbonding: Amount::ZERO,
+                    unbonding_entries: 0,
                 },
             );
         }
@@ -402,9 +408,12 @@ impl StakingRecord {
             };
             records.insert(delegation_key(delegator, validator), d.encode());
         }
-        for u in &s.unbonding {
+        // An entry a slash cut to zero is never stored (spec STK-2).
+        let unbonding: Vec<_> = s.unbonding.iter().filter(|u| !u.amount.is_zero()).collect();
+        for u in &unbonding {
             let v = aggregate(&mut stored, &u.validator)?;
             v.unbonding = v.unbonding.checked_add(u.amount).ok_or_else(overflow)?;
+            v.unbonding_entries += 1;
             let key = (u.validator, u.release_epoch, u.owner);
             let mut amount = Vec::new();
             put_amount(&mut amount, u.amount);
@@ -423,6 +432,7 @@ impl StakingRecord {
             expected: self.expected.clone(),
             authored: self.authored.clone(),
             delegation_records: s.delegations.len() as u64,
+            unbonding_records: unbonding.len() as u64,
         };
         records.insert(STATE_KEY.to_vec(), meta.encode());
         Ok(records)
@@ -536,6 +546,7 @@ mod tests {
         let v = StoredValidator::decode(&records[&validator_key(&[9; 32])]).unwrap();
         assert_eq!(v.delegations, 1);
         assert_eq!(v.unbonding, Amount::from_u64(100));
+        assert_eq!(v.unbonding_entries, 1);
     }
 
     #[test]

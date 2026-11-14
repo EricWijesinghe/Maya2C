@@ -957,6 +957,34 @@ Choices made fixing the first review (Claude; the MCQ decision itself is Eric's)
 - **Still Eric's, before the freeze closes:** `min_delegation` as a genesis parameter. At the
   default 10 base units, eight validators' worth of dust (131,072 records) still costs only fees.
   For example 1 coin would make filling the chain-wide ceiling cost 131,072 coins locked.
+
+### 2026-11-15 — ADR-062b review round 2 (PR #555, Eric 2026-11-14 MCQ "per-delegation records")
+
+Choices made fixing the second review (Claude; the MCQ decision itself is Eric's):
+
+- **Ceilings count positions: delegation records plus unbonding entries.** An entry holds its
+  position until it is released, so a delegate-and-leave churn from fresh addresses frees nothing;
+  before, it grew unbonding entries without bound past both ceilings. Chosen over a budgeted release
+  pass, which would change when funds arrive and which entries a slash still reaches. Exits are never
+  refused: a full undelegation trades its record for the entry, folding into this epoch's entry adds
+  nothing, and an operator's unbond (one entry per release epoch) is exempt. A partial undelegation
+  that would open a new entry at a full chain or validator is refused; the owner can still leave in full.
+- **Zero entries are deleted.** An entry a slash cuts to zero is removed with its release index
+  entry (it credits nothing and the rules' retain ignores it), so counts equal records.
+- **A report against an unknown or tombstoned validator is refused before any key read or signature
+  check** (two record reads). Under the single-record rules it was a valid no-op; invalid is intended.
+- **Validator records are rewritten only when their meaning changes**, as delegations already were.
+- **`min_delegation` = 0 is an invalid parameter set** (it admits a zero delegation record).
+- **Corrected:** the residual text said `min_delegation` was undecided at 10 base units. The mainnet
+  floor is 1 coin (2026-10-30 above); 10 base units is the devnet default.
+- **Open for Eric, not accepted on his behalf:** (1) the dust lockout at the 1-coin floor: 16,384
+  coins locked close one chosen validator to new delegators, a targeted attack on honest validators
+  the per-validator ceiling makes possible; 131,072 coins locked close every new delegation record.
+  Options: keep it, a refundable deposit per record, a floor that rises as the ceiling fills, or a
+  higher ceiling once the staking root is incremental. (2) PARTIAL per-block cost: the staking
+  layer's root folds every record each block (worst case 238.6 ms, test profile), and the boundary
+  that releases every position at once took 797.9 ms on the test profile. Genesis with these as
+  stated, or an incremental staking root first.
 ## 2026-11-13 — Per-block work is bounded by caps, not by how much state exists (Claude, re-freeze bundle)
 
 A sweep of the apply path after PR #500's governance index measured every end-of-block pass against attacker-created records (ADR-062 amendment 2026-11-13, `reports/sessions/2026-11-13-per-block-scan-bounds.md`). Three were fixed with caps that refuse a transaction, never a block, and no key layout change:

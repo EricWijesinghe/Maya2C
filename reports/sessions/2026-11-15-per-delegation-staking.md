@@ -198,3 +198,78 @@ Gates:
 - Release-profile timings, `cargo xtask bench-tps`: MISSING.
 - `cargo xtask coverage --verify-targets`, workspace clippy ratchet: left to CI.
 - Kani: not run (WSL only).
+
+## Review round 2 (same day)
+
+Fixes: ceilings count positions (delegation records plus unbonding entries,
+held until released); a partial exit opening a new entry at a full chain or
+validator is refused, every other exit passes; entries a slash cuts to zero
+are deleted; evidence against a tombstoned or unknown validator is refused
+before any key read or signature check; validator records rewritten only
+when their meaning changes; `min_delegation` = 0 invalid; `scan_range` sets
+RocksDB's iterate upper bound. Layout: `StoredValidator.unbonding_entries`,
+`Meta.unbonding_records` (u64 each, appended); vectors and layer root
+regenerated.
+
+### Red, before the fixes
+
+`cargo test -p maya-staking --lib a_zero_minimum`:
+
+```
+assertion failed: !p.is_valid()
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out
+```
+
+`cargo test -p custom-l1-node --lib -- churn_frees_no_slot full_exit_and_an_operator quiet_boundary_rewrites tombstoned_validator_is_refused_before crowds_on_eight seven_validators_full a_range_scan_matches`:
+
+```
+churn: 1040 joined, 0 refused, 1040 unbonding entries
+assertion `left == right` failed: each churned position holds its slot  left: 1040 right: 1024
+a partial exit that opens a new entry at the ceiling: ()
+assertion `left == right` failed: validator records rewritten at a boundary that changed none  left: 4 right: 0
+storage error: no key for validator b0b0…0000   (the tombstone was not checked first)
+test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 561 filtered out
+```
+
+The three that passed are not fixes: the randomized `scan_range` check, and
+the two ceiling tests that record known behaviour (eight full validators
+close the chain; seven leave the eighth open).
+
+### Green
+
+- `cargo test -p maya-staking`: 7 + 1 + 6 + 13 passed, 0 failed.
+- `cargo test -p custom-l1-node --lib`: `562 passed; 0 failed; 7 ignored`.
+- `cargo test -p custom-l1-node --test bft_staking_tests`: `8 passed; 0 failed`
+  (the evidence path, through real ML-DSA equivocations).
+- `cargo xtask spec-coverage --strict`: `72 rules, 183 vectors; 69 consensus rules covered, 0 gaps`.
+- `cargo xtask claims-check`: `97 public files scanned, 0 unauthorised claims`.
+- `cargo clippy -p custom-l1-node -p maya-staking --lib --tests`: no warning in a
+  file this round touched (one it caused, `too_many_lines` in
+  `staking_vectors_tests::encoded`, fixed by extracting `meta_of`).
+
+### Timings (single runs, shared PC)
+
+`cargo test -p custom-l1-node --lib staking_cost -- --ignored --nocapture --test-threads=1`.
+"opt3" is the same command with
+`--config profile.dev.package.custom-l1-node.opt-level=3` (and debug
+assertions and overflow checks off for the node): optimised, but no LTO and
+16 codegen units, so not the release profile.
+
+| What | Test profile | opt3 |
+|---|---|---|
+| State root, 131,072 delegations | 139.5 ms | 103.0 ms |
+| State root, 131,072 unbonding entries (262,144 records) | 238.6 ms | 167.2 ms |
+| Boundary releasing all 131,072 entries (262,153 records read) | 797.9 ms | 367.6 ms |
+| Release-index front over 131,072 tombstones | 8.4 ms | 10.0 ms |
+| Slash of 16,384 delegations | 70.4 ms | 33.0 ms |
+| `settle_staking`, plain block, at 131,072 | 19.7 µs | 8.3 µs |
+
+### Not run in round 2
+
+- Release profile (fat LTO): MISSING. `cargo xtask bench-tps`: MISSING.
+- Kani: not run (WSL only); `end_epoch`/`close_epoch` have no new harness.
+- `cargo xtask coverage --verify-targets`, workspace clippy ratchet: left to CI.
+- The `consensus vectors` CI job is the DAG proof-of-work vectors and skips
+  pull requests by design (`security-audit.yml`); the staking vectors run in
+  the node lib tests above.
+- Two human reviewers for a consensus change: not available to this session.

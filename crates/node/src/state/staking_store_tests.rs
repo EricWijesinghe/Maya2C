@@ -327,9 +327,11 @@ impl Pair {
         assert_eq!(node.retired, r.retired);
         assert_eq!(node.pending_self, r.pending_self);
         assert_eq!(node.pending_delegations, r.pending_delegations);
+        // The store never holds an entry a slash cut to zero (STK-2).
         let sorted = |u: &[maya_staking::Unbonding]| {
             let mut v: Vec<_> = u
                 .iter()
+                .filter(|u| !u.amount.is_zero())
                 .map(|u| (u.validator, u.release_epoch, u.owner, u.amount))
                 .collect();
             v.sort();
@@ -340,6 +342,7 @@ impl Pair {
         let mut count: BTreeMap<[u8; 32], u64> = BTreeMap::new();
         let mut pending: BTreeMap<[u8; 32], Amount> = BTreeMap::new();
         let mut unbonding: BTreeMap<[u8; 32], Amount> = BTreeMap::new();
+        let mut entries: BTreeMap<[u8; 32], u64> = BTreeMap::new();
         for (key, value) in &records {
             if key.starts_with(DELEGATION_PREFIX) {
                 let (_, v) = parse_delegation_key(key).unwrap();
@@ -351,8 +354,19 @@ impl Pair {
                 let (v, _, _) = parse_unbonding_key(key).unwrap();
                 let u = unbonding.entry(v).or_insert(Amount::ZERO);
                 *u = u.saturating_add(decode_unbonding(value).unwrap());
+                *entries.entry(v).or_default() += 1;
             }
         }
+        // The meta record's counts are the records in state.
+        let meta = crate::state::staking::Meta::decode(&records[crate::state::staking::STATE_KEY])
+            .unwrap();
+        assert_eq!(meta.delegation_records, count.values().sum::<u64>());
+        assert_eq!(meta.unbonding_records, entries.values().sum::<u64>());
+        let released = records
+            .keys()
+            .filter(|k| k.starts_with(crate::state::staking_records::RELEASE_PREFIX))
+            .count() as u64;
+        assert_eq!(released, meta.unbonding_records, "one index entry each");
         // Each open payout is still owed by exactly the delegations of its
         // validator whose payout mark has not passed it: a drift here is the
         // halt STK-6 describes, so it is recounted after every step.
@@ -383,6 +397,7 @@ impl Pair {
                     v.unbonding,
                     unbonding.get(&id).copied().unwrap_or(Amount::ZERO)
                 );
+                assert_eq!(v.unbonding_entries, entries.get(&id).copied().unwrap_or(0));
             }
         }
     }
@@ -647,7 +662,8 @@ fn past_the_ceiling_a_new_delegation_record_is_refused_and_a_top_up_is_not() {
     pair.db
         .apply_stake_op(&mut pair.overlay, &addr(0xD0, 0), top_up)
         .unwrap();
-    // One record leaving makes room for one new one.
+    // A record leaving keeps its position as an unbonding entry; the room
+    // appears once that entry is released.
     let leave = StakeOp::Undelegate {
         validator: validator(0),
         amount: Params::DEVNET.min_delegation,
@@ -655,6 +671,15 @@ fn past_the_ceiling_a_new_delegation_record_is_refused_and_a_top_up_is_not() {
     pair.db
         .apply_stake_op(&mut pair.overlay, &addr(0xD0, 1), leave)
         .unwrap();
+    assert!(
+        pair.db
+            .apply_stake_op(&mut pair.overlay, &delegator(0), fresh)
+            .is_err(),
+        "the leaving position is held until it releases"
+    );
+    for _ in 0..=Params::DEVNET.unbonding_epochs {
+        pair.node_end_epoch(BTreeMap::new(), BTreeMap::new(), 0);
+    }
     pair.db
         .apply_stake_op(&mut pair.overlay, &delegator(0), fresh)
         .unwrap();
@@ -705,7 +730,10 @@ fn a_crowd_of_minimum_delegations_neither_blocks_nor_slows_a_new_one() {
 }
 
 #[test]
-fn per_block_staking_work_does_not_grow_with_total_delegations() {
+/// Records staking execution reads, not the state root: the root still folds
+/// every `k:` record each block, so per-block cost as a whole is PARTIAL
+/// (spec Gaps; `scan_bounds_tests::staking_cost_against_delegation_records`).
+fn per_block_staking_reads_do_not_grow_with_total_delegations() {
     let mut rng = Rng(5);
     let mut rows = Vec::new();
     for crowd in [1_000, 100_000] {
@@ -992,4 +1020,309 @@ fn a_validator_emptied_removed_and_registered_again_keeps_every_aggregate_exact(
     pair.end_epoch_with(&mut rng, false);
     pair.check_state();
     pair.check_balances();
+}
+
+/// Unbonding entries under `validator`, and in the whole store.
+fn entries(pair: &Pair, validator: &[u8; 32]) -> (u64, u64) {
+    let records = pair.records();
+    let all = records
+        .keys()
+        .filter(|k| k.starts_with(UNBONDING_PREFIX))
+        .count() as u64;
+    let prefix = crate::state::staking_records::unbondings_of(validator);
+    let own = records.keys().filter(|k| k.starts_with(&prefix)).count() as u64;
+    (own, all)
+}
+
+#[test]
+fn a_delegate_and_undelegate_churn_frees_no_slot_until_its_entry_releases() {
+    // Fresh addresses each delegate the minimum and leave at once. Each
+    // leaves an unbonding entry and no delegation; before the fix the
+    // ceilings counted only delegations, so the entries grew without bound
+    // and a boundary, a slash and the root all read every one of them.
+    let ceiling = crate::state::staking_store::max_delegation_records(2);
+    let mut pair = Pair::new(4, 2);
+    let min = Params::DEVNET.min_delegation;
+    let (mut joined, mut refused) = (0u64, 0u64);
+    for i in 0..ceiling + 16 {
+        let d = addr(0xD2, i);
+        pair.fund(d);
+        let join = StakeOp::Delegate {
+            validator: validator(0),
+            amount: min,
+        };
+        match pair.db.apply_stake_op(&mut pair.overlay, &d, join) {
+            Ok(()) => joined += 1,
+            Err(e) => {
+                assert!(e.to_string().contains("ceiling"), "{e}");
+                refused += 1;
+                continue;
+            }
+        }
+        let leave = StakeOp::Undelegate {
+            validator: validator(0),
+            amount: min,
+        };
+        pair.db
+            .apply_stake_op(&mut pair.overlay, &d, leave)
+            .expect("a full exit is never refused");
+        if i % 64 == 0 {
+            pair.commit();
+        }
+    }
+    pair.commit();
+    let (own, all) = entries(&pair, &validator(0));
+    eprintln!("churn: {joined} joined, {refused} refused, {all} unbonding entries");
+    assert_eq!(joined, ceiling, "each churned position holds its slot");
+    assert_eq!(refused, 16);
+    assert_eq!(all, ceiling, "entries never pass the ceiling");
+    // A slash reads the offender's positions, so the ceiling bounds it.
+    let (reads, _, ok) = measured(|| {
+        pair.db.apply_stake_op(
+            &mut Overlay::new(),
+            &addr(0xEE, 0),
+            StakeOp::Slash(validator(0)),
+        )
+    });
+    ok.unwrap();
+    assert!(
+        reads <= own + 8,
+        "a slash read {reads} records over {own} entries"
+    );
+    // The entries release together; then the slots are free again.
+    let mut boundary_reads = 0;
+    for _ in 0..=Params::DEVNET.unbonding_epochs {
+        let (reads, _, ()) = measured(|| pair.node_end_epoch(BTreeMap::new(), BTreeMap::new(), 0));
+        boundary_reads = boundary_reads.max(reads);
+        pair.commit();
+    }
+    assert!(
+        boundary_reads <= 2 * ceiling + 16,
+        "the release boundary read {boundary_reads} records"
+    );
+    assert_eq!(entries(&pair, &validator(0)).1, 0, "all released");
+    pair.fund(delegator(0));
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &delegator(0),
+            StakeOp::Delegate {
+                validator: validator(1),
+                amount: min,
+            },
+        )
+        .expect("room once the entries released");
+}
+
+#[test]
+fn at_the_ceiling_a_full_exit_and_an_operator_unbond_pass_and_a_partial_exit_does_not() {
+    let ceiling = crate::state::staking_store::max_delegation_records(2);
+    let mut pair = crowded_with(ceiling, 2, 1);
+    let min = Params::DEVNET.min_delegation;
+    let member = addr(0xD0, 0);
+    pair.fund(member);
+    let delegate = |amount| StakeOp::Delegate {
+        validator: validator(0),
+        amount,
+    };
+    let undelegate = |amount| StakeOp::Undelegate {
+        validator: validator(0),
+        amount,
+    };
+    // Top up to twice the minimum, so a partial exit is legal by the rule.
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &member, delegate(min))
+        .unwrap();
+    let refused = pair
+        .db
+        .apply_stake_op(&mut pair.overlay, &member, undelegate(min))
+        .expect_err("a partial exit that opens a new entry at the ceiling");
+    assert!(refused.to_string().contains("ceiling"), "{refused}");
+    // Leaving in full trades the delegation record for the entry.
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &member,
+            undelegate(min.checked_add(min).unwrap()),
+        )
+        .expect("a full exit is never refused");
+    // The operator's own unbond is an exit too: one entry per release epoch.
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(0),
+            StakeOp::Unbond {
+                validator: validator(0),
+                amount: amount(100),
+            },
+        )
+        .expect("an operator unbond is never refused for the ceiling");
+    let fresh = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &delegator(0),
+            StakeOp::Delegate {
+                validator: validator(1),
+                amount: min,
+            },
+        )
+        .expect_err("still full");
+    assert!(fresh.to_string().contains("ceiling"), "{fresh}");
+}
+
+#[test]
+fn a_quiet_boundary_rewrites_no_validator_record() {
+    let mut pair = Pair::new(4, 600);
+    pair.commit();
+    let full: BTreeMap<[u8; 32], u64> = pair.reference.active.iter().map(|id| (*id, 10)).collect();
+    pair.node_end_epoch(full.clone(), full, 0);
+    let written = pair
+        .overlay
+        .records
+        .keys()
+        .filter(|k| k.starts_with(VALIDATOR_PREFIX))
+        .count();
+    assert_eq!(
+        written, 0,
+        "validator records rewritten at a boundary that changed none"
+    );
+}
+
+/// Two `Propose` frames for epoch 0, round 7, by committee member 0, with
+/// signatures nobody checked.
+fn unsigned_double_proposal() -> crate::core::staking_payload::StakingAction {
+    use crate::consensus::bft::{BROADCAST, Envelope};
+    let frame = |stamp: u64| {
+        let vertex = maya_dag_bft::Vertex {
+            epoch: 0,
+            round: 7,
+            author: 0,
+            timestamp_ms: stamp,
+            parents: vec![],
+            batch: vec![],
+        };
+        Envelope {
+            epoch: 0,
+            from: 0,
+            to: BROADCAST,
+            message: maya_dag_bft::Message::Propose {
+                vertex,
+                signature: vec![0; 64],
+            },
+        }
+        .encode()
+    };
+    crate::core::staking_payload::StakingAction::ReportEquivocation {
+        first: frame(1),
+        second: frame(2),
+    }
+}
+
+#[test]
+fn a_report_against_a_tombstoned_validator_is_refused_before_its_signatures_are_checked() {
+    // Before: every committee key was read and both signatures verified
+    // before the tombstone was seen, so a replayed report cost a block
+    // builder two ML-DSA verifications for a transaction that pays no fee.
+    let mut pair = Pair::new(4, 600);
+    pair.fund(addr(0xEE, 0));
+    assert!(pair.op(addr(0xEE, 0), StakeOp::Slash(validator(0))));
+    let committee: Vec<[u8; 32]> = (0..4).map(validator).collect();
+    pair.overlay.records.insert(
+        crate::state::staking::committee_record(0),
+        Some(crate::state::staking::encode_committee(&committee)),
+    );
+    let refused = pair
+        .db
+        .apply_staking(
+            &mut pair.overlay,
+            &addr(0xEE, 0),
+            &unsigned_double_proposal(),
+        )
+        .expect_err("evidence against a tombstoned validator");
+    assert!(refused.to_string().contains("tombstoned"), "{refused}");
+}
+
+#[test]
+fn crowds_on_eight_validators_fill_the_chain_ceiling_and_only_new_records_are_refused() {
+    // Known behaviour, not a fix (spec Gaps, PARTIAL): MAX_DELEGATION_RECORDS
+    // minimum positions, spread as the per-validator ceiling forces, close
+    // every new delegation record on the chain. Top-ups and exits still pass.
+    let crowd = crate::state::staking_store::MAX_DELEGATION_RECORDS;
+    let mut pair = crowded_with(crowd, 3_600, 8);
+    let fresh = |v| StakeOp::Delegate {
+        validator: v,
+        amount: amount(1_000),
+    };
+    for v in [validator(0), validator(7)] {
+        let refused = pair
+            .db
+            .apply_stake_op(&mut pair.overlay, &delegator(0), fresh(v))
+            .expect_err("the chain is full");
+        assert!(refused.to_string().contains("ceiling"), "{refused}");
+    }
+    pair.fund(operator(9));
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(9),
+            StakeOp::Register {
+                id: validator(9),
+                bond: amount(5_000),
+                commission_bps: 500,
+            },
+        )
+        .unwrap();
+    assert!(
+        pair.db
+            .apply_stake_op(&mut pair.overlay, &delegator(0), fresh(validator(9)))
+            .is_err(),
+        "a validator registered after the crowd is closed too"
+    );
+    pair.fund(addr(0xD0, 5));
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &addr(0xD0, 5), fresh(validator(5)))
+        .expect("a crowd member tops up");
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &addr(0xD0, 6),
+            StakeOp::Undelegate {
+                validator: validator(6),
+                amount: Params::DEVNET.min_delegation,
+            },
+        )
+        .expect("an exit is never refused");
+}
+
+#[test]
+fn seven_validators_full_to_their_ceiling_leave_the_eighth_open() {
+    let crowd = 7 * MAX_DELEGATIONS_PER_VALIDATOR;
+    let mut pair = crowded_with(crowd, 3_600, 7);
+    let fresh = |v| StakeOp::Delegate {
+        validator: v,
+        amount: amount(1_000),
+    };
+    for i in 0..7 {
+        let refused = pair
+            .db
+            .apply_stake_op(&mut pair.overlay, &delegator(0), fresh(validator(i)))
+            .expect_err("a full validator");
+        assert!(refused.to_string().contains("per-validator"), "{refused}");
+    }
+    pair.fund(operator(7));
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(7),
+            StakeOp::Register {
+                id: validator(7),
+                bond: amount(5_000),
+                commission_bps: 500,
+            },
+        )
+        .unwrap();
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &delegator(0), fresh(validator(7)))
+        .expect("the eighth validator still takes a new delegator");
 }
