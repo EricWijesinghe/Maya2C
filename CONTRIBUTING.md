@@ -36,10 +36,21 @@ In practice:
 Credit is a `Co-authored-by` trailer on the commit that lands your idea, and
 the [Contributors & badges](https://maya2c.dev/guides/contributors/) page.
 
+**How this repository is built.** One maintainer, working with AI coding
+assistants: much of the code is drafted by Claude under his direction and
+review, and the `claude` entry in the contributors graph is that work. The
+`dependabot` entry is GitHub's automated dependency-update bot, not an AI
+coding assistant. The same rules bind every author: a test that fails without
+the change, CI, and the maintainer's review before merge.
+
 ## Your first contribution
 
-There is no curated list of starter issues yet, so here is a path that always
-has work on it:
+Start with an issue labelled
+[good first issue](https://github.com/EricWijesinghe/Maya2C/labels/good%20first%20issue):
+each names the files, the context and the check that proves it done, and none
+touches consensus or cryptography. Comment on it before you start so two
+people do not build the same thing. Beyond that list, a path that always has
+work on it:
 
 1. Run the local devnet (below). Anything that confuses you on the way is a
    docs bug: open a **Docs** issue, or fix it.

@@ -19,7 +19,7 @@
   <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8a9ca3"/></marker>
   <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ff7a6b"/></marker>
 </defs>
-<rect width="1200" height="560" fill="#050b0f"/>
+<rect x="1" y="1" width="1198" height="558" rx="22" fill="#050b0f" stroke="#2cc3cf" stroke-opacity=".35" stroke-width="2"/>
 <text x="30" y="38" font-size="20" font-weight="800">One transaction, end to end</text>
 <text x="1170" y="38" text-anchor="end" class="s">bronze = a step where both post-quantum signatures are checked or made</text>
 
