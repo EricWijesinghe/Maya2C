@@ -110,6 +110,10 @@ members = [
     # activation u64::MAX, called by nothing in consensus. Dependency-free for
     # the reason `governance` is: every function decides how much value moves.
     "crates/fee-market",
+    # The neural base-fee gain (integer model + one-sided rule), moved out of
+    # `fee-market` before genesis so the node links no model (ADR-029
+    # amendment). RESEARCH; only the trainer depends on it.
+    "crates/neural-fee",
     # SPV light client: header fork choice and state-proof verification, for
     # anything that must check Maya2C state without running a full node.
     "crates/light-client",

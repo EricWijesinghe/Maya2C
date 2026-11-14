@@ -2077,11 +2077,12 @@ note = "Live where genesis sets bft.fees (ADR-029). ADR-071 (Proposed on master)
 id = "neural-base-fee-gain"
 name = "Neural base-fee gain"
 domain = "Consensus and execution"
-paths = "`crates/fee-market/src/model/`, `crates/node/src/neural_gas/`, `bins/neural-gas-trainer`"
+paths = "`crates/neural-fee`, `bins/neural-gas-trainer`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-neural-gas-trainer", "bins/neural-gas-trainer/tests/evaluation_tests.rs", "crates/node/tests/neural_fee_tests.rs"]
+tests = ["crate:maya-neural-fee", "crate:maya-neural-gas-trainer", "bins/neural-gas-trainer/tests/evaluation_tests.rs", "crates/node/tests/fee_market_tests.rs"]
+note = "Not linked by the node (ADR-029 amendment 2026-11-14, Eric: founder audit Q19 A). Model + rule moved out of maya-fee-market; the node's feature extractor was deleted. Guard: fee_market_tests::the_launch_binary_carries_no_neural_fee_model walks Cargo.lock from custom-l1-node and maya2c-node. `cargo tree -e normal,build -i maya-neural-fee` on both: not in the graph (2026-11-14). Trainer `-- --check` drift predates the move (same at 3735252d). Reviving it is a hard fork."
 
 [[subsystem]]
 id = "multi-shard-asynchronous-dag-narwhal-tusk"

@@ -71,8 +71,8 @@ pub const MAX_GAIN_BPS: u64 = 2 * UNIT_GAIN_BPS;
 /// Multiply-accumulates per inference: the whole cost of [`Model::gain`].
 pub const MULTIPLY_ACCUMULATES: usize = INPUTS * HIDDEN + HIDDEN;
 
-/// Which feature sits at which index. The node's extractor fills them in
-/// this order; `tests/neural_fee_tests.rs` pins the two sides together.
+/// Which feature sits at which index. An extractor must fill them in this
+/// order; the node had one until 2026-11-14 (ADR-029 amendment).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Feature {
     /// Block bytes over target.

@@ -23,9 +23,8 @@
 //!
 //! Two consequences worth stating:
 //!
-//! - **The fixed [`crate::shard_of`] stays.** `src/neural_gas/features.rs`
-//!   reads it to compute a fee feature, and a feature that moved with each
-//!   node's load would be a consensus value that differs between nodes.
+//! - **The fixed [`crate::shard_of`] stays.** An assignment that moved with
+//!   each node's load would be a consensus value that differs between nodes.
 //! - **The guarantee rests on access sets naming every address a transaction
 //!   touches.** That is the existing contract of [`crate::schedule`](fn@crate::schedule), and
 //!   `core::batch::access_for_transaction` in the node meets it only for plain
