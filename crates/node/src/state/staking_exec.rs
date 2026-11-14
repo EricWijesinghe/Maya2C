@@ -34,11 +34,26 @@ use crate::state::staking::{
 /// chain made no progress for hours; the cap only bounds a loop.
 const MAX_SLOTS_PER_BLOCK: u64 = 1_000_000;
 
-/// Largest staking record a transaction may leave behind. Every block rewrites
-/// the record and journals the old one, and the journal refuses a previous
-/// value above [`MAX_RECORD_BYTES`]; half of that leaves the per-block counts
-/// room to grow. Above it the transaction is refused, never the block.
-const MAX_STAKING_RECORD_BYTES: usize = MAX_RECORD_BYTES / 2;
+/// Largest staking record a transaction may leave behind. Above it the
+/// transaction is refused, never the block.
+///
+/// The record is one value that every block and every staking transaction
+/// decodes and re-encodes whole, so its size is a per-block cost, not only a
+/// storage one. At the old cap, half of [`MAX_RECORD_BYTES`], a record of
+/// 87,000 delegations (8.35 MB) cost 289 ms a block in `settle_staking` and
+/// 153 ms a transaction on the test profile (2026-11-13). One MiB holds about
+/// 10,900 delegations at 96 bytes each. Splitting the record (ADR-062b) is what
+/// removes the limit; this keeps the cost bounded until then.
+pub(crate) const MAX_STAKING_RECORD_BYTES: usize = 1024 * 1024;
+const _: () = assert!(MAX_STAKING_RECORD_BYTES <= MAX_RECORD_BYTES / 2);
+
+/// Staking transactions one block may carry, slashing evidence aside.
+///
+/// Each one pays for the whole record (above), so without a count the cost of
+/// a block was its transaction count times the record. Evidence is exempt so
+/// that a block full of delegations cannot keep a slash out until the
+/// offender's funds have left; equivocations are bounded by the committee.
+pub const MAX_STAKING_TX_PER_BLOCK: usize = 16;
 
 fn stake_err(e: maya_staking::StakeError) -> NodeError {
     NodeError::Network(format!("staking refused: {e:?}"))
@@ -173,6 +188,15 @@ impl StateDB {
         let stored = self
             .record(overlay, STATE_KEY)?
             .ok_or_else(|| NodeError::Network("staking is not active on this chain".to_string()))?;
+        let is_slash = matches!(action, StakingAction::ReportEquivocation { .. });
+        if !is_slash {
+            if overlay.staking_actions >= MAX_STAKING_TX_PER_BLOCK {
+                return Err(NodeError::Network(format!(
+                    "staking refused: a block may carry at most {MAX_STAKING_TX_PER_BLOCK} staking transactions"
+                )));
+            }
+            overlay.staking_actions += 1;
+        }
         let previous_len = stored.len();
         let mut record = StakingRecord::decode(&stored)?;
         let s = &mut record.staking;
@@ -214,7 +238,6 @@ impl StateDB {
         // Only growth past the cap is refused, and never a slash: otherwise a
         // record filled to the cap would block the unbonds and evidence that
         // shrink it. A slash adds one tombstone at most, well inside the margin.
-        let is_slash = matches!(action, StakingAction::ReportEquivocation { .. });
         if !is_slash && encoded.len() > MAX_STAKING_RECORD_BYTES && encoded.len() > previous_len {
             return Err(NodeError::Network(format!(
                 "staking refused: the record would be {} bytes, above {MAX_STAKING_RECORD_BYTES}",

@@ -110,6 +110,17 @@ pub const MAX_ORDERS_PER_BOOK: u64 = 4_096;
 /// Governed by [`ParameterKey::DexMaxFillsPerBlock`]; this is its default.
 pub const MAX_FILLS_PER_BLOCK: usize = 1_024;
 
+/// Most resting orders the books one block touches may hold between them.
+///
+/// The end-of-block pass rebuilds every touched book whole, whether or not
+/// anything crosses, so the per-book ceiling times the number of pairs a
+/// block can touch was the real bound: 16 full books measured 545 ms on the
+/// test profile, and a block at the fee target carries about 190 transactions,
+/// each able to touch another pair (2026-11-13). A transaction that would
+/// touch a book past this budget is refused, never the block; the first book
+/// a block touches is always admitted, so a full book stays reachable.
+pub const MAX_BOOK_ORDERS_PER_BLOCK: u64 = 4 * MAX_ORDERS_PER_BOOK;
+
 /// Stored width of a dex counter: a little-endian `u64`, unchanged by ADR-046
 /// because a sequence number or order count is not a monetary amount.
 /// A 256-bit amount in either of the node's two types (ADR-048).
@@ -371,6 +382,29 @@ impl StateDB {
         let next = current.checked_add(1).ok_or(NodeError::BalanceOverflow)?;
         Self::put_record(overlay, SEQUENCE_KEY.to_vec(), encode_counter(next));
         Ok(current)
+    }
+
+    /// Marks `pair` for the end-of-block pass, within the block's book budget
+    /// ([`MAX_BOOK_ORDERS_PER_BLOCK`]). Counted once per pair, at the book's
+    /// size when first touched.
+    pub(crate) fn touch_pair(&self, overlay: &mut Overlay, pair: &PairId) -> Result<()> {
+        if overlay.touched_pairs.contains(pair) {
+            return Ok(());
+        }
+        let resting = self.load_counter(overlay, &order_count_key(pair))?;
+        let total = overlay.book_orders.saturating_add(resting);
+        if !overlay.touched_pairs.is_empty() && total > MAX_BOOK_ORDERS_PER_BLOCK {
+            return Err(NodeError::Trade {
+                operation: "book budget",
+                reason: format!(
+                    "this block's books already hold {} resting orders; {resting} more would pass {MAX_BOOK_ORDERS_PER_BLOCK}",
+                    overlay.book_orders
+                ),
+            });
+        }
+        overlay.book_orders = total;
+        overlay.touched_pairs.insert(*pair);
+        Ok(())
     }
 
     /// Adjusts a book's resting order count.
@@ -677,7 +711,7 @@ impl StateDB {
             amount_in: to_amount(request.amount_in),
             min_out: to_amount(request.min_out),
         });
-        overlay.touched_pairs.insert(request.pair);
+        self.touch_pair(overlay, &request.pair)?;
 
         // The input leaves the trader now and is held by the batch. Taking it
         // at settlement instead would mean a trader could be in two batches at
@@ -906,8 +940,7 @@ impl StateDB {
         let key = order_key(&placement.pair, side, price, sequence);
         Self::put_record(overlay, order_index_key(&id), key.clone());
         Self::put_record(overlay, key, order.encode());
-        overlay.touched_pairs.insert(placement.pair);
-        Ok(())
+        self.touch_pair(overlay, &placement.pair)
     }
 
     /// Withdraws a resting order and refunds what is left of its escrow.
@@ -1183,10 +1216,7 @@ impl StateDB {
             records.insert(record.order.id, record);
         }
 
-        for (key, value) in &overlay.records {
-            if !key.starts_with(&prefix) {
-                continue;
-            }
+        for (_, value) in overlay.records_under(&prefix) {
             if let Some(bytes) = value {
                 let record = OrderRecord::decode(bytes)?;
                 records.insert(record.order.id, record);
