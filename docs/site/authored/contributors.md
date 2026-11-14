@@ -41,3 +41,13 @@ are declined with the reason given.
 
 No one is listed until a claim has been checked. Nothing here is taken from a
 scanner's output or from a name without a claim.
+
+## Ambassadors and referrals (not open yet)
+
+A volunteer ambassador programme and a referral credit are designed in
+[`docs/growth/ambassador-design.md`](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/growth/ambassador-design.md).
+Neither is open. When they open, the same rule as the badges applies:
+ambassadors and referrers are **unpaid**, receive no token, money or
+allocation, must say they are affiliated in every post, and never talk about
+price or returns. Credit is a listing here, given only for a checked
+contribution, and only with the person's consent.

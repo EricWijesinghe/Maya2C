@@ -35,8 +35,9 @@ CBDC vault; and the `reference-apps` and MCP server that sit on top.
 - Heights, nonces, epochs, byte counts, basis points and ppm ratios.
 - MPC darkpool shares and SPDZ values: elements of a 64-bit field. Widening them is a
   protocol change, not a type change. `MAX_ORDER_SIZE` documents the bound.
-- Shielded pool and private contract state: their real ceiling is 2^58 (two 29-bit limbs
-  over a 31-bit field), narrower than the `u64` wire fields suggest. Widening is a circuit
+- Shielded pool and private contract state: their real ceilings are 2^54 for the pool
+  (two 27-bit limbs) and 2^58 for private state (two 29-bit limbs), over a 31-bit field;
+  narrower than the `u64` wire fields suggest. Widening is a circuit
   redesign: see [ADR-067](ADR-067-shielded-and-private-amounts-256-bit.md).
 - Legacy `get_balance` (VM `env`): kept for already-deployed contracts; `get_balance_u256`
   gives the exact value.
