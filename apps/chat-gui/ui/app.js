@@ -315,6 +315,16 @@ $("save-relay").onclick = async () => {
   }
 };
 
+// Manual only (ADR-080 amendment 2026-11-14): the Rust side asks before it installs.
+$("check-updates").onclick = async () => {
+  say("side-status", "Checking for updates…");
+  try {
+    say("side-status", await invoke("check_for_updates"));
+  } catch (e) {
+    say("side-status", `Update check failed: ${e}`);
+  }
+};
+
 $("compose").onsubmit = async (ev) => {
   ev.preventDefault();
   const text = $("text").value.trim();

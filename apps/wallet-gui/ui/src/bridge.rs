@@ -260,6 +260,12 @@ pub async fn lock() -> Result<(), String> {
     call("lock", &NoArgs {}).await
 }
 
+/// The manual update check (ADR-080 amendment 2026-11-14): a line to show.
+/// The native side asks before it installs anything.
+pub async fn check_for_updates() -> Result<String, String> {
+    call("check_for_updates", &NoArgs {}).await
+}
+
 /// Whether a wallet exists under `name`.
 pub async fn wallet_exists(name: &str) -> Result<bool, String> {
     #[derive(Serialize)]

@@ -16,3 +16,9 @@ publish = false
 tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2.13"
 tauri-plugin-dialog = "2"
+# The updater plugin's own verifier and its base64; already in every app's
+# lock through tauri-plugin-updater, so this pins no new code.
+minisign-verify = "0.3"
+base64 = "0.23"
+# The publisher key fingerprint; already in every app's lock through tauri.
+sha2 = "0.10"

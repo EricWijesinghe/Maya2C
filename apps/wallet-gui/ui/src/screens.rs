@@ -397,6 +397,19 @@ pub mod wallet {
             refresh();
         });
 
+        // Manual only (ADR-080 amendment 2026-11-14): the native side shows the
+        // publisher key and asks before it installs anything.
+        let update_note = RwSignal::new(String::new());
+        let check_updates = move |_| {
+            update_note.set("Checking for updates…".to_owned());
+            spawn_local(async move {
+                update_note.set(match bridge::check_for_updates().await {
+                    Ok(line) => line,
+                    Err(error) => format!("Update check failed: {error}"),
+                });
+            });
+        };
+
         // The account list is a selector, so without this the wallet could only
         // ever show the one account derived at setup.
         let adding = RwSignal::new(false);
@@ -585,6 +598,8 @@ pub mod wallet {
                      http://127.0.0.1:8545."
                 </p>
                 <button class="ghost wide" on:click=move |_| refresh()>"Refresh"</button>
+                <button class="ghost wide" on:click=check_updates>"Check for updates"</button>
+                <p class="hint" role="status">{move || update_note.get()}</p>
             </details>
         }
     }

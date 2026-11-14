@@ -84,6 +84,7 @@ pub fn run() {
             commands::export_contacts,
             commands::import_contacts,
             commands::check_recipient,
+            maya_app_update::command::check_for_updates,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");
