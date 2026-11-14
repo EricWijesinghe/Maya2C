@@ -942,6 +942,24 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("get_name", |params, ctx, _| {
+            // A read of the committed `nm:` record (ADR-135 P-3). The label is
+            // checked by the same rule the decoder applies, so a lookup can
+            // never reach a key no transaction could have written.
+            let label: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let label = label.strip_suffix(".maya").unwrap_or(&label);
+            crate::core::name_payload::validate_label(label.as_bytes())
+                .map_err(|why| invalid_params(format!("name label: {why}")))?;
+            let record = ctx
+                .chain()
+                .state()
+                .get_name(label.as_bytes())
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(record.as_ref().map(crate::rpc::types::NameInfo::from))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("stateless_transaction_witness", |params, ctx, _| {
             // Research branch: refused until stateless accounts are active,
             // which is never on any network today. The witness is against the

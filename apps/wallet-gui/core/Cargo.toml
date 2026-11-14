@@ -76,6 +76,9 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+# Signs a sponsored (wire v13) frame in the v4 confirm tests: the sponsor's
+# suite keys live in crypto-pq, which the node already links.
+maya-crypto-pq = { path = "../../../crates/crypto-pq" }
 # Encodes real QR images for the decode tests. A parser exercised only on
 # hand-written strings has never seen the input a camera actually produces.
 qrcode = "0.14"

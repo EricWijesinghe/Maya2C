@@ -163,6 +163,36 @@ Two behaviours worth naming:
 
 ---
 
+## 5. v4 payloads: tokens, NFTs, names, schedules, sponsored fees (ADR-135 I7/I8)
+
+Post-genesis and dark (every v4 feature bit is at `u64::MAX`). What the
+clients do with the v4 forms, and where each claim is pinned:
+
+| Piece | What it does | Pinned by |
+|---|---|---|
+| `spec/tests/v4-client-vectors.json` | one payload per form (16 vectors, 14 forms): fields, bytes, summary, review level, details | written by `crates/node/tests/v4_client_vectors.rs` from the node's codec and `core::describe`; the test fails when the file is stale |
+| `core::describe` | v13 frames add the sponsor, its ceiling and its expiry; names add `name target` / `new owner` in full | `v4_client_vectors.rs` |
+| RPC `TransactionInfo` | adds `details` and `sponsor` (both omitted when empty, so older readers parse it) | `v4_client_vectors.rs` |
+| RPC `get_name(label)` | the committed `nm:` record, label checked by the decoder's rule | used by the explorer's `/name` page |
+| wallet core confirm | v4 accounts in Bech32m; burn / schedule escrow reviewed as spends, name hand-over and mint renounce as control changes; the native dialog names a sponsor | `apps/wallet-gui/core/tests/v4_confirm_tests.rs` |
+| explorer | payload kinds explained in the node's words with full details; sponsored transfers say who pays; `/name` and `/api/name/{label}` | `apps/explorer/src/explain.rs`, `ui.rs`, `tests/server_tests.rs` |
+| `sdk-ffi` | `describe_payload`, `describe_transaction` (any frame the node decodes, v13 included) | `sdks/sdk-ffi/tests/describe_tests.rs` |
+| Python `maya2c_sdk.v4`, TypeScript `src/v4.ts` | encode, decode and describe the 14 payload forms | `test_v4_vectors.py`, `v4-vectors.test.ts`, against the node's vectors |
+
+Python and TypeScript are a second and third copy of a consensus encoding, so
+they read and preview payloads only; frames and signatures stay in Rust. The
+vector file is what keeps the copies honest: a byte or a word that drifts fails
+in the language that drifted.
+
+Not done: `sdk-wasm` has no v4 codec (the TypeScript one serves the same
+runtimes; a fourth copy adds drift with no new reader); the Python/TS codecs do
+not parse v13 frames (deriving the sponsor's address needs BLAKE3, outside the
+standard library); the committed `sdk-ffi` Python binding file is not
+regenerated; the API gateway passes `details` and `sponsor` through unchanged
+inside block JSON and has no `get_name` route yet.
+
+---
+
 ## Not built
 
 - **New `StateDB` read paths.** The node exposes six RPC methods; dex, oracle,

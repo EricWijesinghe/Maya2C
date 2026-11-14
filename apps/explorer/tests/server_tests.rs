@@ -819,3 +819,27 @@ async fn the_block_and_tx_pages_explain_themselves() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn the_name_page_refuses_a_label_the_chain_could_never_hold() {
+    let h = harness(1).await;
+    let (status, body) = get(&format!("{}/name?label=-bad--", h.base)).await;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("Not a name the chain can hold"), "{body}");
+    let (status, body) = get(&format!("{}/api/name/ab", h.base)).await;
+    assert_eq!(status, 400, "{body}");
+}
+
+#[tokio::test]
+async fn the_name_page_without_a_node_says_so_instead_of_inventing_an_answer() {
+    let h = harness(1).await;
+    let (status, body) = get(&format!("{}/name?label=Alice.maya", h.base)).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("alice.maya"),
+        "the label is shown as the chain stores it"
+    );
+    assert!(body.contains("No node endpoint configured."), "{body}");
+    let (status, _) = get(&format!("{}/name", h.base)).await;
+    assert_eq!(status, 200);
+}

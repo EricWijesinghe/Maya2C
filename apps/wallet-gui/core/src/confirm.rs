@@ -6,8 +6,12 @@
 //! [`Transaction::sign`] covers, and [`crate::wallet::Wallet::sign`] refuses
 //! unless it is handed that hash back.
 
+use custom_l1_node::core::asset_mint_payload::AssetMintAction;
 use custom_l1_node::core::describe::{describe, is_fee_output};
+use custom_l1_node::core::name_payload::{NameAction, NameUpdate};
+use custom_l1_node::core::nft_payload::NftAction;
 use custom_l1_node::core::payload::TxKind;
+use custom_l1_node::core::schedule_payload::ScheduleAction;
 use custom_l1_node::core::vault_payload::VaultAction;
 use custom_l1_node::core::{ChainTag, Transaction};
 use maya_amount::Amount;
@@ -35,6 +39,10 @@ const ADDRESS_LABELS: &[&str] = &[
     "validator",
     "vault owner",
     "guardian",
+    "mint authority",
+    "name target",
+    "new owner",
+    "sponsor",
 ];
 
 /// Everything a signer reads before signing.
@@ -71,6 +79,11 @@ pub struct Confirmation {
     pub fee_exceeds_amount: bool,
     /// `maya_clear_sign::review` of the transaction's effects, most severe first.
     pub warnings: Vec<String>,
+    /// Wire-v13 frames only (ADR-135 P-4): the account that pays the fee,
+    /// grouped Bech32m, derived from the sponsor's key.
+    pub sponsor: Option<String>,
+    /// Wire-v13 frames only: the most the sponsor pays, in display units.
+    pub sponsor_max_fee: Option<String>,
 }
 
 /// The confirmation for `tx` as it will be signed on `chain`, with no
@@ -130,6 +143,8 @@ pub fn confirmation_with(tx: &Transaction, chain: &ChainTag, ctx: &Context) -> C
             .into_iter()
             .map(|w| warning_text(w).to_string())
             .collect(),
+        sponsor: tx.sponsor.as_ref().map(|s| grouped(network, &s.address())),
+        sponsor_max_fee: tx.sponsor.as_ref().map(|s| format_display(s.max_fee)),
     }
 }
 
@@ -208,7 +223,45 @@ fn effects_of(tx: &Transaction) -> Vec<Effect> {
             VaultAction::Request { to, amount } => vec![native(*to, *amount)],
             _ => Vec::new(),
         },
+        TxKind::AssetMint(action) => asset_mint_effects(action),
+        TxKind::Nft(NftAction::TransferItem { collection, to, .. }) => vec![Effect::Transfer {
+            token: *collection,
+            to: *to,
+            amount: Amount::from_u64(1),
+        }],
+        TxKind::Name(NameAction::Update {
+            label,
+            op: NameUpdate::Transfer(owner),
+        }) => vec![Effect::SetOwner {
+            target: *blake3::hash(label).as_bytes(),
+            owner: *owner,
+        }],
+        // The whole escrow leaves the balance when the schedule is created
+        // (ADR-135 P-7), so it is reviewed as one payment of every run.
+        TxKind::Schedule(ScheduleAction::Create {
+            payee,
+            amount,
+            runs,
+            ..
+        }) => vec![native(*payee, amount.saturating_mul(U256::from(*runs)))],
         _ => Vec::new(),
+    }
+}
+
+/// Capped-asset forms (ADR-135 P-1): a burn spends the holder's own units; a
+/// renounce changes who controls the asset's supply, for good.
+fn asset_mint_effects(action: &AssetMintAction) -> Vec<Effect> {
+    match action {
+        AssetMintAction::Burn { asset, amount } => vec![Effect::Transfer {
+            token: *asset,
+            to: [0; 32],
+            amount: Amount(amount.0),
+        }],
+        AssetMintAction::Renounce { asset } => vec![Effect::SetOwner {
+            target: *asset,
+            owner: [0; 32],
+        }],
+        AssetMintAction::RegisterCapped { .. } | AssetMintAction::Mint { .. } => Vec::new(),
     }
 }
 
@@ -274,6 +327,11 @@ pub fn approval_message(shown: &Confirmation) -> String {
     }
     if let Some(fee) = &shown.fee {
         lines.push(format!("Fee: {fee} MAYA"));
+    }
+    if let (Some(sponsor), Some(max_fee)) = (&shown.sponsor, &shown.sponsor_max_fee) {
+        lines.push(format!(
+            "Fee paid by sponsor: {sponsor}, at most {max_fee} MAYA"
+        ));
     }
     lines.push(format!("From: {}", shown.sender));
     lines.push(format!("Network: {}", shown.network));

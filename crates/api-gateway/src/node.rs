@@ -111,6 +111,13 @@ pub trait NodeClient: Send + Sync + 'static {
         Ok(serde_json::Value::Null)
     }
 
+    /// A registered name (`get_name`, ADR-135 P-3), passed through as the
+    /// node's JSON. `null` when the name is free, and from a node that
+    /// predates names, which is also the default here.
+    async fn get_name(&self, _label: &str) -> Result<serde_json::Value, GatewayError> {
+        Ok(serde_json::Value::Null)
+    }
+
     /// Whether this gateway forwards the pruned-node bootstrap methods.
     fn serves_bootstrap(&self) -> bool {
         false
@@ -216,6 +223,10 @@ impl NodeClient for RpcNodeClient {
 
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
         self.call("get_supply", rpc_params![]).await
+    }
+
+    async fn get_name(&self, label: &str) -> Result<serde_json::Value, GatewayError> {
+        self.call("get_name", rpc_params![label]).await
     }
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {

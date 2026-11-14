@@ -71,7 +71,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
-| names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed) | consensus review (ADR-105) | M | W2 |
+| names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed); chain side ADR-135 P-3 (#493, stub, post-genesis); clients V4-I7/I8: `get_name` RPC, explorer `/name`, gateway `/v1/names/{label}`, wallet clear-sign, Python/TS payload codecs (draft PR, post-genesis) | consensus review (ADR-105) | M | W2 |
 | notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 

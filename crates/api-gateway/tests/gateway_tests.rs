@@ -96,6 +96,14 @@ impl NodeClient for MockNode {
             height: 0,
         })
     }
+
+    async fn get_name(&self, label: &str) -> Result<serde_json::Value, GatewayError> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        if label != "alice" {
+            return Ok(serde_json::Value::Null);
+        }
+        Ok(serde_json::json!({ "label": label, "owner": "aa".repeat(32) }))
+    }
 }
 
 fn app_with(node: Arc<MockNode>) -> axum::Router {
@@ -230,6 +238,28 @@ async fn a_malformed_address_never_reaches_the_node() {
     let (status, _) = get(app_with(Arc::clone(&node)), "/v1/accounts/nothex").await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(node.calls(), 0);
+}
+
+#[tokio::test]
+async fn a_name_is_served_with_or_without_its_suffix_and_a_free_one_is_a_404() {
+    let node = Arc::new(MockNode::default());
+    for uri in ["/v1/names/alice", "/v1/names/alice.maya"] {
+        let (status, body) = get(app_with(Arc::clone(&node)), uri).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(body["label"], "alice");
+    }
+    let (status, _) = get(app_with(node), "/v1/names/bob").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_label_the_chain_could_never_hold_never_reaches_the_node() {
+    let node = Arc::new(MockNode::default());
+    for bad in ["ab", "Alice", "-ab", "ab-", "a--b", "a_b", &"a".repeat(64)] {
+        let (status, _) = get(app_with(Arc::clone(&node)), &format!("/v1/names/{bad}")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    }
     assert_eq!(node.calls(), 0);
 }
 

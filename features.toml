@@ -2750,6 +2750,17 @@ tests = ["crates/node/tests/scheduled_payment_tests.rs", "crates/node/tests/sche
 note = "ADR-135 P-7 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 46, SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 67-68, layer sp: (StateLayer 21), breaker module 16, ScheduleRunFee governance tag 16 (ADR-135 allocation table); RUN_FEE defaults to a small non-zero governed value, one minimal transfer's byte fee (Eric 2026-11-12). End-of-block step capped at MAX_DUE_PER_BLOCK = 256 with carry-over. CI-first: not compiled locally, so stub until CI and a fix wave run the tests."
 
 [[subsystem]]
+id = "v4-client-support"
+name = "v4 wallet, SDK, explorer and gateway support (V4-I7/I8)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/core/describe.rs`, `crates/node/src/rpc/types.rs` (details, sponsor, NameInfo), `crates/node/src/rpc/server.rs` (get_name), `apps/wallet-gui/core/src/confirm.rs`, `apps/explorer/src/explain.rs`, `apps/explorer/src/ui.rs` (/name), `crates/api-gateway/src/rest.rs` (/v1/names), `sdks/sdk-ffi/src/describe.rs`, `sdks/python/maya2c_sdk/v4.py`, `sdks/sdk-js/src/v4.ts`, `spec/tests/v4-client-vectors.json`"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/v4_client_vectors.rs", "apps/wallet-gui/core/tests/v4_confirm_tests.rs", "sdks/sdk-ffi/tests/describe_tests.rs", "sdks/python/tests/test_v4_vectors.py", "sdks/sdk-js/test/v4-vectors.test.ts"]
+note = "ADR-135 I7/I8, post-genesis, draft PR on a stack of #487/#493/#501/#502 plus master. The v4 features it reads are dark (bits 41-44, 46 at u64::MAX), so nothing here is reachable on a live chain. Clear-sign words come only from core::describe; Python/TS payload codecs are checked against node-written vectors. Not built: sdk-wasm v4 codec, v13 parsing in Python/TS, regenerated sdk-ffi Python bindings, explorer NFT/schedule/asset pages, a nav link to /name. Stays stub until the v4 features it serves leave stub."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

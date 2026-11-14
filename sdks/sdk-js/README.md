@@ -31,6 +31,12 @@ const block   = await client.getBlock(4200);
 Every method rejects with a `GatewayError` carrying the HTTP status and the
 gateway's message, rather than resolving to a shape you have to inspect.
 
+`encodePayload`, `decodePayload` and `describePayload` read, write and word the
+v4 payload forms (tokens, NFTs, names, scheduled payments; ADR-135,
+post-genesis and dark), checked against the node-written
+`spec/tests/v4-client-vectors.json`. Payloads only: frames and signatures stay
+in Rust.
+
 ## Signing is not in this package
 
 A Maya2C signature is a hybrid pair — ML-DSA-65 (FIPS 204) plus

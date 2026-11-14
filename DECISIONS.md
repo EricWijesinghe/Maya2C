@@ -901,3 +901,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — v4 clients read the node's words; one vector file keeps the copies honest (V4-I7/I8, Eric 2026-11-14 "I approve everything, proceed")
+
+Post-genesis, on a stack of the four v4 drafts (#487, #493, #501, #502) plus master, as a draft PR.
+
+- **The node is the only author of clear-sign text.** Wallet core, explorer and `sdk-ffi` call `core::describe`; nothing in them rewords a kind. A v13 frame's sponsor, ceiling and expiry are added by `describe` itself, so every surface shows them.
+- **Python and TypeScript get payload codecs, not frame codecs.** They encode, decode and describe the 14 v4 payload forms; frames and signatures stay in Rust (the existing rule in `sdks/python/README.md`). `spec/tests/v4-client-vectors.json` is written by the node and read by Python, TypeScript and `sdk-ffi`, so a drifted byte or word fails in the language that drifted.
+- **No v4 codec in `sdk-wasm`.** The TypeScript codec serves the same runtimes; a fourth copy adds drift and no reader.
+- **`TransactionInfo` grows `details` and `sponsor`**, both skipped when empty, so an older reader parses a newer record. The explorer explains payload kinds from them instead of "moved no value".
+- **`get_name` is a new node RPC and `/v1/names/{label}` a new gateway route**, both refusing a label the decoder would refuse, so a lookup never reaches a key no transaction could write. The explorer's `/name` page uses it.
+- **Wallet review of v4 forms:** a burn and a schedule's escrow are spends (drain and look-alike checks apply); handing a name over and renouncing a mint are control changes; minting is neither.

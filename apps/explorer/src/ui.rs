@@ -630,6 +630,52 @@ pub fn validators_page(
     })
 }
 
+/// The name lookup page (ADR-135 P-3): who owns `label.maya` and where it
+/// points, live from the node. `error` explains a missing answer (no node, a
+/// node without `get_name`, or a label the chain could never hold).
+#[must_use]
+pub fn name_page(
+    query: String,
+    info: Option<custom_l1_node::rpc::NameInfo>,
+    error: Option<String>,
+) -> String {
+    let body = match (info, error) {
+        (_, Some(text)) => view! { <p class="error">{text}</p> }.into_any(),
+        (Some(n), None) => view! {
+            <section class="panel">
+                <h2>{format!("{}.maya", n.label)}</h2>
+                <dl class="detail">
+                    <dt>"Points at"</dt>
+                    <dd class="mono"><a href=format!("/account?address={}", n.target)>{n.target.clone()}</a></dd>
+                    <dt>"Owner"</dt>
+                    <dd class="mono"><a href=format!("/account?address={}", n.owner)>{n.owner.clone()}</a></dd>
+                    <dt>"Registered at block"</dt><dd>{n.registered_at.to_string()}</dd>
+                    <dt>"Expires at block"</dt><dd>{n.expires_at.to_string()}</dd>
+                </dl>
+            </section>
+        }
+        .into_any(),
+        (None, None) if query.is_empty() => view! {
+            <p class="muted">"Enter a name to look up, e.g. alice.maya."</p>
+        }
+        .into_any(),
+        (None, None) => view! {
+            <p class="muted">{format!("{query} is not registered.")}</p>
+        }
+        .into_any(),
+    };
+    render(view! {
+        <Shell title="Names".to_string()>
+            <h1>"Name lookup"</h1>
+            <form class="search" method="get" action="/name">
+                <input name="label" placeholder="name, e.g. alice.maya" value=query.clone()/>
+                <button type="submit">"Look up"</button>
+            </form>
+            {body}
+        </Shell>
+    })
+}
+
 /// The mining page: the estimated hashrate over recent blocks, as a line.
 ///
 /// The series is `HashratePoint`s from the same estimator the dashboard uses,
@@ -1096,5 +1142,34 @@ mod validators_page_tests {
         );
         assert!(html.contains("does not serve get_validators"));
         assert!(!html.contains("<table"));
+    }
+
+    #[test]
+    fn a_registered_name_shows_its_target_and_owner_in_full() {
+        let info = custom_l1_node::rpc::NameInfo {
+            label: "alice".into(),
+            owner: "aa".repeat(32),
+            target: "bb".repeat(32),
+            registered_at: 10,
+            expires_at: 31_536_010,
+        };
+        let html = name_page("alice.maya".into(), Some(info), None);
+        assert!(html.contains("alice.maya"), "{html}");
+        assert!(html.contains(&format!("/account?address={}", "bb".repeat(32))));
+        assert!(html.contains(&"aa".repeat(32)));
+        assert!(html.contains("31536010"));
+    }
+
+    #[test]
+    fn a_free_name_and_a_refused_label_say_so() {
+        let free = name_page("bob.maya".into(), None, None);
+        assert!(free.contains("bob.maya is not registered."), "{free}");
+        let refused = name_page(
+            "<b>".into(),
+            None,
+            Some("Not a name the chain can hold.".into()),
+        );
+        assert!(refused.contains("Not a name the chain can hold."));
+        assert!(!refused.contains("<b>"), "the query is escaped");
     }
 }

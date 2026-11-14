@@ -312,6 +312,63 @@ pub struct TransactionInfo {
     /// code, or changes who controls something.
     #[serde(default)]
     pub careful: bool,
+    /// `core::describe`'s labelled values, in full and in payload order: the
+    /// addresses, ids and exact amounts the summary refers to. Empty from a
+    /// node that predates it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<DetailInfo>,
+    /// Who pays the fee of a wire-v13 sponsored frame (ADR-135 P-4). Absent
+    /// for every other frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sponsor: Option<SponsorInfo>,
+}
+
+/// One labelled value from `core::describe`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DetailInfo {
+    /// What the value is, e.g. `pay to` or `asset`.
+    pub label: String,
+    /// The value in full: hex for addresses and ids, base units for amounts.
+    pub value: String,
+}
+
+/// The sponsor of a wire-v13 frame, as the API reports it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SponsorInfo {
+    /// The paying account, hex, derived from the sponsor's key.
+    pub address: String,
+    /// The most the sponsorship pays, in base units.
+    #[serde(with = "crate::state::amount_serde")]
+    pub max_fee: primitive_types::U256,
+    /// Last height at which the sponsorship may apply.
+    pub valid_until: u64,
+}
+
+/// A registered name (ADR-135 P-3), as `get_name` returns it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NameInfo {
+    /// The label, ASCII, without the `.maya` suffix.
+    pub label: String,
+    /// Hex-encoded owner, who may update and transfer the name.
+    pub owner: String,
+    /// Hex-encoded address the name points at.
+    pub target: String,
+    /// Height of the registration.
+    pub registered_at: u64,
+    /// Height at which the name lapses into its grace period.
+    pub expires_at: u64,
+}
+
+impl From<&crate::state::names::NameRecord> for NameInfo {
+    fn from(record: &crate::state::names::NameRecord) -> Self {
+        Self {
+            label: String::from_utf8_lossy(&record.label).into_owned(),
+            owner: hex::encode(record.owner),
+            target: hex::encode(record.target),
+            registered_at: record.registered_at,
+            expires_at: record.expires_at,
+        }
+    }
 }
 
 /// A multisig transaction's policy, as the API reports it.
@@ -384,6 +441,19 @@ impl From<&Transaction> for TransactionInfo {
             kind: tx.kind.label().to_owned(),
             summary: described.summary,
             careful: described.review == crate::core::describe::Review::Careful,
+            details: described
+                .details
+                .into_iter()
+                .map(|(label, value)| DetailInfo {
+                    label: label.to_owned(),
+                    value,
+                })
+                .collect(),
+            sponsor: tx.sponsor.as_ref().map(|s| SponsorInfo {
+                address: hex::encode(s.address()),
+                max_fee: s.max_fee,
+                valid_until: s.valid_until,
+            }),
         }
     }
 }

@@ -106,10 +106,37 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 /// Describes `tx`: the native transfer's outputs, or its payload.
 #[must_use]
 pub fn describe(tx: &Transaction) -> Description {
-    if matches!(tx.kind, TxKind::Transfer) {
-        return describe_transfer(tx);
+    let described = if matches!(tx.kind, TxKind::Transfer) {
+        describe_transfer(tx)
+    } else {
+        describe_kind(&tx.kind)
+    };
+    match &tx.sponsor {
+        Some(sponsorship) => with_sponsor(described, sponsorship),
+        None => described,
     }
-    describe_kind(&tx.kind)
+}
+
+/// A wire-v13 frame (ADR-135 P-4): someone else pays the fee. The sponsor's
+/// address is derived from its key, never a wire field, so the words name the
+/// account that actually pays. A sponsorship never changes what the inner
+/// transaction does, so the review level stays the inner one's.
+fn with_sponsor(
+    mut described: Description,
+    sponsorship: &crate::core::sponsor_tx::Sponsorship,
+) -> Description {
+    let sponsor = sponsorship.address();
+    described.summary = format!(
+        "{} The fee is paid by sponsor {}, at most {}, until block {}.",
+        described.summary,
+        short(&sponsor),
+        amount(sponsorship.max_fee),
+        sponsorship.valid_until
+    );
+    described
+        .with("sponsor", full(&sponsor))
+        .with("sponsor pays at most", amount(sponsorship.max_fee))
+        .with("sponsored until block", sponsorship.valid_until.to_string())
 }
 
 /// A fee output pays the chain's collector, or the burn sink on a chain that
@@ -479,6 +506,7 @@ pub fn describe_kind(kind: &TxKind) -> Description {
         TxKind::AssetMint(action) => describe_asset_mint(action),
         TxKind::Nft(action) => describe_nft(action),
         TxKind::Name(action) => describe_name(action),
+        TxKind::Schedule(action) => describe_schedule(action),
     }
 }
 
@@ -490,13 +518,19 @@ fn describe_name(action: &crate::core::name_payload::NameAction) -> Description 
             "Commit to a name. Free; you can reveal it after a short wait.",
             Routine,
         ),
-        M::Register { label, periods, .. } => Description::new(
+        M::Register {
+            label,
+            periods,
+            target,
+            ..
+        } => Description::new(
             format!(
                 "Register {}.maya for {periods} year(s). The fee is burned.",
                 String::from_utf8_lossy(label)
             ),
             Careful,
-        ),
+        )
+        .with("name target", full(target)),
         M::Renew { label, periods } => Description::new(
             format!(
                 "Extend {}.maya by {periods} year(s). The fee is burned.",
@@ -509,6 +543,7 @@ fn describe_name(action: &crate::core::name_payload::NameAction) -> Description 
             match op {
                 NameUpdate::SetTarget(to) => {
                     Description::new(format!("Point {name}.maya at {}.", short(to)), Careful)
+                        .with("name target", full(to))
                 }
                 NameUpdate::SetReverse => Description::new(
                     format!("Show {name}.maya as the name of your address."),
@@ -516,6 +551,7 @@ fn describe_name(action: &crate::core::name_payload::NameAction) -> Description 
                 ),
                 NameUpdate::Transfer(to) => {
                     Description::new(format!("Give {name}.maya to {}.", short(to)), Careful)
+                        .with("new owner", full(to))
                 }
             }
         }
@@ -550,7 +586,6 @@ fn describe_nft(action: &crate::core::nft_payload::NftAction) -> Description {
             Careful,
         )
         .with("collection", full(collection)),
-        TxKind::Schedule(action) => describe_schedule(action),
     }
 }
 

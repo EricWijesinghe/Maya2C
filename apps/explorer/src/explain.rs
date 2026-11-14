@@ -73,6 +73,27 @@ fn signatures(tx: &TransactionInfo) -> String {
 /// One paragraph explaining `tx`.
 #[must_use]
 pub fn explain_tx(tx: &TransactionInfo) -> String {
+    // A payload kind (tokens, NFTs, names, schedules, ...) moves value through
+    // its payload, not its outputs: the node's own sentence and its labelled
+    // values say what it does; the outputs alone would read "moved no value".
+    if !matches!(tx.kind.as_str(), "" | "transfer") && !tx.summary.is_empty() {
+        let details: Vec<String> = tx
+            .details
+            .iter()
+            .map(|d| format!("{} {}", d.label, d.value))
+            .collect();
+        let details = if details.is_empty() {
+            String::new()
+        } else {
+            format!(" Details: {}.", details.join("; "))
+        };
+        return format!(
+            "{} signed: {}{details} {}",
+            short_hash(&tx.sender),
+            tx.summary,
+            signatures(tx)
+        );
+    }
     let (effects, unreadable) = effects(tx);
     let moves = if effects.is_empty() {
         "moved no value".to_string()
@@ -83,8 +104,16 @@ pub fn explain_tx(tx: &TransactionInfo) -> String {
         0 => String::new(),
         n => format!(" {n} output(s) had a recipient the explorer could not read."),
     };
+    let fee = match &tx.sponsor {
+        Some(s) => format!(
+            "Fee: paid by sponsor {}, at most {} base units.",
+            short_hash(&s.address),
+            crate::plain::group_digits(s.max_fee)
+        ),
+        None => "Fee: not reported by the node.".to_string(),
+    };
     format!(
-        "{} signed: {moves}.{skipped} Fee: not reported by the node. {}",
+        "{} signed: {moves}.{skipped} {fee} {}",
         short_hash(&tx.sender),
         signatures(tx)
     )
@@ -139,6 +168,8 @@ mod tests {
             kind: "transfer".into(),
             summary: String::new(),
             careful: true,
+            details: Vec::new(),
+            sponsor: None,
         }
     }
 
@@ -211,6 +242,63 @@ mod tests {
             approved_by: vec![0, 2],
         });
         assert!(explain_tx(&t).contains("2 of 3 multisig approvals attached (2 required)"));
+    }
+
+    #[test]
+    fn a_v4_payload_is_explained_by_the_node_words_not_as_no_value() {
+        use custom_l1_node::core::Transaction;
+        use custom_l1_node::core::asset_mint_payload::AssetMintAction;
+        use custom_l1_node::core::name_payload::{NameAction, NameUpdate};
+        use custom_l1_node::core::nft_payload::NftAction;
+        use custom_l1_node::core::payload::TxKind;
+        use custom_l1_node::core::schedule_payload::ScheduleAction;
+        let kinds = [
+            TxKind::AssetMint(AssetMintAction::Mint {
+                asset: [0xB2; 32],
+                to: [0xC3; 32],
+                amount: U256::from(250),
+            }),
+            TxKind::Nft(NftAction::TransferItem {
+                collection: [0xA1; 32],
+                index: 42,
+                to: [0xB2; 32],
+            }),
+            TxKind::Name(NameAction::Update {
+                label: b"alice".to_vec(),
+                op: NameUpdate::Transfer([0xB2; 32]),
+            }),
+            TxKind::Schedule(ScheduleAction::Create {
+                payee: [0xB2; 32],
+                amount: U256::from(9),
+                first_due: 1,
+                interval: 2,
+                runs: 3,
+            }),
+        ];
+        for kind in kinds {
+            let info = TransactionInfo::from(&Transaction::with_kind(kind, 0));
+            let text = explain_tx(&info);
+            assert!(text.contains(&info.summary), "{text}");
+            assert!(!text.contains("moved no value"), "{text}");
+            // The full address is in the details, never only its short form.
+            assert!(text.contains(&"b2".repeat(32)), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_sponsored_transfer_names_who_pays_the_fee() {
+        let mut t = tx(vec![(&"11".repeat(32), 1)], true);
+        t.sponsor = Some(custom_l1_node::rpc::SponsorInfo {
+            address: "5b".repeat(32),
+            max_fee: U256::from(12_000),
+            valid_until: 9,
+        });
+        let text = explain_tx(&t);
+        assert!(
+            text.contains("Fee: paid by sponsor 5b5b5b5b…5b5b5b, at most 12,000 base units."),
+            "{text}"
+        );
+        assert!(!text.contains("not reported"), "{text}");
     }
 
     fn indexed(total: &str, signed: bool) -> IndexedTx {

@@ -59,7 +59,7 @@ pub struct TransactionAccepted {
 /// as a function nobody can find.
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, account, block, supply, circulating_coins, total_coins, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
+    paths(health, account, block, name, supply, circulating_coins, total_coins, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
     components(schemas(
         RawTransaction,
         TransactionAccepted,
@@ -89,6 +89,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/v1/accounts/{address}", get(account))
         .route("/v1/blocks/{height}", get(block))
+        .route("/v1/names/{label}", get(name))
         .route("/v1/supply", get(supply))
         .route("/v1/supply/circulating", get(circulating_coins))
         .route("/v1/supply/total", get(total_coins))
@@ -187,6 +188,51 @@ async fn block(
         return Err(GatewayError::NotFound);
     }
     Ok(Json(block))
+}
+
+/// A name label as the chain stores it: the node's rule (3-63 bytes of
+/// `a-z0-9-`, no edge or double `-`; `crates/node/src/core/name_payload.rs`)
+/// applied here so a malformed label is a 400 and never reaches the node.
+/// The gateway does not link the node, so the rule is restated, not imported.
+fn parse_label(input: &str) -> Result<&str, GatewayError> {
+    let label = input.strip_suffix(".maya").unwrap_or(input);
+    let ok = (3..=63).contains(&label.len())
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && !label.contains("--");
+    if ok {
+        Ok(label)
+    } else {
+        Err(GatewayError::BadRequest(
+            "a name is 3-63 characters of a-z, 0-9 and '-'".to_string(),
+        ))
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/names/{label}",
+    tag = "chain",
+    params(("label" = String, Path, description = "Name label, with or without `.maya`")),
+    responses(
+        (status = 200, description = "The name's owner, target and expiry, in the node's own JSON shape"),
+        (status = 400, description = "Not a label the chain can hold"),
+        (status = 404, description = "The name is not registered"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn name(
+    State(state): State<Arc<AppState>>,
+    Path(label): Path<String>,
+) -> Result<Json<serde_json::Value>, GatewayError> {
+    let record = state.node.get_name(parse_label(&label)?).await?;
+    if record.is_null() {
+        return Err(GatewayError::NotFound);
+    }
+    Ok(Json(record))
 }
 
 #[utoipa::path(
