@@ -38,6 +38,7 @@ mod hybrid_genesis;
 mod kheavyhash;
 mod kit;
 mod localnet;
+mod md_links;
 mod mesh_check;
 mod mining_localnet;
 mod node_box;
@@ -57,6 +58,7 @@ mod spec_coverage;
 mod starter_stickers;
 mod status;
 mod sweep;
+mod trust_facts;
 mod up;
 mod verify_release;
 
@@ -96,6 +98,7 @@ fn main() -> ExitCode {
         "ceremony-rehearsal" => ceremony_rehearsal::run(rest),
         "proving" => proving::proving(rest),
         "proof-ratchet" => proof_ratchet::run(rest),
+        "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
@@ -105,6 +108,7 @@ fn main() -> ExitCode {
         "sweep" => sweep::run(rest),
         "verify-release" => verify_release::run(rest),
         "site-integrity" => site_integrity::run(rest),
+        "md-links" => md_links::run(rest),
         "bench-gate" => return bench_gate::run(rest),
         "bench-report" => return bench_report::run(rest),
         "gap-register" => return gap_register::run(rest),
@@ -190,6 +194,11 @@ cargo xtask <command>
                         named gap for each one that needs chain data.
   proof-ratchet         Kani harnesses, conformance vectors, exploit replays and
                         fuzz targets may grow, never fall [--check | --update].
+  trust-facts           Run go-no-go, readiness, coverage and proof-ratchet into
+                        reports/trust-facts.{{md,json}}: evidence or GAP per line
+                        [--out <dir>].
+  md-links              Fail if a relative link in a tracked Markdown file names
+                        a file that does not exist (issue #530).
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.

@@ -62,6 +62,7 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         kind: "transfer".to_string(),
         summary: "Send 500 units.".to_string(),
         careful: false,
+        explanation: String::new(),
     }
 }
 
