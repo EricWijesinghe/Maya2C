@@ -225,7 +225,10 @@ impl Module {
             | TxKind::Swap(_)
             | TxKind::SwapRoute(_)
             | TxKind::PlaceOrder(_)
-            | TxKind::CancelOrder(_) => Some(Self::Dex),
+            | TxKind::CancelOrder(_)
+            // ADR-135: a mint bug and a pool bug both need trading stopped,
+            // so capped-asset forms share the DEX breaker.
+            | TxKind::AssetMint(_) => Some(Self::Dex),
 
             TxKind::Shielded(_) => Some(Self::Shielded),
 

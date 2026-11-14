@@ -62,6 +62,9 @@ L is more. *Wave* is when, defined at the end of the file.
 | inheritance | Time-locked recovery to heirs if an owner stops signing | smart-account guardians | legal wording review | M | W3 |
 | btc-bridge-app | BTC in and out with SPV proofs | `crates/btc-bridge`, `crates/btc-spv`, `crates/deposit-watcher` | security review, bridge ADR | L | W3 |
 | rwa-issuance | Tokenized real-world assets with issuer rules | `crates/rwa`, `crates/permissioned-finance`, `crates/iso20022` | compliance and legal (Eric) | L | W3 |
+| capped-tokens | Fungible tokens with a supply cap, a mint authority that can be renounced, and burns | ADR-135 P-1 (bit 41), `state::asset_mint`; built dark, draft PR #487 (post-genesis), red team `v4_redteam_tokens.rs` | v4 activation height, two human reviews | M | W2 |
+| nfts | Unique items in capped collections, transferable and burnable | ADR-135 P-2 (bit 42), `state::nft`; built dark, draft PR #493 (post-genesis) | v4 activation height, two human reviews | M | W2 |
+| sponsored-fees | A sponsor pays another account's fee, for onboarding without coins | ADR-135 P-4 (bit 44, wire v13), `state::sponsor`; built dark, draft PR #501 (post-genesis), red team `v4_redteam_sponsored.rs` | M1 and M3 open (BACKLOG, v4 activation blockers) | M | W2 |
 | grants-quadratic | Community grants and crowdfunding with quadratic matching | `crates/governance`, `crates/personhood` | Sybil-resistance review | M | W3 |
 | shielded-pool-enable | Turn on the shielded pool (private transfers), closing the privacy gap to Monero and Zcash ([COMPETITORS.md](COMPETITORS.md) section 4) | `crates/node/tests/shielded_tests.rs`, ADR-037 | independent audit of the join-split circuit, then an activation height (ADR-002) | L | W3 |
 
@@ -71,7 +74,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
-| names | Human-readable names for addresses | VM contract or a new state prefix | consensus review (prefix) or VM-only design ADR | M | W2 |
+| names | Human-readable names for addresses | new state prefix `nm:`; chain side built dark as ADR-135 P-3 (bit 43), draft PR #493 (post-genesis), red team `v4_redteam_names_nfts.rs` | consensus review; name-fee defaults open for Eric (spec NM-9) | M | W2 |
 | notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 

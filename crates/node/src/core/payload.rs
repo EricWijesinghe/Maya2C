@@ -179,6 +179,9 @@ const TAG_COUNCIL: u8 = 51;
 const TAG_VAULT: u8 = 52;
 // Mining shares (ADR-044).
 const TAG_MINING_SHARE: u8 = 53;
+// 54 is claimed by account authority (#447). Capped-asset mint and burn
+// (ADR-135 P-1): 55-58, defined beside their forms in
+// `crate::core::asset_mint_payload`.
 
 /// Largest joinsplit proof accepted on the wire.
 ///
@@ -563,6 +566,10 @@ pub enum TxKind {
     /// A proof-of-work share paid from the mining reserve — see
     /// [`crate::core::mining_payload`] and ADR-044.
     MiningShare(crate::core::mining_payload::MiningShare),
+    /// A capped-asset register, mint, burn or renounce (tags 55-58) — see
+    /// [`crate::core::asset_mint_payload`] and ADR-135 P-1. Dark until
+    /// feature bit 41 activates.
+    AssetMint(crate::core::asset_mint_payload::AssetMintAction),
 }
 
 impl TxKind {
@@ -630,6 +637,7 @@ impl TxKind {
             Self::Council(_) => "council",
             Self::Vault(_) => "vault",
             Self::MiningShare(_) => "mining_share",
+            Self::AssetMint(action) => action.label(),
         }
     }
 
@@ -859,6 +867,8 @@ impl TxKind {
                 buf.push(TAG_MINING_SHARE);
                 share.encode_into(buf);
             }
+            // The action writes its own tag (55-58).
+            Self::AssetMint(action) => action.encode_into(buf),
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -989,6 +999,10 @@ impl TxKind {
             ))),
             TAG_MINING_SHARE => Ok(Self::MiningShare(
                 crate::core::mining_payload::MiningShare::decode(reader)?,
+            )),
+            crate::core::asset_mint_payload::TAG_REGISTER_CAPPED_ASSET
+                ..=crate::core::asset_mint_payload::TAG_RENOUNCE_MINT => Ok(Self::AssetMint(
+                crate::core::asset_mint_payload::AssetMintAction::decode(tag, reader)?,
             )),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"

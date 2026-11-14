@@ -14,6 +14,7 @@
 pub mod account;
 pub mod amount_serde;
 pub mod asset;
+pub mod asset_mint;
 pub mod balance_changes;
 pub mod blocks;
 pub mod channel;

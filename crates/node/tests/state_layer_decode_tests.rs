@@ -158,3 +158,37 @@ fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
             .expect("verifies")
     );
 }
+
+// Found building ADR-135 names (#493): `LAYER_ORDER` listed `up:` before `sl:`
+// while `state_layers` folds `RECORD_LAYERS` with `sl:` first, so a proof from a
+// state holding both was refused as "out of order". Fails if the two drift.
+#[test]
+fn an_account_proof_verifies_from_a_state_holding_stateless_and_schedule_rows() {
+    let dir = TempDir::new().expect("dir");
+    let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
+    let address = generate_signing_key().expect("keygen").address();
+    db.put_account(
+        &address,
+        &Account {
+            balance: U256::from(1),
+            nonce: 0,
+        },
+    )
+    .expect("fund");
+    db.raw_put_for_test(b"sl:proof-test", b"x").expect("sl row");
+    db.raw_put_for_test(b"up:proof-test", b"x").expect("up row");
+
+    let proof = db
+        .account_proof(&address)
+        .expect("read")
+        .expect("account exists");
+    let layers: Vec<StateLayer> = proof.layers.iter().map(|digest| digest.layer).collect();
+    assert!(layers.contains(&StateLayer::Stateless));
+    assert!(layers.contains(&StateLayer::UpgradeSchedule));
+    assert!(
+        proof
+            .verify(&db.state_root().expect("root"))
+            .expect("verifies")
+    );
+}

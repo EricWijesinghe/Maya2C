@@ -2,6 +2,7 @@
 
 use crate::core::rwa_payload::RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT;
 use crate::crypto::suites::SuiteSunsets;
+use crate::state::upgrades::ASSET_MINT_ACTIVATION_HEIGHT;
 use crate::upgrade::FeatureActivations;
 
 /// Chain facts a transaction may depend on while executing.
@@ -73,6 +74,12 @@ pub struct BlockContext {
     /// [`RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT`] everywhere the node builds a
     /// context. Set from the upgrade schedule by [`Self::with_features`].
     pub rwa_strict_activation: u64,
+    /// First height at which capped-asset mint and burn execute (ADR-135 P-1).
+    ///
+    /// [`ASSET_MINT_ACTIVATION_HEIGHT`] everywhere the node builds a context.
+    /// Set from the upgrade schedule by [`Self::with_features`]; tests set it
+    /// with [`Self::with_asset_mint_activation`].
+    pub asset_mint_activation: u64,
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
@@ -202,6 +209,7 @@ impl BlockContext {
             work_claim_activation: WORK_CLAIM_ACTIVATION_HEIGHT,
             dvp_activation: DVP_ACTIVATION_HEIGHT,
             rwa_strict_activation: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            asset_mint_activation: ASSET_MINT_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
@@ -220,8 +228,24 @@ impl BlockContext {
             work_claim_activation: features.work_claim,
             dvp_activation: features.dvp,
             rwa_strict_activation: features.rwa_strict,
+            asset_mint_activation: features.asset_mint,
             ..self
         }
+    }
+
+    /// The same context with capped-asset mint and burn active from `height` on.
+    #[must_use]
+    pub const fn with_asset_mint_activation(self, height: u64) -> Self {
+        Self {
+            asset_mint_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether capped-asset mint and burn execute in this block.
+    #[must_use]
+    pub const fn asset_mint_active(self) -> bool {
+        self.height >= self.asset_mint_activation
     }
 
     /// The same context with the genesis's suite deprecations.

@@ -5,6 +5,29 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P5 — v4 fork activation blockers (V4-V1 red team, 2026-11-14)
+
+None of these blocks genesis; each blocks writing a v4 activation height.
+
+- **M3: benchmark the block builder over a block of v4 forms.**
+  `StateDB::select_applicable_within` copies the whole overlay for every frame
+  that is not a plain transfer: every v4 form (capped tokens, NFTs, names,
+  schedules, account actions) and every sponsored transfer. A block full of
+  them makes the build/filter pass quadratic in the state the block touches.
+  Measure one block of v4 forms and one of sponsored frames, then extend the
+  save-and-undo path plain transfers use, or bound the copy.
+- **M1: the sponsor signs the inner frame's size or approvals (#501).**
+  Approvals are outside `txid(inner)`, so swapping which members signed a
+  mixed-suite quorum grows the frame the sponsor pays for, up to `max_fee`.
+  Blocks writing `SPONSORED_FEES_ACTIVATION_HEIGHT`. Fix: sign `inner_len` or
+  a hash of the approvals, then flip the last assertion block of
+  `m1_padding_is_refused_but_a_swapped_mixed_suite_quorum_still_costs_the_sponsor_more`.
+- **Cross-feature red team on the postgen/v4 integration branch.** Cases
+  that need two v4 PRs at once: a limited account's `CreateSchedule`, name
+  and asset-registration forms refused by AA-9 (#548); a session key signing
+  each v4 form refused by S-1; a v13 sponsored frame wrapping a
+  session-signed v9 frame.
+
 ## P5 — ADR-082 follow-ups (genesis upgrade levers, 2026-11-07)
 
 - **Suite account migration.** `crates/crypto-pq/src/agility/migration.rs` is

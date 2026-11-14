@@ -39,6 +39,13 @@ use maya_governance::limits::MAX_SCHEDULE_HORIZON_BLOCKS;
 pub const COUNCIL_SUNSET_LEAD_BLOCKS: u64 =
     MAX_DELAY_BLOCKS + maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
 
+/// First height at which capped-asset mint and burn (`FeatureSet::ASSET_MINT`,
+/// bit 41, ADR-135 P-1) execute, for a schedule that never names the bit:
+/// never. The v4 entry moves it; a node that never sees that entry refuses
+/// tags 55-58 on admission and apply alike, at every height (ADR-002: a
+/// height, never a cargo feature).
+pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 /// Prefix of every upgrade-schedule record. A committed layer
 /// (`StateLayer::UpgradeSchedule`), so it is under the state root (invariant 25).
 pub const UPGRADE_PREFIX: &[u8] = b"up:";
