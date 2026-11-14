@@ -36,7 +36,10 @@ fn a_block_yields_a_block_event_and_one_per_transaction() {
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].id, "block:9");
     assert_eq!(events[0].data["tx_count"], 1);
-    assert!(events[0].data.get("raw").is_none(), "the raw block is not re-sent");
+    assert!(
+        events[0].data.get("raw").is_none(),
+        "the raw block is not re-sent"
+    );
     assert_eq!(events[1].id, format!("tx:{:064x}", 9));
     assert_eq!(events[1].data["sender"], ALICE);
 }
@@ -44,14 +47,20 @@ fn a_block_yields_a_block_event_and_one_per_transaction() {
 #[test]
 fn the_address_filter_matches_sender_or_recipient_in_any_case() {
     let events = Event::from_block(1, &block(1, ALICE, BOB));
-    let by = |address: &str| Filter {
-        address: Some(address.to_string()),
-        asset: None,
-    }
-    .validated()
-    .unwrap();
+    let by = |address: &str| {
+        Filter {
+            address: Some(address.to_string()),
+            asset: None,
+        }
+        .validated()
+        .unwrap()
+    };
     assert!(events.iter().all(|e| by(ALICE).matches(e)));
-    assert!(events.iter().all(|e| by(&format!("0x{}", BOB.to_uppercase())).matches(e)));
+    assert!(
+        events
+            .iter()
+            .all(|e| by(&format!("0x{}", BOB.to_uppercase())).matches(e))
+    );
     let carol = "cc".repeat(32);
     assert!(events.iter().all(|e| !by(&carol).matches(e)));
     assert!(events.iter().all(|e| Filter::default().matches(e)));
@@ -66,7 +75,14 @@ fn the_asset_filter_reads_the_asset_field_and_native_otherwise() {
             "outputs": [{ "recipient": BOB, "amount": "1", "asset": "usdm" }] }],
     });
     let token = Event::from_block(2, &token);
-    let asset = |a: &str| Filter { address: None, asset: Some(a.to_string()) }.validated().unwrap();
+    let asset = |a: &str| {
+        Filter {
+            address: None,
+            asset: Some(a.to_string()),
+        }
+        .validated()
+        .unwrap()
+    };
     assert!(plain.iter().all(|e| asset("native").matches(e)));
     assert!(plain.iter().all(|e| !asset("usdm").matches(e)));
     assert!(token.iter().all(|e| asset("usdm").matches(e)));
@@ -140,7 +156,9 @@ async fn the_poller_starts_at_the_tip_and_emits_each_new_block_once() {
     assert_eq!(events::poll_once(&node, &hub, &mut next).await.unwrap(), 0);
     assert_eq!(*node.fetched.lock().unwrap(), vec![11, 12]);
 
-    let ids: Vec<String> = (0..4).map(|_| feed.try_recv().unwrap().id.clone()).collect();
+    let ids: Vec<String> = (0..4)
+        .map(|_| feed.try_recv().unwrap().id.clone())
+        .collect();
     assert_eq!(ids[0], "block:11");
     assert_eq!(ids[2], "block:12");
 }
@@ -156,7 +174,10 @@ async fn the_poller_catches_up_in_bounded_steps() {
     events::poll_once(&node, &hub, &mut next).await.unwrap();
     *node.tip.lock().unwrap() = 10_000;
     events::poll_once(&node, &hub, &mut next).await.unwrap();
-    assert_eq!(node.fetched.lock().unwrap().len(), events::MAX_BLOCKS_PER_POLL as usize);
+    assert_eq!(
+        node.fetched.lock().unwrap().len(),
+        events::MAX_BLOCKS_PER_POLL as usize
+    );
     assert_eq!(next, Some(1 + events::MAX_BLOCKS_PER_POLL));
 }
 
@@ -188,8 +209,14 @@ async fn the_websocket_streams_only_matching_events() {
     for event in Event::from_block(2, &block(2, BOB, ALICE)) {
         hub.publish(event);
     }
-    let first = tokio::time::timeout(Duration::from_secs(5), socket.next()).await.unwrap().unwrap().unwrap();
-    let Message::Text(text) = first else { panic!("text frame") };
+    let first = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let Message::Text(text) = first else {
+        panic!("text frame")
+    };
     let json: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(json["id"], "block:2", "height 1 did not match: {json}");
 }
@@ -204,11 +231,14 @@ async fn a_bad_filter_or_too_many_streams_is_refused() {
         Arc::new(HttpTransport::new(false)),
     );
     let address = serve(Arc::clone(&hub)).await;
-    let bad = tokio_tungstenite::connect_async(format!("ws://{address}/v1/subscribe?address=xyz")).await;
+    let bad =
+        tokio_tungstenite::connect_async(format!("ws://{address}/v1/subscribe?address=xyz")).await;
     assert!(bad.is_err());
 
     let url = format!("ws://{address}/v1/subscribe");
     let _held = tokio_tungstenite::connect_async(url.clone()).await.unwrap();
-    let refused = tokio_tungstenite::connect_async(url).await.expect_err("over the cap");
+    let refused = tokio_tungstenite::connect_async(url)
+        .await
+        .expect_err("over the cap");
     assert!(refused.to_string().contains("429"), "{refused}");
 }

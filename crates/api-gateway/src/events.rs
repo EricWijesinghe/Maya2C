@@ -77,15 +77,25 @@ pub struct Event {
 }
 
 fn normalize(address: &str) -> String {
-    address.strip_prefix("0x").unwrap_or(address).to_ascii_lowercase()
+    address
+        .strip_prefix("0x")
+        .unwrap_or(address)
+        .to_ascii_lowercase()
 }
 
 /// Addresses and assets a transaction touches. An output without an `asset`
 /// field is the native coin: the node's JSON names no asset today.
 fn touched(tx: &serde_json::Value) -> (Vec<String>, Vec<String>) {
-    let outputs = tx["outputs"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let outputs = tx["outputs"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     let mut addresses: Vec<String> = tx["sender"].as_str().map(normalize).into_iter().collect();
-    let mut assets: Vec<String> = tx["asset"].as_str().map(str::to_string).into_iter().collect();
+    let mut assets: Vec<String> = tx["asset"]
+        .as_str()
+        .map(str::to_string)
+        .into_iter()
+        .collect();
     for output in outputs {
         addresses.extend(output["recipient"].as_str().map(normalize));
         assets.push(output["asset"].as_str().unwrap_or("native").to_string());
@@ -97,7 +107,10 @@ impl Event {
     /// The events one block yields: the block, then each transaction.
     #[must_use]
     pub fn from_block(height: u64, block: &serde_json::Value) -> Vec<Self> {
-        let txs = block["transactions"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let txs = block["transactions"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let mut block_event = Self {
             id: format!("block:{height}"),
             kind: "block",
@@ -158,18 +171,25 @@ impl Filter {
         if let Some(asset) = &self.asset {
             let ok = !asset.is_empty()
                 && asset.len() <= MAX_ASSET_LEN
-                && asset.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+                && asset
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
             if !ok {
                 return Err(GatewayError::BadRequest("malformed asset".to_string()));
             }
         }
-        Ok(Self { address, asset: self.asset })
+        Ok(Self {
+            address,
+            asset: self.asset,
+        })
     }
 
     /// Whether `event` passes.
     #[must_use]
     pub fn matches(&self, event: &Event) -> bool {
-        self.address.as_ref().is_none_or(|a| event.addresses.contains(a))
+        self.address
+            .as_ref()
+            .is_none_or(|a| event.addresses.contains(a))
             && self.asset.as_ref().is_none_or(|a| event.assets.contains(a))
     }
 }
@@ -266,12 +286,16 @@ impl Events {
             return Err(GatewayError::TooManySubscriptions("streams".to_string()));
         }
         streams.insert(caller, mine + 1);
-        Ok(StreamSlot { events: Arc::clone(self), caller })
+        Ok(StreamSlot {
+            events: Arc::clone(self),
+            caller,
+        })
     }
 
     fn check_room(&self, webhooks: &WebhookTable, caller: IpAddr) -> Result<(), GatewayError> {
         let mine = webhooks.values().filter(|(h, _)| h.owner == caller).count();
-        if mine >= self.config.max_webhooks_per_caller || webhooks.len() >= self.config.max_webhooks {
+        if mine >= self.config.max_webhooks_per_caller || webhooks.len() >= self.config.max_webhooks
+        {
             return Err(GatewayError::TooManySubscriptions("webhooks".to_string()));
         }
         Ok(())
@@ -380,7 +404,10 @@ fn cap_key(ip: IpAddr) -> IpAddr {
 impl FromRequestParts<Arc<Events>> for Caller {
     type Rejection = GatewayError;
 
-    async fn from_request_parts(parts: &mut Parts, events: &Arc<Events>) -> Result<Self, GatewayError> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        events: &Arc<Events>,
+    ) -> Result<Self, GatewayError> {
         limit::client_address(events.config.client_ip, &parts.headers, &parts.extensions)
             .map(|ip| Caller(cap_key(ip)))
             .ok_or_else(|| GatewayError::BadRequest("caller address unknown".to_string()))
@@ -442,8 +469,14 @@ async fn forward(
     }
 }
 
-async fn send(sink: &mut futures_util::stream::SplitSink<WebSocket, Message>, message: Message) -> bool {
-    matches!(tokio::time::timeout(STREAM_SEND_TIMEOUT, sink.send(message)).await, Ok(Ok(())))
+async fn send(
+    sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    message: Message,
+) -> bool {
+    matches!(
+        tokio::time::timeout(STREAM_SEND_TIMEOUT, sink.send(message)).await,
+        Ok(Ok(()))
+    )
 }
 
 #[derive(Deserialize)]
@@ -463,13 +496,18 @@ async fn register(
     // Before the DNS lookup, so a caller over its cap cannot make the gateway
     // resolve names; checked again under the lock when inserting.
     events.check_room(&locked(&events.webhooks), caller)?;
-    let filter = Filter { address: request.address, asset: request.asset }.validated()?;
+    let filter = Filter {
+        address: request.address,
+        asset: request.asset,
+    }
+    .validated()?;
     // Refused now if the name already resolves somewhere private; resolved
     // again before every delivery.
     events.transport.admit(&url).await?;
     let secret = WebhookSecret::generate()?;
     let mut id = [0u8; 16];
-    getrandom::fill(&mut id).map_err(|_| GatewayError::Upstream("entropy unavailable".to_string()))?;
+    getrandom::fill(&mut id)
+        .map_err(|_| GatewayError::Upstream("entropy unavailable".to_string()))?;
     let id = hex::encode(id);
     let secret_hex = secret.to_hex();
     let hook = Arc::new(Webhook {
@@ -478,12 +516,19 @@ async fn register(
         filter,
         owner: caller,
         secret,
-        status: Mutex::new(Status { state: "active", ..Status::default() }),
+        status: Mutex::new(Status {
+            state: "active",
+            ..Status::default()
+        }),
     });
     let mut webhooks = locked(&events.webhooks);
     events.check_room(&webhooks, caller)?;
     // Subscribed before the response, so no event after it is missed.
-    let task = tokio::spawn(deliver_all(Arc::clone(&events), Arc::clone(&hook), events.subscribe()));
+    let task = tokio::spawn(deliver_all(
+        Arc::clone(&events),
+        Arc::clone(&hook),
+        events.subscribe(),
+    ));
     webhooks.insert(id.clone(), (hook, task.abort_handle()));
     drop(webhooks);
     tracing::info!(webhook = %id, "webhook registered");
@@ -491,20 +536,32 @@ async fn register(
     Ok((StatusCode::CREATED, Json(body)))
 }
 
-async fn deliver_all(events: Arc<Events>, hook: Arc<Webhook>, mut feed: broadcast::Receiver<Arc<Event>>) {
+async fn deliver_all(
+    events: Arc<Events>,
+    hook: Arc<Webhook>,
+    mut feed: broadcast::Receiver<Arc<Event>>,
+) {
     let retry = events.retry();
     loop {
         match feed.recv().await {
             Ok(event) if hook.filter.matches(&event) => {
                 let body = serde_json::json!({ "subscription": hook.id, "event": &*event });
-                let Ok(body) = serde_json::to_vec(&body) else { continue };
-                if !hook.deliver(events.transport.as_ref(), &event.id, body, &retry).await {
+                let Ok(body) = serde_json::to_vec(&body) else {
+                    continue;
+                };
+                if !hook
+                    .deliver(events.transport.as_ref(), &event.id, body, &retry)
+                    .await
+                {
                     return;
                 }
             }
             Ok(_) => {}
             Err(broadcast::error::RecvError::Lagged(n)) => {
-                hook.status.lock().unwrap_or_else(PoisonError::into_inner).skipped += n;
+                hook.status
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .skipped += n;
             }
             Err(broadcast::error::RecvError::Closed) => return,
         }
@@ -513,7 +570,11 @@ async fn deliver_all(events: Arc<Events>, hook: Arc<Webhook>, mut feed: broadcas
 
 /// The webhook `id`, if `headers` carry its secret. A wrong secret and a
 /// missing webhook are the same 404, so neither confirms an id exists.
-fn authorized(events: &Events, id: &str, headers: &HeaderMap) -> Result<Arc<Webhook>, GatewayError> {
+fn authorized(
+    events: &Events,
+    id: &str,
+    headers: &HeaderMap,
+) -> Result<Arc<Webhook>, GatewayError> {
     let presented = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())

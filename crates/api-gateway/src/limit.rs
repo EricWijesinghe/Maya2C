@@ -112,12 +112,7 @@ fn header_ip(
 ) -> Option<IpAddr> {
     // Several header lines are one comma-joined list (RFC 9110 5.3), and the
     // proxy's own entry is on the last line; the first is client-written.
-    let value = headers
-        .get_all(name)
-        .iter()
-        .next_back()?
-        .to_str()
-        .ok()?;
+    let value = headers.get_all(name).iter().next_back()?.to_str().ok()?;
     pick(value)?.trim().parse().ok()
 }
 

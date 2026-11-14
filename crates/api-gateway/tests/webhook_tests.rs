@@ -76,7 +76,10 @@ fn other_schemes_credentials_and_overlong_urls_are_refused() {
     assert!(ssrf::check_url("gopher://93.184.216.34/", true).is_err());
     assert!(ssrf::check_url("https://user:pw@hooks.example.com/", false).is_err());
     assert!(ssrf::check_url("not a url", false).is_err());
-    let long = format!("https://hooks.example.com/{}", "a".repeat(ssrf::MAX_URL_LEN));
+    let long = format!(
+        "https://hooks.example.com/{}",
+        "a".repeat(ssrf::MAX_URL_LEN)
+    );
     assert!(ssrf::check_url(&long, false).is_err());
 }
 
@@ -93,7 +96,9 @@ async fn a_name_that_resolves_to_loopback_is_refused_after_dns() {
     // `localhost` passes the static check (it is a name, not an address) and
     // is caught only once resolved: the re-check after DNS is the point.
     let url = ssrf::check_url("https://localhost:9/hook", false).expect("static check");
-    let error = ssrf::resolve_public(&url).await.expect_err("resolves to loopback");
+    let error = ssrf::resolve_public(&url)
+        .await
+        .expect_err("resolves to loopback");
     assert!(error.to_string().contains("refused"), "{error}");
 }
 
@@ -129,11 +134,19 @@ fn a_signed_body_verifies_and_a_tampered_one_does_not() {
     let header = webhooks::sign(&secret, body);
     assert!(header.starts_with("sha256="));
     assert!(webhooks::verify(&secret_hex, body, &header));
-    assert!(!webhooks::verify(&secret_hex, br#"{"event":{"height":8}}"#, &header));
+    assert!(!webhooks::verify(
+        &secret_hex,
+        br#"{"event":{"height":8}}"#,
+        &header
+    ));
     let other = WebhookSecret::generate().expect("entropy").to_hex();
     assert!(!webhooks::verify(&other, body, &header));
     assert!(!webhooks::verify(&secret_hex, body, "sha256=zz"));
-    assert!(!webhooks::verify(&secret_hex, body, &header.replace("sha256=", "")));
+    assert!(!webhooks::verify(
+        &secret_hex,
+        body,
+        &header.replace("sha256=", "")
+    ));
     assert!(!webhooks::verify("not hex", body, &header));
 }
 
@@ -211,10 +224,17 @@ async fn call(
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
 }
 
-async fn register(app: &axum::Router, peer: &str, address: &str) -> (StatusCode, serde_json::Value) {
+async fn register(
+    app: &axum::Router,
+    peer: &str,
+    address: &str,
+) -> (StatusCode, serde_json::Value) {
     let body = serde_json::json!({ "url": "https://hooks.example.com/maya", "address": address });
     call(app, "POST", "/v1/webhooks", peer, None, body.to_string()).await
 }
@@ -228,17 +248,36 @@ async fn registering_returns_an_id_and_a_secret_once() {
     let secret = created["secret"].as_str().unwrap();
     assert_eq!(secret.len(), 64);
 
-    let (status, shown) = call(&app, "GET", &format!("/v1/webhooks/{id}"), "203.0.113.1:1", Some(secret), String::new()).await;
+    let (status, shown) = call(
+        &app,
+        "GET",
+        &format!("/v1/webhooks/{id}"),
+        "203.0.113.1:1",
+        Some(secret),
+        String::new(),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(shown["state"], "active");
-    assert!(!shown.to_string().contains(secret), "secret is returned once");
+    assert!(
+        !shown.to_string().contains(secret),
+        "secret is returned once"
+    );
 }
 
 #[tokio::test]
 async fn a_private_target_is_refused_at_registration() {
     let (_events, _recorder, app) = setup(0);
     let body = serde_json::json!({ "url": "https://169.254.169.254/latest" });
-    let (status, error) = call(&app, "POST", "/v1/webhooks", "203.0.113.1:1", None, body.to_string()).await;
+    let (status, error) = call(
+        &app,
+        "POST",
+        "/v1/webhooks",
+        "203.0.113.1:1",
+        None,
+        body.to_string(),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
 }
 
@@ -247,9 +286,20 @@ async fn a_name_resolving_to_loopback_is_refused_at_registration() {
     let events = Events::new(config(), Arc::new(webhooks::HttpTransport::new(false)));
     let app = maya_api_gateway::events::router(events);
     let body = serde_json::json!({ "url": "https://localhost/hook" });
-    let (status, error) = call(&app, "POST", "/v1/webhooks", "203.0.113.1:1", None, body.to_string()).await;
+    let (status, error) = call(
+        &app,
+        "POST",
+        "/v1/webhooks",
+        "203.0.113.1:1",
+        None,
+        body.to_string(),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
-    assert!(error["error"].as_str().unwrap().contains("refused"), "{error}");
+    assert!(
+        error["error"].as_str().unwrap().contains("refused"),
+        "{error}"
+    );
 }
 
 #[tokio::test]
@@ -258,14 +308,25 @@ async fn a_bad_filter_is_refused() {
     let (status, _) = register(&app, "203.0.113.1:1", "nothex").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let body = serde_json::json!({ "url": "https://hooks.example.com/", "asset": "x".repeat(200) });
-    let (status, _) = call(&app, "POST", "/v1/webhooks", "203.0.113.1:1", None, body.to_string()).await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/webhooks",
+        "203.0.113.1:1",
+        None,
+        body.to_string(),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
 async fn an_oversized_registration_body_is_refused() {
     let (_events, _recorder, app) = setup(0);
-    let body = format!(r#"{{"url":"https://hooks.example.com/{}"}}"#, "a".repeat(64 * 1024));
+    let body = format!(
+        r#"{{"url":"https://hooks.example.com/{}"}}"#,
+        "a".repeat(64 * 1024)
+    );
     let (status, _) = call(&app, "POST", "/v1/webhooks", "203.0.113.1:1", None, body).await;
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 }
@@ -274,19 +335,40 @@ async fn an_oversized_registration_body_is_refused() {
 async fn a_caller_is_capped_and_another_is_not() {
     let (_events, _recorder, app) = setup(0);
     for _ in 0..2 {
-        assert_eq!(register(&app, "203.0.113.1:1", ALICE).await.0, StatusCode::CREATED);
+        assert_eq!(
+            register(&app, "203.0.113.1:1", ALICE).await.0,
+            StatusCode::CREATED
+        );
     }
-    assert_eq!(register(&app, "203.0.113.1:2", ALICE).await.0, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(register(&app, "198.51.100.9:1", ALICE).await.0, StatusCode::CREATED);
+    assert_eq!(
+        register(&app, "203.0.113.1:2", ALICE).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        register(&app, "198.51.100.9:1", ALICE).await.0,
+        StatusCode::CREATED
+    );
 }
 
 #[tokio::test]
 async fn ipv6_callers_in_one_slash_64_share_a_cap() {
     let (_events, _recorder, app) = setup(0);
-    assert_eq!(register(&app, "[2001:db8:1:2::1]:1", ALICE).await.0, StatusCode::CREATED);
-    assert_eq!(register(&app, "[2001:db8:1:2::ffff]:1", ALICE).await.0, StatusCode::CREATED);
-    assert_eq!(register(&app, "[2001:db8:1:2:abcd::9]:1", ALICE).await.0, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(register(&app, "[2001:db8:1:3::1]:1", ALICE).await.0, StatusCode::CREATED);
+    assert_eq!(
+        register(&app, "[2001:db8:1:2::1]:1", ALICE).await.0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        register(&app, "[2001:db8:1:2::ffff]:1", ALICE).await.0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        register(&app, "[2001:db8:1:2:abcd::9]:1", ALICE).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        register(&app, "[2001:db8:1:3::1]:1", ALICE).await.0,
+        StatusCode::CREATED
+    );
 }
 
 #[test]
@@ -303,16 +385,72 @@ async fn the_wrong_secret_sees_nothing_and_deletes_nothing() {
     let id = created["id"].as_str().unwrap();
     let uri = format!("/v1/webhooks/{id}");
     let wrong = "00".repeat(32);
-    assert_eq!(call(&app, "GET", &uri, "203.0.113.1:1", Some(&wrong), String::new()).await.0, StatusCode::NOT_FOUND);
-    assert_eq!(call(&app, "GET", &uri, "203.0.113.1:1", None, String::new()).await.0, StatusCode::NOT_FOUND);
-    assert_eq!(call(&app, "DELETE", &uri, "203.0.113.1:1", Some(&wrong), String::new()).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &uri,
+            "203.0.113.1:1",
+            Some(&wrong),
+            String::new()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &uri, "203.0.113.1:1", None, String::new())
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "DELETE",
+            &uri,
+            "203.0.113.1:1",
+            Some(&wrong),
+            String::new()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
 
     let secret = created["secret"].as_str().unwrap();
-    assert_eq!(call(&app, "DELETE", &uri, "203.0.113.1:1", Some(secret), String::new()).await.0, StatusCode::NO_CONTENT);
-    assert_eq!(call(&app, "GET", &uri, "203.0.113.1:1", Some(secret), String::new()).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(
+            &app,
+            "DELETE",
+            &uri,
+            "203.0.113.1:1",
+            Some(secret),
+            String::new()
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &uri,
+            "203.0.113.1:1",
+            Some(secret),
+            String::new()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
     // Deleting frees the caller's slot.
     for _ in 0..2 {
-        assert_eq!(register(&app, "203.0.113.1:1", ALICE).await.0, StatusCode::CREATED);
+        assert_eq!(
+            register(&app, "203.0.113.1:1", ALICE).await.0,
+            StatusCode::CREATED
+        );
     }
 }
 
@@ -375,14 +513,25 @@ async fn a_failing_receiver_is_retried_with_backoff() {
     let (_, created) = register(&app, "203.0.113.1:1", ALICE).await;
     let block = serde_json::json!({ "height": 3, "header": {}, "transactions": [{"txid":"ab","sender":ALICE,"outputs":[]}] });
     // Only the transaction event: filter the block event out by sending it alone.
-    let tx = Event::from_block(3, &block).into_iter().find(|e| e.id.starts_with("tx:")).unwrap();
+    let tx = Event::from_block(3, &block)
+        .into_iter()
+        .find(|e| e.id.starts_with("tx:"))
+        .unwrap();
     events.publish(tx);
     wait_for(|| recorder.delivered.lock().unwrap().len() == 1).await;
     assert_eq!(*recorder.attempts.lock().unwrap(), 3);
 
     let id = created["id"].as_str().unwrap();
     let secret = created["secret"].as_str().unwrap();
-    let (_, shown) = call(&app, "GET", &format!("/v1/webhooks/{id}"), "203.0.113.1:1", Some(secret), String::new()).await;
+    let (_, shown) = call(
+        &app,
+        "GET",
+        &format!("/v1/webhooks/{id}"),
+        "203.0.113.1:1",
+        Some(secret),
+        String::new(),
+    )
+    .await;
     assert_eq!(shown["state"], "active");
     assert_eq!(shown["delivered"], 1);
     assert_eq!(shown["failed_attempts"], 2);
@@ -399,7 +548,16 @@ async fn a_receiver_that_never_answers_is_dead_lettered() {
     let uri = format!("/v1/webhooks/{id}");
     let mut shown = serde_json::Value::Null;
     for _ in 0..200 {
-        shown = call(&app, "GET", &uri, "203.0.113.1:1", Some(&secret), String::new()).await.1;
+        shown = call(
+            &app,
+            "GET",
+            &uri,
+            "203.0.113.1:1",
+            Some(&secret),
+            String::new(),
+        )
+        .await
+        .1;
         if shown["state"] == "dead_letter" {
             break;
         }

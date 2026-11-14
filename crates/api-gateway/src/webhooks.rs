@@ -155,7 +155,9 @@ impl HttpTransport {
 impl Transport for HttpTransport {
     async fn post(&self, url: &Url, body: Vec<u8>, signature: String) -> Result<(), String> {
         let url = ssrf::check_url(url.as_str(), self.allow_http).map_err(|e| e.to_string())?;
-        let address = ssrf::resolve_public(&url).await.map_err(|e| e.to_string())?;
+        let address = ssrf::resolve_public(&url)
+            .await
+            .map_err(|e| e.to_string())?;
         let host = url.host_str().unwrap_or_default();
         // shortcut: a client per delivery, so the pinned address is this
         // delivery's; pool per subscription if delivery volume ever matters.
@@ -249,7 +251,10 @@ impl Webhook {
     ) -> bool {
         let signature = sign(&self.secret, &body);
         for attempt in 1..=retry.max_attempts {
-            match transport.post(&self.url, body.clone(), signature.clone()).await {
+            match transport
+                .post(&self.url, body.clone(), signature.clone())
+                .await
+            {
                 Ok(()) => {
                     self.update(|s| s.delivered += 1);
                     return true;
@@ -289,7 +294,9 @@ impl Retry {
     /// Wait after failed attempt `attempt` (1-based): `base * 2^(attempt-1)`,
     /// capped at `max`.
     fn backoff(&self, attempt: u32) -> Duration {
-        let factor = 1u32.checked_shl(attempt.saturating_sub(1)).unwrap_or(u32::MAX);
+        let factor = 1u32
+            .checked_shl(attempt.saturating_sub(1))
+            .unwrap_or(u32::MAX);
         self.base.saturating_mul(factor).min(self.max)
     }
 }

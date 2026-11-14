@@ -17,8 +17,8 @@ use anyhow::Context as _;
 use clap::Parser;
 use maya_api_gateway::events::{self, Events, EventsConfig};
 use maya_api_gateway::limit::{self, ClientIp, RateLimit};
-use maya_api_gateway::webhooks::HttpTransport;
 use maya_api_gateway::node::RpcNodeClient;
+use maya_api_gateway::webhooks::HttpTransport;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]

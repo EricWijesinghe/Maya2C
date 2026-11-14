@@ -19,8 +19,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use reqwest::Url;
 use crate::error::GatewayError;
+use reqwest::Url;
 
 /// The URL's host, as an address literal or a name. `reqwest` re-exports
 /// `Url` but not `url::Host`, and this is not worth a direct dependency.
@@ -31,7 +31,10 @@ enum Host<'a> {
 
 fn host(url: &Url) -> Option<Host<'_>> {
     let raw = url.host_str()?;
-    let bare = raw.strip_prefix('[').and_then(|r| r.strip_suffix(']')).unwrap_or(raw);
+    let bare = raw
+        .strip_prefix('[')
+        .and_then(|r| r.strip_suffix(']'))
+        .unwrap_or(raw);
     Some(bare.parse().map_or(Host::Domain(raw), Host::Ip))
 }
 
@@ -156,7 +159,9 @@ fn require_public(ip: IpAddr) -> Result<(), GatewayError> {
 /// [`GatewayError::BadRequest`] if the name does not resolve or any address
 /// it resolves to is refused.
 pub async fn resolve_public(url: &Url) -> Result<SocketAddr, GatewayError> {
-    let port = url.port_or_known_default().ok_or_else(|| refused("no port"))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| refused("no port"))?;
     let addresses: Vec<SocketAddr> = match host(url) {
         Some(Host::Ip(ip)) => vec![SocketAddr::new(ip, port)],
         // Bounded: a stalling nameserver would otherwise hold a blocking
