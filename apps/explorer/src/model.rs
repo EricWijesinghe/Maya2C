@@ -106,9 +106,10 @@ pub struct IndexedTx {
 }
 
 impl IndexedTx {
-    /// Extracts every transaction from an RPC block.
+    /// Extracts every transaction from an RPC block; `network` is the text form
+    /// the explanation writes recipients in.
     #[must_use]
-    pub fn from_block(block: &BlockInfo) -> Vec<Self> {
+    pub fn from_block(block: &BlockInfo, network: maya_address::Network) -> Vec<Self> {
         block
             .transactions
             .iter()
@@ -129,7 +130,7 @@ impl IndexedTx {
                 kind: tx.kind.clone(),
                 summary: tx.summary.clone(),
                 careful: tx.careful,
-                explanation: crate::explain::explain_tx(tx),
+                explanation: crate::explain::explain_tx(tx, network),
             })
             .collect()
     }
