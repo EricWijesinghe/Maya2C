@@ -108,4 +108,5 @@ The observation that would make this worth reopening.
 | [107](ADR-107-smart-account-promotion.md) | Smart-account promotion: session keys and spending limits on the v9 frame through `verify_with_state` | Proposed |
 | [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
 | [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
+| [135](ADR-135-v4-umbrella.md) | v4 umbrella: tokens mint/burn, NFTs, names, sponsored fees (wire v13), smart-account policy, scheduled payments as one fork; bits 41-46; threat models and cut list | Proposed |
 | [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |
