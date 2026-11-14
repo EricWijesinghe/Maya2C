@@ -34,10 +34,13 @@ use crate::state::context::{
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
 
 /// Whether an Accepted ADR binds a work claim to a verified share in the same
-/// block (ADR-044, "Work credit at launch"). None does, so this binary refuses
-/// to schedule [`FeatureSet::WORK_CLAIM`] and refuses a claim at mempool
-/// admission (Eric 2026-11-14 MCQ). Set it to `true` only in the change that
-/// lands that ADR's code; it is compiled, so no vote or config can flip it.
+/// block (ADR-044, "Work credit at launch"). None does, so
+/// [`FeatureSet::WORK_CLAIM`] is outside [`FeatureSet::IMPLEMENTED`]: a genesis
+/// naming it is refused at boot, a governance entry naming it halts this
+/// binary at its activation (the zkML model, ADR-082 amendment), and the
+/// mempool refuses a claim (Eric 2026-11-14 MCQ). Set it to `true` only in the
+/// change that lands that ADR's code; it is compiled, so no vote or config can
+/// flip it.
 pub const WORK_CLAIM_ADR_ACCEPTED: bool = false;
 
 /// The dark features an upgrade entry can switch on, as a bitmask. The bit
@@ -67,8 +70,15 @@ impl FeatureSet {
     pub const KNOWN: u64 = (1 << 8) - 1;
 
     /// Every bit this binary can execute: the known bits less zkML, which
-    /// stays unimplemented until `zkml::verdict` is a real verifier (M3).
-    pub const IMPLEMENTED: u64 = Self::KNOWN & !Self::ZKML;
+    /// stays unimplemented until `zkml::verdict` is a real verifier (M3), and
+    /// less work claim credit until its ADR is accepted (ADR-044).
+    pub const IMPLEMENTED: u64 = Self::KNOWN
+        & !Self::ZKML
+        & !(if WORK_CLAIM_ADR_ACCEPTED {
+            0
+        } else {
+            Self::WORK_CLAIM
+        });
 
     /// Whether every bit names a feature this binary defines. An entry
     /// carrying any other bit is still valid: it is unsupported here, and this
@@ -78,7 +88,8 @@ impl FeatureSet {
         self.0 & !Self::KNOWN == 0
     }
 
-    /// The bits this binary cannot execute: undefined ones, and zkML.
+    /// The bits this binary cannot execute: undefined ones, zkML, and work
+    /// claim credit while its ADR is not accepted.
     #[must_use]
     pub const fn unimplemented(self) -> u64 {
         self.0 & !Self::IMPLEMENTED
@@ -167,7 +178,7 @@ pub struct UpgradeSchedule {
 impl UpgradeSchedule {
     /// Validates `upgrades`: every version above 1, versions strictly
     /// increasing with strictly increasing heights. Feature bits are not
-    /// checked here: a bit this binary cannot execute (undefined, or zkML)
+    /// checked here: a bit this binary cannot execute (undefined, zkML, work claim)
     /// makes the entry unsupported ([`Self::first_unsupported`]), not invalid.
     /// The rule must not depend on the binary, or an older and a newer node
     /// would disagree on the block that writes the entry: a fork at the vote

@@ -330,8 +330,9 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             height: 9,
             proof: [10u8; 80],
         }),
-        // Governance. `ClaimWork` and `CancelProposal` both carry thirty-two
-        // opaque bytes and nothing else, so the tag is all that separates a
+        // Governance. `ClaimWork` (a work-kind byte, then thirty-two bytes)
+        // and `CancelProposal` (thirty-two bytes) both carry an opaque
+        // 32-byte value, so the tag and the length are all that separate a
         // beneficiary address from a proposal identifier.
         TxKind::ClaimWork(WorkClaim {
             kind: WorkKind::DagPow,
@@ -1033,4 +1034,28 @@ fn every_work_kind_byte_but_zero_is_refused_at_decode() {
             }
         }
     }
+}
+
+#[test]
+fn an_undefined_work_kind_is_refused_at_mempool_admission() {
+    // Pins the admission path itself, not only the decode it starts with.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state =
+        std::sync::Arc::new(custom_l1_node::state::StateDB::open(dir.path()).expect("state"));
+    let pool = custom_l1_node::network::mempool::Mempool::new(state);
+    let share = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 0x2122_2324_2526_2728,
+        nonce: 1,
+    });
+    let mut marker = vec![0u8];
+    marker.extend_from_slice(&0x2122_2324_2526_2728u64.to_le_bytes());
+    let err = pool
+        .insert_encoded(&with_kind_byte(share, &marker, 1))
+        .expect_err("kind 1 is refused");
+    assert!(
+        matches!(err, custom_l1_node::error::NodeError::Decode(_)),
+        "{err}"
+    );
+    assert!(pool.is_empty());
 }

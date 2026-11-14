@@ -65,6 +65,10 @@ the suite policy, the mempool, and the RPC.
   Since the 2026-11-12 amendment it is not refused: the bit is outside
   `FeatureSet::IMPLEMENTED`, so an entry carrying it is unsupported and halts
   this binary at its height. A genesis that names it is still refused at boot.
+- **Work claims** (`FeatureSet::WORK_CLAIM`) follow the zkML model while
+  `WORK_CLAIM_ADR_ACCEPTED` is false: outside `FeatureSet::IMPLEMENTED`, so an
+  entry is admitted and halts this binary at its height, and a genesis that
+  names the bit is refused at boot (ADR-044 amendment 2026-11-15).
 - **Feature bits** a binary does not define make the entry unsupported, not
   invalid (amendment, 2026-11-12).
 - **Nothing is cancelled or moved.** A record is written once. There is no

@@ -210,28 +210,38 @@ the 2026-11-12 amendment's statement of fact: the byte now exists.
   `FeatureSet` bit, which only a scheduled upgrade sets (ADR-082). ADR-079's
   `kind = 1` (verified compute) and ADR-129's `TxKind::ClaimCompute` remain
   alternatives; this byte makes the first possible without another format
-  change, and decides neither.
+  change, and decides neither. The share header (MINE-9) and the spent-share
+  key (`seen_key(epoch, header, nonce)`) do not commit to the kind, so a new
+  kind must use its own header domain and its own spent-key prefix, or the
+  same nonce could be paid once per kind. Both executors
+  (`apply_mining_share`, `claim_work`) destructure the kind irrefutably, so
+  adding a variant is a compile error at the place its gate belongs.
 - **`WORK_CLAIM_ADR_ACCEPTED = false`** (`crates/node/src/upgrade.rs`). While it
-  is false, `UpgradeSchedule::new` refuses any entry carrying
-  `FeatureSet::WORK_CLAIM` (bit 4), which covers the genesis schedule and every
-  governance or council admission, and `Mempool::validate` refuses
-  `TxKind::ClaimWork` with `NodeError::WorkClaimInactive`. The executor's
-  refusal (above) is unchanged. The flag is set to `true` only in the change
-  that lands an Accepted ADR binding a claim to a verified share.
+  is false, `FeatureSet::WORK_CLAIM` (bit 4) is outside
+  `FeatureSet::IMPLEMENTED`, the same model as zkML under the ADR-082
+  amendment of 2026-11-12 (PR #506). A genesis schedule naming it is refused at
+  boot (`GenesisConfig::upgrade_schedule`). A governance entry naming it is
+  admitted by every binary, written, and halts this binary with
+  `UpgradeRequired` at its activation height, and `features().work_claim`
+  stays `u64::MAX`. Refusing the entry at the vote instead would split this
+  binary from a later one that has the ADR, at the block carrying the vote
+  (review of PR #570). `Mempool::validate` refuses `TxKind::ClaimWork` with
+  `NodeError::WorkClaimInactive`, and the executor's refusal (above) is
+  unchanged. The flag is set to `true` only in the change that lands an
+  Accepted ADR binding a claim to a verified share.
 
 Tests: `crates/node/tests/payload_tests.rs`
 (`a_share_and_a_claim_encode_kind_zero_first`,
-`every_work_kind_byte_but_zero_is_refused_at_decode`),
+`every_work_kind_byte_but_zero_is_refused_at_decode`,
+`an_undefined_work_kind_is_refused_at_mempool_admission`),
 `crates/node/tests/upgrade_schedule_tests.rs`
-(`work_claim_cannot_be_scheduled_until_its_adr_is_accepted`),
+(`work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`),
 `crates/node/tests/governance_tests.rs`
 (`a_work_claim_is_refused_at_mempool_admission`); vectors `spec/tests/mining.json`
 (`MINE-11`), replayed by `crates/node/tests/conformance.rs` and
 `spec/verifier-ts`. The share path is otherwise unchanged:
 `crates/node/tests/mining_rewards_tests.rs` runs as before.
 
-Interaction with PR #506 (unknown upgrade bits are admitted and halt at
-activation instead of being refused): if #506 merges, `WORK_CLAIM` belongs with
-zkML in the bits this binary does not implement (`FeatureSet::IMPLEMENTED`
-excludes it while the flag is false), so the entry halts the node at its height
-rather than being refused at the vote. Either way no claim is ever credited.
+This amendment depends on PR #506 (unknown or unimplemented upgrade bits are
+admitted and halt at activation instead of being refused): the branch merges
+#506, so #506 merges first.
