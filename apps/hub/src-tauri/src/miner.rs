@@ -74,6 +74,9 @@ pub struct MinerState {
     pub share_reward: Option<u128>,
     pub accepted: u64,
     pub rejected: u64,
+    /// Shares the device found that the CPU reference refused (`hw_error`):
+    /// an unstable card. One aborts a tuning trial (ADR-137).
+    pub hw_errors: u64,
     /// Growth of the payout account's on-chain balance since this run's
     /// first share. Not the sum of accepted shares: the node accepting a
     /// share into its pool is not the chain paying it (measured on the local
@@ -248,6 +251,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             }
         }
         "share" => state.rejected += 1,
+        "hw_error" => state.hw_errors += 1,
         _ => {}
     }
     let mut stamped = event;
@@ -476,6 +480,11 @@ impl Miner {
         if config.device.is_some_and(|i| i > MAX_DEVICE) {
             return Err(format!("GPU index above {MAX_DEVICE} is not supported"));
         }
+        // No trusted temperature source means no thermal stop: refuse a GPU
+        // start rather than mine blind (ADR-137 S-8). CPU mining needs none.
+        if config.device.is_some() {
+            crate::driver_tool::require_telemetry()?;
+        }
         miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
             .map_err(|e| e.to_string())?;
         let key_file =
@@ -649,6 +658,7 @@ mod tests {
             r#"{"event":"share","accepted":false,"reason":"stale"}"#,
             5,
         );
+        ingest(&mut s, r#"{"event":"hw_error","nonce":9,"epoch":7}"#, 5);
         ingest(&mut s, "plain text from stderr", 6);
 
         assert_eq!(s.address.as_deref(), Some("ab"));
@@ -656,6 +666,7 @@ mod tests {
             (s.epoch, s.accepted, s.rejected, s.earned),
             (Some(7), 1, 1, 0)
         );
+        assert_eq!(s.hw_errors, 1, "a hardware error is not a rejected share");
         assert_eq!(
             s.rates.back(),
             Some(&RateSample {
@@ -737,6 +748,24 @@ mod tests {
         let temp = std::env::temp_dir();
         let err = miner.start(&config(None), &temp, &temp).unwrap_err();
         assert!(err.contains("not found"), "{err}");
+        assert!(miner.report().workers.is_empty());
+    }
+
+    #[test]
+    fn a_gpu_start_without_trusted_telemetry_is_refused_and_cpu_is_not() {
+        // A bare name never passes, so this holds on a machine with a GPU too.
+        let refused = crate::driver_tool::set_override(Some(PathBuf::from("nvidia-smi")));
+        assert!(refused.is_err());
+        let miner = Miner::default();
+        let temp = std::env::temp_dir();
+        let gpu = miner.start(&config(Some(0)), &temp, &temp).unwrap_err();
+        let cpu = miner.start(&config(None), &temp, &temp).unwrap_err();
+        crate::driver_tool::set_override(None).expect("clearing always succeeds");
+        assert!(gpu.starts_with("GPU mining not started"), "{gpu}");
+        assert!(
+            cpu.contains("not found"),
+            "CPU reaches the binary check: {cpu}"
+        );
         assert!(miner.report().workers.is_empty());
     }
 

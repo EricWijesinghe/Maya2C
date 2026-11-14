@@ -3629,3 +3629,14 @@ class = "REAL"
 status = "stub"
 tests = ["crate:attacknet-controller"]
 note = "Scaffold. Process kill (by data dir, zero matches is an error) and start are real; every other fault returns a not-implemented error since 2026-11-10 (before that, many logged Ok without acting). Its scenario verdicts and reports/attacknet/runs/ are not evidence; use cargo xtask attacknet."
+
+[[subsystem]]
+id = "hub-gpu-autotune"
+name = "Hub GPU tuner, guided (opt-in per-card power-limit search; the Hub writes nothing)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/hub/src-tauri/src/autotune.rs`, `tuning.rs`, `journal.rs`, `profiles.rs`, `driver_tool.rs`, `sim_gpu.rs` (test only), `apps/hub/ui/app.js` (Tune button, floor slider), `bins/maya2c-gpu-miner/src/share.rs` (hw_error)"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = []
+note = "ADR-137 HW-1 stages T0 (efficiency read-out, absolute nvidia-smi path, miner hw_error event) and T1a (guided tuner), per Eric's 2026-11-12 defaults O-1 A (power limit only), O-2 A (guided, no elevated helper, no writes), O-3 C (hash-rate floor slider, default 95%). Off-chain only. The Hub suggests a limit inside the driver's reported range (never above default), the user sets it, the Hub reads it back, settles, measures hash rate per watt, and stops at the first step that is no more efficient or under the floor. Write-ahead journal and separate trying marker keyed by GPU UUID; unreadable, unknown-field, foreign or unmatched state fails closed. Rollback guidance on every abort trigger, back to the live driver default. Automatic mode (T1b) is not in the build. Written CI-first: tests not compiled or run locally; real-card behaviour NOT VERIFIED. See docs/mining/gpu-autotune.md."
