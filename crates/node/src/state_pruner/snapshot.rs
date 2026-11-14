@@ -855,4 +855,90 @@ mod tests {
         assert_eq!(decode_chunk(&chunks[1]).expect("decode").len(), 1);
         assert!(encode_chunks(&[]).expect("empty").is_empty());
     }
+
+    /// A sparse state whose root cache is built, after `blocks` commits.
+    fn sparse_source(blocks: u8) -> (StateDB, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("dir");
+        let source = StateDB::open(dir.path()).expect("open");
+        source
+            .raw_put(crate::state::stateless::SPARSE_ACCOUNTS_KEY, &[1])
+            .expect("mark");
+        for block in 0..blocks {
+            commit_accounts(&source, block);
+        }
+        (source, dir)
+    }
+
+    /// Commits a block of four accounts derived from `block`, through the
+    /// preview and the journaled commit a chain uses.
+    fn commit_accounts(state: &StateDB, block: u8) {
+        let mut overlay = crate::state::db::Overlay::new();
+        for i in 0..4_u8 {
+            overlay.accounts.insert(
+                *blake3::hash(&[block, i]).as_bytes(),
+                Account {
+                    balance: primitive_types::U256::from(u64::from(block) + 1),
+                    nonce: u64::from(i),
+                },
+            );
+        }
+        state.root_with_overlay(&mut overlay).expect("preview");
+        state
+            .commit_journaled(&overlay, &[block; 32], |_| ())
+            .expect("commit");
+    }
+
+    #[test]
+    fn a_snapshot_carries_no_root_cache_and_the_importer_builds_its_own() {
+        let (source, _source_dir) = sparse_source(6);
+        assert!(
+            crate::state::root_cache::marker(source.raw_db())
+                .unwrap()
+                .is_some()
+        );
+        let entries = source.committed_entries().expect("entries");
+        assert!(
+            entries
+                .iter()
+                .all(|(key, _)| !key.starts_with(crate::state::root_cache::ROOT_CACHE_PREFIX)),
+            "the cache is local-only (invariant 25)"
+        );
+
+        let (result, target, _dir) = import(&entries, &source.state_root().expect("root"));
+        result.expect("import");
+        assert!(
+            crate::state::root_cache::marker(target.raw_db())
+                .unwrap()
+                .is_none()
+        );
+
+        // The importer's next block builds its cache from what it imported,
+        // and the cache then walks like any other.
+        for block in 6..9 {
+            commit_accounts(&source, block);
+            commit_accounts(&target, block);
+            assert_eq!(target.state_root().unwrap(), source.state_root().unwrap());
+            assert!(target.verify_root_cache().expect("verify"));
+        }
+        let stats = target.root_cache_stats();
+        assert_eq!((stats.built, stats.walked, stats.repaired), (1, 2, 0));
+    }
+
+    #[test]
+    fn purging_a_failed_bootstrap_clears_the_root_cache() {
+        let (state, _dir) = sparse_source(3);
+        assert!(
+            !state
+                .scan_prefix(crate::state::root_cache::ROOT_CACHE_PREFIX)
+                .unwrap()
+                .is_empty()
+        );
+        state.purge_all().expect("purge");
+        assert!(state.scan_prefix(b"").unwrap().is_empty());
+        assert!(
+            crate::state::root_cache::marker(state.raw_db())
+                .unwrap()
+                .is_none()
+        );
+    }
 }

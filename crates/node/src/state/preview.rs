@@ -16,7 +16,8 @@
 //!   transaction id;
 //! - the context, compared whole;
 //! - committed state, by a generation counter every write in `state::db`
-//!   advances *before* it writes, read before the preview staged.
+//!   advances *before* it writes and again once it has landed, read before
+//!   the preview staged.
 //!
 //! The header's root is still compared with the kept root, so invariant 24's
 //! check runs on every apply. Process-local; nothing here reaches consensus.
@@ -35,6 +36,20 @@ pub(crate) struct Preview {
     generation: u64,
     overlay: Overlay,
     root: [u8; 32],
+}
+
+/// Held by a committed write until it has landed: the serial lock, and on
+/// drop the generation's second bump, made while the lock is still held.
+pub(crate) struct WriteGuard<'a> {
+    generation: &'a AtomicU64,
+    _serial: std::sync::MutexGuard<'a, ()>,
+}
+
+impl Drop for WriteGuard<'_> {
+    fn drop(&mut self) {
+        // Fields drop after this body, so the lock is released afterwards.
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 /// The cache and the generation counter it is checked against.
@@ -84,14 +99,32 @@ impl PreviewCache {
     }
 
     /// Starts a committed write: bumps the generation and returns a guard the
-    /// caller holds until the write has landed.
-    pub(crate) fn begin_write(&self) -> std::sync::MutexGuard<'_, ()> {
-        let guard = self
+    /// caller holds until the write has landed. Dropping the guard bumps it
+    /// again.
+    pub(crate) fn begin_write(&self) -> WriteGuard<'_> {
+        self.begin_write_from().0
+    }
+
+    /// [`Self::begin_write`], also returning the generation it advanced from.
+    /// Anything computed from state read at that generation still describes
+    /// committed state while the guard is held: how a commit knows the root
+    /// cache's plan is fit to stage (ADR-062a).
+    ///
+    /// The generation moves twice a write, on entry and on drop, so a reader
+    /// that takes no lock and reads it mid-write (after the first bump, before
+    /// the write lands) holds a value no later write starts from: a plan made
+    /// from a snapshot taken then never fits a commit (PR #540 review).
+    pub(crate) fn begin_write_from(&self) -> (WriteGuard<'_>, u64) {
+        let serial = self
             .serial
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.generation.fetch_add(1, Ordering::SeqCst);
-        guard
+        let before = self.generation.fetch_add(1, Ordering::SeqCst);
+        let guard = WriteGuard {
+            generation: &self.generation,
+            _serial: serial,
+        };
+        (guard, before)
     }
 
     /// Held for the whole of a preview's staging.
