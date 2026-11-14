@@ -78,8 +78,8 @@ From Master Prompt 11, with how each is enforced *today*:
   reviewers (a note; not enforced).
 - No new core dependency without a `cargo vet` entry — **`cargo vet` is set up
   in report-only mode**: `supply-chain/` with public imports (Mozilla, Google,
-  Bytecode Alliance, ZcashFoundation), 1,068 registry crates still exempted
-  (2026-10-19), job `vet` in `security-audit.yml` with `continue-on-error`.
+  Bytecode Alliance, ZcashFoundation), 909 `[[exemptions.*]]` entries still
+  in `supply-chain/config.toml` (counted 2026-11-15), job `vet` in `security-audit.yml` with `continue-on-error`.
   `cargo deny` is the only blocking supply-chain gate.
 - CI fails on a >5% regression of tracked benchmarks — `cargo xtask bench-gate`,
   gated on a `BENCH_RUNNER` that does not exist, so it never runs.
@@ -257,7 +257,7 @@ Four things that will otherwise cost a day each:
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
-- `clippy::pedantic` is `warn`, not `deny`, and 1,143 remain at the last ratchet.
+- `clippy::pedantic` is `warn`, not `deny`. The ratchet ceiling is `lint-debt.txt` (828, commit `14bbd2f8`); the last measured run in `reports/` is 1,140 (2026-09-28, `reports/00-operating-baseline.md:75`). The current count is NOT VERIFIED.
   The count is ratcheted: `scripts/lint_debt.sh --check` fails if it rises,
   and `nightly.yml` runs it. It may fall freely. If a change legitimately
   raises it, run `--update` and say why in the commit message.
