@@ -20,6 +20,7 @@ use maya_governance::tally::Choice;
 use primitive_types::U256;
 
 use crate::core::council_payload::CouncilKind;
+use crate::core::governance_payload::ProposalSubmission;
 use crate::core::payload::TxKind;
 use crate::core::staking_payload::StakingAction;
 use crate::core::transaction::Transaction;
@@ -27,6 +28,7 @@ use crate::core::transaction::TxOutput;
 use crate::core::vault_payload::VaultAction;
 use crate::state::fees::FEE_COLLECTOR;
 use crate::state::shielded::FEE_SINK;
+use crate::upgrade::FeatureSet;
 
 /// How closely a signer should look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -119,16 +121,34 @@ pub fn is_fee_output(output: &TxOutput) -> bool {
     output.recipient == FEE_COLLECTOR || output.recipient == FEE_SINK
 }
 
-/// The first output is always the payment, so a transfer to the burn sink
-/// still reads as a send. Later outputs are fees only when they pay a fee
-/// address; a second output to anyone else is shown as a second recipient.
+/// Consensus counts a collector output at any position as the fee
+/// (`state/fee_exec.rs`). The burn sink is a fee only after the first output,
+/// so a transfer to it reads as a send. When every output is a fee address,
+/// the first is the payment.
 fn describe_transfer(tx: &Transaction) -> Description {
     let Some((first, rest)) = tx.outputs.split_first() else {
         return Description::new("Send 0 base units to 0 recipients.", Review::Careful);
     };
-    let (fees, others): (Vec<&TxOutput>, Vec<&TxOutput>) =
-        rest.iter().partition(|o| is_fee_output(o));
-    let payments: Vec<&TxOutput> = std::iter::once(first).chain(others).collect();
+    let is_fee = |i: usize, o: &TxOutput| is_fee_output(o) && (i > 0 || o.recipient == FEE_COLLECTOR);
+    let fees: Vec<&TxOutput> = tx
+        .outputs
+        .iter()
+        .enumerate()
+        .filter(|(i, o)| is_fee(*i, *o))
+        .map(|(_, o)| o)
+        .collect();
+    let others: Vec<&TxOutput> = tx
+        .outputs
+        .iter()
+        .enumerate()
+        .filter(|(i, o)| !is_fee(*i, *o))
+        .map(|(_, o)| o)
+        .collect();
+    let (payments, fees): (Vec<&TxOutput>, Vec<&TxOutput>) = if others.is_empty() {
+        (vec![first], rest.iter().collect())
+    } else {
+        (others, fees)
+    };
     let total = sum(payments.iter().map(|o| o.amount));
     let fee = sum(fees.iter().map(|o| o.amount));
     let to = plural(payments.len(), "recipient", "recipients");
@@ -148,6 +168,79 @@ fn describe_transfer(tx: &Transaction) -> Description {
     for output in fees {
         described = described.with("fee to", full(&output.recipient));
         described = described.with("fee", amount(output.amount));
+    }
+    described
+}
+
+/// Names for each feature bit, from the constants themselves so a new bit
+/// cannot be added without a name (see the `FEATURE_NAMES` test).
+const FEATURE_NAMES: [(u64, &str); 8] = [
+    (FeatureSet::DVP, "delivery-versus-payment"),
+    (FeatureSet::IOT, "iot"),
+    (FeatureSet::THREAT_INTEL, "threat-intel"),
+    (FeatureSet::STATELESS, "stateless"),
+    (FeatureSet::WORK_CLAIM, "work-claim"),
+    (FeatureSet::HTLC_LATTICE, "htlc-lattice"),
+    (FeatureSet::ZKML, "zkml"),
+    (FeatureSet::RWA_STRICT, "rwa-strict"),
+];
+
+/// The features a bitmask switches on. A bit this binary does not define is
+/// shown in hex, never dropped, so a signer sees what the proposal carries.
+fn feature_names(bits: u64) -> String {
+    let mut names: Vec<String> = FEATURE_NAMES
+        .iter()
+        .filter(|(bit, _)| bits & bit != 0)
+        .map(|(_, name)| (*name).to_string())
+        .collect();
+    let unknown = bits & !FeatureSet::KNOWN;
+    if unknown != 0 {
+        names.push(format!("unknown bits 0x{unknown:x}"));
+    }
+    if names.is_empty() {
+        "none".to_string()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// A proposal states every parameter count and any upgrade it schedules, so
+/// a signer never approves a schedule that the sentence leaves out.
+fn describe_proposal(p: &ProposalSubmission) -> Description {
+    let mut clauses = Vec::new();
+    if !p.changes.is_empty() || p.upgrade.is_none() {
+        clauses.push(format!(
+            "changing {} on-chain",
+            plural(p.changes.len(), "parameter", "parameters")
+        ));
+    }
+    if let Some(u) = &p.upgrade {
+        clauses.push(format!(
+            "scheduling protocol version {} from block {}",
+            u.version, u.activation_height
+        ));
+    }
+    let mut described = Description::new(
+        format!(
+            "Propose {}, with {} blocks of voting and a {}-block delay.",
+            clauses.join(" and "),
+            p.voting_blocks,
+            p.timelock_blocks
+        ),
+        Review::Careful,
+    );
+    if let Some(u) = &p.upgrade {
+        described = described
+            .with("upgrade version", u.version.to_string())
+            .with("activation height", u.activation_height.to_string())
+            .with("features", feature_names(u.features.0));
+        for s in &u.sunsets {
+            let window = if s.emergency { " (emergency window)" } else { "" };
+            described = described.with(
+                "suite sunset",
+                format!("suite {} retired at block {}{window}", s.suite, s.sunset_height),
+            );
+        }
     }
     described
 }
@@ -333,15 +426,7 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             format!("Release {} of locked governance stake.", amount(u.amount)),
             Routine,
         ),
-        TxKind::Propose(p) => Description::new(
-            format!(
-                "Propose changing {} on-chain, with {} blocks of voting and a {}-block delay.",
-                plural(p.changes.len(), "parameter", "parameters"),
-                p.voting_blocks,
-                p.timelock_blocks
-            ),
-            Careful,
-        ),
+        TxKind::Propose(p) => describe_proposal(p),
         TxKind::CastVote(b) => Description::new(
             // The governance crate's own tags, never numbers written here: a
             // wallet that told a signer "for" when the wire said "against"
@@ -579,7 +664,9 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::core::dex_payload::{AssetTransfer, SwapRequest};
-    use crate::core::governance_payload::{Ballot, StakeLock};
+    use crate::core::governance_payload::{Ballot, ProposalSubmission, ScheduleUpgrade, StakeLock};
+    use crate::state::upgrades::SunsetSpec;
+    use crate::upgrade::FeatureSet;
     use crate::core::transaction::TxOutput;
     use crate::core::vault_payload::VaultConfig;
 
@@ -743,6 +830,94 @@ mod tests {
             d.summary
         );
         assert!(d.summary.contains("2 guardians"), "{}", d.summary);
+    }
+
+    #[test]
+    fn a_fee_listed_before_the_payment_is_still_a_fee() {
+        let d = describe(&transfer_with(vec![(FEE_COLLECTOR, 7), ([0xAB; 32], 1_000)]));
+        assert_eq!(
+            d.summary,
+            "Send 1,000 base units to 1 recipient, with a fee of 7 base units."
+        );
+        assert!(
+            !d.details
+                .iter()
+                .any(|(l, v)| *l == "pay to" && *v == full(&FEE_COLLECTOR))
+        );
+    }
+
+    fn proposal_with_upgrade() -> TxKind {
+        TxKind::Propose(Box::new(ProposalSubmission {
+            voting_blocks: 100,
+            timelock_blocks: 50,
+            changes: vec![],
+            upgrade: Some(ScheduleUpgrade {
+                version: 3,
+                activation_height: 5_000,
+                features: FeatureSet(FeatureSet::DVP | FeatureSet::ZKML),
+                sunsets: vec![SunsetSpec {
+                    suite: 2,
+                    sunset_height: 6_000,
+                    emergency: true,
+                }],
+            }),
+        }))
+    }
+
+    #[test]
+    fn a_protocol_upgrade_proposal_states_its_payload() {
+        let d = describe_kind(&proposal_with_upgrade());
+        assert_eq!(
+            d.summary,
+            "Propose scheduling protocol version 3 from block 5000, with 100 blocks of voting and a 50-block delay."
+        );
+        assert_eq!(d.review, Review::Careful);
+        assert!(d.details.contains(&("upgrade version", "3".to_string())));
+        assert!(d.details.contains(&("activation height", "5000".to_string())));
+        assert!(
+            d.details
+                .contains(&("features", "delivery-versus-payment, zkml".to_string()))
+        );
+        assert!(d.details.contains(&(
+            "suite sunset",
+            "suite 2 retired at block 6000 (emergency window)".to_string()
+        )));
+    }
+
+    #[test]
+    fn a_proposal_with_changes_and_an_upgrade_says_both() {
+        let TxKind::Propose(mut p) = proposal_with_upgrade() else {
+            unreachable!()
+        };
+        p.changes = vec![(1, U256::from(9))];
+        let d = describe_kind(&TxKind::Propose(p));
+        assert_eq!(
+            d.summary,
+            "Propose changing 1 parameter on-chain and scheduling protocol version 3 from block 5000, with 100 blocks of voting and a 50-block delay."
+        );
+    }
+
+    #[test]
+    fn a_parameter_proposal_says_nothing_about_upgrades() {
+        let kind = TxKind::Propose(Box::new(ProposalSubmission {
+            voting_blocks: 10,
+            timelock_blocks: 5,
+            changes: vec![(1, U256::from(9))],
+            upgrade: None,
+        }));
+        let d = describe_kind(&kind);
+        assert_eq!(
+            d.summary,
+            "Propose changing 1 parameter on-chain, with 10 blocks of voting and a 5-block delay."
+        );
+        assert!(d.details.is_empty());
+    }
+
+    #[test]
+    fn every_feature_bit_has_a_name_and_no_unknown_bit_is_named() {
+        let named = FEATURE_NAMES.iter().fold(0, |acc, (bit, _)| acc | bit);
+        assert_eq!(named, FeatureSet::KNOWN);
+        assert_eq!(feature_names(1 << 40), "unknown bits 0x10000000000");
     }
 
     #[test]
