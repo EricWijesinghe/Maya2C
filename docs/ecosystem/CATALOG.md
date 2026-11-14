@@ -44,6 +44,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | hardware-wallet | Ledger app for ML-DSA signing | `apps/ledger-maya2c` | device memory for PQ signatures, Ledger review | L | W3 |
 | chat-v2 | Group chats, attachments, multi-device | `apps/chat`, ADR-074 | gate: [ADR-085](../adr/ADR-085-chat-v2-groups-on-mls.md)/[ADR-086](../adr/ADR-086-wallet-v2-seedless-recovery-and-clear-signing.md) Proposed, decisions for Eric listed | L | W1 |
 | chat-pay | Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3) | chat + wallet hand-off | hand-off protocol ADR | M | W1 |
+| chat-expression | Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries | `apps/chat`, `apps/chat-gui`, chat-pay, chat-v2 | Eric's answers to ADR-140 section 10; gifts need chat-pay merged | L | W1 |
 | explorer-v2 | Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending | `apps/explorer` | none | M | W1 |
 | status-v2 | Public network status with a history of incidents and gate progress | `apps/status`, `apps/sentinel` | none | S | W1 |
 | notifications | Opt-in alerts (payment received, validator down) without a central server | `apps/hub` `notify.rs`, sentinel ntfy | privacy statement | M | W2 |
