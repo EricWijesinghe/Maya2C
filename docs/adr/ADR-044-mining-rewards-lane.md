@@ -1,8 +1,11 @@
 # ADR-044: Block rewards and GPU mining at launch, without letting miners order blocks
 
-**Status:** Proposed (2026-10-11). Economics decided by Eric 2026-10-11:
-block rewards (no founder premine), GPU mining from block 1. Parameters below
-are defaults Eric may change until the launch freeze. Replaces gate 6 of
+**Status:** Proposed (2026-10-11), economics decided. Decided by Eric 2026-10-11:
+block rewards (no founder premine), GPU mining from block 1. Payout wording
+approved 2026-11-01 (DECISIONS.md, "ADR-071 option B and the ADR-044 payout wording").
+Zero premine decided 2026-11-07 (DECISIONS.md). Parameters below are defaults
+Eric may change until the launch freeze, so the status stays Proposed until he
+closes them. Replaces gate 6 of
 `docs/mainnet-v1-plan.md` ("fees only", ADR-029) for mainnet.
 **Date:** 2026-10-11
 **Amended:** 2026-11-01 (Eric approved): the payout text now matches `state/mining.rs` (`share_reward`, `epoch_reward`): fixed per-share reward, unpaid budget stays in the reserve, tail floor on `R(e)`. No consensus change.

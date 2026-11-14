@@ -16,7 +16,7 @@ Two plans run in parallel and they are not the same thing:
 
 ## Master Prompt 1 — Workspace foundation
 
-Status: **Phase A complete, Phase B and C outstanding.**
+Status: **Phase A and B complete; Phase C complete except the ports.**
 Report: `reports/00-inventory.md`, `reports/01-foundation.md`.
 
 ### Phase 0 — audit
@@ -52,16 +52,16 @@ Report: `reports/00-inventory.md`, `reports/01-foundation.md`.
       `apps/ledger-maya2c/` are separate workspaces holding 19.5 GiB with their own
       profiles — ADR-003
 
-### Phase B — physical layout — **not started**
+### Phase B — physical layout — **done 2026-09-20** (commit `8d0ff94e`; ADR-001 Outcome)
 
 One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 
-- [ ] `git mv` into `crates/ bins/ apps/ hal/ sdks/ formal/ infra/`
-- [ ] Rewrite every `path =` dependency
-- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `infra/docker/Dockerfile*`, `infra/docker/docker-compose.yml`, `infra/k8s/`, `infra/deploy/`, `infra/terraform/`
-- [ ] Acceptance: `cargo metadata` package set identical before and after, modulo `manifest_path`
-- [ ] Acceptance: grep for every old path string across non-`target` files returns nothing
-- [ ] Second cold rebuild (budget ~1 hour)
+- [x] `git mv` into `crates/ bins/ apps/ hal/ sdks/ formal/ infra/` (`8d0ff94e`: 935 files changed; directories present on master)
+- [x] Rewrite every `path =` dependency (ADR-001 Outcome: 75 path dependencies rewritten)
+- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `infra/docker/Dockerfile*`, `infra/docker/docker-compose.yml`, `infra/k8s/`, `infra/deploy/`, `infra/terraform/` — not re-checked in this pass
+- [x] Acceptance: `cargo metadata` package set identical before and after (ADR-001 Outcome: 46 packages, reported at the time; not re-run)
+- [ ] Acceptance: grep for every old path string across non-`target` files returns nothing — NOT VERIFIED
+- [ ] Second cold rebuild (budget ~1 hour) — NOT VERIFIED
 
 ### Phase C — deterministic simulation harness — **complete, except the ports**
 
@@ -221,10 +221,10 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Mainnet build merged 2026-10-29: forever mining ADR-068 (#221), ML-DSA-87 validator keys (#222), 24 decimals (#230), chain-tagged votes (#236); freeze candidate on master
 - [x] Consensus frozen 2026-10-30 at `8987a6be`: round-2 self-run pre-audit S-012..S-034 fixed or documented, confirming attacknet PASS 8/8 (`reports/attacknet/2026-10-30-1.md`)
 - [x] Hardening wave 2026-10-31..11-01 (signer chain, fee freeze, block volume, decode bound, vault, DEX zero price): #265-#296; apply 414 ms worst case at the 7.5 MiB decode budget (`reports/bench/2026-11-01-apply-per-mib.md`)
-- [ ] Re-frozen at `ec8d0be1` (2026-11-01); 5-day local proving run (`cargo xtask proving --hours 120`) running: `reports/proving/`
+- [ ] Re-frozen at `ec8d0be1` (2026-11-01); the 5-day run has no result in `reports/proving/` (NOT VERIFIED). Later 24 h proving at `6fcfc65e` passed: "PASS: 24 h, no fork, height 73178, 0 halt(s)" (`reports/proving/run-6fcfc65e.log`, exit 0, 2026-11-10). Freeze sha is `bb4e0940` (STATE.md, 2026-11-09); master head `2090300c` carries the latest `[re-freeze]` (#520)
 - [x] Stale-node rejoin only through a trusted block (B49, #324); sealed join-script validator keys with a generated passphrase (B51, #325); site build fixed (#328); owner decisions on fee ceiling, supply wording, council pause and fee treasury recorded (DECISIONS 2026-11-02, docs only)
-- [x] Mainnet genesis ceremony dry run 2026-11-08 with throwaway keys and the decided values (`cargo xtask ceremony-rehearsal`): genesis-check PASS, 7 validators finalize; open: `get_supply` omits bonded stake, `maya-mainnet` address prefix unregistered (ADR-081) — `reports/sessions/2026-11-08-ceremony-dry-run.md`
-- [ ] Freeze candidate `9913c144` (2026-11-02): 24 h local proving run in progress; mainnet bootnode peer id still `SET-AT-GENESIS` (`deploy/genesis/mainnet/bootnode.env`)
+- [x] Mainnet genesis ceremony dry run 2026-11-08 with throwaway keys and the decided values (`cargo xtask ceremony-rehearsal`): genesis-check PASS, 7 validators finalize; `get_supply` bonded-stake gap fixed in #398 (merged as `bb4e0940`, STATE.md); open: `maya-mainnet` address prefix unregistered (ADR-081) — `reports/sessions/2026-11-08-ceremony-dry-run.md`
+- [ ] Freeze candidate `9913c144` (2026-11-02) is superseded by `bb4e0940` (see above); mainnet bootnode peer id still `SET-AT-GENESIS` (`deploy/genesis/mainnet/bootnode.env:6`)
 
 - [x] Merged to master 2026-11-01..11-02, reconciled 2026-11-03: RPC client-IP fix (#316); consensus pre-audit fixes (#317); wallet sign hardening (#318); MIP-0002 Omega docs (#320); mainnet readiness assessment (#323); proving genesis shielded pool off, genesis-check refuses it (#326); personal details removed from public docs (#327); offsec-sandbox header version per ADR-063 (#329); Kani exact-out harness and redemption paths (#332); owner decisions recorded and code-vs-doc drift fixed (#333); join-scripts test a local devnet (#334); swap default min_out (#337); CI site/deploy fixes (#328, #330, #339). Dependency bumps #335, #338 not tracked here. Launch-checklist status: `docs/launch-checklist.md`
 - [x] Merged by 2026-11-03 (checked on GitHub): #319, #321, #322, #331, #336, #340, #341, #343, #344, #346, #347. Open: #348 (z3 → Kani, draft until the harnesses verify)
