@@ -109,3 +109,4 @@ The observation that would make this worth reopening.
 | [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
 | [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
 | [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |
+| [142](ADR-142-vm-gas-caps-and-storage-pricing.md) | Contract gas caps per transaction and per block (governed, compiled bounds), native work priced in fuel at ~1 ns a unit, lazy per-key contract storage | Accepted |

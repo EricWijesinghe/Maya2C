@@ -33,6 +33,11 @@ pub const MAX_VALUE_BYTES: usize = 4 * 1024;
 /// Largest event payload a contract may emit.
 pub const MAX_EVENT_BYTES: usize = 4 * 1024;
 
+/// Largest event topic a contract may emit (PR #549 review). The topic had
+/// no bound at all: one call could hold its whole memory as a topic, twice
+/// over in the host, 64 times.
+pub const MAX_EVENT_TOPIC_BYTES: usize = 256;
+
 /// Maximum events one call may emit.
 ///
 /// Events are unmetered output that every node must store and relay, so the
@@ -142,6 +147,17 @@ pub trait HostState {
 
     /// Reads a key from the executing contract's storage.
     fn storage_get(&self, contract: &ContractId, key: &[u8]) -> Option<Vec<u8>>;
+
+    /// Marks `key` read and says whether this is the block's first read of
+    /// it from committed storage: a *cold* read, which may go to disk and
+    /// pays `crate::gas::STORAGE_COLD_READ_FUEL` more, before the lookup.
+    ///
+    /// Must be a function of the block's order alone, never of a cache: the
+    /// node answers from what the block's earlier calls wrote and read. The
+    /// default is never cold, for a host whose storage is all in memory.
+    fn touch_storage(&mut self, _contract: &ContractId, _key: &[u8]) -> bool {
+        false
+    }
 
     /// Writes a key into the executing contract's storage.
     ///

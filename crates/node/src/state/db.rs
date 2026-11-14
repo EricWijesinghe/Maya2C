@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::config::StorageConfig;
 use crate::state::fees::MAX_BLOCK_BYTES;
@@ -63,6 +63,13 @@ pub(crate) const NULLIFIER_PREFIX: &[u8] = b"null:";
 /// Key holding the serialized shielded pool.
 pub(crate) const POOL_KEY: &[u8] = b"shld:pool";
 
+/// One block's staged contract storage, keyed by contract then key.
+pub(crate) type StagedContractStorage = BTreeMap<(ChannelId, Vec<u8>), Vec<u8>>;
+
+/// Committed contract storage keys this block's applied calls have read,
+/// keyed by contract then key: a later read of one is warm (GAS-4).
+pub(crate) type BlockStorageReads = BTreeSet<(ChannelId, Vec<u8>)>;
+
 /// Staged mutations for one block.
 ///
 /// Both maps are ordered so the Merkle root is a function of content rather
@@ -76,7 +83,13 @@ pub(crate) struct Overlay {
     /// Contract code deployed by this block.
     pub(crate) code: BTreeMap<ChannelId, Vec<u8>>,
     /// Contract storage written by this block, keyed by contract then key.
-    pub(crate) contract_storage: BTreeMap<(ChannelId, Vec<u8>), Vec<u8>>,
+    ///
+    /// Shared, not owned: a contract call's host reads this block's earlier
+    /// writes through it instead of copying them, and a builder trial's
+    /// clone of the overlay is one reference count (PR #549 review: both
+    /// copies were O(entries) work no gas price saw). Written through
+    /// `Arc::make_mut`, which copies only while another clone is alive.
+    pub(crate) contract_storage: Arc<StagedContractStorage>,
     /// Nullifiers spent by this block.
     ///
     /// Checked alongside the committed set, so two joinsplits in one block
@@ -160,6 +173,23 @@ pub(crate) struct Overlay {
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
+    /// Contract gas this block has spent, calls and deployments together,
+    /// against `vm.max_block_gas` (ADR-142, GAS-2).
+    pub(crate) vm_gas: u64,
+    /// Contracts already called in this block, compiled. A later call to one
+    /// is warm (GAS-3): it reuses this module rather than compiling again, so
+    /// the price follows the work regardless of any cache. Block-local.
+    pub(crate) vm_modules: BTreeMap<ChannelId, maya_vm::Compiled>,
+    /// Committed storage keys this block's applied calls have read. A later
+    /// read of one is warm; the block's first is cold and pays
+    /// `STORAGE_COLD_READ_FUEL` (GAS-4). Only calls that applied add to it,
+    /// so a builder and a validator of the same block agree on it. Shared
+    /// like `contract_storage`, so a call's host reads it without a copy.
+    pub(crate) vm_reads: Arc<BlockStorageReads>,
+    /// True while `settle_sealed` runs revealed actions. `vm_gas` then counts
+    /// the revealed actions' own budget, `sealed_gas_budget` (GAS-2), not
+    /// the plaintext transactions'.
+    pub(crate) revealing: bool,
 }
 
 impl Overlay {
@@ -239,7 +269,13 @@ pub(crate) fn undo_key(block_id: &[u8; HASH_LEN]) -> Vec<u8> {
 
 /// Persistent account state.
 pub struct StateDB {
-    db: DB,
+    /// Shared so a contract call's host can read storage one key at a time
+    /// (ADR-142): wasmtime's store needs a `'static` host, which a borrow is not.
+    db: Arc<DB>,
+    /// The one VM every contract call and deployment on this state runs on,
+    /// built on first use. One engine, so a module compiled for one call in a
+    /// block can be run by the next (`Overlay::vm_modules`).
+    vm: OnceLock<maya_vm::Vm>,
     /// Signatures already verified, shared by mempool admission, the DAG-BFT
     /// builder and block application (`state::verified`).
     verified: crate::state::verified::VerifiedCache,
@@ -297,6 +333,11 @@ impl StateDB {
         // the real ceiling rather than the ceiling plus an unbounded amount of
         // metadata.
         block_opts.set_cache_index_and_filter_blocks(true);
+        // No bloom filter. One was tried for absent-key reads (ADR-142
+        // review) and measured: with the cache too small to keep a whole-file
+        // filter, every lookup reread it, 580 us a hit against 73 us without
+        // (`cold_point_reads_against_the_read_price`). The cold-read price
+        // covers the read without one.
         opts.set_block_based_table_factory(&block_opts);
 
         opts.set_write_buffer_size(storage.write_buffer_mib * 1024 * 1024);
@@ -304,7 +345,8 @@ impl StateDB {
 
         let db = DB::open(&opts, path).map_err(storage_err)?;
         Ok(Self {
-            db,
+            db: Arc::new(db),
+            vm: OnceLock::new(),
             verified: crate::state::verified::VerifiedCache::default(),
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
@@ -389,6 +431,30 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] on a write failure.
     pub fn raw_put_for_test(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.raw_put(key, value)
+    }
+
+    /// The database handle, for a contract host that reads storage lazily
+    /// (ADR-142). Reads only: every write still goes through an overlay.
+    pub(crate) fn shared_db(&self) -> Arc<DB> {
+        Arc::clone(&self.db)
+    }
+
+    /// The VM contract work on this state runs on, built on first use.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Vm`] if the deterministic engine cannot be built.
+    pub(crate) fn vm(&self) -> Result<&maya_vm::Vm> {
+        if let Some(vm) = self.vm.get() {
+            return Ok(vm);
+        }
+        let vm = maya_vm::Vm::new().map_err(|e| NodeError::Vm(e.to_string()))?;
+        // A racing thread may have set one first; either is the same
+        // configuration, and every caller from here on uses the one stored.
+        let _ = self.vm.set(vm);
+        self.vm
+            .get()
+            .ok_or_else(|| NodeError::Vm("the contract VM was not stored".into()))
     }
 
     pub(crate) fn raw_put(&self, key: &[u8], value: &[u8]) -> Result<()> {
@@ -674,7 +740,7 @@ impl StateDB {
         for (id, code) in &overlay.code {
             batch.put(code_key(id), code);
         }
-        for ((contract, key), value) in &overlay.contract_storage {
+        for ((contract, key), value) in overlay.contract_storage.iter() {
             batch.put(contract_storage_key(contract, key), value);
         }
         for nullifier in &overlay.nullifiers {
@@ -1124,6 +1190,12 @@ impl StateDB {
         self.prewarm_verification(&transactions[..warm], context.height, &policy)?;
         let mut kept = Vec::with_capacity(transactions.len());
         let mut wire = block_wire_len(std::iter::empty::<usize>());
+        // Senders whose contract call or deployment already failed in this
+        // selection. Their later transactions here would fail on the nonce
+        // anyway, except another version of the same nonce: a sub-DAG can
+        // carry several, from different proposers, and each one tried would be
+        // free contract work (PR #549 review). One failed trial per sender.
+        let mut failed_senders = std::collections::BTreeSet::new();
         for tx in transactions {
             let len = transaction_wire_len(tx.to_bytes().len());
             // First-fit (ADR-072): one too big for the room left is passed over
@@ -1132,11 +1204,28 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
+            let contract = matches!(
+                tx.kind,
+                crate::core::TxKind::CallContract(_) | crate::core::TxKind::DeployContract(_)
+            );
+            if contract && failed_senders.contains(&tx.sender()) {
+                continue;
+            }
+            let gas_before = overlay.vm_gas;
+            let staged = if contract || matches!(tx.kind, crate::core::TxKind::Transfer) {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
                 // copy made building a 900-transaction block quadratic.
+                //
+                // A contract call or deployment writes the same, then stages
+                // its own writes only once it has succeeded, so it takes the
+                // same path. What a failed one leaves behind is the contract
+                // gas it spent (`Overlay::vm_gas`), and that is meant: every
+                // validator runs this selection on the same sub-DAG, so a
+                // failed call that cost nothing here let K of them cost K x
+                // the cap (PR #549 review). The block that results only ever
+                // spends less than the count kept here, so it validates.
                 self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)?
             } else {
                 let mut trial = overlay.clone();
@@ -1152,6 +1241,11 @@ impl StateDB {
             if staged {
                 wire = wire.saturating_add(len);
                 kept.push(tx);
+            } else if contract && overlay.vm_gas > gas_before {
+                // Only a failure that did contract work: one refused at the
+                // nonce (a replay of the sender's old transaction, which
+                // anyone can put in a sub-DAG) must not shut the sender out.
+                failed_senders.insert(tx.sender());
             }
         }
         Ok(kept)
@@ -1195,8 +1289,11 @@ impl StateDB {
         Ok(())
     }
 
-    /// Stages a plain transfer, restoring exactly what it could have written
-    /// if it fails. Returns whether it was kept; a storage failure is an error,
+    /// Stages a plain transfer, a contract call or a deployment, restoring
+    /// exactly what it could have written if it fails, except the contract
+    /// gas a failed call or deployment spent, which stays spent (ADR-142,
+    /// GAS-2). `call_contract` and `deploy_contract` write nothing else
+    /// before their last check. Returns whether it was kept; a storage failure is an error,
     /// not a reason to drop the transaction, or this node would build a block
     /// its peers' state does not match.
     fn stage_transfer_or_undo(
@@ -1362,7 +1459,7 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] if the checkpoint cannot be made, for
     /// example because `path` already exists.
     pub fn create_checkpoint(&self, path: impl AsRef<Path>) -> Result<()> {
-        rocksdb::checkpoint::Checkpoint::new(&self.db)
+        rocksdb::checkpoint::Checkpoint::new(&*self.db)
             .and_then(|checkpoint| checkpoint.create_checkpoint(path))
             .map_err(storage_err)
     }

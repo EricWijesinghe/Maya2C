@@ -901,3 +901,35 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — Contract gas is capped per transaction and per block, and native work is priced (Eric 2026-11-14 MCQ, ADR-142)
+
+Eric chose "cap + price now" in the 2026-11-14 MCQ. A call's `gas_limit` was sender-chosen up to `u64::MAX`, nothing bounded a block's contract work, host functions and the per-call module compile were unmetered, and every call loaded the contract's whole storage. Now:
+
+- **Caps:** `vm.max_tx_gas` (tag 17) and `vm.max_block_gas` (tag 18), 250 M each, governed within compiled bounds `[239,979,600, 500,000,000]`; a call is capped at the smaller, a block's calls and deployments share the block cap. Refused at admission and in block validation; the builder leaves what does not fit for a later block.
+- **Prices** (`crates/vm/src/gas.rs`), at about 1 ns of measured worst-case native work per unit: 50,000 per call, 450 per module byte on a contract's first call in a block (the compile) and 1 after, 600 per host call, storage reads 5,000 + 1/byte, writes 5,000 + 240/byte (priced by persistence: ≤ ~1 MiB of new state per block), events 600 + 1/byte. No refunds.
+- **Lazy storage:** the host reads committed storage one key at a time; randomized equivalence against the old whole-storage load is a test.
+- **Not decided here, left open:** a fee per gas (economics, Eric's), charging failed plaintext calls (changes STF-8), and an incremental contracts root (the root still folds all contract state each block).
+
+## 2026-11-14 — ADR-142 amended after the PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+The review found work running below its price or outside the block's budget; measured on this PC, the worst was a module of 200 functions with 50,000 locals each that compiled in 678 ms (release) against a price of 0.78 M gas, and 40,000 `if`s in one function that compiled in 10.4 s. Implementing "cap + price now" fully therefore needed:
+
+- **Compile priced by shape** (`crates/vm/src/shape.rs`): a linear pre-pass before any compile; at most 1,024 locals and 2,000 control operators per function and 10,000 functions; cold price adds 125,000 per function, 170 per local, 30,000 per control operator, 8,000 per call; a module whose cold price exceeds 235,979,600 is refused at deployment, so the governance floor still keeps every deployed module callable.
+- **Linear memory priced** at 6,000 a page held (GAS-7), and a call may hold only what its gas pays for.
+- **Refused host calls trap**, and event topics are capped at 256 bytes.
+- **Failed work stays counted:** a failed call spends the gas it used (not its limit) and a failed deployment its price, counted before the compile, in block selection and in revealed sealed actions.
+- **Revealed sealed actions get their own budget**, a quarter of `vm.max_block_gas`, so a plaintext call cannot void a due sealed call.
+- **Warm and cold storage reads:** the block's first read of a committed key pays 95,000 more (measured 73–113 µs from disk with direct I/O). A bloom filter was measured and left out (it made hits slower with a small cache).
+- **No per-call copies** of the block's staged contract storage; contract trials no longer clone the overlay.
+- **Ceiling 300 M** for both caps (was 500 M).
+
+Raised with Eric, not decided here: one gas-filling call per block crowds out other contract calls for a byte fee (fee per gas or a per-sender share is economics); failing calls are free and stay pooled (eviction after a failed execution is node policy; charging them changes STF-8); the end-of-block bisection may re-run a block's contract work up to ~41 times on one anchor (audit finding 3); the contracts layer of the state root still folds all contract state each block (533 ms at 400,000 entries, dev; ~10 blocks of cheap writes) and blocks genesis until it is incremental or contract state is capped.
+
+## 2026-11-14 — ADR-142 amendment 2: the second PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+- **Multi-value is bounded and priced:** a function type names at most 16 params and results together, a function holds at most 10,000 calls, and the cold price adds 2,500 per value carried by each function's type, typed block, `if` and call, and 30,000 per value a `loop` carries (typed loops compiled 5.09 ns/fuel at 2,500, their time per value growing with the loops in the function; measured in release, ADR-142 amendment 2). The review's `[1000]->[1000]` blocks compiled 166× slower than their price.
+- **A failed call's gas is the same on every validator and counts all its work:** a stack overflow (whose point depends on the ISA) reports its limit plus every page its gas could pay for; any other failure reports what it ran plus its memory, not capped at the limit.
+- **Builder work:** a call refused below its upfront price counts `50,000 + len`; one failing contract trial per sender per selection; deployments are shape-checked at admission only after their signature, and refused there above `MAX_COLD_CALL_FUEL`.
+- **Not taken:** a separate failed-work budget in selection (the review's proposal). A call is only known to fail by running it, so it doubles the builder's worst case without letting through an honest call the shared budget refuses.
+- **Genesis blockers, recorded in BACKLOG.md G1–G3:** free failing calls (needs failed calls included with fee and nonce bump, an STF-8 change: Eric's economics decision), the contracts root fold, and the bisection's re-runs.

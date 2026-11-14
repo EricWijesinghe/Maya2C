@@ -179,11 +179,11 @@ pub const HASH_LOCK_ACTIVATION_HEIGHT: u64 = 0;
 ///
 /// The research-branch pattern (`crypto/dag/registry.rs`, `lattice-pow`): the
 /// code ships and is tested, and no network runs it until somebody chooses a
-/// height. Two things have to be true first, and neither is. The SRS must be a
-/// real ceremony rather than the public-seed one in `maya_zkml::srs`, and a
-/// call's `gas_limit` must be capped — today nothing bounds it, so a price in
-/// fuel bounds a verification only relative to a limit the sender picks. See
-/// `docs/zkml.md`.
+/// height. Two things had to be true first. The SRS must be a real ceremony
+/// rather than the public-seed one in `maya_zkml::srs`, which is still not
+/// true. A call's `gas_limit` had to be capped so that a price in fuel bounds
+/// a verification absolutely; since ADR-142 it is (`vm.max_tx_gas`,
+/// `vm.max_block_gas`). See `docs/zkml.md`.
 pub const ZKML_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 impl BlockContext {

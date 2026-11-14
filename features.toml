@@ -2018,7 +2018,7 @@ paths = "`crates/vm`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
+tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/node/tests/vm_gas_tests.rs", "crates/node/tests/sealed_tests.rs", "crates/vm/tests/gas_pricing_tests.rs", "crates/vm/tests/gas_hardening_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
 
 [[subsystem]]
 id = "historical-pruning-archive-bootstrap"
