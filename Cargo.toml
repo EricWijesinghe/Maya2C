@@ -159,6 +159,10 @@ members = [
     # Live watchdog (ADR-077 watcher): read-only, pages on-call by ntfy. A member
     # so its detectors are built and tested with the rest of the workspace.
     "apps/sentinel",
+    # Merchant checkout (ADR-091): invoices and signed webhooks. A member so
+    # its SSRF and matching rules are built with the workspace; it links no
+    # node crate, only the address codec.
+    "apps/checkout",
     # Threshold custody of a chain key. A member so its sharing arithmetic and
     # its quorum rules cannot rot, and because the one thing it must never do —
     # let a sub-threshold set of shares reconstruct anything — is a property a

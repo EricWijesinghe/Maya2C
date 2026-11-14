@@ -6031,6 +6031,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-checkout"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "getrandom 0.4.3",
+ "hex",
+ "hmac 0.12.1",
+ "http-body-util",
+ "jsonrpsee",
+ "maya-address",
+ "primitive-types",
+ "qrcode",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
 name = "maya-clear-sign"
 version = "0.1.0"
 dependencies = [

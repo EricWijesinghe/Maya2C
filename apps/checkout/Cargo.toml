@@ -1,0 +1,49 @@
+[package]
+name = "maya-checkout"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Merchant checkout: invoices, payment links, QR codes and signed webhooks. Detached from the node"
+
+# Detached: this service reads the chain over RPC and never links the node
+# crate. Only the address codec (`crates/address`, depends on thiserror alone)
+# is shared, so a payment address is written one way everywhere.
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "maya2c-checkout"
+path = "src/main.rs"
+
+[dependencies]
+primitive-types.workspace = true
+maya-address = { path = "../../crates/address" }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+axum = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "sync", "fs"] }
+async-trait.workspace = true
+# Webhook delivery goes over HTTPS only, pinned to the addresses the SSRF
+# check approved, so a second DNS answer cannot move the connection.
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
+hmac = "0.12"
+sha2.workspace = true
+hex.workspace = true
+subtle = "2.6.1"
+zeroize.workspace = true
+getrandom.workspace = true
+# Already in Cargo.lock through the wallet. Only rendered here: the wallet
+# decodes its own QR input in Rust.
+qrcode = "0.14.1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true
+
+[lints]
+workspace = true

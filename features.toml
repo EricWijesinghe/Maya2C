@@ -3609,6 +3609,17 @@ tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
 
 [[subsystem]]
+id = "merchant-checkout"
+name = "Merchant checkout (invoices, payment links, signed webhooks)"
+domain = "Finance"
+paths = "`apps/checkout`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-checkout", "apps/checkout/tests/payment_matching.rs", "apps/checkout/tests/webhook_tests.rs", "apps/checkout/tests/ssrf_tests.rs", "apps/checkout/tests/engine_tests.rs", "apps/checkout/tests/http_tests.rs"]
+note = "ADR-091. Detached service: reads the chain over public RPC, never links the node. Payment link is maya: payment request v2 (ADR-086): Bech32m recipient, order id as id=. Binding is a per-invoice deposit address from a merchant-loaded pool of public addresses (no keys held), never reused, even after expiry; only an exact amount to that address settles that invoice; every other payment is an unmatched record naming its invoice and a reason (capped at 1,000, paged), never cross-applied. Settlement only at DAG-BFT finality: payment block at or below get_checkpoint, checkpoint id matched to the scanned chain; no checkpoint confirms nothing. Reorgs roll back detected payments to pending with no webhook. Reads limited per client address and globally. Delivered-then-reorged invoices flagged at /v1/alerts. Webhooks HMAC-SHA256 with timestamp and nonce, stable event_id, HTTPS only with pinned, public-only destinations. Shortcuts: checkpoint signatures not verified (node trusted), no split-payment summing, deliveries sequential, no assign endpoint for unmatched payments. Security review PR #418 findings C1 and H1 re-fixed 2026-11-13. Not externally audited."
+
+[[subsystem]]
 id = "xtask-attacknet"
 name = "Attacknet (cargo xtask attacknet)"
 domain = "Tooling and formal verification"
