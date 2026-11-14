@@ -3587,6 +3587,28 @@ tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
+id = "public-invariant-monitor"
+name = "Public invariant monitor (third-party checks over public RPC)"
+domain = "Operations"
+paths = "`apps/invariant-monitor`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-invariant-monitor"]
+note = "CATALOG W1. Reuses apps/sentinel's transport, detectors (halt, fork, supply adds up, supply split, supply fell) and incident layer, and adds checks a public gateway allows: height never goes backwards per source, newest checkpoint never goes backwards, finality never reverts (two block ids at one attested height, or a source serving a block other than its checkpoint), finalized block within MAX_BLOCK_BYTES (invariant 33). Not checked from outside: checkpoint signatures (committee keys not public), quorum weight, the invariant guard (28), peers and stranding (get_peers and get_mempool_info are not on the gateway allowlist). Revert window is the newest 4,096 attested heights seen, in memory. Not yet run against the live testnet."
+
+[[subsystem]]
+id = "validator-ledger"
+name = "Public validator ledger (checkpoint signers per epoch)"
+domain = "Operations"
+paths = "`apps/validator-ledger`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-validator-ledger"]
+note = "CATALOG W1, R0 part only. Built from get_bft_status and get_checkpoint [epoch], both public: per epoch, which committee indices signed the final checkpoint, and for the current epoch which did not. Every output carries a MISSING list instead of estimates: stake (get_validators not public; no epoch-frozen weights RPC), identity per index (keys not public, signatures counted not verified), rounds per validator (get_certificates not public), uptime, equivocation evidence, epochs the endpoint no longer holds. CLI only (text and --json); the page is not built. Not yet run against the live testnet."
+
+[[subsystem]]
 id = "testnet-kit"
 name = "Testnet kit: local devnet, explorer, faucet and attack lab (`cargo xtask kit`)"
 domain = "Developer and operator tooling"
