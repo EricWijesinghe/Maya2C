@@ -184,10 +184,20 @@ fn a_full_uri_parses_every_field() {
 fn a_uri_round_trips() {
     let original = PaymentRequest {
         recipient: address(5),
+        network: Some("tmaya".to_string()),
         amount: Some(primitive_types::U256::from(42)),
         label: Some("Rent & Bills".to_string()),
+        message: Some("May, flat 3".to_string()),
+        expires_at: Some(1_800_000_000),
+        id: Some("inv-42".to_string()),
     };
-    let parsed = PaymentRequest::parse(&original.to_uri()).expect("parse");
+    let uri = original
+        .to_uri(maya_address::Network::Testnet)
+        .expect("uri");
+    // Output is always Bech32m (ADR-086 §7), never hex.
+    assert!(uri.starts_with("maya:tmaya1"), "{uri}");
+    assert!(!uri.contains(&address(5)), "{uri}");
+    let parsed = PaymentRequest::parse(&uri).expect("parse");
     assert_eq!(parsed, original);
 }
 
@@ -628,7 +638,8 @@ fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
         "ab".repeat(32)
     ))
     .expect("request");
-    let svg = maya_wallet_core::payment::payment_qr_svg(&request).expect("svg");
+    let svg = maya_wallet_core::payment::payment_qr_svg(&request, maya_address::Network::Testnet)
+        .expect("svg");
     assert!(svg.contains("<svg"), "{}", &svg[..svg.len().min(80)]);
     assert!(svg.contains("#05070f") && svg.contains("#ffffff"));
     // The UI injects this SVG under `style-src 'self'` (no 'unsafe-inline'),
@@ -637,6 +648,125 @@ fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
     // Deterministic: the same request draws the same code.
     assert_eq!(
         svg,
-        maya_wallet_core::payment::payment_qr_svg(&request).expect("svg")
+        maya_wallet_core::payment::payment_qr_svg(&request, maya_address::Network::Testnet)
+            .expect("svg")
     );
+}
+
+// ---------------------------------------------------------------------------
+// payment request v2 (ADR-086 §7)
+// ---------------------------------------------------------------------------
+
+use maya_address::Network;
+
+#[test]
+fn an_old_hex_uri_still_parses_and_names_no_network() {
+    let request =
+        PaymentRequest::parse(&format!("maya:{}?amount=5&label=Old", address(20))).expect("parse");
+    assert_eq!(request.recipient, address(20));
+    assert_eq!(request.network, None);
+    assert!(request.check(Network::Testnet, 0).is_ok());
+    assert!(request.check(Network::Mainnet, 0).is_ok());
+}
+
+#[test]
+fn a_request_for_another_network_is_refused_before_the_form_opens() {
+    let mainnet = maya_address::encode(Network::Mainnet, &[0x21; 32]);
+    let request = PaymentRequest::parse(&format!("maya:{mainnet}?amount=5")).expect("parse");
+    assert_eq!(request.network.as_deref(), Some("maya"));
+    assert!(matches!(
+        request.check(Network::Testnet, 0),
+        Err(WalletError::Address(_))
+    ));
+    assert!(request.check(Network::Mainnet, 0).is_ok());
+    // An unpinned chain (shown as `dmaya`) never takes a mainnet request,
+    // but takes a testnet one.
+    assert!(request.check(Network::Devnet, 0).is_err());
+    let testnet = maya_address::encode(Network::Testnet, &[0x21; 32]);
+    let request = PaymentRequest::parse(&testnet).expect("parse");
+    assert!(request.check(Network::Devnet, 0).is_ok());
+}
+
+#[test]
+fn an_expired_request_is_refused_and_a_live_one_is_not() {
+    let uri = format!("maya:{}?exp=1000&id=order-7", address(22));
+    let request = PaymentRequest::parse(&uri).expect("parse");
+    assert_eq!(request.expires_at, Some(1000));
+    assert_eq!(request.id.as_deref(), Some("order-7"));
+    assert!(request.check(Network::Testnet, 1000).is_ok());
+    assert!(matches!(
+        request.check(Network::Testnet, 1001),
+        Err(WalletError::Expired)
+    ));
+}
+
+#[test]
+fn malformed_v2_parameters_are_refused_and_unknown_ones_ignored() {
+    let base = address(23);
+    for bad in [
+        format!("maya:{base}?exp=soon"),
+        format!("maya:{base}?exp=-1"),
+        format!("maya:{base}?id={}", "x".repeat(33)),
+        format!("maya:{base}?id=two%20words"),
+        format!("maya:{base}?id="),
+    ] {
+        assert!(
+            matches!(PaymentRequest::parse(&bad), Err(WalletError::Qr(_))),
+            "{bad}"
+        );
+    }
+    let request =
+        PaymentRequest::parse(&format!("maya:{base}?sig=abc&v=3&message=Hi%21")).expect("parse");
+    assert_eq!(request.message.as_deref(), Some("Hi!"));
+}
+
+#[test]
+fn a_bech32m_request_with_a_bad_checksum_is_refused() {
+    let mut text = maya_address::encode(Network::Testnet, &[0x24; 32]);
+    let last = text.pop().unwrap();
+    text.push(if last == 'q' { 'p' } else { 'q' });
+    assert!(PaymentRequest::parse(&format!("maya:{text}")).is_err());
+}
+
+#[test]
+fn a_repeated_parameter_is_refused() {
+    // Review fix LOW: two `amount=` values let a QR show one and pay another,
+    // depending on which one a reader takes.
+    let base = address(25);
+    for uri in [
+        format!("maya:{base}?amount=1&amount=1000"),
+        format!("maya:{base}?label=A&label=B"),
+        format!("maya:{base}?x=1&x=2"),
+    ] {
+        assert!(
+            matches!(PaymentRequest::parse(&uri), Err(WalletError::Qr(_))),
+            "{uri}"
+        );
+    }
+}
+
+#[test]
+fn label_and_message_are_capped_and_stripped_of_invisible_characters() {
+    let base = address(26);
+    let request = PaymentRequest::parse(&format!(
+        "maya:{base}?label=%E2%80%AEShop%C2%AD&message=Hi%E2%80%8B"
+    ))
+    .expect("parse");
+    assert_eq!(request.label.as_deref(), Some("Shop"));
+    assert_eq!(request.message.as_deref(), Some("Hi"));
+    let long = "x".repeat(maya_wallet_core::payment::MAX_LABEL_CHARS + 1);
+    assert!(PaymentRequest::parse(&format!("maya:{base}?label={long}")).is_err());
+    let long = "x".repeat(maya_wallet_core::payment::MAX_MESSAGE_CHARS + 1);
+    assert!(PaymentRequest::parse(&format!("maya:{base}?message={long}")).is_err());
+}
+
+#[test]
+fn a_percent_escape_at_the_very_end_decodes_and_a_cut_one_stays_literal() {
+    // Pins `index + 2 < len` in percent_decode: the review suggested `<=`,
+    // which would read past the end of "%4".
+    let base = address(27);
+    let full = PaymentRequest::parse(&format!("maya:{base}?label=A%41")).expect("parse");
+    assert_eq!(full.label.as_deref(), Some("AA"));
+    let cut = PaymentRequest::parse(&format!("maya:{base}?label=A%4")).expect("parse");
+    assert_eq!(cut.label.as_deref(), Some("A%4"));
 }
