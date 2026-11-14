@@ -108,4 +108,10 @@ The observation that would make this worth reopening.
 | [107](ADR-107-smart-account-promotion.md) | Smart-account promotion: session keys and spending limits on the v9 frame through `verify_with_state` | Proposed |
 | [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
 | [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
+| [110](ADR-110-shielded-user-tokens.md) | Shielded user tokens: asset id in the note and as a public input, one tree, clear per-asset pool balance; inherits the ADR-067 note cap | Proposed |
+| [111](ADR-111-treasury-spend-and-grants.md) | Treasury spend path: keyless derived account, governed fee share in, spends and vested grants through the proposal lifecycle under a compiled epoch cap | Proposed |
+| [112](ADR-112-pull-oracle-on-chain-reports.md) | Pull oracle: batch reports signed once over a Merkle root, carried by `WithReports` and applied before the inner kind; a lost race is a no-op | Proposed |
+| [113](ADR-113-vote-delegation.md) | Vote delegation: one hop, running delegated sum, undelegation lead derived from the compiled floors; conviction as a shift on locked stake | Proposed |
+| [114](ADR-114-contract-timers.md) | Contract timers under `ct:`: scheduled by a host function, run at the end of the block in key order, bounded, failure a no-op, flat fee from a contract escrow | Proposed |
+| [115](ADR-115-post-quantum-vrf.md) | Post-quantum beacon randomness: hash-chain scheme 2 mixed with ECVRF; lattice scheme 3 reserved behind a written research gate | Proposed |
 | [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |
