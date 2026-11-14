@@ -2890,6 +2890,116 @@ gate = "cargo test --lib in apps/chat-gui/src-tauri (a Tauri app outside the wor
 note = "A sticker is a file named by its BLAKE3 hash, framed inside the end-to-end encryption (MAGIC, header, file; at most 120 KB, which seals to 247,427 B worst case under the relay's 256 KiB), re-hashed and type-sniffed on receipt, cached encrypted under a seed-derived key. Packs: id = BLAKE3 of title and item ids; 'Add pack' asks the sender, whose app answers once per peer and pack, only for packs it made or installed. Starter pack 'Orbi': 12 original animated SVGs (cargo xtask starter-stickers). Lottie through vendored lottie-web 5.13.0 light build (no eval). Same RESEARCH status as maya-chat: unaudited."
 
 [[subsystem]]
+id = "chat-reactions-replies"
+name = "Maya2C Chat reactions, replies and edits"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 1. No code. New Content frame variants inside the encryption, naming the envelope id receipts already carry; threads and polls wait for groups (ADR-085)."
+
+[[subsystem]]
+id = "chat-disappearing-messages"
+name = "Maya2C Chat disappearing messages and view-once"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 5, build PR 2. No code. Per-chat timer enforced by honest clients; the UI states that a modified client, a screenshot or a camera can keep a copy."
+
+[[subsystem]]
+id = "chat-custom-emoji"
+name = "Maya2C Chat custom emoji packs and per-format sticker caps"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat-gui/src-tauri/src/stickers.rs` (planned change)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 3. No code. Extends the built chat-stickers pipeline; animated stickers themselves are already built there."
+
+[[subsystem]]
+id = "chat-profile-themes"
+name = "Maya2C Chat profile cards, animated frames, themes and wallpapers"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 4. No code. A profile card is sent per contact inside the session; there is no directory."
+
+[[subsystem]]
+id = "chat-stories"
+name = "Maya2C Chat stories with audience lists"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 5. No code. Sealed once, key fanned out over 1:1 sessions, expiry enforced by clients and the envelope TTL; single-envelope size until the ADR-085 blob store exists."
+
+[[subsystem]]
+id = "chat-delete-for-everyone"
+name = "Maya2C Chat delete-for-everyone, per-chat key erasure and best-effort screenshot protection"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 5, build PR 6. No code. A deletion request honest clients obey, not a guarantee; screenshot protection is OS flags only and labelled best effort."
+
+[[subsystem]]
+id = "chat-pairwise-identities"
+name = "Maya2C Chat pairwise identities and incognito profile"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/identity.rs`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 4, build PR 7. No code. Per-contact ML-DSA-65 identity derived from the seed, unlinkable by key to the wallet address; a relay can still link mailboxes by IP and timing because no mix or onion layer is built."
+
+[[subsystem]]
+id = "chat-gifts"
+name = "Maya2C Chat gifts (peer-to-peer MAYA tips with an animation)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 3, build PR 8. No code. Only over the payment-request flow of PR #441; the wallet clear-signs; no new token, no fee beyond the network fee, no platform cut, no in-app balance. Any cut or cash-out is the owner's decision with legal advice. Collectibles wait for ADR-104."
+
+[[subsystem]]
+id = "chat-safety-pack"
+name = "Maya2C Chat safety pack (block, mute, message requests, safety numbers, app lock, panic wipe, user-side reporting)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 6, build PR 9. No code. Spam filtering and reporting run on the device; nothing scans content. Message franking is an open question."
+
+[[subsystem]]
+id = "chat-presence-status"
+name = "Maya2C Chat opt-in read receipts, typing indicator, presence and status"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 10. No code. Off by default and reciprocal; typing is never deposited at a relay; no relay holds a presence table."
+
+[[subsystem]]
 id = "mining-rewards-lane"
 name = "Mining rewards lane (DAG-PoW shares paid from a genesis reserve)"
 domain = "Consensus and execution"
@@ -3573,7 +3683,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crate:maya-address", "crates/node/tests/rpc_tests.rs"]
-note = "ADR-081. RPC accepts hex or Bech32m and returns address_text. Converted (PR #379): faucet (accepts and echoes text on its network; default chain maya-testnet-1), hub payout (snapshot address_text), wallet core (payment.rs accepts Bech32m). Still hex only: wallet GUI and CLI output, explorer, pool, chat, Go SDK, genesis docs. maya-mainnet is registered in Network::for_chain_id (2026-11-08), so mainnet has a text form."
+note = "ADR-081. RPC accepts hex or Bech32m and returns address_text. Converted (PR #379): faucet (accepts and echoes text on its network; default chain maya-testnet-1), hub payout (snapshot address_text), wallet core (payment.rs accepts Bech32m). 2026-11-10: pool miner login (`parse_user_identity`) and explorer account lookup accept text on their network; site faucet form and testnet docs show `tmaya1`. sdk-ffi gains address_text(chain_id) (additive). Still hex only: wallet GUI confirm and Receive screens (need the network name threaded through), chat (no network in identity), Go SDK port, genesis decode (post-genesis). maya-mainnet is registered in Network::for_chain_id (2026-11-08), so mainnet has a text form."
 
 [[subsystem]]
 id = "chain-sentinel"
@@ -3585,6 +3695,39 @@ class = "REAL"
 status = "working"
 tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
+
+[[subsystem]]
+id = "release-log-anchor"
+name = "Release log anchor (signed SHA256SUMS statement, on-chain anchor check)"
+domain = "Operations"
+paths = "`apps/trust-log/src/release.rs`, `apps/trust-log/src/anchor.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust release sign|verify`: ML-DSA-87 statement over SHA-256(SHA256SUMS) and the tag; verify warns and exits 1, never installs. Anchor = an existing AnchorAttestation tx (schema maya2c/release/<tag>); this tool prints the fields and checks a landed anchor via get_block_by_height, it does not submit one (no notary tool yet). Not wired into the ADR-075 update checker (bins/maya2c-node is frozen). Trusts the RPC endpoint's block."
+
+[[subsystem]]
+id = "signed-incidents"
+name = "Signed, hash-chained incident log"
+domain = "Operations"
+paths = "`apps/trust-log/src/incident.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust incident append|verify`: one ML-DSA-87 signed JSON record per incident, each naming seq and the previous digest; edits, removals and reorders fail verify. Truncating the newest records is caught only against an anchored head (schema maya2c/incidents/v1/<seq>, one per head) or --min-seq, which this tool checks but does not submit. Replay lines default to `maya2c replay` per height. Not yet fed by apps/sentinel."
+
+[[subsystem]]
+id = "foundation-canary"
+name = "Foundation canary (block-bound signed statement, lapse check)"
+domain = "Operations"
+paths = "`apps/trust-log/src/canary.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust canary sign|check`: ML-DSA-87 statement naming the tip block id (cannot be signed before that block exists); check exits 1 when the id is not the chain's or the canary is older than --max-age-blocks. Statement wording is the operator's (legal review pending, no default text). No automatic alert yet: public-invariant-monitor is not built; run check from cron or a monitor."
 
 [[subsystem]]
 id = "testnet-kit"
