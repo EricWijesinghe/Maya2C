@@ -1,43 +1,565 @@
 {
  "cases": [
   {
-   "expect": {"result": "ok"},
+   "expect": {
+    "result": "ok"
+   },
    "hex": "3b05000000000000000101010101010101010101010101010101010101010101010101010101010101",
    "id": "NF-enc-create",
-   "rules": ["NF-1"],
+   "rules": [
+    "NF-1"
+   ],
    "size": "41",
    "type": "encoding"
   },
   {
-   "expect": {"result": "ok"},
+   "expect": {
+    "result": "ok"
+   },
    "hex": "3c02020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303",
    "id": "NF-enc-mint",
-   "rules": ["NF-1"],
+   "rules": [
+    "NF-1"
+   ],
    "size": "65",
    "type": "encoding"
   },
   {
-   "expect": {"result": "ok"},
+   "expect": {
+    "result": "ok"
+   },
    "hex": "3d040404040404040404040404040404040404040404040404040404040404040409000000000000000505050505050505050505050505050505050505050505050505050505050505",
    "id": "NF-enc-transfer",
-   "rules": ["NF-1"],
+   "rules": [
+    "NF-1"
+   ],
    "size": "73",
    "type": "encoding"
   },
   {
-   "expect": {"result": "ok"},
+   "expect": {
+    "result": "ok"
+   },
    "hex": "3e06060606060606060606060606060606060606060606060606060606060606060000000000000000",
    "id": "NF-enc-burn",
-   "rules": ["NF-1"],
+   "rules": [
+    "NF-1"
+   ],
    "size": "41",
    "type": "encoding"
   },
   {
-   "expect": {"result": "error"},
+   "expect": {
+    "result": "error"
+   },
    "hex": "3d0404040404040404040404040404040404040404040404040404040404040404090000000000000005050505050505050505050505050505050505050505050505050505050505",
    "id": "NF-enc-transfer-truncated",
-   "rules": ["NF-1"],
+   "rules": [
+    "NF-1"
+   ],
    "type": "encoding"
+  },
+  {
+   "creator": "1111111111111111111111111111111111111111111111111111111111111111",
+   "expect": {
+    "id": "97b65395be313032984b45d0d9fa0dbe1c47beeb1590c73599949ebbebd1a593",
+    "result": "ok"
+   },
+   "id": "NF-cid-nonce-0",
+   "nonce": "0",
+   "rules": [
+    "NF-2"
+   ],
+   "type": "collection_id"
+  },
+  {
+   "creator": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+   "expect": {
+    "id": "3db2cb2652346bea806337f4ca0153ec49b5944a82f092685e5b44cbad07888b",
+    "result": "ok"
+   },
+   "id": "NF-cid-nonce-258",
+   "nonce": "258",
+   "rules": [
+    "NF-2"
+   ],
+   "type": "collection_id"
+  },
+  {
+   "expect": {
+    "creator": "1111111111111111111111111111111111111111111111111111111111111111",
+    "max_items": "5",
+    "metadata_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "minted": "2",
+    "result": "ok"
+   },
+   "hex": "01111111111111111111111111111111111111111111111111111111111111111105000000000000000200000000000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+   "id": "NF-rec-collection",
+   "record": "collection",
+   "rules": [
+    "NF-3",
+    "NF-6"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "metadata_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "owner": "2222222222222222222222222222222222222222222222222222222222222222",
+    "result": "ok"
+   },
+   "hex": "012222222222222222222222222222222222222222222222222222222222222222a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+   "id": "NF-rec-item",
+   "record": "item",
+   "rules": [
+    "NF-3",
+    "NF-6"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "012222222222222222222222222222222222222222222222222222222222222222a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1697066733a2f2f62616679",
+   "id": "NF-rec-item-with-uri",
+   "note": "anything past the hash (a URI) is not an item record",
+   "record": "item",
+   "rules": [
+    "NF-6"
+   ],
+   "type": "record"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "02111111111111111111111111111111111111111111111111111111111111111105000000000000000200000000000000a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+   "id": "NF-rec-collection-v2",
+   "record": "collection",
+   "rules": [
+    "NF-6"
+   ],
+   "type": "record"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {},
+    "minted": "0",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-create-max-1",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-create-max-0",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {},
+    "minted": "0",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-create-max-2pow32",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "4294967296"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-create-max-2pow32-plus-1",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "4294967297"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {
+     "0": "k0",
+     "1": "k0"
+    },
+    "minted": "2",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-mint-to-max",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "2"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-mint-full",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-mint-non-creator",
+   "rules": [
+    "NF-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "2"
+    },
+    {
+     "from": "k1",
+     "kind": "mint"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {
+     "0": "k1"
+    },
+    "minted": "1",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-transfer",
+   "rules": [
+    "NF-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "index": "0",
+     "kind": "transfer",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-transfer-non-owner",
+   "rules": [
+    "NF-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k1",
+     "index": "0",
+     "kind": "transfer",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-transfer-to-self",
+   "rules": [
+    "NF-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "index": "0",
+     "kind": "transfer",
+     "to": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {
+     "0": null
+    },
+    "minted": "1",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-burn",
+   "rules": [
+    "NF-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "2"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "index": "0",
+     "kind": "burn"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {
+     "0": null,
+     "1": "k0"
+    },
+    "minted": "2",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-burn-then-mint-new-index",
+   "rules": [
+    "NF-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "2"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "index": "0",
+     "kind": "burn"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-burn-non-owner",
+   "rules": [
+    "NF-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    },
+    {
+     "from": "k0",
+     "kind": "mint"
+    },
+    {
+     "from": "k0",
+     "index": "0",
+     "kind": "transfer",
+     "to": "k1"
+    },
+    {
+     "from": "k0",
+     "index": "0",
+     "kind": "burn"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "11",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-before-activation",
+   "rules": [
+    "NF-7"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "items": {},
+    "minted": "0",
+    "result": "ok"
+   },
+   "height": "10",
+   "id": "NF-at-activation",
+   "rules": [
+    "NF-7"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "error"
+   },
+   "height": "10",
+   "id": "NF-vault-refused",
+   "rules": [
+    "NF-7"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "kind": "vault"
+    },
+    {
+     "from": "k0",
+     "kind": "create",
+     "max_items": "1"
+    }
+   ],
+   "type": "apply"
   }
  ]
 }
