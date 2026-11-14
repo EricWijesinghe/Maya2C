@@ -621,3 +621,40 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
         handle,
     })
 }
+
+#[cfg(test)]
+mod parse_address_tests {
+    use super::parse_address;
+    use maya_address::Network;
+
+    const HEX: &str = "0707070707070707070707070707070707070707070707070707070707070707";
+
+    #[test]
+    fn hex_is_taken_as_it_was_typed() {
+        assert_eq!(parse_address(HEX), Ok(([7u8; 32], None)));
+    }
+
+    #[test]
+    fn a_text_address_resolves_to_the_same_account_and_network() {
+        let text = maya_address::encode(Network::Testnet, &[7u8; 32]);
+        assert_eq!(
+            parse_address(&text),
+            Ok(([7u8; 32], Some(Network::Testnet)))
+        );
+    }
+
+    #[test]
+    fn a_mistyped_text_address_is_refused() {
+        let mut text = maya_address::encode(Network::Testnet, &[7u8; 32]).into_bytes();
+        let last = text.len() - 1;
+        text[last] = if text[last] == b'q' { b'p' } else { b'q' };
+        let text = String::from_utf8(text).unwrap();
+        assert!(parse_address(&text).is_err());
+    }
+
+    #[test]
+    fn short_hex_and_free_text_are_refused() {
+        assert!(parse_address("nothex").is_err());
+        assert!(parse_address(&HEX[..62]).is_err());
+    }
+}
