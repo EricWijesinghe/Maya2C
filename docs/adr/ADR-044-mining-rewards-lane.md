@@ -177,3 +177,17 @@ locked stake plus decayed work credit, so one fee per block bought weight.
   `BlockContext::with_work_claim_activation(0)` explicitly.
 - `docs/audit/KNOWN_ISSUES.md` #2 and #18 say the same.
 
+
+## Amendment 2026-11-12: `WorkClaim` has no `kind` byte
+
+The "Consequences" bullet that says `WorkClaim` gets a `kind` byte from day one
+(`0 = DAG PoW`) does not match the code. `WorkClaim` is
+`WorkClaim { beneficiary }` and nothing else
+(`crates/node/src/core/governance_payload.rs:120-123`), and its encoding is the
+32-byte beneficiary alone (`governance_payload.rs:168-180`). The mainnet
+format therefore does need to change before a second kind of work can be
+claimed; the sentence "The mainnet format does not need to change to allow it"
+is not true as built. The decision above (the lane is meant to carry other
+work, activated at a written height after its own ADR) is unchanged. ADR-129
+(branch `docs/adr-125-130-gaps`, PR #470) proposes `TxKind::ClaimCompute` as the
+carrier instead of a `kind` byte on `WorkClaim`.
