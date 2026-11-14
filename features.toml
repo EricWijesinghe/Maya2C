@@ -3587,6 +3587,39 @@ tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
+id = "release-log-anchor"
+name = "Release log anchor (signed SHA256SUMS statement, on-chain anchor check)"
+domain = "Operations"
+paths = "`apps/trust-log/src/release.rs`, `apps/trust-log/src/anchor.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust release sign|verify`: ML-DSA-87 statement over SHA-256(SHA256SUMS) and the tag; verify warns and exits 1, never installs. Anchor = an existing AnchorAttestation tx (schema maya2c/release/<tag>); this tool prints the fields and checks a landed anchor via get_block_by_height, it does not submit one (no notary tool yet). Not wired into the ADR-075 update checker (bins/maya2c-node is frozen). Trusts the RPC endpoint's block."
+
+[[subsystem]]
+id = "signed-incidents"
+name = "Signed, hash-chained incident log"
+domain = "Operations"
+paths = "`apps/trust-log/src/incident.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust incident append|verify`: one ML-DSA-87 signed JSON record per incident, each naming seq and the previous digest; edits, removals and reorders fail verify. Truncating the newest records is caught only against an anchored head (schema maya2c/incidents/v1/<seq>, one per head) or --min-seq, which this tool checks but does not submit. Replay lines default to `maya2c replay` per height. Not yet fed by apps/sentinel."
+
+[[subsystem]]
+id = "foundation-canary"
+name = "Foundation canary (block-bound signed statement, lapse check)"
+domain = "Operations"
+paths = "`apps/trust-log/src/canary.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust canary sign|check`: ML-DSA-87 statement naming the tip block id (cannot be signed before that block exists); check exits 1 when the id is not the chain's or the canary is older than --max-age-blocks. Statement wording is the operator's (legal review pending, no default text). No automatic alert yet: public-invariant-monitor is not built; run check from cron or a monitor."
+
+[[subsystem]]
 id = "testnet-kit"
 name = "Testnet kit: local devnet, explorer, faucet and attack lab (`cargo xtask kit`)"
 domain = "Developer and operator tooling"
