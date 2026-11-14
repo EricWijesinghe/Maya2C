@@ -129,7 +129,8 @@ fn describe_transfer(tx: &Transaction) -> Description {
     let Some((first, rest)) = tx.outputs.split_first() else {
         return Description::new("Send 0 base units to 0 recipients.", Review::Careful);
     };
-    let is_fee = |i: usize, o: &TxOutput| is_fee_output(o) && (i > 0 || o.recipient == FEE_COLLECTOR);
+    let is_fee =
+        |i: usize, o: &TxOutput| is_fee_output(o) && (i > 0 || o.recipient == FEE_COLLECTOR);
     let fees: Vec<&TxOutput> = tx
         .outputs
         .iter()
@@ -235,10 +236,17 @@ fn describe_proposal(p: &ProposalSubmission) -> Description {
             .with("activation height", u.activation_height.to_string())
             .with("features", feature_names(u.features.0));
         for s in &u.sunsets {
-            let window = if s.emergency { " (emergency window)" } else { "" };
+            let window = if s.emergency {
+                " (emergency window)"
+            } else {
+                ""
+            };
             described = described.with(
                 "suite sunset",
-                format!("suite {} retired at block {}{window}", s.suite, s.sunset_height),
+                format!(
+                    "suite {} retired at block {}{window}",
+                    s.suite, s.sunset_height
+                ),
             );
         }
     }
@@ -665,10 +673,10 @@ mod tests {
     use super::*;
     use crate::core::dex_payload::{AssetTransfer, SwapRequest};
     use crate::core::governance_payload::{Ballot, ProposalSubmission, ScheduleUpgrade, StakeLock};
-    use crate::state::upgrades::SunsetSpec;
-    use crate::upgrade::FeatureSet;
     use crate::core::transaction::TxOutput;
     use crate::core::vault_payload::VaultConfig;
+    use crate::state::upgrades::SunsetSpec;
+    use crate::upgrade::FeatureSet;
 
     #[test]
     fn digits_are_grouped_in_threes() {
@@ -834,7 +842,10 @@ mod tests {
 
     #[test]
     fn a_fee_listed_before_the_payment_is_still_a_fee() {
-        let d = describe(&transfer_with(vec![(FEE_COLLECTOR, 7), ([0xAB; 32], 1_000)]));
+        let d = describe(&transfer_with(vec![
+            (FEE_COLLECTOR, 7),
+            ([0xAB; 32], 1_000),
+        ]));
         assert_eq!(
             d.summary,
             "Send 1,000 base units to 1 recipient, with a fee of 7 base units."
@@ -873,7 +884,10 @@ mod tests {
         );
         assert_eq!(d.review, Review::Careful);
         assert!(d.details.contains(&("upgrade version", "3".to_string())));
-        assert!(d.details.contains(&("activation height", "5000".to_string())));
+        assert!(
+            d.details
+                .contains(&("activation height", "5000".to_string()))
+        );
         assert!(
             d.details
                 .contains(&("features", "delivery-versus-payment, zkml".to_string()))
