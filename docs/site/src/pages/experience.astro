@@ -52,7 +52,7 @@ const recordedPretty = JSON.stringify(JSON.parse(recorded.body), null, 2);
 ---
 
 <StarlightPage frontmatter={{ title: "Experience Maya2C", description: "Touch every part of the Maya2C network: blocks, real API responses, post-quantum signatures, wallet, chat and more.", template: "splash" }}>
-  <div class="xp" data-xp={paused ? "paused" : "live"}>
+  <div class="xp not-content" data-xp={paused ? "paused" : "live"}>
   <section class="xp-live" aria-label={paused ? "Last reading" : "Live"}>
     <article class="orb-panel" id="xp-blocks">
       <div class={`pulse-orb${paused ? " is-paused" : ""}`} id="blockOrb" aria-hidden="true"><span id="blockNum">{paused ? lastHeight : "—"}</span></div>
@@ -200,10 +200,11 @@ const recordedPretty = JSON.stringify(JSON.parse(recorded.body), null, 2);
   .orb-panel { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: var(--r-l); padding: clamp(var(--space-5), 4vw, var(--space-8)); backdrop-filter: var(--glass-blur); min-width: 0; display: grid; gap: var(--space-3); align-content: start; }
   .orb-panel h2, .xp-sizes h2, .xp-delivery h2, .xp-orbs h2 { font: 300 clamp(24px, 3vw, 34px)/1.15 var(--display); letter-spacing: -0.02em; margin: 0; }
   .orb-panel p { margin: 0; color: var(--muted); }
+  .orb-panel time { white-space: nowrap; }
   .orb-panel p b { color: var(--text); font-variant-numeric: tabular-nums; }
   .orb-panel a, .xp-sizes > a { color: var(--accent-text); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
   .pulse-orb { width: clamp(120px, 34vw, 150px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; margin-inline: auto;
-    background: radial-gradient(circle at 34% 30%, var(--accent-highlight) 0 8%, var(--accent-grad-from) 22%, var(--accent-grad-to) 70%, transparent 72%);
+    background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--accent-grad-from) 45%, white) 0 12%, var(--accent-grad-from) 34%, var(--accent-grad-to) 72%, var(--accent) 100%);
     box-shadow: 0 0 60px -10px var(--xp-glow); }
   .pulse-orb span { font: 500 clamp(17px, 5vw, 22px)/1 var(--mono); color: var(--on-accent); font-variant-numeric: tabular-nums; }
   /* Paused: the same orb, at rest. No beat, because no block arrived. */
@@ -218,16 +219,21 @@ const recordedPretty = JSON.stringify(JSON.parse(recorded.body), null, 2);
   .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
   #rpcOut { margin: 0; min-height: 150px; max-height: 260px; overflow: auto; border-radius: var(--r-m); background: var(--well); padding: var(--space-4); font: 400 12.5px/1.5 var(--mono); color: var(--accent-text); white-space: pre-wrap; overflow-wrap: anywhere; }
   #rpcOut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .xp-sizes, .xp-delivery, .xp-orbs { margin-top: clamp(var(--space-10), 7vw, var(--space-12)); display: grid; gap: var(--space-5); }
+  /* One minmax(0, 1fr) column: an auto column grows to its widest child, and the
+     orb grid's min-content is two orbs, which pushed a 390 px phone to 697 px. */
+  .xp-sizes, .xp-delivery, .xp-orbs { margin-top: clamp(var(--space-10), 7vw, var(--space-12)); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
+  .xp { min-width: 0; }
   .bubbles { display: flex; align-items: flex-end; justify-content: space-around; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-6); border-radius: var(--r-l); background: var(--glass); border: 1px solid var(--glass-edge); }
   .size { margin: 0; display: grid; justify-items: center; gap: var(--space-3); }
-  .size .ball { width: var(--d); height: var(--d); max-width: 40vw; max-height: 40vw; border-radius: 50%; background: radial-gradient(circle at 34% 30%, var(--accent-highlight) 0 5%, var(--accent-grad-from) 16%, var(--accent-grad-to) 50%, var(--accent) 85%); box-shadow: 0 0 40px -12px var(--xp-glow); }
-  .size:first-child .ball { background: radial-gradient(circle at 34% 30%, var(--accent-highlight) 0 8%, var(--steel) 40%, var(--surface-3)); box-shadow: none; }
+  .size .ball { width: var(--d); height: var(--d); max-width: 40vw; max-height: 40vw; border-radius: 50%; background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--accent-grad-from) 45%, white) 0 10%, var(--accent-grad-from) 30%, var(--accent-grad-to) 65%, var(--accent) 100%); box-shadow: 0 0 40px -12px var(--xp-glow); }
+  .size:first-child .ball { background: radial-gradient(circle at 34% 30%, var(--text-2) 0 10%, var(--steel) 45%, var(--text-3)); box-shadow: none; }
   .size figcaption { display: grid; justify-items: center; gap: 2px; text-align: center; }
   .size b { font: 400 15px var(--display); }
   .size span { font: 400 14px var(--mono); color: var(--accent-text); }
   .size small { color: var(--muted); font-size: 12.5px; }
-  .orb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); gap: var(--space-4); }
+  .orb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: var(--space-3); }
+  .orb { min-width: 0; }
+  .orb > * { max-width: 100%; overflow-wrap: anywhere; }
   .orb { position: relative; aspect-ratio: 1; border-radius: 50%; display: grid; place-content: center; text-align: center; gap: 6px; padding: var(--space-4); color: var(--text); text-decoration: none; background: radial-gradient(circle at 34% 28%, var(--orb-hi), var(--orb-lo) 60%); border: 1.5px solid var(--glass-edge); transition: transform var(--dur-3) var(--spring), border-color var(--dur-2); }
   .orb b { font: 400 17px/1.2 var(--display); }
   .orb span:not(.glow) { font-size: 13px; color: var(--muted); }

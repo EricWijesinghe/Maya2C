@@ -124,21 +124,27 @@ function tabLabel(html: string, at: number): string {
 
 test("built: no enabled form or copy button reaches a stopped host without the paused label", { skip }, () => {
   if (!testnet.paused) return;
+  // Counted, so a markup change that hides every control fails instead of passing empty.
+  const seen = { forms: 0, hostCopies: 0, pickerCopies: 0 };
   for (const p of PAGES) {
     const html = page(p);
     for (const form of html.match(/<form\b[\s\S]*?<\/form>/g) ?? []) {
+      seen.forms++;
       assert.match(form, /<fieldset[^>]*\bdisabled\b/, `${p}: a form is not disabled`);
       assert.match(text(form), /Paused since/, `${p}: a disabled form says why`);
     }
     for (const m of html.matchAll(/<button\b[^>]*data-code="([^"]*)"[^>]*>/g)) {
       const code = m[1];
       if (!PUBLIC_HOSTS.some((h) => code.includes(h))) continue;
+      seen.hostCopies++;
       assert.match(tabLabel(html, m.index!), /paused/i, `${p}: a copy button for ${code.slice(0, 60)} has no paused label`);
     }
-    for (const b of html.match(/<button[^>]*class="ip-copy"[^>]*>/g) ?? []) {
+    for (const b of html.match(/<button\b[^>]*class="ip-copy\b[^"]*"[^>]*>/g) ?? []) {
+      seen.pickerCopies++;
       assert.match(b, /\bdisabled\b/, `${p}: an install-picker Copy is enabled`);
     }
   }
+  assert.ok(seen.forms > 0 && seen.hostCopies > 0 && seen.pickerCopies > 0, `checked nothing: ${JSON.stringify(seen)}`);
 });
 
 test("built: every height or block count is at most the last real height, or an example", { skip }, () => {

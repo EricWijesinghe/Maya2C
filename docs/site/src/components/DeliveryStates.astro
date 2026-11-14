@@ -28,16 +28,17 @@ const stages = [
 </figure>
 
 <style>
+  /* Tokens only (lane L04): the literals here failed AA contrast in light mode. */
   .delivery { margin: 0; display: grid; gap: 14px; }
   .track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; position: relative; }
-  .track::before { content: ""; position: absolute; left: 16px; right: 16px; top: 15px; height: 2px; background: linear-gradient(90deg, #3fd2e0, #e0b46a); opacity: .5; }
+  .track::before { content: ""; position: absolute; left: 16px; right: 16px; top: 15px; height: 2px; background: linear-gradient(90deg, var(--accent), var(--bronze)); opacity: .5; }
   .stage { position: relative; display: grid; gap: 4px; justify-items: start; }
-  .node { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #0b1a20; border: 2px solid #3fd2e0; color: #e8f3f5; font: 600 13px/1 monospace; }
-  .tone-done .node { background: #3fd2e0; color: #04161b; }
+  .node { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--accent); color: var(--text); font: 600 13px/1 monospace; }
+  .tone-done .node { background: var(--accent-grad-from); color: var(--on-accent); }
   .stage b { font-weight: 600; }
-  .stage small, .delivery figcaption { color: #7d95a0; font-size: 12.5px; line-height: 1.4; }
+  .stage small, .delivery figcaption { color: var(--text-2); font-size: 12.5px; line-height: 1.4; }
   .branch { display: flex; align-items: center; gap: 12px; padding-left: 16px; }
-  .fork { width: 28px; height: 0; border-top: 2px dashed #e0b46a; opacity: .7; }
-  .tone-expired b { color: #e0b46a; }
+  .fork { width: 28px; height: 0; border-top: 2px dashed var(--bronze); opacity: .7; }
+  .tone-expired b { color: var(--bronze); }
   .delivery figcaption { margin: 0; }
 </style>
