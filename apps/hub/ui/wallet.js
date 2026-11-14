@@ -118,7 +118,7 @@ const Wallet = (() => {
   // are allowed by capabilities/default.json.
   const APP_LINKS = [
     { button: "open-wallet", url: "maya2c-wallet://open", note: "open-wallet-msg", name: "Maya2C Wallet" },
-    { button: "open-chat", url: "maya2c-chat://open", note: "open-chat-msg", name: "Maya Chat" },
+    { button: "open-chat", url: "maya2c-chat://open", note: "open-chat-msg", name: "Maya2C Chat" },
   ];
   async function openApp(link) {
     const note = document.getElementById(link.note);

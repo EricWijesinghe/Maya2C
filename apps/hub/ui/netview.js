@@ -66,7 +66,7 @@ const NetView = (() => {
 
   function describeCore(s, rate) {
     if (!s) return { title: "Connecting", line: "Waiting for the first reply from the node." };
-    if (!s.reachable) return { title: "Node unreachable", line: "No live data. The view stays dimmed until the node answers." };
+    if (!s.reachable) return { title: "No live data", line: "The node did not answer the last poll. The view stays dimmed until it does." };
     const fee = s.fees && s.fees.active ? `base fee ${s.fees.base_fee} per byte` : "fees off";
     const measured = rate == null ? "not measured yet" : `${rate.toFixed(1)} blocks/min, measured here`;
     return {
@@ -92,13 +92,13 @@ const NetView = (() => {
     if (!m) return null;
     if (!m.active) return { title: "Mining not open yet", line: "Steel ring: no mining work is open on the chain." };
     const shares = m.shares != null && m.target_shares != null ? `Shares ${m.shares} of ${m.target_shares} this epoch. ` : "";
-    return { title: `Mining open · epoch ${m.epoch}`, line: "Gold ring: the chain is taking mining work.", detail: `${shares}Source: node snapshot.` };
+    return { title: `Mining open · epoch ${m.epoch}`, line: "Bronze ring: the chain is taking mining work.", detail: `${shares}Source: node snapshot.` };
   }
 
   // Keeps the canvas's accessible name in step with the figures on screen.
   function summary(s, rate) {
     if (!s) return "Network view: waiting for the node.";
-    if (!s.reachable) return "Network view: node unreachable, no live data.";
+    if (!s.reachable) return "Network view: no live data, the node did not answer the last poll.";
     const n = committeeCount(s);
     const parts = [`chain ${s.chain.chain_id}, height ${Number(s.chain.height).toLocaleString()}`,
       n == null ? "committee not reported" : `committee ${n} validators`,
@@ -249,7 +249,7 @@ const NetView = (() => {
     ctx.globalAlpha = 1;
   }
 
-  // Each block: a gold dot per validator, travelling from the core outward.
+  // Each block: a bronze dot per validator, travelling from the core outward.
   // With no committee to reach, the block shows as one expanding ring instead.
   function drawPulses(g) {
     const { t } = g;
@@ -311,8 +311,8 @@ const NetView = (() => {
   function drawCore(g) {
     const { ctx, cx, cy, R, live, beat } = g;
     const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.9);
-    glow.addColorStop(0, live ? "rgba(31,181,194,0.4)" : "rgba(147,164,170,0.2)");
-    glow.addColorStop(1, "rgba(5,11,15,0)");
+    glow.addColorStop(0, live ? Charts.tint("--accent", 0.4) : Charts.tint("--steel", 0.2));
+    glow.addColorStop(1, Charts.tint("--bg", 0));
     ctx.fillStyle = glow;
     ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
     ctx.fillStyle = live ? v.colors.glow : v.colors.steel;
@@ -321,16 +321,19 @@ const NetView = (() => {
     ctx.fill();
   }
 
-  // Unreachable: dim the whole view and draw a red status ring.
+  // No reply: dim the view and draw a calm amber ring. A paused network is
+  // waiting, not broken, so the ring is dashed and never red.
   function drawDown(g) {
     const { ctx, cx, cy, w, h } = g;
-    ctx.fillStyle = "rgba(5,11,15,0.55)";
+    ctx.fillStyle = Charts.tint("--bg", 0.55);
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = v.colors.hot;
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = v.colors.warn;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 8]);
     ctx.beginPath();
-    ctx.arc(cx, cy, Math.min(w, h) * 0.46, 0, Math.PI * 2);
+    ctx.arc(cx, cy, Math.min(w, h) * 0.44, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // Buttons for the core, committee ring and mining ring sit where those things are drawn.
@@ -349,12 +352,18 @@ const NetView = (() => {
 
   // ----------------------------------------------------------- public API ----
 
+  // Token roles, read again whenever the theme changes (refresh).
   function readColors() {
-    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const css = Charts.css;
     return {
-      teal: css("--teal"), glow: css("--teal-glow"), gold: css("--gold"),
-      steel: css("--dim"), hot: css("--hot"), grid: css("--grid"),
+      teal: css("--accent"), glow: css("--accent-hover"), gold: css("--bronze"),
+      steel: css("--steel"), warn: css("--warn"), grid: css("--chart-grid"),
     };
+  }
+
+  function refresh() {
+    v.colors = readColors();
+    frame(performance.now());
   }
 
   function init({ canvas, layer, tip, reduced, onSelect }) {
@@ -389,5 +398,5 @@ const NetView = (() => {
     syncEntries();
   }
 
-  return { init, update, frame };
+  return { init, update, frame, refresh };
 })();
