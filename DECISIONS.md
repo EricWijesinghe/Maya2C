@@ -901,3 +901,24 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-15 — Per-delegation staking records before genesis (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, "per-delegation records": ADR-062b is built for the re-genesis instead of
+after mainnet (the 2026-10-28 deferral is withdrawn). Choices made while building it (Claude):
+
+- **Same rules, partial state.** The node loads only the records an operation touches and runs
+  `maya-staking`'s own function on them. The only new rule entry point is
+  `Staking::end_epoch_deferred`, which shares `pay_rewards` with `end_epoch`.
+- **Delegator rewards are owed, then paid.** The amounts are exactly the old ones. They arrive on
+  the delegation's next touch or through the per-block pass (1,024 a block), not in the boundary
+  block. Chosen over F1-style reward accumulators, which would change every delegator's rounding
+  and break equivalence with the rules Eric approved.
+- **Slash stays eager.** A lazy slash cannot keep each validator's `delegated` exact, because a sum
+  of per-delegation floors is not the floor of the sum. Its cost is the offender's own records, a
+  key range. Reported as a residual, not hidden.
+- **Delegation record ceiling** `1,024 × epoch_blocks / 2`, so a payout backlog cannot outgrow the
+  pass. It replaces the 8 MiB record cap (and #522's 1 MiB cap and 16-per-block count, which
+  existed only because every staking transaction decoded the whole record).
+- **Still Eric's:** a real `min_delegation`. The ceiling bounds the backlog, but dust that fills it
+  still refuses new delegation records.

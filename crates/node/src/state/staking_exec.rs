@@ -7,7 +7,7 @@
 //! downtime judged from those counts, rewards paid, unbonded funds released,
 //! the next committee chosen.
 
-use maya_stateless_core::amount::{to_amount, to_u256};
+use maya_stateless_core::amount::to_amount;
 use std::sync::Arc;
 
 use maya_dag_bft::{Equivocation, Message};
@@ -16,7 +16,6 @@ use maya_staking::{Effect, Participation};
 use crate::consensus::bft::auth::MlDsaAuthenticator;
 use crate::consensus::bft::{Envelope, unseal};
 use crate::core::block::BlockHeader;
-use crate::core::codec::MAX_RECORD_BYTES;
 use crate::core::staking_payload::StakingAction;
 use crate::crypto::validator_keys::PUBLIC_KEY_LEN;
 use crate::crypto::validator_keys::VerifyingKey;
@@ -24,50 +23,22 @@ use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
-use crate::state::shielded::FEE_SINK;
 use crate::state::staking::{
-    STATE_KEY, StakingRecord, committee_record, committee_weights_record, decode_committee,
-    decode_weights, encode_committee, encode_weights, key_record, stake_weights, validator_id,
+    StakingRecord, committee_record, committee_weights_record, decode_committee, decode_weights,
+    encode_committee, encode_weights, key_record, stake_weights, validator_id,
 };
+use crate::state::staking_records::PayoutJob;
+use crate::state::staking_store::{PAYOUTS_PER_BLOCK, StakeOp, StakingView, commit_view};
 
 /// Most anchor slots one block may account for. A gap this long means the
 /// chain made no progress for hours; the cap only bounds a loop.
 const MAX_SLOTS_PER_BLOCK: u64 = 1_000_000;
-
-/// Largest staking record a transaction may leave behind. Every block rewrites
-/// the record and journals the old one, and the journal refuses a previous
-/// value above [`MAX_RECORD_BYTES`]; half of that leaves the per-block counts
-/// room to grow. Above it the transaction is refused, never the block.
-const MAX_STAKING_RECORD_BYTES: usize = MAX_RECORD_BYTES / 2;
 
 fn stake_err(e: maya_staking::StakeError) -> NodeError {
     NodeError::Network(format!("staking refused: {e:?}"))
 }
 
 impl StateDB {
-    /// The staking record through `overlay`, or `None` where staking is not
-    /// configured.
-    ///
-    /// # Errors
-    ///
-    /// Storage failure or a damaged record.
-    pub(crate) fn staking_record(&self, overlay: &Overlay) -> Result<Option<StakingRecord>> {
-        self.record(overlay, STATE_KEY)?
-            .map(|bytes| StakingRecord::decode(&bytes))
-            .transpose()
-    }
-
-    /// The committed staking record, for the consensus driver and RPC.
-    ///
-    /// # Errors
-    ///
-    /// As [`StateDB::staking_record`].
-    pub fn committed_staking(&self) -> Result<Option<StakingRecord>> {
-        self.raw_get(STATE_KEY)?
-            .map(|bytes| StakingRecord::decode(&bytes))
-            .transpose()
-    }
-
     /// The voting weights of `epoch`'s committee, committee order, or `None`
     /// on a chain without stake weighting (ADR-040 part 2).
     ///
@@ -114,49 +85,6 @@ impl StateDB {
             .collect()
     }
 
-    /// Applies `effects`. A debit may only name the transaction's sender.
-    fn apply_effects(
-        &self,
-        overlay: &mut Overlay,
-        sender: Option<&Address>,
-        effects: &[Effect],
-    ) -> Result<()> {
-        for effect in effects {
-            // `(address, amount, is_debit)`: staking effects are Amounts and
-            // copy into U256 here (ADR-048). A debit that exceeds the balance
-            // and a credit that would overflow both report `InsufficientBalance`.
-            let (address, amount, is_debit) = match effect {
-                Effect::Debit(address, amount) => {
-                    if Some(address) != sender {
-                        return Err(NodeError::Network(
-                            "staking tried to debit someone other than the sender".to_string(),
-                        ));
-                    }
-                    (*address, *amount, true)
-                }
-                Effect::Credit(address, amount) => (*address, *amount, false),
-                // A burn is value moved to the unspendable sink: supply is
-                // conserved, circulation falls (the fee-market convention).
-                Effect::Burn(amount) => (FEE_SINK, *amount, false),
-            };
-            let mut account = self.load(overlay, &address)?;
-            let required = to_u256(amount);
-            let available = account.balance;
-            let insufficient = || NodeError::InsufficientBalance {
-                address: hex::encode(address),
-                required,
-                available,
-            };
-            account.balance = if is_debit {
-                available.checked_sub(required).ok_or_else(insufficient)?
-            } else {
-                available.checked_add(required).ok_or_else(insufficient)?
-            };
-            overlay.accounts.insert(address, account);
-        }
-        Ok(())
-    }
-
     /// Executes one staking action from `sender`.
     ///
     /// # Errors
@@ -170,16 +98,15 @@ impl StateDB {
         sender: &Address,
         action: &StakingAction,
     ) -> Result<()> {
-        let stored = self
-            .record(overlay, STATE_KEY)?
-            .ok_or_else(|| NodeError::Network("staking is not active on this chain".to_string()))?;
-        let previous_len = stored.len();
-        let mut record = StakingRecord::decode(&stored)?;
-        let s = &mut record.staking;
-        // The key record is written last, with the staking record, so a
+        if self.staking_view(overlay)?.is_none() {
+            return Err(NodeError::Network(
+                "staking is not active on this chain".to_string(),
+            ));
+        }
+        // The key record is written last, with the staking records, so a
         // Register refused by the bond debit leaves nothing behind (S-026).
         let mut registered = None;
-        let effects = match action {
+        let op = match action {
             StakingAction::Register {
                 key,
                 bond,
@@ -190,42 +117,36 @@ impl StateDB {
                 verifying.verify(&StakingAction::possession_message(sender), possession)?;
                 let id = validator_id(key.as_slice());
                 registered = Some((key_record(&id), key.to_vec()));
-                s.register(*sender, id, to_amount(*bond), *commission_bps)
-                    .map_err(stake_err)?
+                StakeOp::Register {
+                    id,
+                    bond: to_amount(*bond),
+                    commission_bps: *commission_bps,
+                }
             }
-            StakingAction::BondMore { validator, amount } => s
-                .bond_more(*sender, *validator, to_amount(*amount))
-                .map_err(stake_err)?,
-            StakingAction::Unbond { validator, amount } => s
-                .unbond(*sender, *validator, to_amount(*amount))
-                .map_err(stake_err)?,
-            StakingAction::Delegate { validator, amount } => s
-                .delegate(*sender, *validator, to_amount(*amount))
-                .map_err(stake_err)?,
-            StakingAction::Undelegate { validator, amount } => s
-                .undelegate(*sender, *validator, to_amount(*amount))
-                .map_err(stake_err)?,
+            StakingAction::BondMore { validator, amount } => StakeOp::BondMore {
+                validator: *validator,
+                amount: to_amount(*amount),
+            },
+            StakingAction::Unbond { validator, amount } => StakeOp::Unbond {
+                validator: *validator,
+                amount: to_amount(*amount),
+            },
+            StakingAction::Delegate { validator, amount } => StakeOp::Delegate {
+                validator: *validator,
+                amount: to_amount(*amount),
+            },
+            StakingAction::Undelegate { validator, amount } => StakeOp::Undelegate {
+                validator: *validator,
+                amount: to_amount(*amount),
+            },
             StakingAction::ReportEquivocation { first, second } => {
-                let id = self.verify_equivocation(overlay, first, second)?;
-                s.slash_double_sign(id).map_err(stake_err)?
+                StakeOp::Slash(self.verify_equivocation(overlay, first, second)?)
             }
         };
-        let encoded = record.encode();
-        // Only growth past the cap is refused, and never a slash: otherwise a
-        // record filled to the cap would block the unbonds and evidence that
-        // shrink it. A slash adds one tombstone at most, well inside the margin.
-        let is_slash = matches!(action, StakingAction::ReportEquivocation { .. });
-        if !is_slash && encoded.len() > MAX_STAKING_RECORD_BYTES && encoded.len() > previous_len {
-            return Err(NodeError::Network(format!(
-                "staking refused: the record would be {} bytes, above {MAX_STAKING_RECORD_BYTES}",
-                encoded.len()
-            )));
-        }
-        self.apply_effects(overlay, Some(sender), &effects)?;
+        self.apply_stake_op(overlay, sender, op)?;
         if let Some((key, value)) = registered {
             overlay.records.insert(key, Some(value));
         }
-        overlay.records.insert(STATE_KEY.to_vec(), Some(encoded));
         Ok(())
     }
 
@@ -279,7 +200,7 @@ impl StateDB {
         header: &BlockHeader,
         context: BlockContext,
     ) -> Result<()> {
-        let Some(mut record) = self.staking_record(overlay)? else {
+        let Some(mut view) = self.staking_view(overlay)? else {
             return Ok(());
         };
         // The epoch's committee as the engine ran it, not `active`: a
@@ -290,40 +211,84 @@ impl StateDB {
         // earlier in the block may already have changed, and never an empty
         // set that credits nobody (pre-audit S-021, review 2026-10-30).
         let committee = match self
-            .record(overlay, &committee_record(record.staking.epoch))?
+            .record(overlay, &committee_record(view.record.staking.epoch))?
             .map(|bytes| decode_committee(&bytes))
             .transpose()?
         {
             Some(ids) => ids,
             None => self
-                .committed_staking()?
-                .map_or_else(|| record.staking.active.clone(), |r| r.staking.active),
+                .committed_meta()?
+                .map_or_else(|| view.record.staking.active.clone(), |m| m.active),
         };
-        count_slots(&mut record, &committee, header.nonce);
-        if context.height.is_multiple_of(record.epoch_blocks) {
-            self.end_epoch(overlay, &mut record)?;
-        }
-        overlay
-            .records
-            .insert(STATE_KEY.to_vec(), Some(record.encode()));
-        Ok(())
+        count_slots(&mut view.record, &committee, header.nonce);
+        let effects = if context.height.is_multiple_of(view.record.epoch_blocks) {
+            self.end_epoch(overlay, &mut view)?
+        } else {
+            Vec::new()
+        };
+        let epoch = view.record.staking.epoch;
+        let writes = commit_view(&view)?;
+        self.stage_staking(overlay, None, writes, &effects)?;
+        // Every block, boundary or not: owed rewards drain at a fixed rate.
+        self.pay_owed(overlay, epoch, PAYOUTS_PER_BLOCK)
     }
 
-    fn end_epoch(&self, overlay: &mut Overlay, record: &mut StakingRecord) -> Result<()> {
-        let previous = record.staking.active.clone();
+    /// Ends the epoch on `view`: loads every validator, the offenders'
+    /// delegations and unbonding funds, and the entries due; runs the rule;
+    /// records what each paid validator's delegators are owed. Reads no
+    /// delegation of a validator that was not slashed. Returns the balance
+    /// movements to stage with the view.
+    pub(crate) fn end_epoch(
+        &self,
+        overlay: &mut Overlay,
+        view: &mut StakingView,
+    ) -> Result<Vec<Effect>> {
+        let previous = view.record.staking.active.clone();
         let participation = Participation {
             rounds: 0,
-            expected: std::mem::take(&mut record.expected),
-            authored: std::mem::take(&mut record.authored),
+            expected: std::mem::take(&mut view.record.expected),
+            authored: std::mem::take(&mut view.record.authored),
         };
+        self.load_all_validators(overlay, view)?;
+        for id in view.record.staking.downtime_offenders(&participation) {
+            self.load_delegations_of(overlay, view, &id)?;
+            self.load_unbondings_of(overlay, view, &id)?;
+        }
+        let ending = view.record.staking.epoch;
+        let next = ending
+            .checked_add(1)
+            .ok_or_else(|| NodeError::Network("staking epoch overflow".to_string()))?;
+        self.load_due_unbonding(overlay, view, next)?;
+        let earning = view.earning_delegated();
         // The epoch's tips (ADR-029); zero where fees are off. Taken out of
-        // the collector here and fully paid out or burned by `end_epoch`.
+        // the collector here and fully paid out, owed or burned below.
         let pool = self.take_fee_pool(overlay)?;
-        let outcome = record
+        view.set_boundary();
+        let (outcome, payouts) = view
+            .record
             .staking
-            .end_epoch(&participation, to_amount(pool))
+            .end_epoch_deferred(&participation, to_amount(pool), &earning)
             .map_err(stake_err)?;
-        self.apply_effects(overlay, None, &outcome.effects)?;
+        let mut effects = outcome.effects;
+        for p in payouts {
+            let remaining = view.stored_delegations(&p.validator);
+            if remaining == 0 {
+                effects.push(Effect::Burn(p.owed));
+            } else {
+                view.owe(
+                    p.validator,
+                    ending,
+                    PayoutJob {
+                        rest: p.rest,
+                        total: p.total,
+                        owed: p.owed,
+                        remaining,
+                        cursor: None,
+                    },
+                );
+            }
+        }
+        let record = &mut view.record;
         // An empty committee would halt the chain for good. Keep the old one
         // and say so in ADR-028; governance, not arithmetic, fixes that state.
         if record.staking.active.is_empty() {
@@ -366,7 +331,7 @@ impl StateDB {
                     .insert(committee_weights_record(stale), None);
             }
         }
-        Ok(())
+        Ok(effects)
     }
 }
 

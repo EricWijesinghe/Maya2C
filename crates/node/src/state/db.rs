@@ -414,6 +414,73 @@ impl StateDB {
         Ok(out)
     }
 
+    /// Up to `limit` live records with keys in `[start, end)`, committed state
+    /// merged with `overlay` (a staged deletion hides a committed record), in
+    /// key order.
+    ///
+    /// A bounded key-range read: its cost is the records it returns plus the
+    /// staged ones in the same range, not everything under a prefix. The
+    /// per-record staking layout (ADR-062b) reads one validator's delegations,
+    /// one release epoch's unbonding entries, and the payout pass's next
+    /// batch through this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_range(
+        &self,
+        overlay: &Overlay,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        use std::ops::Bound::{Excluded, Included};
+        let mut disk = self
+            .db
+            .iterator(IteratorMode::From(start, rocksdb::Direction::Forward))
+            .map(|item| item.map_err(storage_err))
+            .take_while(|item| item.as_ref().map_or(true, |(key, _)| &key[..] < end));
+        let mut staged = overlay
+            .records
+            .range::<[u8], _>((Included(start), Excluded(end)))
+            .peekable();
+        let mut next_disk = disk.next().transpose()?;
+        let mut out = Vec::new();
+        while out.len() < limit {
+            // Which side holds the smaller key; on a tie the staged value
+            // supersedes the committed one, which is skipped.
+            let staged_first = match (&next_disk, staged.peek()) {
+                (None, None) => break,
+                (Some(_), None) => None,
+                (None, Some(_)) => Some(false),
+                (Some((disk_key, _)), Some((staged_key, _))) => {
+                    match staged_key.as_slice().cmp(&disk_key[..]) {
+                        std::cmp::Ordering::Less => Some(false),
+                        std::cmp::Ordering::Equal => Some(true),
+                        std::cmp::Ordering::Greater => None,
+                    }
+                }
+            };
+            match staged_first {
+                None => {
+                    if let Some((key, value)) = next_disk.take() {
+                        out.push((key.to_vec(), value.to_vec()));
+                    }
+                    next_disk = disk.next().transpose()?;
+                }
+                Some(tie) => {
+                    if tie {
+                        next_disk = disk.next().transpose()?;
+                    }
+                    if let Some((key, Some(value))) = staged.next() {
+                        out.push((key.clone(), value.clone()));
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Reads every channel record in identifier order.
     ///
     /// # Errors
@@ -1351,6 +1418,15 @@ impl StateDB {
         let written = self.db.write(batch).map_err(storage_err);
         drop(writing);
         written
+    }
+
+    /// Commits an overlay's writes without a block, for tests that need state
+    /// to move between `RocksDB` and the overlay the way blocks move it.
+    #[cfg(test)]
+    pub(crate) fn commit_overlay_for_test(&self, overlay: &Overlay) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        self.write_overlay(&mut batch, overlay);
+        self.write_batch(batch)
     }
 
     /// Writes a `RocksDB` checkpoint of the whole database to `path`: hard

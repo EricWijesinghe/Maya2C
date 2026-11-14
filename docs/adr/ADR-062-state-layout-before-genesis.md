@@ -36,3 +36,58 @@ change that has not been measured.
 Light-client proofs and `spec-ref` depend on the tree shape, so the spec and
 conformance vectors change with it. The live testnet cannot follow either; both
 need the planned re-genesis.
+
+## Amendment 2026-11-15: per-delegation staking records (ADR-062b), built
+
+Eric 2026-11-14 MCQ: "per-delegation records". Staking option (b) ships in the
+re-genesis; the 2026-10-28 deferral of 062b is withdrawn.
+
+**Layout** (`spec/06-staking.md` STK-1..STK-8, `state/staking_records.rs`):
+`k:state` keeps only parameters, epoch, committee and the epoch's slot counts
+(record version 4; versions 1–3 are refused). Each validator is `k:v:<id>`,
+each delegation `k:d:<validator><delegator>`, each unbonding entry
+`k:u:<validator><release epoch><owner>` with a release index
+`k:ur:<release epoch><validator><owner>`, and rewards owed to a validator's
+delegators for one epoch `k:pj:<validator><epoch>`. Validator first, so a
+slash reads two key ranges and nothing else. The validator record carries
+aggregates over its own records (delegation count, pending stake, unbonding
+total), kept exact as differences over what each operation loaded.
+
+**Rules unchanged.** `maya-staking` still owns every rule. The node loads the
+records an operation touches into a partial `Staking` and runs the same
+function on it. The one addition is `Staking::end_epoch_deferred`. It is
+`end_epoch` with two changes: delegators are owed instead of credited at
+once, and earning delegated stake comes from the aggregates. Both paths share
+`pay_rewards`, so the arithmetic is the same code.
+
+**Delegators are paid later, in the same amounts.** A delegation's share of
+epoch E is `rest × (a − p) / total`, the value `end_epoch` credits at the
+boundary. It is paid the first time anything reads that delegation, or when
+the per-block pass reaches it (1,024 delegations a block), whichever comes
+first. What rounding leaves is burned once nobody is owed. Total burned equals
+the old dust. The change users see: a reward is spendable some blocks after
+the boundary, not in the boundary block.
+
+**Bounds.**
+- A staking transaction reads its own records only.
+- A boundary reads every validator, the offenders' delegations and unbonding
+  entries, and the entries due.
+- A plain block reads the meta record plus at most 1,024 delegations.
+- A new delegation record is refused once the chain holds
+  `1,024 × epoch_blocks / 2` of them, so payouts drain in half an epoch.
+  That is 1,843,200 at 3,600-block epochs. The 8 MiB record cap on master and
+  the 1 MiB cap from #522 are no longer needed.
+
+**Not bounded by this change, reported:**
+1. A slash reads every delegation and unbonding entry of its offender. That is
+   proportional to the offender's records, not to the chain's.
+2. The staking layer's root still folds every `k:` record each block. That is
+   the general state-root cost PR #522's 2026-11-13 amendment records (ADR-062a). Per
+   record it is now about one leaf per delegation where it was one leaf for
+   all of them.
+3. `min_delegation` (10 base units by default) is still Eric's decision. The
+   ceiling above stops a dust crowd from making the payout backlog unbounded,
+   but a crowd that reaches the ceiling still blocks *new* delegation records
+   until some leave.
+
+Measured figures: `reports/sessions/2026-11-15-per-delegation-staking.md`.
