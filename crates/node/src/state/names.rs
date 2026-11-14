@@ -157,6 +157,43 @@ impl NameRecord {
             expires_at: u64_le(&fixed[72..80]),
         })
     }
+
+    /// Where the name stands for a block at `height`. The apply paths below
+    /// read this too, so a lookup and a transaction can never disagree.
+    #[must_use]
+    pub fn status_at(&self, height: u64) -> NameStatus {
+        if height <= self.expires_at {
+            NameStatus::Active
+        } else if height <= self.expires_at.saturating_add(GRACE_BLOCKS) {
+            NameStatus::Grace
+        } else {
+            NameStatus::Lapsed
+        }
+    }
+}
+
+/// A name record's standing at a height (ADR-135 P-3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameStatus {
+    /// Unexpired: it resolves, and the owner may update it.
+    Active,
+    /// Past `expires_at`, within `GRACE_BLOCKS`: it does not resolve, nobody
+    /// may update it, and only the owner may renew it.
+    Grace,
+    /// Past grace: it does not resolve, and anyone may register it again.
+    Lapsed,
+}
+
+impl NameStatus {
+    /// The status as the RPC reports it.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Grace => "grace",
+            Self::Lapsed => "lapsed",
+        }
+    }
 }
 
 fn array(bytes: &[u8]) -> [u8; 32] {
@@ -483,8 +520,7 @@ impl StateDB {
 
         let hash = name_hash(label);
         if let Some(previous) = self.get_name_overlay(overlay, label)? {
-            let lapse = previous.expires_at.saturating_add(GRACE_BLOCKS);
-            if context.height <= lapse {
+            if previous.status_at(context.height) != NameStatus::Lapsed {
                 return Err(refused("the name is taken"));
             }
             // Both: the owner's (M-7) and the old target's, which no longer resolves.
@@ -544,13 +580,15 @@ impl StateDB {
         let mut record = self
             .get_name_overlay(overlay, label)?
             .ok_or_else(|| refused("no such name"))?;
-        if context.height > record.expires_at {
-            if context.height > record.expires_at.saturating_add(GRACE_BLOCKS) {
+        match record.status_at(context.height) {
+            NameStatus::Active => {}
+            NameStatus::Lapsed => {
                 return Err(refused("the name lapsed past grace; register it again"));
             }
-            if record.owner != *sender {
+            NameStatus::Grace if record.owner != *sender => {
                 return Err(refused("only the owner may renew during grace"));
             }
+            NameStatus::Grace => {}
         }
         let fee = self.fee_for(overlay, label.len(), periods)?;
         self.charge_and_burn(overlay, sender, fee)?;
@@ -583,7 +621,7 @@ impl StateDB {
         let mut record = self
             .get_name_overlay(overlay, label)?
             .ok_or_else(|| refused("no such name"))?;
-        if context.height > record.expires_at {
+        if record.status_at(context.height) != NameStatus::Active {
             return Err(refused("the name has expired; renew it first"));
         }
         match op {

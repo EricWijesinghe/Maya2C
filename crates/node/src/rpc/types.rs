@@ -344,33 +344,6 @@ pub struct SponsorInfo {
     pub valid_until: u64,
 }
 
-/// A registered name (ADR-135 P-3), as `get_name` returns it.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct NameInfo {
-    /// The label, ASCII, without the `.maya` suffix.
-    pub label: String,
-    /// Hex-encoded owner, who may update and transfer the name.
-    pub owner: String,
-    /// Hex-encoded address the name points at.
-    pub target: String,
-    /// Height of the registration.
-    pub registered_at: u64,
-    /// Height at which the name lapses into its grace period.
-    pub expires_at: u64,
-}
-
-impl From<&crate::state::names::NameRecord> for NameInfo {
-    fn from(record: &crate::state::names::NameRecord) -> Self {
-        Self {
-            label: String::from_utf8_lossy(&record.label).into_owned(),
-            owner: hex::encode(record.owner),
-            target: hex::encode(record.target),
-            registered_at: record.registered_at,
-            expires_at: record.expires_at,
-        }
-    }
-}
-
 /// A multisig transaction's policy, as the API reports it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MultisigInfo {

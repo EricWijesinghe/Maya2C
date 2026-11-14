@@ -59,7 +59,7 @@ pub struct TransactionAccepted {
 /// as a function nobody can find.
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, account, block, name, supply, circulating_coins, total_coins, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
+    paths(health, account, block, name, asset, nft_collection, nft_item, schedule, supply, circulating_coins, total_coins, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
     components(schemas(
         RawTransaction,
         TransactionAccepted,
@@ -90,6 +90,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/accounts/{address}", get(account))
         .route("/v1/blocks/{height}", get(block))
         .route("/v1/names/{label}", get(name))
+        .route("/v1/assets/{id}", get(asset))
+        .route("/v1/nfts/{collection}", get(nft_collection))
+        .route("/v1/nfts/{collection}/{index}", get(nft_item))
+        .route("/v1/schedules/{id}", get(schedule))
         .route("/v1/supply", get(supply))
         .route("/v1/supply/circulating", get(circulating_coins))
         .route("/v1/supply/total", get(total_coins))
@@ -134,17 +138,23 @@ async fn health() -> (StatusCode, Json<serde_json::Value>) {
 /// costs a local string check rather than a round trip, and it keeps
 /// obviously-bad input from reaching the backend at all.
 pub(crate) fn parse_address(address: &str) -> Result<&str, GatewayError> {
-    let trimmed = address.strip_prefix("0x").unwrap_or(address);
+    parse_id(address, "address")
+}
+
+/// Validates any 32-byte hex id (an address, an asset, a collection, a
+/// schedule) before it is forwarded; `what` names it in the error.
+pub(crate) fn parse_id<'a>(value: &'a str, what: &str) -> Result<&'a str, GatewayError> {
+    let trimmed = value.strip_prefix("0x").unwrap_or(value);
     if trimmed.len() != ADDRESS_HEX_LEN {
         return Err(GatewayError::BadRequest(format!(
-            "address must be {ADDRESS_HEX_LEN} hex characters, got {}",
+            "{what} must be {ADDRESS_HEX_LEN} hex characters, got {}",
             trimmed.len()
         )));
     }
     if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(GatewayError::BadRequest(
-            "address contains a non-hex character".to_string(),
-        ));
+        return Err(GatewayError::BadRequest(format!(
+            "{what} contains a non-hex character"
+        )));
     }
     Ok(trimmed)
 }
@@ -194,7 +204,7 @@ async fn block(
 /// `a-z0-9-`, no edge or double `-`; `crates/node/src/core/name_payload.rs`)
 /// applied here so a malformed label is a 400 and never reaches the node.
 /// The gateway does not link the node, so the rule is restated, not imported.
-fn parse_label(input: &str) -> Result<&str, GatewayError> {
+pub(crate) fn parse_label(input: &str) -> Result<&str, GatewayError> {
     let label = input.strip_suffix(".maya").unwrap_or(input);
     let ok = (3..=63).contains(&label.len())
         && label
@@ -218,9 +228,9 @@ fn parse_label(input: &str) -> Result<&str, GatewayError> {
     tag = "chain",
     params(("label" = String, Path, description = "Name label, with or without `.maya`")),
     responses(
-        (status = 200, description = "The name's owner, target and expiry, in the node's own JSON shape"),
+        (status = 200, description = "The name's owner, expiry and `status` (`active` or `grace`), in the node's own JSON shape. `target` is present only while `active`: a name in grace does not resolve"),
         (status = 400, description = "Not a label the chain can hold"),
-        (status = 404, description = "The name is not registered"),
+        (status = 404, description = "The name is not registered, or lapsed past its grace period"),
         (status = 502, description = "The node could not be reached"),
     ),
 )]
@@ -229,10 +239,109 @@ async fn name(
     Path(label): Path<String>,
 ) -> Result<Json<serde_json::Value>, GatewayError> {
     let record = state.node.get_name(parse_label(&label)?).await?;
-    if record.is_null() {
+    // A lapsed record stays in state until someone registers the name again;
+    // to a client it is as free as a name never registered.
+    if record.is_null() || record["status"] == "lapsed" {
         return Err(GatewayError::NotFound);
     }
     Ok(Json(record))
+}
+
+/// A v4 record read (ADR-135 I8), passed through as the node's JSON; `null`
+/// (no such record, or a node that predates the method) is a 404.
+async fn record(
+    state: &AppState,
+    method: &'static str,
+    params: Vec<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, GatewayError> {
+    let found = state.node.forward(method, params).await?;
+    if found.is_null() {
+        return Err(GatewayError::NotFound);
+    }
+    Ok(Json(found))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/assets/{id}",
+    tag = "chain",
+    params(("id" = String, Path, description = "Asset id, 64 hex characters")),
+    responses(
+        (status = 200, description = "Symbol, creator, supply, cap and mint authority, in the node's own JSON shape"),
+        (status = 400, description = "Not a 32-byte hex id"),
+        (status = 404, description = "No such asset"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn asset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, GatewayError> {
+    let id = parse_id(&id, "asset id")?;
+    record(&state, "get_asset", vec![id.into()]).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/nfts/{collection}",
+    tag = "chain",
+    params(("collection" = String, Path, description = "Collection id, 64 hex characters")),
+    responses(
+        (status = 200, description = "Creator, item cap, minted count and metadata hash, in the node's own JSON shape"),
+        (status = 400, description = "Not a 32-byte hex id"),
+        (status = 404, description = "No such collection"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn nft_collection(
+    State(state): State<Arc<AppState>>,
+    Path(collection): Path<String>,
+) -> Result<Json<serde_json::Value>, GatewayError> {
+    let id = parse_id(&collection, "collection id")?;
+    record(&state, "get_nft_collection", vec![id.into()]).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/nfts/{collection}/{index}",
+    tag = "chain",
+    params(
+        ("collection" = String, Path, description = "Collection id, 64 hex characters"),
+        ("index" = u64, Path, description = "Item index"),
+    ),
+    responses(
+        (status = 200, description = "The item's holder and metadata hash, in the node's own JSON shape"),
+        (status = 400, description = "Not a 32-byte hex id"),
+        (status = 404, description = "No such item: never minted, or burnt"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn nft_item(
+    State(state): State<Arc<AppState>>,
+    Path((collection, index)): Path<(String, u64)>,
+) -> Result<Json<serde_json::Value>, GatewayError> {
+    let id = parse_id(&collection, "collection id")?;
+    record(&state, "get_nft_item", vec![id.into(), index.into()]).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/schedules/{id}",
+    tag = "chain",
+    params(("id" = String, Path, description = "Schedule id, 64 hex characters")),
+    responses(
+        (status = 200, description = "Payer, payee, per-run amount, runs left, next run and escrow, in the node's own JSON shape"),
+        (status = 400, description = "Not a 32-byte hex id"),
+        (status = 404, description = "No such schedule: never created, cancelled, or paid out"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn schedule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, GatewayError> {
+    let id = parse_id(&id, "schedule id")?;
+    record(&state, "get_schedule", vec![id.into()]).await
 }
 
 #[utoipa::path(

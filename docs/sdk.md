@@ -170,26 +170,30 @@ clients do with the v4 forms, and where each claim is pinned:
 
 | Piece | What it does | Pinned by |
 |---|---|---|
-| `spec/tests/v4-client-vectors.json` | one payload per form (16 vectors, 14 forms): fields, bytes, summary, review level, details | written by `crates/node/tests/v4_client_vectors.rs` from the node's codec and `core::describe`; the test fails when the file is stale |
-| `core::describe` | v13 frames add the sponsor, its ceiling and its expiry; names add `name target` / `new owner` in full | `v4_client_vectors.rs` |
+| `spec/tests/v4-client-vectors.json` | one payload per form (16 vectors, 14 forms): fields, bytes, summary, review level, details; plus `decode_only` (symbols outside `[A-Z0-9]`, read as `describe` reads them), `refused_payloads` and `refused_fields` | written by `crates/node/tests/v4_client_vectors.rs` from the node's codec and `core::describe`; the test fails when the file is stale |
+| `core::describe` | v13 frames add the sponsor, its ceiling and its expiry; names add `name target` / `new owner` in full; `rewrite_addresses` turns its hex into a reader's Bech32m | `v4_client_vectors.rs`, the module's unit tests |
 | RPC `TransactionInfo` | adds `details` and `sponsor` (both omitted when empty, so older readers parse it) | `v4_client_vectors.rs` |
-| RPC `get_name(label)` | the committed `nm:` record, label checked by the decoder's rule | `crates/node/tests/rpc_tests.rs`; used by the explorer's `/name` page and the gateway's `/v1/names/{label}` |
-| wallet core confirm | v4 accounts in Bech32m; burn / schedule escrow reviewed as spends, name hand-over and mint renounce as control changes; the native dialog names a sponsor | `apps/wallet-gui/core/tests/v4_confirm_tests.rs` |
-| explorer | payload kinds explained in the node's words with full details; sponsored transfers say who pays; `/name` and `/api/name/{label}` | `apps/explorer/src/explain.rs`, `ui.rs`, `tests/server_tests.rs` |
+| RPC `get_name(label)` | the committed `nm:` record with `status` (`active` / `grace` / `lapsed`) judged at the tip plus one, and `target` only while active | `crates/node/tests/rpc_tests.rs` |
+| RPC `get_asset(id)`, `get_nft_collection(id)`, `get_nft_item(id, index)`, `get_schedule(id)` | one committed record each, `null` when absent | `crates/node/tests/rpc_tests.rs` |
+| wallet core confirm | v4 accounts in Bech32m; a burn, an item burn, a schedule's whole escrow and a name fee reviewed as spends, name hand-over, re-pointing and mint renounce as control changes; a governed fee the wallet has not read is said to be unshown; a sponsor is "claimed (unverified)" unless its signature holds | `apps/wallet-gui/core/tests/v4_confirm_tests.rs` |
+| explorer | payload kinds explained in the node's words, addresses in Bech32m; sponsored transfers say who pays; `/name` (with a "does not resolve" banner once expired), `/asset`, `/nft`, `/schedule`, `/api/name/{label}` | `apps/explorer/src/explain.rs`, `src/ui/v4.rs`, `tests/server_tests.rs` |
+| gateway | `/v1/names/{label}` (404 once lapsed), `/v1/assets/{id}`, `/v1/nfts/{collection}`, `/v1/nfts/{collection}/{index}`, `/v1/schedules/{id}`, the same reads over `/rpc`; block JSON passes `details` and `sponsor` through | `crates/api-gateway/tests/gateway_tests.rs` |
 | `sdk-ffi` | `describe_payload`, `describe_transaction` (any frame the node decodes, v13 included) | `sdks/sdk-ffi/tests/describe_tests.rs` |
-| Python `maya2c_sdk.v4`, TypeScript `src/v4.ts` | encode, decode and describe the 14 payload forms | `test_v4_vectors.py`, `v4-vectors.test.ts`, against the node's vectors |
+| Python `maya2c_sdk.v4`, TypeScript `src/v4.ts` | encode, decode and describe the 14 payload forms; `describe_bytes` / `describeBytes` preview from the bytes that get signed | `test_v4_vectors.py`, `v4-vectors.test.ts`, against the node's vectors, in `sdks.yml` |
 
 Python and TypeScript are a second and third copy of a consensus encoding, so
 they read and preview payloads only; frames and signatures stay in Rust. The
 vector file is what keeps the copies honest: a byte or a word that drifts fails
-in the language that drifted.
+in the language that drifted. Preview from bytes: `describe(label, fields)`
+trusts its fields, so a preview built from anything but `decode` output can
+disagree with what is signed.
 
-Not done: `sdk-wasm` has no v4 codec (the TypeScript one serves the same
-runtimes; a fourth copy adds drift with no new reader); the Python/TS codecs do
-not parse v13 frames (deriving the sponsor's address needs BLAKE3, outside the
-standard library); the committed `sdk-ffi` Python binding file is not
-regenerated; the API gateway passes `details` and `sponsor` through unchanged
-inside block JSON (its `/v1/names/{label}` route is new, `crates/api-gateway/tests/gateway_tests.rs`).
+Not done: no Go v4 codec (plan I7 names Go; not built); `sdk-wasm` has no v4
+codec, by decision (the TypeScript one serves the same runtimes; a fourth copy
+adds drift with no new reader); the Python/TS codecs do not parse v13 frames
+(deriving the sponsor's address needs BLAKE3, outside the standard library);
+the committed `sdk-ffi` Python binding file is not regenerated; the wallet does
+not yet read the governed name and run fees from the node.
 
 ---
 

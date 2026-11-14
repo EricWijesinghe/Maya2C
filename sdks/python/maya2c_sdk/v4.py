@@ -18,6 +18,7 @@ Standard library only.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 Fields = dict[str, str]
@@ -69,6 +70,12 @@ _OPS: Final = {"set_target": (0x01, True), "set_reverse": (0x03, False), "transf
 _OPS_BY_BYTE: Final = {byte: name for name, (byte, _) in _OPS.items()}
 _INT_MAX: Final = {"u8": _U8, "u32": _U32, "u64": _U64, "u256": _U256}
 _INT_LEN: Final = {"u8": 1, "u32": 4, "u64": 8, "u256": 32}
+# ASCII only: ``str.isdigit`` and ``bytes.fromhex`` also accept Arabic-Indic
+# digits, superscripts, spaces and uppercase, none of which the node writes.
+_DECIMAL: Final = re.compile(r"[0-9]+")
+_HEX32: Final = re.compile(r"[0-9a-f]{64}")
+# The node's symbol rule (``state::asset::validate_symbol``): 1-8 of A-Z, 0-9.
+_SYMBOL: Final = re.compile(r"[A-Z0-9]{1,8}")
 
 
 class PayloadError(ValueError):
@@ -89,7 +96,7 @@ def validate_label(label: bytes) -> None:
 
 def _int(fields: Fields, name: str, kind: str) -> int:
     text = fields[name]
-    if not text.isdigit():
+    if not _DECIMAL.fullmatch(text):
         raise PayloadError(f"{name} is not a decimal integer")
     value = int(text)
     if value > _INT_MAX[kind]:
@@ -101,16 +108,16 @@ def _put(out: bytearray, fields: Fields, name: str, kind: str) -> None:
     if name not in fields:
         raise PayloadError(f"missing field {name}")
     if kind == "b32":
-        raw = bytes.fromhex(fields[name])
-        if len(raw) != 32:
-            raise PayloadError(f"{name} is not 32 bytes")
-        out += raw
+        if not _HEX32.fullmatch(fields[name]):
+            raise PayloadError(f"{name} is not 32 bytes of lowercase hex")
+        out += bytes.fromhex(fields[name])
     elif kind == "symbol":
-        raw = fields[name].encode("ascii")
-        if not raw or len(raw) > _SYMBOL_LEN:
-            raise PayloadError("a symbol is 1 to 8 ASCII bytes")
-        out += raw.ljust(_SYMBOL_LEN, b"\0")
+        if not _SYMBOL.fullmatch(fields[name]):
+            raise PayloadError("a symbol is 1 to 8 of A-Z and 0-9")
+        out += fields[name].encode("ascii").ljust(_SYMBOL_LEN, b"\0")
     elif kind == "label":
+        if not fields[name].isascii():
+            raise PayloadError("a label is a-z, 0-9 and '-' only")
         raw = fields[name].encode("ascii")
         validate_label(raw)
         out.append(len(raw))
@@ -154,8 +161,9 @@ def _get(reader: _Reader, fields: Fields, name: str, kind: str) -> None:
     if kind == "b32":
         fields[name] = reader.take(32).hex()
     elif kind == "symbol":
-        raw = reader.take(_SYMBOL_LEN).rstrip(b"\0")
-        fields[name] = raw.decode("ascii", errors="replace")
+        # As ``core::describe`` reads it: UTF-8, lossy, over all eight bytes,
+        # then trailing NULs trimmed. A NUL inside stays.
+        fields[name] = reader.take(_SYMBOL_LEN).decode("utf-8", errors="replace").rstrip("\0")
     elif kind == "label":
         raw = reader.take(reader.take(1)[0])
         validate_label(raw)
@@ -196,8 +204,20 @@ def _short(hex_text: str) -> str:
     return f"{hex_text[:4]}…{hex_text[-4:]}"
 
 
+def describe_bytes(payload: bytes) -> tuple[str, bool, list[tuple[str, str]]]:
+    """The words a wallet shows for ``payload``, read from its bytes.
+
+    Use this for a preview: it describes exactly what will be signed.
+    """
+    return describe(*decode(payload))
+
+
 def describe(label: str, fields: Fields) -> tuple[str, bool, list[tuple[str, str]]]:
-    """``(summary, careful, details)``: the words a wallet shows, as the node words them."""
+    """``(summary, careful, details)``: the words a wallet shows, as the node words them.
+
+    ``fields`` must be what :func:`decode` returned, or a preview can disagree
+    with the bytes that get signed; :func:`describe_bytes` does both steps.
+    """
     f = fields
     n = lambda k: group_digits(int(f[k]))  # noqa: E731 - one-line formatter
     if label == "register_capped_asset":
@@ -273,7 +293,13 @@ def describe(label: str, fields: Fields) -> tuple[str, bool, list[tuple[str, str
             )
         if op == "set_reverse":
             return (f"Show {name}.maya as the name of your address.", False, [])
-        return (f"Give {name}.maya to {_short(f['address'])}.", True, [("new owner", f["address"])])
+        if op == "transfer":
+            return (
+                f"Give {name}.maya to {_short(f['address'])}.",
+                True,
+                [("new owner", f["address"])],
+            )
+        raise PayloadError(f"update op {op!r} is not in this build")
     if label == "create_schedule":
         return (
             f"Pay {n('amount')} {f['runs']} times to {_short(f['payee'])}, every {f['interval']} "

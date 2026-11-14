@@ -12,6 +12,7 @@
 //! verifies every signature before accepting a block, so "attached" signatures
 //! on an indexed transaction are verified ones.
 
+use custom_l1_node::core::describe::rewrite_addresses;
 use custom_l1_node::rpc::TransactionInfo;
 use maya_clear_sign::{Effect, Network, render};
 
@@ -77,10 +78,18 @@ pub fn explain_tx(tx: &TransactionInfo, network: Network) -> String {
     // its payload, not its outputs: the node's own sentence and its labelled
     // values say what it does; the outputs alone would read "moved no value".
     if !matches!(tx.kind.as_str(), "" | "transfer") && !tx.summary.is_empty() {
-        let details: Vec<String> = tx
+        // Addresses in Bech32m, as the transfer path and the wallet show them.
+        let labelled = tx
             .details
             .iter()
-            .map(|d| format!("{} {}", d.label, d.value))
+            .map(|d| (d.label.clone(), d.value.clone()))
+            .collect();
+        let (summary, labelled) = rewrite_addresses(tx.summary.clone(), labelled, |a| {
+            maya_clear_sign::grouped(network, a)
+        });
+        let details: Vec<String> = labelled
+            .iter()
+            .map(|(label, value)| format!("{label} {value}"))
             .collect();
         let details = if details.is_empty() {
             String::new()
@@ -88,9 +97,8 @@ pub fn explain_tx(tx: &TransactionInfo, network: Network) -> String {
             format!(" Details: {}.", details.join("; "))
         };
         return format!(
-            "{} signed: {}{details} {}",
+            "{} signed: {summary}{details} {}",
             short_hash(&tx.sender),
-            tx.summary,
             signatures(tx)
         );
     }
@@ -288,13 +296,19 @@ mod tests {
                 runs: 3,
             }),
         ];
-        for kind in kinds {
+        // The account each form names: the mint pays 0xC3; the rest name 0xB2.
+        let accounts = [[0xC3; 32], [0xB2; 32], [0xB2; 32], [0xB2; 32]];
+        for (kind, account) in kinds.into_iter().zip(accounts) {
             let info = TransactionInfo::from(&Transaction::with_kind(kind, 0));
             let text = explain_tx(&info, Network::Devnet);
-            assert!(text.contains(&info.summary), "{text}");
             assert!(!text.contains("moved no value"), "{text}");
-            // The full address is in the details, never only its short form.
-            assert!(text.contains(&"b2".repeat(32)), "{text}");
+            // The account in full Bech32m, as the transfer path renders it:
+            // never its hex, never only its short form.
+            let shown = maya_clear_sign::grouped(Network::Devnet, &account);
+            assert!(text.contains(&shown), "{text}");
+            assert!(!text.contains(&hex::encode(account)), "{text}");
+            let short = format!("{:02x}{:02x}\u{2026}", account[0], account[1]);
+            assert!(!text.contains(&short), "{text}");
         }
     }
 

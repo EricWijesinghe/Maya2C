@@ -36,6 +36,7 @@ pub mod metered;
 pub mod peers;
 pub mod server;
 pub mod types;
+pub mod v4_types;
 pub mod validators;
 
 pub use market::{MarketFeed, MarketQuote, SupplyReport};
@@ -44,6 +45,7 @@ pub use server::{RpcContext, RpcServer, build_module, serve, serve_metered};
 pub use types::FeeInfo;
 pub use types::{
     AccountInfo, BlockInfo, ChainInfo, DetailInfo, HeaderInfo, HtlcLockInfo, IotDeviceInfo,
-    MiningCandidate, MultisigInfo, NameInfo, OutputInfo, PeerAddressInfo, SponsorInfo,
-    SubmitBlockResult, SubmitTransactionResult, SuiteKeyInfo, ThreatIndicatorInfo, TransactionInfo,
+    MiningCandidate, MultisigInfo, OutputInfo, PeerAddressInfo, SponsorInfo, SubmitBlockResult,
+    SubmitTransactionResult, SuiteKeyInfo, ThreatIndicatorInfo, TransactionInfo,
 };
+pub use v4_types::{AssetInfo, NameInfo, NftCollectionInfo, NftItemInfo, ScheduleInfo};

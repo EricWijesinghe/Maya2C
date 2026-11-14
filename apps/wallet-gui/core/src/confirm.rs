@@ -7,15 +7,16 @@
 //! unless it is handed that hash back.
 
 use custom_l1_node::core::asset_mint_payload::AssetMintAction;
-use custom_l1_node::core::describe::{describe, is_fee_output};
+use custom_l1_node::core::describe::{describe, is_fee_output, rewrite_addresses};
 use custom_l1_node::core::name_payload::{NameAction, NameUpdate};
 use custom_l1_node::core::nft_payload::NftAction;
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::schedule_payload::ScheduleAction;
 use custom_l1_node::core::vault_payload::VaultAction;
 use custom_l1_node::core::{ChainTag, Transaction};
+use custom_l1_node::state::shielded::FEE_SINK;
 use maya_amount::Amount;
-use maya_clear_sign::{Context, Effect, Network, Warning, grouped, review};
+use maya_clear_sign::{Context, Effect, Warning, grouped, review};
 use primitive_types::U256;
 use serde::Serialize;
 
@@ -25,25 +26,24 @@ use crate::networks;
 /// Bit of the BLAKE3 digest that decides a letter's case in a checksummed address.
 const UPPER_WHEN_NIBBLE_AT_LEAST: u8 = 8;
 
-/// `describe` detail labels whose value is an account address. Those are
-/// shown in full Bech32m; the rest (asset, pool, channel, proposal ids) are
-/// identifiers, not something a person pays, and stay hex.
-const ADDRESS_LABELS: &[&str] = &[
-    "pay to",
-    "fee to",
-    "counterparty",
-    "contract",
-    "credited to",
-    "seller",
-    "recipient",
-    "validator",
-    "vault owner",
-    "guardian",
-    "mint authority",
-    "name target",
-    "new owner",
-    "sponsor",
-];
+/// Shown when a name fee applies and the wallet has not read its amount.
+pub const NAME_FEE_NOT_SHOWN: &str =
+    "This burns a name fee set by governance; the amount is not shown.";
+/// Shown when a schedule's run fee applies and the wallet has not read it.
+pub const RUN_FEE_NOT_SHOWN: &str =
+    "Each run also prepays a run fee set by governance; it is not included in the amount reviewed.";
+
+/// Governed fees the node charges beyond what a payload states, read from the
+/// node by the caller. `None` means "not read": the screen then says that a
+/// fee applies and that its amount is not shown, instead of showing none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GovernedFees {
+    /// The name fee for one period at this transaction's label length
+    /// (`NameBaseFee3` / `NameBaseFee4` / `NameBaseFee5`).
+    pub name_fee_per_period: Option<U256>,
+    /// `ScheduleRunFee`, prepaid into the escrow once per run.
+    pub schedule_run_fee: Option<U256>,
+}
 
 /// Everything a signer reads before signing.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -79,11 +79,15 @@ pub struct Confirmation {
     pub fee_exceeds_amount: bool,
     /// `maya_clear_sign::review` of the transaction's effects, most severe first.
     pub warnings: Vec<String>,
-    /// Wire-v13 frames only (ADR-135 P-4): the account that pays the fee,
-    /// grouped Bech32m, derived from the sponsor's key.
+    /// Wire-v13 frames only (ADR-135 P-4): the account that offers to pay the
+    /// fee, grouped Bech32m, derived from the sponsor's key. The sender's
+    /// signature does not cover it: it can be stripped or swapped after signing.
     pub sponsor: Option<String>,
     /// Wire-v13 frames only: the most the sponsor pays, in display units.
     pub sponsor_max_fee: Option<String>,
+    /// Whether the sponsor's signature holds over this transaction on this
+    /// chain. `false` means the sponsor is only claimed.
+    pub sponsor_verified: bool,
 }
 
 /// The confirmation for `tx` as it will be signed on `chain`, with no
@@ -94,9 +98,22 @@ pub fn confirmation(tx: &Transaction, chain: &ChainTag) -> Confirmation {
 }
 
 /// The confirmation for `tx` on `chain`, reviewed against `ctx` (the address
-/// book's contacts and the sender's balances). Signs nothing.
+/// book's contacts and the sender's balances), with no governed fee read.
+/// Signs nothing.
 #[must_use]
 pub fn confirmation_with(tx: &Transaction, chain: &ChainTag, ctx: &Context) -> Confirmation {
+    confirmation_with_fees(tx, chain, ctx, &GovernedFees::default())
+}
+
+/// [`confirmation_with`], with the governed fees the node reported, so a name
+/// fee and a schedule's run fees are reviewed as the spends they are.
+#[must_use]
+pub fn confirmation_with_fees(
+    tx: &Transaction,
+    chain: &ChainTag,
+    ctx: &Context,
+    fees: &GovernedFees,
+) -> Confirmation {
     let chain_id = hex::encode(chain.as_bytes());
     let network = networks::address_network(&chain_id);
     let described = describe(tx);
@@ -121,8 +138,14 @@ pub fn confirmation_with(tx: &Transaction, chain: &ChainTag, ctx: &Context) -> C
     };
     let mut details = described.details;
     details.extend(extra_details(&tx.kind));
-    let (description, details) = bech32m_text(network, described.summary, details);
-    let effects = effects_of(tx);
+    let (description, details) =
+        rewrite_addresses(described.summary, details, |a| grouped(network, a));
+    let (effects, unshown) = effects_of(tx, fees);
+    let mut warnings: Vec<String> = review(&effects, &effects, ctx)
+        .into_iter()
+        .map(|w| warning_text(w).to_string())
+        .collect();
+    warnings.extend(unshown.iter().map(|s| (*s).to_string()));
     Confirmation {
         signing_hash: hex::encode(blake3::hash(&tx.signing_bytes(chain)).as_bytes()),
         description,
@@ -139,12 +162,13 @@ pub fn confirmation_with(tx: &Transaction, chain: &ChainTag, ctx: &Context) -> C
         fee_exceeds_amount,
         // The wallet built the transaction, so the claim is its own simulation:
         // no app is asking. A dApp's claim enters here once one can.
-        warnings: review(&effects, &effects, ctx)
-            .into_iter()
-            .map(|w| warning_text(w).to_string())
-            .collect(),
+        warnings,
         sponsor: tx.sponsor.as_ref().map(|s| grouped(network, &s.address())),
         sponsor_max_fee: tx.sponsor.as_ref().map(|s| format_display(s.max_fee)),
+        sponsor_verified: tx
+            .sponsor
+            .as_ref()
+            .is_some_and(|s| s.signature_holds(tx, chain)),
     }
 }
 
@@ -163,44 +187,64 @@ fn extra_details(kind: &TxKind) -> Vec<(&'static str, String)> {
     }
 }
 
-/// Rewrites every hex address in `describe`'s output as grouped Bech32m: the
-/// detail values named by [`ADDRESS_LABELS`], and the abbreviated forms of
-/// those same addresses in the summary sentence.
-fn bech32m_text(
-    network: Network,
-    mut summary: String,
-    details: Vec<(&'static str, String)>,
-) -> (String, Vec<(&'static str, String)>) {
-    let details = details
-        .into_iter()
-        .map(|(label, value)| {
-            let address = ADDRESS_LABELS
-                .contains(&label)
-                .then(|| hex::decode(&value).ok())
-                .flatten()
-                .and_then(|b| <[u8; 32]>::try_from(b.as_slice()).ok());
-            match address {
-                Some(a) => {
-                    let full = grouped(network, &a);
-                    let short =
-                        format!("{:02x}{:02x}\u{2026}{:02x}{:02x}", a[0], a[1], a[30], a[31]);
-                    summary = summary.replace(&short, &full);
-                    (label, full)
-                }
-                None => (label, value),
-            }
-        })
-        .collect();
-    (summary, details)
-}
-
-/// The value effects `review` checks, read from the transaction's own fields.
-fn effects_of(tx: &Transaction) -> Vec<Effect> {
-    let native = |to: [u8; 32], amount: U256| Effect::Transfer {
+fn native(to: [u8; 32], amount: U256) -> Effect {
+    Effect::Transfer {
         token: [0; 32],
         to,
         amount: Amount(amount.0),
+    }
+}
+
+/// The value effects `review` checks, read from the transaction's own fields,
+/// and the lines to show for a governed fee whose amount was not read.
+fn effects_of(tx: &Transaction, fees: &GovernedFees) -> (Vec<Effect>, Vec<&'static str>) {
+    match &tx.kind {
+        TxKind::Name(NameAction::Register { periods, .. } | NameAction::Renew { periods, .. }) => {
+            name_fee_effects(*periods, fees)
+        }
+        TxKind::Schedule(ScheduleAction::Create {
+            payee,
+            amount,
+            runs,
+            ..
+        }) => schedule_effects(*payee, *amount, *runs, fees),
+        _ => (value_effects(tx), Vec::new()),
+    }
+}
+
+/// A registration or renewal burns `fee x periods` from the sender
+/// (`state::names` `charge_and_burn`). The payload carries no ceiling, so the
+/// amount shown is the fee at the time it was read, not a bound.
+fn name_fee_effects(periods: u8, fees: &GovernedFees) -> (Vec<Effect>, Vec<&'static str>) {
+    match fees.name_fee_per_period {
+        Some(per) => (
+            vec![native(FEE_SINK, per.saturating_mul(U256::from(periods)))],
+            Vec::new(),
+        ),
+        None => (Vec::new(), vec![NAME_FEE_NOT_SHOWN]),
+    }
+}
+
+/// The node escrows `(amount + RUN_FEE) x runs` when the schedule is created
+/// (ADR-135 P-7, `state::scheduled`), so the whole escrow is reviewed as one
+/// outflow to the payee: one effect, so the drain check sees all of it.
+fn schedule_effects(
+    payee: [u8; 32],
+    amount: U256,
+    runs: u32,
+    fees: &GovernedFees,
+) -> (Vec<Effect>, Vec<&'static str>) {
+    let unit = amount.saturating_add(fees.schedule_run_fee.unwrap_or_default());
+    let escrow = native(payee, unit.saturating_mul(U256::from(runs)));
+    let unshown = match fees.schedule_run_fee {
+        Some(_) => Vec::new(),
+        None => vec![RUN_FEE_NOT_SHOWN],
     };
+    (vec![escrow], unshown)
+}
+
+/// The effects of every form whose value moves only through its payload.
+fn value_effects(tx: &Transaction) -> Vec<Effect> {
     match &tx.kind {
         TxKind::Transfer => tx
             .outputs
@@ -229,27 +273,31 @@ fn effects_of(tx: &Transaction) -> Vec<Effect> {
             to: *to,
             amount: Amount::from_u64(1),
         }],
+        // Destroying an item is reviewed as sending it nowhere, as a burn of
+        // asset units is.
+        TxKind::Nft(NftAction::BurnItem { collection, .. }) => vec![Effect::Transfer {
+            token: *collection,
+            to: [0; 32],
+            amount: Amount::from_u64(1),
+        }],
+        // Handing a name over and re-pointing it are both control changes:
+        // re-pointing redirects every later payment made to the name.
         TxKind::Name(NameAction::Update {
             label,
-            op: NameUpdate::Transfer(owner),
+            op: NameUpdate::Transfer(to) | NameUpdate::SetTarget(to),
         }) => vec![Effect::SetOwner {
             target: *blake3::hash(label).as_bytes(),
-            owner: *owner,
+            owner: *to,
         }],
-        // The whole escrow leaves the balance when the schedule is created
-        // (ADR-135 P-7), so it is reviewed as one payment of every run.
-        TxKind::Schedule(ScheduleAction::Create {
-            payee,
-            amount,
-            runs,
-            ..
-        }) => vec![native(*payee, amount.saturating_mul(U256::from(*runs)))],
         _ => Vec::new(),
     }
 }
 
 /// Capped-asset forms (ADR-135 P-1): a burn spends the holder's own units; a
-/// renounce changes who controls the asset's supply, for good.
+/// renounce changes who controls the asset's supply, for good. Registering
+/// and minting create units and spend none of the sender's, so they raise no
+/// spend warning (DECISIONS 2026-11-14); `describe` marks them careful, and a
+/// mint's recipient is shown in full Bech32m.
 fn asset_mint_effects(action: &AssetMintAction) -> Vec<Effect> {
     match action {
         AssetMintAction::Burn { asset, amount } => vec![Effect::Transfer {
@@ -329,8 +377,13 @@ pub fn approval_message(shown: &Confirmation) -> String {
         lines.push(format!("Fee: {fee} MAYA"));
     }
     if let (Some(sponsor), Some(max_fee)) = (&shown.sponsor, &shown.sponsor_max_fee) {
+        let who = if shown.sponsor_verified {
+            "Sponsor"
+        } else {
+            "Claimed sponsor (unverified)"
+        };
         lines.push(format!(
-            "Fee paid by sponsor: {sponsor}, at most {max_fee} MAYA"
+            "{who}: {sponsor} offers to pay the fee, at most {max_fee} MAYA. Your signature does not depend on it."
         ));
     }
     lines.push(format!("From: {}", shown.sender));

@@ -58,6 +58,17 @@ impl NodeClient for MockNode {
         if height > 100 {
             return Ok(serde_json::Value::Null);
         }
+        if height == SPONSORED_BLOCK {
+            // A block holding one sponsored v4 transaction, in the node's shape.
+            return Ok(serde_json::json!({
+                "height": height,
+                "transactions": [{
+                    "kind": "transfer_item",
+                    "details": [{"label": "pay to", "value": "b2".repeat(32)}],
+                    "sponsor": {"address": "5b".repeat(32), "max_fee": "12000", "valid_until": 9},
+                }],
+            }));
+        }
         Ok(serde_json::json!({ "height": height, "hash": "ab".repeat(32) }))
     }
 
@@ -99,12 +110,36 @@ impl NodeClient for MockNode {
 
     async fn get_name(&self, label: &str) -> Result<serde_json::Value, GatewayError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if label != "alice" {
+        let status = match label {
+            "alice" => "active",
+            "dave" => "grace",
+            "carol" => "lapsed",
+            _ => return Ok(serde_json::Value::Null),
+        };
+        let mut record =
+            serde_json::json!({ "label": label, "owner": "aa".repeat(32), "status": status });
+        if status == "active" {
+            record["target"] = "bb".repeat(32).into();
+        }
+        Ok(record)
+    }
+
+    async fn forward(
+        &self,
+        method: &'static str,
+        params: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, GatewayError> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        // Records exist only under the all-0x51 id; the answer echoes what was asked.
+        if params.first() != Some(&serde_json::Value::String("51".repeat(32))) {
             return Ok(serde_json::Value::Null);
         }
-        Ok(serde_json::json!({ "label": label, "owner": "aa".repeat(32) }))
+        Ok(serde_json::json!({ "method": method, "params": params }))
     }
 }
+
+/// The height at which the recorded node holds a sponsored v4 transaction.
+const SPONSORED_BLOCK: u64 = 42;
 
 fn app_with(node: Arc<MockNode>) -> axum::Router {
     maya_api_gateway::app(node)
@@ -251,6 +286,77 @@ async fn a_name_is_served_with_or_without_its_suffix_and_a_free_one_is_a_404() {
     }
     let (status, _) = get(app_with(node), "/v1/names/bob").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_name_in_grace_carries_its_status_and_a_lapsed_one_is_a_404() {
+    let node = Arc::new(MockNode::default());
+    let (status, body) = get(app_with(Arc::clone(&node)), "/v1/names/dave").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "grace");
+    assert!(
+        body.get("target").is_none(),
+        "a name in grace does not resolve: {body}"
+    );
+    let (status, _) = get(app_with(node), "/v1/names/carol").await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "a lapsed name is as free as a new one"
+    );
+}
+
+#[tokio::test]
+async fn the_v4_record_routes_forward_one_checked_read_each() {
+    let node = Arc::new(MockNode::default());
+    let id = "51".repeat(32);
+    let cases = [
+        (format!("/v1/assets/{id}"), "get_asset"),
+        (format!("/v1/nfts/{id}"), "get_nft_collection"),
+        (format!("/v1/nfts/{id}/3"), "get_nft_item"),
+        (format!("/v1/schedules/{id}"), "get_schedule"),
+    ];
+    for (uri, method) in &cases {
+        let (status, body) = get(app_with(Arc::clone(&node)), uri).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(body["method"], *method, "{uri}");
+        assert_eq!(body["params"][0], id, "{uri}");
+    }
+    let (_, item) = get(app_with(Arc::clone(&node)), &cases[2].0).await;
+    assert_eq!(item["params"][1], 3, "the index is forwarded as a number");
+    assert_eq!(node.calls(), 5);
+
+    // No such record is a 404; a malformed id never reaches the node.
+    let missing = "00".repeat(32);
+    let (status, _) = get(
+        app_with(Arc::clone(&node)),
+        &format!("/v1/assets/{missing}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let calls = node.calls();
+    for bad in [
+        "/v1/assets/abcd",
+        "/v1/nfts/zz",
+        "/v1/schedules/0x12",
+        "/v1/nfts/abcd/1",
+    ] {
+        let (status, _) = get(app_with(Arc::clone(&node)), bad).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    assert_eq!(node.calls(), calls);
+}
+
+#[tokio::test]
+async fn a_block_passes_details_and_the_sponsor_through_untouched() {
+    let node = Arc::new(MockNode::default());
+    let (status, body) = get(app_with(node), &format!("/v1/blocks/{SPONSORED_BLOCK}")).await;
+    assert_eq!(status, StatusCode::OK);
+    let tx = &body["transactions"][0];
+    assert_eq!(tx["details"][0]["label"], "pay to");
+    assert_eq!(tx["details"][0]["value"], "b2".repeat(32));
+    assert_eq!(tx["sponsor"]["address"], "5b".repeat(32));
+    assert_eq!(tx["sponsor"]["max_fee"], "12000");
 }
 
 #[tokio::test]

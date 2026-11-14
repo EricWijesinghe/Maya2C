@@ -230,5 +230,13 @@ export {
   wrapWithPassword,
 } from "./passkey.js";
 export type { CredentialsLike, PasskeyErrorKind, PasskeyRef, ProtectOptions, RegisterOptions, SeedEnvelope } from "./passkey.js";
-export { PayloadError, decodePayload, describePayload, encodePayload, groupDigits, validateLabel } from "./v4.js";
+export {
+  PayloadError,
+  decodePayload,
+  describeBytes,
+  describePayload,
+  encodePayload,
+  groupDigits,
+  validateLabel,
+} from "./v4.js";
 export type { Description as PayloadDescription, Fields as PayloadFields } from "./v4.js";

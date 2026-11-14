@@ -4,9 +4,14 @@
 //! The node is the source of truth. This test builds each form with the node's
 //! own types, round-trips it through the node's codec, renders it with
 //! `core::describe`, and compares the result with `spec/tests/v4-client-vectors.json`.
-//! The Python, TypeScript and WASM SDKs read that same file, so an SDK that
-//! encodes a byte differently, or words a form differently, fails its own test
-//! against the node's output rather than drifting quietly.
+//! The Python, TypeScript and `sdk-ffi` tests read that same file, so an SDK
+//! that encodes a byte differently, or words a form differently, fails its own
+//! test against the node's output rather than drifting quietly.
+//!
+//! Besides the happy path, the file carries the edges: `decode_only` payloads
+//! the node decodes but no canonical encoder writes (symbols outside `[A-Z0-9]`,
+//! read the way `describe` reads them), `refused_payloads` the node's decoder
+//! refuses, and `refused_fields` every SDK encoder must refuse.
 //!
 //! Regenerate after an intended change with `MAYA2C_WRITE_VECTORS=1`.
 
@@ -193,25 +198,134 @@ fn decode(bytes: &[u8]) -> TxKind {
     kind
 }
 
+fn vector(label: &str, kind: &TxKind, fields: Value) -> Value {
+    let d = describe_kind(kind);
+    json!({
+        "label": label,
+        "fields": fields,
+        "payload": h(&payload(kind)),
+        "summary": d.summary,
+        "careful": d.review == Review::Careful,
+        "details": d.details.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
+    })
+}
+
+/// Symbol bytes the decoder accepts and no canonical encoder writes: UTF-8
+/// outside `[A-Z0-9]`, invalid UTF-8, a NUL inside. Each is shown the way
+/// `describe` shows it (UTF-8 lossy over all eight bytes, then trailing NULs
+/// trimmed), so every SDK must read it the same way.
+fn odd_symbols() -> Vec<[u8; 8]> {
+    vec![
+        *b"G\xc3\x96LD\0\0\0",
+        *b"\xffAB\0\0\0\0\0",
+        *b"\xe2\x82AB\0\0\0\0",
+        *b"AB\0CD\0\0\0",
+    ]
+}
+
+fn odd_symbol_kind(symbol: [u8; 8]) -> TxKind {
+    TxKind::AssetMint(AssetMintAction::RegisterCapped {
+        symbol,
+        total_supply: U256::from(1_u64),
+        cap: U256::from(2_u64),
+        authority: [0xA1; 32],
+    })
+}
+
+fn decode_only() -> Vec<Value> {
+    odd_symbols()
+        .into_iter()
+        .map(|raw| {
+            let shown = String::from_utf8_lossy(&raw)
+                .trim_end_matches('\0')
+                .to_owned();
+            let fields = json!({"symbol": shown, "total_supply": "1", "cap": "2", "authority": h(&[0xA1; 32])});
+            vector("register_capped_asset", &odd_symbol_kind(raw), fields)
+        })
+        .collect()
+}
+
+/// Payloads the node's decoder refuses, with why.
+fn refused_payloads() -> Vec<(&'static str, Vec<u8>)> {
+    let name_op = |op: u8| {
+        let mut buf = payload(&TxKind::Name(NameAction::Update {
+            label: b"alice".to_vec(),
+            op: NameUpdate::SetReverse,
+        }));
+        *buf.last_mut().unwrap() = op;
+        buf
+    };
+    let label_bytes = |label: &[u8]| {
+        let mut buf = vec![65_u8, u8::try_from(label.len()).unwrap()];
+        buf.extend_from_slice(label);
+        buf.push(1);
+        buf
+    };
+    vec![
+        ("name op 0x00 does not exist", name_op(0x00)),
+        ("name op 0x02 (stealth) is not in this build", name_op(0x02)),
+        ("name op 0x05 (stealth) is not in this build", name_op(0x05)),
+        ("an uppercase label", label_bytes(b"Alice")),
+        ("a non-ASCII label", label_bytes("al\u{e9}x".as_bytes())),
+    ]
+}
+
+/// Fields every SDK encoder must refuse rather than write some payload.
+fn refused_fields() -> Value {
+    let a = h(&[0xA1; 32]);
+    json!([
+        {"why": "an op that is a prototype key", "label": "update_name", "fields": {"label": "alice", "op": "constructor"}},
+        {"why": "an op that is a prototype key", "label": "update_name", "fields": {"label": "alice", "op": "toString"}},
+        {"why": "an op that is a prototype key", "label": "update_name", "fields": {"label": "alice", "op": "__proto__"}},
+        {"why": "a stealth op", "label": "update_name", "fields": {"label": "alice", "op": "set_stealth"}},
+        {"why": "a form that is a prototype key", "label": "constructor", "fields": {}},
+        {"why": "a form that is a prototype key", "label": "hasOwnProperty", "fields": {}},
+        {"why": "non-ASCII digits", "label": "burn_asset", "fields": {"asset": a, "amount": "\u{661}\u{662}"}},
+        {"why": "a superscript digit", "label": "burn_asset", "fields": {"asset": a, "amount": "\u{b2}"}},
+        {"why": "a sign", "label": "burn_asset", "fields": {"asset": a, "amount": "+1"}},
+        {"why": "an empty integer", "label": "burn_asset", "fields": {"asset": a, "amount": ""}},
+        {"why": "uppercase hex", "label": "renounce_mint", "fields": {"asset": "A1".repeat(32)}},
+        {"why": "hex with spaces", "label": "renounce_mint", "fields": {"asset": format!("{} {}", "a1".repeat(16), "a1".repeat(16))}},
+        {"why": "a NUL inside a symbol", "label": "register_capped_asset", "fields": {"symbol": "GO\u{0}LD", "total_supply": "1", "cap": "2", "authority": a}},
+        {"why": "a non-ASCII symbol", "label": "register_capped_asset", "fields": {"symbol": "G\u{d6}LD", "total_supply": "1", "cap": "2", "authority": a}},
+        {"why": "a lowercase symbol", "label": "register_capped_asset", "fields": {"symbol": "gold", "total_supply": "1", "cap": "2", "authority": a}},
+        {"why": "a symbol of nine bytes", "label": "register_capped_asset", "fields": {"symbol": "GOLDGOLDG", "total_supply": "1", "cap": "2", "authority": a}},
+    ])
+}
+
 fn vector_file() -> Value {
     let vectors: Vec<Value> = samples()
         .into_iter()
-        .map(|(label, kind, fields)| {
-            let d = describe_kind(&kind);
-            json!({
-                "label": label,
-                "fields": fields,
-                "payload": h(&payload(&kind)),
-                "summary": d.summary,
-                "careful": d.review == Review::Careful,
-                "details": d.details.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
-            })
-        })
+        .map(|(label, kind, fields)| vector(label, &kind, fields))
+        .collect();
+    let refused: Vec<Value> = refused_payloads()
+        .into_iter()
+        .map(|(why, bytes)| json!({"why": why, "payload": h(&bytes)}))
         .collect();
     json!({
-        "about": "ADR-135 v4 transaction payloads (TxKind tag || fields), generated by crates/node/tests/v4_client_vectors.rs from the node's own codec and core::describe. Integers are decimal strings; bytes are lowercase hex; labels and symbols are ASCII. Regenerate with MAYA2C_WRITE_VECTORS=1; never edit by hand.",
+        "about": "ADR-135 v4 transaction payloads (TxKind tag || fields), generated by crates/node/tests/v4_client_vectors.rs from the node's own codec and core::describe. Integers are decimal strings; bytes are lowercase hex; labels are ASCII; a symbol reads as UTF-8 (lossy) with trailing NULs trimmed. decode_only: payloads that decode but that no canonical encoder writes. refused_payloads: the node's decoder refuses them. refused_fields: every SDK encoder must refuse them. Regenerate with MAYA2C_WRITE_VECTORS=1; never edit by hand.",
         "vectors": vectors,
+        "decode_only": decode_only(),
+        "refused_payloads": refused,
+        "refused_fields": refused_fields(),
     })
+}
+
+#[test]
+fn the_edge_vectors_hold_against_the_node() {
+    for raw in odd_symbols() {
+        let kind = odd_symbol_kind(raw);
+        assert_eq!(decode(&payload(&kind)), kind, "decodes as written");
+        assert!(
+            custom_l1_node::state::asset::validate_symbol(&raw).is_err(),
+            "{raw:?} must not be a symbol a canonical encoder writes"
+        );
+    }
+    for (why, bytes) in refused_payloads() {
+        let mut reader = ByteReader::new(&bytes);
+        let read = TxKind::decode(&mut reader).and_then(|_| reader.finish());
+        assert!(read.is_err(), "{why}: the decoder must refuse it");
+    }
 }
 
 #[test]

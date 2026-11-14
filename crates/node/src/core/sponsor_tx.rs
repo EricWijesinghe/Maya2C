@@ -77,6 +77,15 @@ impl Sponsorship {
     pub fn address(&self) -> [u8; ADDRESS_LEN] {
         suites::suite_address(self.suite, &self.public_key)
     }
+
+    /// Whether this sponsorship's signature holds over `tx` on `chain`. The
+    /// signature alone: a wallet has no height, so suite admissibility, the
+    /// window and the fee cap stay the node's checks (`verify`).
+    #[must_use]
+    pub fn signature_holds(&self, tx: &Transaction, chain: &ChainTag) -> bool {
+        let message = signing_bytes(chain, &tx.inner_txid(), &self.max_fee, self.valid_until);
+        pq_suite::verify(self.suite, &self.public_key, &message, &self.signature).is_ok()
+    }
 }
 
 /// The bytes a sponsor signs.

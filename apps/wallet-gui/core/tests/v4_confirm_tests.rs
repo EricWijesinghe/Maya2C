@@ -17,7 +17,10 @@ use maya_amount::Amount;
 use maya_clear_sign::{Context, Network, Warning, grouped};
 use maya_crypto_pq::suite::{MasterSeed, MlDsa87, SignatureSuite, SuiteId, suite_address};
 use maya_wallet_core::amount::format_display;
-use maya_wallet_core::confirm::{approval_message, confirmation, confirmation_with, warning_text};
+use maya_wallet_core::confirm::{
+    GovernedFees, NAME_FEE_NOT_SHOWN, RUN_FEE_NOT_SHOWN, approval_message, confirmation,
+    confirmation_with, confirmation_with_fees, warning_text,
+};
 use primitive_types::U256;
 
 const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
@@ -190,33 +193,115 @@ fn text(w: Warning) -> String {
     warning_text(w).to_string()
 }
 
+fn warnings_with(kind: TxKind, ctx: &Context, fees: &GovernedFees) -> Vec<String> {
+    confirmation_with_fees(&Transaction::with_kind(kind, 1), &CHAIN, ctx, fees).warnings
+}
+
 #[test]
-fn handing_over_a_name_or_a_mint_raises_the_control_change_warning() {
+fn handing_over_or_re_pointing_a_name_or_a_mint_raises_the_control_change_warning() {
     let ctx = Context::default();
     let give = forms().remove(12).1;
     assert_eq!(warnings(give, &ctx), vec![text(Warning::ControlChange)]);
     let renounce = forms().remove(3).1;
     assert_eq!(warnings(renounce, &ctx), vec![text(Warning::ControlChange)]);
-    // Pointing a name, committing or renewing hands nothing over.
-    for i in [8, 10, 11] {
-        assert!(warnings(forms().remove(i).1, &ctx).is_empty(), "form {i}");
-    }
+    // Re-pointing redirects every later payment made to the name.
+    let point = forms().remove(11).1;
+    assert_eq!(warnings(point, &ctx), vec![text(Warning::ControlChange)]);
+    // Committing hands nothing over and costs nothing.
+    assert!(warnings(forms().remove(8).1, &ctx).is_empty());
 }
 
 #[test]
-fn a_schedule_is_reviewed_as_every_run_leaving_the_balance_now() {
-    // 4 x 3 runs = 12 of a balance of 13: over 90% leaves when it is created.
+fn a_name_fee_is_reviewed_as_a_burn_or_said_to_be_unshown() {
+    // Not read from the node: the screen says a fee applies.
+    for i in [9, 10] {
+        assert_eq!(
+            warnings(forms().remove(i).1, &Context::default()),
+            vec![NAME_FEE_NOT_SHOWN.to_string()],
+            "form {i}"
+        );
+    }
+    // Read: 10 per period x 1 period burns all of a balance of 10.
+    let fees = GovernedFees {
+        name_fee_per_period: Some(U256::from(10)),
+        ..GovernedFees::default()
+    };
     let ctx = Context {
-        balances: vec![([0; 32], Amount::from_u64(13))],
+        balances: vec![([0; 32], Amount::from_u64(10))],
         ..Context::default()
     };
-    let schedule = forms().remove(13).1;
-    assert_eq!(warnings(schedule, &ctx), vec![text(Warning::DrainsBalance)]);
+    assert_eq!(
+        warnings_with(forms().remove(9).1, &ctx, &fees),
+        vec![text(Warning::DrainsBalance)]
+    );
     let roomy = Context {
         balances: vec![([0; 32], Amount::from_u64(1_000))],
         ..Context::default()
     };
-    assert!(warnings(forms().remove(13).1, &roomy).is_empty());
+    assert!(warnings_with(forms().remove(10).1, &roomy, &fees).is_empty());
+}
+
+#[test]
+fn a_schedule_is_reviewed_as_its_whole_escrow_leaving_the_balance_now() {
+    let zero_fee = GovernedFees {
+        schedule_run_fee: Some(U256::zero()),
+        ..GovernedFees::default()
+    };
+    let balance = |n| Context {
+        balances: vec![([0; 32], Amount::from_u64(n))],
+        ..Context::default()
+    };
+    // 4 x 3 runs = 12 of a balance of 13: over 90% leaves when it is created.
+    let schedule = || forms().remove(13).1;
+    assert_eq!(
+        warnings_with(schedule(), &balance(13), &zero_fee),
+        vec![text(Warning::DrainsBalance)]
+    );
+    // A run fee of 2 makes the escrow (4 + 2) x 3 = 18: 18 of 20 is 90%. The
+    // fee-free amount, 12 of 20, would have passed.
+    let fee = GovernedFees {
+        schedule_run_fee: Some(U256::from(2)),
+        ..GovernedFees::default()
+    };
+    assert_eq!(
+        warnings_with(schedule(), &balance(20), &fee),
+        vec![text(Warning::DrainsBalance)]
+    );
+    assert!(warnings_with(schedule(), &balance(1_000), &fee).is_empty());
+    // Not read from the node: the screen says the run fees are not included.
+    assert_eq!(
+        warnings(schedule(), &balance(1_000)),
+        vec![RUN_FEE_NOT_SHOWN.to_string()]
+    );
+}
+
+#[test]
+fn destroying_an_item_is_reviewed_as_a_spend() {
+    let ctx = Context {
+        balances: vec![([0x12; 32], Amount::from_u64(1))],
+        ..Context::default()
+    };
+    assert_eq!(
+        warnings(forms().remove(7).1, &ctx),
+        vec![text(Warning::DrainsBalance)]
+    );
+}
+
+#[test]
+fn creating_units_or_items_raises_no_spend_warning_by_decision() {
+    // Registering, minting, opening a collection and minting an item spend
+    // none of the sender's balance (DECISIONS 2026-11-14). Pinned, so the
+    // choice is visible and changes only on purpose.
+    let ctx = Context {
+        balances: vec![
+            ([0x10; 32], Amount::from_u64(5)),
+            ([0; 32], Amount::from_u64(1)),
+        ],
+        ..Context::default()
+    };
+    for i in [0, 1, 4, 5] {
+        assert!(warnings(forms().remove(i).1, &ctx).is_empty(), "form {i}");
+    }
 }
 
 #[test]
@@ -269,10 +354,11 @@ fn a_sponsored_frame_says_who_pays_the_fee_in_the_native_dialog() {
         shown.sponsor_max_fee,
         Some(format_display(U256::from(9_000)))
     );
+    assert!(shown.sponsor_verified);
     let dialog = approval_message(&shown);
     assert!(
         dialog.contains(&format!(
-            "Fee paid by sponsor: {full}, at most {} MAYA",
+            "Sponsor: {full} offers to pay the fee, at most {} MAYA. Your signature does not depend on it.",
             format_display(U256::from(9_000))
         )),
         "{dialog}"
@@ -281,4 +367,23 @@ fn a_sponsored_frame_says_who_pays_the_fee_in_the_native_dialog() {
     assert!(!dialog.contains(&hex::encode(payer)), "{dialog}");
     // The sponsor does not change what the sender signed.
     assert_eq!(shown.signing_hash, unsponsored.signing_hash);
+
+    // A sponsorship whose signature does not hold (here: a raised ceiling the
+    // sponsor never signed) is shown as a claim, not as a sponsor.
+    let mut forged = tx.clone();
+    if let Some(s) = forged.sponsor.as_mut() {
+        s.max_fee = U256::from(9_001);
+    }
+    let claimed = confirmation(&forged, &CHAIN);
+    assert!(!claimed.sponsor_verified);
+    let dialog = approval_message(&claimed);
+    assert!(
+        dialog.contains(&format!(
+            "Claimed sponsor (unverified): {full} offers to pay the fee"
+        )),
+        "{dialog}"
+    );
+    // The same sponsorship on another chain does not hold either.
+    let elsewhere = ChainTag::from_genesis([0x5B; 32]);
+    assert!(!confirmation(&tx, &elsewhere).sponsor_verified);
 }

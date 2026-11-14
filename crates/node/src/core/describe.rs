@@ -95,6 +95,67 @@ fn short(bytes: &[u8]) -> String {
     }
 }
 
+/// Detail labels whose value is an account address. A reader shows those in
+/// its own address form; the rest (asset, pool, channel, proposal ids) are
+/// identifiers, not something a person pays, and stay hex.
+pub const ADDRESS_LABELS: &[&str] = &[
+    "pay to",
+    "fee to",
+    "counterparty",
+    "contract",
+    "credited to",
+    "seller",
+    "recipient",
+    "validator",
+    "vault owner",
+    "guardian",
+    "mint authority",
+    "name target",
+    "new owner",
+    "sponsor",
+];
+
+/// Rewrites every address in a description into `form` (a wallet's or the
+/// explorer's Bech32m): the detail values named by [`ADDRESS_LABELS`], and
+/// their abbreviated forms in the summary. Two different addresses with the
+/// same abbreviation leave that abbreviation as it is, because a string
+/// replace would name the first one twice; both stay in full in the details.
+#[must_use]
+pub fn rewrite_addresses<L: AsRef<str>>(
+    mut summary: String,
+    details: Vec<(L, String)>,
+    form: impl Fn(&[u8; 32]) -> String,
+) -> (String, Vec<(L, String)>) {
+    let mut shorts: Vec<(String, [u8; 32], String)> = Vec::new();
+    let details = details
+        .into_iter()
+        .map(|(label, value)| {
+            let address = ADDRESS_LABELS
+                .contains(&label.as_ref())
+                .then(|| hex::decode(&value).ok())
+                .flatten()
+                .and_then(|b| <[u8; 32]>::try_from(b.as_slice()).ok());
+            match address {
+                Some(a) => {
+                    let shown = form(&a);
+                    shorts.push((short(&a), a, shown.clone()));
+                    (label, shown)
+                }
+                None => (label, value),
+            }
+        })
+        .collect();
+    for (abbreviation, address, shown) in &shorts {
+        let ambiguous = shorts
+            .iter()
+            .any(|(other, a, _)| other == abbreviation && a != address);
+        if !ambiguous {
+            summary = summary.replace(abbreviation.as_str(), shown);
+        }
+    }
+    (summary, details)
+}
+
 fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         format!("1 {one}")
@@ -768,6 +829,36 @@ mod tests {
     use crate::core::governance_payload::{Ballot, StakeLock};
     use crate::core::transaction::TxOutput;
     use crate::core::vault_payload::VaultConfig;
+
+    #[test]
+    fn rewrite_names_each_address_once_and_leaves_a_shared_abbreviation_alone() {
+        let mut twin = [0x11; 32];
+        twin[10] = 0x99; // same first and last two bytes as 0x11.., a different address
+        let other = [0x22; 32];
+        let summary = format!(
+            "Pay {} and {}; also {}.",
+            short(&[0x11; 32]),
+            short(&twin),
+            short(&other)
+        );
+        let details = vec![
+            ("pay to", full(&[0x11; 32])),
+            ("sponsor", full(&twin)),
+            ("fee to", full(&other)),
+            ("asset", full(&[0x33; 32])),
+        ];
+        let form = |a: &[u8; 32]| format!("<{:02x}{:02x}>", a[0], a[10]);
+        let (summary, details) = rewrite_addresses(summary, details, form);
+        assert_eq!(summary, "Pay 1111…1111 and 1111…1111; also <2222>.");
+        assert_eq!(details[0].1, "<1111>");
+        assert_eq!(details[1].1, "<1199>");
+        assert_eq!(details[2].1, "<2222>");
+        assert_eq!(
+            details[3].1,
+            "33".repeat(32),
+            "an asset id is not an address"
+        );
+    }
 
     #[test]
     fn digits_are_grouped_in_threes() {

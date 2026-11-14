@@ -29,6 +29,8 @@ use maya_address::Network;
 
 use crate::ui;
 
+mod v4;
+
 /// Blocks shown in list views.
 const LIST_LIMIT: i64 = 20;
 
@@ -108,8 +110,11 @@ pub fn router(state: AppState) -> Router {
         .route("/account/{address}", get(account_path))
         .route("/mining", get(mining))
         .route("/validators", get(validators))
-        .route("/name", get(name_lookup))
-        .route("/api/name/{label}", get(api_name))
+        .route("/name", get(v4::name_lookup))
+        .route("/asset", get(v4::asset_lookup))
+        .route("/nft", get(v4::nft_lookup))
+        .route("/schedule", get(v4::schedule_lookup))
+        .route("/api/name/{label}", get(v4::api_name))
         .route("/api/validators", get(api_validators))
         .route("/api/stats", get(api_stats))
         .route("/api/blocks", get(api_blocks))
@@ -439,83 +444,6 @@ async fn fetch_validators(
         .map_err(|e| ExplorerError::NodeRpc(e.to_string()))?;
     client
         .request("get_validators", rpc_params![])
-        .await
-        .map_err(|e| ExplorerError::NodeRpc(e.to_string()))
-}
-
-/// Query for the name lookup form.
-#[derive(Debug, Deserialize)]
-struct NameQuery {
-    label: Option<String>,
-}
-
-/// A name's label as the chain stores it: lowercase, without `.maya`, and
-/// passing the node's own label rule, so a lookup never reaches the node for
-/// a key no transaction could have written.
-fn name_label(input: &str) -> std::result::Result<String, String> {
-    let lower = input.trim().to_ascii_lowercase();
-    let label = lower.strip_suffix(".maya").unwrap_or(&lower).to_string();
-    custom_l1_node::core::name_payload::validate_label(label.as_bytes())
-        .map_err(|why| format!("Not a name the chain can hold: {why}."))?;
-    Ok(label)
-}
-
-/// A name, live from the node: an owner as of the last indexed block would be
-/// shown as current and quietly be wrong after a transfer.
-async fn name_lookup(
-    State(state): State<AppState>,
-    Query(query): Query<NameQuery>,
-) -> Result<Response> {
-    let input = query.label.unwrap_or_default();
-    if input.trim().is_empty() {
-        return Ok(html(ui::name_page(String::new(), None, None)));
-    }
-    let label = match name_label(&input) {
-        Ok(label) => label,
-        Err(message) => {
-            return Ok(html_status(
-                StatusCode::BAD_REQUEST,
-                ui::name_page(input, None, Some(message)),
-            ));
-        }
-    };
-    let (info, error) = match &state.node_rpc {
-        Some(url) => match fetch_name(url, &label).await {
-            Ok(info) => (info, None),
-            Err(error) => (
-                None,
-                Some(format!(
-                    "Node unavailable or too old to look up names: {error}"
-                )),
-            ),
-        },
-        None => (None, Some("No node endpoint configured.".to_string())),
-    };
-    Ok(html(ui::name_page(format!("{label}.maya"), info, error)))
-}
-
-async fn api_name(
-    State(state): State<AppState>,
-    Path(label): Path<String>,
-) -> Result<Json<Option<custom_l1_node::rpc::NameInfo>>> {
-    let label = name_label(&label).map_err(ExplorerError::BadRequest)?;
-    let url = state
-        .node_rpc
-        .as_deref()
-        .ok_or_else(|| ExplorerError::NodeRpc("no node endpoint configured".to_string()))?;
-    Ok(Json(fetch_name(url, &label).await?))
-}
-
-async fn fetch_name(url: &str, label: &str) -> Result<Option<custom_l1_node::rpc::NameInfo>> {
-    use jsonrpsee::core::client::ClientT;
-    use jsonrpsee::http_client::HttpClientBuilder;
-    use jsonrpsee::rpc_params;
-
-    let client = HttpClientBuilder::default()
-        .build(url)
-        .map_err(|e| ExplorerError::NodeRpc(e.to_string()))?;
-    client
-        .request("get_name", rpc_params![label])
         .await
         .map_err(|e| ExplorerError::NodeRpc(e.to_string()))
 }

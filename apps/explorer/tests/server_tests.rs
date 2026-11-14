@@ -843,3 +843,174 @@ async fn the_name_page_without_a_node_says_so_instead_of_inventing_an_answer() {
     let (status, _) = get(&format!("{}/name", h.base)).await;
     assert_eq!(status, 200);
 }
+
+/// A JSON-RPC node that answers each method from `answers` (anything else is
+/// `null`), one request per connection. Real HTTP, so the explorer's own
+/// client and decoding run unchanged.
+async fn fake_node(answers: Vec<(&'static str, serde_json::Value)>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let url = format!("http://{}", listener.local_addr().expect("addr"));
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let body = loop {
+                let n = stream.read(&mut chunk).await.unwrap_or(0);
+                if n == 0 {
+                    break None;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf).to_string();
+                let Some(end) = text.find("\r\n\r\n") else {
+                    continue;
+                };
+                let length = text[..end]
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                if buf.len() >= end + 4 + length {
+                    break Some(buf[end + 4..end + 4 + length].to_vec());
+                }
+            };
+            let Some(body) = body else { continue };
+            let request: serde_json::Value = serde_json::from_slice(&body).expect("json-rpc");
+            let method = request["method"].as_str().unwrap_or_default();
+            let result = answers
+                .iter()
+                .find(|(m, _)| *m == method)
+                .map_or(serde_json::Value::Null, |(_, v)| v.clone());
+            let reply =
+                serde_json::json!({"jsonrpc": "2.0", "id": request["id"], "result": result})
+                    .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+    url
+}
+
+async fn harness_with_node(node_rpc: String) -> (String, ExplorerServer) {
+    let (events, _) = broadcast::channel(64);
+    let state = AppState {
+        store: Arc::new(MemoryStore::new()) as Arc<dyn BlockStore>,
+        events,
+        node_rpc: Some(node_rpc),
+        assets: None,
+    };
+    let server = serve("127.0.0.1:0".parse().expect("addr"), state)
+        .await
+        .expect("serve");
+    (format!("http://{}", server.address), server)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_expired_name_is_shown_as_not_resolving_and_its_api_carries_the_status() {
+    let node = fake_node(vec![(
+        "get_name",
+        serde_json::json!({
+            "label": "carol", "owner": "aa".repeat(32), "registered_at": 0,
+            "expires_at": 0, "status": "grace", "checked_at": 1
+        }),
+    )])
+    .await;
+    let (base, _server) = harness_with_node(node).await;
+    let (status, body) = get(&format!("{base}/name?label=carol")).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("Expired at block 0"), "{body}");
+    assert!(
+        body.contains("It does not resolve; do not pay to it."),
+        "{body}"
+    );
+    assert!(!body.contains("Points at"), "{body}");
+    let (status, body) = get(&format!("{base}/api/name/carol")).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"status\":\"grace\""), "{body}");
+    assert!(!body.contains("\"target\""), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_asset_nft_and_schedule_pages_read_the_node() {
+    let node = fake_node(vec![
+        (
+            "get_asset",
+            serde_json::json!({
+                "id": "51".repeat(32), "symbol": "GOLD", "creator": "aa".repeat(32),
+                "total_supply": "1000", "cap": "5000", "mint_authority": "ab".repeat(32)
+            }),
+        ),
+        (
+            "get_nft_collection",
+            serde_json::json!({
+                "id": "52".repeat(32), "creator": "ac".repeat(32), "max_items": 10,
+                "minted": 1, "metadata_hash": "01".repeat(32)
+            }),
+        ),
+        (
+            "get_nft_item",
+            serde_json::json!({
+                "collection": "52".repeat(32), "index": 0, "owner": "ad".repeat(32),
+                "metadata_hash": "02".repeat(32)
+            }),
+        ),
+        (
+            "get_schedule",
+            serde_json::json!({
+                "id": "53".repeat(32), "payer": "ae".repeat(32), "payee": "af".repeat(32),
+                "amount": "7", "next_due": 40, "interval": 20, "remaining": 3,
+                "escrow": "24", "missed": 0
+            }),
+        ),
+    ])
+    .await;
+    let (base, _server) = harness_with_node(node).await;
+
+    let (status, body) = get(&format!("{base}/asset?id={}", "51".repeat(32))).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("Asset GOLD") && body.contains("5,000"),
+        "{body}"
+    );
+    let (status, body) = get(&format!(
+        "{base}/nft?collection={}&index=0",
+        "52".repeat(32)
+    ))
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("1 of at most 10") && body.contains(&"ad".repeat(32)),
+        "{body}"
+    );
+    let (status, body) = get(&format!("{base}/schedule?id={}", "53".repeat(32))).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("Runs left") && body.contains(&"af".repeat(32)),
+        "{body}"
+    );
+
+    for bad in [
+        format!("{base}/asset?id=abcd"),
+        format!("{base}/schedule?id={}", "zz".repeat(32)),
+        format!("{base}/nft?collection={}&index=-1", "52".repeat(32)),
+    ] {
+        let (status, body) = get(&bad).await;
+        assert_eq!(status, 400, "{bad}: {body}");
+    }
+    for empty in ["/asset", "/nft", "/schedule"] {
+        let (status, _) = get(&format!("{base}{empty}")).await;
+        assert_eq!(status, 200, "{empty}");
+    }
+}
