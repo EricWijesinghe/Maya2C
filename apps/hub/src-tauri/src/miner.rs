@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::energy::Energy;
 use crate::miner_guard::{self, PINNED_SUMS, PinnedMiner};
 use crate::pools;
 use crate::watchdog::{self, AfterExit, Supervisor, Thermal};
@@ -91,6 +92,9 @@ pub struct MinerState {
     /// Latest GPU temperature this worker's device reported.
     pub temp_c: Option<f64>,
     pub ceiling_c: Option<f64>,
+    /// Joules per accepted share from the driver's power reading; GPU
+    /// workers only, and labelled unverified (energy.rs).
+    pub energy: Option<Energy>,
     pub rates: VecDeque<RateSample>,
     pub events: VecDeque<Value>,
     /// Time of the last line from the miner, for the stall check.
@@ -100,6 +104,11 @@ pub struct MinerState {
     /// since a GPU can take a long time to load before its first hash.
     #[serde(skip)]
     hashing: bool,
+    /// True while the miner says it is hashing work: set by `work` and
+    /// `hashrate`, cleared by `idle`, `error` and every (re)start. The energy
+    /// meter charges watts only then, so an idle wait is never in a figure.
+    #[serde(skip)]
+    in_work: bool,
 }
 
 /// What an alert is about. The notifier rate-limits on this, and toasts only
@@ -226,8 +235,10 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             state.epoch = event["epoch"].as_u64();
             state.share_reward = units(&event["share_reward"]);
             state.status = "mining".into();
+            state.in_work = true;
         }
         "idle" => {
+            state.in_work = false;
             state.status = event["reason"]
                 .as_str()
                 .unwrap_or("waiting for mining to open")
@@ -237,6 +248,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             let hps = event["hps"].as_f64().unwrap_or(0.0);
             state.total_hashes = event["total"].as_u64().unwrap_or(state.total_hashes);
             state.hashing = true;
+            state.in_work = true;
             push(&mut state.rates, RateSample { t_ms, hps }, RATE_HISTORY);
             return;
         }
@@ -248,6 +260,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             }
         }
         "share" => state.rejected += 1,
+        "error" => state.in_work = false,
         _ => {}
     }
     let mut stamped = event;
@@ -269,6 +282,12 @@ fn lock_state(state: &Mutex<MinerState>) -> std::sync::MutexGuard<'_, MinerState
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+fn break_energy(st: &mut MinerState) {
+    if let Some(energy) = st.energy.as_mut() {
+        energy.break_stretch();
+    }
+}
+
 fn clamp_ceiling(c: f64) -> f64 {
     if c.is_finite() {
         c.clamp(MIN_CEILING_C, MAX_CEILING_C)
@@ -282,6 +301,7 @@ impl Worker {
         let state = MinerState {
             device,
             ceiling_c: plan.device.map(|_| plan.ceiling_c),
+            energy: plan.device.map(|_| Energy::default()),
             ..MinerState::default()
         };
         Self {
@@ -325,6 +345,7 @@ impl Worker {
             let mut st = lock_state(&self.state);
             st.running = true;
             st.hashing = false;
+            st.in_work = false;
             st.last_event_ms = now;
             st.status = "starting".into();
         }
@@ -343,13 +364,18 @@ impl Worker {
             let _ = running.child.kill();
             let _ = running.child.wait();
         }
-        lock_state(&self.state).running = false;
+        let mut st = lock_state(&self.state);
+        st.running = false;
+        break_energy(&mut st);
     }
 
     /// The process has ended. Schedules the next start, or gives up.
     fn on_exited(&mut self, now: u64, device: &str, reason: &str) -> Alert {
         let mut st = lock_state(&self.state);
         st.running = false;
+        // Every process end passes here (exit, stall, failed relaunch), so
+        // the downtime before a restart is never metered.
+        break_energy(&mut st);
         let (kind, level, message) = match self.watch.on_exit(now) {
             AfterExit::RestartAt(at) => {
                 let secs = at.saturating_sub(now) / 1000;
@@ -512,6 +538,7 @@ impl Miner {
             *st = MinerState {
                 device,
                 ceiling_c: ceiling,
+                energy: ceiling.map(|_| Energy::default()),
                 started_ms: Some(now_ms()),
                 ..MinerState::default()
             };
@@ -564,6 +591,23 @@ impl Miner {
         raised
     }
 
+    /// Feeds one round of GPU power readings, `(index, W)`, to each GPU
+    /// worker's energy meter (see [`metered_watts`] for which get a reading).
+    pub fn meter(&self, now: u64, powers: &[(u32, f64)]) {
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        for worker in inner.workers.values() {
+            let Some(index) = worker.plan.device else {
+                continue;
+            };
+            let mut st = lock_state(&worker.state);
+            let watts = metered_watts(worker.child.is_some(), st.in_work, index, powers);
+            let accepted = st.accepted;
+            if let Some(energy) = st.energy.as_mut() {
+                energy.sample(now, watts, accepted);
+            }
+        }
+    }
+
     /// True when a GPU worker runs or is held hot, so the supervisor keeps
     /// reading temperatures. A held worker has no process, and it still needs
     /// a reading to know when it may restart.
@@ -588,6 +632,15 @@ impl Miner {
             alerts: inner.alerts.iter().rev().cloned().collect(),
         }
     }
+}
+
+/// The watts a GPU worker's meter is given: its own card's reading, and only
+/// while its process runs and is on work. Anything else is `None`, which ends
+/// the metered stretch, so idle or downtime watts never reach a figure.
+fn metered_watts(running: bool, in_work: bool, device: u32, powers: &[(u32, f64)]) -> Option<f64> {
+    (running && in_work)
+        .then(|| powers.iter().find(|(d, _)| *d == device).map(|(_, w)| *w))
+        .flatten()
 }
 
 /// An amount from the miner's event stream: a decimal string (the node's
@@ -729,6 +782,99 @@ mod tests {
             device,
             ceiling_c: 80.0,
         }
+    }
+
+    #[test]
+    fn only_gpu_workers_carry_an_energy_meter_and_a_stopped_one_meters_nothing() {
+        let miner = Miner::default();
+        {
+            let mut inner = miner.inner.lock().unwrap();
+            inner
+                .workers
+                .insert("cpu".into(), Worker::new(plan(None), "cpu".into()));
+            let gpu = Worker::new(plan(Some(0)), "gpu0".into());
+            lock_state(&gpu.state).accepted = 3;
+            inner.workers.insert("gpu0".into(), gpu);
+        }
+        // No process: these readings must not be charged to the shares.
+        miner.meter(0, &[(0, 200.0)]);
+        miner.meter(3_000, &[(0, 200.0)]);
+        let report = miner.report();
+        let cpu = report.workers.iter().find(|w| w.device == "cpu").unwrap();
+        let gpu = report.workers.iter().find(|w| w.device == "gpu0").unwrap();
+        assert!(cpu.energy.is_none());
+        let e = gpu.energy.as_ref().expect("a GPU worker is metered");
+        assert_eq!((e.joules, e.shares, e.joules_per_share), (0.0, 0, None));
+    }
+
+    #[test]
+    fn only_a_running_worker_on_work_is_given_its_own_cards_watts() {
+        let powers = [(0, 200.0), (1, 90.0)];
+        assert_eq!(metered_watts(true, true, 1, &powers), Some(90.0));
+        assert_eq!(metered_watts(true, true, 0, &powers), Some(200.0));
+        assert_eq!(
+            metered_watts(true, true, 2, &powers),
+            None,
+            "no reading for this card"
+        );
+        assert_eq!(metered_watts(false, true, 0, &powers), None, "no process");
+        assert_eq!(
+            metered_watts(true, false, 0, &powers),
+            None,
+            "running but idle"
+        );
+    }
+
+    #[test]
+    fn work_and_hash_rate_put_the_miner_on_work_and_idle_or_error_take_it_off() {
+        let mut s = MinerState::default();
+        ingest(
+            &mut s,
+            r#"{"event":"work","epoch":7,"share_reward":"1"}"#,
+            1,
+        );
+        assert!(s.in_work);
+        ingest(&mut s, r#"{"event":"idle","reason":"budget spent"}"#, 2);
+        assert!(!s.in_work, "an idle wait is not metered");
+        ingest(&mut s, r#"{"event":"hashrate","hps":1.0,"total":1}"#, 3);
+        assert!(s.in_work);
+        ingest(&mut s, r#"{"event":"error","message":"rpc down"}"#, 4);
+        assert!(!s.in_work, "an RPC outage is not metered");
+    }
+
+    fn sample_at(worker: &Worker, t_ms: u64) {
+        let mut st = lock_state(&worker.state);
+        let accepted = st.accepted;
+        st.energy
+            .as_mut()
+            .expect("GPU worker")
+            .sample(t_ms, Some(200.0), accepted);
+    }
+
+    fn metered_ms(worker: &Worker) -> u64 {
+        lock_state(&worker.state)
+            .energy
+            .as_ref()
+            .expect("GPU worker")
+            .metered_ms
+    }
+
+    #[test]
+    fn a_crash_inside_the_restart_backoff_is_not_metered() {
+        // A reading while mining at 0 s, an exit at 1 s, the next reading at
+        // 6 s (restart after the 2 s backoff): 6 s is under MAX_GAP_MS, but
+        // the downtime must not be charged at the pre-crash watts.
+        let mut gpu = Worker::new(plan(Some(0)), "gpu0".into());
+        sample_at(&gpu, 0);
+        gpu.on_exited(1_000, "gpu0", "exited (1)");
+        sample_at(&gpu, 6_000);
+        assert_eq!(metered_ms(&gpu), 0);
+        sample_at(&gpu, 9_000);
+        assert_eq!(metered_ms(&gpu), 3_000, "the new stretch starts at 6 s");
+        // A stop or a thermal hold (both halt) breaks it too.
+        gpu.halt();
+        sample_at(&gpu, 12_000);
+        assert_eq!(metered_ms(&gpu), 3_000);
     }
 
     #[test]

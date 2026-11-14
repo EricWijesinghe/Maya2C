@@ -47,6 +47,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | explorer-v2 | Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending | `apps/explorer` | none | M | W1 |
 | status-v2 | Public network status with a history of incidents and gate progress | `apps/status`, `apps/sentinel` | none | S | W1 |
 | notifications | Opt-in alerts (payment received, validator down) without a central server | `apps/hub` `notify.rs`, sentinel ntfy | privacy statement | M | W2 |
+| hub-energy-per-share | Joules per accepted share for each GPU, from `nvidia-smi power.draw`, labelled "GPU-reported, not wall-measured, unverified" (founder audit Q29 A, Eric 2026-11-14; [ADR-141](../adr/ADR-141-hub-energy-per-share.md)). **Built on `feat/hub-energy-per-share` with fixture tests; no run against a mining chain** | `apps/hub` `energy.rs`, `gpu.rs` | wall-meter calibration (costs money; Q29 B) before any figure is published as measured | S | W0 |
 
 ## B. Money and commerce
 
