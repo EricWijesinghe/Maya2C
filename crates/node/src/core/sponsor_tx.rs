@@ -157,7 +157,14 @@ pub(crate) fn decode(reader: &mut ByteReader<'_>) -> Result<Transaction> {
     let valid_until = reader.read_u64()?;
     crate::core::suite_tx::read_exact_len(reader, info.signature_len, "sponsor signature")?;
     let signature = reader.read_slice(info.signature_len)?.to_vec();
-    reader.finish()?;
+    // `finish` takes the reader by value and this one is borrowed: the same
+    // trailing-bytes refusal the v7 decoder writes out.
+    if reader.remaining() != 0 {
+        return Err(NodeError::Decode(format!(
+            "{} trailing bytes after a v13 frame",
+            reader.remaining()
+        )));
+    }
     tx.sponsor = Some(Box::new(Sponsorship {
         suite,
         public_key,

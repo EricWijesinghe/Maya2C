@@ -139,11 +139,11 @@ fn inner(db: &StateDB, form: &str, fee_output: bool) -> Transaction {
             let key = signing_key_from_seed(&[0x21; 32]).unwrap();
             fund(db, &key.address(), U256::from(FUNDS));
             let mut tx = Transaction::with_kind(
-                TxKind::Vault(VaultAction::Configure(VaultConfig {
+                TxKind::Vault(Box::new(VaultAction::Configure(VaultConfig {
                     delay_blocks: 100,
                     limit: U256::from(FUNDS),
                     guardians: vec![[0x99; 32]],
-                })),
+                }))),
                 0,
             );
             // A payload frame may carry fee outputs only (settlement's
