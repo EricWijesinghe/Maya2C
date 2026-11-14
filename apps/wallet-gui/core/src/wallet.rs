@@ -20,7 +20,7 @@ pub use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::Transaction;
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 
-use crate::confirm::{Confirmation, confirmation};
+use crate::confirm::{Confirmation, confirmation, confirmation_with};
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
 use crate::node_url::check_node_url;
@@ -112,6 +112,15 @@ impl Wallet {
         Ok(Self::from_seed(hd::seed_from_mnemonic(phrase, passphrase)?))
     }
 
+    /// The key that seals this wallet's address book. Derived from the seed,
+    /// which at rest is sealed under the vault's Argon2id passphrase key, so
+    /// the book opens only in an unlocked session and without a second
+    /// passphrase prompt per save.
+    #[must_use]
+    pub fn address_book_key(&self) -> crate::address_book::BookKey {
+        crate::address_book::BookKey::derive(self.seed.as_ref())
+    }
+
     /// Derives and remembers account `index`.
     ///
     /// # Errors
@@ -150,6 +159,10 @@ impl Wallet {
     ) -> Result<(HybridSigningKey, Transaction)> {
         let path = DerivationPath::account(0, index);
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
+        // A Bech32m recipient for another network is refused here as well as
+        // in the send form, so no frontend path can sign across networks.
+        let network = crate::networks::address_network(&hex::encode(terms.chain.as_bytes()));
+        crate::payment::decode_address_for(recipient, network)?;
         let fee_recipient = match terms.fee_to {
             Some(collector) => {
                 check_fee_collector(collector)?;
@@ -180,8 +193,32 @@ impl Wallet {
         amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<Confirmation> {
+        self.confirm_with(
+            index,
+            recipient,
+            amount,
+            terms,
+            &maya_clear_sign::Context::default(),
+        )
+    }
+
+    /// [`Wallet::confirm`], reviewed against `ctx`: the address book's
+    /// contacts and the sender's balance, so look-alike and drain warnings
+    /// reach the confirm screen. The signing hash does not depend on `ctx`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Wallet::confirm`].
+    pub fn confirm_with(
+        &mut self,
+        index: u32,
+        recipient: &str,
+        amount: primitive_types::U256,
+        terms: &SignTerms<'_>,
+        ctx: &maya_clear_sign::Context,
+    ) -> Result<Confirmation> {
         let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
-        let shown = confirmation(&tx, terms.chain);
+        let shown = confirmation_with(&tx, terms.chain, ctx);
         self.reviewed = Some(shown.signing_hash.clone());
         Ok(shown)
     }

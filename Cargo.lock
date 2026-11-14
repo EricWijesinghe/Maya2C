@@ -5433,9 +5433,9 @@ dependencies = [
 
 [[package]]
 name = "libp2p-gossipsub"
-version = "0.50.0"
+version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b625461b45e5b36facf07ff3585b831bcaf26cab8907ac8f47d1e8e999999e0"
+checksum = "6c28d7256540bd1a5df45cf6d7a7d8c58e913ad63ccfaa2f97983ec077b2794a"
 dependencies = [
  "async-channel",
  "asynchronous-codec",
@@ -6034,6 +6034,7 @@ dependencies = [
 name = "maya-clear-sign"
 version = "0.1.0"
 dependencies = [
+ "maya-address",
  "maya-amount",
 ]
 
@@ -6872,6 +6873,7 @@ dependencies = [
  "keyring",
  "maya-address",
  "maya-amount",
+ "maya-clear-sign",
  "maya-zk-stark",
  "pbkdf2",
  "primitive-types",
@@ -6883,6 +6885,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-normalization",
  "zeroize",
 ]
 
