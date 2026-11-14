@@ -1,0 +1,179 @@
+---
+// One transaction, start to finish, as one graphic: every node is a link to
+// the guide that explains that step (it replaced the six feature cards, L03).
+// The acronyms the hero leaves out live here, next to what they do.
+//
+// Two drawings of the same five links: a column for phones, a row from 1024 px.
+// The hidden one is display:none, so it is out of the tab order and the
+// accessibility tree. When the graphic scrolls into view a dot travels the
+// path once and lights each step: an illustration of the order of checks,
+// not live data, and it never runs under reduced motion.
+//
+// The finality figure is the newest committed bench (public/progress.json,
+// scripts/gen-progress.mjs), labelled as a single-machine run.
+import progress from "../../public/progress.json";
+
+const finality = (progress as { finality?: { p50_ms: number; validators: number } | null }).finality ?? null;
+const icon = {
+  sign: "M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5zM12 15v2",
+  check: "M12 3 4 6v6c0 4.4 3.4 8 8 9 4.6-1 8-4.6 8-9V6zM9 12l2 2 4-4",
+  gossip: "M4 12h4m8 0h4M8 8l4 4-4 4m8-8-4 4 4 4",
+  order: "M6 5a1.5 1.5 0 1 0 0 .01M18 5a1.5 1.5 0 1 0 0 .01M12 19a1.5 1.5 0 1 0 0 .01M6 6.5l5 11M18 6.5l-5 11M7.5 5h9",
+  final: "M5 12.5 10 17.5 19 7",
+};
+const steps = [
+  { key: "sign", title: "Sign", lines: ["ML-DSA-65 + SLH-DSA", "both over the same bytes"], href: "/guides/signatures/", tone: "teal", peek: "signatures guide" },
+  { key: "check", title: "Check", lines: ["both must verify,", "then nonce, balance, fee"], href: "/guides/transactions/", tone: "teal", peek: "transaction guide" },
+  { key: "gossip", title: "Gossip", lines: ["ML-KEM-1024, with", "ML-KEM-768 as fallback"], href: "/reference/pq-transport/", tone: "steel", peek: "transport reference" },
+  { key: "order", title: "Order", lines: ["DAG-BFT: n − f of the", "committee certify it"], href: "/guides/consensus/", tone: "bronze", peek: "consensus guide" },
+  {
+    key: "final", title: "Final", tone: "bronze",
+    // Qualified as the consensus guide states it: safety holds while at most f of n validators are faulty.
+    lines: finality ? ["holds unless over f of n", "validators are faulty;", `p50 ${finality.p50_ms.toLocaleString("en-US")} ms, one machine`] : ["holds unless over f of n", "validators are faulty;", "finality bench: MISSING"],
+    href: "/guides/consensus/#what-finality-means-here", peek: "finality section",
+  },
+];
+// The column's viewBox is 360 wide and renders at about 328 px on a 360 px phone, so its
+// 16-unit lines land at about 14.6 px: never under 14 px.
+const H = { w: 1000, h: 300, x: (i: number) => 100 + i * 200, y: 84, r: 48, ico: 1.5 };
+const V = { w: 360, h: 600, x: 48, y: (i: number) => 56 + i * 116, r: 34, ico: 1.15 };
+type Geo = typeof H | typeof V;
+// The pair of signatures as two overlapping dots at the disc's top right: they land on Sign,
+// and on Check they slide together and a tick crosses them (both verified).
+const badge = (g: Geo, cx: number, cy: number) => ({ x: cx + g.r * 0.78, y: cy - g.r * 0.78, d: g.r * 0.24 });
+---
+
+<figure class="not-content txp home-band band-txp" data-txp aria-labelledby="txp-title">
+  <figcaption>
+    <h2 id="txp-title" class="home-h2">What happens to a transaction</h2>
+    <p class="home-lede">Five steps from your wallet to a final block. Each one opens its guide.</p>
+  </figcaption>
+
+  <svg class="row" viewBox={`0 0 ${H.w} ${H.h}`} role="group" aria-label="Transaction path" style={`--travel:${H.x(4) - H.x(0)}px, 0`}>
+    <defs>
+      <linearGradient id="txp-rail-h" gradientUnits="userSpaceOnUse" x1={H.x(0)} y1={H.y} x2={H.x(4)} y2={H.y}><stop offset="0" class="s-teal" /><stop offset="1" class="s-bronze" /></linearGradient>
+    </defs>
+    <line class="rail" x1={H.x(0)} y1={H.y} x2={H.x(4)} y2={H.y} stroke="url(#txp-rail-h)" />
+    {steps.map((s, i) => {
+      const cx = H.x(i), cy = H.y, b = badge(H, cx, cy), k = 24 * H.ico / 2;
+      return (
+        <a href={s.href} class={`node tone-${s.tone}`} style={`--i:${i}`}>
+          <rect class="hit" x={cx - 96} y="6" width="192" height={H.h - 10} rx="16" />
+          <g class="bub">
+            <circle class="halo" cx={cx} cy={cy} r={H.r + 18} />
+            <circle class="disc" cx={cx} cy={cy} r={H.r} />
+            <path class="ico" d={icon[s.key as keyof typeof icon]} transform={`translate(${cx - k} ${cy - k}) scale(${H.ico})`} />
+            {s.key === "sign" && <g class="sigs" aria-hidden="true"><circle class="sig sig-a" cx={b.x - b.d} cy={b.y} r="13" /><circle class="sig sig-b" cx={b.x + b.d} cy={b.y} r="13" /></g>}
+            {s.key === "check" && <g class="verify" aria-hidden="true"><circle class="sig sig-a va" cx={b.x - b.d} cy={b.y} r="13" /><circle class="sig sig-b vb" cx={b.x + b.d} cy={b.y} r="13" /><path class="tick" d={`M${b.x - 9} ${b.y} l6 6 l12 -13`} /></g>}
+          </g>
+          <text class="t" x={cx} y={cy + 92} text-anchor="middle">{s.title}</text>
+          {s.lines.map((l, n) => <text class="l" x={cx} y={cy + 118 + n * 21} text-anchor="middle">{l}</text>)}
+          <text class="peek" x={cx} y={cy + 198} text-anchor="middle" aria-hidden="true">Open the {s.peek} →</text>
+        </a>
+      );
+    })}
+    <circle class="packet" cx={H.x(0)} cy={H.y} r="8" />
+  </svg>
+
+  <svg class="col" viewBox={`0 0 ${V.w} ${V.h}`} role="group" aria-label="Transaction path" style={`--travel:0, ${V.y(4) - V.y(0)}px`}>
+    <defs>
+      <linearGradient id="txp-rail-v" gradientUnits="userSpaceOnUse" x1={V.x} y1={V.y(0)} x2={V.x} y2={V.y(4)}><stop offset="0" class="s-teal" /><stop offset="1" class="s-bronze" /></linearGradient>
+    </defs>
+    <line class="rail" x1={V.x} y1={V.y(0)} x2={V.x} y2={V.y(4)} stroke="url(#txp-rail-v)" />
+    {steps.map((s, i) => {
+      const cx = V.x, cy = V.y(i), b = badge(V, cx, cy), k = 24 * V.ico / 2;
+      return (
+        <a href={s.href} class={`node tone-${s.tone}`} style={`--i:${i}`}>
+          <rect class="hit" x="0" y={cy - 56} width={V.w} height="112" rx="16" />
+          <g class="bub">
+            <circle class="halo" cx={cx} cy={cy} r={V.r + 12} />
+            <circle class="disc" cx={cx} cy={cy} r={V.r} />
+            <path class="ico" d={icon[s.key as keyof typeof icon]} transform={`translate(${cx - k} ${cy - k}) scale(${V.ico})`} />
+            {s.key === "sign" && <g class="sigs" aria-hidden="true"><circle class="sig sig-a" cx={b.x - b.d} cy={b.y} r="10" /><circle class="sig sig-b" cx={b.x + b.d} cy={b.y} r="10" /></g>}
+            {s.key === "check" && <g class="verify" aria-hidden="true"><circle class="sig sig-a va" cx={b.x - b.d} cy={b.y} r="10" /><circle class="sig sig-b vb" cx={b.x + b.d} cy={b.y} r="10" /><path class="tick" d={`M${b.x - 7} ${b.y} l5 5 l9 -10`} /></g>}
+          </g>
+          <text class="t" x="100" y={cy - 12}>{s.title}<tspan class="go" dx="8" aria-hidden="true">→</tspan></text>
+          {s.lines.map((l, n) => <text class="l" x="100" y={cy + 14 + n * 21}>{l}</text>)}
+        </a>
+      );
+    })}
+    <circle class="packet" cx={V.x} cy={V.y(0)} r="7" />
+  </svg>
+</figure>
+
+<script>
+  // Arm the one-shot walk only when motion is welcome; without JS, or under
+  // reduced motion, every step is simply lit.
+  const fig = document.querySelector<HTMLElement>("[data-txp]");
+  if (fig && !matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) {
+    fig.classList.add("armed");
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { fig.classList.add("run"); io.disconnect(); }
+    }, { threshold: 0.25 });
+    io.observe(fig);
+  }
+</script>
+
+<style>
+  .txp { --on-tone: var(--bg); --tick: var(--text); margin: 0; }
+  /* Light: white icons on the filled teal and bronze discs. */
+  :global([data-theme="light"]) .txp { --on-tone: var(--surface-1); --tick: var(--surface-1); }
+  figcaption { margin: 0; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .row { display: none; }
+  .col { max-width: 30rem; }
+  @media (min-width: 1024px) { .row { display: block; } .col { display: none; } }
+
+  .s-teal { stop-color: var(--accent); }
+  .s-bronze { stop-color: var(--bronze); }
+  /* userSpaceOnUse on the rail gradients: a line has a zero-height box, so a bounding-box gradient paints nothing. */
+  .rail { stroke-width: 6; stroke-linecap: round; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+
+  .node { --tone: var(--accent); cursor: pointer; outline: none; }
+  .tone-steel { --tone: color-mix(in srgb, var(--steel) 45%, var(--accent)); }
+  .tone-bronze { --tone: var(--bronze); }
+  .hit { fill: transparent; stroke: transparent; stroke-width: 2; transition: fill var(--dur-2) var(--ease); }
+  .node:hover .hit { fill: color-mix(in srgb, var(--tone) 12%, transparent); }
+  .node:focus-visible .hit { stroke: var(--accent); }
+  /* Hover or focus lifts the step and previews where it goes. */
+  .bub { transition: transform var(--dur-2) var(--ease); }
+  .node:hover .bub, .node:focus-visible .bub { transform: translateY(-6px); }
+  .halo { fill: color-mix(in srgb, var(--tone) 45%, transparent); filter: blur(10px); }
+  .disc { fill: var(--tone); stroke: color-mix(in srgb, var(--tone) 60%, var(--text)); stroke-width: 2; transition: fill-opacity .45s var(--ease); }
+  .ico { fill: none; stroke: var(--on-tone); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .t { font: var(--weight-semibold) 21px var(--font-sans); fill: var(--text); }
+  .col .t { font-size: 20px; }
+  .l { font: var(--weight-regular) 15px var(--font-sans); fill: var(--text-2); }
+  .col .l { font-size: 16px; }
+  .go { fill: var(--tone); }
+  .peek { font: var(--weight-semibold) 14px var(--font-sans); fill: var(--tone); opacity: 0; transition: opacity var(--dur-2) var(--ease); }
+  .node:hover .peek, .node:focus-visible .peek { opacity: 1; }
+  .packet { fill: var(--accent); opacity: 0; filter: drop-shadow(0 0 8px var(--accent)); }
+  /* The two signatures (ML-DSA teal, SLH-DSA bronze): they land on Sign; on Check they meet and a tick crosses both. */
+  .sig { stroke: var(--bg); stroke-width: 3; }
+  .sig-a { fill: var(--accent); }
+  .sig-b { fill: var(--bronze); }
+  .tick { fill: none; stroke: var(--tick); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 32; }
+
+  /* The one-shot walk: steps start as outlines, fill as the dot reaches them, then stay lit. */
+  .armed .disc { fill-opacity: .14; }
+  .armed .ico { stroke: var(--tone); }
+  .armed .halo, .armed .sig { opacity: 0; }
+  .armed .tick { stroke-dashoffset: 32; }
+  .armed.run .disc { fill-opacity: 1; transition-delay: calc(var(--i) * .65s); }
+  .armed.run .ico { stroke: var(--on-tone); transition: stroke .45s var(--ease) calc(var(--i) * .65s); }
+  .armed.run .halo { animation: light-halo .45s var(--ease) both; animation-delay: calc(var(--i) * .65s); }
+  .armed.run .sigs .sig { animation: land .5s var(--ease) both; }
+  .armed.run .sigs .sig-b { animation-delay: .25s; }
+  .armed.run .verify .va { animation: join-a .5s var(--ease) both; animation-delay: calc(var(--i) * .65s); }
+  .armed.run .verify .vb { animation: join-b .5s var(--ease) both; animation-delay: calc(var(--i) * .65s); }
+  .armed.run .tick { animation: draw .35s var(--ease) both; animation-delay: calc(var(--i) * .65s + .5s); }
+  .armed.run .packet { animation: travel 2.6s var(--ease) both; }
+  @keyframes light-halo { to { opacity: 1; } }
+  @keyframes land { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+  @keyframes join-a { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+  @keyframes join-b { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes travel { 0% { opacity: 1; transform: translate(0, 0); } 92% { opacity: 1; transform: translate(var(--travel)); } 100% { opacity: 0; transform: translate(var(--travel)); } }
+  @media (prefers-reduced-motion: reduce) { .bub, .peek, .hit { transition: none; } .node:hover .bub, .node:focus-visible .bub { transform: none; } }
+</style>

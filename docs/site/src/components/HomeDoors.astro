@@ -1,0 +1,66 @@
+---
+// Three doors under the hero, one per audience. Each is a whole-card link to
+// a page that works today, whatever the testnet is doing. `compact` is the
+// closing band at the foot of the page: the same doors, title and kicker only.
+interface Props { label?: string; compact?: boolean }
+const { label = "Where to start", compact = false } = Astro.props;
+const doors = [
+  {
+    kicker: "Try it", title: "Watch a signature check", tone: "teal",
+    line: "Step through both post-quantum checks in your browser.", href: "/learn/signatures-live/",
+    icon: "M12 3 4 6v6c0 4.4 3.4 8 8 9 4.6-1 8-4.6 8-9V6zM9 12l2 2 4-4",
+  },
+  {
+    kicker: "Build on it", title: "SDKs and the gateway", tone: "bronze",
+    line: "Rust, TypeScript and Python clients, and an MCP server.", href: "/reference/sdk/",
+    icon: "M8 6 2 12l6 6m8-12 6 6-6 6M14 4l-4 16",
+  },
+  {
+    kicker: "Run a node", title: "Validator guide", tone: "steel",
+    line: "Commands in order, penalties, and what gates open registration.", href: "/guides/validators/",
+    icon: "M4 5h16v5H4zM4 14h16v5H4zM8 7.5h.01M8 16.5h.01",
+  },
+];
+---
+
+<nav class:list={["not-content doors", { compact }]} aria-label={label}>
+  <ul>
+    {doors.map((d) => (
+      <li>
+        <a href={d.href} class={`door door-${d.tone}`}>
+          <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d={d.icon} /></svg></span>
+          <span class="k">{d.kicker}</span>
+          <span class="t">{d.title}</span>
+          {!compact && <span class="l">{d.line}</span>}
+          <span class="go" aria-hidden="true">→</span>
+        </a>
+      </li>
+    ))}
+  </ul>
+</nav>
+
+<style>
+  .doors { margin: var(--space-10) 0 0; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); grid-template-columns: minmax(0, 1fr); }
+  li { margin: 0; display: flex; }
+  .door { --tone: var(--accent); position: relative; flex: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-4); row-gap: var(--space-1); align-content: start; min-height: 44px; padding: var(--space-5); border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border)); border-radius: var(--r-lg); background: radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--tone) 24%, transparent), transparent 70%), linear-gradient(160deg, color-mix(in srgb, var(--tone) 12%, var(--surface-1)), var(--surface-1) 75%); color: inherit; text-decoration: none; overflow: hidden; transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
+  /* A coloured top rule per door. */
+  .door::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 20%, transparent)); }
+  .door-bronze { --tone: var(--bronze); }
+  /* Steel mixed toward teal so the third door reads as active, not disabled. */
+  .door-steel { --tone: color-mix(in srgb, var(--steel) 55%, var(--accent)); }
+  .door:hover, .door:focus-visible { border-color: var(--tone); box-shadow: 0 16px 40px -18px color-mix(in srgb, var(--tone) 75%, transparent); transform: translateY(-2px); }
+  .door:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
+  .ico { grid-row: span 3; display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--r-md); background: color-mix(in srgb, var(--tone) 22%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 40%, transparent); }
+  .ico svg { fill: none; stroke: var(--tone); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .k { font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--text); }
+  .t { font: var(--weight-semibold) var(--type-title-3-size)/1.25 var(--font-sans); letter-spacing: -0.01em; color: var(--text); }
+  .l { font-size: var(--type-body-size); line-height: 1.5; color: var(--text-2); }
+  .go { position: absolute; top: var(--space-5); right: var(--space-5); font-size: var(--type-body-lg-size); color: var(--tone); transition: transform var(--dur-2) var(--ease); }
+  .door:hover .go { transform: translateX(3px); }
+  .compact { margin: 0; }
+  .compact .door { padding: var(--space-4) var(--space-5); }
+  .compact .ico { grid-row: span 2; }
+  @media (prefers-reduced-motion: reduce) { .door, .go { transition: none; } .door:hover, .door:focus-visible { transform: none; } }
+  @media (min-width: 760px) { ul { grid-template-columns: repeat(3, minmax(0, 1fr)); } .door { grid-template-columns: minmax(0, 1fr); } .ico { grid-row: auto; margin-bottom: var(--space-2); } }
+</style>

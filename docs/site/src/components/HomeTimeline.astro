@@ -1,0 +1,79 @@
+---
+// Where the network stands, as four stops on one line. Dates come from
+// data/network-state.ts (copied from the stop report). Re-genesis and mainnet
+// carry no date: none is committed, and a guessed one would be a promise.
+import { testnet } from "../data/network-state";
+
+const run = testnet.last;
+const stops = [
+  {
+    state: "done", title: "7-day testnet run",
+    line: `${run.from} to ${run.to} · ${run.halts} ${run.halts === 1 ? "halt" : "halts"}`,
+    href: "/health/",
+  },
+  {
+    state: testnet.paused ? "now" : "done", title: testnet.paused ? "Paused" : "Restarted",
+    line: testnet.paused ? `since ${testnet.since}, on purpose` : "the testnet runs again",
+    href: "/guides/faq/#is-mainnet-live",
+  },
+  {
+    state: "next", title: "Re-genesis",
+    line: "fresh testnet genesis, no date set",
+    href: "/reference/launch-checklist/",
+  },
+  {
+    state: "next", title: "Mainnet",
+    line: "after the gates pass, no date set",
+    href: "/reference/mainnet-v1-plan/",
+  },
+];
+---
+
+<section class="not-content tl home-band band-tl" aria-labelledby="tl-title">
+  <h2 id="tl-title" class="home-h2">Where the network stands</h2>
+  <ol data-timeline>
+    {stops.map((s) => (
+      <li class={`stop stop-${s.state}`}>
+        <a href={s.href} aria-current={s.state === "now" ? "step" : undefined}>
+          <span class="pin" aria-hidden="true"></span>
+          <span class="t">{s.title}{s.state === "now" && <span class="now">You are here</span>}<span class="go" aria-hidden="true">→</span></span>
+          <span class="l">{s.line}</span>
+        </a>
+      </li>
+    ))}
+  </ol>
+</section>
+
+<style>
+  .tl { margin: 0; }
+  /* --c: the pin column's centre; every pin's centre sits 26px below its stop's top edge, so rails meet pins on one axis. */
+  ol { --c: 18px; --rail-w: 5px; --future: var(--accent); list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .stop { position: relative; margin: 0; }
+  /* Each stop draws the rail from its own pin to the next one: filled once reached, dashed teal after. */
+  .stop::before { content: ""; position: absolute; z-index: 0; left: calc(var(--c) - var(--rail-w) / 2); top: 26px; bottom: -26px; width: var(--rail-w); border-radius: var(--r-pill); background: repeating-linear-gradient(180deg, var(--future) 0 8px, transparent 8px 14px); }
+  .stop:last-child::before { display: none; }
+  .stop-done::before { background: linear-gradient(180deg, var(--accent), var(--bronze)); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent); }
+  a { position: relative; z-index: 1; display: grid; grid-template-columns: calc(var(--c) * 2) minmax(0, 1fr); column-gap: var(--space-4); align-items: start; min-height: 44px; padding: var(--space-3) var(--space-3) var(--space-5) 0; border-radius: var(--r-md); color: inherit; text-decoration: none; transition: background-color var(--dur-2) var(--ease); }
+  a:hover, a:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  a:hover .t, a:focus-visible .t { text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--accent); }
+  /* Pins: outlined teal ahead (3:1 against the page in both themes), filled once done, the current one larger and glowing. */
+  .pin { grid-row: span 2; justify-self: center; box-sizing: border-box; margin-top: 3px; width: 22px; height: 22px; border-radius: var(--r-pill); border: 3px solid var(--future); background: var(--bg); }
+  .stop-done .pin { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .stop-now .pin { margin-top: -4px; width: 36px; height: 36px; border: 4px solid var(--bronze); background: radial-gradient(circle, var(--bronze) 0 35%, color-mix(in srgb, var(--bronze) 25%, var(--bg)) 36%); box-shadow: 0 0 0 7px color-mix(in srgb, var(--bronze) 22%, transparent), 0 0 28px color-mix(in srgb, var(--bronze) 60%, transparent); }
+  .t { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font: var(--weight-semibold) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); }
+  .now { padding: 2px var(--space-2); border-radius: var(--r-pill); background: var(--bronze); color: var(--bg); font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+  .go { color: var(--accent); transition: transform var(--dur-2) var(--ease); }
+  a:hover .go { transform: translateX(3px); }
+  .l { font-size: var(--type-body-size); line-height: 1.45; color: var(--text-2); }
+
+  /* From 760 px: four columns, the pin at the left of each column and the label beside the same edge, the rail across the top. */
+  @media (min-width: 760px) {
+    ol { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .stop::before { left: var(--c); right: calc(-1 * var(--c)); top: calc(26px - var(--rail-w) / 2); bottom: auto; width: auto; height: var(--rail-w); background: repeating-linear-gradient(90deg, var(--future) 0 8px, transparent 8px 14px); }
+    .stop-done::before { background: linear-gradient(90deg, var(--accent), var(--bronze)); }
+    a { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-3) 0; }
+    .pin { grid-row: auto; justify-self: start; margin: 3px 0 var(--space-2) calc(var(--c) - 11px); }
+    .stop-now .pin { margin: -4px 0 var(--space-1) calc(var(--c) - 18px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .go, a { transition: none; } }
+</style>

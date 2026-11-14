@@ -1,143 +1,196 @@
 ---
-// The homepage hero (U3, 2026-11-13): one headline, one line, two doors. It
-// replaced the three.js committee scene and its leaning coin, which read as a
-// toy next to the developer-tool look (ADR-136).
+// The homepage hero (L03, 2026-11-14): the benefit in checkable words, one
+// line under it, two honest doors and the trust row; the emblem in a committee
+// orbit beside it. Acronyms live in the transaction graphic below, not in the
+// headline.
 //
-// Background: a CSS dot grid and two slow gradient glows (transform only, so
-// the compositor moves them and nothing repaints). A pulse runs along a grid
-// line for each REAL finalized block from the explorer's WebSocket; nothing is
-// simulated. While the testnet is paused (data/network-state.ts) the socket is
-// never opened, so the grid stays still and the chip says why.
+// Colour: the whole band is a teal-to-ink wash (the og-card treatment), with
+// the aurora glowing behind the orbit rather than in a corner. Light theme
+// gets its own warm paper wash; the emblem sits on a deep teal disc in both,
+// because the emblem artwork carries a dark smoke edge.
+//
+// Motion: once, on load, the committee seats light one by one and the ring
+// closes (an illustration of a certificate gathering votes, not live data);
+// the aurora eases into place (transform and opacity only). Nothing loops, and
+// nothing runs under reduced motion. While the testnet runs, a pulse crosses
+// the dot grid for each REAL finalized block (hero-pulses.ts, loaded only
+// then). While it is paused (data/network-state.ts) no socket opens, no canvas
+// script loads, and the chip states the finished run in bronze: a fact, not a
+// warning.
+import { Picture } from "astro:assets";
+import emblem from "../assets/emblem.png";
+import TrustStrip from "./TrustStrip.astro";
 import { testnet } from "../data/network-state";
+import { heroCtas } from "../data/home";
+
+const { primary, secondary } = heroCtas(testnet.paused);
+const halts = testnet.last.halts;
+const ended = testnet.last.to;
+// Committee seats on the orbit: decoration, not a validator count.
+const SEATS = [0, 1, 2, 3, 4, 5].map((i) => {
+  const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+  return { x: 200 + 150 * Math.cos(a), y: 200 + 150 * Math.sin(a), bronze: i % 2 === 1, i };
+});
 ---
 
 <section class="hero not-content" aria-labelledby="hero-title" data-paused={testnet.paused ? "" : undefined}>
   <div class="bg" aria-hidden="true">
-    <div class="glow glow-a"></div>
-    <div class="glow glow-b"></div>
     <div class="dots"></div>
-    <canvas class="pulses"></canvas>
+    {!testnet.paused && <canvas class="pulses"></canvas>}
   </div>
   <div class="inner">
-    <p class="chip">
-      <span class="dot" aria-hidden="true"></span>
-      {testnet.paused ? (
-        <span>Testnet paused since {testnet.since} · last block {testnet.last.height.toLocaleString("en-US")} · <a href={testnet.report}>why</a></span>
-      ) : (
-        <span>maya-testnet-1 · <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
-      )}
-    </p>
-    <h1 id="hero-title">Post-quantum <span class="nw">layer-1</span>, built in Rust.</h1>
-    <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by <span class="nw">DAG-BFT</span>. Open source, and every number on this page links to its source.</p>
-    <div class="cta">
-      <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
-      <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+    <div class="copy">
+      <p class="chip">
+        <span class="dot" aria-hidden="true"></span>
+        {testnet.paused ? (
+          <span>Pre-mainnet · <span class="nw">testnet run ended {ended},</span> <span class="nw">{halts} {halts === 1 ? "halt" : "halts"} · <a href={testnet.report}>report</a></span></span>
+        ) : (
+          <span>Pre-mainnet · maya-testnet-1 <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
+        )}
+      </p>
+      <h1 id="hero-title">Every transaction signed twice, so one broken algorithm alone cannot forge it.</h1>
+      <p class="sub">Maya2C is a post-quantum <span class="nw">layer-1</span> blockchain, written in Rust and open source.</p>
+      <div class="cta">
+        <a class="ui-btn ui-btn--primary" href={primary.href}>{primary.label}</a>
+        <a class="ui-btn ui-btn--secondary" href={secondary.href}>{secondary.label}</a>
+      </div>
     </div>
+    <div class="art" aria-hidden="true">
+      <div class="aurora aurora-teal"></div>
+      <div class="aurora aurora-bronze"></div>
+      <svg viewBox="0 0 400 400" class="orbit">
+        <defs>
+          <linearGradient id="hero-ring" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" class="stop-teal" />
+            <stop offset="1" class="stop-bronze" />
+          </linearGradient>
+          <radialGradient id="hero-seat" cx=".5" cy=".42" r=".6">
+            <stop offset="0" class="seat-in" />
+            <stop offset="1" class="seat-out" />
+          </radialGradient>
+        </defs>
+        <circle cx="200" cy="200" r="190" class="ring ring-far" />
+        {SEATS.map((s) => <line x1="200" y1="200" x2={s.x} y2={s.y} class="spoke" style={`--i:${s.i}`} />)}
+        <circle cx="200" cy="200" r="150" class="ring ring-main" pathLength="100" />
+        <circle cx="200" cy="200" r="104" class="ring ring-near" />
+        <circle cx="200" cy="200" r="98" class="seat-disc" />
+        {SEATS.map((s) => (
+          <g class={s.bronze ? "seat seat-bronze" : "seat"} style={`--i:${s.i}`}>
+            <circle cx={s.x} cy={s.y} r="16" class="seat-halo" />
+            <circle cx={s.x} cy={s.y} r="7" class="seat-dot" />
+          </g>
+        ))}
+      </svg>
+      <Picture src={emblem} formats={["avif", "webp"]} widths={[150, 300]} sizes="150px" width={150} height={150} alt="" class="emblem" loading="eager" />
+    </div>
+    <div class="trust-row"><TrustStrip /></div>
   </div>
 </section>
 
 <script>
-  import { onBlocks, fmt } from "../scripts/live";
-  import { whenIdle } from "../scripts/idle";
-
+  // Paused: nothing to show, so the canvas module is never fetched.
   const hero = document.querySelector<HTMLElement>(".hero");
-  // Paused on purpose: no socket, no pulses (the chip already says so).
-  if (hero && !hero.hasAttribute("data-paused")) {
-    const canvas = hero.querySelector<HTMLCanvasElement>(".pulses")!;
-    const ctx = canvas.getContext("2d");
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const GRID = 24; // px, matches .dots background-size
-    const LIFE_MS = 1600;
-    const pulses: { y: number; x0: number; dir: number; t0: number }[] = [];
-    let running = false;
-
-    const size = () => {
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      canvas.width = canvas.clientWidth * dpr;
-      canvas.height = canvas.clientHeight * dpr;
-      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-    const frame = (now: number) => {
-      if (!ctx) return;
-      const w = canvas.clientWidth;
-      ctx.clearRect(0, 0, w, canvas.clientHeight);
-      const color = getComputedStyle(hero).getPropertyValue("--accent").trim() || "#3bc9b5";
-      for (let i = pulses.length - 1; i >= 0; i--) {
-        const p = pulses[i], k = (now - p.t0) / LIFE_MS;
-        if (k >= 1) { pulses.splice(i, 1); continue; }
-        const head = p.x0 + p.dir * k * w * 0.6, tail = head - p.dir * 96;
-        const g = ctx.createLinearGradient(tail, 0, head, 0);
-        g.addColorStop(0, "transparent");
-        g.addColorStop(1, color);
-        ctx.globalAlpha = Math.sin(Math.PI * k) * 0.9;
-        ctx.strokeStyle = g;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(tail, p.y); ctx.lineTo(head, p.y); ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      if (pulses.length) requestAnimationFrame(frame); else running = false;
-    };
-    // One pulse per real block, along a random grid row.
-    const pulse = () => {
-      if (still || !ctx || document.hidden) return;
-      const rows = Math.max(1, Math.floor(canvas.clientHeight / GRID));
-      const dir = Math.random() < 0.5 ? 1 : -1;
-      pulses.push({ y: (1 + Math.floor(Math.random() * (rows - 1))) * GRID + 0.5, x0: dir > 0 ? 0 : canvas.clientWidth, dir, t0: performance.now() });
-      if (!running) { running = true; requestAnimationFrame(frame); }
-    };
-
-    const stateEl = hero.querySelector("[data-hero-state]")!;
-    const tipEl = hero.querySelector<HTMLElement>("[data-hero-tip]")!;
-    const heightEl = hero.querySelector("[data-hero-height]")!;
-    let seen = 0;
-    whenIdle(() => {
-      size();
-      new ResizeObserver(size).observe(canvas);
-      onBlocks((b) => {
-        if (b.height <= seen) return;
-        seen = b.height;
-        heightEl.textContent = fmt(b.height);
-        tipEl.hidden = false;
-        pulse();
-      }, (live) => {
-        stateEl.textContent = live ? "live" : "reconnecting…";
-        hero.classList.toggle("live", live);
-      });
-    });
-  }
+  if (hero && !hero.hasAttribute("data-paused")) import("./hero-pulses").then((m) => m.mountPulses(hero));
+  // The one-shot seat walk only when motion is welcome; otherwise every seat is simply lit.
+  if (hero && !matchMedia("(prefers-reduced-motion: reduce)").matches) hero.classList.add("armed");
 </script>
 
 <style>
-  /* Full-bleed band; the copy sits in the page column. */
-  .hero { position: relative; isolation: isolate; width: 100vw; margin: 0 0 0 calc(50% - 50vw); padding: var(--space-24) var(--gutter) var(--space-20); overflow: hidden; border-bottom: 1px solid var(--border); }
+  /* Full-bleed band; the copy sits in the same column as the page below. */
+  .hero {
+    --ink: var(--bg);
+    --wash-1: color-mix(in srgb, var(--accent) 30%, var(--ink));
+    --wash-2: color-mix(in srgb, var(--accent) 12%, var(--ink));
+    position: relative; isolation: isolate; width: 100vw; margin: 0 0 0 calc(50% - 50vw);
+    padding: var(--space-8) var(--sl-content-pad-x, var(--gutter)) var(--space-12);
+    overflow: hidden;
+    --hero-bg:
+      radial-gradient(90% 70% at 100% 0%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+      radial-gradient(70% 60% at 0% 100%, color-mix(in srgb, var(--bronze) 16%, transparent), transparent 70%),
+      linear-gradient(165deg, var(--wash-1) 0%, var(--wash-2) 55%, transparent 100%);
+  }
+  /* The page below keeps a perceptible tint, so the hero does not end in a flat black slab; each section adds its own band (maya.css .home-band). */
+  :global(body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--bg)) 0, color-mix(in srgb, var(--accent) 6%, var(--bg)) 60rem, color-mix(in srgb, var(--bronze) 8%, var(--bg)) 100%); }
+  /* Light: clean paper with one confident teal-to-mint band and a separate bronze corner, so the two never mix to grey. */
+  :global([data-theme="light"] body:has(.hero)) { background: var(--bg); }
+  :global([data-theme="light"]) .hero {
+    --ink: var(--text);
+    --hero-bg:
+      radial-gradient(45% 55% at 100% 100%, color-mix(in srgb, var(--bronze) 22%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--accent) 26%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent) 10%, var(--surface-1)) 50%, var(--surface-1) 100%);
+  }
   .bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+  /* The wash fades into the page tint instead of ending on a hard edge. */
+  .bg::before { content: ""; position: absolute; inset: 0; background: var(--hero-bg); -webkit-mask-image: linear-gradient(180deg, black 65%, transparent); mask-image: linear-gradient(180deg, black 65%, transparent); }
   .dots, .pulses { position: absolute; inset: 0; width: 100%; height: 100%; }
   .dots {
-    background-image: radial-gradient(circle at 1px 1px, var(--border-strong) 1px, transparent 0);
+    background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 30%, transparent) 1px, transparent 0);
     background-size: 24px 24px;
-    -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 40%, #000 30%, transparent 75%);
-    mask-image: radial-gradient(ellipse 70% 80% at 50% 40%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 80% at 70% 40%, black 20%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 80% at 70% 40%, black 20%, transparent 75%);
   }
-  .glow { position: absolute; width: 56rem; height: 36rem; border-radius: 50%; opacity: .5; will-change: transform; }
-  .glow-a { top: -18rem; left: 50%; margin-left: -40rem; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent); animation: drift-a 26s var(--ease) infinite alternate; }
-  .glow-b { top: -10rem; left: 50%; margin-left: -12rem; background: radial-gradient(closest-side, color-mix(in srgb, var(--steel) 18%, transparent), transparent); animation: drift-b 32s var(--ease) infinite alternate; }
-  @keyframes drift-a { to { transform: translate3d(8rem, 3rem, 0); } }
-  @keyframes drift-b { to { transform: translate3d(-10rem, 4rem, 0); } }
-  :global([data-theme="light"]) .glow { opacity: .8; }
 
-  .inner { max-width: 48rem; margin: 0 auto; text-align: center; }
-  .chip { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-1); font: var(--type-mono-weight) var(--type-body-sm-size)/1.4 var(--font-mono); color: var(--text-2); }
-  .chip b { font-weight: var(--weight-medium); color: var(--text); }
-  .chip a { color: var(--accent-text); }
-  .dot { flex: none; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--warn); }
-  .hero.live .dot { background: var(--success); }
-  h1 { margin: var(--space-6) 0 var(--space-4); font: var(--type-display-1-weight) clamp(var(--type-display-1-size-phone), 5.4vw, 64px)/1.08 var(--type-display-1-font); letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
+  .inner { max-width: var(--sl-content-width, var(--content-max)); margin: 0 auto; display: grid; gap: var(--space-6); align-items: center; }
+  .copy { min-width: 0; }
+  .hero .chip { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--bronze) 50%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 14%, var(--surface-1)); font-size: var(--type-body-size); line-height: 1.4; color: var(--text); }
+  .chip b { font-weight: var(--weight-semibold); }
+  .chip a { color: var(--text); font-weight: var(--weight-semibold); text-decoration-color: var(--bronze); text-underline-offset: 3px; }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 25%, transparent); }
+  .hero.live .dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
+  h1 { margin: var(--space-5) 0 var(--space-4); max-width: 22ch; font: 700 clamp(2rem, 1.25rem + 3.4vw, 3.5rem)/1.1 var(--type-display-1-font); letter-spacing: -0.02em; color: var(--text); text-wrap: balance; }
   .nw { white-space: nowrap; }
-  .sub { margin: 0 auto; max-width: 40rem; font-size: var(--type-body-lg-size); line-height: var(--line-body); color: var(--text-2); text-wrap: pretty; }
-  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); margin-top: var(--space-8); }
-  .cta .ui-btn { height: 40px; padding: 0 var(--space-5); text-decoration: none; }
-  .cta .ui-btn--primary { color: var(--on-accent); }
+  .sub { margin: 0; max-width: 36rem; font-size: clamp(18px, 16px + .5vw, 20px); line-height: 1.5; color: var(--text-2); text-wrap: pretty; }
+  .cta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-6); }
+  /* Full-width thumbs on a phone, side by side once there is room. */
+  .cta .ui-btn { flex: 1 1 13rem; min-height: 48px; padding: 0 var(--space-6); font-size: var(--type-body-lg-size); text-decoration: none; }
+  .cta .ui-btn--primary { color: var(--on-accent); box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--accent) 80%, transparent); }
   .cta .ui-btn--secondary { color: var(--text); }
-  @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
-  @media (max-width: 640px) { .hero { padding-block: var(--space-16) var(--space-12); } .chip { text-align: left; } }
+  .trust-row { min-width: 0; }
+
+  /* The orbit: on a phone it follows the buttons, so chip, headline and the primary button fit a 360x640 screen; sized from the column so it never pushes the page wider. */
+  .art { position: relative; justify-self: center; width: min(56vw, 12rem); aspect-ratio: 1; margin-block: var(--space-2); }
+  .orbit { position: relative; width: 100%; height: 100%; overflow: visible; }
+  .aurora { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
+  .aurora-teal { inset: -30%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 50%, transparent), transparent); }
+  .aurora-bronze { inset: -10% -40% -40% -10%; background: radial-gradient(closest-side, color-mix(in srgb, var(--bronze) 30%, transparent), transparent); }
+  :global([data-theme="light"]) .aurora-teal { opacity: .6; }
+  /* Light: the bronze lives in the corner wash and the ring, not over the teal glow, where it turned muddy. */
+  :global([data-theme="light"]) .aurora-bronze { display: none; }
+  .stop-teal { stop-color: var(--accent); }
+  .stop-bronze { stop-color: var(--bronze); }
+  .seat-in { stop-color: color-mix(in srgb, var(--accent) 34%, var(--ink)); }
+  .seat-out { stop-color: color-mix(in srgb, var(--accent) 10%, var(--ink)); }
+  .seat-disc { fill: url(#hero-seat); stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1.5; }
+  .ring { fill: none; }
+  .ring-main { stroke: url(#hero-ring); stroke-width: 3; }
+  .ring-far { stroke: color-mix(in srgb, var(--accent) 28%, transparent); stroke-width: 1; stroke-dasharray: 2 8; }
+  .ring-near { stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1; }
+  .spoke { stroke: color-mix(in srgb, var(--accent) 30%, transparent); stroke-width: 1; }
+  .seat-halo { fill: color-mix(in srgb, var(--accent) 24%, transparent); }
+  .seat-dot { fill: var(--accent); }
+  .seat-bronze .seat-halo { fill: color-mix(in srgb, var(--bronze) 28%, transparent); }
+  .seat-bronze .seat-dot { fill: var(--bronze); }
+  .art :global(.emblem) { position: absolute; top: 50%; left: 50%; width: 37.5%; height: auto; transform: translate(-50%, -50%); border-radius: 50%;
+    /* A teal frame seats the dark-edged emblem in the orbit instead of leaving it a pasted disc on pale paper. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent), 0 0 0 9px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 48px color-mix(in srgb, var(--accent) 55%, transparent); }
+
+  /* One-shot motion, armed by the script only when motion is welcome. */
+  .armed .aurora { animation: settle 1.6s var(--ease) both; }
+  .armed .aurora-bronze { animation-delay: .15s; }
+  .armed .seat { animation: seat-in .5s var(--ease) both; animation-delay: calc(.35s + var(--i) * .18s); }
+  .armed .spoke { animation: fade-in .5s var(--ease) both; animation-delay: calc(.35s + var(--i) * .18s); }
+  .armed .ring-main { stroke-dasharray: 100; animation: close-ring 1.4s var(--ease) .3s both; }
+  @keyframes settle { from { opacity: 0; transform: translate3d(1.5rem, -1rem, 0) scale(.9); } to { opacity: 1; transform: none; } }
+  @keyframes seat-in { from { opacity: .15; } to { opacity: 1; } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes close-ring { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+
+  @media (min-width: 640px) { .cta .ui-btn { flex: 0 0 auto; } }
+  @media (min-width: 960px) {
+    .hero { padding-block: var(--space-16) var(--space-12); }
+    .inner { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); column-gap: var(--space-10); }
+    .art { width: min(100%, 24rem); margin: 0; }
+    .trust-row { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .armed .aurora, .armed .seat, .armed .spoke, .armed .ring-main { animation: none; } }
 </style>

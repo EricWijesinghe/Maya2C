@@ -218,7 +218,9 @@ const quick = [
   }
   @media (max-width: 50rem) {
     .cmdk-trigger { width: var(--control-h); padding: 0; justify-content: center; }
-    .cmdk-trigger__label, .cmdk-trigger__kbd { display: none; }
+    /* The label stays in the accessibility tree (the button's name comes from its visible text, so no aria-label can disagree with it). */
+    .cmdk-trigger__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .cmdk-trigger__kbd { display: none; }
   }
 
   .cmdk {

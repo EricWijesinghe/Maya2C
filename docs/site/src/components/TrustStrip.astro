@@ -1,36 +1,50 @@
 ---
-// What a reviewer checks first: the licence, the audit state said plainly,
-// and the proof counts from proof-ratchet.txt (CI fails if one falls, ADR-078
-// O3), as this build read them (public/progress.json).
-import SourceTip from "./SourceTip.astro";
+// The slim trust row under the hero buttons: what a reviewer checks first.
+// Gates and proof counts are the numbers this build read into
+// public/progress.json (gates from docs/mainnet-v1-plan.md, proofs from
+// proof-ratchet.txt, which CI refuses to let fall: ADR-078 O3). A count the
+// build could not read says MISSING; it is never hidden or guessed. The audit
+// state stays visible in every network state.
 import progress from "../../public/progress.json";
 
 const repo = "https://github.com/EricWijesinghe/Maya2C";
-const p = (progress as { proofs?: Record<string, number> | null }).proofs ?? {};
-const ratchet = `${repo}/blob/master/proof-ratchet.txt`;
-const counts = [
-  { n: p.kani_harnesses, label: "Kani proofs" },
-  { n: p.conformance_vectors, label: "Conformance vectors" },
-  { n: p.fuzz_targets, label: "Fuzz targets" },
-  { n: p.exploit_replays, label: "Exploit replays" },
-].filter((c) => typeof c.n === "number");
+const p = progress as { gates?: { met: number; total: number }; proofs?: Record<string, number> | null };
+const n = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : "MISSING");
+const gates = p.gates ? `${p.gates.met} / ${p.gates.total}` : "MISSING";
+const proofs = p.proofs ?? {};
+const items = [
+  { value: gates, label: "mainnet gates met", href: "/reference/mainnet-v1-plan/" },
+  { value: n(proofs.kani_harnesses), label: "Kani proofs", href: `${repo}/blob/master/proof-ratchet.txt` },
+  { value: n(proofs.conformance_vectors), label: "conformance vectors", href: `${repo}/blob/master/proof-ratchet.txt` },
+  { value: "Apache-2.0", label: "open source", href: repo },
+];
 ---
 
-<section class="not-content trust" aria-label="Trust">
-  <a class="item" href={repo}><span class="k">Open source</span><span class="v">Apache-2.0, on GitHub</span></a>
-  <a class="item" href="/guides/faq/#is-the-code-open-source-and-is-it-audited"><span class="k">External audit</span><span class="v"><span class="ui-pill ui-pill--warn">pending</span></span></a>
-  {counts.map((c) => (
-    <a class="item" href={ratchet}><span class="k">{c.label}</span><span class="v">{c.n!.toLocaleString("en-US")}</span></a>
+<ul class="trust" aria-label="Project facts">
+  <li class="audit-item"><a class="audit" href="/guides/faq/#is-the-code-open-source-and-is-it-audited"><span class="mark" aria-hidden="true"></span>External audit pending</a></li>
+  {items.map((i) => (
+    <li><a href={i.href}><b>{i.value}</b> {i.label}</a></li>
   ))}
-  <p class="src">Counts: <code>proof-ratchet.txt</code> at build time <SourceTip text="cargo xtask proof-ratchet --check fails CI if any count falls (ADR-078 O3)" href={ratchet} /></p>
-</section>
+</ul>
 
 <style>
-  .trust { display: flex; flex-wrap: wrap; gap: 1px; margin: var(--space-16) 0 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--border); overflow: hidden; }
-  .item { flex: 1 1 9rem; display: grid; gap: var(--space-1); padding: var(--space-4) var(--space-5); background: var(--surface-1); color: inherit; text-decoration: none; transition: background-color var(--dur-2) var(--ease); }
-  .item:hover { background: var(--surface-2); }
-  .k { font-size: var(--type-body-sm-size); color: var(--text-2); }
-  .v { font: var(--weight-semibold) var(--type-body-lg-size)/1.3 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--text); }
-  .src { flex: 1 1 100%; margin: 0; padding: var(--space-2) var(--space-5); display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; background: var(--surface-1); font-size: var(--type-body-sm-size); color: var(--text-2); }
-  .src code { font: var(--type-body-sm-size) var(--font-mono); }
+  /* Phone: the audit pill on its own row, then a two-column grid. From 960 px: one line. */
+  .trust { list-style: none; margin: var(--space-6) 0 0; padding: var(--space-4) 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1) var(--space-4); align-items: center; }
+  .trust li { margin: 0; min-width: 0; }
+  .audit-item { grid-column: 1 / -1; }
+  .trust a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0; font-size: var(--type-body-sm-size); color: var(--text-2); text-decoration: none; transition: color var(--dur-1) var(--ease); }
+  .trust a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
+  /* Phone: every fact the same shape, value over label, in a 2x2 grid. */
+  .trust li:not(.audit-item) a { flex-direction: column; align-items: flex-start; gap: 0; padding-block: var(--space-1); }
+  .trust b { font-size: var(--type-body-lg-size); }
+  .trust b { white-space: nowrap; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--text); }
+  .audit { padding: 0 var(--space-4) !important; border: 1px solid color-mix(in srgb, var(--bronze) 55%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 12%, transparent); color: var(--text) !important; font-weight: var(--weight-semibold); }
+  .mark { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 22%, transparent); }
+  @media (min-width: 960px) {
+    .trust { display: flex; flex-wrap: nowrap; gap: var(--space-6); }
+    .audit-item { margin-inline-end: var(--space-2); }
+    .trust a { white-space: nowrap; }
+    .trust li:not(.audit-item) a { flex-direction: row; align-items: center; gap: var(--space-1); }
+    .trust b { font-size: inherit; }
+  }
 </style>

@@ -1,21 +1,21 @@
 ---
-// The questions people ask before they mine, answered plainly. No script:
-// <details> opens and closes on its own. Every answer links to its proof.
+// The questions people ask before they start, answered plainly: two on
+// mining, two on wallet safety, two on audit and post-quantum. No script:
+// <details> opens and closes on its own. Every answer links to its source.
 const faq = [
-  { q: "Will it harm my computer?", a: "It is a normal program using your GPU, like a game. It runs only while you run it, shows every setting, and stops when you close it. Your card gets warm, so watch temperatures as you would in a game.", href: "/guides/start-mining/#safety" },
-  { q: "Does anything run hidden?", a: "No. Mining is opt-in and visible: nothing starts on its own, nothing runs in the background after you stop it, and the source is public to check.", href: "/guides/start-mining/#safety" },
-  { q: "Will I make money?", a: "Nobody can promise that, and we do not. Testnet coins have no value, and no token is for sale. Mining costs electricity, which costs real money.", href: "/guides/start-mining/#what-to-expect" },
-  { q: "Are there hidden fees?", a: "The miner is free and open source, with no built-in fee. A mining pool, if you join one, sets its own fee. Transactions on the chain pay a network fee, which the wallet adds for you.", href: "/guides/api/" },
-  { q: "Has it been audited?", a: "Not externally yet, and the site says so wherever it matters. The project's own reviews, fuzzing and model checks are published, and mainnet launches labelled \"external audit pending\".", href: "/guides/faq/#is-the-code-open-source-and-is-it-audited" },
-  { q: "Is \"post-quantum\" real or marketing?", a: "Real standards: ML-DSA (FIPS 204) and SLH-DSA (FIPS 205), published by NIST in 2024. Every transaction carries both, so forging one means breaking both.", href: "/guides/signatures/" },
-  { q: "Is my key safe?", a: "Your payout key is a file on your own disk; it never leaves your machine. Keep it out of shared folders and backups other people can read.", href: "/guides/start-mining/#safety" },
+  { topic: "Mining", q: "Will mining harm my computer?", a: "It is a normal program using your GPU, like a game. It runs only while you run it, shows every setting, and stops when you close it. Your card gets warm, so watch temperatures as you would in a game.", href: "/guides/start-mining/#safety" },
+  { topic: "Mining", q: "Will I make money?", a: "Nobody can promise that, and we do not. Testnet coins have no value, and no token is for sale. Mining costs electricity, which costs real money.", href: "/guides/start-mining/#what-to-expect" },
+  { topic: "Wallet", q: "Where are my keys kept?", a: "In an encrypted file on your own device: both secret keys, sealed with ChaCha20-Poly1305 under a password stretched by Argon2id. The gateway never holds them. Anyone with the file and its password can sign as you, so share neither.", href: "/guides/wallet/#the-keystore" },
+  { topic: "Wallet", q: "How do I know a download is genuine?", a: "Each release lists SHA256SUMS and a build attestation tied to the commit it came from. Windows and macOS code signing is still pending, so your system may warn about an unknown publisher; compare the checksum first.", href: "/guides/code-signing-policy/" },
+  { topic: "Audit", q: "Has it been audited?", a: "Not externally yet, and the site says so wherever it matters. The project's own reviews, fuzzing and model checks are published, and mainnet launches labelled \"external audit pending\".", href: "/guides/faq/#is-the-code-open-source-and-is-it-audited" },
+  { topic: "Post-quantum", q: "Is \"post-quantum\" real or marketing?", a: "Real standards: ML-DSA (FIPS 204) and SLH-DSA (FIPS 205), published by NIST in 2024. Every transaction carries both, so forging one means breaking both.", href: "/guides/signatures/" },
 ];
 ---
 
 <div class="not-content ff">
   {faq.map((f) => (
     <details class="ff-item">
-      <summary>{f.q}</summary>
+      <summary><span class="q">{f.q}</span><span class="topic">{f.topic}</span></summary>
       <p>{f.a} <a href={f.href}>Read more</a></p>
     </details>
   ))}
@@ -25,11 +25,14 @@ const faq = [
   /* One bordered list, hairline between rows; the marker turns, nothing bounces. */
   .ff { margin: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
   .ff-item + .ff-item { border-top: 1px solid var(--border); }
-  .ff-item summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: 48px; padding: var(--space-3) var(--space-5); cursor: pointer; list-style: none; font: var(--weight-medium) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); transition: background-color var(--dur-1) var(--ease); }
+  .ff-item summary { display: flex; align-items: center; gap: var(--space-3); min-height: 52px; padding: var(--space-3) var(--space-5); cursor: pointer; list-style: none; font: var(--weight-medium) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); transition: background-color var(--dur-1) var(--ease); }
   .ff-item summary::-webkit-details-marker { display: none; }
+  .q { flex: 1; min-width: 0; }
+  .topic { flex: none; font: var(--weight-medium) var(--type-label-size)/1 var(--font-sans); letter-spacing: .04em; color: var(--text-2); }
   .ff-item summary::after { content: ""; flex: none; width: 8px; height: 8px; border-right: 1.5px solid var(--text-2); border-bottom: 1.5px solid var(--text-2); transform: rotate(45deg); transition: transform var(--dur-2) var(--ease); }
   .ff-item[open] summary::after { transform: rotate(225deg); }
   .ff-item summary:hover { background: var(--surface-2); }
   .ff-item p { margin: 0; padding: 0 var(--space-5) var(--space-5); max-width: 72ch; color: var(--text-2); font-size: var(--type-body-size); line-height: 1.6; }
   .ff-item a { color: var(--accent-text); }
+  @media (max-width: 480px) { .topic { display: none; } }
 </style>
