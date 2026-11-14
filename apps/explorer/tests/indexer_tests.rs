@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use custom_l1_node::rpc::{BlockInfo, HeaderInfo};
+use maya_address::Network;
 use maya_explorer::error::Result;
 use maya_explorer::indexer::{BlockSource, IndexEvent, Indexer, RETAINED_START_BEHIND};
 use maya_explorer::model::{IndexedBlock, average_block_time, estimate_hashrate};
@@ -674,15 +675,29 @@ async fn each_indexed_transaction_carries_its_clear_sign_explanation() {
     let store = Arc::new(MemoryStore::new());
     chain.push(0, 0, 1);
     indexer_from(&chain, &store)
+        .with_network(Network::Testnet)
         .sync_once()
         .await
         .expect("sync");
 
     let tx = &store.transactions_in_block(0).await.expect("query")[0];
-    assert!(
-        tx.explanation
-            .contains("Send 100 base units of the native coin to bbbb…bbbb"),
-        "{}",
-        tx.explanation
+    let want = format!(
+        "Send 100 base units of the native coin to {}",
+        maya_clear_sign::grouped(Network::Testnet, &[0xbb; 32])
     );
+    assert!(tx.explanation.contains(&want), "{}", tx.explanation);
+}
+
+#[tokio::test]
+async fn an_indexer_with_no_network_writes_devnet_text() {
+    let chain = StubChain::new();
+    let store = Arc::new(MemoryStore::new());
+    chain.push(0, 0, 1);
+    indexer_from(&chain, &store)
+        .sync_once()
+        .await
+        .expect("sync");
+
+    let tx = &store.transactions_in_block(0).await.expect("query")[0];
+    assert!(tx.explanation.contains("to dmaya1 "), "{}", tx.explanation);
 }

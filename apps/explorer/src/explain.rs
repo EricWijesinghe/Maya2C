@@ -13,7 +13,7 @@
 //! on an indexed transaction are verified ones.
 
 use custom_l1_node::rpc::TransactionInfo;
-use maya_clear_sign::{Effect, render};
+use maya_clear_sign::{Effect, Network, render};
 
 use crate::model::{IndexedBlock, IndexedTx};
 use crate::ui::short_hash;
@@ -70,9 +70,9 @@ fn signatures(tx: &TransactionInfo) -> String {
         .to_string()
 }
 
-/// One paragraph explaining `tx`.
+/// One paragraph explaining `tx`, recipients in Bech32m on `network`.
 #[must_use]
-pub fn explain_tx(tx: &TransactionInfo) -> String {
+pub fn explain_tx(tx: &TransactionInfo, network: Network) -> String {
     // A payload kind (tokens, NFTs, names, schedules, ...) moves value through
     // its payload, not its outputs: the node's own sentence and its labelled
     // values say what it does; the outputs alone would read "moved no value".
@@ -98,7 +98,11 @@ pub fn explain_tx(tx: &TransactionInfo) -> String {
     let moves = if effects.is_empty() {
         "moved no value".to_string()
     } else {
-        effects.iter().map(render).collect::<Vec<_>>().join("; ")
+        effects
+            .iter()
+            .map(|e| render(e, network))
+            .collect::<Vec<_>>()
+            .join("; ")
     };
     let skipped = match unreadable {
         0 => String::new(),
@@ -177,19 +181,22 @@ mod tests {
     fn a_transfer_uses_the_clear_sign_words() {
         let bob = "b0".to_string() + &"00".repeat(30) + "0b";
         let t = tx(vec![(&bob, 5)], true);
-        let want = render(&Effect::Transfer {
-            token: NATIVE,
-            to: <[u8; 32]>::try_from(hex::decode(&bob).unwrap()).unwrap(),
-            amount: maya_amount::Amount::from_u64(5),
-        });
+        let want = render(
+            &Effect::Transfer {
+                token: NATIVE,
+                to: <[u8; 32]>::try_from(hex::decode(&bob).unwrap()).unwrap(),
+                amount: maya_amount::Amount::from_u64(5),
+            },
+            Network::Testnet,
+        );
         assert_eq!(
-            explain_tx(&t),
+            explain_tx(&t, Network::Testnet),
             format!(
                 "5ad1a05a…a0beef signed: {want}. Fee: not reported by the node. \
                  Both signatures (ML-DSA-65 and SLH-DSA) attached, verified when the block was accepted."
             )
         );
-        assert!(want.contains("Send 5 base units of the native coin to b000…000b"));
+        assert!(want.starts_with("Send 5 base units of the native coin to tmaya1"));
     }
 
     #[test]
@@ -199,7 +206,7 @@ mod tests {
         let (effects, unreadable) = effects(&t);
         assert_eq!(effects.len(), 2);
         assert_eq!(unreadable, 1);
-        let text = explain_tx(&t);
+        let text = explain_tx(&t, Network::Devnet);
         assert!(text.contains("Send 1 base units"), "{text}");
         assert!(text.contains("; Send 3 base units"), "{text}");
         assert!(text.contains("1 output(s) had a recipient the explorer could not read."));
@@ -210,14 +217,17 @@ mod tests {
         let mut t = tx(vec![(&"22".repeat(32), 0)], true);
         t.outputs[0].amount =
             U256::from_dec_str("340282366920938463463374607431768211456").unwrap();
-        assert!(explain_tx(&t).contains("Send 340282366920938463463374607431768211456 base units"));
+        assert!(
+            explain_tx(&t, Network::Devnet)
+                .contains("Send 340282366920938463463374607431768211456 base units")
+        );
     }
 
     #[test]
     fn signatures_say_what_is_attached() {
         let mut t = tx(Vec::new(), false);
         assert!(
-            explain_tx(&t).ends_with(
+            explain_tx(&t, Network::Devnet).ends_with(
                 "moved no value. Fee: not reported by the node. No signature is attached."
             )
         );
@@ -227,7 +237,7 @@ mod tests {
             public_key: String::new(),
         });
         assert!(
-            explain_tx(&t)
+            explain_tx(&t, Network::Devnet)
                 .ends_with("Signed with suite 0x11, verified when the block was accepted.")
         );
         t.multisig = Some(MultisigInfo {
@@ -241,7 +251,10 @@ mod tests {
             ],
             approved_by: vec![0, 2],
         });
-        assert!(explain_tx(&t).contains("2 of 3 multisig approvals attached (2 required)"));
+        assert!(
+            explain_tx(&t, Network::Devnet)
+                .contains("2 of 3 multisig approvals attached (2 required)")
+        );
     }
 
     #[test]
@@ -277,7 +290,7 @@ mod tests {
         ];
         for kind in kinds {
             let info = TransactionInfo::from(&Transaction::with_kind(kind, 0));
-            let text = explain_tx(&info);
+            let text = explain_tx(&info, Network::Devnet);
             assert!(text.contains(&info.summary), "{text}");
             assert!(!text.contains("moved no value"), "{text}");
             // The full address is in the details, never only its short form.
@@ -293,7 +306,7 @@ mod tests {
             max_fee: U256::from(12_000),
             valid_until: 9,
         });
-        let text = explain_tx(&t);
+        let text = explain_tx(&t, Network::Devnet);
         assert!(
             text.contains("Fee: paid by sponsor 5b5b5b5b…5b5b5b, at most 12,000 base units."),
             "{text}"
