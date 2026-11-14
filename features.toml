@@ -2652,6 +2652,28 @@ tests = ["crates/node/tests/asset_mint_tests.rs", "crates/node/tests/asset_confo
 note = "ADR-135 P-1 (PROPOSED), post-genesis on postgen/v4. Off: feature bit 41, ASSET_MINT_ACTIVATION_HEIGHT = u64::MAX until the v4 schedule entry names it. Tags 55-58, record v2 (136 B) under d:asset:. AssetRegistrationFee (governance tag 11) defaults to zero: Eric answered O-2 on 2026-11-12 (bytes only, any fee burned). V4_VERSION and the SUPPORTED_PROTOCOL_VERSION rise are not assigned in this change."
 
 [[subsystem]]
+id = "unique-assets"
+name = "Unique assets: collections and items (v4 P-2)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/state/nft.rs`, `crates/node/src/core/nft_payload.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/nft_tests.rs", "crates/node/tests/nft_conformance.rs", "crates/node/tests/v4_redteam_names_nfts.rs"]
+note = "ADR-135 P-2 (PROPOSED), post-genesis. Off: feature bit 42, NFT_ACTIVATION_HEIGHT = u64::MAX until a schedule entry names it. Tags 59-62, prefix n: (StateLayer::Nft, appended). Hash-only metadata (ADR-104). Replay tests written before the code; not compiled locally (CI-first). Fuzz target over the decoders not yet written. No royalty, no sale (cut to v5)."
+
+[[subsystem]]
+id = "names-commit-reveal"
+name = "Names with commit-reveal (v4 P-3)"
+domain = "Security and macro engines"
+paths = "`crates/node/src/state/names.rs`, `crates/node/src/core/name_payload.rs`, `crates/governance/src/params.rs` (NameBaseFee3/4/5, NameReservedLabels)"
+tier = "core"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/node/tests/names_tests.rs", "crates/node/tests/names_conformance.rs", "crates/node/tests/v4_redteam_names_nfts.rs"]
+note = "ADR-135 P-3 (PROPOSED), post-genesis. Off: feature bit 43, NAMES_ACTIVATION_HEIGHT = u64::MAX. Tags 63-66, prefix nm: (StateLayer::Names, appended). Commit-reveal with MIN_COMMIT_AGE 60 and MAX_COMMIT_AGE 86400. Name fees are governed: 3/4-byte proposed defaults, 5+ = 1/100 of the 4-byte fee, non-zero (Eric 2026-11-12, O-3). Stale commitments pruned at end of block through the nm:x: expiry index, at most 1,024 per block with carry-over (M-11). maya2c held by the governed NameReservedLabels bit set (tag 15), released only by a passed proposal. Own breaker modules Nft (14) and Names (15), state layers 19 and 20 (13 and 18 reserved for #447); renewals never halted. Not built: stealth meta-addresses (ADR-102 encoding), attacknet censorship scenario. Replay tests written before the code; CI-first, not compiled locally."
+
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"

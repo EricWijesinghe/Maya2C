@@ -570,6 +570,12 @@ pub enum TxKind {
     /// [`crate::core::asset_mint_payload`] and ADR-135 P-1. Dark until
     /// feature bit 41 activates.
     AssetMint(crate::core::asset_mint_payload::AssetMintAction),
+    /// A unique-asset collection or item form (tags 59-62) — see
+    /// [`crate::core::nft_payload`] and ADR-135 P-2. Dark until feature bit 42.
+    Nft(crate::core::nft_payload::NftAction),
+    /// A name commit, register, renew or update (tags 63-66) — see
+    /// [`crate::core::name_payload`] and ADR-135 P-3. Dark until feature bit 43.
+    Name(crate::core::name_payload::NameAction),
 }
 
 impl TxKind {
@@ -638,6 +644,8 @@ impl TxKind {
             Self::Vault(_) => "vault",
             Self::MiningShare(_) => "mining_share",
             Self::AssetMint(action) => action.label(),
+            Self::Nft(action) => action.label(),
+            Self::Name(action) => action.label(),
         }
     }
 
@@ -869,6 +877,10 @@ impl TxKind {
             }
             // The action writes its own tag (55-58).
             Self::AssetMint(action) => action.encode_into(buf),
+            // The action writes its own tag (59-62).
+            Self::Nft(action) => action.encode_into(buf),
+            // The action writes its own tag (63-66).
+            Self::Name(action) => action.encode_into(buf),
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -1003,6 +1015,14 @@ impl TxKind {
             crate::core::asset_mint_payload::TAG_REGISTER_CAPPED_ASSET
                 ..=crate::core::asset_mint_payload::TAG_RENOUNCE_MINT => Ok(Self::AssetMint(
                 crate::core::asset_mint_payload::AssetMintAction::decode(tag, reader)?,
+            )),
+            crate::core::nft_payload::TAG_CREATE_COLLECTION
+                ..=crate::core::nft_payload::TAG_BURN_ITEM => Ok(Self::Nft(
+                crate::core::nft_payload::NftAction::decode(tag, reader)?,
+            )),
+            crate::core::name_payload::TAG_COMMIT_NAME
+                ..=crate::core::name_payload::TAG_UPDATE_NAME => Ok(Self::Name(
+                crate::core::name_payload::NameAction::decode(tag, reader)?,
             )),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"

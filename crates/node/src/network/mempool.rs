@@ -367,11 +367,11 @@ impl Mempool {
         crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
         // The same activation check the executor makes (ADR-135), at the
         // first height this transaction could land at.
-        crate::state::asset_mint::require_active(
-            &tx.kind,
-            crate::state::BlockContext::at_height(height)
-                .with_features(self.state.effective_schedule()?.features()),
-        )?;
+        let context = crate::state::BlockContext::at_height(height)
+            .with_features(self.state.effective_schedule()?.features());
+        crate::state::asset_mint::require_active(&tx.kind, context)?;
+        crate::state::nft::require_nft_active(&tx.kind, context)?;
+        crate::state::names::require_names_active(&tx.kind, context)?;
 
         self.check_breaker(&tx.kind)
     }

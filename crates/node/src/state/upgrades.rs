@@ -46,6 +46,16 @@ pub const COUNCIL_SUNSET_LEAD_BLOCKS: u64 =
 /// height, never a cargo feature).
 pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
+/// First height at which unique-asset forms (`FeatureSet::NFT`, bit 42,
+/// ADR-135 P-2, tags 59-62) execute. Never, unless a schedule entry names the
+/// bit; a height, never a cargo feature (ADR-002).
+pub const NFT_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which names execute (`FeatureSet::NAMES`, bit 43, ADR-135
+/// P-3, tags 63-66) and the name-fee parameters are accepted. Never, unless a
+/// schedule entry names the bit (ADR-002).
+pub const NAMES_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 /// Prefix of every upgrade-schedule record. A committed layer
 /// (`StateLayer::UpgradeSchedule`), so it is under the state root (invariant 25).
 pub const UPGRADE_PREFIX: &[u8] = b"up:";

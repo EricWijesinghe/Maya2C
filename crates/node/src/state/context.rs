@@ -80,6 +80,12 @@ pub struct BlockContext {
     /// Set from the upgrade schedule by [`Self::with_features`]; tests set it
     /// with [`Self::with_asset_mint_activation`].
     pub asset_mint_activation: u64,
+    /// First height at which unique-asset forms (tags 59-62) execute (ADR-135
+    /// P-2, bit 42). [`crate::state::upgrades::NFT_ACTIVATION_HEIGHT`] by default.
+    pub nft_activation: u64,
+    /// First height at which names (tags 63-66) and the name-fee parameters
+    /// execute (ADR-135 P-3, bit 43).
+    pub names_activation: u64,
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
@@ -210,6 +216,8 @@ impl BlockContext {
             dvp_activation: DVP_ACTIVATION_HEIGHT,
             rwa_strict_activation: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             asset_mint_activation: ASSET_MINT_ACTIVATION_HEIGHT,
+            nft_activation: crate::state::upgrades::NFT_ACTIVATION_HEIGHT,
+            names_activation: crate::state::upgrades::NAMES_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
         }
     }
@@ -229,8 +237,40 @@ impl BlockContext {
             dvp_activation: features.dvp,
             rwa_strict_activation: features.rwa_strict,
             asset_mint_activation: features.asset_mint,
+            nft_activation: features.nft,
+            names_activation: features.names,
             ..self
         }
+    }
+
+    /// The same context with unique-asset forms active from `height` on.
+    #[must_use]
+    pub const fn with_nft_activation(self, height: u64) -> Self {
+        Self {
+            nft_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether unique-asset forms execute in this block.
+    #[must_use]
+    pub const fn nft_active(self) -> bool {
+        self.height >= self.nft_activation
+    }
+
+    /// The same context with names active from `height` on.
+    #[must_use]
+    pub const fn with_names_activation(self, height: u64) -> Self {
+        Self {
+            names_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether names execute in this block.
+    #[must_use]
+    pub const fn names_active(self) -> bool {
+        self.height >= self.names_activation
     }
 
     /// The same context with capped-asset mint and burn active from `height` on.
