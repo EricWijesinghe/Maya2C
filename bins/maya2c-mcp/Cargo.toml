@@ -11,9 +11,17 @@ custom-l1-node = { path = "../../crates/node", default-features = false }
 maya-address = { path = "../../crates/address" }
 maya-amount = { path = "../../crates/amount" }
 maya-clear-sign = { path = "../../crates/clear-sign" }
+# P-30 intent tools (ADR-139). Already in the node's graph except the
+# intent crate itself, which links nothing new.
+maya-htlc-lattice = { path = "../../crates/htlc-lattice" }
+maya-intent-solver = { path = "../../crates/intent-solver" }
 primitive-types.workspace = true
 serde_json.workspace = true
 hex.workspace = true
+
+# Signs a test intent the way a maker's wallet would.
+[dev-dependencies]
+maya-crypto-pq = { path = "../../crates/crypto-pq" }
 
 [lints]
 workspace = true

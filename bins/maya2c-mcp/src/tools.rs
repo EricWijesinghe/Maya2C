@@ -73,7 +73,7 @@ pub fn call(node: &mut Node, name: &str, args: &Value) -> Result<Value, String> 
     }
 }
 
-fn text_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
+pub(crate) fn text_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args[key]
         .as_str()
         .map(str::trim)
@@ -87,7 +87,7 @@ fn height_arg(args: &Value) -> Result<u64, String> {
 }
 
 /// 64 hex characters, with an optional `0x`, as 32 bytes.
-fn hex32(text: &str, what: &str) -> Result<[u8; 32], String> {
+pub(crate) fn hex32(text: &str, what: &str) -> Result<[u8; 32], String> {
     let digits = text.strip_prefix("0x").unwrap_or(text);
     if digits.len() != ID_HEX_LEN || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("{what} must be {ID_HEX_LEN} hex characters"));
@@ -99,7 +99,7 @@ fn hex32(text: &str, what: &str) -> Result<[u8; 32], String> {
 }
 
 /// An account from `maya1...` text or 64 hex characters.
-fn account(text: &str, what: &str) -> Result<[u8; 32], String> {
+pub(crate) fn account(text: &str, what: &str) -> Result<[u8; 32], String> {
     if text.len() > MAX_ADDRESS_TEXT {
         return Err(format!(
             "{what} is longer than {MAX_ADDRESS_TEXT} characters"
@@ -115,7 +115,7 @@ fn account(text: &str, what: &str) -> Result<[u8; 32], String> {
 }
 
 /// Base units: a non-empty string of decimal digits.
-fn base_units(text: &str, what: &str) -> Result<Amount, String> {
+pub(crate) fn base_units(text: &str, what: &str) -> Result<Amount, String> {
     if text.is_empty() || text.len() > MAX_AMOUNT_TEXT || !text.bytes().all(|b| b.is_ascii_digit())
     {
         return Err(format!("{what} is a decimal integer in base units"));
@@ -150,7 +150,7 @@ fn coins(text: &str, what: &str) -> Result<Amount, String> {
         .ok_or_else(|| format!("{what} exceeds 2^256 - 1 base units"))
 }
 
-fn to_u256(amount: Amount) -> U256 {
+pub(crate) fn to_u256(amount: Amount) -> U256 {
     U256::from_little_endian(&amount.to_le_bytes())
 }
 

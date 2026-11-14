@@ -1,0 +1,22 @@
+[package]
+name = "maya-intent-solver"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Intent solver market: hybrid-signed intents, deterministic best-quote selection, settlement over the existing hash-lock HTLC forms (off chain, P-30)"
+
+# Off chain by construction: nothing the node links depends on this crate, so
+# it cannot change a state root. It reuses the chain's pieces rather than
+# copying them — the hybrid suite from `crypto-pq` and the claim/refund rule
+# from `htlc-lattice` — so a plan made here and the chain cannot disagree.
+[dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+maya-htlc-lattice = { path = "../htlc-lattice" }
+primitive-types.workspace = true
+blake3.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

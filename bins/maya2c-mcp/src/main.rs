@@ -4,9 +4,12 @@
 //! `tools/list`, `tools/call`. The server holds no keys and has no tool that
 //! signs or submits. It reads the chain through a fixed list of read-only
 //! node methods, and drafts transfers for a person's own wallet to sign.
+//! It also keeps an in-memory intent book (P-30, ADR-139) for intents a
+//! maker's wallet has already signed.
 //!
 //! `maya2c-mcp --rpc 127.0.0.1:8545`
 
+mod intents;
 mod node;
 mod tools;
 
@@ -49,18 +52,27 @@ fn read_line(input: &mut impl BufRead) -> std::io::Result<Line> {
     }
 }
 
-fn handle(msg: &Value, node: &mut Node) -> Option<Value> {
+/// An intent tool if the name is one, otherwise a chain tool.
+fn call_tool(msg: &Value, node: &mut Node, book: &mut intents::Intents) -> Result<Value, String> {
+    let name = msg["params"]["name"].as_str().unwrap_or("");
+    let args = &msg["params"]["arguments"];
+    intents::call(book, node, name, args).unwrap_or_else(|| tools::call(node, name, args))
+}
+
+fn handle(msg: &Value, node: &mut Node, book: &mut intents::Intents) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let result = match msg["method"].as_str().unwrap_or("") {
         "initialize" => {
             json!({"protocolVersion": "2025-06-18", "serverInfo": {"name": "maya2c-mcp", "version": env!("CARGO_PKG_VERSION")}, "capabilities": {"tools": {}}})
         }
-        "tools/list" => json!({"tools": tools::list()}),
-        "tools/call" => match tools::call(
-            node,
-            msg["params"]["name"].as_str().unwrap_or(""),
-            &msg["params"]["arguments"],
-        ) {
+        "tools/list" => {
+            let mut all = tools::list();
+            if let Some(list) = all.as_array_mut() {
+                list.extend(intents::list());
+            }
+            json!({"tools": all})
+        }
+        "tools/call" => match call_tool(msg, node, book) {
             Ok(v) => {
                 json!({"content": [{"type": "text", "text": v.to_string()}], "isError": false})
             }
@@ -83,6 +95,7 @@ fn main() {
         .and_then(|i| args.get(i + 1))
         .map(String::as_str);
     let mut node = Node::new(target);
+    let mut book = intents::Intents::default();
     let stdout = std::io::stdout();
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
@@ -93,7 +106,7 @@ fn main() {
                 json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32600, "message": "request exceeds the size cap"}}),
             ),
             Ok(Line::Text(text)) => match serde_json::from_str::<Value>(&text) {
-                Ok(msg) => handle(&msg, &mut node),
+                Ok(msg) => handle(&msg, &mut node, &mut book),
                 Err(_) => None,
             },
         };
