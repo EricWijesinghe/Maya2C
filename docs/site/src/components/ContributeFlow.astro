@@ -1,0 +1,94 @@
+---
+// The contribute door (lane L04): the five steps from CONTRIBUTING.md's
+// "How a contribution lands", each a link to where that step happens, and
+// the three starter tasks CONTRIBUTING.md says always have work on them.
+// A rail on wide screens, a numbered column on a phone.
+const repo = "https://github.com/EricWijesinghe/Maya2C";
+const steps = [
+  { n: 1, title: "Issue", line: "Say what and why, with a template", href: `${repo}/issues/new/choose` },
+  { n: 2, title: "Fork", line: "Your own copy, one branch per change", href: `${repo}/fork` },
+  { n: 3, title: "Test", line: "A test that fails without your change", href: `${repo}/blob/master/CONTRIBUTING.md#set-up` },
+  { n: 4, title: "PR", line: "Open it; the template has the checklist", href: `${repo}/compare` },
+  { n: 5, title: "Review", line: "Read line by line; you stay the author", href: `${repo}/pulls` },
+];
+// 20 px line icons, one per task; text glyphs rendered as unreadable specks at 360 px.
+const ICONS: Record<string, string> = {
+  play: "M8 5.5v13l10.5-6.5z",
+  edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+  check: "M4.5 12.5l5 5L19.5 7",
+};
+const tasks = [
+  { title: "Run the local devnet", line: "Anything that confuses you on the way is a docs bug. Report it or fix it.", href: "/guides/quickstart/", cta: "Start the quickstart", icon: "play", tone: "teal" },
+  { title: "Check one guide against the code", line: "A step that is wrong or missing is a good first pull request.", href: `${repo}/tree/master/docs/site/authored`, cta: "Open the guides", icon: "edit", tone: "bronze" },
+  { title: "Test an untested behaviour", line: "Pick a features.toml entry marked working and read its tests. Tests only, no production change.", href: `${repo}/blob/master/features.toml`, cta: "Open features.toml", icon: "check", tone: "steel" },
+];
+---
+
+<div class="cf not-content">
+  <ol class="cf-steps" aria-label="How a contribution lands">
+    {steps.map((s) => (
+      <li>
+        <a class="cf-step" href={s.href}>
+          <span class="cf-num" aria-hidden="true">{s.n}</span>
+          <span class="cf-title">{s.title}</span>
+          <span class="cf-line">{s.line}</span>
+          <span class="cf-chev" aria-hidden="true">›</span>
+        </a>
+      </li>
+    ))}
+  </ol>
+
+  <h2 class="cf-h" id="starter-tasks">Three tasks that are always open</h2>
+  <ul class="cf-tasks">
+    {tasks.map((t) => (
+      <li>
+        <a class={`cf-task cf-task--${t.tone}`} href={t.href}>
+          <span class="cf-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path d={ICONS[t.icon]} /></svg></span>
+          <span class="cf-title">{t.title}</span>
+          <span class="cf-line">{t.line}</span>
+          <span class="cf-cta">{t.cta} <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+    ))}
+  </ul>
+</div>
+
+<style>
+  .cf { display: grid; gap: var(--space-6); margin-block: var(--space-4) var(--space-8); }
+  .cf-steps, .cf-tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+  .cf-steps { grid-template-columns: repeat(5, minmax(0, 1fr)); position: relative; }
+  /* The rail: one line through the step numbers, behind them. */
+  .cf-steps::before { content: ""; position: absolute; top: 22px; left: 10%; right: 10%; height: 2px; background: linear-gradient(90deg, var(--accent), var(--bronze)); opacity: .9; }
+  .cf-steps li, .cf-tasks li { min-width: 0; }
+  .cf-step, .cf-task { position: relative; display: grid; gap: var(--space-1); height: 100%; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); color: var(--text); text-decoration: none; transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease); }
+  .cf-step { justify-items: center; text-align: center; padding-top: 0; border: 0; background: none; }
+  .cf-num { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: var(--space-2); border-radius: var(--r-pill); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font: var(--weight-semibold) var(--type-body-lg-size)/1 var(--font-mono); box-shadow: 0 0 0 4px var(--bg); transition: transform var(--dur-2) var(--ease); }
+  .cf-title { font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
+  .cf-line { color: var(--text-2); font-size: var(--type-body-sm-size); line-height: var(--line-body); overflow-wrap: anywhere; }
+  .cf-step:hover .cf-num, .cf-step:focus-visible .cf-num { transform: scale(1.08); }
+  .cf-step:hover .cf-title, .cf-task:hover .cf-title { color: var(--accent-text); }
+  .cf-step:focus-visible, .cf-task:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cf-h { margin: 0; font: var(--type-title-2-weight) var(--type-title-2-size)/var(--type-title-2-line) var(--font-sans); letter-spacing: var(--type-title-2-tracking); }
+  .cf-tasks { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+  /* Each task card: a coloured top edge and icon, and a CTA that looks like a button. */
+  .cf-task { --cf-tone: var(--accent); padding: var(--space-5) var(--space-4) var(--space-4); align-content: start; grid-template-rows: auto auto 1fr auto; overflow: hidden; box-shadow: var(--shadow-sm); }
+  .cf-task::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--cf-tone); }
+  .cf-task--bronze { --cf-tone: var(--bronze); }
+  .cf-task--steel { --cf-tone: var(--steel); }
+  .cf-icon { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: var(--space-2); border-radius: var(--r-md); background: color-mix(in srgb, var(--cf-tone) 18%, transparent); color: var(--text); font-size: var(--type-body-lg-size); }
+  .cf-icon svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .cf-task:hover { border-color: var(--cf-tone); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .cf-cta { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; margin-top: var(--space-3); padding: 0 var(--space-4); border-radius: var(--r-pill); border: 1px solid color-mix(in srgb, var(--cf-tone) 60%, var(--border)); background: color-mix(in srgb, var(--cf-tone) 10%, transparent); color: var(--text); font-weight: var(--weight-semibold); font-size: var(--type-body-sm-size); white-space: nowrap; }
+  .cf-task:hover .cf-cta { background: color-mix(in srgb, var(--cf-tone) 20%, transparent); }
+  .cf-chev { display: none; }
+  @media (max-width: 720px) {
+    .cf-steps { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .cf-steps::before { top: 22px; bottom: 22px; left: 21px; right: auto; width: 2px; height: auto; background: linear-gradient(180deg, var(--accent), var(--bronze)); }
+    /* A phone row is visibly a link: a surface on hover and press, and a chevron. */
+    .cf-step { grid-template-columns: 44px minmax(0, 1fr) auto; justify-items: start; align-items: center; text-align: left; column-gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) 0; margin-bottom: var(--space-2); min-height: 56px; border-radius: var(--r-lg); }
+    .cf-step:hover, .cf-step:active { background: var(--surface-1); }
+    .cf-num { grid-row: span 2; margin: 0; }
+    .cf-chev { display: block; grid-column: 3; grid-row: 1 / span 2; color: var(--text-2); font-size: var(--type-title-3-size); line-height: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .cf-step, .cf-task, .cf-num { transition: none; } .cf-task:hover { transform: none; } }
+</style>

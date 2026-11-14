@@ -76,13 +76,13 @@ curl https://gateway.example.com/v1/accounts/a71cf0…
 # {"balance":8400000000,"nonce":3}
 
 curl https://gateway.example.com/v1/supply
-# {"circulating":"20999998400000000000000000000000","total":"21000000000000000000000000000000"}
+# {"circulating":"<base units, decimal string>","total":"<base units, decimal string>"}
 ```
 
 Both figures are decimal strings of base units: amounts are 256-bit
 ([ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md)),
-wider than a JSON number can carry exactly. The values above show the shape,
-not real chain figures.
+wider than a JSON number can carry exactly. The example shows the shape only;
+the supply is set at genesis, so ask a running node for the real figures.
 
 `total` counts every unit that exists, including units that can never move;
 `circulating` counts the units that can. For the breakdown, ask the node's

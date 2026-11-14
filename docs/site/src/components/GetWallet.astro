@@ -1,0 +1,79 @@
+---
+// "Get the wallet" (lane L04): one button per OS, deep-linked to the exact
+// asset of the tagged pre-release in data/release.ts, never the moving "latest".
+// Until that release is published the three OS tiles are shown off, labelled
+// "not released yet", so the layout is final and the state is plain, and the one
+// working action is building from source. No tile is a link: a link to a file
+// that does not exist yet is a 404. The checksum step appears with the files.
+import { Code } from "@astrojs/starlight/components";
+import { assetHref, BUILD_FROM_SOURCE_HREF, release, releaseHref, unpublishedReason, wallet, walletOsLabel, type WalletOs } from "../data/release.ts";
+
+const oses = Object.keys(wallet) as WalletOs[];
+---
+
+<div class="gw not-content" data-get-wallet>
+  <p class="gw-today"><b>What it does today:</b> make and encrypt your keys, show your address, and talk to a node on your own machine (a local devnet). There is no public network for it to reach until the next genesis, and mainnet is not live.</p>
+  {release.published ? (
+    <div class="gw-os" role="group" aria-label={`Download from ${release.tag}`}>
+      {oses.map((os) => wallet[os] && (
+        <a class="gw-btn" href={assetHref(wallet[os]!)} data-asset={wallet[os]}>
+          <span class="gw-btn__os">{walletOsLabel[os]}</span>
+          <span class="gw-btn__file">{wallet[os]}</span>
+        </a>
+      ))}
+    </div>
+  ) : (
+    <div class="gw-state" data-unreleased>
+      <p class="gw-state__title">Preview build not released yet</p>
+      <ul class="gw-os gw-os--off" aria-label="Installers">
+        {oses.map((os) => (
+          <li class="gw-btn is-off">
+            <span class="gw-btn__os">{walletOsLabel[os]}</span>
+            <span class="gw-btn__file">not released yet</span>
+          </li>
+        ))}
+      </ul>
+      <p>{unpublishedReason}</p>
+      <div class="gw-state__actions">
+        <a class="gw-cta" href={BUILD_FROM_SOURCE_HREF}>Build it from source <span aria-hidden="true">→</span></a>
+        <a class="gw-link" href={releaseHref}>Read the {release.tag} notes</a>
+      </div>
+    </div>
+  )}
+  {release.published && (
+    <>
+      <p class="gw-label">Check the file before you open it (Linux; on macOS use <code>shasum -a 256</code> in place of <code>sha256sum</code>):</p>
+      <Code code="sha256sum --ignore-missing -c SHA256SUMS" lang="bash" />
+    </>
+  )}
+  <p class="gw-note">The installers are not code-signed yet, so Windows and macOS warn about an unknown publisher. The <code>SHA256SUMS</code> check, not the warning, is what tells you the file is the one this project built.</p>
+</div>
+
+<style>
+  .gw { display: grid; gap: var(--space-3); margin-block: var(--space-4) var(--space-6); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); }
+  .gw p { margin: 0; color: var(--text-2); font-size: var(--type-body-size); line-height: var(--line-body); overflow-wrap: anywhere; }
+  .gw b, .gw .gw-today b { color: var(--text); }
+  .gw code { font: var(--type-mono-size) var(--font-mono); padding: .1em .35em; border-radius: var(--r-xs); background: var(--surface-2); border: 1px solid var(--border); }
+  .gw-os { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: var(--space-2); }
+  .gw-btn { display: grid; gap: 2px; min-height: 52px; padding: var(--space-2) var(--space-4); border-radius: var(--r-md); border: 1px solid var(--accent-grad-to); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font: inherit; text-align: left; text-decoration: none; cursor: pointer; transition: transform var(--dur-1) var(--ease); }
+  .gw-btn:hover { transform: translateY(-1px); }
+  .gw-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .gw-btn__os { font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
+  .gw-btn__file { font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
+  /* Neutral: the page's PausedNote is the one amber box on this screen. */
+  .gw-state { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2); }
+  .gw-os--off { list-style: none; margin: 0; padding: 0; }
+  .gw-btn.is-off { border: 1px dashed var(--border-strong); background: var(--surface-1); color: var(--text-2); cursor: default; }
+  .gw-btn.is-off:hover { transform: none; }
+  .gw-btn.is-off .gw-btn__os { color: var(--text); }
+  .gw .gw-state p { color: var(--text); }
+  .gw .gw-state .gw-state__title { font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
+  .gw-state__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-top: var(--space-1); }
+  .gw-cta { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border-radius: var(--r-pill); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font-weight: var(--weight-semibold); text-decoration: none; }
+  .gw-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--text); font-weight: var(--weight-medium); text-decoration: underline; text-decoration-color: var(--warn); text-underline-offset: 3px; }
+  .gw-cta:focus-visible, .gw-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 480px) { .gw-cta { width: 100%; } }
+  .gw-label { font-size: var(--type-body-sm-size) !important; }
+  .gw-note { font-size: var(--type-body-sm-size) !important; }
+  .gw :global(.expressive-code) { margin: 0; }
+</style>

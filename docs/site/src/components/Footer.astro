@@ -21,7 +21,7 @@ const year = new Date().getFullYear();
   <div class="maya-footer__pulse" data-fp data-paused={testnet.paused ? "" : undefined} aria-label="The network, live">
     <p class="maya-footer__title">{testnet.paused ? "Network, last reading" : "Network, live"} <SourceTip text="Height: explorer /api/stats. Finality: the newest committed bench (one machine, not a network figure). Peers: status.maya2c.dev /api/live." href="/stats/" /></p>
     <dl>
-      <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
+      <div><dt>Height</dt><dd>{testnet.paused ? <>{testnet.last.height.toLocaleString("en-US")}<small>on {testnet.since}</small></> : <span data-fp-height>—</span>}</dd></div>
       <div><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
       <div><dt>Peers online</dt><dd data-fp-peers>{testnet.paused ? "paused" : "—"}</dd></div>
     </dl>
@@ -31,7 +31,7 @@ const year = new Date().getFullYear();
     <p>
       Maya2C is built by <a href="https://eric.maya2c.dev" rel="me noopener" target="_blank"><strong>Eric Wijesinghe</strong></a>: a post-quantum
       layer-1 blockchain in Rust, with hybrid ML-DSA + SLH-DSA signatures on
-      every transaction.
+      the default transaction frame.
     </p>
   </div>
   <div class="maya-footer__contact">
@@ -62,9 +62,12 @@ const year = new Date().getFullYear();
 </script>
 
 <style>
-  .maya-footer__pulse dl { margin: 0; display: grid; grid-template-columns: repeat(3, auto); gap: 4px 16px; justify-content: start; }
+  /* minmax(0, auto) and wrapping cells: three nowrap auto columns pushed the
+     last one over the About column at 1440 px. */
+  .maya-footer__pulse dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, auto)); gap: 4px 16px; justify-content: start; }
+  .maya-footer__pulse small { display: block; white-space: nowrap; font: 400 12px/1.3 var(--sl-font); color: var(--sl-color-gray-3); }
   .maya-footer__pulse dt { font-size: 12px; color: var(--sl-color-gray-3); }
-  .maya-footer__pulse dd { white-space: nowrap; margin: 0; font: 500 15px/1.3 var(--sl-font-mono); color: var(--sl-color-white); font-variant-numeric: tabular-nums; }
+  .maya-footer__pulse dd { overflow-wrap: anywhere; margin: 0; font: 500 15px/1.3 var(--sl-font-mono); color: var(--sl-color-white); font-variant-numeric: tabular-nums; }
   .maya-footer__pulse dl > div { display: grid; }
   .maya-footer__pulse .maya-footer__title { display: flex; gap: 8px; align-items: baseline; }
   .maya-footer {

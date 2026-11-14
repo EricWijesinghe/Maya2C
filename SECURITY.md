@@ -2,13 +2,31 @@
 
 ## Reporting a vulnerability
 
-**Do not open a public issue for a security problem.** Report privately
-through GitHub's *Report a vulnerability* (private vulnerability reporting) on
-this repository: <https://github.com/EricWijesinghe/Maya2C/security/advisories/new>.
+**Do not open a public issue for a security problem.**
+
+First channel: GitHub private vulnerability reporting, https://github.com/EricWijesinghe/Maya2C/security/advisories/new
+
+| Channel | Status |
+|---|---|
+| GitHub private vulnerability reporting | **Use this.** Enabled; only the maintainer sees the report. |
+| `security@maya2c.dev` | Reserved for disclosures, **not confirmed to receive mail yet**: the domain had no MX record on 2026-11-13 and has Cloudflare MX records since (checked 2026-11-14), but no test message has been delivered. This file will say when it works. Until then, use the GitHub form. |
+| Encrypted channel (PGP or similar) | **None exists yet.** No key is published. The GitHub form travels over TLS and only the maintainer can read it, but it is not end-to-end encrypted. This file will say when a key exists. |
 
 Include what you found, the steps to reproduce it, the commit or release you
 tested, and what you think an attacker could do with it. A proof of concept
 helps, but a clear description without one is still accepted.
+
+## Audit status: external audit pending
+
+No independent firm has audited Maya2C's cryptography, consensus or
+contracts. What exists instead, and what it does not prove, is in
+[docs/security-audit.md](docs/security-audit.md): fuzzing, Kani model checks
+of ledger arithmetic, an unsafe-code survey, a self-review of the committee
+code, and self-run attack rounds. None of those is independent review.
+
+Mainnet is to launch labelled "external audit pending" until a report lands
+([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers stay
+off until their circuit is externally audited (`CIRCUIT_IS_AUDITED = false`).
 
 ## Response targets
 

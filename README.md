@@ -1,281 +1,194 @@
 <p align="center">
   <a href="https://maya2c.dev">
-    <img src="docs/brand/hero.svg" width="100%" alt="Maya2C: the post-quantum layer-1, built in Rust. Animated banner with the official emblem.">
+    <img src="docs/brand/hero.svg" width="100%" alt="Maya2C: the post-quantum layer-1, built in Rust. Banner with the official emblem.">
   </a>
 </p>
 
 <p align="center">
-  <b>A layer-1 blockchain in Rust. Every transaction is signed twice with post-quantum signatures, and both must verify.</b>
+  <b>A post-quantum layer-1 blockchain in Rust: its default transaction frame, which <code>l1-wallet</code> signs, carries two signatures from different post-quantum families, and both must verify.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&style=for-the-badge&labelColor=050b0f"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/EricWijesinghe/Maya2C?style=for-the-badge&color=d9b97a&labelColor=050b0f"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/releases"><img alt="latest release" src="https://img.shields.io/github/v/release/EricWijesinghe/Maya2C?include_prereleases&label=latest%20release&style=for-the-badge&color=2cc3cf&labelColor=050b0f"></a>
+  <a href="Cargo.toml"><img alt="minimum Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FEricWijesinghe%2FMaya2C%2Fmaster%2FCargo.toml&query=%24.workspace.package%5B%27rust-version%27%5D&label=rust%20(MSRV)&style=for-the-badge&color=b9c6ca&labelColor=050b0f&logo=rust"></a>
+  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?style=for-the-badge&color=2cc3cf&labelColor=050b0f"></a>
 </p>
 
 <p align="center">
   <a href="https://maya2c.dev"><b>maya2c.dev</b></a> &nbsp;·&nbsp;
-  <a href="https://eric.maya2c.dev"><b>Built by Eric Wijesinghe: eric.maya2c.dev</b></a>
+  <a href="https://maya2c.dev/guides/testnet/">Testnet guide</a> &nbsp;·&nbsp;
+  <a href="https://status.maya2c.dev/">Network status</a> &nbsp;·&nbsp;
+  <a href="docs/README.md">Docs</a> &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md">Contribute</a> &nbsp;·&nbsp;
+  <a href="SECURITY.md">Security</a>
 </p>
 
-<p align="center">
-  <a href="https://status.maya2c.dev"><img alt="testnet height" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fstatus.maya2c.dev%2Fapi%2Fstatus&query=%24.height&label=testnet%20block&color=1fb5c2&style=for-the-badge&labelColor=0a161b"></a>
-  <a href="reports/sessions/2026-10-28-testnet-stopped.md"><img alt="testnet soak: 7 days, zero halts" src="https://img.shields.io/badge/testnet%20soak-7%20days%2C%20zero%20halts-45e0a0?style=for-the-badge&labelColor=0a161b"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&style=for-the-badge&labelColor=0a161b"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="commit activity" src="https://img.shields.io/github/commit-activity/m/EricWijesinghe/Maya2C?label=commits&style=for-the-badge&color=1fb5c2&labelColor=0a161b"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?style=for-the-badge&color=1fb5c2&labelColor=0a161b"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/EricWijesinghe/Maya2C?style=for-the-badge&color=c9a86a&labelColor=0a161b"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-c9a86a?style=for-the-badge&labelColor=0a161b"></a>
-  <img alt="Rust 1.88, edition 2024" src="https://img.shields.io/badge/rust-1.88%20%C2%B7%202024-e6b260?style=for-the-badge&logo=rust&labelColor=0a161b">
-</p>
+> **Where things stand.** The public testnet is **paused**: it ran 7 days
+> 15 hours with zero halts (a halt is any gap over 60 s; blocks 0 to 393,812)
+> and was stopped on purpose on 2026-10-28
+> ([proof](reports/sessions/2026-10-28-testnet-stopped.md)). Two caveats were
+> recorded with it: one validator held 71% of stake, so it finalized alone,
+> and the run was on the pre-mining build. It
+> returns with the next genesis; until then the status page has no network to
+> report. Mainnet is to launch labelled "external audit pending" until a report
+> lands ([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers
+> stay off at genesis until their circuit is externally audited
+> (`CIRCUIT_IS_AUDITED = false`, [`crates/zk-stark/src/pool/mod.rs`](crates/zk-stark/src/pool/mod.rs);
+> [docs/mainnet-v1-plan.md](docs/mainnet-v1-plan.md)). The testnet coin has no value.
 
-<p align="center">
-  <a href="https://maya2c.dev/experience/"><b>✦ Experience it</b></a> &nbsp;·&nbsp;
-  <a href="https://maya2c.dev/stats/"><b>Live statistics</b></a> &nbsp;·&nbsp;
-  <a href="https://maya2c.dev/guides/testnet/">Join the testnet</a> &nbsp;·&nbsp;
-  <a href="https://explorer.maya2c.dev/">Explorer</a> &nbsp;·&nbsp;
-  <a href="https://faucet.maya2c.dev/">Faucet</a> &nbsp;·&nbsp;
-  <a href="https://status.maya2c.dev/">Status</a> &nbsp;·&nbsp;
-  <a href="https://maya2c.dev/guides/validators/">Run a validator</a>
-</p>
-
----
-
-<p align="center"><img src="docs/brand/divider-1.svg" width="100%" alt=""></p>
-
-## Run a node in one line
-
-> **The testnet is paused.** It ran 7 days 15 hours with zero halts (blocks 0
-> to 393,812) and was stopped on purpose on 2026-10-28
-> ([proof](reports/sessions/2026-10-28-testnet-stopped.md)). It comes back
-> with the next genesis; until then the line below has no network to join.
-
-Paste one line and your computer joins the test network. No technical
-background is needed. Steps for each OS:
-**[maya2c.dev/guides/help-run](https://maya2c.dev/guides/help-run/)**.
-
-| Your computer | Paste this |
-|---|---|
-| **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.ps1 \| iex` |
-| **Mac** (Terminal) | `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh \| bash` |
-| **Linux** | `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh \| bash` |
-
-<p align="center"><img src="docs/brand/divider-2.svg" width="100%" alt=""></p>
-
-## Two signatures per transaction
-
-<p align="center"><img src="docs/brand/architecture.svg" width="100%" alt="Animated card: a transaction moves from wallet to API gateway to node, which verifies both signatures, then the WASM VM, DAG-BFT, and finality."></p>
-
-```mermaid
-flowchart LR
-  classDef step fill:#0a161b,stroke:#1fb5c2,color:#edf3f2,stroke-width:2px
-  classDef pq fill:#2a210f,stroke:#c9a86a,color:#f4ead6,stroke-width:2px
-  W["🔐 Wallet<br/>signs the transaction"]:::step --> G["🛡️ API gateway<br/>default-deny allowlist"]:::step
-  G --> N["⚙️ Node<br/>Transaction::verify"]:::step
-  N --> S["✍️ ML-DSA-65 <b>and</b> SLH-DSA<br/>both must verify"]:::pq
-  S --> V["🧩 WASM VM<br/>fee market · state root"]:::step
-  V --> C["🧭 DAG-BFT<br/>Narwhal + Bullshark"]:::step
-  C --> F["✅ Finalized<br/>state committed"]:::step
-```
-
-- Two NIST standards: **ML-DSA-65** (FIPS 204, lattice) and **SLH-DSA-SHA2-128s** (FIPS 205, hash-based). The chain does not rest on a single lattice assumption.
-- The price is size: **11,165 bytes** of signature per transaction ([docs/hybrid-signatures.md](docs/hybrid-signatures.md)).
-- Transport is libp2p, with an ML-KEM-768 layer over Noise.
-
-**Mainnet is deliberately blocked.** `CIRCUIT_IS_AUDITED` is `false` at
-[`crates/zk-stark/src/pool/mod.rs:36`](crates/zk-stark/src/pool/mod.rs#L36):
-the shielded pool's joinsplit circuit has no independent audit, and six
-separate guards refuse a value-bearing chain id. Read
-[docs/mainnet-readiness.md](docs/mainnet-readiness.md) before anything else here.
-
-<p align="center"><img src="docs/brand/divider-1.svg" width="100%" alt=""></p>
-
-## What is real today
-
-Counted from the repo, not from the roadmap. Status meanings are defined in
-[docs/architecture-vision.md](docs/architecture-vision.md).
-
-<p align="center"><img src="docs/brand/status-strip.svg" width="100%" alt="Status strip from features.toml: 154 subsystems, 61 verified, 72 working, 21 planned, 77 research, mainnet audit blocked."></p>
-
-| Count | Value | Source |
-|---|---|---|
-| Subsystems in the ledger | **154** | [`features.toml`](features.toml), `[[subsystem]]` |
-| …verified (named test exists) | **61** | same |
-| …working | **72** | same |
-| …planned (no code yet) | **21** | same |
-| Of the 154, research (tested, no consensus caller) | **77** | same, `class = "RESEARCH"` |
-| Register entries (the plan) | **164**: 50 verified, 114 planned | same, `[[feature]]` |
-| Mainnet audit flag | `CIRCUIT_IS_AUDITED = false` | [`pool/mod.rs:36`](crates/zk-stark/src/pool/mod.rs#L36) |
-
-`cargo xtask coverage` checks the ledger and fails when a claim has no test
-behind it. Counts above are a plain read of the file at this commit.
-
-## The short version
-
-- **Consensus:** DAG-BFT finality, Narwhal + Bullshark, stake-weighted. The node side is in [`bins/maya2c-node/src/bft.rs`](bins/maya2c-node/src/bft.rs) ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)).
-- **Execution:** a Wasm VM with gas, a fee market, and a state root that a block must reproduce.
-- **Money math:** `ledger-math` holds the credit, debit and nonce arithmetic, with no C/C++ in its dependency graph, so Kani can verify it.
-
-## Architecture
-
-```mermaid
-flowchart TB
-  classDef app fill:#0a161b,stroke:#1fb5c2,color:#edf3f2,stroke-width:2px
-  classDef core fill:#06343a,stroke:#7eeaf0,color:#edf3f2,stroke-width:2px
-  classDef pq fill:#2a210f,stroke:#c9a86a,color:#f4ead6,stroke-width:2px
-  W["🔐 Wallet · Maya Chat · SDKs"]:::app --> G["🛡️ API gateway<br/>default-deny allowlist"]:::app
-  G --> N["⚙️ Node: WASM VM · fee market · state"]:::core
-  N <--> C["🧭 DAG-BFT consensus<br/>Narwhal + Bullshark · stake-weighted"]:::core
-  C <--> P["🌐 libp2p · TCP + WebSocket<br/>ML-KEM-768 over Noise"]:::pq
-  N --> S["✍️ Every transaction signed twice<br/>ML-DSA-65 + SLH-DSA"]:::pq
-```
-
-<details>
-<summary><b>The core crates</b> (click to open)</summary>
-
-| Member | Role |
-|---|---|
-| *(root)* `custom-l1-node` | Node daemon: consensus, chain, p2p, RPC, metrics |
-| `ledger-math` | All `u64` credit/debit/nonce math. Kani-verifiable — no C/C++ in its graph |
-| `crypto-pq` | SLH-DSA instantiation. Must stay the monomorphizing crate |
-| `zk-stark` | Plonky3 STARKs: shielded joinsplits, credentials, sanctions proofs |
-| `vm` | Wasm contract execution |
-| `l2-flash` | L2 settlement |
-| `wallet`, `apps/wallet-gui/` | CLI wallet, and a Tauri desktop wallet whose keys never leave the Rust core |
-| `explorer` | Server-rendered chain explorer |
-| `cuda-miner`, `wgpu-miner` | GPU miners. Both GPU features are default-off so CI builds without an adapter |
-| `stratum-v2`, `pool-service` | Pool protocol, and the daemon joining it to chain types |
-| `dex` | Constant-product curve, order book matcher, batch clearing. Dependency-free |
-| `vrf` | RFC 9381 EC-VRF behind the randomness beacon |
-| `governance` | Proposal lifecycle and the bounds a proposal may never escape |
-| `faucet` | Testnet faucet. A hot wallet on a public endpoint — see its doc before deploying it |
-| `telemetry` | Network telemetry collector, split into `server` and `client` halves |
-| `light-client` | SPV header fork choice and state-proof verification |
-| `mev` | Threshold-encrypted mempool: a miner orders transactions it cannot read |
-| `custody-mpc` | Threshold custody of a chain key: dealerless VSS, ML-KEM-sealed shares, quorum signing |
-| `archive` | CAR v1 (zstd) archives of pruned block batches: local dir, IPFS, Arweave |
-| `api-gateway` | REST and GraphQL gateway, talking to a node over JSON-RPC |
-| `sdk-ffi`, `sdk-wasm` | uniffi bindings, and browser bindings, over the hybrid signing primitives |
-| `docgen` | Generates the LaTeX technical reference from module documentation |
-| `apps/dashboard/` | Leptos browser page. Not a workspace member: CSR Leptos only runs on `wasm32` |
-
-</details>
-
-### Research branches
-
-These crates are in the tree and tested, but **no consensus path calls them**. Each is
-dark behind an activation height of `u64::MAX`, or is off-chain entirely. The
-rationale for each is in
-[docs/architecture-vision.md](docs/architecture-vision.md).
-
-<details>
-<summary><b>The research crates</b> (click to open)</summary>
-
-| Member | Role |
-|---|---|
-| `fee-market`, `neural-gas-trainer` | EIP-1559 base fee over bytes, plus an integer neural gain inside a Kani-proved envelope, and the off-chain trainer for that gain |
-| `blockgraph` | Narwhal/Tusk batch references and deterministic shard scheduling |
-| `lattice-pow` | Lattice proof-of-useful-work (SVP) verification |
-| `zkml`, `zkml-prover` | halo2 proofs of quantized-classifier inference: the verifier, and the off-chain prover |
-| `rwa`, `identity` | Real-world assets and self-sovereign identity (DIDs, selective disclosure) |
-| `iso20022` | ISO 20022 bank-rail messages bridged to payment intents |
-| `radio-transport` | Off-grid LoRa framing, a duty-cycle governor, a fountain codec |
-| `htlc-lattice`, `htlc-watcher` | Lattice HTLC atomic swaps (Maya2C↔Maya2C only), and the counterparty watcher |
-| `stateless-core` | Sparse-Merkle account witnesses for stateless transfer verification |
-| `confidential-ai` | Federated training with ML-KEM secure aggregation and integer differential privacy |
-| `ebpf-net`, `hal/ebpf-net/common` | UDP block relay judged by an XDP program at the driver (Linux, `xdp` feature) |
-| `threat-intel`, `threat-firewall` | Threat indicators built from verifiable gossip evidence, and the per-host nftables worker |
-| `iot-anchor` | Hardware-anchored sensor identity: ML-DSA-65 device keys, PUF, TPM sealing, hash-chained telemetry batches. `no_std`; `hal/iot-firmware/` runs it on Cortex-M33 under QEMU |
-
-</details>
-
-Three more directories have their own workspaces and toolchains: `offsec-sandbox/`
-(red-team fuzzing), `hal/ebpf-net/programs/` (the XDP program) and `fuzz/`.
-
-## Quickstart
-
-### Run the whole ecosystem locally
-
-```sh
-cargo xtask up      # 4 validators (DAG-BFT), API gateway, chat relay, funded wallet
-cargo xtask down    # stop exactly what `up` started
-```
-
-`up` builds what it needs, waits until the validators agree on a chain and
-every service answers, then prints the endpoints (also in
-`target/up/up.json`). It is a local devnet: keys are generated fresh each
-time and everything listens on 127.0.0.1 only. Run it in a terminal. On
-Windows the services it leaves running inherit a piped stdout, so
-`cargo xtask up | ...` waits until `down`; redirect to a file instead.
-
-### Build and test
-
-Requires Rust 1.88 (edition 2024).
-
-```bash
-cargo build --workspace
-cargo nextest run --workspace      # nextest is the primary runner
-cargo clippy --workspace --all-targets
-cargo deny check
-```
-
-The first build after a clean is long: `[profile.dev.package.*]` overrides
-compile the crypto and arkworks stacks optimized even in debug, which is
-load-bearing rather than tuning — without them `cargo test` reads as hung.
-
-### The browser frontends
-
-Both are built with [`trunk`](https://trunkrs.dev) and live outside the Cargo
-workspace's test surface:
-
-```bash
-cd apps/dashboard      && trunk build --release   # telemetry dashboard
-cd apps/wallet-gui/ui  && trunk build --release   # wallet frontend
-```
-
-<p align="center"><img src="docs/brand/divider-2.svg" width="100%" alt=""></p>
-
-## Support Maya2C
-
-Maya2C is built in the open by one maintainer. Here is how to help:
+## What Maya2C is
 
 | | |
 |---|---|
-| ⭐ **Star** | [Star the repo](https://github.com/EricWijesinghe/Maya2C) so more people find it |
-| 🍴 **Fork** | [Fork it](https://github.com/EricWijesinghe/Maya2C/fork) and try the devnet on your own machine |
-| 🛠️ **Contribute** | Read [CONTRIBUTING.md](CONTRIBUTING.md). Issues and proposals are welcome |
-| 🌱 **Good first issues** | [Browse the label](https://github.com/EricWijesinghe/Maya2C/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) |
-| 💬 **Talk** | [Discussions](https://github.com/EricWijesinghe/Maya2C/discussions) |
-| ☕ **Donate** | Donation links are coming soon. None are live yet. |
+| **Signatures** | A transaction's signature is decided by its own frame: an untagged frame, which `l1-wallet` signs, is the ML-DSA-65 + SLH-DSA-SHA2-128s hybrid and both must verify; a suite-tagged frame (ML-DSA-87 among others) is opt-in. In the hybrid, **ML-DSA-65** (FIPS 204, lattice) and **SLH-DSA-SHA2-128s** (FIPS 205, hash-based) sign the same bytes, so a break of one family alone does not forge it. |
+| **Consensus** | DAG-BFT: Narwhal + Bullshark, stake-weighted finality ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)). |
+| **Execution** | A metered WASM VM, an EIP-1559 fee market over bytes, and a state root every block must reproduce (invariant 24). |
+| **Transport** | libp2p over TCP and WebSocket, with ML-KEM-1024 (ML-KEM-768 as fallback) layered on Noise ([docs/pq-transport.md](docs/pq-transport.md)). |
+| **Money math** | 256-bit amounts in `ledger-math`, which keeps C and C++ out of its dependency graph so Kani can check it. |
+| **Apps** | Maya2C Wallet, Maya2C Chat, Maya2C Hub, an explorer, SDKs, and an MCP server for AI assistants that reads and drafts but never signs. |
 
-Security reports go privately, never in public issues: see [SECURITY.md](SECURITY.md) for scope, response targets and safe harbour. Reporters are named in the [Security Hall of Fame](https://maya2c.dev/guides/security-hall-of-fame/). There are no cash rewards yet. Contributor badges are described on [Contributors & badges](https://maya2c.dev/guides/contributors/).
+### Why post-quantum matters
+
+A large enough quantum computer breaks the elliptic-curve signatures most
+chains use today. Ledgers are permanent: a public key published now can be
+attacked whenever such a machine exists. Maya2C uses NIST's post-quantum
+standards from genesis, so the default account is post-quantum from its first block, and its
+signature-suite registry can add or retire a scheme at an activation height
+([ADR-051](docs/adr/ADR-051-security-level-5-defaults.md), invariants 29 to 31).
+
+### How it differs
+
+Other chains are adding post-quantum signatures too. The difference is in how.
+From the dated search in
+[docs/prior-art/pq-l1-comparison-2026-11.md](docs/prior-art/pq-l1-comparison-2026-11.md)
+(accessed 2026-11-01; read its source weights before quoting it):
+
+| Chain | Post-quantum signatures | Two families, both required |
+|---|---|---|
+| **Maya2C** | ML-DSA-65 + SLH-DSA-SHA2-128s, the default account suite | Yes |
+| QRL 1.x | XMSS, mandatory | No |
+| Algorand | Falcon state proofs; opt-in Falcon accounts | No (hybrid with Ed25519 planned) |
+| Sui | ML-DSA-65 accounts, opt-in, not yet on mainnet | Optional multisig |
+| NEAR | ML-DSA, opt-in key rotation | No |
+| Ethereum, Bitcoin | Proposals; nothing activated | n/a |
+
+The cost is size: a hybrid signature is **11,165 bytes** and a one-output
+transfer **13,215 bytes** ([docs/hybrid-signatures.md](docs/hybrid-signatures.md)).
+
+## Architecture
+
+<p align="center"><img src="docs/diagrams/architecture.svg" width="100%" alt="Apps reach the API gateway and node RPC; inside the node the mempool feeds DAG-BFT, the WASM VM executes and state commits a root; libp2p with ML-KEM over Noise connects peers; ML-DSA-65, SLH-DSA and ledger-math sit underneath."></p>
+
+<p align="center"><img src="docs/diagrams/tx-lifecycle.svg" width="100%" alt="Transaction lifecycle: sign with both schemes, submit, mempool admission verifies both, gossip, DAG-BFT ordering, execution verifies again and recomputes the state root, finalized in one batch. ML-DSA-65 verifies first, then SLH-DSA; either failure rejects."></p>
+
+Mermaid sources, and what each box was checked against: [docs/diagrams/](docs/diagrams/README.md).
+Every top-level directory: [docs/REPO-MAP.md](docs/REPO-MAP.md).
+
+## Quickstart
+
+### Use the apps
+
+No installer or binary is published yet: the repository has no release. The
+next one, `node-v0.2.0-preview.1`, has its notes committed
+([release notes](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/releases/node-v0.2.0-preview.1.md))
+and is not released. Until it is, build Maya2C Wallet, Maya2C Chat and the node
+from source with the steps below. When it is released, its installers will be
+unsigned, and `SHA256SUMS` on the same release is how to check them.
+
+Maya2C Hub has no installer in a release yet; build it with
+`cargo xtask hub-bundle` ([apps/hub/README.md](apps/hub/README.md)).
+
+### Run the whole ecosystem locally
+
+Needs the Rust toolchain pinned in `rust-toolchain.toml` (rustup installs it
+on first use). The commands take seconds to type; the first build takes longer.
+
+```sh
+git clone https://github.com/EricWijesinghe/Maya2C && cd Maya2C
+cargo xtask kit up       # 4 DAG-BFT validators, gateway, chat relay, faucet, explorer, funded wallet
+cargo xtask kit status   # which endpoints answer
+cargo xtask kit down     # stop exactly what `kit up` started
+```
+
+Everything listens on 127.0.0.1 and keys are generated fresh each run. The
+endpoints are printed and saved to `target/up/up.json`.
+
+| Next | Command |
+|---|---|
+| Developer CLI: local chain, replay, fork, contract debugger | `cargo run -p maya2c-cli -- dev` |
+| Set up and health-check a real node on this machine | `cargo xtask node setup --genesis FILE` then `cargo xtask node doctor` |
+| Attack your own throwaway network | `cargo xtask kit attack list` |
+| Connect an AI assistant (read and draft only) | `cargo run -p maya2c-mcp -- --rpc 127.0.0.1:8545` |
+
+Build and test rules, with measured times: [docs/build.md](docs/build.md).
+
+## What is real today
+
+`features.toml` is the reality ledger. CI fails when an entry claims
+`working` or `verified` without naming a test that exists ([ADR-004](docs/adr/ADR-004-reality-ledger.md)).
+
+<p align="center"><img src="docs/diagrams/ecosystem.svg" width="100%" alt="Ecosystem map: the chain at the centre with Maya2C Wallet, Maya2C Chat, Maya2C Hub, explorer, Ledger app, SDKs, MCP server and sentinel, each with its features.toml status."></p>
+
+Counts at this commit:
+
+| | Total | verified | working | stub | planned | REAL | RESEARCH | SIM |
+|---|---|---|---|---|---|---|---|---|
+| Subsystems `[[subsystem]]` | **169** | 61 | 80 | 4 | 24 | 84 | 81 | 4 |
+| Register `[[feature]]` | **164** | 50 | 0 | 0 | 114 | 50 | 114 | 0 |
+
+Regenerate it with no build:
+
+```sh
+awk '/^\[\[/{s=$1} /^(status|class) *=/{gsub(/[" ]/,"");split($0,a,"=");c[s" "a[2]]++} /^\[\[/{n[$1]++} END{for(k in n)print k,"total",n[k];for(k in c)print k,c[k]}' features.toml | sort
+```
+
+`cargo xtask coverage` prints the subsystem counts and checks every named
+test. Status meanings and the reasoning behind each subsystem:
+[docs/architecture-vision.md](docs/architecture-vision.md).
+
+## Security
+
+<p align="center"><img src="docs/diagrams/trust-boundaries.svg" width="100%" alt="Trust boundaries: untrusted input crosses the public edge, the peer edge and consensus checks before anything touches keys, which sit in a separate signer process. External audit pending."></p>
+
+- **No external audit yet.** Fuzzing, Kani checks and self-run attack rounds
+  are not independent review ([docs/security-audit.md](docs/security-audit.md)).
+- Thirty active invariants, each pinned by a test: [docs/invariants.md](docs/invariants.md).
+- Threats and known gaps: [THREAT_MODEL.md](THREAT_MODEL.md).
+- Found a vulnerability? Report it privately: [SECURITY.md](SECURITY.md).
+
+## Roadmap
+
+<p align="center"><img src="docs/diagrams/roadmap.svg" width="100%" alt="Milestone ladder M0 to M9: truth, core solid, fast and proven, usable, connected, operable, public testnet, audited, mainnet, ecosystem."></p>
+
+Order: [docs/MISSION.md](docs/MISSION.md). Plan: [docs/trajectory.md](docs/trajectory.md).
+Done: [PROGRESS.md](PROGRESS.md). Where it stands now: [STATE.md](STATE.md).
+
+## Contributing
+
+Suggestions, bug reports, docs fixes and tests are welcome.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains setup on each OS, the build rule
+that keeps this repository's machine alive, test-first expectations, and what
+gets merged as written. Questions go to
+[Discussions](https://github.com/EricWijesinghe/Maya2C/discussions). Conduct:
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Documentation
 
-[docs/README.md](docs/README.md) indexes the full set; [docs/REPO-MAP.md](docs/REPO-MAP.md) says where every directory lives. Start with:
+[docs/README.md](docs/README.md) indexes everything. Start with:
 
-- [mainnet-readiness.md](docs/mainnet-readiness.md): why mainnet is blocked
+- [architecture-vision.md](docs/architecture-vision.md): every subsystem and its status
+- [hybrid-signatures.md](docs/hybrid-signatures.md): the two-signature scheme and its cost
+- [mainnet-v1-plan.md](docs/mainnet-v1-plan.md) and [mainnet-readiness.md](docs/mainnet-readiness.md): what launches, and what blocks it
 - [launch-checklist.md](docs/launch-checklist.md): what remains before a value-bearing launch
-- [hybrid-signatures.md](docs/hybrid-signatures.md): the two-signature scheme
-- [security-audit.md](docs/security-audit.md)
-- [architecture-vision.md](docs/architecture-vision.md): what each subsystem is, and its status
 
 ## Branding
 
-Logo assets live in [`logo-assets/`](logo-assets/) and are the source of truth.
-Two scripts deploy them, and both take `--check` so drift is detectable rather
-than discovered:
-
-```bash
-cargo xtask brand-assets                     # favicons and wordmarks into each app
-cargo xtask og-card                          # the 1200x630 social card
-cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png \
-  -o apps/wallet-gui/src-tauri/icons               # the desktop icon set
-```
-
-The hero banner in `docs/brand/` is drawn from the official emblem in
-`docs/site/public/brand/emblem.png`. The emblem is never redrawn.
-
-## Status
-
-This is pre-launch software on a chain that refuses to be worth anything. Read
-`CLAUDE.md` for the invariants that are load-bearing before changing consensus,
-crypto, or ledger code.
+Logo assets are in [`logo-assets/`](logo-assets/) and are the source of truth.
+`cargo xtask brand-assets --check` and `cargo xtask og-card --check` catch
+drift. The banner in `docs/brand/` is drawn from the official emblem, which is
+never redrawn. Brand rules: [BRAND.md](BRAND.md).
 
 ## Author
 
@@ -287,14 +200,10 @@ Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). You may use,
 modify and distribute this code, including commercially, under its terms,
 which include an express patent grant.
 
-**NOTICE: the name is not the network.** The source code is Apache-2.0, so
-anyone may fork it. The names Maya2C and MAYA, the emblem, the wordmark and the
-Forged Light assets are not licensed to forks: see [BRAND.md](BRAND.md). The
-canonical Maya2C network is the one whose genesis hash and validator set the
-maintainer publishes ([docs/GENESIS.md](docs/GENESIS.md)); a build of this code
-does not make a network canonical. A fork is a separate, empty chain, and the
+**The name is not the network.** Anyone may fork the code. The names Maya2C
+and MAYA, the emblem, the wordmark and the Forged Light assets are not
+licensed to forks ([BRAND.md](BRAND.md)). The canonical network is the one
+whose genesis hash and validator set the maintainer publishes
+([docs/GENESIS.md](docs/GENESIS.md)). A fork is a separate, empty chain: the
 network handshake is bound to the chain tag, so it cannot join or be confused
-with the canonical network. See [docs/forks.md](docs/forks.md).
-
-The cryptography has **not** been independently audited. Mainnet is blocked
-until it has been (see [docs/mainnet-readiness.md](docs/mainnet-readiness.md)).
+with the canonical network ([docs/forks.md](docs/forks.md)).

@@ -58,8 +58,10 @@ GPU with Vulkan, Metal or DX12 through wgpu.
 
 ## Is mainnet live?
 
-**No.** `maya-testnet-1` ran for 7 days 15 hours 42 minutes without a halt. It was
-stopped on purpose at 2026-10-28 07:36 UTC, so the next build can start from a new
+**No.** `maya-testnet-1` ran for 7 days 15 hours 42 minutes without a halt (a
+halt is any gap over 60 s between blocks). Two caveats were recorded with that
+figure: one validator held 71% of stake, so it finalized alone, and the run was
+on the pre-mining build. It was stopped on purpose at 2026-10-28 07:36 UTC, so the next build can start from a new
 genesis. The faucet and transfers are offline until then. The soak report is in
 [`reports/sessions/2026-10-28-testnet-stopped.md`](https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md).
 

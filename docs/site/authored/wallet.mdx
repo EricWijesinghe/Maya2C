@@ -4,6 +4,14 @@ description: How a wallet holds keys, signs post-quantum transactions, sets nonc
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
+import PausedNote from "../../../components/PausedNote.astro";
+import GetWallet from "../../../components/GetWallet.astro";
+
+<PausedNote line="The wallet works offline and against a local devnet today." />
+
+## Get the wallet
+
+<GetWallet />
 
 ## In plain words
 
@@ -25,8 +33,9 @@ Three rules keep a wallet safe:
 
 ## Three facts that decide the design
 
-**1. A signature is a hybrid pair, and it is large.** Every transaction carries
-two signatures over the same payload:
+**1. A signature is a hybrid pair, and it is large.** A transaction in the
+untagged default frame, which `l1-wallet` signs, carries two signatures over the
+same payload (a suite-tagged frame is opt-in and carries one):
 
 | Scheme | Standard | Size |
 |---|---|---|
@@ -111,10 +120,10 @@ lands in shell history and the process list. It prompts on a terminal, and reads
 
 From `bins/l1-wallet/src/main.rs`. Global flags come before the subcommand.
 
-```bash
+```bash wrap
 l1-wallet --keystore my.key generate            # new keypair, encrypted
 l1-wallet --keystore my.key address             # address held in the keystore
-l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
+l1-wallet --keystore my.key balance             # asks the node at --rpc-url (local by default)
 l1-wallet --keystore my.key block --height 0    # genesis is height 0
 l1-wallet --keystore my.key send --to <address> --amount 100 [--nonce N] [--fee F] [--max-fee F] [--genesis ID] [--yes] [--no-broadcast]
 l1-wallet --keystore my.key delegate --validator <64 hex> --amount 1000
@@ -175,6 +184,29 @@ Nothing is signed or broadcast on a refusal.
    [#287](https://github.com/EricWijesinghe/Maya2C/pull/287)). A fully compromised
    webview can still confirm and sign; an OS-level confirm is on the backlog.
 
+## What the desktop wallet shows before you sign
+
+From ADR-086 (phases P0 and P1), in `apps/wallet-gui/core`:
+
+- **Every address in full Bech32m**, in groups of four, with its prefix named
+  (`maya` mainnet, `tmaya` testnet, `dmaya` a chain whose genesis this build
+  does not pin). No hex address appears on the confirm screen.
+- **Warnings first, most severe first**, from `maya-clear-sign`'s review: a
+  recipient that looks like a contact, 90% or more of a balance, an unverified
+  contract.
+- **Address book.** Names are the ones you type; a payment request's label is
+  shown as the payee's claim and never saved. Names are normalized and stripped
+  of invisible right-to-left characters, and a name that reads like another
+  warns. The book is encrypted on disk with a key from your wallet seed; an
+  export opens only in a wallet restored from the same phrase.
+- **Poisoning defenses.** A recipient whose first and last group of four match
+  a contact's is flagged, as is saving such an address. Saving or deleting a contact asks in a native dialog. The send form takes a paste, a scan or
+  a contact, never typing, and an address you have never saved or paid needs a
+  full read-back before Review unlocks.
+- **Payment requests v2:** `maya:<bech32m>?amount=&label=&message=&exp=&id=`.
+  A request for another network or past its `exp` is refused before the form
+  opens. Old hex requests still work.
+
 ## Fees are burned
 
 There is no coinbase. The fee goes to an unspendable address rather than to a
@@ -233,6 +265,9 @@ makes the fee $13\,255\,b$ at base fee $b$ (measured, 2026-09-29). See the
 
 - Keystore v4, signing, and the l1-wallet commands: built and tested. Not audited.
 - Parity between `sdk-wasm` and the node: tested, not formally verified.
+- Desktop wallet clear signing, address book and payment requests v2
+  (ADR-086 P0+P1): built and tested in the wallet core. Not audited. Seedless
+  recovery (P2 onward) is not built.
 
 </TabItem>
 </Tabs>

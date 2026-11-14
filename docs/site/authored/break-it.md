@@ -38,7 +38,7 @@ becomes more than that.
 | Signatures | ML-DSA-65 + SLH-DSA hybrid, `Transaction::verify` | a transaction accepted with one bad signature, malleability |
 | State | apply path, state root, staking, slashing | value created or destroyed, a root two honest nodes disagree on |
 | Network | libp2p, the ML-KEM handshake, the WebSocket bootnode | a crash or stall from crafted frames, peer-slot exhaustion with amplification |
-| Public services | `rpc.maya2c.dev`, `faucet.maya2c.dev`, `bootstrap.maya2c.dev` | a method the gateway should refuse, faucet limits bypassed |
+| Public services | `rpc.maya2c.dev`, `faucet.maya2c.dev`, `bootstrap.maya2c.dev`: offline while the testnet is paused, so run the same services locally | a method the gateway should refuse, faucet limits bypassed |
 
 The code is at [github.com/EricWijesinghe/Maya2C](https://github.com/EricWijesinghe/Maya2C).
 The fastest way in is to run the attacknet yourself and add an attack it
@@ -46,8 +46,10 @@ does not have.
 
 ## Rules
 
-- **Testnet only.** Attack `maya-testnet-1` and your own local nodes, never
-  another person's machine.
+- **Testnet only.** Attack your own local devnet (the
+  [quickstart](/guides/quickstart/)) and, when it runs, `maya-testnet-1`;
+  never another person's machine. The public testnet is paused until the next
+  genesis.
 - **No volume floods** against the public endpoints. They run on one home
   connection. A crash from *one* crafted request is a finding; a crash from
   a million requests is not.
@@ -58,9 +60,11 @@ does not have.
 
 ## Reporting
 
-Report privately with GitHub's **[Report a vulnerability](https://github.com/EricWijesinghe/Maya2C/security/advisories/new)**,
-as [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md)
-describes. Include what you found, how to reproduce it, and the commit you
+First channel: GitHub private vulnerability reporting, https://github.com/EricWijesinghe/Maya2C/security/advisories/new
+
+That is the same channel [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md)
+and [security.txt](/.well-known/security.txt) name. `security@maya2c.dev` is
+not confirmed to receive mail yet, and no encrypted channel exists yet. Include what you found, how to reproduce it, and the commit you
 tested. You will get an acknowledgement within 3 working days. Please
 allow 90 days, or until a fix ships, before publishing.
 

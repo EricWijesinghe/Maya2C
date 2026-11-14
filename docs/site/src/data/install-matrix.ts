@@ -22,6 +22,7 @@ import {
   type Step,
   type Walkthrough,
 } from "./picker";
+import { pausedReason } from "./paused.ts";
 
 type MethodId = "oneline" | "manual";
 
@@ -299,3 +300,10 @@ export const joinGuide: GuideDef = {
   lastStepNote: 'Last step. Then go on to "Check it is working" below.',
   combos: allCombos(),
 };
+
+/**
+ * Every join command reaches the public testnet, so while it is paused the
+ * picker still shows the steps (they are the same at the next genesis) but
+ * turns Copy off and says why. Null when the testnet runs.
+ */
+export const joinPausedReason: string | null = pausedReason;

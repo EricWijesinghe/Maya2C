@@ -4,6 +4,9 @@ description: Find Maya2C, check your GPU, and start mining on Windows or Linux, 
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import PausedNote from '../../../components/PausedNote.astro';
+
+<PausedNote line="Every command below points at a node on your own machine (127.0.0.1:8545)." />
 
 Mining is optional, visible, and stops when you stop it. Nothing here starts
 on its own or runs hidden. The page covers three things in order: whether your
@@ -31,7 +34,7 @@ machine can mine, how to start, and what to expect.
 | Mining mode | What you need | Honest note |
 |---|---|---|
 | GPU, full dataset | A graphics card with about **6 GB of free video memory**, and a driver with Vulkan (Linux) or DirectX 12 or Vulkan (Windows). The miner holds the **4 GiB dataset** in video memory. | This is the mode that makes sense. The GPU path has not been measured on real cards in this repository yet; run `--list` and `--benchmark` on your card before you rely on any figure. |
-| CPU, light | Any 64-bit machine with about 64 MiB free for the cache. | Works, and is useful for testing. Mining from the cache is about 260 times slower than from the dataset, so CPU mining will earn a very small share of the budget. |
+| CPU, light | Any 64-bit machine with about 64 MiB free for the cache. | Works, and is useful for testing. Light mode recomputes every dataset item it reads from the cache (128 items at 256 cache reads each per hash, about a hundred times the work by design: `crates/node/src/crypto/dag/hashimoto.rs`). The measured speed ratio is MISSING, so CPU mining gets a very small share of the budget. |
 
 Find your adapter before anything else. Every later command uses its index.
 
@@ -185,8 +188,8 @@ decided, it says so.
 | Fact | Value | Source |
 |---|---|---|
 | Algorithm | Maya2C DAG (BLAKE3) | `docs/dag-pow.md` |
-| Target block time | 15 seconds | node constant `TARGET_BLOCK_TIME` |
-| DAG epoch | 30,000 blocks, about 5.21 days at target | node constant `EPOCH_LENGTH` |
+| Block time | about 1 second, set by genesis `round_interval_ms` (measured about 3,470 blocks an hour, 0.96 a second, in the undisturbed hours of a 24 h run on one machine) | `reports/proving/2026-11-09.md` |
+| DAG epoch | 30,000 blocks, about 8.3 hours at the measured rate | node constant `EPOCH_LENGTH` |
 | Dataset | 4 GiB, fixed size | `docs/dag-pow.md` |
 | Cache | 64 MiB | `docs/dag-pow.md` |
 | Reward model | Epoch budget split across shares, halving then a tail floor | ADR-044, ADR-068 |

@@ -4,6 +4,7 @@ import starlight from "@astrojs/starlight";
 import { readFileSync } from "node:fs";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeTableLabels from "./src/lib/rehype-table-labels.mjs";
 import { unified } from "@astrojs/markdown-remark";
 import { codeThemes, codeStyleOverrides } from "./src/lib/code-theme.mjs";
 
@@ -22,7 +23,8 @@ export default defineConfig({
   markdown: {
     processor: unified({
       remarkPlugins: [remarkMath],
-      rehypePlugins: [rehypeKatex],
+      // Table labels: phones stack each row as label/value pairs (maya-living.css).
+      rehypePlugins: [rehypeKatex, rehypeTableLabels],
     }),
   },
   // Content-Security-Policy (incident 2026-10-06): a hijacked edge appended
@@ -141,7 +143,7 @@ export default defineConfig({
         // No "shielded transfers": mainnet v1 launches without them
         // (decided 2026-09-30), and a description must not promise them.
         "Post-quantum layer-1 blockchain in Rust: DAG-BFT finality and " +
-        "hybrid ML-DSA + SLH-DSA signatures on every transaction.",
+        "hybrid ML-DSA + SLH-DSA signatures on the default transaction frame.",
       // Self-hosted variable fonts: no third-party request, no layout shift
       // from a late swap, and the same letterforms on every OS.
       customCss: [
@@ -183,6 +185,9 @@ export default defineConfig({
       expressiveCode: {
         themes: codeThemes,
         styleOverrides: codeStyleOverrides,
+        // Long commands wrap instead of scrolling out of sight on a phone; the
+        // copy button still copies the original lines.
+        defaultProps: { wrap: true },
       },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },

@@ -1,0 +1,68 @@
+---
+// The one paused notice for every guide that would otherwise send a reader
+// to a stopped network (lane L04). It reads network-state.ts, so it renders
+// nothing once `testnet.paused` is false. Amber and calm: the stop was on
+// purpose, so this is information, not an alarm. Amber marks the edge and
+// the icon only; the words stay in the text colours, which pass AA in both
+// themes on their own.
+import { testnet } from "../data/network-state.ts";
+import { LOCAL_DEVNET_HREF, lastRun, runCaveats } from "../data/paused.ts";
+
+interface Props {
+  /** One line on what this page cannot do while paused. */
+  line?: string;
+}
+const { line } = Astro.props;
+const height = testnet.last.height.toLocaleString("en-US");
+---
+
+{testnet.paused && (
+  <aside class="paused-note not-content" aria-labelledby="paused-note-title" data-paused-note>
+    <span class="paused-note__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1.5" /><rect x="14" y="5" width="4" height="14" rx="1.5" /></svg>
+    </span>
+    <div class="paused-note__body">
+      <p class="paused-note__title" id="paused-note-title">The public testnet is paused</p>
+      <p>Paused on purpose since {testnet.since}. Last block <a href={testnet.report}>{height}</a>. Returns with the next genesis.</p>
+      {line && <p>{line}</p>}
+      <p class="paused-note__links">
+        <a class="paused-note__cta" href={LOCAL_DEVNET_HREF}>Run a local devnet instead</a>
+        <a href={testnet.report}>Why it stopped</a>
+      </p>
+      {/* The run's detail, folded: the first screen stays one calm line. */}
+      <details class="paused-note__run">
+        <summary>The run it ended</summary>
+        <p>{testnet.last.run} from {lastRun.genesisAt} to {testnet.last.at}, with {testnet.last.halts} halts ({runCaveats.halt}; the deliberate stop itself is listed as one on the status page). Recorded caveats: {runCaveats.stake}, and {runCaveats.build}.</p>
+      </details>
+    </div>
+  </aside>
+)}
+
+<style>
+  .paused-note {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3);
+    margin-block: var(--space-4) var(--space-6); padding: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+    border-inline-start: 3px solid var(--warn);
+    border-radius: var(--r-lg);
+    background: var(--warn-wash);
+    color: var(--text-2); font-size: var(--type-body-size); line-height: var(--line-body);
+  }
+  :global(:root[data-theme="light"]) .paused-note { color: var(--text); }
+  .paused-note__icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn) 18%, transparent); fill: var(--warn); }
+  .paused-note__body { display: grid; gap: var(--space-2); min-width: 0; }
+  .paused-note p { margin: 0; overflow-wrap: anywhere; }
+  .paused-note__title { color: var(--text); font-weight: var(--weight-semibold); font-size: var(--type-body-lg-size); }
+  .paused-note a { color: var(--text); text-decoration: underline; text-decoration-color: var(--warn); text-underline-offset: 3px; }
+  .paused-note__links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-top: var(--space-1) !important; }
+  .paused-note__links a { display: inline-flex; align-items: center; min-height: 44px; font-weight: var(--weight-medium); }
+  /* The one action that works today, as a button; the reason stays a text link. */
+  .paused-note .paused-note__cta { justify-content: center; padding: 0 var(--space-4); border-radius: var(--r-pill); background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to)); color: var(--on-accent); font-weight: var(--weight-semibold); text-decoration: none; }
+  .paused-note .paused-note__cta:hover { filter: brightness(1.06); }
+  .paused-note a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+  .paused-note .paused-note__cta:focus-visible { border-radius: var(--r-pill); }
+  .paused-note__run summary { display: list-item; line-height: 44px; min-height: 44px; color: var(--text-2); cursor: pointer; font-size: var(--type-body-sm-size); }
+  .paused-note__run summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+  .paused-note__run p { font-size: var(--type-body-sm-size); }
+  @media (max-width: 480px) { .paused-note .paused-note__cta { width: 100%; } }
+</style>

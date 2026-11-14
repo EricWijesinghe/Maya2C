@@ -22,7 +22,7 @@ const gateway = [["gHeight", "Height"], ["gAge", "Tip age"], ["gEpoch", "Epoch"]
 const nav = [["now", "Now"], ["gateway", "Gateway"], ["incidents", "Incidents"]];
 ---
 
-<StarlightPage frontmatter={{ title: "Live health", description: "Is maya-testnet-1 finalizing now, how long since its last halt, and what the public gateway does and does not show.", template: "splash" }}>
+<StarlightPage frontmatter={{ title: paused ? "Testnet health (paused)" : "Live health", description: paused ? "maya-testnet-1's last recorded run and every halt, with what the public gateway does and does not show." : "Is maya-testnet-1 finalizing now, every halt since genesis, and what the public gateway does and does not show.", template: "splash" }}>
   <div class="not-content app" data-health data-paused={paused ? "" : undefined} data-last-end={lastEnd}>
     <nav class="app-subnav" aria-label="Sections">
       {nav.map(([id, label]) => <a href={`#${id}`}>{label}</a>)}
