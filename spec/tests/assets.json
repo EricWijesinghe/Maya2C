@@ -147,6 +147,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the initial supply is above the cap",
     "result": "error"
    },
    "height": "10",
@@ -168,6 +169,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the authority must be the sender or none",
     "result": "error"
    },
    "height": "10",
@@ -189,6 +191,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "a cap of zero",
     "result": "error"
    },
    "height": "10",
@@ -240,6 +243,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the new supply is above the cap",
     "result": "error"
    },
    "height": "10",
@@ -267,6 +271,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "a mint of zero units",
     "result": "error"
    },
    "height": "10",
@@ -294,6 +299,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "not the asset's mint authority",
     "result": "error"
    },
    "height": "10",
@@ -350,6 +356,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "needs 6",
     "result": "error"
    },
    "height": "10",
@@ -404,6 +411,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the asset has no mint authority",
     "result": "error"
    },
    "height": "10",
@@ -433,6 +441,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "asset mint and burn are not active",
     "result": "error"
    },
    "height": "9",
@@ -502,6 +511,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "MAX_ASSET_SUPPLY",
     "result": "error"
    },
    "height": "10",
@@ -524,6 +534,10 @@
    "activation": "10",
    "expect": {
     "authority": "k0",
+    "balances": {
+     "k0": "5",
+     "k1": "4"
+    },
     "cap": "10",
     "result": "ok",
     "supply": "9"
@@ -589,6 +603,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the asset has no mint authority",
     "result": "error"
    },
    "height": "10",

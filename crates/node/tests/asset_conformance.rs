@@ -170,7 +170,18 @@ fn apply_case(actors: &Actors, case: &Value) {
             continue;
         }
         if !ok(case) {
-            assert!(result.is_err(), "{id}: the last step was applied");
+            let Err(err) = result else {
+                panic!("{id}: the last step was applied");
+            };
+            // The reason, when the vector names one: without it a refusal for an
+            // unrelated failure would pass as this rule's.
+            if let Some(reason) = case["expect"]["error"].as_str() {
+                let err = err.to_string();
+                assert!(
+                    err.contains(reason),
+                    "{id}: refused for `{err}`, not `{reason}`"
+                );
+            }
             return;
         }
         result.unwrap_or_else(|e| panic!("{id}: {e}"));
@@ -181,6 +192,15 @@ fn apply_case(actors: &Actors, case: &Value) {
     assert_eq!(r.cap, amount(&e["cap"]), "{id}");
     let authority = actors.address(e["authority"].as_str().unwrap(), &actors.k0);
     assert_eq!(r.authority, authority, "{id}");
+    // Where the units went, so a mint credited to the sender instead fails.
+    if let Some(balances) = e.get("balances").and_then(Value::as_object) {
+        for (who, want) in balances {
+            let got = db
+                .asset_balance(&asset, &actors.key(who).address())
+                .unwrap();
+            assert_eq!(got, amount(want), "{id}: balance of {who}");
+        }
+    }
 }
 
 #[test]

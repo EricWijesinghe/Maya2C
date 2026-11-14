@@ -6,9 +6,14 @@
 //! conservation guard.
 //!
 //! Classes tried (V4-V1 brief): value creation, fee bypass, unbounded
-//! per-block work, replay, squatting. Per-block work: every form reads and
-//! writes a fixed number of records (`state/asset_mint.rs`, no loop), so
-//! there is nothing to grow; no test here, by construction.
+//! per-block work, replay, squatting. Per-block work: executing a form reads
+//! and writes a fixed number of records (`state/asset_mint.rs`, no loop), but
+//! the block builder's filter (`StateDB::select_applicable_within`) copies the
+//! whole overlay for every frame that is not a plain transfer, so a block full
+//! of v4 forms (or sponsored transfers) costs every builder work quadratic in
+//! the state the block touches. Open as M3 (BACKLOG, v4 activation blockers):
+//! one benchmark over a block of v4 forms before any v4 activation height is
+//! written.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

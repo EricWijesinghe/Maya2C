@@ -901,3 +901,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-14 — V4-V1 conformance and red team for the v4 fork: what changed (Claude, under Eric 2026-11-14 "I approve everything, proceed")
+
+The v4 build PRs, all post-genesis drafts stacked on `feat/v4-i1-token-mint-policy` (#487 capped tokens, #493 NFTs and names, #501 sponsored fees, #502 scheduled payments) and #548 (session keys, on `postgen/account-authority`), each got a spec section, conformance vectors and a red-team file (`crates/node/tests/v4_redteam_{tokens,names_nfts,sponsored,schedules,accounts}.rs`). Recorded here once, because the stacked branches would otherwise each append to this file and conflict.
+
+- **A transfer-only block over pending name commitments is `Unverifiable` to a stateless node, not `Invalid`** (#493). The commitment prune deletes `nm:` rows no transaction names, so the names layer joined `PASS_LAYERS`; before, a stateless node called an honest block Invalid. The same rule as #502 for `sp:`. Whichever of #493 and #502 lands second keeps both layers (`[StateLayer; 5]`).
+- **Name fee defaults are open** (spec NM-9): ADR-135 (PR #477) records 10^18 / 10^17 / 10^15 base units a year, the code and vectors use 10^24 / 10^23 / 10^21. Eric confirms one set before #493 merges.
+- **A limited account sends only plain transfers and account actions** (#548, AA-9). The window counts outputs; on the v4 fork `CreateSchedule` with `first_due = height + 1` would move a whole balance past it. Refused instead, as a vault account is (ADR-030), so kinds added later fail closed.
+- **Sponsored fees stay dark until M1 and M3 close** (#501): the sponsor does not sign the inner frame's approvals, and the builder copies the overlay for every frame that is not a plain transfer. Both are BACKLOG activation blockers. SP-1 now says a v13 frame is refused as an inner frame at any depth, including inside a later wrapper.
+- **Negative conformance vectors name their refusal** (`expect.error`, a substring) in `assets.json`, `names.json`, `nfts.json` and `schedules.json`, so a vector cannot pass on an unrelated failure; the names runner also checks the `nm:x:` expiry index row beside each commitment row.
+- **Names and NFTs share one red-team file**, and the per-rule session-key cases stay in `account_policy_tests.rs`; split only if they grow.
