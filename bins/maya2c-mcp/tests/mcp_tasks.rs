@@ -219,7 +219,7 @@ fn real_signed_size() -> usize {
 }
 
 #[test]
-fn starts_and_lists_eleven_tools_none_of_which_signs_or_submits() {
+fn starts_and_lists_fifteen_tools_none_of_which_signs_or_submits() {
     let replies = session(
         None,
         &[
@@ -229,7 +229,8 @@ fn starts_and_lists_eleven_tools_none_of_which_signs_or_submits() {
     );
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "maya2c-mcp");
     let names = tool_names();
-    assert_eq!(names.len(), 11, "{names:?}");
+    // Eleven ADR-084 tools plus the four ADR-130 agent tools.
+    assert_eq!(names.len(), 15, "{names:?}");
     for name in &names {
         for banned in ["sign", "submit", "send", "broadcast", "rpc"] {
             assert!(!name.contains(banned), "tool {name} looks like a write");

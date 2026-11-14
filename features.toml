@@ -3629,3 +3629,14 @@ class = "REAL"
 status = "stub"
 tests = ["crate:attacknet-controller"]
 note = "Scaffold. Process kill (by data dir, zero matches is an error) and start are real; every other fault returns a not-implemented error since 2026-11-10 (before that, many logged Ok without acting). Its scenario verdicts and reports/attacknet/runs/ are not evidence; use cargo xtask attacknet."
+
+[[subsystem]]
+id = "agent-registry"
+name = "Agent registry and agent-to-agent payments, off chain (ADR-130, P-48)"
+domain = "Agents and payments"
+paths = "`crates/agent-registry`, `bins/maya2c-mcp` (agent_* tools)"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = ["crates/agent-registry/tests/card_tests.rs", "crates/agent-registry/tests/payment_tests.rs", "crates/agent-registry/tests/registry_tests.rs", "crates/agent-registry/tests/http_tests.rs", "crates/agent-registry/tests/mcp_tests.rs"]
+note = "Off chain only; consensus reads none of it. Written in CI-first mode: not compiled locally, so no test has run yet. Registry records are in memory (LOCAL-ONLY). Chain-side registry actions (ADR-130 part 2) and persistent replay state are not built. Limits are configuration, not measurements."

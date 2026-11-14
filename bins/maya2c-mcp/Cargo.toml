@@ -11,6 +11,8 @@ custom-l1-node = { path = "../../crates/node", default-features = false }
 maya-address = { path = "../../crates/address" }
 maya-amount = { path = "../../crates/amount" }
 maya-clear-sign = { path = "../../crates/clear-sign" }
+# Agent tools (ADR-130): search, verify, draft. Read and draft only (ADR-084).
+maya-agent-registry = { path = "../../crates/agent-registry" }
 primitive-types.workspace = true
 serde_json.workspace = true
 hex.workspace = true
