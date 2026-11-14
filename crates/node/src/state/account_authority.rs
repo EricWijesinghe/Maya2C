@@ -138,6 +138,17 @@ impl AuthorityRecord {
         }
     }
 
+    /// The height the digest in force at `height` took effect: with
+    /// [`Self::effective`], the authority generation a session key is bound
+    /// to (ADR-135 P-5), so A->B->A is a new generation of A.
+    #[must_use]
+    pub fn effective_since(&self, height: u64) -> u64 {
+        match self.queued {
+            Some((_, ready)) if ready <= height => ready,
+            _ => self.since,
+        }
+    }
+
     fn normalised(self, height: u64) -> Self {
         match self.queued {
             Some((next, ready)) if ready <= height => Self {
@@ -474,9 +485,14 @@ impl StateDB {
                 hex::encode(sender)
             )),
             (Some(auth), Some(r)) if r.effective(height) == auth.policy().digest() => Ok(()),
-            (Some(auth), Some(r)) if height >= policy_activation => {
-                self.session_check(overlay, tx, auth, sender, r.effective(height), height)
-            }
+            (Some(auth), Some(r)) if height >= policy_activation => self.session_check(
+                overlay,
+                tx,
+                auth,
+                sender,
+                (r.effective(height), r.effective_since(height)),
+                height,
+            ),
             (Some(_), Some(_)) => moved(format!(
                 "the policy presented is not the one signing for {}",
                 hex::encode(sender)
@@ -544,18 +560,18 @@ impl StateDB {
         }
     }
 
-    /// The digest signing for `owner` at `height`, opting the account in first
-    /// if it has no record: the record becomes the policy that signed `tx`
-    /// (Rule B).
+    /// The authority generation signing for `owner` at `height` (digest and
+    /// the height it took effect), opting the account in first if it has no
+    /// record: the record becomes the policy that signed `tx` (Rule B).
     pub(super) fn opt_in(
         &self,
         overlay: &mut Overlay,
         tx: &Transaction,
         owner: &Address,
         height: u64,
-    ) -> Result<[u8; 32]> {
+    ) -> Result<([u8; 32], u64)> {
         if let Some(record) = self.authority_record(overlay, owner)? {
-            return Ok(record.effective(height));
+            return Ok((record.effective(height), record.effective_since(height)));
         }
         let record = AuthorityRecord {
             policy_digest: signer_policy(tx)?.digest(),
@@ -563,7 +579,7 @@ impl StateDB {
             queued: None,
         };
         StateDB::put_record(overlay, key(AUTHORITY_RECORD, owner), record.encode());
-        Ok(record.policy_digest)
+        Ok((record.policy_digest, record.since))
     }
 
     fn adopt_policy(

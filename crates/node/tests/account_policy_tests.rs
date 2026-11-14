@@ -19,11 +19,15 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::account_policy::{MAX_SESSION_COST, WINDOW_BLOCKS};
+use custom_l1_node::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
+use custom_l1_node::state::upgrades::version_key;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use custom_l1_node::upgrade::FeatureSet;
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
 use maya_crypto_pq::suite::{
     HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa65, SignatureSuite, SlhDsaSha2_128s, SuiteId,
 };
+use maya_dex::Amount;
 use primitive_types::U256;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -129,6 +133,22 @@ fn pay_to(recipient: Address, amount: u64) -> Vec<TxOutput> {
         amount: U256::from(amount),
         recipient,
     }]
+}
+
+/// `outputs` plus a fee collector output of `fee`.
+fn with_fee(mut outputs: Vec<TxOutput>, fee: u64) -> Vec<TxOutput> {
+    outputs.push(TxOutput {
+        amount: U256::from(fee),
+        recipient: FEE_COLLECTOR,
+    });
+    outputs
+}
+
+/// The required fee of the frame `make` builds: at a base fee of 1 per byte
+/// it is the frame's size, which the fixed-width encoding keeps independent of
+/// the amounts.
+fn required_fee(make: impl Fn(u64) -> Transaction) -> u64 {
+    u64::try_from(make(1).to_bytes().len()).unwrap()
 }
 
 fn account(action: AccountAction) -> TxKind {
@@ -264,6 +284,32 @@ impl Scene {
     fn owner_does(&mut self, action: AccountAction) -> Result<(), String> {
         let tx = self.as_owner(account(action), vec![]);
         self.chain.send(tx)
+    }
+
+    /// Switches fees on: a base fee of 1 per byte, floored at 1, so it stays
+    /// 1 for these small blocks. `Chain::new` writes no fee record, so every
+    /// test without this runs fee-free.
+    fn fees_on(&self) {
+        let record = FeeRecord {
+            base_fee: Amount::from_u64(1),
+            min_base_fee: Amount::from_u64(1),
+            target_block_bytes: 1_000_000,
+            change_denominator: 8,
+        };
+        self.chain
+            .db
+            .raw_put_for_test(FEE_KEY, &record.encode())
+            .unwrap();
+    }
+
+    /// An owner-signed transfer to `STRANGER`, with a fee output.
+    fn owner_pays(&self, amount: u64, fee: u64) -> Transaction {
+        self.as_owner(TxKind::Transfer, with_fee(pay_to(STRANGER, amount), fee))
+    }
+
+    /// A session-signed transfer to `PAYEE`, with a fee output.
+    fn session_pays_with_fee(&self, amount: u64, fee: u64) -> Transaction {
+        self.as_session(TxKind::Transfer, with_fee(pay_to(PAYEE, amount), fee))
     }
 }
 
@@ -414,6 +460,35 @@ fn an_authority_change_voids_every_session_key() {
 }
 
 #[test]
+fn a_voided_session_key_stays_void_when_the_old_authority_returns() {
+    // A -> B -> A: the authority digest is A's again, but the session key
+    // granted under the first A (perhaps leaked, the reason for the change)
+    // must not count again. A key is bound to the authority generation.
+    let mut s = Scene::opted_in();
+    let other = device(0x0A);
+    let b = session_policy(&other);
+    s.owner_does(AccountAction::AdoptPolicy(b.clone()))
+        .expect("A -> B");
+    let back = v9_frame(
+        s.address,
+        &b,
+        account(AccountAction::AdoptPolicy(s.owner_policy.clone())),
+        vec![],
+        s.chain.nonce(&s.address),
+        |m| {
+            vec![Approval {
+                index: 0,
+                signature: MlDsa65::sign(&other, m).unwrap(),
+            }]
+        },
+    );
+    s.chain.send(back).expect("B -> A");
+    s.owner_does(AccountAction::SetDailyLimit { limit: U256::one() })
+        .expect("A signs for the account again");
+    refused(&mut s, "authority moved", |s| s.session_pays(PAYEE, 1));
+}
+
+#[test]
 fn the_window_caps_owner_and_session_frames_together() {
     let mut s = Scene::opted_in();
     s.owner_does(AccountAction::SetDailyLimit {
@@ -440,6 +515,108 @@ fn the_window_caps_owner_and_session_frames_together() {
     })
     .unwrap();
     owner_pay(&mut s, 1_000).expect("no cap");
+}
+
+#[test]
+fn with_fees_on_a_session_frame_pays_its_fee_outside_its_cap_and_recipients() {
+    // The recipient list never names the fee collector and the required fee
+    // is outside `max_amount`: without both, no session key could pay a fee.
+    let mut s = Scene::opted_in();
+    s.fees_on();
+    let required = required_fee(|fee| s.session_pays_with_fee(CAP, fee));
+    // A tip above the required fee is value the key moved: it counts.
+    refused(&mut s, "max_amount", |s| {
+        let tx = s.session_pays_with_fee(CAP, required + 1);
+        s.chain.send(tx)
+    });
+    let tx = s.session_pays_with_fee(CAP, required);
+    s.chain.send(tx).expect("CAP plus exactly the required fee");
+    assert_eq!(s.chain.balance(&PAYEE), U256::from(CAP));
+    assert_eq!(
+        s.chain.balance(&s.address),
+        U256::from(FUNDS - CAP - required)
+    );
+}
+
+#[test]
+fn with_fees_on_the_required_fee_is_outside_the_window() {
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::SetDailyLimit {
+        limit: U256::from(150u64),
+    })
+    .unwrap();
+    s.fees_on();
+    let required = required_fee(|fee| s.owner_pays(150, fee));
+    let tx = s.owner_pays(150, required);
+    s.chain
+        .send(tx)
+        .expect("the window filled to its limit, the fee exempt");
+    refused(&mut s, "past the account's limit", |s| {
+        let tx = s.owner_pays(1, required);
+        s.chain.send(tx)
+    });
+}
+
+#[test]
+fn the_mempool_admits_a_session_frame_inside_its_scope() {
+    let s = Scene::opted_in();
+    s.fees_on();
+    // The mempool judges at the tip under the committed schedule: a tip at
+    // height 0 and a version-2 entry switching bits 9 and 45 on at height 1.
+    s.chain
+        .db
+        .init_chain(
+            &s.chain.block(vec![]),
+            custom_l1_node::consensus::U256::ZERO,
+        )
+        .unwrap();
+    let features = FeatureSet::ACCOUNT_AUTHORITY | FeatureSet::ACCOUNT_POLICY;
+    // The version record: version u32 LE, activation height u64 LE, bits u64 LE.
+    let entry = [
+        2u32.to_le_bytes().as_slice(),
+        1u64.to_le_bytes().as_slice(),
+        features.to_le_bytes().as_slice(),
+    ]
+    .concat();
+    s.chain
+        .db
+        .raw_put_for_test(&version_key(2), &entry)
+        .unwrap();
+    let required = required_fee(|fee| s.session_pays_with_fee(CAP, fee));
+    let inside = s.session_pays_with_fee(CAP, required);
+    let over = s.session_pays_with_fee(CAP + 1, required);
+    let pool = Mempool::new(Arc::new(s.chain.db));
+    pool.validate(&inside)
+        .expect("a session frame inside its scope");
+    let err = pool.validate(&over).unwrap_err().to_string();
+    assert!(err.contains("max_amount"), "{err}");
+}
+
+#[test]
+fn a_failed_transfer_leaves_no_window_charge_in_the_builder() {
+    // The window is charged before the balance check. A transfer that then
+    // fails must not leave its charge behind for the next frame to trip on.
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::SetDailyLimit {
+        limit: U256::from(2 * FUNDS),
+    })
+    .unwrap();
+    let broke = s.as_owner(TxKind::Transfer, pay_to(STRANGER, 2 * FUNDS));
+    let good = s.as_owner(TxKind::Transfer, pay_to(STRANGER, 1));
+    let kept = s
+        .chain
+        .db
+        .select_applicable(
+            vec![broke, good.clone()],
+            s.chain.context(s.chain.height + 1),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(
+        kept,
+        vec![good],
+        "the same-nonce transfer inside the window is kept"
+    );
 }
 
 fn slh_key(seed: u8) -> PolicyKey {
@@ -615,12 +792,12 @@ fn vector_cases() -> serde_json::Value {
     seventeen.truncate(seventeen.len() - 4);
     seventeen.extend_from_slice(&17u32.to_le_bytes());
     seventeen.extend_from_slice(&[0x22; 32 * 17]);
-    let seventeen_ok = TxKind::decode(&mut ByteReader::new(&seventeen)).is_ok();
-    let seventeen_expect = if seventeen_ok {
-        serde_json::json!({"result": "ok"})
-    } else {
-        serde_json::json!({"result": "error", "error": "Decode"})
-    };
+    // The rule (n <= 16 at decode), checked here so a regenerate cannot
+    // write whatever the decoder happens to do into the spec.
+    assert!(
+        TxKind::decode(&mut ByteReader::new(&seventeen)).is_err(),
+        "17 session recipients must not decode"
+    );
 
     let at_cap = Scene::opted_in().session_pays(PAYEE, CAP);
     let over_cap = Scene::opted_in().session_pays(PAYEE, CAP + 1);
@@ -665,7 +842,7 @@ fn vector_cases() -> serde_json::Value {
              "expect": {"result": "ok", "kind_bytes": kind_hex(AccountAction::SetDailyLimit { limit: U256::from(150u64) })}},
             {"id": "AA-seventeen-recipients", "rules": ["AA-7"],
              "input": {"kind_bytes": hex::encode(&seventeen)},
-             "expect": seventeen_expect},
+             "expect": {"result": "error", "error": "Decode"}},
             {"id": "AA-session-at-cap", "rules": ["AA-8"], "input": {"amount": CAP.to_string(), "max_amount": CAP.to_string()}, "expect": outcome(at_cap)},
             {"id": "AA-session-over-cap", "rules": ["AA-8"], "input": {"amount": (CAP + 1).to_string(), "max_amount": CAP.to_string()}, "expect": outcome(over_cap)},
             {"id": "AA-session-at-expiry", "rules": ["AA-8"], "input": {"height": EXPIRES, "expires_at": EXPIRES}, "expect": outcome(at_expiry)},

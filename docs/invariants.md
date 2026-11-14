@@ -286,10 +286,14 @@ phase that did it.
     `removed_guardians_approvals_are_ignored`,
     `the_root_is_unchanged_when_no_account_opts_in` and
     `a_reorg_restores_authority_records` — ADR-086.
-    Session keys (ADR-135 P-5, bit 45) extend Rule A without weakening it: a
-    v9 frame under a non-authority policy acts for `X` only as a plain
-    transfer inside a `ka:s:` scope granted by the authority now in force, so
-    a session key never signs an account action and dies with the authority
-    that granted it. Pinned by `a_session_key_cannot_sign_account_actions`
-    and `an_authority_change_voids_every_session_key` in
+    Session keys (ADR-135 P-5, bit 45) are one named exception to Rule A: a
+    v9 frame under a non-authority policy acts for `X`, but only as a plain
+    transfer inside a `ka:s:` scope granted by the authority generation now
+    in force (its digest and the height it took effect). A session key
+    therefore never signs an account action, never changes who signs for
+    `X`, and is void once the authority that granted it is replaced, even if
+    the same digest later returns. Pinned by
+    `a_session_key_cannot_sign_account_actions`,
+    `an_authority_change_voids_every_session_key` and
+    `a_voided_session_key_stays_void_when_the_old_authority_returns` in
     `crates/node/tests/account_policy_tests.rs`.

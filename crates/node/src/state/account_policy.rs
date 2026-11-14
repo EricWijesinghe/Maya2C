@@ -6,15 +6,17 @@
 //! uses them keeps its root byte for byte:
 //!
 //! - `ka:s:<account><key_hash>` — a session key: the policy digest that may
-//!   sign plain transfers for `account`, the authority digest that granted it,
-//!   and its scope (total cap per frame, last height, allowed recipients);
+//!   sign plain transfers for `account`, the authority generation that granted
+//!   it (digest and the height it took effect), and its scope (total cap per
+//!   frame, last height, allowed recipients);
 //! - `ka:w:<account>` — the window cap and what this window has moved.
 //!
 //! **A session key is void the moment the authority that granted it changes**
 //! (recovery, or a matured `AdoptPolicy`): its row names the granting digest
-//! and counts only while that digest is still in force. A thief who added a
-//! session key before the guardians recovered the account keeps nothing, and
-//! no sweep has to find the row.
+//! and the height that digest took effect, and counts only while both are
+//! still in force, so A->B->A does not revive it. A thief who added a session
+//! key before the guardians recovered the account keeps nothing, and no sweep
+//! has to find the row.
 //!
 //! **Bounded work.** A frame does at most three record reads (`ka:a:`,
 //! `ka:s:`, `ka:w:`) and one write, a membership test over at most
@@ -43,7 +45,8 @@ const WINDOW_RECORD: &[u8] = b"ka:w:";
 const RECORD_VERSION: u8 = 1;
 
 /// Blocks per spending window: one day at one block a second (ADR-135 O-1,
-/// answered 2026-11-12). Windows are aligned: `height - height % WINDOW_BLOCKS`.
+/// "Eric's answers (2026-11-12)" in ADR-135, PR #477). Windows are aligned:
+/// `height - height % WINDOW_BLOCKS`.
 pub const WINDOW_BLOCKS: u64 = 86_400;
 /// Longest a session key may live: the one-year schedule horizon, so a
 /// forgotten key cannot outlast the policy review cycle.
@@ -71,6 +74,9 @@ pub const fn verify_cost(suite: SuiteId) -> u64 {
 pub struct SessionRecord {
     /// The authority digest in force when the key was granted.
     pub granted_by: [u8; 32],
+    /// The height that authority took effect: with `granted_by`, the
+    /// generation the key is bound to.
+    pub granted_since: u64,
     /// What it may do.
     pub scope: SessionScope,
 }
@@ -94,7 +100,7 @@ fn session_key(account: &Address, key_hash: &[u8; 32]) -> Vec<u8> {
     [SESSION_RECORD, account.as_slice(), key_hash.as_slice()].concat()
 }
 
-fn window_key(account: &Address) -> Vec<u8> {
+pub(crate) fn window_key(account: &Address) -> Vec<u8> {
     [WINDOW_RECORD, account.as_slice()].concat()
 }
 
@@ -111,6 +117,7 @@ impl SessionRecord {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = vec![RECORD_VERSION];
         out.extend_from_slice(&self.granted_by);
+        out.extend_from_slice(&self.granted_since.to_le_bytes());
         self.scope.encode_into(&mut out);
         out
     }
@@ -119,9 +126,14 @@ impl SessionRecord {
         let mut r = ByteReader::new(bytes);
         check_version(&mut r, "session")?;
         let granted_by = r.read_array()?;
+        let granted_since = r.read_u64()?;
         let scope = SessionScope::decode(&mut r)?;
         r.finish()?;
-        Ok(Self { granted_by, scope })
+        Ok(Self {
+            granted_by,
+            granted_since,
+            scope,
+        })
     }
 }
 
@@ -244,7 +256,7 @@ impl StateDB {
         tx: &Transaction,
         auth: &MultisigAuth,
         account: &Address,
-        authority: [u8; 32],
+        authority: ([u8; 32], u64),
         height: u64,
     ) -> Result<()> {
         let digest = auth.policy().digest();
@@ -257,8 +269,9 @@ impl StateDB {
         let Some(session) = self.session_record(overlay, account, &digest)? else {
             return not_signer();
         };
-        // Granted by an authority no longer in force: void (recovery).
-        if session.granted_by != authority {
+        // Granted by an authority generation no longer in force: void, even
+        // if the same digest is back (A->B->A).
+        if (session.granted_by, session.granted_since) != authority {
             return not_signer();
         }
         let scope = &session.scope;
@@ -356,12 +369,13 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         validate(scope, context.height)?;
-        let authority = self.opt_in(overlay, tx, owner, context.height)?;
+        let (authority, since) = self.opt_in(overlay, tx, owner, context.height)?;
         if &authority == key_hash {
             return refuse("the account's own authority cannot be a session key");
         }
         let record = SessionRecord {
             granted_by: authority,
+            granted_since: since,
             scope: scope.clone(),
         };
         StateDB::put_record(overlay, session_key(owner, key_hash), record.encode());
@@ -424,6 +438,7 @@ mod tests {
     fn records_round_trip_and_windows_roll_over() {
         let s = SessionRecord {
             granted_by: [3; 32],
+            granted_since: 7,
             scope: scope(2, 50),
         };
         assert_eq!(SessionRecord::decode(&s.encode()).unwrap(), s);
