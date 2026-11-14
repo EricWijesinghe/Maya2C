@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::config::StorageConfig;
 use crate::state::fees::MAX_BLOCK_BYTES;
@@ -160,6 +160,13 @@ pub(crate) struct Overlay {
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
+    /// Contract gas this block has spent, calls and deployments together,
+    /// against `vm.max_block_gas` (ADR-142, GAS-2).
+    pub(crate) vm_gas: u64,
+    /// Contracts already called in this block, compiled. A later call to one
+    /// is warm (GAS-3): it reuses this module rather than compiling again, so
+    /// the price follows the work regardless of any cache. Block-local.
+    pub(crate) vm_modules: BTreeMap<ChannelId, maya_vm::Compiled>,
 }
 
 impl Overlay {
@@ -239,7 +246,13 @@ pub(crate) fn undo_key(block_id: &[u8; HASH_LEN]) -> Vec<u8> {
 
 /// Persistent account state.
 pub struct StateDB {
-    db: DB,
+    /// Shared so a contract call's host can read storage one key at a time
+    /// (ADR-142): wasmtime's store needs a `'static` host, which a borrow is not.
+    db: Arc<DB>,
+    /// The one VM every contract call and deployment on this state runs on,
+    /// built on first use. One engine, so a module compiled for one call in a
+    /// block can be run by the next (`Overlay::vm_modules`).
+    vm: OnceLock<maya_vm::Vm>,
     /// Signatures already verified, shared by mempool admission, the DAG-BFT
     /// builder and block application (`state::verified`).
     verified: crate::state::verified::VerifiedCache,
@@ -304,7 +317,8 @@ impl StateDB {
 
         let db = DB::open(&opts, path).map_err(storage_err)?;
         Ok(Self {
-            db,
+            db: Arc::new(db),
+            vm: OnceLock::new(),
             verified: crate::state::verified::VerifiedCache::default(),
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
@@ -389,6 +403,30 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] on a write failure.
     pub fn raw_put_for_test(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.raw_put(key, value)
+    }
+
+    /// The database handle, for a contract host that reads storage lazily
+    /// (ADR-142). Reads only: every write still goes through an overlay.
+    pub(crate) fn shared_db(&self) -> Arc<DB> {
+        Arc::clone(&self.db)
+    }
+
+    /// The VM contract work on this state runs on, built on first use.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Vm`] if the deterministic engine cannot be built.
+    pub(crate) fn vm(&self) -> Result<&maya_vm::Vm> {
+        if let Some(vm) = self.vm.get() {
+            return Ok(vm);
+        }
+        let vm = maya_vm::Vm::new().map_err(|e| NodeError::Vm(e.to_string()))?;
+        // A racing thread may have set one first; either is the same
+        // configuration, and every caller from here on uses the one stored.
+        let _ = self.vm.set(vm);
+        self.vm
+            .get()
+            .ok_or_else(|| NodeError::Vm("the contract VM was not stored".into()))
     }
 
     pub(crate) fn raw_put(&self, key: &[u8], value: &[u8]) -> Result<()> {
@@ -1362,7 +1400,7 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] if the checkpoint cannot be made, for
     /// example because `path` already exists.
     pub fn create_checkpoint(&self, path: impl AsRef<Path>) -> Result<()> {
-        rocksdb::checkpoint::Checkpoint::new(&self.db)
+        rocksdb::checkpoint::Checkpoint::new(&*self.db)
             .and_then(|checkpoint| checkpoint.create_checkpoint(path))
             .map_err(storage_err)
     }

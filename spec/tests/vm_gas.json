@@ -1,0 +1,187 @@
+{
+  "description": "Contract gas caps and prices (spec/10-vm-gas.md, ADR-142). Replayed by crates/node/tests/vm_gas_tests.rs (the_spec_vectors_hold).",
+  "cases": [
+    {
+      "id": "call-fuel-empty-cold",
+      "rules": ["GAS-3"],
+      "kind": "call_fuel",
+      "input": { "code_len": "0", "warm": false },
+      "expect": { "result": "ok", "value": "50000" }
+    },
+    {
+      "id": "call-fuel-1000-cold",
+      "rules": ["GAS-3"],
+      "kind": "call_fuel",
+      "input": { "code_len": "1000", "warm": false },
+      "expect": { "result": "ok", "value": "500000" }
+    },
+    {
+      "id": "call-fuel-1000-warm",
+      "rules": ["GAS-3"],
+      "kind": "call_fuel",
+      "input": { "code_len": "1000", "warm": true },
+      "expect": { "result": "ok", "value": "51000" }
+    },
+    {
+      "id": "call-fuel-max-module-cold",
+      "rules": ["GAS-3", "GAS-5"],
+      "kind": "call_fuel",
+      "input": { "code_len": "524288", "warm": false },
+      "expect": { "result": "ok", "value": "235979600" }
+    },
+    {
+      "id": "call-gas-limit-below-call-fuel",
+      "rules": ["GAS-3"],
+      "kind": "call_affordable",
+      "input": { "code_len": "1000", "warm": false, "gas_limit": "499999" },
+      "expect": { "result": "error", "error": "OutOfGas" }
+    },
+    {
+      "id": "call-gas-limit-equal-call-fuel",
+      "rules": ["GAS-3"],
+      "kind": "call_affordable",
+      "input": { "code_len": "1000", "warm": false, "gas_limit": "500000" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "price-host-call",
+      "rules": ["GAS-4"],
+      "kind": "host_price",
+      "input": { "op": "host_call", "bytes": "0" },
+      "expect": { "result": "ok", "value": "600" }
+    },
+    {
+      "id": "price-storage-read-lookup-128b-key",
+      "rules": ["GAS-4"],
+      "kind": "host_price",
+      "input": { "op": "storage_read_lookup", "bytes": "128" },
+      "expect": { "result": "ok", "value": "5128" }
+    },
+    {
+      "id": "price-storage-read-4kib-value",
+      "rules": ["GAS-4"],
+      "kind": "host_price",
+      "input": { "op": "storage_read_value", "bytes": "4096" },
+      "expect": { "result": "ok", "value": "4096" }
+    },
+    {
+      "id": "price-storage-write-32b-key-4kib-value",
+      "rules": ["GAS-4", "GAS-6"],
+      "kind": "host_price",
+      "input": { "op": "storage_write", "bytes": "4128" },
+      "expect": { "result": "ok", "value": "995720" }
+    },
+    {
+      "id": "price-emit-event-16b-topic-4kib-data",
+      "rules": ["GAS-4"],
+      "kind": "host_price",
+      "input": { "op": "emit_event", "bytes": "4112" },
+      "expect": { "result": "ok", "value": "4712" }
+    },
+    {
+      "id": "admit-call-at-the-cap",
+      "rules": ["GAS-1", "GAS-2"],
+      "kind": "admit_call",
+      "input": { "gas_limit": "250000000", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "0" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "admit-call-one-over-the-cap",
+      "rules": ["GAS-1"],
+      "kind": "admit_call",
+      "input": { "gas_limit": "250000001", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "0" },
+      "expect": { "result": "error", "error": "GasAboveCap" }
+    },
+    {
+      "id": "admit-call-u64-max",
+      "rules": ["GAS-1"],
+      "kind": "admit_call",
+      "input": { "gas_limit": "18446744073709551615", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "0" },
+      "expect": { "result": "error", "error": "GasAboveCap" }
+    },
+    {
+      "id": "admit-call-capped-by-the-block-cap",
+      "rules": ["GAS-1"],
+      "kind": "admit_call",
+      "input": { "gas_limit": "260000000", "tx_cap": "300000000", "block_cap": "250000000", "block_used": "0" },
+      "expect": { "result": "error", "error": "GasAboveCap" }
+    },
+    {
+      "id": "admit-call-fits-what-the-block-has-left",
+      "rules": ["GAS-2"],
+      "kind": "admit_call",
+      "input": { "gas_limit": "150000000", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "100000000" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "admit-call-more-than-the-block-has-left",
+      "rules": ["GAS-2"],
+      "kind": "admit_call",
+      "input": { "gas_limit": "150000001", "tx_cap": "250000000", "block_cap": "250000000", "block_used": "100000000" },
+      "expect": { "result": "error", "error": "BlockGasExhausted" }
+    },
+    {
+      "id": "admit-deploy-max-module",
+      "rules": ["GAS-2", "GAS-3"],
+      "kind": "admit_deploy",
+      "input": { "code_len": "524288", "block_cap": "250000000", "block_used": "0" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "admit-deploy-more-than-the-block-has-left",
+      "rules": ["GAS-2"],
+      "kind": "admit_deploy",
+      "input": { "code_len": "524288", "block_cap": "250000000", "block_used": "20000000" },
+      "expect": { "result": "error", "error": "BlockGasExhausted" }
+    },
+    {
+      "id": "admit-deploy-above-the-block-cap",
+      "rules": ["GAS-2"],
+      "kind": "admit_deploy",
+      "input": { "code_len": "600000", "block_cap": "250000000", "block_used": "0" },
+      "expect": { "result": "error", "error": "GasAboveCap" }
+    },
+    {
+      "id": "param-tx-cap-default",
+      "rules": ["GAS-5"],
+      "kind": "param",
+      "input": { "tag": "17", "value": "250000000" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "param-tx-cap-floor",
+      "rules": ["GAS-5"],
+      "kind": "param",
+      "input": { "tag": "17", "value": "239979600" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "param-tx-cap-below-the-floor",
+      "rules": ["GAS-5"],
+      "kind": "param",
+      "input": { "tag": "17", "value": "239979599" },
+      "expect": { "result": "error", "error": "ParameterOutOfRange" }
+    },
+    {
+      "id": "param-block-cap-ceiling",
+      "rules": ["GAS-5"],
+      "kind": "param",
+      "input": { "tag": "18", "value": "500000000" },
+      "expect": { "result": "ok" }
+    },
+    {
+      "id": "param-block-cap-above-the-ceiling",
+      "rules": ["GAS-5"],
+      "kind": "param",
+      "input": { "tag": "18", "value": "500000001" },
+      "expect": { "result": "error", "error": "ParameterOutOfRange" }
+    },
+    {
+      "id": "param-block-cap-u64-max",
+      "rules": ["GAS-5"],
+      "kind": "param",
+      "input": { "tag": "18", "value": "18446744073709551615" },
+      "expect": { "result": "error", "error": "ParameterOutOfRange" }
+    }
+  ]
+}

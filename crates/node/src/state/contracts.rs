@@ -3,17 +3,21 @@
 //! ## The host adapter
 //!
 //! `Store<T>` in wasmtime requires `T: 'static`, so the VM's host cannot hold a
-//! borrow of the database. [`ChainHost`] therefore owns everything the call
-//! might touch:
+//! borrow of the database. [`ChainHost`] therefore owns what the call might
+//! touch:
 //!
-//! - the contract's **entire** storage, read up front
+//! - a shared handle to the database, through which committed storage is read
+//!   **one key at a time**, when the contract asks (ADR-142), and only this
+//!   block's earlier writes to the contract copied up front
 //! - a snapshot of the balances the caller pre-declared
 //!
-//! Reading a contract's whole key space before execution is a real cost, and it
-//! bounds how large a contract's storage can usefully get. It buys two things:
-//! the host is `'static` without any unsafe lifetime games, and reverting is
-//! simply dropping the map — a trapped call cannot leave a partial write
-//! because its writes never touched the database.
+//! Until ADR-142 the contract's *entire* storage was read before every call, so
+//! a call's cost grew with everything the contract had ever stored and no gas
+//! price saw it. A read is now priced per lookup and per byte, and returns what
+//! the old whole-storage load would have (`vm_exec_tests`, randomized).
+//!
+//! Reverting is still simply dropping the host: a trapped call cannot leave a
+//! partial write because its writes never touched the database.
 //!
 //! ## Determinism
 //!
@@ -22,6 +26,7 @@
 //! order a contract observes is the same on every node.
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
 
 use maya_vm::host::{
     Address as VmAddress, ContractId, Event as VmEvent, HostState, OracleValue, RANDOMNESS_LEN,
@@ -29,6 +34,22 @@ use maya_vm::host::{
 use maya_vm::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
 
 use crate::state::account::Address;
+
+/// One contract's committed storage, read through a shared database handle.
+#[derive(Clone)]
+struct CommittedStorage {
+    db: Arc<rocksdb::DB>,
+    /// `cstate: ‖ contract`; a storage key is appended to it.
+    prefix: Vec<u8>,
+}
+
+impl core::fmt::Debug for CommittedStorage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CommittedStorage")
+            .field("prefix", &hex::encode(&self.prefix))
+            .finish_non_exhaustive()
+    }
+}
 
 /// Host state for one contract call.
 ///
@@ -39,8 +60,16 @@ pub struct ChainHost {
     height: u64,
     /// Balances the call may observe.
     balances: BTreeMap<Address, maya_vm::Amount>,
-    /// The contract's storage, as read before execution.
+    /// Storage known before execution: this block's earlier writes to the
+    /// contract, or, through [`ChainHost::with_storage`], a whole preloaded
+    /// map. Consulted before `committed`.
     storage: BTreeMap<Vec<u8>, Vec<u8>>,
+    /// Committed storage, read key by key on a miss in `storage`.
+    committed: Option<CommittedStorage>,
+    /// The first database error a lazy read hit. The read answers "absent"
+    /// to the contract, and the node fails the call with `Storage` after it
+    /// returns, so a local I/O fault is never mistaken for a missing key.
+    read_error: OnceLock<String>,
     /// Keys this call wrote, and their new values.
     writes: BTreeMap<Vec<u8>, Vec<u8>>,
     /// Events emitted.
@@ -71,10 +100,34 @@ impl ChainHost {
         }
     }
 
-    /// Pre-loads the contract's storage.
+    /// Pre-loads storage the call sees before anything committed: a whole
+    /// contract's storage for a host with no database, or this block's
+    /// earlier writes in front of [`ChainHost::with_committed`].
+    #[must_use]
     pub fn with_storage(mut self, storage: BTreeMap<Vec<u8>, Vec<u8>>) -> Self {
         self.storage = storage;
         self
+    }
+
+    /// Reads committed storage lazily: a key the preloaded map lacks is looked
+    /// up at `prefix ‖ key` when the contract asks for it (ADR-142).
+    #[must_use]
+    pub(crate) fn with_committed(mut self, db: Arc<rocksdb::DB>, prefix: Vec<u8>) -> Self {
+        self.committed = Some(CommittedStorage { db, prefix });
+        self
+    }
+
+    /// The first database error a lazy read hit, if any.
+    #[must_use]
+    pub fn read_error(&self) -> Option<&str> {
+        self.read_error.get().map(String::as_str)
+    }
+
+    /// How many entries were copied in before execution: this block's writes
+    /// to the contract, never its committed storage.
+    #[cfg(test)]
+    pub(crate) fn preloaded(&self) -> usize {
+        self.storage.len()
     }
 
     /// Pre-loads balances the contract may query.
@@ -162,11 +215,23 @@ impl HostState for ChainHost {
 
     fn storage_get(&self, _contract: &ContractId, key: &[u8]) -> Option<Vec<u8>> {
         // Reads see this call's own earlier writes, so a contract that writes
-        // then reads observes what it just wrote rather than the stale value.
-        self.writes
-            .get(key)
-            .or_else(|| self.storage.get(key))
-            .cloned()
+        // then reads observes what it just wrote rather than the stale value;
+        // then the block's earlier writes; then committed state.
+        if let Some(value) = self.writes.get(key).or_else(|| self.storage.get(key)) {
+            return Some(value.clone());
+        }
+        let committed = self.committed.as_ref()?;
+        let mut full = Vec::with_capacity(committed.prefix.len() + key.len());
+        full.extend_from_slice(&committed.prefix);
+        full.extend_from_slice(key);
+        match committed.db.get(&full) {
+            Ok(value) => value,
+            Err(error) => {
+                // First error kept; see `read_error`.
+                let _ = self.read_error.set(error.to_string());
+                None
+            }
+        }
     }
 
     fn storage_set(&mut self, _contract: &ContractId, key: Vec<u8>, value: Vec<u8>) {

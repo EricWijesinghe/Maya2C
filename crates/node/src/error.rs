@@ -347,6 +347,28 @@ pub enum NodeError {
     #[error("vm: {0}")]
     Vm(String),
 
+    /// A contract call names more gas than one transaction may, or a
+    /// deployment needs more than one block has (ADR-142, GAS-1).
+    #[error("gas limit {limit} is above the cap of {cap}")]
+    GasAboveCap {
+        /// The gas the transaction asked for.
+        limit: u64,
+        /// `min(vm.max_tx_gas, vm.max_block_gas)` for a call, the block cap for
+        /// a deployment.
+        cap: u64,
+    },
+
+    /// The block has less contract gas left than the transaction needs
+    /// (ADR-142, GAS-2). Not this transaction's fault: a block producer
+    /// leaves it for a later block.
+    #[error("needs {needed} gas and the block has {remaining} left")]
+    BlockGasExhausted {
+        /// The gas the transaction needs.
+        needed: u64,
+        /// What the block has left.
+        remaining: u64,
+    },
+
     /// A shielded proof did not hold against its public inputs.
     #[error("shielded proof rejected: {0}")]
     ProofVerification(String),

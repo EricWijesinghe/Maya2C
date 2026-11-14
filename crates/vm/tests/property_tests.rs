@@ -13,10 +13,11 @@ const CONTRACT: [u8; 32] = [7u8; 32];
 
 proptest! {
     /// A module that returns immediately should always succeed and use 0 fuel
-    /// beyond the base cost.
+    /// beyond the base cost. Since ADR-142 the base is the call's upfront
+    /// price (~74 K for this module), so the range starts above it.
     #[test]
     fn trivial_module_succeeds_with_minimal_fuel(
-        fuel_limit in 1000u64..1_000_000u64,
+        fuel_limit in 100_000u64..1_000_000u64,
     ) {
         let vm = Vm::new().expect("vm creation");
         let module = wat::parse_str(
@@ -36,6 +37,7 @@ proptest! {
         let fuel_used = outcome.gas_used;
         prop_assert_eq!(result_val, 0);
         prop_assert!(fuel_used < fuel_limit);
+        prop_assert!(fuel_used >= maya_vm::gas::call_fuel(module.len(), false));
     }
 
     /// A module with invalid WAT should be rejected.

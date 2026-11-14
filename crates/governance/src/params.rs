@@ -84,6 +84,11 @@ pub enum ParameterKey {
     /// The signature suite new accounts are created under (ADR-007), as its
     /// registry byte. Read only once suite-tagged transactions activate.
     DefaultSignatureSuite,
+    /// Most gas one contract call may name as its `gas_limit` (ADR-142).
+    VmMaxTxGas,
+    /// Most contract gas one block may spend, calls and deployments together
+    /// (ADR-142).
+    VmMaxBlockGas,
 }
 
 /// Every key, in tag order.
@@ -101,7 +106,16 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::VmDefaultGasLimit,
     ParameterKey::GovernanceProposalDeposit,
     ParameterKey::DefaultSignatureSuite,
+    ParameterKey::VmMaxTxGas,
+    ParameterKey::VmMaxBlockGas,
 ];
+
+/// Gas a call to a maximum-size module pays before it runs, compiled cold:
+/// `maya_vm::gas::call_fuel(MAX_MODULE_BYTES, false)`, restated here because
+/// this crate has no dependencies (invariant 12). The node asserts the two
+/// agree (`crates/node/tests/vm_gas_tests.rs`). No block cap may sit below it,
+/// or the largest deployable contract could never be called.
+const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
 
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,6 +151,10 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => 8,
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
+            // 11-16 are allocated to the v4 umbrella (ADR-135); 17 and 18 are
+            // the next free tags (ADR-142).
+            Self::VmMaxTxGas => 17,
+            Self::VmMaxBlockGas => 18,
         }
     }
 
@@ -165,6 +183,8 @@ impl ParameterKey {
             8 => Ok(Self::VmDefaultGasLimit),
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
+            17 => Ok(Self::VmMaxTxGas),
+            18 => Ok(Self::VmMaxBlockGas),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -265,6 +285,27 @@ impl ParameterKey {
                 max: Amount::from_u64(0x30),
                 default: Amount::from_u64(0x11),
             },
+            // ADR-142. Gas is priced at about 1 ns of measured worst-case
+            // native work per unit, so these are time bounds. The default
+            // lets one call use the whole block, as one call to the largest
+            // module needs ~236 M of it to compile. The floor keeps every
+            // contract one block-sized call can reach callable at all; the
+            // ceiling is the block's own ceiling. A call is capped at the
+            // smaller of this and the block cap.
+            Self::VmMaxTxGas => Bounds {
+                min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
+                max: Amount::from_u64(500_000_000),
+                default: Amount::from_u64(250_000_000),
+            },
+            // 250 M is ~250 ms of the slowest priced work on the measuring
+            // machine, a quarter of the 1 s block time. The ceiling, 500 M, is
+            // half of it; the floor is one maximum-module call with a little
+            // left to run.
+            Self::VmMaxBlockGas => Bounds {
+                min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
+                max: Amount::from_u64(500_000_000),
+                default: Amount::from_u64(250_000_000),
+            },
         }
     }
 
@@ -282,6 +323,8 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => "vm.default_gas_limit",
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
+            Self::VmMaxTxGas => "vm.max_tx_gas",
+            Self::VmMaxBlockGas => "vm.max_block_gas",
         }
     }
 
@@ -359,7 +402,19 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 10);
+        assert_eq!(count, 12);
+    }
+
+    #[test]
+    fn the_gas_caps_cannot_be_voted_unbounded_or_below_the_largest_module() {
+        // ADR-142: before these keys a call named its own gas limit, up to
+        // u64::MAX, and nothing bounded a block's contract work.
+        for key in [ParameterKey::VmMaxTxGas, ParameterKey::VmMaxBlockGas] {
+            assert!(key.check(Amount::from_u64(u64::MAX)).is_err());
+            assert!(key.check(Amount::from_u64(500_000_001)).is_err());
+            assert!(key.check(Amount::from_u64(MAX_MODULE_CALL_GAS)).is_err());
+            assert!(key.check(key.bounds().default).is_ok());
+        }
     }
 
     #[test]

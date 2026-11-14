@@ -18,9 +18,11 @@
 //!
 //! ## Gas
 //!
-//! Gas maps one-to-one onto wasmtime fuel. Gas is a **halting bound**, not a
-//! price — running out traps, the call fails, and every staged write is
-//! discarded. Nothing is billed to the caller.
+//! Gas maps one-to-one onto wasmtime fuel. Gas is a **halting bound** and, in
+//! the node, a per-block bound — running out traps, the call fails, and every
+//! staged write is discarded. Nothing is billed to the caller in coin. Native
+//! work the fuel meter cannot see (the module compile, each host call, storage
+//! and event bytes) is charged in fuel before it is done; see [`crate::gas`].
 //!
 //! ## Reverting
 //!
@@ -39,6 +41,7 @@ use crate::config::{
     MAX_MEMORY_PAGES, MAX_MODULE_BYTES, PAGE_SIZE, config_digest, deterministic_engine,
 };
 use crate::error::{Result, VmError};
+use crate::gas;
 use crate::host::{
     Address, ContractId, Event, HostState, MAX_EVENT_BYTES, MAX_EVENTS, MAX_KEY_BYTES,
     MAX_VALUE_BYTES, RANDOMNESS_LEN, check_size,
@@ -66,6 +69,42 @@ pub struct Outcome {
     pub gas_used: u64,
     /// Events emitted, in order.
     pub events: Vec<Event>,
+}
+
+/// A module compiled by [`Vm::compile`], bound to that VM's engine.
+///
+/// Cheap to clone (wasmtime shares the code). Running it on another `Vm` is an
+/// instantiation error, not a wrong answer.
+#[derive(Clone)]
+pub struct Compiled {
+    module: Module,
+    /// Length of the bytes it was compiled from, which is what its calls pay
+    /// for (`crate::gas::call_fuel`).
+    code_len: usize,
+}
+
+impl Compiled {
+    /// Length of the module's bytes.
+    #[must_use]
+    pub fn code_len(&self) -> usize {
+        self.code_len
+    }
+}
+
+impl core::fmt::Debug for Compiled {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Compiled")
+            .field("code_len", &self.code_len)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Where a call's module comes from, and so what it pays up front.
+enum Source<'a> {
+    /// Bytes compiled (through the cache) for this call: a cold call.
+    Wasm(&'a [u8]),
+    /// A module already compiled, and whether the call is warm.
+    Compiled(&'a Compiled, bool),
 }
 
 /// Per-call state threaded through host functions.
@@ -422,7 +461,16 @@ impl Vm {
                 Ok(())
             });
         };
-        match self.run_prepared(wasm, contract, input, gas_limit, state, |_| Ok(()), prepare) {
+        let run = self.run_prepared(
+            Source::Wasm(wasm),
+            contract,
+            input,
+            gas_limit,
+            state,
+            |_| Ok(()),
+            prepare,
+        );
+        match run {
             Ok((state, outcome)) => Execution {
                 state,
                 outcome: Ok(outcome),
@@ -448,7 +496,67 @@ impl Vm {
         state: S,
         extra: Registrar<S>,
     ) -> core::result::Result<(S, Outcome), (S, VmError)> {
-        self.run_prepared(wasm, contract, input, gas_limit, state, extra, |_| {})
+        self.run_prepared(
+            Source::Wasm(wasm),
+            contract,
+            input,
+            gas_limit,
+            state,
+            extra,
+            |_| {},
+        )
+    }
+
+    /// Compiles a module through the cache without running it, for a caller
+    /// that will run it more than once (the node, within one block).
+    ///
+    /// # Errors
+    ///
+    /// [`VmError::InvalidModule`] for bytes wasmtime will not compile.
+    pub fn compile(&self, wasm: &[u8]) -> Result<Compiled> {
+        Ok(Compiled {
+            module: self.cache.compile(&self.engine, wasm)?,
+            code_len: wasm.len(),
+        })
+    }
+
+    /// [`Vm::execute`] for a module already compiled by [`Vm::compile`].
+    ///
+    /// `warm` says which price the call pays (`crate::gas::call_fuel`): a cold
+    /// call pays for compiling every byte of the module, a warm one only for
+    /// instantiating it. Which applies is the caller's deterministic rule, not
+    /// a fact about any cache: the node calls the first call to a contract in a
+    /// block cold and the rest warm, and holds the compiled module for the
+    /// block so the rule matches the work done. [`Vm::execute`] is always cold.
+    #[must_use]
+    pub fn execute_compiled<S: HostState + Send + 'static>(
+        &self,
+        compiled: &Compiled,
+        warm: bool,
+        contract: ContractId,
+        input: &[u8],
+        gas_limit: u64,
+        state: S,
+    ) -> Execution<S> {
+        let run = self.run_prepared(
+            Source::Compiled(compiled, warm),
+            contract,
+            input,
+            gas_limit,
+            state,
+            |_| Ok(()),
+            |_| {},
+        );
+        match run {
+            Ok((state, outcome)) => Execution {
+                state,
+                outcome: Ok(outcome),
+            },
+            Err((state, error)) => Execution {
+                state,
+                outcome: Err(error),
+            },
+        }
     }
 
     /// [`Vm::run`], with `prepare` applied to the store before instantiation
@@ -458,7 +566,7 @@ impl Vm {
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn run_prepared<S: HostState + Send + 'static>(
         &self,
-        wasm: &[u8],
+        source: Source<'_>,
         contract: ContractId,
         input: &[u8],
         gas_limit: u64,
@@ -466,15 +574,29 @@ impl Vm {
         extra: Registrar<S>,
         prepare: impl FnOnce(&mut Store<CallContext<S>>),
     ) -> core::result::Result<(S, Outcome), (S, VmError)> {
+        // The call's own price first (ADR-142), before anything is compiled or
+        // instantiated: a call that cannot pay for its module costs the node
+        // nothing but this comparison.
+        let upfront = match &source {
+            Source::Wasm(wasm) => gas::call_fuel(wasm.len(), false),
+            Source::Compiled(compiled, warm) => gas::call_fuel(compiled.code_len, *warm),
+        };
+        if gas_limit < upfront {
+            return Err((state, VmError::OutOfGas { limit: gas_limit }));
+        }
+
         // Compile before building the store, so a bad module never reaches it.
         //
         // Through the cache: the same bytes under the same configuration
         // compile to the same code and charge the same fuel, so this is the one
         // place a contract's cost can fall without anything observable changing.
         // `a_cached_call_burns_identical_fuel` is what says so.
-        let module = match self.cache.compile(&self.engine, wasm) {
-            Ok(module) => module,
-            Err(error) => return Err((state, error)),
+        let module = match source {
+            Source::Wasm(wasm) => match self.cache.compile(&self.engine, wasm) {
+                Ok(module) => module,
+                Err(error) => return Err((state, error)),
+            },
+            Source::Compiled(compiled, _) => compiled.module.clone(),
         };
 
         let context = CallContext {
@@ -488,7 +610,9 @@ impl Vm {
         let mut store = Store::new(&self.engine, context);
         store.limiter(|ctx| ctx);
         prepare(&mut store);
-        if let Err(e) = store.set_fuel(gas_limit) {
+        // `gas_used` below is measured against `gas_limit`, so it includes
+        // the upfront price.
+        if let Err(e) = store.set_fuel(gas_limit - upfront) {
             return Err((
                 store.into_data().state,
                 VmError::EngineConfig(e.to_string()),
@@ -654,12 +778,19 @@ fn register_host_functions<S: HostState + Send + 'static>(
 ) -> Result<()> {
     let wrap = |e: wasmtime::Error| VmError::UnresolvedImport(e.to_string());
 
+    // Every function below charges its price first (ADR-142, `crate::gas`):
+    // `HOST_CALL_FUEL`, plus a per-byte price where the call moves bytes. A
+    // charge it cannot pay traps out of fuel before any of the work is done.
+
     // block_height() -> i64
     linker
         .func_wrap(
             "env",
             "block_height",
-            |caller: Caller<'_, CallContext<S>>| caller.data().state.block_height() as i64,
+            |mut caller: Caller<'_, CallContext<S>>| -> wasmtime::Result<i64> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
+                Ok(caller.data().state.block_height() as i64)
+            },
         )
         .map_err(wrap)?;
 
@@ -670,21 +801,22 @@ fn register_host_functions<S: HostState + Send + 'static>(
         .func_wrap(
             "env",
             "caller",
-            |mut caller: Caller<'_, CallContext<S>>, out_ptr: i32| -> i32 {
+            |mut caller: Caller<'_, CallContext<S>>, out_ptr: i32| -> wasmtime::Result<i32> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
                 let Some(address) = caller.data().state.caller() else {
-                    return -1;
+                    return Ok(-1);
                 };
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return -1;
+                    return Ok(-1);
                 };
                 match write_guest(&memory, &mut caller, out_ptr as u32, &address) {
-                    Ok(()) => 0,
+                    Ok(()) => Ok(0),
                     Err(error) => {
                         caller.data_mut().fail(error);
-                        -1
+                        Ok(-1)
                     }
                 }
             },
@@ -696,12 +828,13 @@ fn register_host_functions<S: HostState + Send + 'static>(
         .func_wrap(
             "env",
             "get_balance",
-            |mut caller: Caller<'_, CallContext<S>>, addr_ptr: i32| -> i64 {
+            |mut caller: Caller<'_, CallContext<S>>, addr_ptr: i32| -> wasmtime::Result<i64> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return 0;
+                    return Ok(0);
                 };
                 match read_guest(&memory, &caller, addr_ptr as u32, 32) {
                     Ok(bytes) => {
@@ -711,11 +844,11 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         // balance that fits a u64; anything larger saturates
                         // to u64::MAX (read as -1). `get_balance_u256` gives
                         // the exact value.
-                        caller.data().state.balance_of(&address).saturating_to_u64() as i64
+                        Ok(caller.data().state.balance_of(&address).saturating_to_u64() as i64)
                     }
                     Err(error) => {
                         caller.data_mut().fail(error);
-                        0
+                        Ok(0)
                     }
                 }
             },
@@ -729,12 +862,16 @@ fn register_host_functions<S: HostState + Send + 'static>(
         .func_wrap(
             "env",
             "get_balance_u256",
-            |mut caller: Caller<'_, CallContext<S>>, addr_ptr: i32, out_ptr: i32| -> i32 {
+            |mut caller: Caller<'_, CallContext<S>>,
+             addr_ptr: i32,
+             out_ptr: i32|
+             -> wasmtime::Result<i32> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return -1;
+                    return Ok(-1);
                 };
                 let address = match read_guest(&memory, &caller, addr_ptr as u32, 32) {
                     Ok(bytes) => {
@@ -744,15 +881,15 @@ fn register_host_functions<S: HostState + Send + 'static>(
                     }
                     Err(error) => {
                         caller.data_mut().fail(error);
-                        return -1;
+                        return Ok(-1);
                     }
                 };
                 let balance = caller.data().state.balance_of(&address).to_le_bytes();
                 if let Err(error) = write_guest(&memory, &mut caller, out_ptr as u32, &balance) {
                     caller.data_mut().fail(error);
-                    return -1;
+                    return Ok(-1);
                 }
-                0
+                Ok(0)
             },
         )
         .map_err(wrap)?;
@@ -760,6 +897,10 @@ fn register_host_functions<S: HostState + Send + 'static>(
     // storage_read(key_ptr, key_len, out_ptr, out_cap) -> i32
     // Returns the value length, or -1 when the key is absent. A caller that
     // supplies too small a buffer gets the required length back and can retry.
+    //
+    // Two charges: the lookup and the key before the lookup, the value's bytes
+    // once the host has returned it. A too-small buffer still pays for the
+    // value, because the lookup that produced its length has been done.
     linker
         .func_wrap(
             "env",
@@ -769,45 +910,63 @@ fn register_host_functions<S: HostState + Send + 'static>(
              key_len: i32,
              out_ptr: i32,
              out_cap: i32|
-             -> i32 {
+             -> wasmtime::Result<i32> {
+                // The length is the argument, so an oversized key is refused
+                // before it is charged for or copied.
+                let key_bytes = key_len as u32 as usize;
+                if let Err(error) = check_size("storage key", key_bytes, MAX_KEY_BYTES) {
+                    caller.data_mut().fail(error);
+                    return Ok(-1);
+                }
+                gas::charge(
+                    &mut caller,
+                    gas::priced(
+                        gas::STORAGE_READ_BASE_FUEL,
+                        gas::STORAGE_READ_BYTE_FUEL,
+                        key_bytes as u64,
+                    ),
+                )?;
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return -1;
+                    return Ok(-1);
                 };
                 let key = match read_guest(&memory, &caller, key_ptr as u32, key_len as u32) {
                     Ok(key) => key,
                     Err(error) => {
                         caller.data_mut().fail(error);
-                        return -1;
+                        return Ok(-1);
                     }
                 };
-                if let Err(error) = check_size("storage key", key.len(), MAX_KEY_BYTES) {
-                    caller.data_mut().fail(error);
-                    return -1;
-                }
 
                 let contract = caller.data().contract;
                 let Some(value) = caller.data().state.storage_get(&contract, &key) else {
-                    return -1;
+                    return Ok(-1);
                 };
+                gas::charge(
+                    &mut caller,
+                    gas::priced(0, gas::STORAGE_READ_BYTE_FUEL, value.len() as u64),
+                )?;
 
                 let length = value.len() as i32;
                 if length > out_cap {
                     // Not an error: report the size so the guest can retry.
-                    return length;
+                    return Ok(length);
                 }
                 if let Err(error) = write_guest(&memory, &mut caller, out_ptr as u32, &value) {
                     caller.data_mut().fail(error);
-                    return -1;
+                    return Ok(-1);
                 }
-                length
+                Ok(length)
             },
         )
         .map_err(wrap)?;
 
     // storage_write(key_ptr, key_len, val_ptr, val_len)
+    //
+    // Sizes first, from the arguments; then the charge; then the copy. Nothing
+    // is read from the guest that has not been paid for.
     linker
         .func_wrap(
             "env",
@@ -816,30 +975,49 @@ fn register_host_functions<S: HostState + Send + 'static>(
              key_ptr: i32,
              key_len: i32,
              val_ptr: i32,
-             val_len: i32| {
+             val_len: i32|
+             -> wasmtime::Result<()> {
+                let (key_bytes, value_bytes) = (key_len as u32 as usize, val_len as u32 as usize);
+                if let Err(error) = check_size("storage key", key_bytes, MAX_KEY_BYTES) {
+                    caller.data_mut().fail(error);
+                    return Ok(());
+                }
+                if let Err(error) = check_size("storage value", value_bytes, MAX_VALUE_BYTES) {
+                    caller.data_mut().fail(error);
+                    return Ok(());
+                }
+                gas::charge(
+                    &mut caller,
+                    gas::priced(
+                        gas::STORAGE_WRITE_BASE_FUEL,
+                        gas::STORAGE_WRITE_BYTE_FUEL,
+                        (key_bytes + value_bytes) as u64,
+                    ),
+                )?;
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return;
+                    return Ok(());
                 };
                 let key = match read_guest(&memory, &caller, key_ptr as u32, key_len as u32) {
                     Ok(key) => key,
-                    Err(error) => return caller.data_mut().fail(error),
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return Ok(());
+                    }
                 };
                 let value = match read_guest(&memory, &caller, val_ptr as u32, val_len as u32) {
                     Ok(value) => value,
-                    Err(error) => return caller.data_mut().fail(error),
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return Ok(());
+                    }
                 };
-                if let Err(error) = check_size("storage key", key.len(), MAX_KEY_BYTES) {
-                    return caller.data_mut().fail(error);
-                }
-                if let Err(error) = check_size("storage value", value.len(), MAX_VALUE_BYTES) {
-                    return caller.data_mut().fail(error);
-                }
 
                 let contract = caller.data().contract;
                 caller.data_mut().state.storage_set(&contract, key, value);
+                Ok(())
             },
         )
         .map_err(wrap)?;
@@ -853,21 +1031,22 @@ fn register_host_functions<S: HostState + Send + 'static>(
         .func_wrap(
             "env",
             "block_randomness",
-            |mut caller: Caller<'_, CallContext<S>>, out_ptr: i32| -> i32 {
+            |mut caller: Caller<'_, CallContext<S>>, out_ptr: i32| -> wasmtime::Result<i32> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return -1;
+                    return Ok(-1);
                 };
                 let Some(randomness) = caller.data().state.block_randomness() else {
-                    return -1;
+                    return Ok(-1);
                 };
                 if let Err(error) = write_guest(&memory, &mut caller, out_ptr as u32, &randomness) {
                     caller.data_mut().fail(error);
-                    return -1;
+                    return Ok(-1);
                 }
-                RANDOMNESS_LEN as i32
+                Ok(RANDOMNESS_LEN as i32)
             },
         )
         .map_err(wrap)?;
@@ -891,8 +1070,15 @@ fn register_host_functions<S: HostState + Send + 'static>(
              feed_ptr: i32,
              max_age_blocks: i64,
              out_ptr: i32|
-             -> i32 {
-                read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, false)
+             -> wasmtime::Result<i32> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
+                Ok(read_oracle(
+                    &mut caller,
+                    feed_ptr,
+                    max_age_blocks,
+                    out_ptr,
+                    false,
+                ))
             },
         )
         .map_err(wrap)?;
@@ -911,8 +1097,15 @@ fn register_host_functions<S: HostState + Send + 'static>(
              feed_ptr: i32,
              max_age_blocks: i64,
              out_ptr: i32|
-             -> i32 {
-                read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, true)
+             -> wasmtime::Result<i32> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
+                Ok(read_oracle(
+                    &mut caller,
+                    feed_ptr,
+                    max_age_blocks,
+                    out_ptr,
+                    true,
+                ))
             },
         )
         .map_err(wrap)?;
@@ -925,12 +1118,13 @@ fn register_host_functions<S: HostState + Send + 'static>(
         .func_wrap(
             "env",
             "oracle_feed_age",
-            |mut caller: Caller<'_, CallContext<S>>, feed_ptr: i32| -> i64 {
+            |mut caller: Caller<'_, CallContext<S>>, feed_ptr: i32| -> wasmtime::Result<i64> {
+                gas::charge(&mut caller, gas::HOST_CALL_FUEL)?;
                 let Some(memory) = caller_memory(&mut caller) else {
                     caller
                         .data_mut()
                         .fail(VmError::MissingExport("memory".into()));
-                    return -1;
+                    return Ok(-1);
                 };
                 let feed_id = match read_guest(&memory, &caller, feed_ptr as u32, 32) {
                     Ok(bytes) => {
@@ -940,11 +1134,11 @@ fn register_host_functions<S: HostState + Send + 'static>(
                     }
                     Err(error) => {
                         caller.data_mut().fail(error);
-                        return -1;
+                        return Ok(-1);
                     }
                 };
 
-                match caller.data().state.oracle_feed(&feed_id) {
+                Ok(match caller.data().state.oracle_feed(&feed_id) {
                     Some(feed) => caller
                         .data()
                         .state
@@ -952,7 +1146,7 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         .saturating_sub(feed.updated_height)
                         as i64,
                     None => -1,
-                }
+                })
             },
         )
         .map_err(wrap)?;
@@ -966,34 +1160,54 @@ fn register_host_functions<S: HostState + Send + 'static>(
              topic_ptr: i32,
              topic_len: i32,
              data_ptr: i32,
-             data_len: i32| {
-                let Some(memory) = caller_memory(&mut caller) else {
-                    caller
-                        .data_mut()
-                        .fail(VmError::MissingExport("memory".into()));
-                    return;
-                };
-                let topic = match read_guest(&memory, &caller, topic_ptr as u32, topic_len as u32) {
-                    Ok(topic) => topic,
-                    Err(error) => return caller.data_mut().fail(error),
-                };
-                let data = match read_guest(&memory, &caller, data_ptr as u32, data_len as u32) {
-                    Ok(data) => data,
-                    Err(error) => return caller.data_mut().fail(error),
-                };
-                if let Err(error) = check_size("event payload", data.len(), MAX_EVENT_BYTES) {
-                    return caller.data_mut().fail(error);
+             data_len: i32|
+             -> wasmtime::Result<()> {
+                // Size and count first, from the arguments; then the charge;
+                // then the copy.
+                let data_bytes = data_len as u32 as usize;
+                if let Err(error) = check_size("event payload", data_bytes, MAX_EVENT_BYTES) {
+                    caller.data_mut().fail(error);
+                    return Ok(());
                 }
                 let emitted = caller.data().events.len();
                 if emitted >= MAX_EVENTS {
-                    // Events are unmetered output every node must store, so the
-                    // count is capped independently of gas.
-                    return caller.data_mut().fail(VmError::SizeLimit {
+                    // Events are output every node must store, so the count is
+                    // capped independently of gas.
+                    caller.data_mut().fail(VmError::SizeLimit {
                         what: "event count",
                         actual: emitted + 1,
                         limit: MAX_EVENTS,
                     });
+                    return Ok(());
                 }
+                gas::charge(
+                    &mut caller,
+                    gas::priced(
+                        gas::HOST_CALL_FUEL,
+                        gas::EVENT_BYTE_FUEL,
+                        u64::from(topic_len as u32).saturating_add(data_bytes as u64),
+                    ),
+                )?;
+                let Some(memory) = caller_memory(&mut caller) else {
+                    caller
+                        .data_mut()
+                        .fail(VmError::MissingExport("memory".into()));
+                    return Ok(());
+                };
+                let topic = match read_guest(&memory, &caller, topic_ptr as u32, topic_len as u32) {
+                    Ok(topic) => topic,
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return Ok(());
+                    }
+                };
+                let data = match read_guest(&memory, &caller, data_ptr as u32, data_len as u32) {
+                    Ok(data) => data,
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return Ok(());
+                    }
+                };
 
                 let contract = caller.data().contract;
                 let event = Event {
@@ -1003,6 +1217,7 @@ fn register_host_functions<S: HostState + Send + 'static>(
                 };
                 caller.data_mut().events.push(event.clone());
                 caller.data_mut().state.emit(event);
+                Ok(())
             },
         )
         .map_err(wrap)?;

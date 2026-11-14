@@ -341,6 +341,11 @@ impl StateDB {
                     .is_ok()
                 {
                     *overlay = attempt;
+                } else {
+                    // A contract call that ran and failed still spent its gas
+                    // (ADR-142, GAS-2): discarding that too would let every
+                    // revealed call run to its limit for free.
+                    overlay.vm_gas = attempt.vm_gas;
                 }
                 overlay.revealed += 1;
             }

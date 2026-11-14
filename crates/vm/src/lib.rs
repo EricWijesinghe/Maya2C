@@ -27,14 +27,17 @@
 //! ## Gas
 //!
 //! Gas maps one-to-one onto wasmtime fuel and is a **halting bound, not a
-//! price**. Exhausting it traps the call and discards its writes; nothing is
-//! billed. A fee market is a separate design.
+//! price in coin**. Exhausting it traps the call and discards its writes;
+//! nothing is billed. Native work the meter cannot see is charged in fuel
+//! first ([`gas`], ADR-142), and the node caps gas per transaction and per
+//! block. A fee per gas is a separate design.
 
 #![warn(missing_docs)]
 
 pub mod cache;
 pub mod config;
 pub mod error;
+pub mod gas;
 pub mod host;
 pub mod private;
 pub mod resources;
@@ -47,6 +50,6 @@ pub use config::{MAX_MEMORY_PAGES, MAX_MODULE_BYTES, WASMTIME_VERSION, determini
 pub use error::{Result, VmError};
 pub use host::{Address, ContractId, Event, HostState, MemoryState};
 pub use maya_amount::Amount;
-pub use runtime::{Execution, Outcome, Vm};
+pub use runtime::{Compiled, Execution, Outcome, Vm};
 pub use tier::Tier;
 pub use zkml::ZkmlVerdict;

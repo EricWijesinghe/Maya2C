@@ -329,6 +329,11 @@ impl Mempool {
             self.admission_height()?,
         )?;
 
+        // A contract call over the gas cap, or a deployment no block could
+        // hold, can never be included (ADR-142, GAS-1). Refused before the
+        // signature, which costs far more than reading the parameter table.
+        self.state.admit_vm_gas(&tx.kind)?;
+
         // Then the signature, with the same rule block execution applies, at
         // the first height this transaction could execute at, under the policy
         // governance has chosen:
