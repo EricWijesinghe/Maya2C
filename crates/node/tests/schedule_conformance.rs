@@ -271,7 +271,18 @@ fn apply_case(actors: &Actors, case: &Value) {
             continue;
         }
         if !ok(case) {
-            assert!(result.is_err(), "{id}: the last step was applied");
+            let Err(err) = result else {
+                panic!("{id}: the last step was applied");
+            };
+            // The reason, when the vector names one: without it a refusal for an
+            // unrelated failure would pass as this rule's.
+            if let Some(reason) = case["expect"]["error"].as_str() {
+                let err = err.to_string();
+                assert!(
+                    err.contains(reason),
+                    "{id}: refused for `{err}`, not `{reason}`"
+                );
+            }
             return;
         }
         result.unwrap_or_else(|e| panic!("{id}: {e}"));

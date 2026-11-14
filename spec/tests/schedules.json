@@ -231,6 +231,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "first_due must be above",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -255,6 +256,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "below MIN_INTERVAL",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -279,6 +281,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "runs are 1 to MAX_RUNS",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -303,6 +306,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "runs are 1 to MAX_RUNS",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -327,6 +331,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the amount must be above zero",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -351,6 +356,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the payee may not be",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -376,6 +382,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "the payee may not be",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -401,6 +408,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "one-year horizon",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -425,6 +433,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "one-year horizon",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -449,6 +458,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "below 2^249",
     "result": "error"
    },
    "funds": "1809251394333065553493296640760748560207343510400633813116524750123642650624",
@@ -504,6 +514,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "insufficient balance",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -528,6 +539,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "a vault account may not send",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -634,6 +646,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "only the payer may cancel",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -664,6 +677,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "no such schedule",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -685,6 +699,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "no such schedule",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -1100,6 +1115,7 @@
   {
    "activation": "11",
    "expect": {
+    "error": "scheduled payments are not active",
     "result": "error"
    },
    "funds": "1000000000000000",
@@ -1155,6 +1171,7 @@
   {
    "activation": "10",
    "expect": {
+    "error": "is halted until block",
     "result": "error"
    },
    "funds": "1000000000000000",
