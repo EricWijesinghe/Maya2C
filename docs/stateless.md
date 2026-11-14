@@ -89,8 +89,8 @@ violation computed from an unchecked witness would be a relay's choice.
 ## The switch
 
 From the activation height, `stage_block` writes `sl:accounts-sparse`. That
-record sits under its own layer (`StateLayer::Stateless`, tag 12, between
-`Htlc` and `Shielded`; it moves no existing root because no existing state holds
+record sits under its own layer (`StateLayer::Stateless`, tag 12, folded after
+`Vault` and before `UpgradeSchedule`, as `state::proof::LAYER_ORDER` lists; it moves no existing root because no existing state holds
 it). `root_with_overlay` builds the sparse accounts root whenever the marker is
 present, so `state_root()` needs no height, and the marker is journalled and
 reverted like any record — `crates/node/tests/stateless_equivalence.rs` reverts the
