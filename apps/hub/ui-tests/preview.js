@@ -1,9 +1,10 @@
-// Synthetic data for the Hub opened in a plain browser (no Tauri). The header
-// says "Preview data" whenever this runs; the app build never calls it: its
-// figures come only from the Rust commands.
+// Synthetic data for the Hub opened in a plain browser (no Tauri). It lives
+// outside ui/, so the app bundle (frontendDist = ../ui) never ships it; app.js
+// loads it only when window.__TAURI__ is absent, and the header then says
+// "Preview data". `#paused` previews the paused network, which is the real
+// state since 2026-10-28: no height, epoch or reward is reported then.
 "use strict";
 
-// Synthetic data for a browser preview. `#paused` previews the paused network.
 const preview = (() => {
   const rates = [];
   const events = [];
@@ -32,7 +33,7 @@ const preview = (() => {
         }
       }
       return {
-        workers: [{ device: "gpu0", running: !!started, status: started ? "mining" : "stopped", mode: "preview", epoch: 118, share_reward: 7e22, accepted, rejected: 0,
+        workers: [{ device: "gpu0", running: !!started, status: started ? "mining" : "stopped", mode: "preview", epoch: paused ? null : 118, share_reward: paused ? null : 7e22, accepted, rejected: 0,
           restarts: 0, held: false, temp_c: 60, ceiling_c: DEFAULT_CEILING_C, earned: accepted * 7e22, started_ms: started, address: "preview", rates, events }],
         alerts: [],
       };

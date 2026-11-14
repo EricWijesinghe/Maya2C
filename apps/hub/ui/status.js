@@ -30,16 +30,21 @@ const NetStatus = (() => {
     }
   };
 
+  // One string for "live", so the legend and the cards never disagree.
+  const liveText = (chainId) => (chainId ? `Live on ${chainId}` : "Live on testnet");
+
   // The chip one universe entry shows. Unknown stages read as planned, never live.
+  // The card chip is short enough for a two-column card at 360 px; the legend
+  // and the detail panel carry the date.
   function chip(item, net, chainId) {
     if (item.status !== "built") return { tone: STAGE[item.status] ? item.status : "planned", text: STAGE[item.status] || STAGE.planned };
-    if (net === "live") return { tone: "live", text: chainId ? `Live on ${chainId}` : "Live on testnet" };
-    if (net === "connecting") return { tone: "built", text: "Built, checking the network" };
-    return { tone: "paused", text: `Built, testnet paused since ${PAUSED_SINCE}` };
+    if (net === "live") return { tone: "live", text: liveText(chainId) };
+    if (net === "connecting") return { tone: "built", text: "Built, checking" };
+    return { tone: "paused", text: "Built · testnet paused" };
   }
 
-  function legend(net) {
-    const first = net === "live" ? { tone: "live", text: "Live on testnet" }
+  function legend(net, chainId) {
+    const first = net === "live" ? { tone: "live", text: liveText(chainId) }
       : net === "connecting" ? { tone: "built", text: "Built" }
       : { tone: "paused", text: `Built, testnet paused since ${PAUSED_SINCE}` };
     return [first, ...Object.entries(STAGE).map(([tone, text]) => ({ tone, text }))];
@@ -52,7 +57,7 @@ const NetStatus = (() => {
     if (isPublic(rpc)) {
       return {
         title: "Testnet paused",
-        body: `The public testnet has been paused on purpose since ${PAUSED_SINCE}. Mining opens again with the next genesis, and the Hub reconnects by itself.`,
+        body: `The public testnet is paused on purpose since ${PAUSED_SINCE}. No restart date is set; the Hub reconnects by itself when the node answers.`,
         report: true,
         details,
       };

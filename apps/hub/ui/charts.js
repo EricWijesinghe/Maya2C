@@ -64,7 +64,9 @@ const Charts = (() => {
 
   // The hero gauge: an arc whose sweep follows the rate against the session
   // peak, a rotating sheen while mining, and tick marks.
-  function gauge(canvas, { hps, peak, active, t }) {
+  // `paused`: the network does not answer, so the ring is lit a soft amber
+  // (waiting, not broken) instead of a dead grey.
+  function gauge(canvas, { hps, peak, active, paused = false, t }) {
     const fitted = fit(canvas);
     if (!fitted) return;
     const { ctx, w, h } = fitted;
@@ -76,23 +78,29 @@ const Charts = (() => {
     const frac = peak > 0 && hps ? Math.min(1, hps / peak) : 0;
 
     // A soft halo behind the dial; brighter while mining.
+    const tone = paused ? "--warn" : "--accent";
     const halo = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.25);
-    halo.addColorStop(0, tint("--accent", active ? 0.2 : 0.08));
-    halo.addColorStop(1, tint("--accent", 0));
+    halo.addColorStop(0, tint(tone, active ? 0.3 : 0.16));
+    halo.addColorStop(1, tint(tone, 0));
     ctx.fillStyle = halo;
     ctx.fillRect(0, 0, w, h);
 
     ctx.lineCap = "round";
     ctx.lineWidth = r * 0.12;
-    ctx.strokeStyle = tint("--text-3", 0.22);
+    ctx.strokeStyle = paused ? tint("--warn", 0.32) : tint("--accent", 0.14);
+    if (paused) {
+      ctx.shadowColor = tint("--warn", 0.5);
+      ctx.shadowBlur = 14;
+    }
     ctx.beginPath();
     ctx.arc(cx, cy, r, start, start + span);
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
     for (let i = 0; i <= 28; i += 1) {
       const a = start + (span * i) / 28;
       const inner = r * (i % 7 === 0 ? 0.74 : 0.8);
-      ctx.strokeStyle = i / 28 <= frac && frac > 0 ? css("--accent-hover") : tint("--text-3", 0.35);
+      ctx.strokeStyle = i / 28 <= frac && frac > 0 ? css("--accent-hover") : tint(paused ? "--warn" : "--text-3", 0.4);
       ctx.lineWidth = i % 7 === 0 ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
@@ -138,7 +146,7 @@ const Charts = (() => {
 
   // A smoothed area chart of [{t_ms, hps}], newest on the right, with the
   // average drawn as a dashed line. `name` is the chart's spoken name.
-  function area(canvas, samples, { color = "--chart-1", label = rate, floor = false, name = "Chart", empty = "No samples yet" } = {}) {
+  function area(canvas, samples, { color = "--chart-1", label = rate, name = "Chart", empty = "No samples yet" } = {}) {
     if (!samples.length) describe(canvas, `${name}: ${empty.toLowerCase()}`);
     else {
       // Named before drawing, so a chart on a hidden page still says what it holds.
@@ -151,7 +159,7 @@ const Charts = (() => {
     const fitted = fit(canvas);
     if (!fitted) return;
     const { ctx, w, h } = fitted;
-    const pad = { l: 8, r: 8, t: 14, b: 18 };
+    const pad = { l: 8, r: 14, t: 18, b: 18 };
     ctx.font = `11px ${css("--font-mono")}`;
     if (!samples.length) {
       ctx.fillStyle = css("--text-2");
@@ -160,9 +168,8 @@ const Charts = (() => {
       return;
     }
     const values = samples.map((s) => s.hps);
-    // `floor` charts a counter (block height) against its own range, not zero.
-    const min = floor ? Math.min(...values) : 0;
-    const max = (floor ? Math.max(...values) + 1 : Math.max(...values) * 1.15) || 1;
+    const min = 0;
+    const max = Math.max(...values) * 1.15 || 1;
     const t0 = samples[0].t_ms;
     const t1 = samples[samples.length - 1].t_ms;
     const x = (t) => pad.l + ((t - t0) / Math.max(1, t1 - t0)) * (w - pad.l - pad.r);
@@ -194,8 +201,9 @@ const Charts = (() => {
     fill.lineTo(x(t0), h - pad.b);
     fill.closePath();
     const grad = ctx.createLinearGradient(0, pad.t, 0, h - pad.b);
-    grad.addColorStop(0, tint(color, 0.38));
-    grad.addColorStop(1, tint(color, 0));
+    grad.addColorStop(0, tint(color, 0.55));
+    grad.addColorStop(0.55, tint(color, 0.18));
+    grad.addColorStop(1, tint(color, 0.02));
     ctx.fillStyle = grad;
     ctx.fill(fill);
     ctx.strokeStyle = css(color);
@@ -213,10 +221,11 @@ const Charts = (() => {
     ctx.lineTo(w - pad.r, y(avg));
     ctx.stroke();
     ctx.setLineDash([]);
+    // Anchored at the left of the plot, so a long unit never runs off the edge.
     const a = label(avg);
     ctx.fillStyle = css("--text-2");
-    ctx.textAlign = "right";
-    ctx.fillText(`avg ${a.value} ${a.unit}`, w - pad.r, y(avg) - 5);
+    ctx.textAlign = "left";
+    ctx.fillText(`avg ${a.value} ${a.unit}`, pad.l + 2, Math.max(pad.t - 4, y(avg) - 5));
 
     const last = samples[samples.length - 1];
     ctx.fillStyle = css(color);

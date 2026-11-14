@@ -8,15 +8,23 @@
 
 :root {
   --hub-display: "Manrope", var(--font-sans);
-  --hub-glow: color-mix(in srgb, var(--accent) 24%, transparent);
-  --hub-glow-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --hub-glow: color-mix(in srgb, var(--accent) 34%, transparent);
+  --hub-glow-soft: color-mix(in srgb, var(--accent) 18%, transparent);
   --hub-bronze-glow: color-mix(in srgb, var(--bronze) 30%, transparent);
+  --hub-bg-bronze: color-mix(in srgb, var(--bronze) 22%, transparent);
   --hub-track: color-mix(in srgb, var(--text-3) 24%, transparent);
-  --hub-panel: color-mix(in srgb, var(--surface-1) 90%, transparent);
+  /* Dark (the default): panels lifted off the near-black ground and faintly
+     tinted, so the screen reads lit rather than heavy. */
+  --hub-panel: color-mix(in srgb, var(--surface-2) 93%, var(--accent) 7%);
+  --hub-grain: 0.02;
   --hub-radius: 16px;
   --hub-radius-sm: 12px;
   --tap: 44px;
 }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) { --hub-panel: color-mix(in srgb, var(--surface-1) 92%, transparent); --hub-grain: 0.015; }
+}
+[data-theme="light"] { --hub-panel: color-mix(in srgb, var(--surface-1) 92%, transparent); --hub-grain: 0.015; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -24,16 +32,16 @@ html, body { margin: 0; height: 100%; }
 body {
   background:
     radial-gradient(1100px 640px at 88% -12%, var(--hub-glow), transparent 62%),
-    radial-gradient(900px 560px at -12% 112%, color-mix(in srgb, var(--bronze) 14%, transparent), transparent 60%),
+    radial-gradient(900px 560px at -12% 112%, var(--hub-bg-bronze), transparent 60%),
     var(--bg);
   color: var(--text);
-  font: 400 14px/1.5 var(--font-sans);
+  font: 400 15px/1.5 var(--font-sans);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 /* Film grain for depth, inline so it costs no request. */
 body::after {
-  content: ""; position: fixed; inset: 0; pointer-events: none; opacity: 0.04;
+  content: ""; position: fixed; inset: 0; pointer-events: none; opacity: var(--hub-grain);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -54,7 +62,7 @@ code { font: 450 12.5px/1.5 var(--font-mono); }
 .nav {
   width: 70px; min-height: 58px; padding: 8px 0; border: 0; border-radius: var(--hub-radius-sm);
   background: transparent; color: var(--text-2); cursor: pointer;
-  display: grid; justify-items: center; align-content: center; gap: 4px; font: 600 11px var(--font-sans);
+  display: grid; justify-items: center; align-content: center; gap: 4px; font: 600 12px var(--font-sans);
   transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
 }
 .nav:hover { color: var(--text); background: var(--surface-2); }
@@ -96,8 +104,10 @@ main { min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 22px clamp(1
   background: var(--hub-panel); border: 1px solid var(--border); border-radius: var(--hub-radius);
   box-shadow: var(--shadow-md), var(--shadow-inset); backdrop-filter: blur(12px);
 }
-h2 { margin: 0 0 12px; font: 600 12px/1.3 var(--font-sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
-h2 small { margin-left: 8px; font: 400 12px var(--font-sans); letter-spacing: 0; text-transform: none; }
+/* Type steps: card heading 16 (Manrope, sentence case), body 15, helper 13,
+   and uppercase micro-labels only on tiles. */
+h2 { margin: 0 0 12px; font: 600 16px/1.3 var(--hub-display); letter-spacing: -0.005em; color: var(--text); }
+h2 small { margin-left: 8px; font: 500 13px var(--font-sans); color: var(--text-2); }
 .label { display: block; font: 600 11px/1.3 var(--font-sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
 .fine { margin: 6px 0; color: var(--text-2); font-size: 13px; max-width: 75ch; }
 .detail p { margin: 0 0 6px; font-size: 15px; }
@@ -136,7 +146,9 @@ h2 small { margin-left: 8px; font: 400 12px var(--font-sans); letter-spacing: 0;
 .hero-read { position: absolute; inset: 0; display: grid; place-content: center; padding-top: 10%; text-align: center; pointer-events: none; }
 .big { margin: 0; font: 700 clamp(34px, 6vw, 56px)/1 var(--hub-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .big small { margin-left: 6px; font: 600 clamp(14px, 2vw, 18px) var(--hub-display); color: var(--text-2); }
-.status { margin-top: 8px; font: 500 12px var(--font-mono); color: var(--accent-text); text-transform: uppercase; letter-spacing: 0.12em; }
+.status { margin-top: 8px; font: 500 12px var(--font-mono); color: var(--text-2); text-transform: uppercase; letter-spacing: 0.12em; }
+.status[data-state="mining"] { color: var(--accent-text); }
+.status[data-state="paused"] { color: var(--warn); }
 .hero-side { display: grid; gap: 12px; justify-items: start; align-content: center; min-width: 0; }
 .eyebrow { margin: 0; font: 600 11px var(--font-sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2); }
 .hero-line { margin: 0; max-width: 40ch; font: 500 clamp(15px, 1.6vw, 18px)/1.45 var(--hub-display); color: var(--text); }
@@ -151,35 +163,71 @@ h2 small { margin-left: 8px; font: 400 12px var(--font-sans); letter-spacing: 0;
 .power .icon { width: 20px; height: 20px; stroke-width: 2.2; }
 .power:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 18px 40px -14px var(--accent), inset 0 1px 0 var(--accent-highlight); }
 .power:active:not(:disabled) { transform: scale(0.97); }
-.power[aria-pressed="true"] { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
-.power:disabled { background: var(--surface-3); color: var(--text-2); box-shadow: inset 0 0 0 1px var(--border); cursor: not-allowed; }
+/* Three states, three looks. Idle: the gradient call to act (above).
+   Mining: a filled, alive control with a live ring; hover warns it stops.
+   Blocked: flat, no glow, and the reason line sits right under it. */
+.power[data-state="mining"] {
+  position: relative; background: var(--accent-subtle); color: var(--accent-text);
+  box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 24px -8px var(--accent);
+}
+.power[data-state="mining"]::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  animation: running 2.2s var(--ease) infinite;
+}
+.power[data-state="mining"]:hover { color: var(--danger); box-shadow: inset 0 0 0 1.5px var(--danger), 0 10px 28px -14px var(--danger); }
+@keyframes running { 0% { box-shadow: 0 0 0 0 var(--hub-glow); } 70%, 100% { box-shadow: 0 0 0 12px transparent; } }
+.power[data-state="blocked"], .power:disabled {
+  background: var(--surface-3); color: var(--text-2); box-shadow: inset 0 0 0 1px var(--border); opacity: 0.6; cursor: not-allowed;
+}
+.power[data-state="blocked"] + .why { margin-top: -4px; padding-left: 4px; color: var(--text-2); }
 .why { margin: 0; max-width: 48ch; font-size: 13px; color: var(--text-2); text-wrap: pretty; }
 .why:empty { display: none; }
 details { margin-top: 6px; }
-summary { cursor: pointer; color: var(--text-2); font-size: 12px; font-weight: 600; min-height: 24px; }
+summary {
+  display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap); list-style: none;
+  cursor: pointer; color: var(--text-2); font-size: 13px; font-weight: 600;
+}
+summary::-webkit-details-marker { display: none; }
+summary .icon { width: 16px; height: 16px; transition: transform var(--dur-2) var(--ease); }
+details[open] > summary .icon { transform: rotate(90deg); }
+summary:hover { color: var(--text); }
 details code { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* -------------------------------------------------------------- tiles ---- */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr)); gap: 12px; margin-bottom: 16px; }
+/* Tiles keep their own height (no stretching to the tallest), and each
+   carries its role colour on a lit top edge: teal for this computer, bronze
+   for coins, steel for the chain. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr)); grid-auto-flow: row dense; align-items: start; gap: 12px; margin-bottom: 16px; }
 .tile {
-  display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px;
-  background: var(--hub-panel); border: 1px solid var(--border); border-radius: var(--hub-radius-sm);
+  --tone: var(--steel);
+  position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px; overflow: hidden;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tone) 10%, transparent), transparent 60%), var(--hub-panel);
+  border: 1px solid var(--border); border-radius: var(--hub-radius-sm);
   transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
 }
-.tile:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+.tile::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 10%, transparent));
+  box-shadow: 0 0 14px var(--tone);
+}
+.tile.tone-accent { --tone: var(--accent); }
+.tile.tone-steel { --tone: var(--steel); }
+.tile:hover { border-color: color-mix(in srgb, var(--tone) 45%, var(--border)); transform: translateY(-2px); }
 .tile .label { margin-bottom: 2px; }
-.tile b { font: 700 clamp(20px, 2.2vw, 26px)/1.2 var(--hub-display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile b { font: 700 clamp(22px, 2.2vw, 28px)/1.2 var(--hub-display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .tile-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.tile em { font-style: normal; font-size: 12px; color: var(--text-2); }
-.tile .sub, .tile .hint { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tile em { font-style: normal; font-size: 13px; color: var(--text-2); }
+.tile .sub, .tile .hint { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .tile .sub:empty { display: none; }
 .tile.bronze {
+  --tone: var(--bronze);
   border-color: color-mix(in srgb, var(--bronze) 42%, var(--border));
-  background: linear-gradient(160deg, color-mix(in srgb, var(--bronze) 14%, var(--surface-1)), var(--hub-panel) 70%);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--bronze) 16%, var(--surface-1)), var(--hub-panel) 70%);
 }
 .tile.bronze b { color: var(--bronze); }
+.tile.wide { grid-column: span 2; }
 .tag {
-  align-self: flex-start; padding: 2px 8px; border-radius: 6px; font: 600 11px/1.4 var(--font-sans);
+  align-self: center; margin-left: auto; padding: 2px 8px; border-radius: 6px; white-space: nowrap; font: 600 11px/1.4 var(--font-sans);
   border: 1px solid color-mix(in srgb, var(--bronze) 50%, transparent); background: color-mix(in srgb, var(--bronze) 10%, var(--surface-1)); color: var(--text);
 }
 .tile.flash { animation: flash 0.9s var(--ease); }
@@ -232,7 +280,12 @@ details code { display: block; margin-top: 6px; padding: 8px 10px; border-radius
 .payout { overflow-wrap: anywhere; }
 
 /* ------------------------------------------------------------ network ---- */
-.orb-card { padding: 0; height: clamp(300px, 46vw, 440px); overflow: hidden; }
+/* One type step for the five network stats, whatever their content. */
+.stats .tile b { font: 650 18px/1.3 var(--hub-display); letter-spacing: 0; overflow-wrap: anywhere; }
+.orb-card {
+  padding: 0; height: clamp(300px, 46vw, 440px); overflow: hidden;
+  background: radial-gradient(closest-side, var(--hub-glow-soft), transparent), var(--hub-panel);
+}
 .orb { display: block; width: 100%; height: 100%; }
 .net-layer { position: absolute; inset: 0; pointer-events: none; }
 .net-hit { position: absolute; left: 0; top: 0; width: 36px; height: 36px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; pointer-events: auto; }
@@ -264,7 +317,13 @@ details code { display: block; margin-top: 6px; padding: 8px 10px; border-radius
 
 /* ----------------------------------------------------------- universe ---- */
 .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-.universe { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 184px), 1fr)); gap: 12px; margin-bottom: 16px; }
+.universe { margin-bottom: 16px; }
+.universe-group { margin-bottom: 20px; }
+.universe-group h2 small { margin-left: 6px; }
+/* Built apps get large cards with their one line; the stages after them are
+   compact rows, so what exists leads and what is planned stays visible. */
+.universe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 10px; }
+.universe-group.built .universe-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 14px; }
 .planet {
   --tone: var(--text-3);
   position: relative; display: grid; justify-items: start; gap: 10px; min-width: 0; padding: 16px; overflow: hidden;
@@ -286,6 +345,14 @@ details code { display: block; margin-top: 6px; padding: 8px 10px; border-radius
 }
 .planet b { font: 650 15px/1.3 var(--hub-display); }
 .planet .chip { font-size: 11px; }
+.universe-group.built .planet { padding: 20px; background: linear-gradient(150deg, color-mix(in srgb, var(--tone) 12%, transparent), transparent 55%), var(--hub-panel); }
+.universe-group.built .planet b { font-size: 18px; }
+.planet-line { color: var(--text-2); font-size: 14px; line-height: 1.45; }
+/* Compact rows: glyph, name, chip on one line. */
+.universe-group:not(.built) .planet { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 12px; padding: 12px 14px; }
+.universe-group:not(.built) .planet .glyph { grid-row: span 2; width: 38px; height: 38px; }
+.universe-group:not(.built) .planet .chip { justify-self: start; }
+.universe-group:not(.built) .planet::before { width: 90px; height: 90px; right: -40px; top: -40px; }
 .planet.live, .planet.built { --tone: var(--accent); }
 .planet.paused { --tone: var(--warn); }
 .planet.building { --tone: var(--bronze); }
@@ -316,7 +383,7 @@ details code { display: block; margin-top: 6px; padding: 8px 10px; border-radius
 .check { display: flex; align-items: center; gap: 10px; min-height: var(--tap); color: var(--text); font: 500 13px var(--font-sans); cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
 .form fieldset.pick { margin: 14px 0; padding: 8px 14px 12px; border: 1px solid var(--border); border-radius: 10px; }
-fieldset legend { padding: 0 6px; font: 600 11px var(--font-sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
+fieldset legend { padding: 0 6px; font: 600 13px var(--font-sans); color: var(--text-2); }
 .segmented { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 6px; padding: 0; border: 0; }
 .segmented legend { width: 100%; margin-bottom: 8px; padding: 0; }
 .segmented label {
@@ -392,8 +459,13 @@ fieldset legend { padding: 0 6px; font: 600 11px var(--font-sans); letter-spacin
   .card { padding: 16px; border-radius: 14px; }
   .tiles { gap: 10px; }
   .tile { padding: 12px; }
-  .universe { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .planet { padding: 14px 12px; }
+  .universe-grid, .universe-group.built .universe-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .universe-group.built .planet { padding: 16px; }
+  /* Phones: the gauge is a reading, not the whole first screen. While the
+     network is paused it collapses, and the paused card above says why. */
+  .hero-gauge { max-width: 220px; }
+  .hero[data-net="paused"] .hero-gauge { display: none; }
+  .hero[data-net="paused"] { padding: 14px 16px; }
   .watch-row { grid-template-columns: minmax(0, 1fr) auto; }
   .watch-row .ghost { grid-column: 1 / -1; justify-self: start; min-height: var(--tap); }
   .paused-card { flex-direction: column; gap: 10px; }
@@ -401,6 +473,10 @@ fieldset legend { padding: 0 6px; font: 600 11px var(--font-sans); letter-spacin
   .sheet { width: 100%; max-height: 92dvh; margin: auto 0 0; border-radius: 20px 20px 0 0; border-bottom: 0; }
   .sheet-foot { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
   .sheet-foot .btn { flex: 1; }
+}
+/* Under two tile columns, the wide tile is one column like the rest. */
+@media (max-width: 340px) {
+  .tile.wide { grid-column: auto; }
 }
 @media (pointer: coarse) {
   .btn, .ghost, .rig-btn { min-height: var(--tap); }

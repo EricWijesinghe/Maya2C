@@ -21,7 +21,8 @@ function renderFeed(workers) {
       const mark = icon(ok ? "check" : "cross", `icon mark ${ok ? "ok" : "bad"}`);
       const what = document.createElement("span");
       const time = document.createElement("time");
-      const text = ok ? `Share accepted · up to ${maya(e.reward)} MAYA once paid on chain` : e.reason || e.message || "refused";
+      // No amount: what an accepted share may pay is not what the chain paid.
+      const text = ok ? "Share accepted" : e.reason || e.message || "refused";
       what.textContent = `${e.device} · ${text}`;
       time.textContent = clock(e.t_ms);
       li.append(mark, what, time);
@@ -127,16 +128,17 @@ function rigCard(key) {
   h3.append(icon("chip"), name, phase);
   const spark = document.createElement("canvas");
   spark.className = "spark";
-  spark.setAttribute("role", "img");
+  // Named from the start; charts.js replaces the name with the value on draw.
+  Charts.describe(spark, `${key} hash rate: no samples yet`);
   const rings = document.createElement("div");
   rings.className = "rings";
-  RINGS.forEach(([label]) => {
+  RINGS.forEach(([label, spoken]) => {
     const cell = document.createElement("div");
     const text = document.createElement("span");
     text.className = "label";
     text.textContent = label;
     const can = document.createElement("canvas");
-    can.setAttribute("role", "img");
+    Charts.describe(can, `${key} ${spoken.toLowerCase()}: not reported yet`);
     cell.append(can, text);
     rings.append(cell);
   });

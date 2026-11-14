@@ -37,7 +37,7 @@
         <header class="topbar">
           <div class="brand">
             <h1 class="wordmark">Maya2C Hub</h1>
-            <span id="preview-flag" class="chip pending" title="Opened in a browser: every figure here is synthetic. Open the Hub app for real numbers." hidden><i class="dot"></i>Preview data</span>
+            <span id="preview-flag" class="chip info" title="Opened in a browser: every figure here is synthetic. Open the Hub app for real numbers." hidden><i class="dot"></i>Preview data</span>
           </div>
           <div class="chip net" id="net-pill" role="status"><i class="dot"></i><span id="net-text">Connecting…</span></div>
         </header>
@@ -46,7 +46,7 @@
         <section class="page active" id="page-mining" aria-label="Mining">
           <div class="paused-slot" data-paused></div>
 
-          <div class="hero card">
+          <div class="hero card" id="hero">
             <div class="hero-gauge">
               <canvas id="gauge" class="gauge" role="img" aria-label="Hash rate gauge: not mining"></canvas>
               <canvas id="fx" class="fx" aria-hidden="true"></canvas>
@@ -58,47 +58,49 @@
             <div class="hero-side">
               <p class="eyebrow">This computer</p>
               <p class="hero-line">Mines testnet MAYA on the devices you pick, and stops a GPU that runs too hot.</p>
-              <button type="button" class="power" id="power" aria-pressed="false" aria-describedby="power-why">
-                <svg class="icon" aria-hidden="true"><use href="icons.svg#power" /></svg>
+              <button type="button" class="power" id="power" data-state="idle" aria-pressed="false" aria-describedby="power-why">
+                <svg class="icon" aria-hidden="true"><use id="power-icon" href="icons.svg#power" /></svg>
                 <span id="power-text">Start mining</span>
               </button>
               <div class="why" id="power-why"></div>
             </div>
           </div>
 
+          <!-- Labels fit one line; the qualifier sits on the line under the value.
+               Tone: teal for this computer, bronze for coins, steel for the chain. -->
           <div class="tiles">
-            <div class="tile">
+            <div class="tile tone-accent">
               <span class="label">Accepted shares</span>
               <b id="t-accepted">0</b>
               <small class="sub"><span id="t-rejected">0</span> rejected</small>
             </div>
-            <div class="tile bronze">
-              <span class="label">Received this session (on chain)</span>
-              <span class="tile-value"><b id="t-received">0</b><em>MAYA</em></span>
-              <span class="tag">Testnet MAYA, no value</span>
-              <small class="sub" id="t-pace" title="On-chain balance growth divided by run time; shares accepted but not yet paid are not counted"></small>
+            <div class="tile bronze wide">
+              <span class="label">Received on chain</span>
+              <span class="tile-value"><b id="t-received">0</b><em>MAYA</em><span class="tag">Testnet MAYA, no value</span></span>
+              <small class="sub">This session, as the chain credited it</small>
             </div>
-            <div class="tile">
+            <div class="tile bronze">
               <span class="label">Payout balance</span>
               <span class="tile-value"><b id="t-balance">—</b><em>MAYA</em></span>
-              <small class="hint" hidden>Shows once the node answers and a payout key exists.</small>
+              <small class="hint" hidden>Needs the node and a payout key.</small>
             </div>
-            <div class="tile">
-              <span class="label">Reward per share this epoch</span>
+            <div class="tile tone-steel">
+              <span class="label">Reward / share</span>
               <span class="tile-value"><b id="t-reward">—</b><em>MAYA</em></span>
-              <small class="hint" hidden>Read from the node once mining is open.</small>
+              <small class="sub with-value">This epoch</small>
+              <small class="hint" hidden>Once the node answers.</small>
             </div>
-            <div class="tile">
+            <div class="tile tone-steel">
               <span class="label">Epoch</span>
               <b id="t-epoch">—</b>
               <div class="bar" role="img" id="t-epoch-meter" aria-label="Epoch shares: not reported"><i id="t-epoch-bar"></i></div>
               <small class="sub" id="t-epoch-shares"></small>
-              <small class="hint" hidden>Read from the node once mining is open.</small>
+              <small class="hint" hidden>Once the node answers.</small>
             </div>
-            <div class="tile">
+            <div class="tile tone-accent">
               <span class="label">Uptime</span>
               <b id="t-uptime">—</b>
-              <small class="hint" hidden>Counts while a miner runs.</small>
+              <small class="hint" hidden>Counts while mining.</small>
             </div>
           </div>
 
@@ -145,17 +147,17 @@
                 <b id="n-height">—</b><span>block height</span>
               </div>
             </div>
-            <div class="stack">
-              <div class="tile"><span class="label">Chain</span><b id="n-chain" class="mono">—</b></div>
-              <div class="tile"><span class="label">Committee</span><span class="tile-value"><b id="n-committee">—</b><em>validators</em></span></div>
-              <div class="tile"><span class="label">Base fee</span><span class="tile-value"><b id="n-fee">—</b><em>per byte</em></span></div>
-              <div class="tile"><span class="label">Block rate (measured here)</span><span class="tile-value"><b id="n-rate">—</b><em>blocks/min</em></span></div>
-              <div class="tile"><span class="label">Mining</span><b id="n-mining">—</b></div>
+            <div class="stack stats">
+              <div class="tile tone-steel"><span class="label">Chain</span><b id="n-chain">—</b></div>
+              <div class="tile tone-accent"><span class="label">Committee</span><span class="tile-value"><b id="n-committee">—</b><em>validators</em></span></div>
+              <div class="tile tone-steel"><span class="label">Base fee</span><span class="tile-value"><b id="n-fee">—</b><em>per byte</em></span></div>
+              <div class="tile tone-accent"><span class="label">Block rate</span><span class="tile-value"><b id="n-rate">—</b><em>blocks/min, measured here</em></span></div>
+              <div class="tile bronze"><span class="label">Mining</span><b id="n-mining">—</b></div>
             </div>
           </div>
           <div class="card">
-            <h2>Blocks seen this session</h2>
-            <canvas id="height-chart" class="chart" role="img" aria-label="Block height chart: no blocks seen yet"></canvas>
+            <h2>Blocks per minute, this session</h2>
+            <canvas id="height-chart" class="chart" role="img" aria-label="Block rate chart: no blocks seen yet"></canvas>
           </div>
           <div class="card detail" id="n-detail" hidden>
             <h2 id="nd-title"></h2>
@@ -180,7 +182,7 @@
             <div class="card app-card">
               <svg class="icon app-icon" aria-hidden="true"><use href="icons.svg#wallet" /></svg>
               <h2>Maya2C Wallet</h2>
-              <p class="fine">Keys, sending, receiving and the signing confirmation live in the Wallet app, never in the Hub.</p>
+              <p class="fine">Keys, sending, receiving and the signing confirmation stay in the Wallet app, never in the Hub.</p>
               <button type="button" class="btn primary" id="open-wallet">Open Wallet</button>
               <p class="fine" id="open-wallet-msg" role="status"></p>
             </div>
@@ -279,7 +281,7 @@
           <button type="button" class="btn secondary" id="fr-copy"><svg class="icon" aria-hidden="true"><use href="icons.svg#copy" /></svg>Copy path</button>
         </div>
         <p class="fine" id="fr-key-msg" role="status"></p>
-        <label class="check big-check"><input type="checkbox" id="fr-backup" /> <span>I will back up this file after the first start, and keep the copy private.</span></label>
+        <label class="check big-check"><input type="checkbox" id="fr-backup" /> <span>I understand that nobody can restore this file, and I will copy it somewhere private once the first start creates it.</span></label>
       </div>
 
       <div class="sheet-step" data-step="2" hidden>
@@ -304,7 +306,7 @@
           <h2 class="paused-title"></h2>
           <p class="paused-text"></p>
           <a class="paused-report" target="_blank" rel="noopener noreferrer">Read the stop report<svg class="icon" aria-hidden="true"><use href="icons.svg#external" /></svg></a>
-          <details class="paused-details"><summary>Details</summary><code class="paused-raw"></code></details>
+          <details class="paused-details"><summary><svg class="icon" aria-hidden="true"><use href="icons.svg#chevron" /></svg>Details</summary><code class="paused-raw"></code></details>
         </div>
       </div>
     </template>
@@ -315,7 +317,6 @@
     <script src="universe.js"></script>
     <script src="wallet.js"></script>
     <script src="firstrun.js"></script>
-    <script src="preview.js"></script>
     <script src="rigs.js"></script>
     <script src="app.js"></script>
   </body>

@@ -9,7 +9,6 @@ const POLL_MINER_MS = 1000;
 const POLL_NODE_MS = 4000;
 const POLL_GPU_MS = 3000;
 const HEIGHT_HISTORY = 300;
-const PACE_MIN_MS = 5 * 60_000; // a rate from under five minutes of payouts is noise
 const DEFAULT_CEILING_C = 80; // the Hub's default, mirrored from watchdog.rs
 const FEED_ROWS = 30;
 const ALERT_ROWS = 50;
@@ -38,7 +37,19 @@ const state = {
 
 // ---------------------------------------------------------------- data ----
 
-// The Rust commands, or preview.js when the page runs in a plain browser.
+// The synthetic preview lives outside ui/, so the app bundle (frontendDist =
+// ../ui) never ships it; a plain browser serving apps/hub loads it from ui-tests/.
+function loadPreview() {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "../ui-tests/preview.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Preview data not found: serve apps/hub, then open /ui/index.html"));
+    document.head.append(script);
+  });
+}
+
+// The Rust commands, or the preview data when the page runs in a plain browser.
 async function call(cmd, args) {
   if (isPreview) {
     if (preview[cmd]) return preview[cmd](args);
@@ -103,7 +114,7 @@ function explain(host, sentence, raw) {
     const details = document.createElement("details");
     const summary = document.createElement("summary");
     const code = document.createElement("code");
-    summary.textContent = "Details";
+    summary.append(icon("chevron"), "Details");
     code.textContent = String(raw);
     details.append(summary, code);
     parts.push(details);
@@ -162,20 +173,14 @@ function combinedRates(workers) {
   return out;
 }
 
-// Paid rate from what the chain actually credited, never from accepted shares
-// (accepted is not paid: 145 accepted against 10 paid on the mining devnet).
-function paceLine(sum) {
-  const ran = sum.running && sum.started_ms ? Date.now() - sum.started_ms : 0;
-  if (ran < PACE_MIN_MS) return sum.running ? "Rate shown after 5 min of payouts" : "";
-  const perHour = (Number(sum.received) * 3_600_000) / ran;
-  return `≈ ${maya(perHour)} MAYA/h received, measured`;
-}
-
 // An empty tile ("—") shows its one-line hint instead.
 function hintTiles() {
   document.querySelectorAll(".tile .hint").forEach((hint) => {
     const value = hint.parentElement.querySelector("b");
     hint.hidden = !value || value.textContent !== "—";
+    // A qualifier of the value ("This epoch") gives way to the hint.
+    const qualifier = hint.parentElement.querySelector(".sub.with-value");
+    if (qualifier) qualifier.hidden = !hint.hidden;
   });
 }
 
@@ -199,6 +204,9 @@ function renderPower(running) {
   // Stop always works; Start waits for the network and says why.
   const block = running ? null : startReason();
   power.disabled = Boolean(block);
+  // Three looks: a call to act, a running control, and a flat blocked one.
+  power.dataset.state = running ? "mining" : block ? "blocked" : "idle";
+  $("power-icon").setAttribute("href", `icons.svg#${running ? "stop" : "power"}`);
   if (block) explain($("power-why"), block);
   else if (state.startError) explain($("power-why"), "The miner did not start.", state.startError);
   else explain($("power-why"), "");
@@ -213,14 +221,17 @@ function renderMiner() {
   setText("rate-value", r.value);
   setText("rate-unit", r.unit);
   Charts.describe($("gauge"), sum.running ? `Hash rate gauge: ${r.value} ${r.unit}` : "Hash rate gauge: not mining");
-  setText("miner-status", state.watchOnly ? WATCH_ONLY : sum.status);
+  const paused = !sum.running && state.net === "paused";
+  setText("miner-status", state.watchOnly ? WATCH_ONLY : paused ? "Network paused" : sum.status);
+  $("miner-status").dataset.state = sum.running ? "mining" : paused ? "paused" : "stopped";
   setText("t-accepted", sum.accepted.toLocaleString());
   setText("t-rejected", sum.rejected.toLocaleString());
   setText("t-received", maya(sum.received));
-  setText("t-epoch", sum.epoch ?? "—");
-  setText("t-reward", sum.reward == null ? "—" : maya(sum.reward));
+  // Epoch and reward are the network's figures: shown only while it answers.
+  const live = state.net === "live";
+  setText("t-epoch", live && sum.epoch != null ? sum.epoch : "—");
+  setText("t-reward", live && sum.reward != null ? maya(sum.reward) : "—");
   setText("t-uptime", sum.running ? uptime(sum.started_ms) : "—");
-  setText("t-pace", paceLine(sum));
   renderPower(sum.running);
   // The node's snapshot carries the Bech32m form (ADR-081) and any refusal of it.
   const snap = state.snapshot || {};
@@ -280,8 +291,12 @@ function renderNode() {
   if (changed) updateUniverse();
   if (state.miner) renderPower(state.miner.workers.some((w) => w.running));
   FirstRun.refresh();
+  $("hero").dataset.net = net;
+  if (changed && state.miner) renderMiner();
   const pill = $("net-pill");
   if (net !== "live") {
+    // No reply: no figure from an earlier reply stays on screen as if current.
+    ["n-height", "n-chain", "n-committee", "n-fee", "n-rate", "n-mining", "t-balance"].forEach((id) => setText(id, "—"));
     pill.className = `chip net ${net === "paused" ? "paused" : "idle"}`;
     setText("net-text", net === "paused" ? (NetStatus.isPublic(state.settings.rpc) ? `Testnet paused since ${NetStatus.PAUSED_SINCE}` : "Node not answering") : "Connecting…");
     NetView.update(s, null, false);
@@ -304,7 +319,7 @@ function renderNode() {
   setText("n-committee", s.bft ? s.bft.committee : "—");
   setText("n-fee", s.fees && s.fees.active ? s.fees.base_fee : "off");
   const work = s.mining;
-  setText("n-mining", work ? (work.active ? `open · epoch ${work.epoch}` : "not open yet") : "—");
+  setText("n-mining", work ? (work.active ? `Open, epoch ${work.epoch}` : "Not open yet") : "—");
   let rate = null;
   if (state.heights.length > 1) {
     const a = state.heights[0];
@@ -314,7 +329,7 @@ function renderNode() {
   }
   NetView.update(s, rate, newBlock);
   NetView.frame(performance.now());
-  drawHeights();
+  drawBlockRate();
 
   setText("t-balance", s.account ? maya(s.account.balance) : "—");
   if (work && work.active) {
@@ -326,14 +341,26 @@ function renderNode() {
   hintTiles();
 }
 
-function drawHeights() {
-  Charts.area($("height-chart"), state.heights, { floor: true, name: "Block height", empty: "No blocks seen yet",
-    label: (v) => ({ value: Math.round(v).toLocaleString(), unit: "" }) });
+// Blocks per minute between consecutive new heights. An average of block
+// heights means nothing; the rate between two readings does.
+function blockRates(heights) {
+  const out = [];
+  for (let i = 1; i < heights.length; i++) {
+    const a = heights[i - 1];
+    const b = heights[i];
+    out.push({ t_ms: b.t_ms, hps: ((b.hps - a.hps) * 60000) / Math.max(1, b.t_ms - a.t_ms) });
+  }
+  return out;
+}
+
+function drawBlockRate() {
+  Charts.area($("height-chart"), blockRates(state.heights), { name: "Block rate", empty: "No blocks seen yet", color: "--chart-2",
+    label: (v) => ({ value: v.toFixed(1), unit: "blocks/min" }) });
 }
 
 function renderLegend() {
   $("legend").replaceChildren(
-    ...NetStatus.legend(state.net).map((entry) => {
+    ...NetStatus.legend(state.net, chainOf(state.snapshot)).map((entry) => {
       const chip = document.createElement("span");
       chip.className = `chip ${entry.tone}`;
       const dot = document.createElement("i");
@@ -344,40 +371,73 @@ function renderLegend() {
   );
 }
 
+const chainOf = (snap) => (snap && snap.chain ? snap.chain.chain_id : null);
+
 function universeDetail(item) {
-  const chip = NetStatus.chip(item, state.net, state.snapshot && state.snapshot.chain && state.snapshot.chain.chain_id);
-  const stage = item.status !== "built" ? `Stage: ${chip.text}.`
+  const chip = NetStatus.chip(item, state.net, chainOf(state.snapshot));
+  return item.status !== "built" ? `Stage: ${chip.text}.`
     : state.net === "live" ? `${chip.text}: the node answered the last poll.`
-    : state.net === "paused" ? `${chip.text}. It comes back with the next genesis.`
+    : state.net === "paused" ? `Built. The testnet is paused since ${NetStatus.PAUSED_SINCE}; no restart date is set.`
     : "Built. Checking whether the network answers.";
-  return stage;
+}
+
+// Built entries first, large, with their one line; the rest as compact rows
+// under a heading per stage, so what exists is not lost in what is planned.
+const UNIVERSE_GROUPS = [
+  ["built", "Built"],
+  ["building", "Being built"],
+  ["planned", "Planned"],
+  ["research", "Research"],
+];
+
+function planet(item, host) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "planet";
+  b.dataset.id = item.id;
+  const glyph = document.createElement("span");
+  glyph.className = "glyph";
+  glyph.append(icon(item.icon));
+  const name = document.createElement("b");
+  name.textContent = item.name;
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  b.append(glyph, name);
+  if (item.status === "built") {
+    const line = document.createElement("span");
+    line.className = "planet-line";
+    line.textContent = item.text;
+    b.append(line);
+  }
+  b.append(chip);
+  b.addEventListener("click", () => {
+    host.querySelectorAll(".planet").forEach((p) => p.classList.toggle("selected", p === b));
+    const detail = $("detail");
+    detail.hidden = false;
+    detail.dataset.id = item.id;
+    setText("d-title", item.name);
+    setText("d-text", item.text);
+    setText("d-stage", universeDetail(item));
+    detail.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+  });
+  return b;
 }
 
 function renderUniverse() {
   const host = $("universe");
   host.replaceChildren(
-    ...UNIVERSE.map((item) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "planet";
-      b.dataset.id = item.id;
-      const glyph = document.createElement("span");
-      glyph.className = "glyph";
-      glyph.append(icon(item.icon));
-      const name = document.createElement("b");
-      name.textContent = item.name;
-      const chip = document.createElement("span");
-      chip.className = "chip";
-      b.append(glyph, name, chip);
-      b.addEventListener("click", () => {
-        host.querySelectorAll(".planet").forEach((p) => p.classList.toggle("selected", p === b));
-        $("detail").hidden = false;
-        $("detail").dataset.id = item.id;
-        setText("d-title", item.name);
-        setText("d-text", item.text);
-        setText("d-stage", universeDetail(item));
-      });
-      return b;
+    ...UNIVERSE_GROUPS.map(([stage, title]) => {
+      const items = UNIVERSE.filter((u) => (UNIVERSE_GROUPS.some(([s]) => s === u.status) ? u.status : "planned") === stage);
+      const group = document.createElement("section");
+      group.className = `universe-group ${stage}`;
+      group.setAttribute("aria-label", title);
+      const heading = document.createElement("h2");
+      heading.append(title, Object.assign(document.createElement("small"), { textContent: String(items.length) }));
+      const grid = document.createElement("div");
+      grid.className = "universe-grid";
+      grid.append(...items.map((item) => planet(item, host)));
+      group.append(heading, grid);
+      return group;
     }),
   );
   updateUniverse();
@@ -385,7 +445,7 @@ function renderUniverse() {
 
 // Chips follow the network: a built entry is live only while the node answers.
 function updateUniverse() {
-  const chainId = state.snapshot && state.snapshot.chain ? state.snapshot.chain.chain_id : null;
+  const chainId = chainOf(state.snapshot);
   $("universe").querySelectorAll(".planet").forEach((b) => {
     const item = UNIVERSE.find((u) => u.id === b.dataset.id);
     const chip = NetStatus.chip(item, state.net, chainId);
@@ -408,7 +468,7 @@ function frame(t) {
   const onMining = $("page-mining").classList.contains("active");
   const onNetwork = $("page-network").classList.contains("active");
   if (onMining) {
-    Charts.gauge($("gauge"), { hps: last, peak: state.peak, active: !!(sum && sum.running) && !reducedMotion, t });
+    Charts.gauge($("gauge"), { hps: last, peak: state.peak, active: !!(sum && sum.running) && !reducedMotion, paused: state.net === "paused", t });
     Charts.drawBursts($("fx"));
   }
   // Reduced motion draws the network view only when its state changes (renderNode).
@@ -428,7 +488,7 @@ function redrawAll() {
   NetView.refresh();
   if (state.miner) renderMiner();
   renderNode();
-  drawHeights();
+  drawBlockRate();
   renderRigs();
 }
 
@@ -624,6 +684,7 @@ function finishFirstRun(devices) {
 
 async function main() {
   $("preview-flag").hidden = !isPreview;
+  if (isPreview) await loadPreview();
   const defaults = await call("defaults");
   state.defaults = defaults;
   state.gpus = await call("gpu_telemetry").catch(() => ({ devices: [], note: "GPU telemetry unavailable" }));

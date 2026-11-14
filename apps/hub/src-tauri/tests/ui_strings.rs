@@ -208,6 +208,42 @@ fn the_word_check_catches_earn_and_spares_learn() {
     assert!(!has_word_starting("Learn more", "earn"));
 }
 
+/// An hourly rate or an "up to" amount reads as income even in a coin with no
+/// value (audit §5); the Hub shows only what the chain already credited.
+#[test]
+fn no_income_rate_and_no_promised_amount_in_user_text() {
+    const RATE: &[&str] = &["MAYA/h", "/h received", "per hour", "an hour", "up to"];
+    let bad: Vec<String> = user_text()
+        .into_iter()
+        .filter(|(_, text)| {
+            let lower = text.to_lowercase();
+            RATE.iter().any(|r| lower.contains(&r.to_lowercase()))
+        })
+        .map(|(file, text)| format!("{file}: {text:?}"))
+        .collect();
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The synthetic preview (fabricated height, epoch and rewards) stays out of
+/// `ui/`, which is the whole app bundle (`frontendDist = "../ui"`).
+#[test]
+fn the_preview_generator_is_not_shipped() {
+    assert!(
+        !ui_dir().join("preview.js").exists(),
+        "ui/preview.js would ship in every build; it belongs in ui-tests/"
+    );
+    let html = read(&ui_dir().join("index.html"));
+    assert!(
+        !html.contains("src=\"preview.js\""),
+        "index.html loads the preview in the app"
+    );
+    let conf = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json"));
+    assert!(
+        conf.contains("\"frontendDist\": \"../ui\""),
+        "the bundle root moved; re-check what ships"
+    );
+}
+
 #[test]
 fn nothing_is_written_as_live_and_no_october_trial_is_promised() {
     let html = read(&ui_dir().join("index.html"));

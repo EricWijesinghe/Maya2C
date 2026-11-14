@@ -2,11 +2,14 @@
 // canvas names, WCAG contrast (axe-core) in both themes, horizontal overflow
 // from 360 px up, and screenshots into design/visual/hub/.
 //
-//   HUB_TOOLS=<dir with node_modules/playwright and axe-core> \
+//   HUB_TOOLS=<dir with node_modules/playwright (or playwright-core) and axe-core> \
 //   CHROMIUM_PATH=<chrome.exe> node apps/hub/ui-tests/browser-check.mjs
 //
-// Not in CI yet: it needs playwright and axe-core, which the Hub does not
-// depend on. Exits 1 on any failure and prints each one.
+// CI runs it (job `hub-ui` in .github/workflows/ci.yml) with NO_SHOTS=1 in the
+// pinned Playwright image; the Hub itself does not depend on playwright or
+// axe-core. Screenshots show the paused network only, which is the real state
+// since 2026-10-28: no image here carries a live chip or a synthetic height,
+// epoch or reward. Exits 1 on any failure and prints each one.
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
@@ -14,10 +17,13 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ui = resolve(here, "..", "ui");
+// Served from apps/hub, so ui/index.html can load ../ui-tests/preview.js,
+// which the app bundle (ui/ only) never ships.
+const ui = resolve(here, "..");
 const shots = resolve(here, "..", "..", "..", "design", "visual", "hub");
 const require = createRequire(process.env.HUB_TOOLS ? join(resolve(process.env.HUB_TOOLS), "index.js") : import.meta.url);
-const { chromium } = require("playwright");
+// playwright or playwright-core: the same API, the latter without bundled browsers.
+const { chromium } = (() => { try { return require("playwright"); } catch { return require("playwright-core"); } })();
 const axeSource = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 
 const PAGES = ["mining", "network", "wallet", "universe", "settings"];
@@ -42,7 +48,7 @@ const server = createServer((req, res) => {
   res.writeHead(200, { "content-type": TYPES[extname(file)] || "application/octet-stream" }).end(readFileSync(file));
 });
 await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
-const base = `http://127.0.0.1:${server.address().port}/index.html`;
+const base = `http://127.0.0.1:${server.address().port}/ui/index.html`;
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 
@@ -64,6 +70,7 @@ const goto = (page, name) => page.click(`.nav[data-page="${name}"]`);
 
 async function startPreviewMiner(page) {
   await page.click("#power");
+  await page.mouse.move(0, 0); // off the button, so its look is the resting one
   await page.waitForFunction(() => document.getElementById("power-text").textContent === "Stop mining", null, { timeout: 8000 });
   await page.waitForTimeout(2500);
 }
@@ -91,6 +98,32 @@ async function startPreviewMiner(page) {
   flag === "1" && after === "Stop mining" && !(await sheetOpen()) ? pass("finishing stores the flag and starts the preview miner") : fail(`after finish: flag ${flag}, power "${after}"`);
   errors.length ? fail(`page errors: ${errors.join(" | ")}`) : pass("no page errors in the first-start flow");
   await context.close();
+}
+
+// ------------------------------------------------------- power states ----
+// Idle, mining and blocked are three looks, so the one control a new user
+// looks for never reads as disabled while it works.
+const powerLook = (page) => page.evaluate(() => {
+  const p = document.getElementById("power");
+  const cs = getComputedStyle(p);
+  return { state: p.dataset.state, disabled: p.disabled, look: `${cs.backgroundImage}|${cs.backgroundColor}|${cs.opacity}` };
+});
+{
+  const { page, context } = await open();
+  await page.waitForFunction(() => document.getElementById("power").dataset.state === "idle" && !document.getElementById("power").disabled, null, { timeout: 8000 });
+  const idle = await powerLook(page);
+  await startPreviewMiner(page);
+  const mining = await powerLook(page);
+  await context.close();
+  const paused = await open({ hash: "#paused" });
+  await paused.page.waitForSelector(".paused-slot .paused-card", { timeout: 8000 });
+  const blocked = await powerLook(paused.page);
+  await paused.context.close();
+  const states = [idle.state, mining.state, blocked.state].join(",");
+  const looks = new Set([idle.look, mining.look, blocked.look]).size;
+  states === "idle,mining,blocked" && looks === 3 && blocked.disabled && !idle.disabled
+    ? pass("power control: idle, mining and blocked each have their own look")
+    : fail(`power control: states ${states}, ${looks} distinct looks, blocked disabled ${blocked.disabled}`);
 }
 
 // ------------------------------------------------------------- theme ----
@@ -138,6 +171,12 @@ for (const theme of ["dark", "light"]) {
       /\blive\b/i.test(legend) ? fail(`${theme} paused: universe says live: ${legend}`) : pass(`${theme} paused: no universe chip says live`);
       const disabled = await page.evaluate(() => document.getElementById("power").disabled && /paused since 2026-10-28/.test(document.getElementById("power-why").textContent));
       disabled ? pass(`${theme} paused: Start disabled with the reason`) : fail(`${theme} paused: Start not disabled with a reason`);
+      // No network figure is shown while the network does not answer.
+      const figures = await page.evaluate(() => ["t-epoch", "t-reward", "t-balance", "n-height", "n-chain"].map((id) => `${id}=${document.getElementById(id).textContent}`));
+      figures.every((f) => f.endsWith("=—")) ? pass(`${theme} paused: epoch, reward, balance, height and chain show —`) : fail(`${theme} paused: figures shown: ${figures.join(" ")}`);
+      // textContent: every page, shown or not (the scripts are all external).
+      const said = await page.evaluate(() => document.body.textContent);
+      /\blive\b/i.test(said) ? fail(`${theme} paused: the page says live somewhere`) : pass(`${theme} paused: no text on any page says live`);
     }
     errors.length ? fail(`${theme}${hash}: page errors: ${errors.join(" | ")}`) : pass(`${theme}${hash || " live"}: no page errors`);
     await context.close();
@@ -185,30 +224,41 @@ for (const width of WIDTHS) {
 // -------------------------------------------------------- screenshots ----
 if (!process.env.NO_SHOTS) {
   mkdirSync(shots, { recursive: true });
+  const shot = (page, name) => page.screenshot({ path: join(shots, `${name}.jpg`), type: "jpeg", quality: 82 });
+  const SIZES = { 360: { width: 360, height: 780 }, 768: { width: 768, height: 1024 }, 1024: { width: 1024, height: 768 }, 1280: DEFAULT_WINDOW, 1440: { width: 1440, height: 900 } };
   for (const theme of ["dark", "light"]) {
-    for (const [label, viewport] of [["360", { width: 360, height: 780 }], ["1280", DEFAULT_WINDOW], ["1440", { width: 1440, height: 900 }]]) {
-      const { page, context } = await open({ theme, viewport });
-      await startPreviewMiner(page);
-      await page.screenshot({ path: join(shots, `hub-mining-${theme}-${label}.jpg`), type: "jpeg", quality: 82 });
-      if (label === "1280") {
-        for (const name of ["network", "universe"]) {
-          await goto(page, name);
-          await page.waitForTimeout(600);
-          await page.screenshot({ path: join(shots, `hub-${name}-${theme}-${label}.jpg`), type: "jpeg", quality: 82 });
-        }
-      }
-      await context.close();
-    }
-    for (const [label, viewport] of [["360", { width: 360, height: 780 }], ["1280", DEFAULT_WINDOW]]) {
+    // Every page on the paused network: what every real user sees today.
+    for (const [label, viewport] of Object.entries(SIZES)) {
       const paused = await open({ theme, viewport, hash: "#paused" });
       await paused.page.waitForSelector(".paused-slot .paused-card", { timeout: 8000 });
-      await paused.page.screenshot({ path: join(shots, `hub-paused-${theme}-${label}.jpg`), type: "jpeg", quality: 82 });
+      await shot(paused.page, `hub-mining-paused-${theme}-${label}`);
+      if (label === "360" || label === "1280") {
+        for (const name of ["network", "universe", "wallet", "settings"]) {
+          await goto(paused.page, name);
+          await paused.page.waitForTimeout(600);
+          await shot(paused.page, `hub-${name}-paused-${theme}-${label}`);
+        }
+      }
       await paused.context.close();
-      const sheet = await open({ theme, viewport, firstRun: false });
+    }
+    for (const label of ["360", "1280"]) {
+      const sheet = await open({ theme, viewport: SIZES[label], firstRun: false });
       await sheet.page.waitForTimeout(300);
-      await sheet.page.screenshot({ path: join(shots, `hub-first-start-${theme}-${label}.jpg`), type: "jpeg", quality: 82 });
+      await shot(sheet.page, `hub-first-start-${theme}-${label}`);
       await sheet.context.close();
     }
+    // The power control alone, in its three states. Cropped to the control
+    // and its reason line: no chain figure is in frame.
+    const live = await open({ theme });
+    await live.page.waitForFunction(() => document.getElementById("power").dataset.state === "idle", null, { timeout: 8000 });
+    await live.page.locator(".hero-side").screenshot({ path: join(shots, `hub-power-idle-${theme}.jpg`), type: "jpeg", quality: 82 });
+    await startPreviewMiner(live.page);
+    await live.page.locator(".hero-side").screenshot({ path: join(shots, `hub-power-mining-${theme}.jpg`), type: "jpeg", quality: 82 });
+    await live.context.close();
+    const blocked = await open({ theme, hash: "#paused" });
+    await blocked.page.waitForSelector(".paused-slot .paused-card", { timeout: 8000 });
+    await blocked.page.locator(".hero-side").screenshot({ path: join(shots, `hub-power-blocked-${theme}.jpg`), type: "jpeg", quality: 82 });
+    await blocked.context.close();
   }
   pass(`screenshots in ${shots}`);
 }

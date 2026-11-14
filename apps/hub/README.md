@@ -25,12 +25,12 @@ unpinned miner.
 
 ## Preview without building
 
-`python -m http.server 8765` in `ui/`, then open it. In a plain browser the page runs on labelled preview data.
+`python -m http.server 8765` in `apps/hub/`, then open `http://localhost:8765/ui/index.html`. In a plain browser the page loads `ui-tests/preview.js` and runs on labelled preview data. The app bundle ships `ui/` only, so the preview generator never reaches a build.
 
 ## UI checks
 
 - `node --test ui-tests/logic.test.mjs`: nothing reads as live while the node does not answer, the paused card, Start's reasons, the first-start sheet's gate. `cargo test` runs it through `src-tauri/tests/ui_strings.rs`, which also refuses income wording, currency symbols and colour literals in `ui/`.
-- `ui-tests/browser-check.mjs`: the same UI in Chromium on preview data (first-start flow, canvas names, axe-core contrast in both themes, no horizontal overflow from 360 px, JPEG screenshots into `design/visual/hub/`). Needs `playwright` and `axe-core`; the header of the file has the command.
+- `ui-tests/browser-check.mjs`: the same UI in Chromium on preview data (first-start flow and its gate, the three power states, canvas names, axe-core contrast in both themes, no figure and no "live" while paused, no horizontal overflow from 360 px, JPEG screenshots of the paused network into `design/visual/hub/`). Needs `playwright` and `axe-core`; the header of the file has the command. CI runs it as job `hub-ui`.
 - Preview the paused network with `index.html#paused`.
 
 ## Android
@@ -51,5 +51,5 @@ A release APK or AAB for the Play Store needs an upload keystore. Generate it yo
 
 ## Notes
 
-- "Received this session" is the payout account's **on-chain** balance growth, never the count of shares the node accepted.
+- "Received on chain" (this session) is the payout account's **on-chain** balance growth, never the count of shares the node accepted.
 - A fresh install points at the public testnet RPC (`https://rpc.maya2c.dev/rpc`). Change it in Settings.
