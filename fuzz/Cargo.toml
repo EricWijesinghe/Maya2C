@@ -54,6 +54,20 @@ maya-iot-anchor = { path = "../hal/iot-anchor" }
 maya-mev = { path = "../crates/mev" }
 # Stored RWA records, read back from state rather than from the wire.
 maya-rwa = { path = "../crates/rwa" }
+# Application parsers. Each reads text or JSON from outside the node: a payment
+# URI or QR code, a Bech32m address, a faucet request, a pool login, an
+# explorer route, a chat envelope, a status report. Not linked by maya2c-node
+# except maya-address, which the node uses for its RPC address form.
+maya-address = { path = "../crates/address" }
+maya-wallet-core = { path = "../apps/wallet-gui/core" }
+maya-faucet = { path = "../apps/faucet" }
+maya-pool-service = { path = "../bins/pool-service" }
+maya-explorer = { path = "../apps/explorer" }
+maya-chat = { path = "../apps/chat" }
+maya-status = { path = "../apps/status" }
+primitive-types = { version = "0.12.2", default-features = false }
+serde_json = "1"
+hex = "0.4"
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
@@ -243,6 +257,59 @@ bench = false
 [[bin]]
 name = "pow_target"
 path = "fuzz_targets/pow_target.rs"
+test = false
+doc = false
+bench = false
+
+# Application parsers (see the dependency comment above). Each target asserts
+# no panic on untrusted text and, where an encoder exists, that an accepted
+# input re-encodes to a value that decodes back to itself.
+
+[[bin]]
+name = "payment_uri_decode"
+path = "fuzz_targets/payment_uri_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "address_decode"
+path = "fuzz_targets/address_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "faucet_request_decode"
+path = "fuzz_targets/faucet_request_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pool_identity_decode"
+path = "fuzz_targets/pool_identity_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "explorer_route_decode"
+path = "fuzz_targets/explorer_route_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chat_envelope_decode"
+path = "fuzz_targets/chat_envelope_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "status_input_decode"
+path = "fuzz_targets/status_input_decode.rs"
 test = false
 doc = false
 bench = false

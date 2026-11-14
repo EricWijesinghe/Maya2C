@@ -90,8 +90,8 @@ jobs:
       # static because a matrix cannot be read from `cargo fuzz list`; add a
       # target here when a fuzz_targets/*.rs file is added there.
       fail-fast: false
-      # 23 targets x 10 minutes is 230 minutes of fuzzing. Eight at a time
-      # keeps the whole sweep near 30 to 40 minutes of wall clock.
+      # 31 targets x 10 minutes is 310 minutes of fuzzing. Eight at a time
+      # keeps the whole sweep near 40 to 50 minutes of wall clock.
       max-parallel: 8
       matrix:
         target:
@@ -118,6 +118,14 @@ jobs:
           - rwa_payload_decode
           - rwa_record_decode
           - sealed_payload_decode
+          - pow_target
+          - payment_uri_decode
+          - address_decode
+          - faucet_request_decode
+          - pool_identity_decode
+          - explorer_route_decode
+          - chat_envelope_decode
+          - status_input_decode
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Free runner disk

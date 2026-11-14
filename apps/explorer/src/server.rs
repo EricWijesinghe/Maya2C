@@ -257,6 +257,12 @@ async fn transaction_detail(
     Ok(html_status(status, ui::transaction_page(found, txid)))
 }
 
+/// Whether a route or form value is an account id: 32 bytes of hex, either case.
+#[must_use]
+pub fn is_account_hex(text: &str) -> bool {
+    hex::decode(text).map(|b| b.len()) == Ok(32)
+}
+
 /// Query for the account lookup form.
 #[derive(Debug, Deserialize)]
 struct AccountQuery {

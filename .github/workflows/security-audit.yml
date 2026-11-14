@@ -82,6 +82,14 @@ jobs:
           - sealed_payload_decode
           # PoW target arithmetic and the prune-horizon predicate (pure rules).
           - pow_target
+          # Wallet, explorer, faucet, pool, chat and status parsers (PR #436).
+          - address_decode
+          - payment_uri_decode
+          - faucet_request_decode
+          - pool_identity_decode
+          - explorer_route_decode
+          - chat_envelope_decode
+          - status_input_decode
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 

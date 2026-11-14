@@ -16,6 +16,51 @@ pub mod live;
 
 use serde::Serialize;
 
+/// Byte range of the timestamp in a serialized header: after the 32-byte
+/// parent hash and 32-byte state root, little-endian `u64`.
+const TIMESTAMP_AT: std::ops::Range<usize> = 64..72;
+
+/// The timestamp of a header given as hex, or `None` if it is too short or not
+/// hex. Untrusted: the header comes from whatever node the status page polls.
+#[must_use]
+pub fn timestamp_from_header(header_hex: &str) -> Option<u64> {
+    let bytes = header_hex.get(TIMESTAMP_AT.start * 2..TIMESTAMP_AT.end * 2)?;
+    let mut out = [0u8; 8];
+    for (i, b) in out.iter_mut().enumerate() {
+        *b = u8::from_str_radix(bytes.get(i * 2..i * 2 + 2)?, 16).ok()?;
+    }
+    Some(u64::from_le_bytes(out))
+}
+
+/// Validates a final report of a chain stopped on purpose and marks it so:
+/// `stopped: true`, `halted_now: false`. Refuses a document that is not a
+/// report or that records a halt, so the flag cannot paper over one.
+///
+/// # Errors
+///
+/// The reason the text is not an acceptable stopped report.
+pub fn mark_stopped(text: &str) -> Result<serde_json::Value, String> {
+    let mut report: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    for field in [
+        "height",
+        "genesis",
+        "last_block",
+        "streak_seconds",
+        "uptime",
+        "halts",
+    ] {
+        if report.get(field).is_none() {
+            return Err(format!("not a status report (no {field})"));
+        }
+    }
+    if report["halted_now"] == serde_json::Value::Bool(true) {
+        return Err("records a halt in progress, not a stop".to_string());
+    }
+    report["stopped"] = serde_json::Value::Bool(true);
+    report["halted_now"] = serde_json::Value::Bool(false);
+    Ok(report)
+}
+
 /// A gap between consecutive blocks long enough to count as a halt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Halt {
