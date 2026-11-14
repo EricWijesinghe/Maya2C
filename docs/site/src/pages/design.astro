@@ -1,0 +1,14 @@
+---
+// What we are designing next: ADR-102..ADR-134 as an explorer. Data in src/data/design-proposals.ts.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import DesignExplorer from "../components/DesignExplorer.astro";
+---
+
+<StarlightPage frontmatter={{ title: "What we are designing next", description: "Written design proposals for Maya2C, explained in plain words. They are proposals, not features: none is built or switched on.", template: "splash" }}>
+  <p class="design-note not-content"><strong>These are proposals, not features.</strong> Each one is a written design on an open pull request. None is built into the network, and none is switched on. Tap a card to see what it would change, what is still open, and where to read the full text.</p>
+  <DesignExplorer />
+</StarlightPage>
+
+<style>
+  .design-note { max-width: 46rem; margin: 1rem auto; padding: 0.9rem 1.1rem; border-radius: 1rem; border: 1px solid var(--gold); background: var(--glass); color: var(--lede); }
+</style>
