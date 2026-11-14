@@ -1,7 +1,6 @@
 # ADR-032: First public testnet — one seed on Oracle Always Free, one installer
 
-**Status:** Proposed. The owner chose the hosting on 2026-09-29; nothing has
-been applied (`APPROVED: testnet seed` is still outstanding).
+**Status:** Accepted. The owner chose the hosting on 2026-09-29 (DECISIONS.md, "2026-09-29 — The first testnet is one seed on Oracle Always Free"). Applied: the testnet moved to the Oracle VM on 2026-10-20 (DECISIONS.md, the entry that reset the soak clock; `infra/testnet-vm/install.sh`).
 **Date:** 2026-09-29
 
 ## Context

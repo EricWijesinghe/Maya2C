@@ -548,6 +548,10 @@ pub mod wallet {
                         <span class="icon" aria-hidden="true">"\u{2b1a}"</span>
                         "Scan"
                     </button>
+                    <button class="action" on:click=move |_| go(Screen::Contacts)>
+                        <span class="icon" aria-hidden="true">"\u{263a}"</span>
+                        "Contacts"
+                    </button>
                 </div>
             </section>
 
@@ -620,7 +624,7 @@ pub mod scan {
                 Ok(png) => spawn_local(async move {
                     // Decoded and parsed in Rust: a QR payload is
                     // attacker-controlled input.
-                    match bridge::scan_qr(&png).await {
+                    match bridge::scan_qr(&png, &state.genesis()).await {
                         Ok(request) => {
                             camera::stop(VIDEO_ID);
                             state.screen.set(Screen::Send(request));
@@ -636,7 +640,7 @@ pub mod scan {
             let input = manual.get();
             state.clear();
             spawn_local(async move {
-                match bridge::parse_payment_uri(&input).await {
+                match bridge::parse_payment_uri(&input, &state.genesis()).await {
                     Ok(request) => {
                         camera::stop(VIDEO_ID);
                         state.screen.set(Screen::Send(request));
@@ -705,7 +709,45 @@ pub mod send {
         );
         let fee = RwSignal::new(String::new());
         let label = request.label.clone();
+        let message = request.message.clone();
         let preview = RwSignal::new(None::<Review>);
+        // The core's verdict on the recipient; Review waits for it, and for the
+        // read-back to be acknowledged when the address is new.
+        let checked = RwSignal::new(None::<bridge::PasteCheck>);
+        let acknowledged = RwSignal::new(false);
+        // Each check is numbered; a reply for an older recipient is dropped,
+        // so a slow answer cannot mark a newer paste as saved or known.
+        let check_seq = StoredValue::new(0u64);
+        let expires_at = request.expires_at;
+        Effect::new(move |_| {
+            let text = recipient.get();
+            check_seq.update_value(|n| *n += 1);
+            let seq = check_seq.get_value();
+            // Untracked: the header polls the node, and a re-check on every
+            // poll would clear the acknowledgement under the person's cursor.
+            let genesis = state.genesis();
+            checked.set(None);
+            acknowledged.set(false);
+            preview.set(None);
+            if text.trim().is_empty() {
+                return;
+            }
+            spawn_local(async move {
+                let reply = bridge::check_recipient(&text, &genesis).await;
+                if check_seq.get_value() != seq {
+                    return;
+                }
+                match reply {
+                    Ok(check) => checked.set(Some(check)),
+                    Err(error) => state.fail(error),
+                }
+            });
+        });
+        let ready = move || {
+            checked
+                .get()
+                .is_some_and(|c| !c.new_recipient || acknowledged.get())
+        };
         let signed = RwSignal::new(None::<bridge::SignedTransfer>);
         let busy = RwSignal::new(false);
         let fee_terms = RwSignal::new(bridge::FeeTerms::default());
@@ -780,6 +822,7 @@ pub mod send {
                     review.nonce,
                     &review.terms,
                     &review.confirmation.signing_hash,
+                    expires_at,
                 )
                 .await;
                 match outcome {
@@ -867,12 +910,34 @@ pub mod send {
                     </p>
                 </Show>
 
-                <label>"Recipient"</label>
+                <Show when={let message = message.clone(); move || message.is_some()}>
+                    <p class="hint">
+                        {
+                            let message = message.clone().unwrap_or_default();
+                            format!("Message from the payee (not verified): \u{201c}{message}\u{201d}")
+                        }
+                    </p>
+                </Show>
+
+                <label>"Recipient (paste, scan or pick a contact)"</label>
+                // Typing is refused: a recipient comes from the book, a scanned
+                // code or a paste, and each paste is checked by the core.
+                // Deleting stays allowed so the field can be cleared.
                 <input
                     class="mono"
                     prop:value=move || recipient.get()
+                    on:beforeinput=move |ev| {
+                        let kind = js_sys::Reflect::get(&ev, &"inputType".into())
+                            .ok()
+                            .and_then(|v| v.as_string())
+                            .unwrap_or_default();
+                        if !(kind.starts_with("insertFromPaste") || kind.starts_with("delete")) {
+                            ev.prevent_default();
+                        }
+                    }
                     on:input=move |ev| recipient.set(event_target_value(&ev))
                 />
+                <crate::contacts::RecipientCheck check=checked acknowledged=acknowledged/>
 
                 <label>"Amount"</label>
                 <input
@@ -901,7 +966,7 @@ pub mod send {
                 <Show
                     when=move || preview.get().is_some()
                     fallback=move || view! {
-                        <button class="primary wide" on:click=build_preview>"Review"</button>
+                        <button class="primary wide" disabled=move || !ready() on:click=build_preview>"Review"</button>
                     }
                 >
                     {move || {
@@ -912,12 +977,19 @@ pub mod send {
                         let is_signed = signed.get().is_some();
                         let fee_exceeds = c.fee_exceeds_amount;
                         view! {
+                            // The core's review, most severe first, above everything else.
+                            {c.warnings
+                                .into_iter()
+                                .map(|w| view! { <p class="hint warning">{w}</p> })
+                                .collect_view()}
                             <div class="summary">
                                 <p class="description">{c.description}</p>
                                 <div><span>"To"</span><span class="mono">{c.recipient.unwrap_or_default()}</span></div>
                                 <div><span>"Amount"</span><span>{c.amount.unwrap_or_default()}</span></div>
                                 <div><span>"Fee"</span><span>{c.fee.unwrap_or_default()}</span></div>
-                                <div><span>"Chain"</span><span class="mono">{c.chain_id}</span></div>
+                                <div><span>"Network"</span><span>{c.network}</span></div>
+                                <div><span>"Address prefix"</span><span class="mono">{c.address_prefix}</span></div>
+                                <div><span>"Chain"</span><span class="mono">{c.chain_prefix}</span></div>
                                 <div><span>"From"</span><span class="mono">{c.sender}</span></div>
                                 <div><span>"Nonce"</span><span>{c.nonce}</span></div>
                                 <div><span>"Signing hash"</span><span class="mono">{c.signing_hash}</span></div>
