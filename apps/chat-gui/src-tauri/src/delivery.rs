@@ -131,8 +131,8 @@ mod tests {
             mine: true,
             text: "hi".into(),
             at,
-            sticker: None,
             outbox: id.map(str::to_owned),
+            ..Line::default()
         }
     }
 

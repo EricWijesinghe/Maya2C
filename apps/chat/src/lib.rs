@@ -7,6 +7,8 @@
 //! - [`relay`] — store-and-forward mailboxes and prekey directories.
 //! - [`client`] — a user's sessions over a relay.
 //! - [`courier`] — publishing, delivering and collecting through a relay.
+//! - [`frame`] — structured messages (stickers, reactions, replies) inside
+//!   the encryption, shared by the CLI and the desktop app.
 //! - [`net`] — the `/maya-chat/1` libp2p protocol and a relay node.
 //!
 //! RESEARCH: unaudited. Do not rely on it for sensitive conversations until
@@ -15,6 +17,7 @@
 
 pub mod client;
 pub mod courier;
+pub mod frame;
 pub mod identity;
 pub mod net;
 pub mod relay;

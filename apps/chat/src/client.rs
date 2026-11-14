@@ -27,6 +27,9 @@ pub struct Received {
     pub from: Address,
     /// The plaintext.
     pub text: Vec<u8>,
+    /// The envelope's id: what the sender's outbox, its receipts and any
+    /// reaction or reply to this message name it by (ADR-140).
+    pub id: [u8; 32],
 }
 
 /// What an envelope turned out to be.
@@ -292,8 +295,13 @@ impl Client {
                 // A new handshake from the same peer replaces the old session:
                 // that is how a peer re-keys.
                 self.sessions.insert(from, session);
-                self.note_received(from, envelope.id()?);
-                Ok(Frame::Text(Received { from, text }))
+                let envelope_id = envelope.id()?;
+                self.note_received(from, envelope_id);
+                Ok(Frame::Text(Received {
+                    from,
+                    text,
+                    id: envelope_id,
+                }))
             }
             Payload::Chat(message) => {
                 let from = self
@@ -310,8 +318,13 @@ impl Client {
                     let ids = self.apply_receipt(&from, &peer_key, &message.session, &text)?;
                     return Ok(Frame::Receipt { from, ids });
                 }
-                self.note_received(from, envelope.id()?);
-                Ok(Frame::Text(Received { from, text }))
+                let envelope_id = envelope.id()?;
+                self.note_received(from, envelope_id);
+                Ok(Frame::Text(Received {
+                    from,
+                    text,
+                    id: envelope_id,
+                }))
             }
         }
     }

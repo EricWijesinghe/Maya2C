@@ -27,6 +27,8 @@ hex.workspace = true
 libp2p = { workspace = true, features = ["tokio", "tcp", "noise", "yamux", "request-response", "cbor", "ed25519", "macros", "dns", "websocket"] }
 serde = { workspace = true, features = ["derive"] }
 serde_bytes.workspace = true
+# Frame headers are JSON (moved from apps/chat-gui, which already used it).
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 # `serde` so saved sessions stay in `Zeroizing` from disk to use.
