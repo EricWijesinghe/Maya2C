@@ -2,7 +2,7 @@
 
 **Status:** Proposed, 2026-11-12. Post-genesis (`postgen/v4`), dark until scheduled. **Consensus-critical: this ADR needs two human reviewers before it is accepted** (CLAUDE.md, Production Standing Orders), and the ordering change needs a spec update and conformance vectors.
 **Date:** 2026-11-12
-**Related:** parity row P-49, [prior-art/inclusion-lists.md](../prior-art/inclusion-lists.md), [ADR-025](ADR-025-mev-position.md), [ADR-027](ADR-027-dag-bft-in-the-node.md), [ADR-072](ADR-072-max-block-bytes.md), [ADR-115](ADR-115-post-quantum-vrf.md), [ADR-082](ADR-082-genesis-committed-upgrade-levers.md); invariants 11, 24, 33; Standing Order 4
+**Related:** parity row P-49, [prior-art/inclusion-lists.md](../prior-art/inclusion-lists.md), [ADR-025](ADR-025-mev-position.md), [ADR-027](ADR-027-dag-bft-in-the-node.md), [ADR-072](ADR-072-max-block-bytes.md), ADR-115 (post-quantum VRF, PR #468, not yet on master), [ADR-082](ADR-082-genesis-committed-upgrade-levers.md); invariants 11, 24, 33; Standing Order 4
 
 ## Context
 

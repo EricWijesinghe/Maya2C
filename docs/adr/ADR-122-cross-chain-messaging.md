@@ -2,7 +2,7 @@
 
 **Status:** Proposed, 2026-11-12. Post-genesis (`postgen/v4`), dark until scheduled. Inbound (Ethereum → Maya2C) only; see "What this is not".
 **Date:** 2026-11-12
-**Related:** parity row P-34, [prior-art/cross-chain-messaging.md](../prior-art/cross-chain-messaging.md), [ADR-065](ADR-065-cross-chain-asset-routes.md), [ADR-026](ADR-026-contract-caller-identity.md), [ADR-114](ADR-114-contract-timers.md), [ADR-120](ADR-120-cross-chain-token-standard.md), [ADR-082](ADR-082-genesis-committed-upgrade-levers.md); invariants 7, 11, 24, 25, 28, 33
+**Related:** parity row P-34, [prior-art/cross-chain-messaging.md](../prior-art/cross-chain-messaging.md), [ADR-065](ADR-065-cross-chain-asset-routes.md), [ADR-026](ADR-026-contract-caller-identity.md), ADR-114 (contract timers, PR #468, not yet on master), [ADR-120](ADR-120-cross-chain-token-standard.md), [ADR-082](ADR-082-genesis-committed-upgrade-levers.md); invariants 7, 11, 24, 25, 28, 33
 
 ## Context
 
