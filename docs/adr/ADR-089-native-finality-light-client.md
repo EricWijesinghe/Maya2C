@@ -1,6 +1,6 @@
 # ADR-089: Native finality light client (succinct proofs, phase 0)
 
-**Status:** Proposed, 2026-11-10. Non-consensus. Lands with the crate, changes no node behaviour.
+**Status:** Accepted for phase 0, 2026-11-10. Non-consensus. Landed as `crates/light-client` (`finality.rs`, `record.rs`); changes no node behaviour. `docs/architecture-vision.md` still tags it RESEARCH, which is the class, not this status.
 **Date:** 2026-11-10
 **Related:** [ADR-027](ADR-027-dag-bft-in-the-node.md) (DAG-BFT finality), [ADR-038](ADR-038-attested-checkpoints.md) (checkpoints), [ADR-040](ADR-040-stake-weighted-committee.md) (stake quorum), [ADR-046](ADR-046-universe-scale-supply.md), [ADR-082](ADR-082-genesis-committed-upgrade-levers.md); research note [succinct-light-client-2026-11-10](../research/succinct-light-client-2026-11-10.md); `crates/light-client/src/finality.rs`, `crates/light-client/src/record.rs`
 

@@ -1,6 +1,6 @@
 # ADR-101: Sentinel v2, phase 1: a dead-man heartbeat and consensus detectors
 
-Status: PROPOSED (tooling only; `apps/sentinel`; no consensus, wire or state change)
+Status: ACCEPTED for phase 1 (tooling only; `apps/sentinel`; no consensus, wire or state change). Shipped: `apps/sentinel/src/heartbeat.rs`, `liveness.rs`, `detect.rs`. Phases 2 to 5 stay PROPOSED and wait for Eric's answers (see below).
 Date: 2026-11-12
 
 ## Context
