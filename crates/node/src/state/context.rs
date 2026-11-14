@@ -255,6 +255,7 @@ impl BlockContext {
             nft_activation: features.nft,
             names_activation: features.names,
             sponsored_fees_activation: features.sponsored_fees,
+            scheduled_activation: features.scheduled,
             ..self
         }
     }
@@ -294,7 +295,6 @@ impl BlockContext {
     pub const fn with_sponsored_fees_activation(self, height: u64) -> Self {
         Self {
             sponsored_fees_activation: height,
-            scheduled_activation: features.scheduled,
             ..self
         }
     }

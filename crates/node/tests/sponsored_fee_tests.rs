@@ -555,11 +555,11 @@ fn own_paid(kind: TxKind, nonce: u64, key: &SponsorKey) -> Transaction {
 }
 
 fn vault(limit: U256) -> TxKind {
-    TxKind::Vault(VaultAction::Configure(VaultConfig {
+    TxKind::Vault(Box::new(VaultAction::Configure(VaultConfig {
         delay_blocks: 100,
         limit,
         guardians: vec![[0x99; 32]],
-    }))
+    })))
 }
 
 // 10 (P-10)

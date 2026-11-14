@@ -150,12 +150,13 @@ impl StateDB {
         };
         let module = Module::from_tag(module_tag)
             .ok_or_else(|| NodeError::Decode(format!("unknown module {module_tag}")))?;
-        // Tags 13 and 14 (ADR-135) are unknown to a pre-v4 binary, which
+        // Tags 14, 15 and 16 (ADR-135) are unknown to a pre-v4 binary, which
         // refuses them at the line above; refusing them here until their bit
         // activates keeps both binaries agreeing on every earlier block.
         let dark = match module {
             Module::Nft => !context.nft_active(),
             Module::Names => !context.names_active(),
+            Module::Scheduled => !context.scheduled_active(),
             // Listed, not `_`: a new module must decide its own gate here.
             Module::Channels
             | Module::Dex
