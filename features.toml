@@ -2981,6 +2981,17 @@ tests = ["sim/tests/determinism.rs", "crate:maya-sim"]
 note = "Seeded multi-node simulator: virtual clock, network model (latency, loss, reordering, partitions), fault-injecting disk. Dependency-free so a replay has one source of decisions. class = SIM because that is what it is: nothing here may reach a production path. See docs/adr/ADR-006-simulation-harness.md."
 
 [[subsystem]]
+id = "golden-state-roots"
+name = "Cross-OS golden state roots"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`crates/node/tests/golden_root_tests.rs`, `crates/node/tests/fixtures/golden_chain/`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crates/node/tests/golden_root_tests.rs"]
+note = "Founder audit Q18. A committed DAG-BFT chain (sealed epoch/round nonces with skipped anchor slots; transfers and payloads paying the fee market; staking register and delegate; asset + pool + swap + liquidity; a WASM contract deploy and call; a fee-free mining share; a governance proposal voted and executed; two epoch boundaries paying tips and the committee's mining part) is replayed the way a validator that derived each block applies it (preview_root with a zero root, then apply_block_journaled) and every block id and state root is compared with committed golden values. CI: Linux in the test job (required), Windows and macOS (aarch64) in golden-roots, which is not a required check yet, so a red non-Linux leg does not block a merge. working, not verified, until those legs have passed on CI and are required. Finding 2026-11-14: a fresh apply (a node catching up, a replay) of a mining epoch-boundary block computes another root, because settle_mining anchors the next epoch to header.id(), which covers state_root; pinned by the ignored a_fresh_apply_reproduces_the_derived_root_at_a_mining_boundary, node fix pending. Not covered: the production release profile (ci profile only) and Chain::context_at (BlockContext::at_height; the same value for this genesis). Regenerate with MAYA_BLESS_GOLDEN=1 after a deliberate consensus change."
+
+[[subsystem]]
 id = "workspace-automation-xtask"
 name = "Workspace automation (xtask)"
 domain = "Supplement (not in architecture-vision.md)"
