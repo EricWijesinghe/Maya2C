@@ -26,7 +26,7 @@ use maya_dag_bft::Certificate;
 use super::wire::{Envelope, decode_certificate, encode_certificate};
 use crate::error::{NodeError, Result};
 
-const SAFETY_LOG: &str = "safety.log";
+pub const SAFETY_LOG: &str = "safety.log";
 const CERTS_LOG: &str = "certs.log";
 
 /// The on-disk logs for one epoch.

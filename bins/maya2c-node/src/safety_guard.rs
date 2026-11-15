@@ -22,12 +22,16 @@ use std::sync::Mutex;
 
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::remote::ValidatorKey;
+use custom_l1_node::consensus::bft::store::SAFETY_LOG;
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup};
 
 use super::bft::BFT_DIR;
 use super::{lock_chain, rejoin};
 
-/// Whether `bft_dir` holds any epoch's safety log directory.
+/// Whether `bft_dir` holds an epoch directory that contains its safety log.
+///
+/// A bare directory does not count: a deleted log leaves an empty or
+/// certs-only directory behind, and that must still refuse.
 fn holds_safety_log(bft_dir: &Path) -> std::io::Result<bool> {
     let entries = match std::fs::read_dir(bft_dir) {
         Ok(entries) => entries,
@@ -40,7 +44,7 @@ fn holds_safety_log(bft_dir: &Path) -> std::io::Result<bool> {
             .file_name()
             .to_str()
             .is_some_and(|n| n.starts_with("epoch-"));
-        if epoch && entry.path().is_dir() {
+        if epoch && entry.path().join(SAFETY_LOG).is_file() {
             return Ok(true);
         }
     }
@@ -170,6 +174,10 @@ mod tests {
         std::fs::write(bft.join("notes.txt"), b"x").unwrap();
         assert!(!holds_safety_log(&bft).unwrap(), "no epoch directory");
         std::fs::create_dir_all(bft.join("epoch-3")).unwrap();
+        assert!(!holds_safety_log(&bft).unwrap(), "empty epoch directory");
+        std::fs::write(bft.join("epoch-3").join("certs.log"), b"x").unwrap();
+        assert!(!holds_safety_log(&bft).unwrap(), "certs log is not a safety log");
+        std::fs::write(bft.join("epoch-3").join(SAFETY_LOG), b"x").unwrap();
         assert!(holds_safety_log(&bft).unwrap());
     }
 }
