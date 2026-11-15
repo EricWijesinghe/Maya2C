@@ -13,10 +13,13 @@ MINE-3 refuses one below the lifetime emission, so the reserve is the cap, not a
 counter.
 
 Informative, not a rule (v0.1.1, 2026-11-16): under the mainnet schedule
-(`deploy/genesis/mainnet/mining.json`) the four halving eras pay 19,687,500
-coins, the supply headline (exactly 19687499999999999999999999910864 base units
-after per-halving truncation; pinned by `crates/node/src/state/mining.rs`
-`the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256`). The tail after them,
+(`deploy/genesis/mainnet/mining.json`) the schedule for the four halving eras
+totals 19,687,500 coins, the supply headline (exactly
+19687499999999999999999999910864 base units after per-halving truncation;
+pinned by `crates/node/src/state/mining.rs`
+`the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256`
+and `spec/tests/units.json`). At most that is paid: epoch 0 accepts no shares,
+and unclaimed miner budget stays in the reserve. The tail after them,
 23.96 coins an epoch for ever, and the 7,000 coins of genesis validator bonds
 (7 × 1,000) are separate figures. v0.1.0 described the reserve as
 `MAX_SUPPLY − Σ allocations`, which the node never did.

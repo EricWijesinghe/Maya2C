@@ -75,7 +75,8 @@ Out of scope:
 
 ## Rules of engagement
 
-- Test on your own local devnet, or on the public testnet. Do not test against
+- Test on your own local devnet, or on the public testnet once it returns with
+  the next genesis (maya-testnet-1 has been paused since 2026-10-28). Do not test against
   anyone else's funds or accounts.
 - Do not access, modify or delete data that is not yours. Stop and report if you
   reach it by accident.

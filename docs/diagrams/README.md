@@ -128,7 +128,8 @@ flowchart LR
   Cons --> Keys
 ```
 
-External audit: pending. `CIRCUIT_IS_AUDITED = false` in
+Pre-audit: no external audit yet; validators run by one operator at launch;
+external audit planned after funding. `CIRCUIT_IS_AUDITED = false` in
 `crates/zk-stark/src/pool/mod.rs`.
 
 ## Ecosystem map

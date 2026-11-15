@@ -5,7 +5,7 @@ use maya_fee_market::FeeConfig;
 /// Everything a run needs besides the scenario.
 #[derive(Clone, Copy, Debug)]
 pub struct EconParams {
-    /// The chain's fee market configuration, used unmodified.
+    /// The chain's fee configuration, at the node's `treasury_bps = 0`.
     pub fees: FeeConfig,
     /// Seconds per block (ADR-015: DAG-BFT; 2 s draft).
     pub block_secs: u64,

@@ -24,6 +24,9 @@ written down rather than hidden.
 
 ### Gate 5 becomes "Foundation validator set"
 
+[Superseded by ADR-047 and its 2026-11-16 amendment: seven validators,
+one operator, one machine. Kept as written below.]
+
 Mainnet launches with **four validators run by the project on four
 separate machines**: Eric's PC plus free-tier cloud VMs. Any one machine,
 power cut or ISP outage can fail without halting the chain (n = 4,

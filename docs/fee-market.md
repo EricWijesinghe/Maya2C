@@ -39,7 +39,7 @@ the remainder burns, so no unit is ever created or lost.
 
 **Supply.** `MAX_SUPPLY` is `Amount::MAX`, 2²⁵⁶ − 1 base units, the width of a balance
 (`crates/fee-market/src/supply.rs`). One coin is 10²⁴ base units (`maya_amount::ONE_COIN`).
-The four halving eras issue 19,687,500 coins (ADR-068); the tail then pays forever. There is no
+The schedule for the four halving eras totals 19,687,500 coins, at most that is paid (ADR-068); the tail then pays forever. There is no
 protocol cap. `MAX_SUPPLY` is the width of a balance, so changing it is a hard fork once a
 value-bearing chain checks it.
 

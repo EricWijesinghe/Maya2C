@@ -55,6 +55,12 @@ what the chain's identity was built on.
 
 ### Verified run
 
+Superseded: this rc1 run predates ADR-044 (2026-11-07). A mainnet genesis now
+uses `--supply 0` plus `--mining-reserve`, with no root or treasury premine
+([docs/runbooks/regenesis-checklist.md](runbooks/regenesis-checklist.md),
+[deploy/genesis/mainnet/README.md](../deploy/genesis/mainnet/README.md)). Kept
+as the record of that run.
+
 ```
 chain id       maya-genesis-rc1
 total supply   21000000000

@@ -4,8 +4,9 @@
 //!
 //! Nothing mints after genesis: no coinbase. Mining rewards (ADR-044,
 //! ADR-068) are transfers out of the keyless mining reserve, which genesis
-//! funds with the schedule's whole lifetime emission. The four halving eras
-//! pay 19,687,500 coins of it; the tail then pays about 23.96 coins an epoch
+//! funds with the schedule's whole lifetime emission. The schedule for the
+//! four halving eras totals 19,687,500 coins of it (at most that is paid:
+//! epoch 0 takes no shares, and unclaimed miner budget stays in the reserve); the tail then pays about 23.96 coins an epoch
 //! for ever, counted separately. Genesis also holds the validators' bonds,
 //! 7 × 1,000 = 7,000 coins, again counted separately. After genesis the only
 //! thing that changes a supply figure is value landing at the unspendable
