@@ -188,8 +188,16 @@ async fn timestamps(client: &HttpClient, from: u64, to: u64) -> Option<Vec<u64>>
 
 async fn notify(http: &reqwest::Client, url: &str, text: String) {
     if let Err(e) = http.post(url).body(text).send().await {
-        eprintln!("status: alert not delivered: {e}");
+        eprintln!("{}", delivery_failure(e));
     }
+}
+
+/// The log line for a failed alert, without the topic URL.
+///
+/// The ntfy topic is the only access control on the alert channel, and
+/// reqwest's error text carries the request URL.
+fn delivery_failure(error: reqwest::Error) -> String {
+    format!("status: alert not delivered: {}", error.without_url())
 }
 
 /// Follows the chain into the shared timeline, alerting on state changes.
@@ -465,6 +473,20 @@ mod router_tests {
     use axum::body::Body;
     use axum::http::Request;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn a_failed_alert_does_not_print_the_topic_url() {
+        // Port 1 has no listener on CI runners, so the send fails and reqwest's
+        // error carries the request URL.
+        let err = reqwest::Client::new()
+            .post("http://127.0.0.1:1/secret-topic")
+            .send()
+            .await
+            .expect_err("nothing listens on port 1");
+        let line = delivery_failure(err);
+        assert!(line.starts_with("status: alert not delivered"), "{line}");
+        assert!(!line.contains("secret-topic"), "{line}");
+    }
 
     #[tokio::test]
     async fn every_route_sends_the_hardening_headers_and_no_server_name() {
