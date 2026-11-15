@@ -29,6 +29,10 @@ const BACKFILL_IDLE: Duration = Duration::from_secs(2);
 /// buffer would be a memory-exhaustion vector.
 const MAX_ORPHANS: usize = 512;
 
+/// Buffered blocks allowed under one missing parent. Without it a single parent
+/// id could hold the whole pool, and the pool limit would count keys, not blocks.
+const MAX_ORPHANS_PER_PARENT: usize = 8;
+
 /// Parents fetched in a row for one orphan before giving up. A peer that keeps
 /// answering with yet another unknown parent is either very far ahead or
 /// leading the node down a chain nobody else has.
@@ -46,6 +50,15 @@ pub(super) struct ImportReport {
     pub(super) offences: Vec<(PeerId, Offence)>,
     /// The imported block's parent, if it is unknown and the block was buffered.
     pub(super) missing_parent: Option<[u8; 32]>,
+}
+
+/// Whether the orphan pool can take one more block under `parent`.
+///
+/// Both limits count blocks: the pool total and the per-parent share.
+fn has_orphan_room(orphans: &Orphans, parent: &[u8; 32]) -> bool {
+    let buffered: usize = orphans.values().map(Vec::len).sum();
+    let under_parent = orphans.get(parent).map_or(0, Vec::len);
+    buffered < MAX_ORPHANS && under_parent < MAX_ORPHANS_PER_PARENT
 }
 
 /// Imports a block, buffering it if its parent has not arrived yet.
@@ -77,7 +90,7 @@ pub(super) fn import_block(
         if !known_parent {
             // Cap the buffer: an unbounded orphan pool is a memory-exhaustion
             // vector for any peer willing to send junk.
-            if orphans.len() < MAX_ORPHANS {
+            if has_orphan_room(orphans, &parent) {
                 if id == first {
                     report.missing_parent = Some(parent);
                 }
@@ -313,5 +326,49 @@ pub(super) async fn backfill_loop(chain: Arc<Mutex<Chain>>, url: String, metrics
             // the node keeps following even if gossip drops.
             Err(_) => tokio::time::sleep(BACKFILL_IDLE).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use custom_l1_node::core::BlockHeader;
+    use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+
+    fn orphan_under(parent: [u8; 32], nonce: u64) -> (Block, Option<PeerId>) {
+        let header = BlockHeader {
+            version: 0,
+            prev_hash: parent,
+            state_root: [0; 32],
+            timestamp: 1,
+            nonce,
+            difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
+        };
+        (Block::new(header, vec![]), None)
+    }
+
+    #[test]
+    fn one_parent_cannot_hold_the_whole_pool() {
+        let parent = [7u8; 32];
+        let mut orphans: Orphans = HashMap::new();
+        for nonce in 0..MAX_ORPHANS_PER_PARENT as u64 {
+            assert!(has_orphan_room(&orphans, &parent));
+            orphans.entry(parent).or_default().push(orphan_under(parent, nonce));
+        }
+        assert!(!has_orphan_room(&orphans, &parent), "per-parent cap not enforced");
+        assert!(has_orphan_room(&orphans, &[8u8; 32]), "another parent is refused");
+    }
+
+    #[test]
+    fn the_pool_limit_counts_blocks_not_parents() {
+        let mut orphans: Orphans = HashMap::new();
+        for nonce in 0..MAX_ORPHANS as u64 {
+            let mut parent = [0u8; 32];
+            parent[..8].copy_from_slice(&nonce.to_be_bytes());
+            orphans.insert(parent, vec![orphan_under(parent, nonce)]);
+        }
+        assert!(!has_orphan_room(&orphans, &[0xff; 32]), "full pool still admits");
     }
 }
