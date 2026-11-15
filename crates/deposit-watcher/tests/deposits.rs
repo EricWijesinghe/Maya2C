@@ -17,6 +17,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use maya_amount::Amount;
 use maya_deposit_watcher::{BlockSource, Transfer, Watcher};
 
 const BLOCKS: u64 = 10_010;
@@ -54,7 +55,7 @@ impl BlockSource for Chain {
                 Transfer {
                     txid,
                     to,
-                    amount: 1 + n % 97,
+                    amount: Amount::from_u64(1 + n % 97),
                 }
             })
             .collect())
@@ -65,13 +66,14 @@ fn watched() -> BTreeSet<String> {
     (0..CUSTOMERS).map(customer).collect()
 }
 
-fn ground_truth() -> (BTreeMap<String, u128>, usize) {
+fn ground_truth() -> (BTreeMap<String, Amount>, usize) {
     let (mut balances, mut seen) = (BTreeMap::new(), BTreeSet::new());
     let w = watched();
     for h in 1..=BLOCKS {
         for t in Chain.transfers(h).unwrap() {
             if w.contains(&t.to) && seen.insert(t.txid.clone()) {
-                *balances.entry(t.to).or_insert(0u128) += u128::from(t.amount);
+                let entry = balances.entry(t.to).or_insert(Amount::ZERO);
+                *entry = entry.checked_add(t.amount).unwrap();
             }
         }
     }

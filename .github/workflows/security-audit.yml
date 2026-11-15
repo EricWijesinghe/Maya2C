@@ -82,6 +82,8 @@ jobs:
           - sealed_payload_decode
           # PoW target arithmetic and the prune-horizon predicate (pure rules).
           - pow_target
+          # Fork choice and reorg depth: work, retarget and the prune horizon.
+          - reorg_prune
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
