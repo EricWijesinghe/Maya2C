@@ -327,7 +327,7 @@ fn policies_limit_spending_and_recipients() {
             ),
             &[(&sk, &pk)],
         ),
-        43_200 + 1,
+        BLOCKS_PER_DAY + 1,
         Amount::from_u64(0),
     )
     .unwrap();
@@ -986,14 +986,12 @@ fn group(n: u64) -> String {
     out
 }
 
-/// F7, documented not decided: the policy day assumes 2 s blocks, while the
-/// node's only block-time constant is `TARGET_BLOCK_TIME`, 15 s. Changing either
-/// is a question for the owner (ADR-086 §4); this pins today's values.
+/// F7, decided (Eric 2026-11-14 MCQ, ADR-082 amendment b): the chain makes
+/// one block a second (docs/block-time.md), so a policy day is 86,400 blocks.
+/// At the old 2 s figure a daily limit reset twice a real day.
 #[test]
-fn policy_day_length_is_pinned_pending_a_decision() {
-    assert_eq!(BLOCKS_PER_DAY, 43_200, "86_400 s / 2 s");
-    let difficulty = include_str!("../../node/src/consensus/difficulty.rs");
-    assert!(difficulty.contains("pub const TARGET_BLOCK_TIME: u64 = 15;"));
+fn policy_day_is_one_day_at_one_block_per_second() {
+    assert_eq!(BLOCKS_PER_DAY, 86_400, "86_400 s / 1 s");
 }
 
 /// F6: a hostile guardian proposing its own key first does not stop the

@@ -127,3 +127,12 @@ ADR-068 tail rate (`:49-55`), ADR-135's `QUARTER_BLOCKS = 7,776,000` and
 All eight change frozen code (`crates/node`, `crates/governance`,
 `crates/crypto-pq`) and the first six change consensus; they belong to the
 post-freeze upgrade path (ADR-082), not to a doc PR.
+
+**Status 2026-11-15:** items 3, 5, 6, 7 and 8 are done in the re-freeze
+bundle (ADR-082 amendment b, Eric 2026-11-14 MCQ): `WORK_HALF_LIFE_BLOCKS`
+86,400, DAG `EPOCH_LENGTH` 450,000 (so `DAG_ACTIVATION_HEIGHT` and
+`PRUNE_DEPTH` are 450,000 too), `BLOCKS_PER_DAY` 86,400,
+`ROTATION_INTERVAL_BLOCKS` 15,000 with the fallback kept at 15,000 s, and
+`TARGET_BLOCK_TIME` documented as the PoW retarget spacing only. Items 1, 2
+and 4 are PR #500's. The section 2 tables describe the tree
+before both PRs.

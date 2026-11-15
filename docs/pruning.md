@@ -19,14 +19,14 @@ Three things were missing, and each is a separate commit:
 
 This chain is proof of work, and nothing is final. A pruned node adopts a
 local policy instead. Blocks at least K below the tip (`PRUNE_DEPTH`, one DAG
-epoch, 30,000 blocks, about 5.2 days) lose their bodies and undo journals. The
+epoch, 450,000 blocks, about 5.2 days at one block a second) lose their bodies and undo journals. The
 node then refuses any block or reorg that reaches at or below its horizon
 (`NodeError::BelowPruneHorizon`), because the undo journals it would need are
 gone.
 
 The check sits in `Chain::reorganize`, before anything is reverted, so a reorg
 that cannot finish never starts. Headers stay forever, at 145 bytes each,
-about 4.4 MB per 30,000 blocks. They carry the `state_root` and `tx_root` that
+about 65 MB per 450,000 blocks. They carry the `state_root` and `tx_root` that
 a pruned body is later verified against.
 
 ## Archive, verify, then delete
@@ -94,7 +94,7 @@ checkpoint every N blocks and serves the newest one that is at least K deep.
 
 | Flag | Effect |
 |---|---|
-| `--prune` / `--prune-depth <N>` | Prune bodies older than 30,000 / N blocks |
+| `--prune` / `--prune-depth <N>` | Prune bodies older than 450,000 (one DAG epoch) / N blocks |
 | `--archive-dir <PATH>` | Local archive directory (default `<data-dir>/archive`) |
 | `--ipfs-api <URL>` | Also archive to kubo, e.g. `http://127.0.0.1:5001`. The RPC API is administrative: loopback only |
 | `--arweave-gateway <URL>` | Also fetch archives from an Arweave gateway |

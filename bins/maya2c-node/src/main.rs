@@ -326,7 +326,7 @@ fn print_usage() {
          \x20                    or required. See docs/pq-transport.md\n  \
          --mlkem1024 <MODE>   ML-KEM-1024 (NIST level 5): preferred (default),\n  \
          \x20                    off (ML-KEM-768 only), or required (1024 only)\n  \
-         --prune              prune bodies older than one DAG epoch (30,000 blocks)\n  \
+         --prune              prune bodies older than one DAG epoch (450,000 blocks)\n  \
          --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
          --snapshot-depth <N> serve snapshots once N blocks deep, without pruning\n  \
          --prune-without-archive  prune without writing any archive first\n  \

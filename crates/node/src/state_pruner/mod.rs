@@ -11,12 +11,12 @@
 //! prunes nothing, has no horizon, and is unaffected. Pruning is opt-in and
 //! off by default.
 //!
-//! [`PRUNE_DEPTH`] is one DAG epoch, 30,000 blocks, about 5.2 days at 15-second
-//! blocks. That is far deeper than any honest reorg on a working network.
+//! [`PRUNE_DEPTH`] is one DAG epoch, 450,000 blocks, about 5.2 days at one
+//! block a second. That is far deeper than any honest reorg on a working network.
 //!
 //! # What is kept
 //!
-//! Every header, forever: 145 bytes each, about 4.4 MB per 30,000 blocks.
+//! Every header, forever: 145 bytes each, about 65 MB per 450,000 blocks.
 //! A header carries `tx_root` and `state_root`, which is all a pruned body is
 //! ever verified against. Those are the "light Merkle roots" left where the
 //! blocks were. Bodies and undo journals below the horizon are deleted.
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn the_default_depth_is_one_dag_epoch() {
-        assert_eq!(PruneConfig::default().depth, 30_000);
+        assert_eq!(PruneConfig::default().depth, 450_000);
         assert_eq!(PruneConfig::default().archive, ArchivePolicy::Required);
     }
 }

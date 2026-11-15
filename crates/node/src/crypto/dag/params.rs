@@ -40,7 +40,7 @@ pub struct Params {
 }
 
 impl Params {
-    /// Consensus parameters: 64 MiB cache, 4 GiB dataset, 30,000-block epochs.
+    /// Consensus parameters: 64 MiB cache, 4 GiB dataset, 450,000-block epochs.
     pub const MAINNET: Self = Self {
         epoch_length: EPOCH_LENGTH,
         cache_bytes: CACHE_BYTES,
