@@ -973,6 +973,20 @@ impl StateDB {
         Ok(())
     }
 
+    /// Returns every intent's input to its trader.
+    fn refund_batch(
+        &self,
+        overlay: &mut Overlay,
+        record: &PoolRecord,
+        intents: &[SwapIntent],
+    ) -> Result<()> {
+        for intent in intents {
+            let asset = input_asset(record, intent.direction);
+            self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
+        }
+        Ok(())
+    }
+
     /// Clears one pool's swaps at a single price.
     fn settle_batch(&self, overlay: &mut Overlay, pair: &PairId) -> Result<()> {
         let Some(intents) = overlay.swaps.remove(pair) else {
@@ -985,8 +999,12 @@ impl StateDB {
         let mut record = self.require_pool(overlay, pair)?;
 
         // Priced with the chain's current protocol rate, which the stored
-        // record deliberately does not carry.
-        let priced = self.priced(overlay, &record)?;
+        // record deliberately does not carry. A governed rate the pool cannot
+        // carry refunds the batch: halting the block would let one pool's
+        // fee schedule stop every transaction in the chain.
+        let Ok(priced) = self.priced(overlay, &record) else {
+            return self.refund_batch(overlay, &record, &intents);
+        };
         // A batch that would leave the pool with no usable price is refused the
         // same way: the pair would otherwise refund every later batch for good.
         let cleared = clear_batch(&priced.pool, &intents)
@@ -998,13 +1016,7 @@ impl StateDB {
             // liquidity, most likely by a withdrawal in the same block. Every
             // trader gets their input back. Refusing the block instead would
             // let a withdrawal invalidate everybody else's transactions.
-            None => {
-                for intent in &intents {
-                    let asset = input_asset(&record, intent.direction);
-                    self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
-                }
-                return Ok(());
-            }
+            None => return self.refund_batch(overlay, &record, &intents),
         };
 
         for trade in &outcome.cleared {
@@ -1053,7 +1065,13 @@ impl StateDB {
             return Ok(());
         }
 
-        let pool = self.require_pool(overlay, pair)?;
+        let stored = self.require_pool(overlay, pair)?;
+        // Fills take the governed protocol rate, as swaps do. A rate the pool
+        // cannot carry leaves the book resting for this block, with no funds
+        // moved, rather than halting the block.
+        let Ok(pool) = self.priced(overlay, &stored) else {
+            return Ok(());
+        };
         let mut book = Book::new();
         for record in records.values() {
             book.insert(record.order)
