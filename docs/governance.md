@@ -114,6 +114,18 @@ default signature suite apply at execution as before. ADR-082 amendment 2026-11-
 (Eric 2026-11-14 MCQ); pinned by
 `a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`.
 
+The waiting value is on chain under `g:pending:<tag>` from execution, so
+anyone reading state can see it. No RPC lists it yet (the parameter RPC reads
+`g:params` only; follow-up in BACKLOG), so a wallet sees a waiting change only
+through a state read.
+
+A voter's stake must stay locked until the proposal's execution height, not
+until a validity change binds 30 days later. That matches `ScheduleUpgrade`
+proposals, whose entries also bind after the lock ends: the lock guards the
+decision against vote-then-sell, and the lead is notice to everyone else, so
+extending the lock by the lead would make every validity vote a 30-day longer
+commitment without changing who decided.
+
 ### The protocol fee, specifically
 
 `crates/node/src/state/dex_exec.rs` used to say the rate was zero *"because there is no

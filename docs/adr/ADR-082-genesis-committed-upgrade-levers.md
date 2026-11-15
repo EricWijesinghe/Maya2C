@@ -224,13 +224,35 @@ The proposal wire format is unchanged (invariant 31 is not touched): the lead
 is fixed, not named by the proposer. Pinned by
 `crates/node/tests/governance_tests.rs`
 `a_block_validity_parameter_takes_effect_only_at_its_scheduled_height` (spec
-CON-16), `a_later_passed_change_to_a_waiting_validity_rule_replaces_it`,
+CON-17), `a_later_passed_change_to_a_waiting_validity_rule_replaces_it`,
 `a_replacement_executed_the_block_before_activation_keeps_the_old_value_out`,
 `a_mixed_proposal_applies_its_price_at_once_and_waits_for_its_ceiling`,
 `a_waiting_change_is_under_the_state_root_and_one_out_of_range_is_dropped`,
-`a_passed_change_out_of_range_at_execution_expires_instead_of_halting` and `crates/governance/src/params.rs`
+`a_passed_change_out_of_range_at_execution_expires_instead_of_halting`,
+`a_proposal_of_only_validity_rules_leaves_the_table_unwritten_until_promotion` and `crates/governance/src/params.rs`
 `only_the_rules_a_block_is_judged_by_wait_for_the_lead`. A new key added by a
-later PR does not compile until it is classified.
+later PR does not compile until it is classified. Open PR #549 (ADR-142) adds
+tags 17 and 18 (`VmMaxTxGas`, `VmMaxBlockGas`): both are per-transaction and
+per-block caps, so both are validity rules and take the lead. Whichever of the
+two PRs merges second extends the test's tag list and the "tags 2-8" wording
+here, in spec CON-17, `docs/governance.md`, `features.toml` and
+`docs/architecture-vision.md`; classifying them as immediate just to compile
+would let a gas cap move one block after a timelock.
+
+Two limits, recorded rather than changed:
+
+- **Visibility.** The waiting value is on chain under `g:pending:<tag>` from
+  execution and readable by any state reader. No RPC lists it yet (the
+  parameter RPC reads `g:params` only); a read-only view is a BACKLOG item
+  after the freeze. Builders are unaffected: promotion lands at the tip they
+  build on.
+- **The vote lock stays at execution.** `lock_required_until` returns the
+  execution height `E`, so a voter can unlock up to `MIN_UPGRADE_LEAD_BLOCKS`
+  before the validity change it voted for binds. `ScheduleUpgrade` proposals
+  already behave this way, and this amendment mirrors that path: the lock
+  guards the decision against vote-then-sell, and the lead is notice to
+  everyone else. Extending the lock by the lead would be a separate behaviour
+  change with its own test.
 
 **(b) Constants sized for 15 s (or 2 s) blocks, rescaled to 1 block/s.** The
 remaining items of docs/block-time.md section 4 (items 1, 2 and 4 are in PR #500, open):
@@ -261,6 +283,13 @@ no default snapshot would exist for the chain's first 5.2 days. The
 `get_balance_at_height` RPC bound `MAX_BALANCE_REWIND` was also `PRUNE_DEPTH`;
 it is now its own 30,000 too, so a public call walks at most 30,000 heights.
 Both are pinned by unit tests that also assert they differ from `EPOCH_LENGTH`.
+
+`MAX_LINKED_GAP` (`consensus/bft/catchup.rs`, 50,000 blocks, sized as 8.7 days
+at 15 s) is a further 15 s-era constant docs/block-time.md did not list. It is
+kept: at one block a second it is 13.9 hours, it is node-local (not
+consensus), `MAX_LINKED_GAP_BYTES` (512 MiB) is the binding bound for
+non-empty blocks, and a node offline longer restores with `--bootstrap-from`.
+Its comment and docs/block-time.md now give the real duration.
 
 Further dependents:
 

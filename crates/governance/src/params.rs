@@ -106,9 +106,10 @@ pub const ALL_KEYS: &[ParameterKey] = &[
 /// Blocks between a passed change to a block-validity rule executing and
 /// the rule binding: the same lead a scheduled protocol upgrade carries.
 ///
-/// A validity rule decides which blocks every node accepts, so block
-/// builders, mempools, wallets and contract authors get the notice an upgrade
-/// gets. Fixed rather than chosen by the proposal, so no vote shortens it
+/// A validity rule decides which blocks every node accepts, so it gets the
+/// lead an upgrade gets: from execution the waiting value is on chain under
+/// `g:pending:`, readable by anyone reading state (no RPC lists it yet; see
+/// BACKLOG). Fixed rather than chosen by the proposal, so no vote shortens it
 /// (invariants 12 and 34, ADR-082 amendment 2026-11-15). Equal to the upgrade lead
 /// rather than shorter, so a validity change carried beside a schedule entry
 /// is in force no later than that entry's earliest activation.

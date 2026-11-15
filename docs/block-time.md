@@ -61,6 +61,7 @@ comments and in a few derived values:
 | `crates/crypto-pq/src/agility/mod.rs:28-29` `MIN_MIGRATION_WINDOW = 172,800` "about 30 days at 15 s" | 15 s | 2 days | ADR-082 §H3 and DECISIONS 2026-11-08 already treat it as 2 days (council lead 13.6 d). The 30-day intent is lost. **Consensus constant.** |
 | `crates/node/src/crypto/dag/mod.rs:80-81` `EPOCH_LENGTH = 30,000` "5.21 days" | 15 s | 8.3 hours | every miner regenerates the 4 GiB dataset three times a day; `DAG_ACTIVATION_HEIGHT = EPOCH_LENGTH` is 8.3 h after genesis, not five days. **Consensus constant** for the mining lane. |
 | `crates/node/src/network/pq/rotation.rs:42-56` `ROTATION_INTERVAL_BLOCKS = 1,000` "a little over four hours"; `ROTATION_FALLBACK = 1,000 × 15 s` | 15 s | 17 minutes by height; the wall-clock fallback stays 4.2 h | re-handshakes 15× more often than designed; transport only, not consensus |
+| `crates/node/src/consensus/bft/catchup.rs:382` `MAX_LINKED_GAP = 50,000` "about 8.7 days at the 15 s target" | 15 s | 13.9 hours | a node offline longer than ~14 h cannot link across its gap and restores with `--bootstrap-from`; node-local sync memory bound, not consensus (`MAX_LINKED_GAP_BYTES` binds first for non-empty blocks) |
 | `bins/maya2c-node/src/rejoin.rs:111-131` | 15 s as a **cap** on the observed interval | observed ~1 s wins | correct by construction; the 15 s default applies only with no history |
 | `spec/05-consensus.md:16` CON-5 "15 s target spacing" | 15 s | n/a | a PoW-chain rule; true for chains with retargeting, inert on DAG-BFT. Spec should say so. |
 | `docs/site/authored/start-mining.mdx:188-189` "Target block time 15 seconds" | 15 s | wrong on the live chain | fixed in this PR |
@@ -134,6 +135,8 @@ bundle (ADR-082 amendment 2026-11-15, Eric 2026-11-14 MCQ): `WORK_HALF_LIFE_BLOC
 too; `PRUNE_DEPTH` and the RPC `MAX_BALANCE_REWIND` are now their own
 constants and stay 30,000), `BLOCKS_PER_DAY` 86,400,
 `ROTATION_INTERVAL_BLOCKS` 15,000 with the fallback kept at 15,000 s, and
-`TARGET_BLOCK_TIME` documented as the PoW retarget spacing only. Items 1, 2
+`TARGET_BLOCK_TIME` documented as the PoW retarget spacing only.
+`MAX_LINKED_GAP` is kept at 50,000 (13.9 h) with its comment corrected:
+it is node-local and the byte cap is the binding bound. Items 1, 2
 and 4 are in PR #500 (open). The section 2 tables describe the tree
 before both PRs.
