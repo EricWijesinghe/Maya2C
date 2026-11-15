@@ -77,6 +77,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
 hex.workspace = true
+# The treasury passphrase is held in a wrapper that zeroes it on drop.
+zeroize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

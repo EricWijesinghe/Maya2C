@@ -29,8 +29,8 @@ use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Json, Router};
-use tokio::sync::broadcast;
+use axum::{Extension, Json, Router};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 
 use crate::api::{self, BlockList, MinerView, PayoutList, PoolStatus};
 use crate::error::PoolError;
@@ -75,8 +75,14 @@ fn html(body: String) -> Response {
         .into_response()
 }
 
+/// Live feeds held open at once. Each one is a task and a broadcast receiver, so
+/// the upgrade is refused past this rather than queued.
+// shortcut: one global cap, not per address; add a per-address cap once the dashboard sits behind a proxy that reports client IPs
+const MAX_LIVE_FEEDS: usize = 256;
+
 /// Builds the router.
 pub fn router(state: Arc<PoolState>) -> Router {
+    let feeds = Arc::new(Semaphore::new(MAX_LIVE_FEEDS));
     Router::new()
         .route("/", get(overview))
         .route("/blocks", get(blocks))
@@ -88,6 +94,7 @@ pub fn router(state: Arc<PoolState>) -> Router {
         .route("/api/payouts", get(payouts_json))
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(websocket))
+        .layer(Extension(feeds))
         .with_state(state)
 }
 
@@ -259,17 +266,31 @@ async fn payouts_json(
     }))
 }
 
+/// A slot for one live feed, or `None` while the cap is held.
+fn take_socket_slot(feeds: &Arc<Semaphore>) -> Option<OwnedSemaphorePermit> {
+    Arc::clone(feeds).try_acquire_owned().ok()
+}
+
 /// Upgrades to a WebSocket carrying pool events.
 async fn websocket(
     State(state): State<Arc<PoolState>>,
+    Extension(feeds): Extension<Arc<Semaphore>>,
     upgrade: WebSocketUpgrade,
-) -> impl IntoResponse {
+) -> Response {
+    let Some(slot) = take_socket_slot(&feeds) else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     let events = state.events.subscribe();
-    upgrade.on_upgrade(move |socket| pump(socket, events))
+    upgrade.on_upgrade(move |socket| pump(socket, events, slot))
 }
 
-/// Forwards events to one browser until it goes away.
-async fn pump(mut socket: WebSocket, mut events: broadcast::Receiver<PoolEvent>) {
+/// Forwards events to one browser until it goes away. `_slot` is held for the
+/// feed's lifetime and returned to the cap when the browser is gone.
+async fn pump(
+    mut socket: WebSocket,
+    mut events: broadcast::Receiver<PoolEvent>,
+    _slot: OwnedSemaphorePermit,
+) {
     loop {
         let event = match events.recv().await {
             Ok(event) => event,
@@ -293,6 +314,18 @@ async fn pump(mut socket: WebSocket, mut events: broadcast::Receiver<PoolEvent>)
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_live_feed_is_refused_once_the_cap_is_held_and_admitted_after_release() {
+        // Regression: /ws accepted any number of upgrades, each holding a task and
+        // a broadcast receiver for as long as its browser stayed connected.
+        let feeds = Arc::new(Semaphore::new(1));
+        let first = take_socket_slot(&feeds);
+        assert!(first.is_some());
+        assert!(take_socket_slot(&feeds).is_none());
+        drop(first);
+        assert!(take_socket_slot(&feeds).is_some());
+    }
 
     use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 

@@ -6567,6 +6567,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tower-http",
+ "zeroize",
 ]
 
 [[package]]
