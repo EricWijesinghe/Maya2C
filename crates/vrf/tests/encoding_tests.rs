@@ -321,3 +321,46 @@ fn every_refusal_says_something_specific() {
         assert!(seen.insert(text), "{error:?} shares a message with another");
     }
 }
+
+/// Byte strings that decompress to a point but are not its canonical encoding.
+/// p = 2^255 - 19 is `[0xED, 0xFF, .., 0xFF, 0x7F]`; for y in 2..19 the 255-bit
+/// value p + y still fits, so each is a distinct non-canonical encoding of y.
+fn non_canonical_encodings() -> Vec<[u8; 32]> {
+    let mut out = Vec::new();
+    for y in 2u8..19 {
+        for top in [0x7F, 0xFF] {
+            let mut bytes = [0xFF; 32];
+            bytes[0] = 0xED + y;
+            bytes[31] = top;
+            out.push(bytes);
+        }
+    }
+    out
+}
+
+#[test]
+fn a_public_key_with_a_non_canonical_encoding_is_refused() {
+    for candidate in non_canonical_encodings() {
+        let public = VrfPublicKey::new(VrfScheme::Ed25519Sha512Tai, candidate);
+        assert!(
+            public.point().is_err(),
+            "accepted non-canonical key {candidate:?}"
+        );
+    }
+}
+
+#[test]
+fn a_proof_with_a_non_canonical_gamma_is_refused() {
+    let secret = key();
+    let proof = prove(&secret, b"alpha").expect("prove");
+
+    for candidate in non_canonical_encodings() {
+        let mut bytes = *proof.as_bytes();
+        bytes[..32].copy_from_slice(&candidate);
+        let broken = VrfProof::from_bytes(bytes);
+        assert!(
+            matches!(proof_to_hash(&broken), Err(VrfError::InvalidPoint { .. })),
+            "accepted non-canonical gamma {candidate:?}"
+        );
+    }
+}

@@ -15,9 +15,17 @@
 use curve25519_dalek::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
 use sha2::{Digest, Sha512};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::{Result, VrfError};
+
+/// Decompresses an edwards25519 point, refusing any encoding that is not the
+/// canonical one. Decompression alone accepts y >= p, so one point would have
+/// several byte strings, and each would be a different key or proof identifier.
+pub(crate) fn decompress_canonical(bytes: &[u8; 32]) -> Option<EdwardsPoint> {
+    let point = curve25519_dalek::edwards::CompressedEdwardsY(*bytes).decompress()?;
+    (point.compress().to_bytes() == *bytes).then_some(point)
+}
 use crate::scheme::{PUBLIC_KEY_LEN, SECRET_KEY_LEN, VrfScheme};
 
 /// A VRF secret key.
@@ -82,7 +90,8 @@ impl VrfSecretKey {
     pub(crate) fn expand(&self) -> (Scalar, [u8; 32]) {
         let hash = Sha512::digest(self.seed);
 
-        let mut clamped = [0u8; 32];
+        // Wiped on drop: this is the secret scalar before it becomes a `Scalar`.
+        let mut clamped = Zeroizing::new([0u8; 32]);
         clamped.copy_from_slice(&hash[..32]);
         clamped[0] &= 248;
         clamped[31] &= 127;
@@ -93,7 +102,7 @@ impl VrfSecretKey {
 
         // Reduction mod the group order is a no-op for scalar multiplication —
         // the basepoint has that order — and it is what `Scalar` requires.
-        (Scalar::from_bytes_mod_order(clamped), prefix)
+        (Scalar::from_bytes_mod_order(*clamped), prefix)
     }
 
     /// The public key this seed corresponds to.
@@ -135,11 +144,9 @@ impl VrfPublicKey {
     /// - [`VrfError::SmallOrderKey`] if the point has small order, which would
     ///   make its outputs predictable to everyone.
     pub fn point(&self) -> Result<EdwardsPoint> {
-        let point = curve25519_dalek::edwards::CompressedEdwardsY(self.compressed)
-            .decompress()
-            .ok_or(VrfError::InvalidPoint {
-                what: "VRF public key",
-            })?;
+        let point = decompress_canonical(&self.compressed).ok_or(VrfError::InvalidPoint {
+            what: "VRF public key",
+        })?;
 
         // RFC 9381 makes key validation optional. It is not optional here: a
         // small-order key has a keyspace of eight, so its "unpredictable"
