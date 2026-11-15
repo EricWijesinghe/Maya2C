@@ -631,7 +631,7 @@ fn fee_of(tx: &Transaction) -> U256 {
 
 /// A fee-free mining share (ADR-044), which moves nothing.
 fn is_share(tx: &Transaction) -> bool {
-    matches!(tx.kind, crate::core::TxKind::MiningShare(_)) && tx.outputs.is_empty()
+    crate::state::fee_exec::is_free_share(tx)
 }
 
 /// The sum of `tx`'s outputs.
