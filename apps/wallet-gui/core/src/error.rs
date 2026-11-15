@@ -16,6 +16,12 @@ pub enum WalletError {
     #[error("entropy: {0}")]
     Entropy(String),
 
+    /// The entropy source failed its SP 800-90B health tests, or could not
+    /// be read, while generating a key. Fails closed, never falls back; the
+    /// message carries counts and cutoffs, never a sample.
+    #[error(transparent)]
+    EntropyHealth(#[from] maya_entropy::keygen::KeygenEntropyError),
+
     /// A recovery phrase was rejected.
     #[error("recovery phrase: {0}")]
     Mnemonic(String),

@@ -358,14 +358,28 @@ pub fn resolve_key_file(requested: &str, data: &Path) -> Result<PathBuf, GuardEr
         return Err(GuardError::KeyOutsideDataDir(parent.join(name)));
     }
     let target = parent.join(name);
-    if fs::symlink_metadata(&target).is_ok() {
-        let real = target.canonicalize().map_err(io)?;
-        if !real.starts_with(&data) {
-            return Err(GuardError::KeyOutsideDataDir(real));
-        }
-        check_key_permissions(&real)?;
-    }
+    check_key_file(&target, &data)?;
     Ok(target)
+}
+
+/// Checks an existing payout key: it must resolve inside `data` and pass the
+/// permission check. Run at every launch, not only at the first start, so a key
+/// loosened or re-linked since then is refused at the next restart. A key not
+/// yet created passes; the miner creates it on first run.
+///
+/// # Errors
+///
+/// The key resolves outside `data`, cannot be read, or is open to other accounts.
+pub fn check_key_file(target: &Path, data: &Path) -> Result<(), GuardError> {
+    if fs::symlink_metadata(target).is_err() {
+        return Ok(());
+    }
+    let data = data.canonicalize().map_err(io)?;
+    let real = target.canonicalize().map_err(io)?;
+    if !real.starts_with(&data) {
+        return Err(GuardError::KeyOutsideDataDir(real));
+    }
+    check_key_permissions(&real)
 }
 
 /// Other users' access bits (group and other). Any set means someone else can
@@ -649,6 +663,31 @@ mod tests {
         fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
         let path = resolve_key_file("miner.key", &data).expect("accepted");
         assert_eq!(path, data.canonicalize().unwrap().join("miner.key"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn key_loosened_after_the_first_start_is_refused_at_relaunch() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = scratch("key-relaunch");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        let key = data.join("miner.key");
+        fs::write(&key, b"secret").unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
+        let path = resolve_key_file("miner.key", &data).expect("accepted at start");
+        check_key_file(&path, &data).expect("still private at relaunch");
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
+        let err = check_key_file(&path, &data).unwrap_err();
+        assert!(matches!(err, GuardError::KeyOpenToOthers(_)), "{err}");
+    }
+
+    #[test]
+    fn key_not_yet_created_passes_the_relaunch_check() {
+        let base = scratch("key-absent");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        assert!(check_key_file(&data.join("miner.key"), &data).is_ok());
     }
 
     #[cfg(unix)]
