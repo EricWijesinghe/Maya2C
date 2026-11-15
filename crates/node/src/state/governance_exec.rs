@@ -77,6 +77,53 @@ fn governance_error(error: GovernanceError) -> NodeError {
 }
 
 /// The schedule request a passed `ScheduleUpgrade` asks for (ADR-082).
+/// Whether every change is still legal at execution time.
+///
+/// Range-checks each value as well as the suite rule: a bound a release
+/// tightened after the proposal was queued must expire the proposal, not fail
+/// the block that settles it.
+fn changes_admissible(
+    changes: &[(u16, Amount)],
+    sunsets: &crate::crypto::suites::SuiteSunsets,
+) -> bool {
+    changes.iter().all(|(tag, value)| {
+        ParameterKey::from_tag(*tag).is_ok_and(|key| {
+            ParameterChange { key, value: *value }.validate().is_ok()
+                && crate::crypto::suites::check_parameter(key, *value, sunsets).is_ok()
+        })
+    })
+}
+
+#[cfg(test)]
+mod changes_admissible_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::crypto::suites::SuiteSunsets;
+
+    fn sunsets() -> SuiteSunsets {
+        SuiteSunsets::new(&[]).unwrap()
+    }
+
+    #[test]
+    fn value_out_of_range_is_not_admissible() {
+        // Below the DexMaxFillsPerBlock floor of 64: a stale queued value.
+        let below = [(2_u16, Amount::from_u64(1))];
+        assert!(!changes_admissible(&below, &sunsets()));
+    }
+
+    #[test]
+    fn value_in_range_is_admissible() {
+        let inside = [(2_u16, Amount::from_u64(1_024))];
+        assert!(changes_admissible(&inside, &sunsets()));
+    }
+
+    #[test]
+    fn unknown_tag_is_not_admissible() {
+        let unknown = [(u16::MAX, Amount::from_u64(1))];
+        assert!(!changes_admissible(&unknown, &sunsets()));
+    }
+}
+
 fn schedule_request(upgrade: &ScheduleUpgrade) -> ScheduleRequest {
     ScheduleRequest {
         activation: upgrade.activation_height,
@@ -622,11 +669,7 @@ impl StateDB {
                 };
                 let changes_ok = {
                     let sunsets = self.effective_schedule_through(overlay)?.sunsets;
-                    record.changes.iter().all(|(tag, value)| {
-                        ParameterKey::from_tag(*tag).is_ok_and(|key| {
-                            crate::crypto::suites::check_parameter(key, *value, &sunsets).is_ok()
-                        })
-                    })
+                    changes_admissible(&record.changes, &sunsets)
                 };
                 let admitted = schedule_ok && changes_ok;
                 if admitted {
