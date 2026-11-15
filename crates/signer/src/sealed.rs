@@ -318,6 +318,12 @@ mod tests {
         for (i, (raw, want)) in cases.iter().enumerate() {
             let path = dir.join(i.to_string());
             std::fs::write(&path, raw).unwrap();
+            // The reader refuses a passphrase file readable by group or others.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
             assert_eq!(read_passphrase_file(&path).unwrap().as_slice(), *want);
         }
         std::fs::remove_dir_all(&dir).unwrap();

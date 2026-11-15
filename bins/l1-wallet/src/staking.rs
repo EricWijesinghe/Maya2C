@@ -192,6 +192,11 @@ mod tests {
         );
         assert!(load_validator_key_with(&path, None).is_err());
         std::fs::write(&pass_path, "wrong passphrase here").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&pass_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         assert!(load_validator_key_with(&path, Some(&pass_path)).is_err());
     }
 

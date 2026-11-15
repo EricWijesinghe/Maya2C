@@ -18,6 +18,7 @@ use sha2::{Digest, Sha512};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::{Result, VrfError};
+use crate::scheme::{PUBLIC_KEY_LEN, SECRET_KEY_LEN, VrfScheme};
 
 /// Decompresses an edwards25519 point, refusing any encoding that is not the
 /// canonical one. Decompression alone accepts y >= p, so one point would have
@@ -26,7 +27,6 @@ pub(crate) fn decompress_canonical(bytes: &[u8; 32]) -> Option<EdwardsPoint> {
     let point = curve25519_dalek::edwards::CompressedEdwardsY(*bytes).decompress()?;
     (point.compress().to_bytes() == *bytes).then_some(point)
 }
-use crate::scheme::{PUBLIC_KEY_LEN, SECRET_KEY_LEN, VrfScheme};
 
 /// A VRF secret key.
 ///
