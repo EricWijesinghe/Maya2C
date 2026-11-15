@@ -421,10 +421,9 @@ mod tests {
 
     #[test]
     fn the_book_stops_growing_at_its_cap_even_when_every_rig_is_connected() {
-        // Regression: every new rig name created an entry, and a connected entry
-        // is never evicted, so an unauthenticated open loop could grow the map
-        // without bound. At the cap a new rig is not recorded; the share path
-        // still runs, only its telemetry is dropped.
+        // The map is bounded: a connected entry is never evicted, so the cap is
+        // the only limit on growth. At the cap a new rig is not recorded; the
+        // share path still runs, only its telemetry is dropped.
         let mut book = TelemetryBook::new();
         for i in 0..MAX_WORKERS {
             book.record_connection(&key(&format!("rig-{i}")), true, 1.0, 0);

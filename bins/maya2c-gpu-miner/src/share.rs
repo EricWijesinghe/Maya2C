@@ -549,12 +549,12 @@ mod tests {
         let path = dir.join("miner.key");
         load_or_create_seed(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        std::fs::remove_dir_all(dir).unwrap();
         assert_eq!(
             mode & 0o077,
             0,
             "key file is readable by group or others: {mode:o}"
         );
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

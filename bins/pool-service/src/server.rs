@@ -317,8 +317,8 @@ mod tests {
 
     #[test]
     fn a_live_feed_is_refused_once_the_cap_is_held_and_admitted_after_release() {
-        // Regression: /ws accepted any number of upgrades, each holding a task and
-        // a broadcast receiver for as long as its browser stayed connected.
+        // Live feeds are capped: each upgrade holds a task and a broadcast
+        // receiver for as long as its client stays connected.
         let feeds = Arc::new(Semaphore::new(1));
         let first = take_socket_slot(&feeds);
         assert!(first.is_some());

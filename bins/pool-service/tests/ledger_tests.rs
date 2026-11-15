@@ -543,10 +543,8 @@ fn a_signed_batch_survives_a_restart_byte_for_byte() {
 
 #[test]
 fn concurrent_block_credits_never_lose_an_update() {
-    // Regression: record_block read and rewrote a miner's balance with no lock
-    // around the read-modify-write, so two threads crediting the same miner
-    // could read the same balance and the later write dropped the earlier
-    // credit. The guard covers the balance keys, not the share counters.
+    // Concurrent block credits to one miner must both land. The balance
+    // read-modify-write is serialised by a lock; the share counters have their own.
     let dir = TempDir::new().expect("temp dir");
     let ledger = std::sync::Arc::new(RocksLedger::open(dir.path()).unwrap());
 
