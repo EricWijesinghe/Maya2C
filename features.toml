@@ -3399,7 +3399,7 @@ paths = "`crates/deposit-watcher`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/deposit-watcher/tests/deposits.rs"]
+tests = ["crates/deposit-watcher/tests/deposits.rs", "crates/deposit-watcher/tests/amounts.rs"]
 note = "Master Prompt 17 §1. 100,090 deposits across 40 SIGKILLs: ledger equals ground truth. Reads a BlockSource trait; a node-RPC source is not written."
 
 [[subsystem]]

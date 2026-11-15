@@ -6174,6 +6174,7 @@ dependencies = [
 name = "maya-deposit-watcher"
 version = "0.1.0"
 dependencies = [
+ "maya-amount",
  "serde",
  "serde_json",
  "tempfile",
