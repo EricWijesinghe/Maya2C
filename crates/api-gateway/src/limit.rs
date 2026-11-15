@@ -22,9 +22,11 @@
 //!   addresses at will.
 //!
 //! A header mode is only sound when the proxy is the sole route to the
-//! gateway, which is why the gateway binds 127.0.0.1 by default. A request
-//! that arrives without the header (a local health check) falls back to its
-//! socket address rather than failing.
+//! gateway, which is why the gateway binds 127.0.0.1 by default. The header
+//! is read only from a loopback peer (the proxy on this host): from any other
+//! peer it is client-written, so the socket address is the key instead. A
+//! request that arrives without the header (a local health check) falls back
+//! to its socket address rather than failing.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -78,20 +80,24 @@ impl KeyExtractor for ClientKey {
     type Key = IpAddr;
 
     fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
-        let from_header = match self.0 {
-            ClientIp::Socket => None,
-            ClientIp::CfConnectingIp => header_ip(request, "cf-connecting-ip", |value| Some(value)),
-            ClientIp::XForwardedForLast => {
+        let peer = request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(peer)| peer.ip());
+        // Believed only from a loopback peer, the proxy on this host. From any
+        // other peer the header is client-written, so the socket is the key.
+        let from_header = match (self.0, peer) {
+            (ClientIp::Socket, _) | (_, None) => None,
+            (_, Some(ip)) if !ip.is_loopback() => None,
+            (ClientIp::CfConnectingIp, Some(_)) => {
+                header_ip(request, "cf-connecting-ip", |value| Some(value))
+            }
+            (ClientIp::XForwardedForLast, Some(_)) => {
                 header_ip(request, "x-forwarded-for", |value| value.rsplit(',').next())
             }
         };
         from_header
-            .or_else(|| {
-                request
-                    .extensions()
-                    .get::<ConnectInfo<SocketAddr>>()
-                    .map(|ConnectInfo(peer)| peer.ip())
-            })
+            .or(peer)
             .ok_or(GovernorError::UnableToExtractKey)
     }
 }
