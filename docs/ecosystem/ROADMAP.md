@@ -17,7 +17,7 @@ Now, before genesis. Non-consensus work only; the frozen node binary is not touc
 **A. Core user apps**
 
 - `hub-launch` (S): Open Wallet and Chat from the Hub through an OS link scheme (ADR-083 decision 4). **Built on `feat/hub-launch`; installed-build registration not yet run**
-- `address-text-everywhere` (S): Bech32m `maya1…` in the wallet GUI, explorer, pool, chat and docs (ADR-081 leftovers)
+- `address-text-everywhere` (S): Bech32m `maya1…` in the wallet GUI, explorer, pool, chat and docs (ADR-081 leftovers). Status 2026-11-10: partly done (pool and explorer input, site faucet form, testnet docs); wallet GUI screens, chat, SDK FFI and Go SDK still hex, see ADR-081 "Leftovers"
 - `signed-installers` (M): Signed installers for Windows, Linux and Android for every app, with auto-update
 
 **D. Builders and operators**
@@ -53,12 +53,9 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 - `wallet-v2` (L): Clear signing, smart-account recovery without a paper seed, address book, payment requests. **P0+P1 built** (ADR-086: Bech32m confirm, review wired in, address book, poisoning defenses, payment request v2); P2-P6 not started
 - `chat-v2` (L): Group chats, attachments, multi-device
 - `chat-pay` (M): Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3)
+- `chat-expression` (L): Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries
 - `explorer-v2` (M): Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending
 - `status-v2` (S): Public network status with a history of incidents and gate progress
-
-**B. Money and commerce**
-
-- `merchant-checkout` (M): Payment links, QR invoices and a webhook for shops
 
 **C. Identity and trust**
 
@@ -77,11 +74,11 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 
 **J. Trust you can verify (research 2026-11-10)**
 
-- `release-log-anchor`: A swapped or back-dated release is caught even if GitHub or Rekor is compromised
+- `release-log-anchor`: A swapped or back-dated release is caught even if GitHub or Rekor is compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust release`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
 - `public-invariant-monitor`: Anyone can watch for a conservation break or halt without trusting the foundation's watcher
-- `signed-incidents`: Outages and attacks recorded so the foundation cannot quietly edit them later
+- `signed-incidents`: Outages and attacks recorded so the foundation cannot quietly edit them later. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust incident`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
 - `validator-ledger`: Validator behaviour (signing, missed rounds, equivocation, stake concentration) public and derived only from signed consensus data
-- `foundation-canary`: Users learn if the foundation is compelled or compromised
+- `foundation-canary`: Users learn if the foundation is compelled or compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust canary`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
 
 **K. Protection for people (research 2026-11-10)**
 
