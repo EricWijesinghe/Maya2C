@@ -31,7 +31,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
-- **CON-16** A passed governance change to a block-validity parameter (`ParameterKey::is_validity_rule`: tags 2 to 8, the DEX fill and order ceilings, the oracle and shielded per-block caps, the VM memory, module and default-gas bounds) is not in force at its proposal's execution height `E`. It is held in `g:pending:<tag>` and is in force from height `E + MIN_UPGRADE_LEAD_BLOCKS` (2,592,000): the end-of-block pass of height `E + MIN_UPGRADE_LEAD_BLOCKS − 1` writes it into `g:params`, so the committed table at that tip is the one the activation block is judged by. At most one change waits per key; a later passed change to the same key replaces it. Tags 1, 9 and 10 (protocol fee, proposal deposit, default suite) are in force from `E + 1` as before (ADR-082 amendment b). *(external vectors: crates/node/tests/governance_tests.rs)*
+- **CON-16** A passed governance change to a block-validity parameter (`ParameterKey::is_validity_rule`: tags 2 to 8, the DEX fill and order ceilings, the oracle and shielded per-block caps, the VM memory, module and default-gas bounds) is not in force at its proposal's execution height `E`. It is held in `g:pending:<tag>` and is in force from height `E + MIN_UPGRADE_LEAD_BLOCKS` (2,592,000): the end-of-block pass of height `E + MIN_UPGRADE_LEAD_BLOCKS − 1` writes it into `g:params`, so the committed table at that tip is the one the activation block is judged by. At most one change waits per key; a later passed change to the same key replaces it. Tags 1, 9 and 10 (protocol fee, proposal deposit, default suite) are in force from `E + 1` as before. A change whose value is outside its key's range at `E` expires the proposal and the block is valid; a waiting value outside the range at promotion is deleted and never applied (ADR-082 amendment 2026-11-15). *(external vectors: crates/node/tests/governance_tests.rs)*
 
 ## Vectors and gaps
 
@@ -40,6 +40,12 @@ CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
 (`argonblake-pow`) has no language-neutral vector.
+
+CON-16 has no language-neutral vector: it is a rule over the governance
+layer's records, pinned by `crates/node/tests/governance_tests.rs` (the
+activation boundary, a replacement at `E + MIN_UPGRADE_LEAD_BLOCKS - 1`, a
+mixed proposal, a dropped out-of-range value, and the record being under the
+state root).
 
 DAG construction, the commit rule, finality and fork choice under DAG-BFT
 are specified only by the node's code and `crates/dag-bft`, and have no rule

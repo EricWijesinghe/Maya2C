@@ -18,16 +18,29 @@ Three things were missing, and each is a separate commit:
 ## The horizon
 
 This chain is proof of work, and nothing is final. A pruned node adopts a
-local policy instead. Blocks at least K below the tip (`PRUNE_DEPTH`, one DAG
-epoch, 450,000 blocks, about 5.2 days at one block a second) lose their bodies and undo journals. The
+local policy instead. Blocks at least K below the tip (`PRUNE_DEPTH`, 30,000
+blocks, about 8.3 hours at one block a second) lose their bodies and undo journals. The
 node then refuses any block or reorg that reaches at or below its horizon
 (`NodeError::BelowPruneHorizon`), because the undo journals it would need are
 gone.
 
 The check sits in `Chain::reorganize`, before anything is reverted, so a reorg
 that cannot finish never starts. Headers stay forever, at 145 bytes each,
-about 65 MB per 450,000 blocks. They carry the `state_root` and `tx_root` that
+about 4.4 MB per 30,000 blocks. They carry the `state_root` and `tx_root` that
 a pruned body is later verified against.
+
+`PRUNE_DEPTH` used to be defined as the DAG epoch. When the epoch was rescaled
+to 450,000 blocks for one block a second (ADR-082 amendment 2026-11-15) the
+depth was given its own constant and kept at 30,000: it is node-local policy,
+not consensus, and under DAG-BFT finality nothing needs days of undo. At the
+5 MiB block cap (`MAX_BLOCK_BYTES`) the worst case for a default pruned node is
+30,000 x 5 MiB, about 146 GiB of bodies plus undo; at 450,000 it would have
+been about 2.1 TiB. The same constant is the default for two other things in
+`bins/maya2c-node/src/pruning.rs`: the depth a `--bootstrap-from` joiner
+demands of a snapshot, and the depth a seed serves snapshots at when
+`--snapshot-depth` is not given. So a default seed serves its first snapshot
+once the chain is 30,000 blocks (8.3 h) old. The testnet scripts pass
+`--prune-depth 3600` explicitly and are unaffected.
 
 ## Archive, verify, then delete
 
@@ -94,7 +107,7 @@ checkpoint every N blocks and serves the newest one that is at least K deep.
 
 | Flag | Effect |
 |---|---|
-| `--prune` / `--prune-depth <N>` | Prune bodies older than 450,000 (one DAG epoch) / N blocks |
+| `--prune` / `--prune-depth <N>` | Prune bodies older than 30,000 / N blocks |
 | `--archive-dir <PATH>` | Local archive directory (default `<data-dir>/archive`) |
 | `--ipfs-api <URL>` | Also archive to kubo, e.g. `http://127.0.0.1:5001`. The RPC API is administrative: loopback only |
 | `--arweave-gateway <URL>` | Also fetch archives from an Arweave gateway |

@@ -2,7 +2,7 @@
 
 **Status:** Accepted, 2026-11-07 (Eric's decision, after the security review of the genesis-only design). Pre-genesis for the launch entries; the schedule itself is writable on chain after launch.
 **Date:** 2026-11-07
-**Amended:** 2026-11-15 (amendment b: validity parameters through the schedule; 1 block/s constants).
+**Amended:** 2026-11-15 (validity parameters through the schedule; 1 block/s constants).
 **Related:** [ADR-037](ADR-037-mainnet-shielded-off.md), [ADR-013](ADR-013-suite-envelope-activation.md), [ADR-007](ADR-007-signature-suites.md), [ADR-050](ADR-050-owner-control-plane.md), invariants 12, 13, 17, 25, 34; `crates/node/src/upgrade.rs`, `crates/node/src/state/upgrades.rs`, `crates/governance/src/limits.rs`
 
 ## Context
@@ -179,7 +179,7 @@ strict (`core/block.rs:265-270`). A header whose version byte this binary does
 not speak is refused. Changing it means every node upgrades before the first
 block that carries the new tag, and the upgrade schedule does not govern it.
 
-### Amendment b (2026-11-15): block-validity parameters wait for the lead; 15 s-era constants at 1 block/s
+### Amendment 2026-11-15: block-validity parameters wait for the lead; 15 s-era constants at 1 block/s
 
 Eric 2026-11-14 MCQ ("all format fixes"). Two changes, one reason: a rule that
 decides which blocks are valid should never change faster than operators,
@@ -206,7 +206,13 @@ per-block caps, the three VM bounds) splits the keys:
   the tip is the one the activation block is judged by (a builder never fills
   a block under a ceiling the importer has already moved). It re-checks the
   range at promotion; a value a later release no longer accepts is dropped,
-  not applied and not a block error;
+  not applied and not a block error. It reads the seven validity tags by
+  point lookup, not by a prefix scan, so its cost per block is fixed;
+- the settle pass now also runs `ParameterChange::validate` before executing
+  a proposal (it ran only `check_parameter` before), so a value a release
+  tightened out of range while the vote was in flight expires the proposal
+  instead of failing every candidate block at the execution height, which
+  matches the promotion pass;
 - at most one change waits per key: a later passed change to the same key
   replaces the one still waiting (the later decision is the current one, and
   the record stays bounded by the key count);
@@ -218,17 +224,21 @@ The proposal wire format is unchanged (invariant 31 is not touched): the lead
 is fixed, not named by the proposer. Pinned by
 `crates/node/tests/governance_tests.rs`
 `a_block_validity_parameter_takes_effect_only_at_its_scheduled_height` (spec
-CON-16), `a_later_passed_change_to_a_waiting_validity_rule_replaces_it` and `crates/governance/src/params.rs`
+CON-16), `a_later_passed_change_to_a_waiting_validity_rule_replaces_it`,
+`a_replacement_executed_the_block_before_activation_keeps_the_old_value_out`,
+`a_mixed_proposal_applies_its_price_at_once_and_waits_for_its_ceiling`,
+`a_waiting_change_is_under_the_state_root_and_one_out_of_range_is_dropped`,
+`a_passed_change_out_of_range_at_execution_expires_instead_of_halting` and `crates/governance/src/params.rs`
 `only_the_rules_a_block_is_judged_by_wait_for_the_lead`. A new key added by a
 later PR does not compile until it is classified.
 
 **(b) Constants sized for 15 s (or 2 s) blocks, rescaled to 1 block/s.** The
-remaining items of docs/block-time.md section 4 (PR #500 did items 1, 2, 4):
+remaining items of docs/block-time.md section 4 (items 1, 2 and 4 are in PR #500, open):
 
 | Constant | Was | Now | Duration at 1 block/s |
 |---|---|---|---|
 | `governance::work::WORK_HALF_LIFE_BLOCKS` | 5,760 | 86,400 | one day |
-| `crypto::dag::EPOCH_LENGTH` (and `DAG_ACTIVATION_HEIGHT`, `PRUNE_DEPTH`, both defined from it) | 30,000 | 450,000 | 5.2 days |
+| `crypto::dag::EPOCH_LENGTH` (and `DAG_ACTIVATION_HEIGHT`, defined from it) | 30,000 | 450,000 | 5.2 days |
 | `smart_account::policy::BLOCKS_PER_DAY` (ADR-086 F7) | 43,200 | 86,400 | one day |
 | `network::pq::ROTATION_INTERVAL_BLOCKS` (transport, not consensus) | 1,000 | 15,000 | 4.2 hours; `ROTATION_FALLBACK` stays 15,000 s |
 
@@ -239,6 +249,33 @@ epoch; mining rewards read `halving_epochs`; the DAG vector file's
 `mainnet_params.epoch_length` echoes the constant (the seeds and the hashes
 are computed at the testing parameters and do not move). `TARGET_BLOCK_TIME`
 keeps its value and is documented as the PoW retarget spacing only.
+
+Not rescaled, on purpose: `state_pruner::PRUNE_DEPTH` was defined as
+`EPOCH_LENGTH` and is now its own constant, kept at 30,000 (8.3 hours at one
+block a second). It is node-local policy, not consensus, and DAG-BFT finality
+means no honest reorg reaches it. Following the epoch to 450,000 would have
+raised a default pruned node's worst case to about 2.1 TiB of bodies at the
+5 MiB block cap (from about 146 GiB), and, because the default bootstrap and
+snapshot-serve depths in `bins/maya2c-node/src/pruning.rs` are `PRUNE_DEPTH`,
+no default snapshot would exist for the chain's first 5.2 days. The
+`get_balance_at_height` RPC bound `MAX_BALANCE_REWIND` was also `PRUNE_DEPTH`;
+it is now its own 30,000 too, so a public call walks at most 30,000 heights.
+Both are pinned by unit tests that also assert they differ from `EPOCH_LENGTH`.
+
+Further dependents:
+
+- **Not a rolling upgrade.** `dag_epoch()` (`state/mining_exec.rs`) divides a
+  mining epoch's start by `EPOCH_LENGTH`, so from height 30,000 old and new
+  binaries hash a mining share against different DAG caches. This binary
+  needs the planned re-genesis and must not be rolled onto a running testnet.
+- **Work-claim weight.** Decay is `credit >> elapsed / WORK_HALF_LIFE_BLOCKS`,
+  so steady-state work credit, and its share of `eligible = locked + work`,
+  grows with the half-life in blocks: about 15x here. Claims are refused at
+  launch (`WorkClaimInactive`); whoever activates them must re-check the
+  work-to-stake weight ratio at the new half-life first.
+- **Duration tests are literal pins** (`86_400`, `450_000`, `15_000`). Once
+  PR #500's `CANONICAL_ROUND_INTERVAL_MS` lands they should be derived from
+  it, so a change to the canonical rate turns them red.
 
 ## Consequences
 

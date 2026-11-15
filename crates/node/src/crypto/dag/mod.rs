@@ -327,6 +327,8 @@ mod tests {
     fn the_epoch_period_is_the_advertised_five_days() {
         // One block a second (docs/block-time.md), so the epoch in seconds is
         // its length in blocks: 450,000 s, five days and three hours.
+        // shortcut: a literal pin, not derived from a rate constant; derive it from
+        // CANONICAL_ROUND_INTERVAL_MS once PR #500 lands, so a rate change turns it red.
         let seconds = EPOCH_LENGTH;
         assert_eq!(seconds, 450_000);
         assert_eq!(seconds / 86_400, 5);

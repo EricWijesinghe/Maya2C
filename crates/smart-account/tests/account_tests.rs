@@ -986,7 +986,7 @@ fn group(n: u64) -> String {
     out
 }
 
-/// F7, decided (Eric 2026-11-14 MCQ, ADR-082 amendment b): the chain makes
+/// F7, decided (Eric 2026-11-14 MCQ, ADR-082 amendment 2026-11-15): the chain makes
 /// one block a second (docs/block-time.md), so a policy day is 86,400 blocks.
 /// At the old 2 s figure a daily limit reset twice a real day.
 #[test]

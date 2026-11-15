@@ -178,6 +178,8 @@ mod tests {
     fn the_half_life_is_one_day_at_one_block_per_second() {
         // docs/block-time.md: the chain makes one block a second, so a day is
         // 86,400 blocks. 5,760 was a day only at the 15 s PoW target.
+        // shortcut: a literal pin, not derived from a rate constant; derive it from
+        // CANONICAL_ROUND_INTERVAL_MS once PR #500 lands, so a rate change turns it red.
         assert_eq!(WORK_HALF_LIFE_BLOCKS, 86_400);
     }
 

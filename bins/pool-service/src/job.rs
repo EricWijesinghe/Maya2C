@@ -2,7 +2,8 @@
 //!
 //! ## Jobs go stale fast here
 //!
-//! `TARGET_BLOCK_TIME` is fifteen seconds (`src/consensus/difficulty.rs:32`).
+//! The chain makes about one block a second under DAG-BFT (docs/block-time.md;
+//! `TARGET_BLOCK_TIME`, fifteen seconds, is only the PoW retarget spacing).
 //! A ten-minute chain can afford to measure its stale-grace window in seconds;
 //! this one cannot. Job push has to be sub-second and the grace window is one
 //! job deep — see [`crate::channel::ChannelState::current_job`] for why one and

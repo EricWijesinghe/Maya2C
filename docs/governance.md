@@ -110,7 +110,7 @@ one block a second), and is promoted into the table at the end of the block
 before that height, so the committed table at the tip is the one the next block
 is judged by. One change waits per key: a later passed change to the same key
 replaces one still waiting. The protocol fee, the proposal deposit and the
-default signature suite apply at execution as before. ADR-082 amendment b
+default signature suite apply at execution as before. ADR-082 amendment 2026-11-15
 (Eric 2026-11-14 MCQ); pinned by
 `a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`.
 
