@@ -40,6 +40,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
 
 <script>
   import { whenIdle } from "../scripts/idle";
+  import { esc } from "../scripts/escape";
   import type { Hero3D, Pick } from "../scripts/hero3d";
   const canvas = document.getElementById("field") as HTMLCanvasElement;
   const stage = canvas.parentElement as HTMLElement;
@@ -55,8 +56,11 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
 
   function show(h: number) { $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h); }
 
+  // Live and REST values are untrusted: a non-integer height or count is dropped.
+  const txsOf = (b: { tx_count?: unknown }): number => (Number.isSafeInteger(b.tx_count) ? (b.tx_count as number) : 0);
+
   function onBlock(h: number, txs = 0, animate = true) {
-    if (!h || h <= height) return;
+    if (!Number.isSafeInteger(h) || h <= height) return;
     // Measured, never quoted: the mean gap between the last live blocks.
     if (animate && lastBlockAt) { gaps.push(performance.now() - lastBlockAt); if (gaps.length > 20) gaps.shift(); $("tBlock")!.textContent = (gaps.reduce((a, b) => a + b, 0) / gaps.length / 1000).toFixed(1) + " s"; }
     height = h; lastBlockAt = performance.now(); show(h);
@@ -73,7 +77,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }),
       });
       const { result } = await r.json();
-      if (!result) return;
+      if (!result || !Number.isSafeInteger(result.committee)) return;
       committee = result.committee;
       $("tValidators")!.textContent = fmt(committee);
       scene?.setValidators(committee);
@@ -89,7 +93,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   function stream() {
     const ws = new WebSocket("wss://explorer.maya2c.dev/ws/blocks");
     ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; stage.classList.add("live"); };
-    ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0); } catch { /* skip */ } };
+    ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); if (Number.isSafeInteger(b.height)) onBlock(b.height, txsOf(b)); } catch { /* skip */ } };
     ws.onclose = () => {
       // Never reached this visit: say offline, not an endless "reconnecting".
       live = false; stage.classList.remove("live"); $("chip-state")!.textContent = everLive ? "reconnecting…" : "offline";
@@ -105,10 +109,11 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
     .then((r) => r.json())
     .then((blocks: { height: number; tx_count?: number }[]) => {
       // Older than a live block that beat this reply: straight onto the chain.
-      blocks.slice().reverse().forEach((b) => {
-        if (b.height > height) onBlock(b.height, b.tx_count ?? 0, false);
-        else if (scene) scene.addBlock(b.height, b.tx_count ?? 0, false);
-        else early.push({ h: b.height, txs: b.tx_count ?? 0 });
+      blocks.filter((b) => Number.isSafeInteger(b.height)).slice().reverse().forEach((b) => {
+        const txs = txsOf(b);
+        if (b.height > height) onBlock(b.height, txs, false);
+        else if (scene) scene.addBlock(b.height, txs, false);
+        else early.push({ h: b.height, txs });
       });
     })
     .catch(() => { /* empty chain until the first live block */ });
@@ -125,14 +130,14 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
       pop.innerHTML = `<b>Validator ${p.index + 1} of ${n}</b>Signs every vote it casts (ML-DSA-87)<br>Finality needs ${quorum} of ${n}; survives ${n - quorum} down<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
     } else {
       const h = p.height;
-      pop.innerHTML = `<b>Block ${fmt(h)}</b>loading…`;
+      pop.innerHTML = `<b>Block ${esc(fmt(h))}</b>loading…`;
       fetch(`https://explorer.maya2c.dev/api/blocks/${h}`)
         .then((r) => r.json())
         .then((b: { id: string; timestamp: number; tx_count?: number; state_root: string }) => {
           const ago = Math.max(0, Math.round(Date.now() / 1000 - b.timestamp));
-          pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(b.tx_count ?? 0)} transactions · ${fmt(ago)} s ago<br>id ${b.id.slice(0, 16)}…<br>state ${b.state_root.slice(0, 16)}…<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`;
+          pop.innerHTML = `<b>Block ${esc(fmt(h))}</b>${esc(fmt(b.tx_count ?? 0))} transactions · ${esc(fmt(ago))} s ago<br>id ${esc(b.id.slice(0, 16))}…<br>state ${esc(b.state_root.slice(0, 16))}…<br><a href="https://explorer.maya2c.dev/blocks/${esc(h)}">Open in explorer →</a>`;
         })
-        .catch(() => { pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(p.txs)} transactions<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`; });
+        .catch(() => { pop.innerHTML = `<b>Block ${esc(fmt(h))}</b>${esc(fmt(p.txs))} transactions<br><a href="https://explorer.maya2c.dev/blocks/${esc(h)}">Open in explorer →</a>`; });
     }
     const sr = stage.getBoundingClientRect();
     pop.style.left = Math.max(8, Math.min(p.x + 18, sr.width - 260)) + "px";

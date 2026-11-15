@@ -46,6 +46,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
   </section>
 
   <script>
+    import { esc, safeHref } from "../scripts/escape";
     const RPC = "https://rpc.maya2c.dev/rpc";
     type Incident = { id: string; start_utc: string; end_utc: string; start_kst: string; end_kst: string; cause: string; links: { label: string; href: string }[] };
     const $ = (id: string) => document.getElementById(id) as HTMLElement;
@@ -65,10 +66,10 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
     function renderIncidents(list: Incident[]) {
       $("incidents").innerHTML = list.map((i) => `
         <li class="inc">
-          <h3>Halt · ${i.start_kst} to ${i.end_kst}</h3>
+          <h3>Halt · ${esc(i.start_kst)} to ${esc(i.end_kst)}</h3>
           <p>Lasted ${dur(unix(i.end_utc) - unix(i.start_utc))}.</p>
-          <p>Cause: ${i.cause}</p>
-          <p class="links">${i.links.map((l) => `<a href="${l.href}">${l.label}</a>`).join(" · ")}</p>
+          <p>Cause: ${esc(i.cause)}</p>
+          <p class="links">${i.links.map((l) => `<a href="${safeHref(l.href)}">${esc(l.label)}</a>`).join(" · ")}</p>
         </li>`).join("");
       // Day axis for the first incident's KST day: 00:00 to 24:00 KST.
       const first = list[0];
@@ -79,7 +80,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         <line x1="0" y1="30" x2="600" y2="30" class="axis" />
         ${[0, 6, 12, 18, 24].map((h) => `<text x="${(h / 24) * 600}" y="72" class="tick" text-anchor="${h === 0 ? "start" : h === 24 ? "end" : "middle"}">${String(h).padStart(2, "0")}:00</text>`).join("")}
         <rect x="${x(unix(first.start_utc))}" y="18" width="${(((unix(first.end_utc) - unix(first.start_utc)) / DAY) * 600).toFixed(1)}" height="24" rx="4" class="halt" />
-        <text x="${x(unix(first.start_utc))}" y="12" class="label">halt ${first.start_kst.slice(11, 19)} to ${first.end_kst.slice(11, 19)} KST</text>`;
+        <text x="${x(unix(first.start_utc))}" y="12" class="label">halt ${esc(first.start_kst.slice(11, 19))} to ${esc(first.end_kst.slice(11, 19))} KST</text>`;
     }
 
     let lastEnd = 0;
