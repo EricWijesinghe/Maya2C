@@ -41,3 +41,19 @@ body:
       label: Logs
       description: Relevant log lines. Remove anything private first.
       render: text
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux, Android, Other]
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched open and closed issues for this problem.
+          required: true
+        - label: This report contains no private key, seed phrase, password or personal data.
+          required: true

@@ -52,3 +52,9 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [GPU auto-tuning in a miner GUI (ADR-137 HW-1)](gpu-auto-tuning.md) — partially searched 2026-11-12
 - [Node hardware self-tuning (ADR-137 HW-2)](node-hardware-self-tuning.md) — not searched
 - [GPU batch verification of post-quantum signatures (ADR-137 HW-3)](gpu-signature-verification.md) — partially searched 2026-11-12
+- [Shielded transfers of user-issued tokens (ADR-110)](shielded-tokens.md) — searched 2026-11-12
+- [Treasury spend path and grants (ADR-111)](treasury-grants.md) — partially searched 2026-11-12
+- [Pull oracle with on-chain report verification (ADR-112)](pull-oracle.md) — searched 2026-11-12
+- [Vote delegation and conviction voting (ADR-113)](vote-delegation.md) — searched 2026-11-12
+- [Contract timers and scheduled execution (ADR-114)](contract-timers.md) — partially searched 2026-11-12
+- [Post-quantum verifiable random functions (ADR-115)](post-quantum-vrf.md) — searched 2026-11-12
