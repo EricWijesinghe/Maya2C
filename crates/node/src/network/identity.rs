@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use libp2p::PeerId;
 use libp2p::identity::Keypair;
+use zeroize::Zeroizing;
 
 use crate::error::{NodeError, Result};
 
@@ -61,8 +62,7 @@ pub fn load_or_create(data_dir: &Path) -> Result<Keypair> {
     let keypair = Keypair::generate_ed25519();
     let seed = seed_of(&keypair).map_err(|reason| identity_error(&path, reason))?;
 
-    std::fs::write(&path, seed).map_err(|e| identity_error(&path, e.to_string()))?;
-    restrict(&path);
+    write_new_owner_only(&path, &seed).map_err(|e| identity_error(&path, e.to_string()))?;
 
     Ok(keypair)
 }
@@ -90,14 +90,16 @@ pub fn load(path: &Path) -> Result<Keypair> {
 }
 
 /// Extracts the raw 32-byte seed from a keypair.
-fn seed_of(keypair: &Keypair) -> std::result::Result<Vec<u8>, String> {
-    Ok(keypair
-        .clone()
-        .try_into_ed25519()
-        .map_err(|e| format!("generated key is not ed25519: {e}"))?
-        .secret()
-        .as_ref()
-        .to_vec())
+fn seed_of(keypair: &Keypair) -> std::result::Result<Zeroizing<Vec<u8>>, String> {
+    Ok(Zeroizing::new(
+        keypair
+            .clone()
+            .try_into_ed25519()
+            .map_err(|e| format!("generated key is not ed25519: {e}"))?
+            .secret()
+            .as_ref()
+            .to_vec(),
+    ))
 }
 
 /// The `PeerId` a key file yields.
@@ -109,24 +111,35 @@ pub fn peer_id_at(path: &Path) -> Result<PeerId> {
     Ok(PeerId::from(load(path)?.public()))
 }
 
-/// Best-effort permission tightening on the key file.
+/// Creates the key file owner-only from the first byte, and never overwrites.
 ///
-/// Best-effort on purpose: a data directory on a filesystem without Unix modes
-/// is a reason to warn, not a reason to refuse to start a node.
+/// Mode is set at `open` rather than chmod-ed afterwards, so the seed is never
+/// readable by other users; `create_new` turns a racing creator into an error.
+/// Windows has no Unix mode bits: owner-only ACLs there are the ADR-049 decision.
 #[cfg(unix)]
-pub fn restrict(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
+fn write_new_owner_only(path: &Path, seed: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
 
-    if let Ok(metadata) = std::fs::metadata(path) {
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o600);
-        let _ = std::fs::set_permissions(path, permissions);
-    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(seed)
 }
 
-/// No-op on platforms without Unix permission bits.
+/// Non-Unix: no mode bits to set, so only the no-overwrite guarantee applies.
 #[cfg(not(unix))]
-pub fn restrict(_path: &Path) {}
+fn write_new_owner_only(path: &Path, seed: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    file.write_all(seed)
+}
 
 #[cfg(test)]
 mod tests {
@@ -197,5 +210,29 @@ mod tests {
         let first = peer_id_at(&path).expect("first");
         let second = peer_id_at(&path).expect("second");
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn a_new_key_file_is_never_overwritten() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = key_path(dir.path());
+        std::fs::write(&path, [9u8; SEED_LEN]).expect("write");
+
+        let error = write_new_owner_only(&path, &[1u8; SEED_LEN]).expect_err("must refuse");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).expect("read"), vec![9u8; SEED_LEN]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_key_file_is_owner_only_from_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = key_path(dir.path());
+        write_new_owner_only(&path, &[1u8; SEED_LEN]).expect("create");
+
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "key file readable beyond its owner");
     }
 }
