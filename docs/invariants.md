@@ -276,7 +276,8 @@ phase that did it.
     — ADR-082.
     **Unknown feature bits (ADR-082 amendment).** A version entry may carry
     feature bits this binary does not define (or zkML, which it defines but
-    cannot verify): it is admitted, stored and decoded like any other, and this
+    cannot verify, or the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED`
+    is false, ADR-044 amendment 2026-11-15): it is admitted, stored and decoded like any other, and this
     binary treats it as unsupported, halting with `UpgradeRequired` at its
     activation height and not one block before. Whether an entry is valid never
     depends on the binary checking it: refusing it at admission would make every
@@ -289,4 +290,6 @@ phase that did it.
     does not implement, which halts it the same way. A sunset-only entry still
     cannot switch any feature on, known or not. The halt through the import
     path and the BFT driver is pinned by `crates/node/tests/unknown_bit_halt_tests.rs`
-    and `crates/node/tests/bft_node_tests.rs`.
+    and `crates/node/tests/bft_node_tests.rs`; the work-claim case by
+    `crates/node/tests/upgrade_schedule_tests.rs`
+    (`work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`).

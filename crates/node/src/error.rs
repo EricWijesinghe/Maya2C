@@ -904,6 +904,11 @@ fn upgrade_reason(version: u32, supported: u32, unimplemented: u64) -> String {
         (true, 0) => format!(
             "protocol version {version} activates there and this binary supports up to version {supported}"
         ),
+        // Unreachable from `check_halt`, which builds the error only for an
+        // unsupported entry; kept honest for a hand-built error.
+        (false, 0) => format!(
+            "protocol version {version} activates there; this binary supports up to version {supported} and implements every bit it names"
+        ),
         (false, bits) => format!(
             "protocol version {version} activates there with feature bits {bits:#x} this binary does not implement (unknown: upgrade required)"
         ),

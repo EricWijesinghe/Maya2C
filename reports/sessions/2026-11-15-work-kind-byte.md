@@ -112,3 +112,20 @@ upgrade_schedule_tests.rs test result: ok. 12 passed; 0 failed
 NOT VERIFIED locally: `bft_node_tests` (changed by #506, not by this pass),
 clippy, `coverage --verify-targets` (left to CI). Wrong-length MINE-11 vectors
 were not added (optional in review).
+
+## Third pass (review fixes, 2026-11-15)
+
+- CON-15 (`spec/05-consensus.md`) and the invariant-34 amendment now name
+  the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED` is false as
+  unsupported, citing
+  `work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`.
+- ADR-082's "`IMPLEMENTED` is `KNOWN` less zkML" now also excludes `WORK_CLAIM`.
+- MINE-11 length vectors: `refuse-mining_share-len-16`, `-len-18`,
+  `refuse-work_claim-len-32`, `-len-34` (kind 0, only the length wrong).
+- `payload_tests::a_peer_block_carrying_an_undefined_work_kind_does_not_decode`
+  pins `Block::from_bytes` (the peer-block entry point; `Chain::insert_block`
+  takes a typed `Block` that cannot hold kind 1). A pin of existing behaviour,
+  so no red run.
+- `upgrade_reason` has a neutral `(false, 0)` arm.
+- Declined: mixing the kind into MINE-9's header and spent-share key (DECISIONS.md).
+- Open for Eric: halt-at-activation instead of refusal at the vote (DECISIONS.md).

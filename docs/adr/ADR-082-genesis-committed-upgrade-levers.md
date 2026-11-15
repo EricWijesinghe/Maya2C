@@ -126,8 +126,9 @@ before the activation.
 Now validity does not depend on the binary, and support does. An entry is
 **supported** by a binary only if its version is at most
 `SUPPORTED_PROTOCOL_VERSION` *and* every bit is in `FeatureSet::IMPLEMENTED`
-(`ProtocolUpgrade::is_supported_by`). `IMPLEMENTED` is `KNOWN` less zkML, which
-has no verifier (M3). An entry with any other bit is admitted under every other
+(`ProtocolUpgrade::is_supported_by`). `IMPLEMENTED` is `KNOWN` less zkML (no
+verifier, M3) and less `WORK_CLAIM` while `WORK_CLAIM_ADR_ACCEPTED` is false
+(ADR-044). An entry with any other bit is admitted under every other
 rule (lead, horizon, ordering, sunsets), written, and decoded.
 `first_unsupported` returns it, so `check_halt` refuses its activation height
 with `UpgradeRequired` (the message names the bits) and the node stops there, as

@@ -1084,6 +1084,16 @@ fn work_kind_cases(cases: &mut Vec<Value>) {
             };
             cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(&payload), "expect": expect}));
         }
+        // The exact-length half of MINE-11, with kind 0 so only the length is
+        // wrong: one byte short (a pre-kind 16-byte share or 32-byte claim
+        // whose first byte happens to be 0 decodes this way) and one trailing.
+        let mut long = base.clone();
+        long.push(0);
+        for payload in [&base[..len - 1], &long[..]] {
+            assert!(mining::work_payload(payload, len).is_err());
+            let id = format!("refuse-{payload_type}-len-{}", payload.len());
+            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(payload), "expect": {"result": "error", "error": "MINE-11"}}));
+        }
     }
 }
 

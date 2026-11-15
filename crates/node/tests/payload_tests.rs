@@ -1038,7 +1038,9 @@ fn every_work_kind_byte_but_zero_is_refused_at_decode() {
 
 #[test]
 fn an_undefined_work_kind_is_refused_at_mempool_admission() {
-    // Pins the admission path itself, not only the decode it starts with.
+    // Pins that `insert_encoded`, the gossip/RPC entry point, refuses before
+    // pooling. The refusal comes from the same decode as the test above: a
+    // structurally built `TxKind` cannot carry an undefined kind.
     let dir = tempfile::tempdir().expect("tempdir");
     let state =
         std::sync::Arc::new(custom_l1_node::state::StateDB::open(dir.path()).expect("state"));
@@ -1058,4 +1060,49 @@ fn an_undefined_work_kind_is_refused_at_mempool_admission() {
         "{err}"
     );
     assert!(pool.is_empty());
+}
+
+#[test]
+fn a_peer_block_carrying_an_undefined_work_kind_does_not_decode() {
+    // `Chain::insert_block` takes a typed `Block`, which cannot hold kind 1, so
+    // a peer's block is refused where its bytes become one: `Block::from_bytes`.
+    use custom_l1_node::core::{Block, BlockHeader};
+    use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+
+    let epoch = 0x3132_3334_3536_3738u64;
+    let share = Transaction::with_kind(
+        TxKind::MiningShare(MiningShare {
+            kind: WorkKind::DagPow,
+            epoch,
+            nonce: 1,
+        }),
+        0,
+    );
+    let block = Block::new(
+        BlockHeader {
+            version: 0,
+            prev_hash: [0u8; 32],
+            state_root: [0u8; 32],
+            timestamp: 1_789_200_000,
+            nonce: 0,
+            difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
+        },
+        vec![share],
+    );
+    let mut bytes = block.to_bytes();
+    Block::from_bytes(&bytes).expect("kind 0 in a block decodes");
+
+    let mut marker = vec![0u8];
+    marker.extend_from_slice(&epoch.to_le_bytes());
+    let at = bytes
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .expect("share payload in block");
+    bytes[at] = 1;
+    let err = Block::from_bytes(&bytes).expect_err("kind 1 in a block is refused");
+    assert!(
+        matches!(err, custom_l1_node::error::NodeError::Decode(_)),
+        "{err}"
+    );
 }

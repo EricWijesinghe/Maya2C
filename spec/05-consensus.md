@@ -32,7 +32,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
 - **CON-14** An upgrade-schedule entry that names a version is admitted whatever feature bits it carries, subject to the lead, the horizon, strictly increasing versions and heights, and the suite rules (ADR-082). A sunset-only entry that carries any feature bit is refused. *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
-- **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, or zkML while it has no verifier). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+- **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, zkML while it has no verifier, or the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED` is false, ADR-044 amendment 2026-11-15; negative case `work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
 
 ## Vectors and gaps
 
