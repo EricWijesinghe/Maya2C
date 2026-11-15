@@ -19,12 +19,18 @@ use crate::{Address, ChatError};
 
 /// Most envelopes one mailbox holds.
 pub const MAX_ENVELOPES: usize = 1_000;
-/// Most bytes one mailbox holds.
-pub const MAX_MAILBOX_BYTES: usize = 16 << 20;
+/// Most bytes one mailbox holds. A fetch writes the envelopes as CBOR integer
+/// arrays, up to twice their stored size, and the whole mailbox goes in one
+/// response, so this keeps that response under the client's response cap.
+pub const MAX_MAILBOX_BYTES: usize = 9 << 20;
 /// Largest single envelope.
 pub const MAX_ENVELOPE_BYTES: usize = 256 << 10;
 /// Longest an envelope may ask to be kept, seconds.
 pub const MAX_TTL: u64 = 30 * 24 * 3_600;
+/// Longest a prekey bundle may run, seconds from now. Clients publish 30 days
+/// out; the spare day covers clock skew. Without a bound a bundle could hold
+/// its directory slot forever.
+pub const MAX_PREKEY_TTL: u64 = 31 * 24 * 3_600;
 /// How long a fetch challenge stays valid, seconds.
 pub const CHALLENGE_TTL: u64 = 120;
 /// Most bytes held across every mailbox. Per-mailbox quotas alone do not
@@ -41,6 +47,10 @@ const STAMP_DOMAIN: &str = "maya-chat 2026-09-28 postage stamp v1";
 /// to fill a 1,000-envelope mailbox. Senders are anonymous to the relay, so
 /// work is what a flood costs; a relay may ask for more.
 pub const STAMP_BITS: u32 = 20;
+/// Most postage a sender will mint. A stamp costs about 2^bits hashes, and a
+/// relay's quote comes from the network, so a larger one is refused rather
+/// than ground out for hours. A relay that wants more than this is unusable.
+pub const MAX_POSTAGE_BITS: u32 = 24;
 
 /// The envelope encoding this build reads and writes, and the newest it
 /// accepts. Version 1 is the original CBOR (integer arrays for bytes);
@@ -149,6 +159,9 @@ impl Envelope {
     ///
     /// [`ChatError::Encoding`].
     pub fn mint(self, bits: u32) -> Result<Self, ChatError> {
+        if bits > MAX_POSTAGE_BITS {
+            return Err(ChatError::Refused("postage above the most a sender mints"));
+        }
         let id = self.id()?;
         let stamp = (0..=u64::MAX)
             .find(|s| Self::stamp_work(&id, *s) >= bits)
@@ -223,6 +236,11 @@ impl Relay {
     ///
     /// A forged or expired bundle, or one older than the one held.
     pub fn publish(&mut self, bundle: PrekeyBundle, now: u64) -> Result<Address, ChatError> {
+        // Checked before the signature: it is a comparison, not an ML-DSA verify.
+        // Signed into the bundle, so refused rather than clamped.
+        if bundle.expires_at > now.saturating_add(MAX_PREKEY_TTL) {
+            return Err(ChatError::Refused("prekey outlives what this relay keeps"));
+        }
         let address = bundle.verify(now)?;
         if !self.bundles.contains_key(&address) && self.bundles.len() >= MAX_BUNDLES {
             self.bundles.retain(|_, b| b.expires_at > now);
@@ -317,6 +335,13 @@ impl Relay {
     ///
     /// [`ChatError::Entropy`].
     pub fn challenge(&mut self, address: Address, now: u64) -> Result<[u8; 32], ChatError> {
+        // A pending nonce is returned, not replaced: a second request must not
+        // void the owner's fetch that is already on its way.
+        if let Some(&(nonce, issued)) = self.challenges.get(&address) {
+            if now.saturating_sub(issued) <= CHALLENGE_TTL {
+                return Ok(nonce);
+            }
+        }
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce).map_err(|_| ChatError::Entropy)?;
         if self.challenges.len() >= MAX_CHALLENGES {
@@ -332,7 +357,7 @@ impl Relay {
 
     /// Empties a mailbox for its owner: `identity_key` must be the address's
     /// key and `signature` must sign the current challenge, which is then
-    /// spent.
+    /// spent. A failed attempt leaves the challenge pending for the owner.
     ///
     /// # Errors
     ///
@@ -344,11 +369,12 @@ impl Relay {
         signature: &[u8],
         now: u64,
     ) -> Result<Vec<Envelope>, ChatError> {
-        let (nonce, issued) = self
+        let &(nonce, issued) = self
             .challenges
-            .remove(&address)
+            .get(&address)
             .ok_or(ChatError::Refused("no challenge issued"))?;
         if now.saturating_sub(issued) > CHALLENGE_TTL {
+            self.challenges.remove(&address);
             return Err(ChatError::Expired);
         }
         if address_of(identity_key) != address {
@@ -361,6 +387,7 @@ impl Relay {
             signature,
         )
         .map_err(|_| ChatError::BadSignature)?;
+        self.challenges.remove(&address);
         let mailbox = self.mailboxes.remove(&address).unwrap_or_default();
         self.bytes -= mailbox.bytes;
         Ok(mailbox
