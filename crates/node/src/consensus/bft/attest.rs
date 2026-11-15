@@ -585,7 +585,9 @@ mod tests {
         let mut collector = Collector::default();
         let counted = attest(&signing, 1, 4, 1);
         assert_eq!(
-            collector.add(counted.clone(), &CHAIN, &committee, None).unwrap(),
+            collector
+                .add(counted.clone(), &CHAIN, &committee, None)
+                .unwrap(),
             Collected::Counted
         );
         let mut replay = counted;

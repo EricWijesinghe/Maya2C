@@ -176,7 +176,10 @@ mod tests {
         std::fs::create_dir_all(bft.join("epoch-3")).unwrap();
         assert!(!holds_safety_log(&bft).unwrap(), "empty epoch directory");
         std::fs::write(bft.join("epoch-3").join("certs.log"), b"x").unwrap();
-        assert!(!holds_safety_log(&bft).unwrap(), "certs log is not a safety log");
+        assert!(
+            !holds_safety_log(&bft).unwrap(),
+            "certs log is not a safety log"
+        );
         std::fs::write(bft.join("epoch-3").join(SAFETY_LOG), b"x").unwrap();
         assert!(holds_safety_log(&bft).unwrap());
     }

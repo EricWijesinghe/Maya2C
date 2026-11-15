@@ -355,10 +355,19 @@ mod tests {
         let mut orphans: Orphans = HashMap::new();
         for nonce in 0..MAX_ORPHANS_PER_PARENT as u64 {
             assert!(has_orphan_room(&orphans, &parent));
-            orphans.entry(parent).or_default().push(orphan_under(parent, nonce));
+            orphans
+                .entry(parent)
+                .or_default()
+                .push(orphan_under(parent, nonce));
         }
-        assert!(!has_orphan_room(&orphans, &parent), "per-parent cap not enforced");
-        assert!(has_orphan_room(&orphans, &[8u8; 32]), "another parent is refused");
+        assert!(
+            !has_orphan_room(&orphans, &parent),
+            "per-parent cap not enforced"
+        );
+        assert!(
+            has_orphan_room(&orphans, &[8u8; 32]),
+            "another parent is refused"
+        );
     }
 
     #[test]
@@ -369,6 +378,9 @@ mod tests {
             parent[..8].copy_from_slice(&nonce.to_be_bytes());
             orphans.insert(parent, vec![orphan_under(parent, nonce)]);
         }
-        assert!(!has_orphan_room(&orphans, &[0xff; 32]), "full pool still admits");
+        assert!(
+            !has_orphan_room(&orphans, &[0xff; 32]),
+            "full pool still admits"
+        );
     }
 }
