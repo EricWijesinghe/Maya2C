@@ -16,6 +16,14 @@ use maya_crypto_pq::suite::{MasterSeed, ValidatorSigningKey};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+use crate::sealed::{
+    MAX_KDF_MEMORY_KIB, MAX_KDF_PASSES, MIN_KDF_MEMORY_KIB, MIN_KDF_PASSES, MIN_PASSPHRASE_LEN,
+};
+
+/// A keystore is a few KiB of JSON; the ML-DSA-87 public key dominates it.
+/// Capped before parsing so a crafted file cannot make the signer read unbounded input.
+const MAX_KEYSTORE_BYTES: u64 = 64 * 1024;
+
 /// Argon2id memory, KiB. 64 MiB: slow enough to make guessing a weak
 /// passphrase expensive, small enough for a signer box.
 pub(crate) const KDF_MEMORY_KIB: u32 = 64 * 1024;
@@ -79,13 +87,33 @@ pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, KeystoreError> {
     if !s.len().is_multiple_of(2) {
         return Err(KeystoreError::Format("odd hex".into()));
     }
+    // `get` not indexing: a multi-byte character would panic on a byte slice.
     (0..s.len())
         .step_by(2)
         .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16)
-                .map_err(|_| KeystoreError::Format("bad hex".into()))
+            s.get(i..i + 2)
+                .filter(|pair| pair.bytes().all(|b| b.is_ascii_hexdigit()))
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+                .ok_or_else(|| KeystoreError::Format("bad hex".into()))
         })
         .collect()
+}
+
+/// Writes `bytes` to a new file at `path`, owner-only on Unix. Refuses to
+/// overwrite: replacing a keystore is an operator decision, not a side effect of init.
+fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), KeystoreError> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
 }
 
 /// Writes a new keystore for `seed` at `path`, sealed under `passphrase`.
@@ -94,6 +122,11 @@ pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, KeystoreError> {
 ///
 /// [`KeystoreError`] on I/O or entropy failure.
 pub fn create(path: &Path, seed: &MasterSeed, passphrase: &[u8]) -> Result<Vec<u8>, KeystoreError> {
+    if passphrase.len() < MIN_PASSPHRASE_LEN {
+        return Err(KeystoreError::Format(format!(
+            "passphrase shorter than {MIN_PASSPHRASE_LEN} bytes"
+        )));
+    }
     let mut salt = [0u8; 16];
     let mut nonce = [0u8; 12];
     getrandom::fill(&mut salt).map_err(|_| KeystoreError::Entropy)?;
@@ -116,7 +149,7 @@ pub fn create(path: &Path, seed: &MasterSeed, passphrase: &[u8]) -> Result<Vec<u
     };
     let text =
         serde_json::to_string_pretty(&file).map_err(|e| KeystoreError::Format(e.to_string()))?;
-    std::fs::write(path, text)?;
+    write_private_new(path, text.as_bytes())?;
     Ok(public.to_vec())
 }
 
@@ -127,13 +160,30 @@ pub fn create(path: &Path, seed: &MasterSeed, passphrase: &[u8]) -> Result<Vec<u
 /// [`KeystoreError::Decrypt`] for a wrong passphrase or a tampered file, and
 /// if the decrypted seed does not produce the public key the file declares.
 pub fn open(path: &Path, passphrase: &[u8]) -> Result<MasterSeed, KeystoreError> {
-    let file: File = serde_json::from_str(&std::fs::read_to_string(path)?)
-        .map_err(|e| KeystoreError::Format(e.to_string()))?;
+    use std::io::Read;
+    let mut text = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_KEYSTORE_BYTES + 1)
+        .read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_KEYSTORE_BYTES {
+        return Err(KeystoreError::Format("keystore file too large".into()));
+    }
+    let file: File =
+        serde_json::from_str(&text).map_err(|e| KeystoreError::Format(e.to_string()))?;
     if file.format != FORMAT || file.kdf != "argon2id" {
         return Err(KeystoreError::Format(format!(
             "format {} kdf {}",
             file.format, file.kdf
         )));
+    }
+    // Same bounds as the sealed-secret format: a crafted file must not make
+    // the host hash for minutes, nor pass parameters the KDF rejects.
+    if !(MIN_KDF_MEMORY_KIB..=MAX_KDF_MEMORY_KIB).contains(&file.kdf_memory_kib)
+        || !(MIN_KDF_PASSES..=MAX_KDF_PASSES).contains(&file.kdf_passes)
+    {
+        return Err(KeystoreError::Format(
+            "kdf parameters outside the accepted range".into(),
+        ));
     }
     let key = key_from(
         passphrase,

@@ -236,8 +236,11 @@ impl SlashingDb {
         }
         out.sync_all()?;
         drop(out);
+        // Opened before the rename: a handle on the old inode after the rename
+        // would keep appending to an unlinked file, losing later records.
+        let appender = OpenOptions::new().append(true).open(&tmp)?;
         std::fs::rename(&tmp, &self.path)?;
-        self.file = OpenOptions::new().append(true).open(&self.path)?;
+        self.file = appender;
         self.lines = self.records.len();
         Ok(())
     }
@@ -373,10 +376,14 @@ impl SlashingDb {
                         .round
                         .parse()
                         .map_err(|_| DbError::Format(format!("round {}", s.round)))?;
-                    let author = s
+                    let author: u16 = s
                         .author
                         .parse()
                         .map_err(|_| DbError::Format(format!("author {}", s.author)))?;
+                    // Same bound as approve: an out-of-committee author is never signed for.
+                    if author >= MAX_AUTHORS {
+                        return Err(Refusal::OutOfRange { round, author }.into());
+                    }
                     let record = Record {
                         kind,
                         round,

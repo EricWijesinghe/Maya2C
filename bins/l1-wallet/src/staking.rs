@@ -169,6 +169,12 @@ mod tests {
         let key = generate_signing_key().unwrap();
         let pass_path = dir.path().join("pass");
         std::fs::write(&pass_path, "a long enough passphrase\n").unwrap();
+        // The node refuses a passphrase file readable by other users.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&pass_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         let sealed_text = sealed::seal(
             key.to_bytes().as_slice(),
             &key.verifying_key().to_bytes(),
