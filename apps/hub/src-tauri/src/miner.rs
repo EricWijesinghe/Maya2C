@@ -158,6 +158,8 @@ struct Plan {
     binary: String,
     install: PathBuf,
     key_file: PathBuf,
+    /// The Hub's data folder the key must stay inside; re-checked at each launch.
+    data: PathBuf,
     threads: usize,
     device: Option<u32>,
     ceiling_c: f64,
@@ -302,6 +304,8 @@ impl Worker {
     /// the pinned binary and the key file are checked each time.
     fn launch(&mut self, now: u64) -> Result<(), String> {
         let pinned = miner_guard::check_miner(&self.plan.binary, &self.plan.install, PINNED_SUMS)
+            .map_err(|e| e.to_string())?;
+        miner_guard::check_key_file(&self.plan.key_file, &self.plan.data)
             .map_err(|e| e.to_string())?;
         let mut child = Command::new(&pinned.path)
             .args(["--mine", "--json", "--rpc"])
@@ -485,6 +489,7 @@ impl Miner {
             binary: config.binary.clone(),
             install: install.to_path_buf(),
             key_file,
+            data: data.to_path_buf(),
             threads: config.threads.clamp(1, MAX_THREADS),
             device: config.device,
             ceiling_c: clamp_ceiling(config.thermal_ceiling_c),
@@ -725,6 +730,7 @@ mod tests {
             binary: "maya2c-gpu-miner.exe".into(),
             install: PathBuf::from("."),
             key_file: PathBuf::from("miner.key"),
+            data: PathBuf::from("."),
             threads: 2,
             device,
             ceiling_c: 80.0,

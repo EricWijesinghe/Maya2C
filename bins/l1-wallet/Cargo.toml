@@ -27,6 +27,9 @@ custom-l1-node = { path = "../../crates/node" }
 maya-address = { path = "../../crates/address" }
 # Opens a validator key sealed by `maya2c-node --seal-validator-key`.
 maya-signer = { path = "../../crates/signer" }
+# `generate` seeds the key from health-tested entropy (SP 800-90B start-up
+# and continuous tests, ADR-137 HW-5) instead of a bare `getrandom`.
+maya-entropy = { path = "../../hal/entropy" }
 clap = { workspace = true, features = ["derive", "env"] }
 jsonrpsee = { workspace = true, features = ["http-client"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
