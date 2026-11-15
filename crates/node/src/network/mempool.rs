@@ -268,7 +268,7 @@ impl Mempool {
         // pay right now: right epoch, not yet spent, work meeting the target.
         // Those run first because they are cheaper than the signature.
         if let crate::core::TxKind::MiningShare(share) = &tx.kind
-            && tx.outputs.is_empty()
+            && is_share(tx)
         {
             return self.validate_share(tx, share);
         }

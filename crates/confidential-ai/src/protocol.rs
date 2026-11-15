@@ -215,14 +215,21 @@ pub struct Participant {
     held_shares: BTreeMap<u16, Share>,
     own_share: Option<Share>,
     answered: Option<Vec<u16>>,
-    // One share set and one masked input per round: a second of either, with
-    // the same self-mask, would let the difference of two inputs be read off.
+    // At most one share set and one masked input per instance. These guards
+    // live on this instance, not the round: a new participant built from the
+    // same entropy has the same self-mask and fresh guards, so callers must
+    // draw fresh entropy for every round.
     shares_sent: Cell<bool>,
     masked_sent: Cell<bool>,
 }
 
 impl Participant {
     /// A participant with fresh keys, drawing its seeds from `entropy`.
+    ///
+    /// `entropy` must be fresh for every round. The self-mask is derived from
+    /// it, and the one-share-set and one-masked-input guards apply to this
+    /// instance only, so the same entropy reused in a new instance repeats the
+    /// mask.
     ///
     /// # Errors
     ///

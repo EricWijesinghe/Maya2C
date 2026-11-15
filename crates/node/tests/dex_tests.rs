@@ -25,10 +25,12 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
+use custom_l1_node::governance::ParameterTable;
 use custom_l1_node::state::{
     Account, Address, AssetId, BlockContext, Direction, NATIVE_ASSET, PRICE_SCALE, PoolRecord,
     Side, StateDB, derive_asset_id, derive_lp_asset, derive_pair_id,
 };
+use maya_governance::params::ParameterKey;
 use primitive_types::U256;
 use tempfile::TempDir;
 
@@ -122,12 +124,17 @@ fn market() -> Market {
 /// and two state roots that differ only because the accounts are in different
 /// places would look exactly like the failure these tests are hunting for.
 fn market_with(maker: HybridSigningKey) -> Market {
+    market_with_fee(maker, LP_FEE_BPS)
+}
+
+/// The same market, with the pool's own LP rate chosen by the caller.
+fn market_with_fee(maker: HybridSigningKey, lp_fee_bps: u32) -> Market {
     let maker_address = maker.address();
     let fixture = fixture(&[(maker_address, NATIVE_SEED)]);
 
     let asset = derive_asset_id(&maker_address, 0, &symbol("USD"));
     // The native coin is all zeros, so it is always the canonical base.
-    let pair = derive_pair_id(&NATIVE_ASSET, &asset, LP_FEE_BPS);
+    let pair = derive_pair_id(&NATIVE_ASSET, &asset, lp_fee_bps);
 
     let block = block_of(vec![
         signed(
@@ -142,7 +149,7 @@ fn market_with(maker: HybridSigningKey) -> Market {
             TxKind::CreatePool(PoolCreation {
                 asset_a: NATIVE_ASSET,
                 asset_b: asset,
-                lp_fee_bps: LP_FEE_BPS,
+                lp_fee_bps,
                 amount_a: primitive_types::U256::from(POOL_NATIVE),
                 amount_b: primitive_types::U256::from(POOL_ASSET),
             }),
@@ -1324,6 +1331,190 @@ fn two_crossing_orders_match_at_the_end_of_the_block() {
             .expect("read")
             .is_none()
     );
+}
+
+// ---------------------------------------------------------------------------
+// the governed protocol rate
+// ---------------------------------------------------------------------------
+
+/// Where governance keeps the parameter table (`PARAMETERS_KEY`, `g:params`).
+const PARAMETERS_KEY: &[u8] = b"g:params";
+
+/// Writes a protocol rate straight into the parameter table, as a passed
+/// proposal leaves it. A full vote adds nothing to what these tests check.
+fn govern_protocol_rate(market: &Market, bps: u64) {
+    let table = ParameterTable::new().with(
+        ParameterKey::DexProtocolFeeBps,
+        maya_dex::Amount::from_u64(bps),
+    );
+    market
+        .db()
+        .raw_put_for_test(PARAMETERS_KEY, &table.encode())
+        .expect("govern the rate");
+}
+
+fn swap_base_to_quote(market: &Market, amount: u64) -> TxKind {
+    TxKind::Swap(SwapRequest {
+        pair: market.pair,
+        direction: Direction::BaseToQuote.tag(),
+        amount_in: primitive_types::U256::from(amount),
+        min_out: primitive_types::U256::from(1),
+        deadline: 0,
+    })
+}
+
+#[test]
+fn a_governed_rate_the_pool_cannot_carry_refunds_the_batch_without_failing_the_block() {
+    // A 400 bps LP rate plus a 200 bps governed rate is past the 500 bps
+    // ceiling, so this pool cannot carry the governed rate.
+    let mut market = market_with_fee(generate_signing_key().expect("key"), 400);
+    govern_protocol_rate(&market, 200);
+    let native_before = market.native(&market.maker_address);
+    let reserves_before = market.reserves();
+
+    market
+        .apply(vec![swap_base_to_quote(&market, 1_000)], 2)
+        .expect("the block still applies");
+
+    // The input escrowed at submission comes straight back, and the pool
+    // does not move.
+    assert_eq!(market.native(&market.maker_address), native_before);
+    assert_eq!(market.reserves(), reserves_before);
+}
+
+#[test]
+fn a_governed_rate_the_pool_cannot_carry_leaves_the_book_resting() {
+    let mut market = market_with_fee(generate_signing_key().expect("key"), 400);
+    govern_protocol_rate(&market, 200);
+    let taker = generate_signing_key().expect("key");
+    let taker_address = taker.address();
+
+    market
+        .apply(
+            vec![TxKind::TransferAsset(AssetTransfer {
+                asset: market.asset,
+                recipient: taker_address,
+                amount: primitive_types::U256::from(100_000),
+            })],
+            2,
+        )
+        .expect("fund");
+    let taker_native_before = market.native(&taker_address);
+    let ask_nonce = market.nonce;
+
+    // The ask would cross the bid at the same block's end, if the book were
+    // matched. It must not be.
+    let block = block_of(vec![
+        signed(
+            TxKind::PlaceOrder(OrderPlacement {
+                pair: market.pair,
+                side: Side::Ask.tag(),
+                price: maya_stateless_core::amount::to_u256(price(4)),
+                amount: primitive_types::U256::from(1_000),
+                expiry: 0,
+            }),
+            ask_nonce,
+            &market.maker,
+        ),
+        signed(
+            TxKind::PlaceOrder(OrderPlacement {
+                pair: market.pair,
+                side: Side::Bid.tag(),
+                price: maya_stateless_core::amount::to_u256(price(5)),
+                amount: primitive_types::U256::from(1_000),
+                expiry: 0,
+            }),
+            0,
+            &taker,
+        ),
+    ]);
+    market
+        .db()
+        .apply_block(&block, BlockContext::at_height(3))
+        .expect("the block still applies");
+
+    // Nothing filled: the bidder received no base, and the ask still rests.
+    assert_eq!(market.native(&taker_address), taker_native_before);
+    assert!(
+        market
+            .db()
+            .get_order(&custom_l1_node::state::dex::derive_order_id(
+                &market.maker_address,
+                ask_nonce
+            ))
+            .expect("read")
+            .is_some()
+    );
+}
+
+#[test]
+fn a_nonzero_governed_rate_takes_its_cut_of_a_batched_swap() {
+    let maker = generate_signing_key().expect("key");
+    let mut received = Vec::new();
+    for rate in [0_u64, 100] {
+        let mut market = market_with(maker.clone());
+        govern_protocol_rate(&market, rate);
+        market
+            .apply(vec![swap_base_to_quote(&market, 1_000)], 2)
+            .expect("swap");
+        received.push(market.held(&market.maker_address));
+    }
+    // The same swap returns less once the chain takes its rate.
+    assert!(received[1] < received[0]);
+}
+
+#[test]
+fn a_nonzero_governed_rate_takes_its_cut_of_a_book_fill() {
+    let maker = generate_signing_key().expect("key");
+    let mut bidder_received = Vec::new();
+    for rate in [0_u64, 100] {
+        let mut market = market_with(maker.clone());
+        govern_protocol_rate(&market, rate);
+        let taker = generate_signing_key().expect("key");
+        let taker_address = taker.address();
+        market
+            .apply(
+                vec![TxKind::TransferAsset(AssetTransfer {
+                    asset: market.asset,
+                    recipient: taker_address,
+                    amount: primitive_types::U256::from(100_000),
+                })],
+                2,
+            )
+            .expect("fund");
+        let ask_nonce = market.nonce;
+        let block = block_of(vec![
+            signed(
+                TxKind::PlaceOrder(OrderPlacement {
+                    pair: market.pair,
+                    side: Side::Ask.tag(),
+                    price: maya_stateless_core::amount::to_u256(price(4)),
+                    amount: primitive_types::U256::from(1_000),
+                    expiry: 0,
+                }),
+                ask_nonce,
+                &market.maker,
+            ),
+            signed(
+                TxKind::PlaceOrder(OrderPlacement {
+                    pair: market.pair,
+                    side: Side::Bid.tag(),
+                    price: maya_stateless_core::amount::to_u256(price(5)),
+                    amount: primitive_types::U256::from(1_000),
+                    expiry: 0,
+                }),
+                0,
+                &taker,
+            ),
+        ]);
+        market
+            .db()
+            .apply_block(&block, BlockContext::at_height(3))
+            .expect("match");
+        bidder_received.push(market.native(&taker_address));
+    }
+    // The bidder takes the fill net of the fee, and the rate adds to the fee.
+    assert!(bidder_received[1] < bidder_received[0]);
 }
 
 // ---------------------------------------------------------------------------

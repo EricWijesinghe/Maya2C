@@ -14,7 +14,7 @@ use custom_l1_node::consensus::U256;
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::mining_payload::MiningShare;
 use custom_l1_node::core::payload::TxKind;
-use custom_l1_node::core::transaction::Transaction;
+use custom_l1_node::core::transaction::{Transaction, TxInput};
 use custom_l1_node::crypto::dag::Params;
 use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
@@ -458,4 +458,32 @@ fn a_tail_needs_a_reserve_that_pays_it_until_the_last_height() {
     config.allocations[0].balance = lifetime;
     let state = Arc::new(StateDB::open(funded.path()).unwrap());
     config.seed_state(&state).unwrap();
+}
+
+#[test]
+fn the_mempool_charges_a_share_that_names_an_input_the_base_fee() {
+    // Valid epoch and work, but an input the share spends: it is not
+    // fee-free, so admission refuses it for the fee, as the block would.
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 64);
+
+    let mut tx = Transaction::new(
+        vec![TxInput {
+            prev_tx: [0; 32],
+            index: 0,
+        }],
+        vec![],
+        0,
+    );
+    tx.kind = TxKind::MiningShare(MiningShare {
+        epoch: 1,
+        nonce: good[0],
+    });
+    tx.sign(&miner(), &common::test_chain()).unwrap();
+
+    let err = pool.validate(&tx).unwrap_err();
+    assert!(matches!(err, NodeError::FeeTooLow { .. }), "{err:?}");
 }

@@ -76,7 +76,6 @@ fn governance_error(error: GovernanceError) -> NodeError {
     }
 }
 
-/// The schedule request a passed `ScheduleUpgrade` asks for (ADR-082).
 /// Whether every change is still legal at execution time.
 ///
 /// Range-checks each value as well as the suite rule: a bound a release
@@ -124,6 +123,7 @@ mod changes_admissible_tests {
     }
 }
 
+/// The schedule request a passed `ScheduleUpgrade` asks for (ADR-082).
 fn schedule_request(upgrade: &ScheduleUpgrade) -> ScheduleRequest {
     ScheduleRequest {
         activation: upgrade.activation_height,

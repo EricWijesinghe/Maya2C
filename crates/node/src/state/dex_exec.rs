@@ -321,20 +321,26 @@ impl StateDB {
     /// zero protocol rate. The chain's cut is read here, at execution, so a
     /// governance decision reaches every pool rather than only the ones
     /// created after it.
-    fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<PoolRecord> {
+    ///
+    /// `Ok(None)` means only that the pool cannot carry the governed rate (the
+    /// fee ceiling rejects the sum). Storage and decode errors are returned as
+    /// errors, never folded into `None`: a node-local read failure must not
+    /// change what the block does.
+    fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<Option<PoolRecord>> {
         let protocol_bps =
             u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
                 .unwrap_or(u32::MAX);
 
-        let fees = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps)
-            .map_err(|error| trade_error("pool pricing", error))?;
-        Ok(PoolRecord {
+        let Ok(fees) = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps) else {
+            return Ok(None);
+        };
+        Ok(Some(PoolRecord {
             pool: Pool {
                 fees,
                 ..record.pool
             },
             ..*record
-        })
+        }))
     }
 
     /// Reads a pool through the overlay, requiring that it exists.
@@ -733,6 +739,7 @@ impl StateDB {
                 } else {
                     let stored = self.require_pool(overlay, &leg.pair)?;
                     self.priced(overlay, &stored)?
+                        .ok_or_else(|| trade_error("pool pricing", DexError::FeeTooHigh))?
                 };
 
             let input = input_asset(&record, direction);
@@ -1001,8 +1008,9 @@ impl StateDB {
         // Priced with the chain's current protocol rate, which the stored
         // record deliberately does not carry. A governed rate the pool cannot
         // carry refunds the batch: halting the block would let one pool's
-        // fee schedule stop every transaction in the chain.
-        let Ok(priced) = self.priced(overlay, &record) else {
+        // fee schedule stop every transaction in the chain. Storage errors
+        // are not that case and still fail the block.
+        let Some(priced) = self.priced(overlay, &record)? else {
             return self.refund_batch(overlay, &record, &intents);
         };
         // A batch that would leave the pool with no usable price is refused the
@@ -1069,7 +1077,7 @@ impl StateDB {
         // Fills take the governed protocol rate, as swaps do. A rate the pool
         // cannot carry leaves the book resting for this block, with no funds
         // moved, rather than halting the block.
-        let Ok(pool) = self.priced(overlay, &stored) else {
+        let Some(pool) = self.priced(overlay, &stored)? else {
             return Ok(());
         };
         let mut book = Book::new();

@@ -20,9 +20,7 @@
 //! one is competing on speed and accepts that ordering matters. A plain swap is
 //! the ordinary user's, and they are the ones being protected.
 //!
-//! This is not a batch protection for routes: a route moves its pools when it
-//! executes, so a batch on the same pair later in the block settles at the
-//! moved price (docs/dex.md).
+//! Routes are not batched and carry no batch protection; see docs/dex.md.
 
 use maya_dex::types::PairId;
 
