@@ -241,4 +241,23 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(open, Ok(true));
     }
+
+    #[test]
+    fn users_read_ace_is_refused() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        let path = key_with_acl(
+            "users",
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-5-32-545:R",
+            ],
+        );
+        let open = others_can_access(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(open, Ok(true));
+    }
 }

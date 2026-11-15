@@ -58,3 +58,9 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Threshold decryption as a contract primitive (threshold-decryption)](threshold-decryption.md) — searched 2026-11-12
 - [Verifiable-compute markets and inference receipts (verifiable-inference)](verifiable-inference.md) — searched 2026-11-12
 - [Agent registries and agent-to-agent payments (agent-registry)](agent-registry.md) — searched 2026-11-12
+- [Shielded transfers of user-issued tokens (ADR-110)](shielded-tokens.md) — searched 2026-11-12
+- [Treasury spend path and grants (ADR-111)](treasury-grants.md) — partially searched 2026-11-12
+- [Pull oracle with on-chain report verification (ADR-112)](pull-oracle.md) — searched 2026-11-12
+- [Vote delegation and conviction voting (ADR-113)](vote-delegation.md) — searched 2026-11-12
+- [Contract timers and scheduled execution (ADR-114)](contract-timers.md) — partially searched 2026-11-12
+- [Post-quantum verifiable random functions (ADR-115)](post-quantum-vrf.md) — searched 2026-11-12
