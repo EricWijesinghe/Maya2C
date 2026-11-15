@@ -183,7 +183,7 @@ impl RateLimiter {
             self.windows
                 .retain(|_, (start, _)| now.saturating_duration_since(*start) < REQUEST_WINDOW);
             if self.windows.len() >= MAX_LIMITED_PEERS {
-                return false;
+                self.forget_oldest();
             }
         }
         let window = self.windows.entry(peer).or_insert((now, 0));
@@ -195,6 +195,19 @@ impl RateLimiter {
         }
         window.1 += 1;
         true
+    }
+
+    /// Drops the window that started longest ago. Refusing newcomers instead
+    /// would let churned peer ids deny sync to everyone else.
+    fn forget_oldest(&mut self) {
+        let oldest = self
+            .windows
+            .iter()
+            .min_by_key(|entry| (entry.1).0)
+            .map(|(peer, _)| *peer);
+        if let Some(peer) = oldest {
+            self.windows.remove(&peer);
+        }
     }
 }
 
@@ -288,5 +301,19 @@ mod tests {
         assert!(!limiter.allow(peer, now));
         assert!(limiter.allow(PeerId::random(), now));
         assert!(limiter.allow(peer, now + REQUEST_WINDOW));
+    }
+
+    #[test]
+    fn a_newcomer_is_admitted_when_the_table_is_full() {
+        let mut limiter = RateLimiter::default();
+        let now = Instant::now();
+        for _ in 0..MAX_LIMITED_PEERS {
+            assert!(limiter.allow(PeerId::random(), now));
+        }
+        assert!(
+            limiter.allow(PeerId::random(), now),
+            "churned peer ids must not deny sync to newcomers"
+        );
+        assert_eq!(limiter.windows.len(), MAX_LIMITED_PEERS);
     }
 }
