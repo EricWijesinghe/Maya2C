@@ -257,7 +257,7 @@ Four things that will otherwise cost a day each:
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
-- `clippy::pedantic` is `warn`, not `deny`. The ratchet ceiling is `lint-debt.txt` (828, commit `14bbd2f8`); the last measured run in `reports/` is 1,140 (2026-09-28, `reports/00-operating-baseline.md:75`). The current count is NOT VERIFIED.
+- `clippy::pedantic` is `warn`, not `deny`. The ratchet ceiling is `lint-debt.txt` (828, set in `14bbd2f8`, 2026-11-11). The last count in a CI log is 841 against baseline 844 (nightly run `42800855560`, 2026-11-10, `lint_debt: 841 diagnostics (baseline 844)`); the last count in `reports/` is 1,140 (2026-09-28, `reports/00-operating-baseline.md:75`). The current count is NOT VERIFIED.
   The count is ratcheted: `scripts/lint_debt.sh --check` fails if it rises,
   and `nightly.yml` runs it. It may fall freely. If a change legitimately
   raises it, run `--update` and say why in the commit message.

@@ -1,0 +1,124 @@
+//! Throwaway measurement harness (Lane 0, report only). Not for merge.
+//! Generates a ~2 MiB valid wasm module (64 functions, each a long run of
+//! `i32.const 1; drop`), then times wasmtime validate and the crate's own
+//! compile path under `maya_vm::deterministic_engine()`.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_precision_loss)]
+#![allow(unsafe_code)]
+use maya_vm::{cache::ModuleCache, deterministic_engine};
+use std::time::Instant;
+
+const FUNCS: usize = 64;
+const PAIRS_PER_FUNC: usize = 10_900;
+const REPEATS: usize = 3;
+
+fn leb(mut v: usize, out: &mut Vec<u8>) {
+    loop {
+        let b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            break;
+        }
+        out.push(b | 0x80);
+    }
+}
+
+fn section(id: u8, content: &[u8], out: &mut Vec<u8>) {
+    out.push(id);
+    leb(content.len(), out);
+    out.extend_from_slice(content);
+}
+
+fn module() -> Vec<u8> {
+    let mut out = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    section(1, &[0x01, 0x60, 0x00, 0x00], &mut out);
+    let mut funcs = Vec::new();
+    leb(FUNCS, &mut funcs);
+    funcs.extend(std::iter::repeat_n(0u8, FUNCS));
+    section(3, &funcs, &mut out);
+    let mut code = Vec::new();
+    leb(FUNCS, &mut code);
+    for _ in 0..FUNCS {
+        let mut body = vec![0x00];
+        for _ in 0..PAIRS_PER_FUNC {
+            body.extend_from_slice(&[0x41, 0x01, 0x1a]);
+        }
+        body.push(0x0b);
+        leb(body.len(), &mut code);
+        code.extend_from_slice(&body);
+    }
+    section(10, &code, &mut out);
+    out
+}
+
+#[repr(C)]
+#[allow(clippy::struct_field_names)]
+struct ProcessMemoryCounters {
+    cb: u32,
+    page_fault_count: u32,
+    peak_working_set_size: usize,
+    working_set_size: usize,
+    quota_peak_paged_pool_usage: usize,
+    quota_paged_pool_usage: usize,
+    quota_peak_nonpaged_pool_usage: usize,
+    quota_nonpaged_pool_usage: usize,
+    pagefile_usage: usize,
+    peak_pagefile_usage: usize,
+}
+
+#[link(name = "psapi")]
+unsafe extern "system" {
+    fn K32GetProcessMemoryInfo(process: *mut std::ffi::c_void, counters: *mut ProcessMemoryCounters, cb: u32) -> i32;
+}
+unsafe extern "system" {
+    fn GetCurrentProcess() -> *mut std::ffi::c_void;
+}
+
+/// Peak working set of this process so far, from the OS (Windows only).
+fn peak_working_set_mib() -> f64 {
+    let mut c = ProcessMemoryCounters {
+        cb: 0,
+        page_fault_count: 0,
+        peak_working_set_size: 0,
+        working_set_size: 0,
+        quota_peak_paged_pool_usage: 0,
+        quota_paged_pool_usage: 0,
+        quota_peak_nonpaged_pool_usage: 0,
+        quota_nonpaged_pool_usage: 0,
+        pagefile_usage: 0,
+        peak_pagefile_usage: 0,
+    };
+    c.cb = u32::try_from(std::mem::size_of::<ProcessMemoryCounters>()).unwrap();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle; `c` is a correctly sized, repr(C) out-struct.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &raw mut c, c.cb) };
+    assert_ne!(ok, 0, "K32GetProcessMemoryInfo failed");
+    c.peak_working_set_size as f64 / 1_048_576.0
+}
+
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v[v.len() / 2]
+}
+
+fn main() {
+    let wasm = module();
+    println!("wasm module bytes={} ({:.3} MiB) functions={FUNCS}", wasm.len(), wasm.len() as f64 / 1_048_576.0);
+    let engine = deterministic_engine().unwrap();
+    let mut validate_ms = Vec::new();
+    for _ in 0..REPEATS {
+        let t = Instant::now();
+        wasmtime::Module::validate(&engine, &wasm).expect("valid module");
+        validate_ms.push(t.elapsed().as_secs_f64() * 1e3);
+    }
+    println!("validate (wasmtime::Module::validate, deterministic_engine) median_ms={:.3} runs_ms={:?}", median(validate_ms.clone()), validate_ms);
+    println!("peak_working_set_mib_after_validate={:.1}", peak_working_set_mib());
+    let mut compile_ms = Vec::new();
+    for _ in 0..REPEATS {
+        let cache = ModuleCache::new([0u8; 32]);
+        let t = Instant::now();
+        cache.compile(&engine, &wasm).expect("compiles");
+        compile_ms.push(t.elapsed().as_secs_f64() * 1e3);
+    }
+    println!("compile (ModuleCache::compile = Module::new, cold cache) median_ms={:.3} runs_ms={:?}", median(compile_ms.clone()), compile_ms);
+    println!("peak_working_set_mib_after_compile={:.1}", peak_working_set_mib());
+}
