@@ -100,6 +100,18 @@ jobs:
             curl -sS -m 30 -A "$UA" -o "live/$rel" "$url" || echo "fetch failed: $url"
           done
 
+      # An erased email-decode tag names a Cloudflare script outside the manifest.
+      # Fetch each one the live pages reference, so the check can read it.
+      - name: Fetch the email-decode scripts the live pages reference
+        if: steps.fresh.outputs.skip == 'false'
+        run: |
+          set -uo pipefail
+          grep -rhoE 'src="/cdn-cgi/scripts/[0-9a-f]+/cloudflare-static/email-decode\.min\.js"' live --include='*.html' \
+            | sed -E 's/^src="//; s/"$//' | sort -u | while read -r p; do
+            mkdir -p "live/$(dirname "${p#/}")"
+            curl -sS -m 30 -A "$UA" -o "live/${p#/}" "https://maya2c.dev$p" || echo "fetch failed: $p"
+          done
+
       - name: Compare the live bodies with the deployed build
         if: steps.fresh.outputs.skip == 'false'
         id: compare

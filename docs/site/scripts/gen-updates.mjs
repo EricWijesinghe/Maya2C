@@ -64,22 +64,22 @@ function versionOf(platforms) {
 
 async function main() {
   // GitHub unreachable: the build goes on without manifests (see the header).
-  let signed;
-  let bundled;
+  // Only the listing fetch is skippable; a malformed response fails the build.
+  let releases;
   try {
-    const releases = await json(`https://api.github.com/repos/${REPO}/releases?per_page=20`);
-    signed = releases.find(
-      (r) => r.tag_name.startsWith("node-v") && r.assets.some((a) => a.name.endsWith(".sig")),
-    );
-    bundled = signed ? await bundles(signed) : {};
+    releases = await json(`https://api.github.com/repos/${REPO}/releases?per_page=20`);
   } catch (error) {
     console.warn(`updates: skipped (${error.message})`);
     return;
   }
+  const signed = releases.find(
+    (r) => r.tag_name.startsWith("node-v") && r.assets.some((a) => a.name.endsWith(".sig")),
+  );
   if (!signed) {
     console.log("updates: no signed release yet; no manifests written");
     return;
   }
+  const bundled = await bundles(signed);
   // A signed release whose manifests cannot be written fails the build: the
   // site must not deploy without the manifests it was asked to publish.
   await mkdir(OUT, { recursive: true });

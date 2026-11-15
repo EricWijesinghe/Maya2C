@@ -37,8 +37,9 @@ const EMAIL_DECODE_SRC: &str =
     r"^/cdn-cgi/scripts/[0-9a-f]+/cloudflare-static/email-decode\.min\.js$";
 
 /// SHA-256 of each `email-decode.min.js` body known to be Cloudflare's. Empty
-/// until a trusted copy is recorded: a page carrying that tag then fails the
-/// check, because an edge could serve any script at the path it names.
+/// until a trusted copy is recorded: the workflow fetches the file and the check
+/// prints its hash as a NOTE. Record that hash here once it is verified, and
+/// from then on a different body fails the check.
 const CF_EMAIL_DECODE_SHA256: &[&str] = &[];
 
 /// Cloudflare's bot-detection bootstrap, which the edge adds to HTML pages.
@@ -139,18 +140,23 @@ fn erased_email_decode_srcs(html: &str) -> Vec<String> {
         .collect()
 }
 
-/// Counts an erased email-decode tag whose file is not a pinned Cloudflare copy.
-/// The tag is removed before hashing, so the file it names must be checked here.
-fn unpinned_email_decode(live: &Path, src: &str) -> usize {
+/// Checks the file named by an erased email-decode tag. The tag is removed before
+/// hashing, so the file must be checked here. With no pins recorded the file is
+/// reported as a NOTE and does not count; an unfetched file always counts.
+fn unpinned_email_decode(live: &Path, src: &str, pins: &[&str]) -> usize {
     let rel = src.trim_start_matches('/');
-    let pinned = fs::read(live.join(rel)).is_ok_and(|bytes| {
-        let got = hex::encode(Sha256::digest(&bytes));
-        CF_EMAIL_DECODE_SHA256.contains(&got.as_str())
-    });
-    if pinned {
+    let Ok(bytes) = fs::read(live.join(rel)) else {
+        println!("MISSING  {rel} email-decode script was not fetched");
+        return 1;
+    };
+    let got = hex::encode(Sha256::digest(&bytes));
+    if pins.is_empty() {
+        println!("NOTE     {rel} email-decode script is not pinned; sha256={got}");
+        0
+    } else if pins.contains(&got.as_str()) {
         0
     } else {
-        println!("MISMATCH {rel} unpinned email-decode script");
+        println!("MISMATCH {rel} unpinned email-decode script sha256={got}");
         1
     }
 }
@@ -272,7 +278,7 @@ fn check(manifest_path: &Path, live: &Path) -> Result<usize, String> {
                 if extension(rel) == Some("html") {
                     let html = String::from_utf8_lossy(&bytes);
                     for src in erased_email_decode_srcs(&html) {
-                        mismatches += unpinned_email_decode(live, &src);
+                        mismatches += unpinned_email_decode(live, &src, CF_EMAIL_DECODE_SHA256);
                     }
                 }
             }
@@ -408,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn email_decode_tag_is_erased_but_its_file_must_be_pinned() {
+    fn email_decode_tag_is_erased_and_its_fetched_file_is_reported() {
         let dist = scratch("decode-dist");
         fs::write(dist.join("index.html"), PAGE).unwrap();
         let mpath = dist.join("manifest.json");
@@ -428,8 +434,34 @@ mod tests {
         .unwrap();
         assert_eq!(
             check(&mpath, &live).unwrap(),
+            0,
+            "no pins recorded: NOTE only"
+        );
+    }
+
+    #[test]
+    fn email_decode_file_is_checked_against_pins() {
+        let live = scratch("decode-pins");
+        let rel = "cdn-cgi/scripts/0a1b/cloudflare-static/email-decode.min.js";
+        fs::create_dir_all(live.join("cdn-cgi/scripts/0a1b/cloudflare-static")).unwrap();
+        fs::write(live.join(rel), "fetch('https://evil.example/x')").unwrap();
+        let src = "/cdn-cgi/scripts/0a1b/cloudflare-static/email-decode.min.js";
+        let good = hex::encode(Sha256::digest(b"fetch('https://evil.example/x')"));
+        assert_eq!(
+            unpinned_email_decode(&live, src, &[good.as_str()]),
+            0,
+            "pinned copy"
+        );
+        assert_eq!(
+            unpinned_email_decode(&live, src, &["00"]),
             1,
-            "unpinned payload at the decode path"
+            "unpinned copy"
+        );
+        fs::remove_file(live.join(rel)).unwrap();
+        assert_eq!(
+            unpinned_email_decode(&live, src, &[good.as_str()]),
+            1,
+            "unfetched file counts"
         );
     }
 

@@ -59,6 +59,10 @@ jobs:
       - name: Install dependencies (no lifecycle scripts)
         working-directory: docs/site
         run: npm ci --ignore-scripts
+      # Runs the .ts tests with Node's built-in type stripping (Node 22.18+).
+      - name: Test the site scripts
+        working-directory: docs/site
+        run: npm test
       - name: Build the site
         working-directory: docs/site
         run: npm run build

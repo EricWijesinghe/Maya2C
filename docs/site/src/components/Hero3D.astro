@@ -51,6 +51,9 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   // Blocks that arrive before the scene loads wait here, so none is lost.
   let scene: Hero3D | null = null;
   const early: { h: number; txs: number }[] = [];
+  // Largest committee the quorum proofs cover (math.test.ts, ADR-039). A value
+  // above it is not quoted or drawn: the tiles keep their last real figures.
+  const MAX_COMMITTEE = 1000;
   let height = 0, lastBlockAt = 0, live = false, committee = 0;
   const gaps: number[] = [];
 
@@ -77,7 +80,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }),
       });
       const { result } = await r.json();
-      if (!result || !Number.isSafeInteger(result.committee)) return;
+      if (!result || !Number.isSafeInteger(result.committee) || result.committee > MAX_COMMITTEE) return;
       committee = result.committee;
       $("tValidators")!.textContent = fmt(committee);
       scene?.setValidators(committee);
