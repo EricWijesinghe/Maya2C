@@ -63,16 +63,27 @@ function versionOf(platforms) {
 }
 
 async function main() {
-  const releases = await json(`https://api.github.com/repos/${REPO}/releases?per_page=20`);
-  const signed = releases.find(
-    (r) => r.tag_name.startsWith("node-v") && r.assets.some((a) => a.name.endsWith(".sig")),
-  );
+  // GitHub unreachable: the build goes on without manifests (see the header).
+  let signed;
+  let bundled;
+  try {
+    const releases = await json(`https://api.github.com/repos/${REPO}/releases?per_page=20`);
+    signed = releases.find(
+      (r) => r.tag_name.startsWith("node-v") && r.assets.some((a) => a.name.endsWith(".sig")),
+    );
+    bundled = signed ? await bundles(signed) : {};
+  } catch (error) {
+    console.warn(`updates: skipped (${error.message})`);
+    return;
+  }
   if (!signed) {
     console.log("updates: no signed release yet; no manifests written");
     return;
   }
+  // A signed release whose manifests cannot be written fails the build: the
+  // site must not deploy without the manifests it was asked to publish.
   await mkdir(OUT, { recursive: true });
-  for (const [app, platforms] of Object.entries(await bundles(signed))) {
+  for (const [app, platforms] of Object.entries(bundled)) {
     const version = versionOf(platforms);
     if (!version) continue;
     const manifest = {
@@ -87,4 +98,7 @@ async function main() {
   }
 }
 
-main().catch((error) => console.warn(`updates: skipped (${error.message})`));
+main().catch((error) => {
+  console.error(`updates: failed (${error.message})`);
+  process.exitCode = 1;
+});
