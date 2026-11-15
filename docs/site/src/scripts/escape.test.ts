@@ -9,7 +9,7 @@ test("esc neutralises markup in every position", () => {
   assert.equal(esc(12), "12");
 });
 
-test("safeHref allows http(s) and same-site paths only", () => {
+test("safeHref keeps http(s) and same-site paths", () => {
   assert.equal(safeHref("https://github.com/x"), "https://github.com/x");
   assert.equal(safeHref("/health/"), "/health/");
   assert.equal(safeHref("javascript:alert(1)"), "#");

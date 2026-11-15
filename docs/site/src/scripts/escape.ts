@@ -12,7 +12,7 @@ export function esc(value: unknown): string {
   return String(value).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
 }
 
-// Only http(s) and same-site paths may be a link target; anything else becomes "#".
+// Link targets: http(s) and same-site paths are kept; anything else becomes "#".
 export function safeHref(url: unknown): string {
   const text = String(url);
   return /^(https?:\/\/|\/(?!\/))/i.test(text) ? esc(text) : "#";

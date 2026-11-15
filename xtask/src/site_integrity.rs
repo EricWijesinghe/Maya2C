@@ -60,7 +60,7 @@ static CF_MAIL_HREF: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r#"<a href="/cdn-cgi/l/email-protection#([0-9a-fA-F]+)""#)
         .expect("static pattern compiles")
 });
-// Only Cloudflare's placeholder text is replaced: any other visible text stays
+// Cloudflare's placeholder text alone is replaced; any other visible text stays
 // in the compared string, so a rewritten span cannot hide behind a matching hex.
 static CF_MAIL_TEXT: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r#"<span class="__cf_email__" data-cfemail="([0-9a-fA-F]+)">\[email&#160;protected\]</span>"#)

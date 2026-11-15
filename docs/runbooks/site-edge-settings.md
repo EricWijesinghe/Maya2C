@@ -72,7 +72,7 @@ rotation are recorded in `notice-draft.md`), not checked by CI.
 
 ## 5. Known limits of the check (so a green run is read correctly)
 
-- Only files in `integrity-manifest.json` are compared: every HTML, JS, MJS, CSS,
+- Files in `integrity-manifest.json` are compared: every HTML, JS, MJS, CSS,
   JSON, SVG, TXT and XML file in the build (sitemaps, `robots.txt` and the health
   feeds included). Images and fonts are not compared. A new page path that the
   build did not produce is **not** detected.
