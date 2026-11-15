@@ -1765,7 +1765,7 @@ domain = "Named separately by the foundation brief"
 paths = "`crates/node/benches/`, `crates/vm/benches/`, `crates/htlc-lattice/benches/`, `crates/crypto-pq/benches/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo bench --workspace --no-run"
 note = "14 criterion targets. benches/crypto.rs covers every signature suite, every KEM and the hashes, and exports reports/crypto-bench.{csv,md} from criterion's own estimates (MAYA_CRYPTO_REPORT=1); the figures are read in reports/02-crypto.md. Standing Order 2: a number in a brief is a target, and benches/algo_comparison.rs states in its own output what it could not measure rather than leaving a silent gap."
@@ -1777,7 +1777,7 @@ domain = "Named separately by the foundation brief"
 paths = "`CLAUDE.md`, `PROGRESS.md`, `docs/adr/`, `docs/invariants.md`, `features.toml`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo xtask coverage --verify-targets"
 note = "Project memory. The machine-checkable half is this file and the xtask gate; the prose half is CLAUDE.md, the ADR log and docs/invariants.md."
@@ -2191,7 +2191,7 @@ domain = "Kernel, networking and transport"
 paths = "`crates/light-client/src/finality.rs`, `crates/light-client/src/record.rs`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
+status = "verified"
 tests = ["crates/light-client/tests/finality_tests.rs"]
 
 [[subsystem]]
@@ -2557,7 +2557,7 @@ domain = "Security and macro engines"
 paths = "`deny.toml`, `cargo audit`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo deny check && cargo audit"
 
@@ -3006,7 +3006,7 @@ domain = "Consensus and execution"
 paths = "`crates/node/src/state/mining.rs`, `crates/node/src/state/mining_exec.rs`, `bins/maya2c-gpu-miner/src/share.rs`"
 tier = "core"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
 note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
 
@@ -3062,7 +3062,7 @@ domain = "Supplement (not in architecture-vision.md)"
 paths = "`crates/node/benches/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo bench --workspace --no-run"
 note = "13 criterion targets. Numbers are measured and reported, never asserted against a target fixed in advance."
@@ -3074,7 +3074,7 @@ domain = "Supplement (not in architecture-vision.md)"
 paths = "`CLAUDE.md`, `PROGRESS.md`, `docs/adr/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo xtask coverage"
 note = "The machine-readable half is this file; the prose half is CLAUDE.md and the ADR log."
@@ -3097,7 +3097,7 @@ domain = "Supplement (not in architecture-vision.md)"
 paths = "`xtask/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo xtask coverage && cargo xtask disk"
 note = "`cargo xtask disk` and `cargo xtask coverage`."
@@ -3146,7 +3146,18 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-entropy", "hal/entropy/tests/drbg_cavp_tests.rs"]
-note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No wallet or node caller yet."
+note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No node caller; wallet key generation calls it through entropy-keygen-health."
+
+[[subsystem]]
+id = "entropy-keygen-health"
+name = "Entropy health monitoring in key generation (SP 800-90B start-up and continuous tests)"
+domain = "Cryptography and key management"
+paths = "`hal/entropy/src/keygen.rs`, `hal/entropy/src/health.rs`, `apps/wallet-gui/core/src/hd.rs`, `bins/l1-wallet/src/main.rs`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["crate:maya-entropy", "crate:maya-wallet-core"]
+note = "ADR-137 HW-5 (O-9 A). KeygenEntropy runs a 4,096-sample start-up test and the RCT/APT on every key byte, cutoffs in integer math at alpha = 2^-20; failure is a typed error, latched, output zeroed, no fallback. Wired into the wallet core's mnemonic and l1-wallet generate. Not wired: crates/node key commands (frozen binary, post-genesis follow-up), chat identity keys; the Hub generates no keys. Stub: CI-first, not compiled locally."
 
 [[subsystem]]
 id = "transparent-stark-plonky3"
@@ -3155,7 +3166,7 @@ domain = "Cryptography and key management"
 paths = "`crates/zk-stark`"
 tier = "core"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/gadget_tests.rs", "crates/zk-stark/tests/statement_tests.rs", "crates/zk-stark/tests/pqc_zk_tests.rs"]
 note = "ADR-008. REAL since the node's shielded pool verifies through it. Every constraint has a consistent-lie negative; the suite also passes in release, where only the verifier can refuse. pqc_zk_tests gates the dependency graph: no Groth16, BN254, BLS12-381 or halo2."
 
@@ -3388,7 +3399,7 @@ paths = "`crates/deposit-watcher`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/deposit-watcher/tests/deposits.rs"]
+tests = ["crates/deposit-watcher/tests/deposits.rs", "crates/deposit-watcher/tests/amounts.rs"]
 note = "Master Prompt 17 §1. 100,090 deposits across 40 SIGKILLs: ledger equals ground truth. Reads a BlockSource trait; a node-RPC source is not written."
 
 [[subsystem]]
@@ -3741,6 +3752,17 @@ tests = ["xtask/src/kit.rs", "xtask/src/up.rs", "xtask/src/attacknet.rs"]
 note = "catalog testnet-kit. Unit tests cover status probing, the attack argument list, the port guard and the scenario table. `kit up` and `kit attack` have not yet been run end to end in this tree; attacknet itself is the existing verified run."
 
 [[subsystem]]
+id = "netfault-relay"
+name = "Netfault relay: partition, latency, jitter, loss and bandwidth between validators (`cargo xtask netfault`, `attacknet --netfault`)"
+domain = "Developer and operator tooling"
+paths = "`xtask/src/netfault.rs`, `xtask/src/localnet.rs` (route option), `xtask/src/attacknet.rs` (`--netfault`)"
+tier = "extended"
+class = "SIM"
+status = "stub"
+tests = ["xtask/src/netfault.rs", "xtask/src/attacknet.rs", "xtask/src/localnet.rs"]
+note = "ADR-097. Test-only tooling; SIM because the faults are applied by a relay in the harness, not by the network. Unit tests run in CI without a node: seeded determinism, jitter bound, loss stall, bandwidth arithmetic, partition sides, and in-process relay tests over real sockets. Status stays stub until `cargo xtask netfault` runs the partition, latency and loss scenarios with real output in reports/netfault/. The node is not touched; validators run without --allow-private-peers so no direct link is learned, and the partition scenario checks get_peers for leaks."
+
+[[subsystem]]
 id = "node-in-a-box"
 name = "Node in a box: host checks, node config, key permissions and service text (`cargo xtask node`)"
 domain = "Developer and operator tooling"
@@ -3750,6 +3772,17 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "merchant-checkout"
+name = "Merchant checkout (invoices, payment links, signed webhooks)"
+domain = "Finance"
+paths = "`apps/checkout`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-checkout", "apps/checkout/tests/payment_matching.rs", "apps/checkout/tests/webhook_tests.rs", "apps/checkout/tests/ssrf_tests.rs", "apps/checkout/tests/engine_tests.rs", "apps/checkout/tests/http_tests.rs"]
+note = "ADR-091. Detached service: reads the chain over public RPC, never links the node. Payment link is maya: payment request v2 (ADR-086): Bech32m recipient, order id as id=. Binding is a per-invoice deposit address from a merchant-loaded pool of public addresses (no keys held), never reused, even after expiry; only an exact amount to that address settles that invoice; every other payment is an unmatched record naming its invoice and a reason (capped at 1,000, paged), never cross-applied. Settlement only at DAG-BFT finality: payment block at or below get_checkpoint, checkpoint id matched to the scanned chain; no checkpoint confirms nothing. Reorgs roll back detected payments to pending with no webhook. Reads limited per client address and globally. Delivered-then-reorged invoices flagged at /v1/alerts. Webhooks HMAC-SHA256 with timestamp and nonce, stable event_id, HTTPS only with pinned, public-only destinations. Shortcuts: checkpoint signatures not verified (node trusted), no split-payment summing, deliveries sequential, no assign endpoint for unmatched payments. Security review PR #418 findings C1 and H1 re-fixed 2026-11-13. Not externally audited."
 
 [[subsystem]]
 id = "xtask-attacknet"
