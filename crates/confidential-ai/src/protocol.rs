@@ -32,6 +32,7 @@
 //! round; and a survivor dropping *during* unmasking, which here aborts the
 //! round. Both are stated rather than implied away.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use maya_crypto_pq::kem::{
@@ -214,6 +215,10 @@ pub struct Participant {
     held_shares: BTreeMap<u16, Share>,
     own_share: Option<Share>,
     answered: Option<Vec<u16>>,
+    // One share set and one masked input per round: a second of either, with
+    // the same self-mask, would let the difference of two inputs be read off.
+    shares_sent: Cell<bool>,
+    masked_sent: Cell<bool>,
 }
 
 impl Participant {
@@ -241,6 +246,8 @@ impl Participant {
             held_shares: BTreeMap::new(),
             own_share: None,
             answered: None,
+            shares_sent: Cell::new(false),
+            masked_sent: Cell::new(false),
         })
     }
 
@@ -314,6 +321,11 @@ impl Participant {
     ///
     /// [`Error::InvalidParameter`] if key agreement is incomplete.
     pub fn share_seed(&mut self) -> Result<Vec<ShareEnvelope>> {
+        if self.shares_sent.get() {
+            return Err(Error::InvalidParameter(
+                "shares were already sent this round",
+            ));
+        }
         let shares = shamir::split(
             self.self_seed.as_ref(),
             self.config.threshold,
@@ -340,6 +352,7 @@ impl Participant {
                 sealed: masking::seal(key, self.config.round, self.index, holder, &plaintext)?,
             });
         }
+        self.shares_sent.set(true);
         Ok(envelopes)
     }
 
@@ -376,6 +389,11 @@ impl Participant {
     /// [`Error::DimensionMismatch`] for the wrong length; [`Error::InvalidParameter`]
     /// if key agreement is incomplete.
     pub fn masked_input(&self, update: &[i64]) -> Result<MaskedInput> {
+        if self.masked_sent.get() {
+            return Err(Error::InvalidParameter(
+                "a masked input was already sent this round",
+            ));
+        }
         if update.len() != self.config.dimension {
             return Err(Error::DimensionMismatch {
                 expected: self.config.dimension,
@@ -404,6 +422,7 @@ impl Participant {
             let mask = masking::expand(seed, values.len());
             masking::apply(&mut values, &mask, self.index < *peer);
         }
+        self.masked_sent.set(true);
         Ok(MaskedInput {
             index: self.index,
             values,
@@ -610,5 +629,35 @@ impl Aggregator {
             hasher.update(&value.to_le_bytes());
         }
         *hasher.finalize().as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod single_use_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    fn paired() -> (Participant, Participant) {
+        let config = RoundConfig::new(1, 2, 2, 4, 100).unwrap();
+        let mut a = Participant::new(config, 0, &[1; 32]).unwrap();
+        let mut b = Participant::new(config, 1, &[2; 32]).unwrap();
+        let ads = [a.advertise(), b.advertise()];
+        let to_b = a.encapsulate(&ads).unwrap();
+        b.accept_keys(&to_b).unwrap();
+        (a, b)
+    }
+
+    #[test]
+    fn a_second_share_set_is_refused() {
+        let (mut a, _b) = paired();
+        a.share_seed().unwrap();
+        assert!(a.share_seed().is_err());
+    }
+
+    #[test]
+    fn a_second_masked_input_is_refused() {
+        let (a, _b) = paired();
+        a.masked_input(&[1, 2, 3, 4]).unwrap();
+        assert!(a.masked_input(&[5, 6, 7, 8]).is_err());
     }
 }
