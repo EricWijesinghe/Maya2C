@@ -40,7 +40,8 @@ use std::time::Instant;
 /// A bucket per address is a map an attacker can grow by sourcing from many
 /// addresses, so the table itself needs a ceiling. When it is reached, entries
 /// that have refilled to full are dropped: a full bucket is indistinguishable
-/// from an absent one, so forgetting it changes no decision.
+/// from an absent one, so forgetting it changes no decision. If none has
+/// refilled, the least recently touched bucket is dropped instead.
 const MAX_TRACKED: usize = 65_536;
 
 /// One address's bucket.
@@ -154,6 +155,9 @@ impl RateLimiter {
 
         if buckets.len() >= MAX_TRACKED && !buckets.contains_key(&address) {
             Self::sweep(&mut buckets, self.rate, self.burst, now);
+            if buckets.len() >= MAX_TRACKED {
+                Self::evict_least_recent(&mut buckets);
+            }
         }
 
         let bucket = buckets.entry(address).or_insert(Bucket {
@@ -184,6 +188,21 @@ impl RateLimiter {
             let elapsed = now.saturating_duration_since(bucket.updated).as_secs_f64();
             bucket.tokens + elapsed * rate < burst
         });
+    }
+
+    /// Makes room when nothing has refilled: drops the bucket untouched longest.
+    ///
+    /// Refusing new addresses here would let a flood lock out first-time
+    /// clients, so the ceiling is enforced by eviction instead.
+    /// shortcut: linear scan per new address at the ceiling, upgrade to an LRU list if it shows in profiles.
+    fn evict_least_recent(buckets: &mut HashMap<IpAddr, Bucket>) {
+        let stale = buckets
+            .iter()
+            .min_by_key(|(_, bucket)| bucket.updated)
+            .map(|(address, _)| *address);
+        if let Some(address) = stale {
+            buckets.remove(&address);
+        }
     }
 
     /// Addresses currently tracked. For tests and metrics.
@@ -372,5 +391,30 @@ mod tests {
         let mut buckets = limiter.buckets.lock().expect("not poisoned");
         RateLimiter::sweep(&mut buckets, limiter.rate, limiter.burst, start);
         assert_eq!(buckets.len(), 1, "a drained bucket must be kept");
+    }
+
+    #[test]
+    fn a_full_table_of_drained_buckets_still_admits_a_new_address() {
+        // Nothing has refilled, so the sweep frees nothing and the eviction
+        // path is the only thing keeping the table at its ceiling.
+        let limiter = RateLimiter::new(1, 1);
+        let now = Instant::now();
+        {
+            let mut buckets = limiter.buckets.lock().expect("not poisoned");
+            for index in 0..MAX_TRACKED as u32 {
+                let ip = IpAddr::from((0x0a00_0000u32 + index).to_be_bytes());
+                buckets.insert(
+                    ip,
+                    Bucket {
+                        tokens: 0.0,
+                        updated: now,
+                    },
+                );
+            }
+        }
+
+        let newcomer = IpAddr::from([192, 0, 2, 1]);
+        assert!(limiter.take_at(newcomer, 1.0, now), "newcomer refused");
+        assert_eq!(limiter.tracked(), MAX_TRACKED);
     }
 }
