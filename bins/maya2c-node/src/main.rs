@@ -82,8 +82,8 @@ const ROTATION_HEIGHT_SAMPLE_INTERVAL: Duration = Duration::from_secs(15);
 
 /// How far ahead of the tip the next epoch's cache is generated.
 ///
-/// A hundred blocks is twenty-five minutes at a 15-second target, against a
-/// generation that takes about a second. Deliberately far more headroom than
+/// A hundred blocks is about a hundred seconds at one block a second
+/// (docs/block-time.md), against a generation that takes about a second. Deliberately far more headroom than
 /// the job needs: the cost of being early is one extra 64 MiB allocation that
 /// was going to be made anyway, and the cost of being late is every node on the
 /// network stalling on the same block.
@@ -326,7 +326,7 @@ fn print_usage() {
          \x20                    or required. See docs/pq-transport.md\n  \
          --mlkem1024 <MODE>   ML-KEM-1024 (NIST level 5): preferred (default),\n  \
          \x20                    off (ML-KEM-768 only), or required (1024 only)\n  \
-         --prune              prune bodies older than one DAG epoch (450,000 blocks)\n  \
+         --prune              prune bodies older than 30,000 blocks (about 8.3 h)\n  \
          --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
          --snapshot-depth <N> serve snapshots once N blocks deep, without pruning\n  \
          --prune-without-archive  prune without writing any archive first\n  \
