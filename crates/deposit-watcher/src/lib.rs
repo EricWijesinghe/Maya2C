@@ -29,6 +29,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::Path;
 
+use maya_amount::Amount;
 use serde::{Deserialize, Serialize};
 
 /// A transfer as the watcher sees it.
@@ -38,8 +39,52 @@ pub struct Transfer {
     pub txid: String,
     /// Recipient address, hex.
     pub to: String,
-    /// Amount in base units.
-    pub amount: u64,
+    /// Amount in base units: 10^24 per coin (`maya_amount::COIN_DECIMALS`).
+    #[serde(with = "amount_text")]
+    pub amount: Amount,
+}
+
+/// Amounts are 256-bit (ADR-046), so they travel as base-10 strings. A plain
+/// JSON number is still read: journals written before this change held `u64`.
+mod amount_text {
+    use std::fmt;
+
+    use maya_amount::Amount;
+    use serde::de::{self, Visitor};
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &Amount, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(value)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Amount, D::Error> {
+        struct AmountVisitor;
+        impl Visitor<'_> for AmountVisitor {
+            type Value = Amount;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a base-10 amount below 2^256, as a string or a number")
+            }
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Amount, E> {
+                Ok(Amount::from_u64(v))
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Amount, E> {
+                parse(v).ok_or_else(|| E::custom("amount is not a base-10 integer below 2^256"))
+            }
+        }
+        d.deserialize_any(AmountVisitor)
+    }
+
+    /// Checked at every digit, so a value that would wrap is refused.
+    fn parse(text: &str) -> Option<Amount> {
+        if text.is_empty() {
+            return None;
+        }
+        text.bytes().try_fold(Amount::ZERO, |acc, b| {
+            let digit = b.checked_sub(b'0').filter(|d| *d < 10)?;
+            acc.checked_mul(Amount::from_u64(10))?
+                .checked_add(Amount::from_u64(u64::from(digit)))
+        })
+    }
 }
 
 /// Where finalized blocks come from: a node's RPC in production, a
@@ -67,6 +112,9 @@ pub enum WatchError {
     /// The source failed.
     #[error("block source: {0}")]
     Source(String),
+    /// A balance would exceed 2^256 - 1. Refused before anything is journaled.
+    #[error("balance of {0} overflows 256 bits")]
+    Overflow(String),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -80,8 +128,19 @@ pub struct Watcher {
     journal: File,
     watched: BTreeSet<String>,
     cursor: u64,
-    balances: BTreeMap<String, u128>,
+    balances: BTreeMap<String, Amount>,
     seen: BTreeSet<String>,
+}
+
+/// Adds every credit to `balances`, refusing a sum that leaves 256 bits.
+fn credit(balances: &mut BTreeMap<String, Amount>, credits: &[Transfer]) -> Result<(), WatchError> {
+    for c in credits {
+        let entry = balances.entry(c.to.clone()).or_insert(Amount::ZERO);
+        *entry = entry
+            .checked_add(c.amount)
+            .ok_or_else(|| WatchError::Overflow(c.to.clone()))?;
+    }
+    Ok(())
 }
 
 impl Watcher {
@@ -115,8 +174,8 @@ impl Watcher {
             n += 1;
             let line: Line =
                 serde_json::from_str(buf.trim_end()).map_err(|_| WatchError::Corrupt(n))?;
+            credit(&mut balances, &line.credits)?;
             for c in &line.credits {
-                *balances.entry(c.to.clone()).or_insert(0u128) += u128::from(c.amount);
                 seen.insert(c.txid.clone());
             }
             cursor = line.height;
@@ -142,9 +201,9 @@ impl Watcher {
         self.cursor
     }
 
-    /// Credited balance per watched address.
+    /// Credited balance per watched address, in base units.
     #[must_use]
-    pub fn balances(&self) -> &BTreeMap<String, u128> {
+    pub fn balances(&self) -> &BTreeMap<String, Amount> {
         &self.balances
     }
 
@@ -170,6 +229,10 @@ impl Watcher {
                 .into_iter()
                 .filter(|t| self.watched.contains(&t.to) && !self.seen.contains(&t.txid))
                 .collect();
+            // Balances are computed before the line is written: an overflow
+            // must leave the journal and the ledger both untouched.
+            let mut next = self.balances.clone();
+            credit(&mut next, &credits)?;
             let mut line = serde_json::to_string(&Line {
                 height,
                 credits: credits.clone(),
@@ -178,10 +241,8 @@ impl Watcher {
             line.push('\n');
             self.journal.write_all(line.as_bytes())?;
             self.journal.sync_all()?; // the commit point
-            for c in credits {
-                *self.balances.entry(c.to.clone()).or_insert(0) += u128::from(c.amount);
-                self.seen.insert(c.txid);
-            }
+            self.balances = next;
+            self.seen.extend(credits.into_iter().map(|c| c.txid));
             self.cursor = height;
             done += 1;
         }
