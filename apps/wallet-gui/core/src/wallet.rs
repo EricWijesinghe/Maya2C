@@ -131,7 +131,7 @@ impl Wallet {
             return Ok(existing.clone());
         }
 
-        let path = DerivationPath::account(0, index);
+        let path = DerivationPath::try_account(0, index)?;
         let address = hd::address_at(self.seed.as_ref(), &path)?;
         let account = Account {
             index,
@@ -157,7 +157,7 @@ impl Wallet {
         amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<(HybridSigningKey, Transaction)> {
-        let path = DerivationPath::account(0, index);
+        let path = DerivationPath::try_account(0, index)?;
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
         // A Bech32m recipient for another network is refused here as well as
         // in the send form, so no frontend path can sign across networks.
@@ -291,7 +291,7 @@ impl Wallet {
         nonce: u64,
         chain: &ChainTag,
     ) -> Result<u64> {
-        let path = DerivationPath::account(0, index);
+        let path = DerivationPath::try_account(0, index)?;
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
         transfer_size(&signing_key, fee_to, nonce, chain)
     }
