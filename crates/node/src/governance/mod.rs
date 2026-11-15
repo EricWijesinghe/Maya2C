@@ -67,7 +67,7 @@ pub(crate) const LOCK_PREFIX: &[u8] = b"g:lock:";
 pub(crate) const WORK_PREFIX: &[u8] = b"g:work:";
 
 /// Prefix of the block-validity parameter changes waiting for their activation
-/// height: `g:pending:<tag u16 BE>`, one per key (ADR-082 amendment b).
+/// height: `g:pending:<tag u16 BE>`, one per key (ADR-082 amendment 2026-11-15).
 pub(crate) const PENDING_PARAMETER_PREFIX: &[u8] = b"g:pending:";
 
 /// Storage key for the change waiting on parameter `tag`.
