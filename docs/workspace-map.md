@@ -45,7 +45,7 @@ Since the phase B move ([ADR-001](adr/ADR-001-workspace-layout.md)):
 | `crates/dex` | Constant-product curve + order book + batch clearing. Kani-verifiable — keep it dependency-free |
 | `crates/vrf` | RFC 9381 EC-VRF behind the randomness beacon. Pinned to the RFC's test vectors |
 | `crates/governance` | Proposal lifecycle, vote tally, and the bounds a proposal may never escape. Kani-verifiable — dependency-free |
-| `crates/fee-market` | EIP-1559 base fee over serialized **bytes** (there is no block gas), 80/20 burn/treasury split, supply cap. Research branch: `FeeConfig::DISABLED` (activation `u64::MAX`), called by nothing in `crates/node/src/` — `crates/node/tests/fee_market_tests.rs` checks both. Dependency-free for Kani |
+| `crates/fee-market` | EIP-1559 base fee over serialized **bytes** (there is no block gas), burn/treasury split function (the node fixes the treasury share at 0, so the whole base fee burns), supply cap. Research branch: `FeeConfig::DISABLED` (activation `u64::MAX`), called by nothing in `crates/node/src/` — `crates/node/tests/fee_market_tests.rs` checks both. Dependency-free for Kani |
 | `apps/faucet` | Testnet faucet. Funded key behind a public endpoint; the per-IP/per-address limiter and daily cap are the whole of what bounds a drain |
 | `crates/telemetry` | Network telemetry. `server`/`client` feature split so a miner links no web framework; the always-on half builds for `wasm32` |
 | `crates/custody-mpc` | Threshold custody of a chain key: dealerless Pedersen VSS, ML-KEM-sealed shares, quorum signing. Links no chain types — `crates/node/tests/custody_parity_tests.rs` pins its derivation to `crypto::hybrid` |

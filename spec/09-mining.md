@@ -1,4 +1,4 @@
-# 9. Mining rewards — v0.1.0
+# 9. Mining rewards — v0.1.1
 
 Active only on a chain whose genesis carries `bft.mining` (ADR-044). Rewards are
 transfers out of the mining reserve, never mints. Reference:
@@ -7,8 +7,19 @@ transfers out of the mining reserve, never mints. Reference:
 Timing: a miner's share pays when it is applied. The committee's part of epoch
 `e` is paid to the fee collector at the boundary block, the first block whose
 height is `(e + 1) × epoch_blocks`; height 0 closes nothing. Epoch 0 accepts no
-shares, so mining opens at the first boundary (ADR-044). The reserve holds
-`MAX_SUPPLY − Σ allocations`, so the cap is the reserve, not a counter.
+shares, so mining opens at the first boundary (ADR-044). The reserve is an
+explicit genesis allocation to the keyless `MINING_RESERVE`; with `tail > 0`,
+MINE-3 refuses one below the lifetime emission, so the reserve is the cap, not a
+counter.
+
+Informative, not a rule (v0.1.1, 2026-11-16): under the mainnet schedule
+(`deploy/genesis/mainnet/mining.json`) the four halving eras pay 19,687,500
+coins, the supply headline (exactly 19687499999999999999999999910864 base units
+after per-halving truncation; pinned by `crates/node/src/state/mining.rs`
+`the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256`). The tail after them,
+23.96 coins an epoch for ever, and the 7,000 coins of genesis validator bonds
+(7 × 1,000) are separate figures. v0.1.0 described the reserve as
+`MAX_SUPPLY − Σ allocations`, which the node never did.
 
 - **MINE-1** The reward of epoch `e` is `max(⌊initial / 2^⌊e / halving_epochs⌋⌋, tail)`; after 256 halvings the halved part is 0, so a chain with `tail = 0` stops paying and one with `tail > 0` pays the tail forever (ADR-068). *(positive only: defines a value)*
 - **MINE-2** Each epoch's reward splits into the miners' budget `⌊reward × min(miner_share_bps, 10000) / 10000⌋` and the committee's part, the rest; the two always sum to the reward. *(positive only: defines a value)*

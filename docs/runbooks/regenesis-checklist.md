@@ -125,7 +125,7 @@ chain-id.
   signing. The four
   halving eras issue 19,687,500 coins in total; the tail then pays forever (ADR-068), so the
   reserve holds the lifetime emission (about 1.23 × 10^17 coins) and the total is far above
-  21M by design. Check both printed lines before `APPROVED: sign genesis`.
+  the 19,687,500-coin halving-era issuance by design. Check both printed lines before `APPROVED: sign genesis`.
 - Tail (DECISIONS 2026-10-29): `tail_epoch_reward` = 1% of 21M coins a year divided by
   epochs per year at the mainnet epoch length, in base units (10^24 per coin). That 1% holds
   only at one block a second: issuance is 23.96 coins × epochs per year, so it is 210,000

@@ -72,8 +72,14 @@ It then applies to free audit programmes for open-source software, such
 as OSTIF and NLnet's NGI funds, which pay for audits by firms like
 Radically Open Security. Eric submits the applications.
 
-Mainnet launches labelled **"external audit pending"** until a report
-lands. Value at risk is kept low and nobody is promised anything (fees
+Mainnet launches with this sentence wherever its security is described
+(wording fixed by Eric 2026-11-14 MCQ, [ADR-047](ADR-047-single-pc-foundation-set.md)
+amendment 2026-11-16; it replaces the earlier "external audit pending" label):
+
+> Pre-audit: no external audit yet; validators run by one operator at
+> launch; external audit planned after funding.
+
+Value at risk is kept low and nobody is promised anything (fees
 only, no sale).
 
 ## Consequences

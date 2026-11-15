@@ -15,7 +15,7 @@ Include what you found, the steps to reproduce it, the commit or release you
 tested, and what you think an attacker could do with it. A proof of concept
 helps, but a clear description without one is still accepted.
 
-## Audit status: external audit pending
+## Audit status: pre-audit
 
 No independent firm has audited Maya2C's cryptography, consensus or
 contracts. What exists instead, and what it does not prove, is in
@@ -23,8 +23,9 @@ contracts. What exists instead, and what it does not prove, is in
 of ledger arithmetic, an unsafe-code survey, a self-review of the committee
 code, and self-run attack rounds. None of those is independent review.
 
-Mainnet is to launch labelled "external audit pending" until a report lands
-([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers stay
+At launch: Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding.
+([ADR-042](docs/adr/ADR-042-solo-launch-path.md),
+[ADR-047](docs/adr/ADR-047-single-pc-foundation-set.md)). Shielded transfers stay
 off until their circuit is externally audited (`CIRCUIT_IS_AUDITED = false`).
 
 ## Response targets

@@ -444,7 +444,7 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   and is not claimed to be better than any chain's.
 ## 2026-10-28 — Supply, capacity and the governance deposit (Claude decided, Eric delegated)
 
-- **Supply stays 21M coins at 18 decimals (2026-10-26 stands).** Capacity is already the
+- **Supply stays 21M coins at 18 decimals (2026-10-26 stands).** *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]* Capacity is already the
   maximum (U256, 2^256 base units, the EVM width), and 18 decimals is Ethereum's divisibility
   and 10^10 times Bitcoin's. A supply at the ceiling would make each coin worthless and
   overflow on the first reward. Eric's aim, "no numberwise disadvantage, and value", is met
@@ -511,7 +511,7 @@ refuses or clamps. Bare `*` on amounts appears only on constants (`10 * COIN`) a
   change, pre-genesis.
 - LOW-7: protocol floor unchanged (1 unit); mainnet genesis sets min_base_fee ≥ 10^6 (runbook).
 - INFO-8: no protocol supply cap; genesis is the cap; with the tail, total > 21M by design
-  (runbook).
+  (runbook). *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]*
 ## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
 
 Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
@@ -524,7 +524,7 @@ network before mainnet.
 ## 2026-10-29 — Supply, miner pay, freeze rule (Eric delegated: "you decide the best for me")
 
 - **No 512-bit amounts, no new minting.** Eric: "I don't wanna involve 512 bits". Supply
-  stays ADR-068: about 21M coins over the halving phase, then a tail paid forever from the
+  stays ADR-068: about 21M coins over the halving phase, *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]* then a tail paid forever from the
   keyless genesis reserve sized to the last `u64` height. Nothing is ever minted, so the end
   of the halving phase changes nothing for miners: the tail simply continues. The 2^256
   base-unit total discussed on 10-29 is not built.
@@ -846,7 +846,7 @@ Owner approved the recommended option for each item below. Docs only; no consens
 - **A5 and B43, supply wording (ADR-044):** the text now matches the code.
   - One coin is 10^24 base units (`maya_amount::COIN_DECIMALS = 24`, `ONE_COIN = 10^24`, `crates/amount/src/lib.rs`).
   - `fee_market::supply::MAX_SUPPLY` = `Amount::MAX` = 2^256 − 1 base units (`crates/fee-market/src/supply.rs`).
-  - 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap. The old "21M × 10^8" wording is removed from ADR-044 and `docs/fee-market.md`.
+  - 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap. *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]* The old "21M × 10^8" wording is removed from ADR-044 and `docs/fee-market.md`.
   - The reserve is an explicit allocation to the keyless `MINING_RESERVE`, not `MAX_SUPPLY − Σ allocations`. With a tail, genesis refuses a reserve below `lifetime_emission()` (`crates/node/src/genesis.rs`).
 - **B-16, fee treasury (code check):** the 20% share is burned today, as decided.
   - The node sets `treasury_bps: 0` (`crates/node/src/genesis.rs`). The base fee moves wholly to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`, `settle_fees`).
@@ -901,3 +901,12 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-16 — Genesis records and public wording made consistent (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, answers (2), (3) and (4). PR "[re-freeze] genesis records and public wording".
+
+- **Validator floor 7:** `genesis-ceremony` refused fewer than 4 validators on a value-bearing chain while `genesis-check` refused fewer than 7, so the ceremony could write a genesis its own check rejected. `MIN_LAUNCH_VALIDATORS` is now 7 (`bins/genesis-ceremony/src/committee.rs`), pinned by `mainnet_needs_seven_validators_a_testnet_does_not`. ADR-047 amendment 2026-11-16. The node accepts any committee size, as before.
+- **Supply headline 19,687,500:** the coins the four halving eras issue, as coded (`the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256`). The tail after those eras and the 7,000 coins of genesis bonds are shown as separate figures. Older records that say 21M are marked superseded above, not deleted.
+- **Burn:** spec FEE-1 (v0.1.1) and the econ SIM now state the recorded 100% base-fee burn (ADR-029; B-16 above). The split function is **not** deleted: it is called by the econ SIM, `spec-ref`, a Kani harness, the Lean and Z3 proofs and the FEE-1 vectors, so it is not dead code, and deleting it would lower `cargo xtask proof-ratchet`. The node never calls it (`FeesGenesis::record` fixes `treasury_bps: 0`). This closes the B-16 open item.
+- **Public sentence:** "Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding." On the site (FAQ, launch ladder), README, SECURITY.md, MISSION.md, EMPIRE.md, ADR-042, LAUNCH.md, the announcement draft, the exchange notes and the OSTIF application. It replaces "external audit pending".

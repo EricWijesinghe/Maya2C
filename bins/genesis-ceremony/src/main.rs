@@ -176,7 +176,7 @@ fn print_usage() {
          required when --treasury-share-bps is non-zero\n
          OPTIONS:\n  \
          --chain-id <ID>              network identifier; a value-bearing id keeps the\n                               \
-         shielded pool off (ADR-037) and needs 4+ validators\n  \
+         shielded pool off (ADR-037) and needs 7+ validators\n  \
          --validators <FILE>          DAG-BFT committee, `label key [operator bond]` per\n                               \
          line; keys from `maya2c-node --generate-validator-key`\n  \
          --epoch-blocks <N>           staking epoch when bonds are given (default 3600)\n  \

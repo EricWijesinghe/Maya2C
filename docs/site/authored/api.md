@@ -76,13 +76,16 @@ curl https://gateway.example.com/v1/accounts/a71cf0…
 # {"balance":8400000000,"nonce":3}
 
 curl https://gateway.example.com/v1/supply
-# {"circulating":"20999998400000000000000000000000","total":"21000000000000000000000000000000"}
+# {"circulating":"19687498400000000000000000000000","total":"19687500000000000000000000000000"}
 ```
 
 Both figures are decimal strings of base units: amounts are 256-bit
 ([ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md)),
 wider than a JSON number can carry exactly. The values above show the shape,
-not real chain figures.
+not real chain figures; they use 19,687,500 coins, what the four halving eras
+issue ([ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md)).
+The tail emission after those eras and the 7,000 coins of genesis validator
+bonds are separate figures.
 
 `total` counts every unit that exists, including units that can never move;
 `circulating` counts the units that can. For the breakdown, ask the node's

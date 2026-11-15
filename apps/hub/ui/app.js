@@ -3,7 +3,7 @@
 // synthetic preview data and says so in the header.
 "use strict";
 
-const BASE_PER_MAYA = 1e24; // 24 decimals (ADR-068): 21M MAYA = 2.1e31 base units
+const BASE_PER_MAYA = 1e24; // 24 decimals (ADR-068): the halving eras' 19,687,500 MAYA = 1.96875e31 base units
 const POLL_MINER_MS = 1000;
 const POLL_NODE_MS = 4000;
 const POLL_GPU_MS = 3000;
