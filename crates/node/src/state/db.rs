@@ -253,6 +253,9 @@ pub struct StateDB {
     /// DAG caches for mining shares (ADR-044), built on the first share so a
     /// chain that does not mine never pays for one.
     pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
+    /// The contract VM, built on first use (`state::vm_exec`). Its module cache
+    /// is what keeps a contract from being recompiled on every call.
+    pub(crate) contract_vm: OnceLock<maya_vm::runtime::Vm>,
 }
 
 impl StateDB {
@@ -309,6 +312,7 @@ impl StateDB {
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
             mining_dag: OnceLock::new(),
+            contract_vm: OnceLock::new(),
         })
     }
 
