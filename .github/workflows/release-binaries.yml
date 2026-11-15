@@ -465,6 +465,15 @@ jobs:
             exit 1
           fi
           echo "signed $count update bundles for version $version"
+          # An app with no signed update never offers one: its installed copies
+          # would silently stop updating. Hub's .sig reaches dist/ through this
+          # artifact (updater-sigs), so this is the check that it exists.
+          for app in "Maya Wallet" "Maya Chat" "Maya2C Hub"; do
+            if [ -z "$(find updater-in -type f -name "$app*.sig" -print -quit)" ]; then
+              echo "::error::no signed update bundle for $app"
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: updater-sigs
