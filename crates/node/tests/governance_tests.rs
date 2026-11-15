@@ -27,7 +27,7 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::governance::derive_proposal_id;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
-use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_VOTING_BLOCKS};
+use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_UPGRADE_LEAD_BLOCKS, MIN_VOTING_BLOCKS};
 use maya_governance::params::ParameterKey;
 use maya_governance::proposal::ProposalState;
 use maya_governance::tally::Choice;
@@ -806,7 +806,114 @@ fn a_governed_ceiling_is_read_from_state_rather_than_from_the_binary() {
     fixture.apply(vec![], executable).expect("execute");
 
     assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+    // A validity rule binds a full upgrade lead after execution (ADR-082
+    // amendment b); the end of the block before that height promotes it.
+    fixture
+        .apply(vec![], executable + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("promote");
     assert_eq!(fixture.parameter(ParameterKey::DexMaxOrdersPerBook), 512);
+}
+
+#[test]
+fn a_later_passed_change_to_a_waiting_validity_rule_replaces_it() {
+    // One change waits per key, so the record stays bounded by the key count
+    // and the decision in force is the latest one.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let key = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(key);
+
+    let (first, first_at) = fixture.propose(key, 512, 3);
+    let (second, second_at) = fixture.propose(key, 256, 4);
+    assert_eq!(second_at, first_at + 1);
+    for (index, height) in [(0, 10), (1, 11)] {
+        fixture
+            .vote(index, first, Choice::For, height)
+            .expect("vote");
+    }
+    for (index, height) in [(0, 12), (1, 13)] {
+        fixture
+            .vote(index, second, Choice::For, height)
+            .expect("vote");
+    }
+    fixture.apply(vec![], first_at).expect("execute first");
+    fixture.apply(vec![], second_at).expect("execute second");
+    assert_eq!(fixture.state_of(&second), ProposalState::Executed);
+
+    fixture
+        .apply(vec![], first_at + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("the first change's promoting block");
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "the first change was replaced"
+    );
+    fixture
+        .apply(vec![], second_at + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("the second change's promoting block");
+    assert_eq!(fixture.parameter(key), 256);
+}
+
+#[test]
+fn a_block_validity_parameter_takes_effect_only_at_its_scheduled_height() {
+    // A per-block ceiling decides which blocks are valid, so a passed change
+    // to one waits a full upgrade lead after execution (ADR-082 amendment b)
+    // and builders, mempools and wallets see it coming. It is promoted at the
+    // end of the block before its activation height, so the committed table a
+    // builder reads at the tip is the one the activation block is judged by.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let key = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(key);
+
+    let (id, executable) = fixture.propose(key, 512, 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], executable).expect("execute");
+    assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "executed is not yet in force"
+    );
+
+    let activation = executable + MIN_UPGRADE_LEAD_BLOCKS;
+    fixture
+        .apply(vec![], activation - 2)
+        .expect("two blocks before");
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "the block before activation still runs under the old ceiling"
+    );
+
+    // The promoting block, journaled, so a reorg is seen to restore the
+    // pending change and the record is seen to be under the state root.
+    let root_before = fixture.db.state_root().expect("root");
+    let block_id = [78u8; 32];
+    let context = BlockContext::at_height(activation - 1);
+    let mut block = block_of(vec![]);
+    block.header.state_root = fixture.db.preview_root(&block, context).expect("preview");
+    fixture
+        .db
+        .apply_block_journaled(&block, &block_id, context)
+        .expect("promote");
+    assert_eq!(
+        fixture.db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "the pending record must be under the state root"
+    );
+    assert_eq!(
+        fixture.parameter(key),
+        512,
+        "the activation block runs under the new ceiling"
+    );
+
+    fixture.db.revert_block(&block_id).expect("revert");
+    assert_eq!(fixture.parameter(key), default);
+    assert_eq!(fixture.db.state_root().expect("root"), root_before);
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 - **CON-2** A block's id is BLAKE3 in derive-key mode with context `"custom-l1-node header id v1"` over the 145 header bytes. *(positive only: defines a value)*
 - **CON-3** `tx_root` is ROOT-3's tree over leaves `blake3_derive_key("custom-l1-node tx leaf v1", txid)`; a block whose header disagrees is invalid.
 - **CON-4** A block's declared `state_root` must equal the root its execution produces (invariant 24); otherwise it is invalid and nothing is written.
-- **CON-5** The declared difficulty target must equal the retarget rule's output for that height (every 100 blocks, 15 s target spacing), the window measured between the median times (CON-11's median) of its last and first blocks, not between two single timestamps; otherwise invalid.
+- **CON-5** The declared difficulty target must equal the retarget rule's output for that height (every 100 blocks, 15 s target spacing; the 15 s is the PoW retarget spacing only, inert under DAG-BFT per CON-9, which makes about one block a second), the window measured between the median times (CON-11's median) of its last and first blocks, not between two single timestamps; otherwise invalid.
 - **CON-6** The proof-of-work hash for the block's height must meet its target; otherwise invalid.
 - **CON-7** The active chain is the one with the greatest cumulative work, a target's work being `2^256 ÷ (target + 1)`. *(positive only: a choice between valid branches, never a refusal)*
 - **CON-8** A block at or below the prune horizon is refused.
@@ -30,6 +30,8 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
+
+- **CON-16** A passed governance change to a block-validity parameter (`ParameterKey::is_validity_rule`: tags 2 to 8, the DEX fill and order ceilings, the oracle and shielded per-block caps, the VM memory, module and default-gas bounds) is not in force at its proposal's execution height `E`. It is held in `g:pending:<tag>` and is in force from height `E + MIN_UPGRADE_LEAD_BLOCKS` (2,592,000): the end-of-block pass of height `E + MIN_UPGRADE_LEAD_BLOCKS − 1` writes it into `g:params`, so the committed table at that tip is the one the activation block is judged by. At most one change waits per key; a later passed change to the same key replaces it. Tags 1, 9 and 10 (protocol fee, proposal deposit, default suite) are in force from `E + 1` as before (ADR-082 amendment b). *(external vectors: crates/node/tests/governance_tests.rs)*
 
 ## Vectors and gaps
 

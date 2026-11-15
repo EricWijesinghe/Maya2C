@@ -901,3 +901,11 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-15 — Block-validity parameters wait a full upgrade lead; 15 s-era constants rescaled to 1 block/s (Eric 2026-11-14 MCQ)
+
+Eric chose "all format fixes" in the 2026-11-14 re-freeze MCQ. Two of them land together (ADR-082 amendment b):
+
+- **Validity parameters through the schedule.** A passed change to a `ParameterKey` that decides block validity (tags 2-8: DEX fill and order ceilings, oracle and shielded per-block caps, VM memory/module/default-gas bounds) no longer lands at execution. It waits in `g:pending:<tag>` and is in force from execution + `MIN_UPGRADE_LEAD_BLOCKS` (30 days), the lead a protocol upgrade carries, which is what the 2026-10-28 entry's "parameters change by protocol upgrade at an activation height, not by a live governance knob" asked for. The protocol fee, proposal deposit and default suite still apply at execution. One change waits per key; a later passed change to the same key replaces it. The lead is compiled, not chosen by the proposal, so the transaction format does not change.
+- **Rescale:** `WORK_HALF_LIFE_BLOCKS` 5,760 -> 86,400 (one day), DAG `EPOCH_LENGTH` 30,000 -> 450,000 (5.2 days; `DAG_ACTIVATION_HEIGHT` and the default `PRUNE_DEPTH` follow it), smart-account `BLOCKS_PER_DAY` 43,200 -> 86,400 (ADR-086 F7 closed), PQ transport `ROTATION_INTERVAL_BLOCKS` 1,000 -> 15,000 with the 15,000 s fallback unchanged. `TARGET_BLOCK_TIME` stays 15 and is documented as PoW-only. The governance windows, migration windows and the round-interval pin are PR #500's.
+- Consequence for operators: a pruned node keeps 450,000 bodies (5.2 days) by default instead of 30,000 (8.3 h); `--prune-depth` still overrides it.

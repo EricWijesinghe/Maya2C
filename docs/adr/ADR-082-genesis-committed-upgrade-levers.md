@@ -2,6 +2,7 @@
 
 **Status:** Accepted, 2026-11-07 (Eric's decision, after the security review of the genesis-only design). Pre-genesis for the launch entries; the schedule itself is writable on chain after launch.
 **Date:** 2026-11-07
+**Amended:** 2026-11-15 (amendment b: validity parameters through the schedule; 1 block/s constants).
 **Related:** [ADR-037](ADR-037-mainnet-shielded-off.md), [ADR-013](ADR-013-suite-envelope-activation.md), [ADR-007](ADR-007-signature-suites.md), [ADR-050](ADR-050-owner-control-plane.md), invariants 12, 13, 17, 25, 34; `crates/node/src/upgrade.rs`, `crates/node/src/state/upgrades.rs`, `crates/governance/src/limits.rs`
 
 ## Context
@@ -177,6 +178,67 @@ it judges under no schedule. Production verification uses `verify_block_under`.
 strict (`core/block.rs:265-270`). A header whose version byte this binary does
 not speak is refused. Changing it means every node upgrades before the first
 block that carries the new tag, and the upgrade schedule does not govern it.
+
+### Amendment b (2026-11-15): block-validity parameters wait for the lead; 15 s-era constants at 1 block/s
+
+Eric 2026-11-14 MCQ ("all format fixes"). Two changes, one reason: a rule that
+decides which blocks are valid should never change faster than operators,
+builders and wallets can follow, and a constant written as "a day" should be a
+day at the rate the chain actually runs (docs/block-time.md).
+
+**(a) Validity parameters through the schedule.** Before this, a passed change
+to any `ParameterKey` was written into `g:params` at execution, so a per-block
+ceiling could move one block after a timelock nobody outside governance was
+watching. Now `ParameterKey::is_validity_rule` (an exhaustive match with no
+wildcard: tags 2-8, the DEX fill and order ceilings, the oracle and shielded
+per-block caps, the three VM bounds) splits the keys:
+
+- a validity rule is written to `g:pending:<tag>` (under the governance layer, so
+  under the state root and the undo journal, invariant 25) with activation
+  height = execution height + `VALIDITY_RULE_LEAD_BLOCKS`;
+- `VALIDITY_RULE_LEAD_BLOCKS` is `MIN_UPGRADE_LEAD_BLOCKS` (30 days), compiled
+  (invariant 12), so no proposal shortens it, and a validity change carried
+  beside a `ScheduleUpgrade` is in force no later than that entry's earliest
+  activation;
+- `StateDB::activate_parameters` runs at the end of every block after
+  `settle_governance` and promotes each entry whose activation height is at
+  most the next height, so the committed table a builder or mempool reads at
+  the tip is the one the activation block is judged by (a builder never fills
+  a block under a ceiling the importer has already moved). It re-checks the
+  range at promotion; a value a later release no longer accepts is dropped,
+  not applied and not a block error;
+- at most one change waits per key: a later passed change to the same key
+  replaces the one still waiting (the later decision is the current one, and
+  the record stays bounded by the key count);
+- the protocol fee, the proposal deposit and the default signature suite are
+  not validity rules (a price, a deposit, a wallet default; invariant 31 keeps
+  the default out of verification) and still apply at execution.
+
+The proposal wire format is unchanged (invariant 31 is not touched): the lead
+is fixed, not named by the proposer. Pinned by
+`crates/node/tests/governance_tests.rs`
+`a_block_validity_parameter_takes_effect_only_at_its_scheduled_height` (spec
+CON-16), `a_later_passed_change_to_a_waiting_validity_rule_replaces_it` and `crates/governance/src/params.rs`
+`only_the_rules_a_block_is_judged_by_wait_for_the_lead`. A new key added by a
+later PR does not compile until it is classified.
+
+**(b) Constants sized for 15 s (or 2 s) blocks, rescaled to 1 block/s.** The
+remaining items of docs/block-time.md section 4 (PR #500 did items 1, 2, 4):
+
+| Constant | Was | Now | Duration at 1 block/s |
+|---|---|---|---|
+| `governance::work::WORK_HALF_LIFE_BLOCKS` | 5,760 | 86,400 | one day |
+| `crypto::dag::EPOCH_LENGTH` (and `DAG_ACTIVATION_HEIGHT`, `PRUNE_DEPTH`, both defined from it) | 30,000 | 450,000 | 5.2 days |
+| `smart_account::policy::BLOCKS_PER_DAY` (ADR-086 F7) | 43,200 | 86,400 | one day |
+| `network::pq::ROTATION_INTERVAL_BLOCKS` (transport, not consensus) | 1,000 | 15,000 | 4.2 hours; `ROTATION_FALLBACK` stays 15,000 s |
+
+Dependents checked: the mining epoch (`epoch_blocks` = 3,600) hashes against
+the DAG epoch of its first block, and 450,000 is a whole 125 mining epochs;
+committee rotation and staking read `epoch_blocks` from genesis, not the DAG
+epoch; mining rewards read `halving_epochs`; the DAG vector file's
+`mainnet_params.epoch_length` echoes the constant (the seeds and the hashes
+are computed at the testing parameters and do not move). `TARGET_BLOCK_TIME`
+keeps its value and is documented as the PoW retarget spacing only.
 
 ## Consequences
 

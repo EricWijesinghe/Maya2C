@@ -34,7 +34,7 @@
 pub mod record;
 pub mod work;
 
-pub use record::{LockRecord, ParameterTable, ProposalRecord, Totals};
+pub use record::{LockRecord, ParameterTable, PendingParameter, ProposalRecord, Totals};
 pub use work::{WORK_HALF_LIFE_BLOCKS, WorkRecord};
 
 /// Key prefix shared by every record the governance subsystem owns.
@@ -65,6 +65,16 @@ pub(crate) const LOCK_PREFIX: &[u8] = b"g:lock:";
 
 /// Prefix under which each address's work credit lives.
 pub(crate) const WORK_PREFIX: &[u8] = b"g:work:";
+
+/// Prefix of the block-validity parameter changes waiting for their activation
+/// height: `g:pending:<tag u16 BE>`, one per key (ADR-082 amendment b).
+pub(crate) const PENDING_PARAMETER_PREFIX: &[u8] = b"g:pending:";
+
+/// Storage key for the change waiting on parameter `tag`.
+#[must_use]
+pub fn pending_parameter_key(tag: u16) -> Vec<u8> {
+    join(PENDING_PARAMETER_PREFIX, &[&tag.to_be_bytes()])
+}
 
 /// Storage key for one proposal.
 #[must_use]

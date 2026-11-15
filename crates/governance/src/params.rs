@@ -103,6 +103,17 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::DefaultSignatureSuite,
 ];
 
+/// Blocks between a passed change to a block-validity rule executing and
+/// the rule binding: the same lead a scheduled protocol upgrade carries.
+///
+/// A validity rule decides which blocks every node accepts, so block
+/// builders, mempools, wallets and contract authors get the notice an upgrade
+/// gets. Fixed rather than chosen by the proposal, so no vote shortens it
+/// (invariants 12 and 34, ADR-082 amendment b). Equal to the upgrade lead
+/// rather than shorter, so a validity change carried beside a schedule entry
+/// is in force no later than that entry's earliest activation.
+pub const VALIDITY_RULE_LEAD_BLOCKS: u64 = crate::limits::MIN_UPGRADE_LEAD_BLOCKS;
+
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bounds {
@@ -268,6 +279,33 @@ impl ParameterKey {
         }
     }
 
+    /// Whether this key is a block-validity rule: a bound that decides
+    /// whether a block or a transaction in it is accepted, or caps the work
+    /// a block makes every node do. Such a change takes effect
+    /// [`VALIDITY_RULE_LEAD_BLOCKS`] after its proposal executes. The other
+    /// keys move a price or choose a wallet default and apply at execution.
+    ///
+    /// No wildcard arm: a new key does not compile until somebody decides
+    /// which kind it is.
+    #[must_use]
+    pub const fn is_validity_rule(self) -> bool {
+        match self {
+            Self::DexMaxFillsPerBlock
+            | Self::DexMaxOrdersPerBook
+            | Self::OracleMaxFeedSubmissionsPerBlock
+            | Self::ShieldedMaxPerBlock
+            | Self::VmMaxMemoryPages
+            | Self::VmMaxModuleBytes
+            | Self::VmDefaultGasLimit => true,
+            // A rate and a deposit change what a valid transaction pays, not
+            // whether it is valid. The default suite chooses what wallets
+            // sign with; it does not decide what verifies (invariant 31).
+            Self::DexProtocolFeeBps
+            | Self::GovernanceProposalDeposit
+            | Self::DefaultSignatureSuite => false,
+        }
+    }
+
     /// Short label for errors, logs, and explorers.
     #[must_use]
     pub const fn label(self) -> &'static str {
@@ -395,6 +433,20 @@ mod tests {
                 key.label()
             );
         }
+    }
+
+    #[test]
+    fn only_the_rules_a_block_is_judged_by_wait_for_the_lead() {
+        let validity: Vec<u16> = ALL_KEYS
+            .iter()
+            .filter(|key| key.is_validity_rule())
+            .map(|key| key.tag())
+            .collect();
+        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            VALIDITY_RULE_LEAD_BLOCKS,
+            crate::limits::MIN_UPGRADE_LEAD_BLOCKS
+        );
     }
 
     #[test]

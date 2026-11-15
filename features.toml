@@ -2045,6 +2045,7 @@ note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base u
 id = "governance-lifecycle-and-bounds"
 name = "Governance lifecycle and bounds"
 domain = "Consensus and execution"
+note = "Block-validity parameters (tags 2-8) bind MIN_UPGRADE_LEAD_BLOCKS after execution via g:pending:<tag> (ADR-082 amendment b; governance_tests.rs a_block_validity_parameter_takes_effect_only_at_its_scheduled_height, a_later_passed_change_to_a_waiting_validity_rule_replaces_it)."
 paths = "`crates/governance`"
 tier = "core"
 class = "REAL"
