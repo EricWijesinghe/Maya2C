@@ -7,7 +7,7 @@
         "nonce": "9",
         "result": "ok",
         "sender": "8381c29c410788ca107090bef4081da062f3abbd44b6ce7130b8aa88fd3a267a",
-        "signing_bytes_blake3": "1289e08e28de0a76533bb9dd194be5fbb0db5b5891f58d0ddf7a6c126e9567d3",
+        "signing_bytes_blake3": "bf0e620dffc893f9c1119b9b7984ddcb0359cf625a2492c1e7ee337db634274f",
         "txid": "c14c4feff783b261ad741334cb53bcb9a707b49dcc438c89a4720a93c20af65a"
       },
       "id": "signed-transfer",
@@ -22,7 +22,8 @@
         "ENC-8",
         "TX-2",
         "TX-3",
-        "TX-5"
+        "TX-5",
+        "TX-6"
       ]
     },
     {
@@ -32,7 +33,7 @@
         "nonce": "9",
         "result": "ok",
         "sender": "8381c29c410788ca107090bef4081da062f3abbd44b6ce7130b8aa88fd3a267a",
-        "signing_bytes_blake3": "1289e08e28de0a76533bb9dd194be5fbb0db5b5891f58d0ddf7a6c126e9567d3",
+        "signing_bytes_blake3": "bf0e620dffc893f9c1119b9b7984ddcb0359cf625a2492c1e7ee337db634274f",
         "txid": "43bbdf6449f8251185f9ccf53fd286f37f9866924456edc3ea4ed92872c2533a"
       },
       "id": "unsigned-transfer",
@@ -47,7 +48,8 @@
         "ENC-8",
         "TX-2",
         "TX-3",
-        "TX-5"
+        "TX-5",
+        "TX-6"
       ]
     },
     {

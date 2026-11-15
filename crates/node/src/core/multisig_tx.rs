@@ -22,17 +22,21 @@ use maya_crypto_pq::multisig::{Approval, MAX_SIGNERS, MultisigPolicy};
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::TxKind;
-use crate::core::transaction::{ChainTag, Transaction};
+use crate::core::transaction::{ChainTag, Transaction, signed_message};
 use crate::crypto::suites;
 use crate::error::{NodeError, Result};
 
 /// The wire version byte of a multisig transaction.
 pub const WIRE_VERSION_MULTISIG: u8 = 8;
 
-/// Signing domain; bumped to v2 with chain-bound signatures (ADR-036).
-/// Multisig transactions now commit to the chain's genesis block id to prevent
-/// cross-chain replay attacks.
-const TX_DOMAIN_MULTISIG: &[u8] = b"custom-l1-node.tx.multisig.v2";
+/// Signing domain; v2 with chain-bound signatures (ADR-036), v3 with the
+/// signed header (ADR-143).
+const TX_DOMAIN_MULTISIG: &[u8] = b"custom-l1-node.tx.multisig.v3";
+
+/// The suite byte of a multisig signed header. Not a suite (the registry has
+/// no `0x00`): a policy has no one suite, and each key names its own inside
+/// the policy, which the body covers.
+const MULTISIG_SUITE_BYTE: u8 = 0x00;
 
 /// Domain for a multisig account address, distinct from both other address
 /// derivations so no key and no policy can name the same account.
@@ -113,16 +117,17 @@ pub(crate) fn body_bytes(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
 
 /// The bytes every approver signs.
 ///
-/// Structure: `TX_DOMAIN_MULTISIG || chain_tag || body_bytes()`
+/// Structure: `TX_DOMAIN_MULTISIG || chain_tag || 8 || 0x00 || body_bytes()`
 /// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
-/// preventing cross-chain replay attacks.
+/// and the signed header (ADR-143) to bind it to this version's reading.
 pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth, chain: &ChainTag) -> Vec<u8> {
-    let body = body_bytes(tx, auth);
-    let mut buf = Vec::with_capacity(TX_DOMAIN_MULTISIG.len() + 32 + body.len());
-    buf.extend_from_slice(TX_DOMAIN_MULTISIG);
-    buf.extend_from_slice(&chain.0);
-    buf.extend_from_slice(&body);
-    buf
+    signed_message(
+        TX_DOMAIN_MULTISIG,
+        chain,
+        WIRE_VERSION_MULTISIG,
+        MULTISIG_SUITE_BYTE,
+        &body_bytes(tx, auth),
+    )
 }
 
 /// The v8 wire encoding.
