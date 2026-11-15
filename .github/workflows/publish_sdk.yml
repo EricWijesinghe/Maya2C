@@ -80,10 +80,11 @@ jobs:
 
       # `ci`, not `install`: it installs exactly the lockfile and fails if
       # package.json and the lock disagree, rather than quietly resolving
-      # something new on the day the release happens.
+      # something new on the day the release happens. `--ignore-scripts`: the
+      # SDK's dependencies need no install hooks, and this job holds id-token.
       - name: Install
         working-directory: sdks/sdk-js
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         working-directory: sdks/sdk-js
@@ -117,7 +118,7 @@ jobs:
           fi
 
       - name: Publish
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.dry_run == false)
         working-directory: sdks/sdk-js
         # `--provenance` attaches a signed attestation linking the tarball to
         # this workflow run and this commit, so a consumer can check that what

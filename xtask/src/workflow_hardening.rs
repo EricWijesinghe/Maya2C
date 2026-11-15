@@ -10,7 +10,6 @@ const DEPENDABOT: &str = include_str!("../../.github/dependabot.yml");
 
 /// Directories holding a Cargo.lock or package-lock.json outside the root
 /// workspace and docs/site, each of which needs its own Dependabot entry.
-#[cfg(test)]
 const NESTED_LOCKFILE_DIRS: &[&str] = &[
     "/apps/chat-gui/src-tauri",
     "/apps/dashboard",
@@ -29,7 +28,6 @@ const NESTED_LOCKFILE_DIRS: &[&str] = &[
 
 /// The lines of the block opened by `header` (exact text, with its indent),
 /// up to the next key at the same or a shallower indent.
-#[cfg(test)]
 fn block(yaml: &str, header: &str) -> String {
     let indent = header.len() - header.trim_start().len();
     let mut lines = Vec::new();
