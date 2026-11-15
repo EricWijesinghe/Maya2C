@@ -43,9 +43,10 @@ on:
 # Trusted publishing. No registry token is stored anywhere: PyPI and npm both
 # mint short-lived credentials from this workflow's OIDC identity, so there is
 # no long-lived secret to leak, rotate, or forget to scope.
+# Read-only by default. Each publish job grants `id-token` itself, so the wheel
+# build (third-party build code) never holds an OIDC token it could exchange.
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   # Never cancel a publish in progress. A cancelled `npm publish` can leave a
@@ -61,6 +62,12 @@ jobs:
   npm:
     name: maya2c.js → npm
     runs-on: ubuntu-latest
+    # The environment is what the npm trusted publisher can be bound to; with
+    # no binding set on npmjs.com the environment name is not checked.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -121,6 +128,8 @@ jobs:
   wheels:
     name: maya2c wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       # One platform failing should not hide whether the others are fine —
       # a wheel matrix is exactly where "it works on Linux" hides a macOS
@@ -166,6 +175,9 @@ jobs:
     name: maya2c → PyPI
     needs: wheels
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     # A dedicated environment so the trusted-publisher binding is scoped to it
     # rather than to the whole repository, and so a publish can require a
     # reviewer if you configure one.
@@ -186,5 +198,5 @@ jobs:
       # minutes when it works, and a failure without a C++ toolchain. Shipping
       # one would mostly generate bug reports about somebody else's compiler.
       - name: Publish
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.dry_run == false)
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
