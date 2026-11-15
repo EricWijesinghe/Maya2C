@@ -23,14 +23,15 @@ use super::{lock_chain, unix_now};
 /// Pause when backfill has nothing to fetch.
 const BACKFILL_IDLE: Duration = Duration::from_secs(2);
 
-/// Maximum buffered blocks whose parent has not arrived.
+/// Maximum buffered blocks whose parent has not arrived, counted as blocks.
 ///
-/// Bounded because a peer can send unlimited unattached blocks; an unbounded
-/// buffer would be a memory-exhaustion vector.
+/// Bounds the memory held for unattached blocks, whatever the gossip volume.
 const MAX_ORPHANS: usize = 512;
 
-/// Buffered blocks allowed under one missing parent. Without it a single parent
-/// id could hold the whole pool, and the pool limit would count keys, not blocks.
+/// Buffered blocks allowed under one missing parent, so one parent id cannot
+/// hold the whole pool. Assumes honest DAG-BFT blocks form a linear
+/// `prev_hash` chain: siblings sharing a parent beyond this are refused from
+/// the buffer, so raise it if a legitimate fork can exceed eight.
 const MAX_ORPHANS_PER_PARENT: usize = 8;
 
 /// Parents fetched in a row for one orphan before giving up. A peer that keeps
@@ -372,12 +373,24 @@ mod tests {
 
     #[test]
     fn the_pool_limit_counts_blocks_not_parents() {
+        // 64 parents x 8 blocks: 512 blocks under 64 keys. A key count would
+        // still admit here (64 < 512), so only block counting refuses it.
         let mut orphans: Orphans = HashMap::new();
-        for nonce in 0..MAX_ORPHANS as u64 {
+        for parent_index in 0..64u64 {
             let mut parent = [0u8; 32];
-            parent[..8].copy_from_slice(&nonce.to_be_bytes());
-            orphans.insert(parent, vec![orphan_under(parent, nonce)]);
+            parent[..8].copy_from_slice(&parent_index.to_be_bytes());
+            for nonce in 0..MAX_ORPHANS_PER_PARENT as u64 {
+                orphans
+                    .entry(parent)
+                    .or_default()
+                    .push(orphan_under(parent, parent_index * 8 + nonce));
+            }
         }
+        assert_eq!(
+            orphans.values().map(Vec::len).sum::<usize>(),
+            MAX_ORPHANS,
+            "pool not filled to its block limit"
+        );
         assert!(
             !has_orphan_room(&orphans, &[0xff; 32]),
             "full pool still admits"

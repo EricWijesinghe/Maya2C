@@ -446,7 +446,9 @@ mod tests {
             .await
             .expect("connect");
         let _ = stream
-            .write_all(b"GET /api/v1/total_supply HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .write_all(
+                b"GET /api/v1/total_supply HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
             .await;
         let mut response = Vec::new();
         let _ = stream.read_to_end(&mut response).await;

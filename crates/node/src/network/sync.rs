@@ -197,8 +197,10 @@ impl RateLimiter {
         true
     }
 
-    /// Drops the window that started longest ago. Refusing newcomers instead
-    /// would let churned peer ids deny sync to everyone else.
+    /// Drops the window that started longest ago, so a new peer is admitted
+    /// even when the table is full. Trade-off: a peer at its quota whose window
+    /// is oldest regains a full quota once enough newer peers have cycled
+    /// through the table.
     fn forget_oldest(&mut self) {
         let oldest = self
             .windows
@@ -312,7 +314,7 @@ mod tests {
         }
         assert!(
             limiter.allow(PeerId::random(), now),
-            "churned peer ids must not deny sync to newcomers"
+            "a full table must not refuse a newcomer"
         );
         assert_eq!(limiter.windows.len(), MAX_LIMITED_PEERS);
     }

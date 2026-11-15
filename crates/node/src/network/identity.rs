@@ -118,27 +118,39 @@ pub fn peer_id_at(path: &Path) -> Result<PeerId> {
 /// Windows has no Unix mode bits: owner-only ACLs there are the ADR-049 decision.
 #[cfg(unix)]
 fn write_new_owner_only(path: &Path, seed: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
-    let mut file = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(path)?;
-    file.write_all(seed)
+    write_or_remove(file, path, seed)
 }
 
 /// Non-Unix: no mode bits to set, so only the no-overwrite guarantee applies.
 #[cfg(not(unix))]
 fn write_new_owner_only(path: &Path, seed: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    let mut file = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)?;
-    file.write_all(seed)
+    write_or_remove(file, path, seed)
+}
+
+/// Writes the seed, and on failure removes the file so a half-written key does
+/// not block every later start with "found N bytes".
+fn write_or_remove(mut file: std::fs::File, path: &Path, seed: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let result = file.write_all(seed);
+    if result.is_err() {
+        // Closed before removal: Windows refuses to delete an open file.
+        drop(file);
+        // A failed removal leaves the partial file; the write error is still returned.
+        let _ = std::fs::remove_file(path);
+    }
+    result
 }
 
 #[cfg(test)]

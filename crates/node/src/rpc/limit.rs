@@ -37,8 +37,8 @@ use std::time::Instant;
 
 /// Addresses tracked before the table is swept.
 ///
-/// A bucket per address is a map an attacker can grow by sourcing from many
-/// addresses, so the table itself needs a ceiling. When it is reached, entries
+/// A bucket per address grows with the number of distinct sources, so the
+/// table itself needs a ceiling. When it is reached, entries
 /// that have refilled to full are dropped: a full bucket is indistinguishable
 /// from an absent one, so forgetting it changes no decision. If none has
 /// refilled, the least recently touched bucket is dropped instead.
@@ -192,9 +192,11 @@ impl RateLimiter {
 
     /// Makes room when nothing has refilled: drops the bucket untouched longest.
     ///
-    /// Refusing new addresses here would let a flood lock out first-time
-    /// clients, so the ceiling is enforced by eviction instead.
-    /// shortcut: linear scan per new address at the ceiling, upgrade to an LRU list if it shows in profiles.
+    /// Refusing new addresses here would lock out first-time clients whenever
+    /// the table is full, so the ceiling is enforced by eviction instead. Trade-off:
+    /// a drained address whose bucket is oldest regains a full quota once enough
+    /// newer addresses have cycled through the table.
+    /// shortcut: linear scan per new address at the ceiling (about doubles the O(n) sweep cost while full), upgrade to an LRU list if it shows in profiles.
     fn evict_least_recent(buckets: &mut HashMap<IpAddr, Bucket>) {
         let stale = buckets
             .iter()
@@ -414,7 +416,11 @@ mod tests {
         }
 
         let newcomer = IpAddr::from([192, 0, 2, 1]);
-        assert!(limiter.take_at(newcomer, 1.0, now), "newcomer refused");
-        assert_eq!(limiter.tracked(), MAX_TRACKED);
+        assert!(limiter.take_at(newcomer, 1.0, now), "newcomer not admitted");
+        assert_eq!(
+            limiter.tracked(),
+            MAX_TRACKED,
+            "table grew past MAX_TRACKED: eviction did not run"
+        );
     }
 }
