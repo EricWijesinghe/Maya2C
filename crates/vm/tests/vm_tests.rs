@@ -58,6 +58,13 @@ fn the_wasmtime_version_pin_has_not_drifted() {
         manifest.contains(&pin),
         "crates/vm/Cargo.toml does not pin wasmtime to {WASMTIME_VERSION}; verify the gas schedule"
     );
+    // The lock is what CI and release builds resolve, so it must agree as well.
+    let lock = include_str!("../../../Cargo.lock").replace("\r\n", "\n");
+    let entry = format!("name = \"wasmtime\"\nversion = \"{WASMTIME_VERSION}\"\n");
+    assert!(
+        lock.contains(&entry),
+        "Cargo.lock does not resolve wasmtime to {WASMTIME_VERSION}; verify the gas schedule"
+    );
 }
 
 #[test]

@@ -34,7 +34,8 @@ pub const MAX_VALUE_BYTES: usize = 4 * 1024;
 pub const MAX_EVENT_BYTES: usize = 4 * 1024;
 
 /// Largest event topic a contract may emit. Topics name an event kind, so they
-/// share the storage key's ceiling. Decision pending: see the PR.
+/// share the storage key's ceiling. Proposed value; it is final only once its
+/// ADR is recorded.
 pub const MAX_EVENT_TOPIC_BYTES: usize = 128;
 
 /// Maximum events one call may emit.

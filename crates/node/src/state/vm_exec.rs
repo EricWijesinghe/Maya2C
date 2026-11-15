@@ -51,8 +51,8 @@ impl StateDB {
     /// Reads a contract's entire storage.
     ///
     /// The VM's host must own its data, so the whole key space is loaded before
-    /// a call, whatever the call reads. Nothing yet bounds how large that
-    /// storage grows: writes are not charged per byte and no cap applies.
+    /// a call, whatever the call reads. Storage size limits are a separate
+    /// consensus decision, not in this change.
     ///
     /// # Errors
     ///

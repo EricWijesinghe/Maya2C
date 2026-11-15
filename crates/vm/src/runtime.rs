@@ -534,8 +534,8 @@ impl Vm {
 
         let invoked = self.invoke(&mut store, &instance, input, gas_limit);
 
-        // A host function that failed traps the guest, but the useful error is
-        // the one the host recorded, not the generic trap it produced.
+        // A failed host function does not trap the guest. The error the host
+        // recorded is reported, not whatever `invoke` returned.
         let recorded = store.data_mut().failure.take();
 
         let remaining = store.get_fuel().unwrap_or(0);
