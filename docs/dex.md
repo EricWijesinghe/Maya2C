@@ -210,10 +210,12 @@ re-entry into the borrower's code, which means the contract host ABI in
 `crates/vm/src/host.rs`. That is a larger change than this one and is not pretended at.
 
 Routes execute in place rather than in a batch, because there is nothing to net
-a multi-hop path against. This does not reopen the sandwich: routes run *before*
-the block's batches, so a miner can put a trade in front of a victim's batch but
-has nowhere left in the same block to unwind it, and a front-run that cannot be
-unwound is just a position.
+a multi-hop path against. The batch protection covers plain swaps only. A route
+moves its pools when it executes, so a batch on the same pair later in the block
+settles at the moved price, and a proposer who orders a route ahead of a victim's
+batch and reverses the position inside that batch can take the route's price
+impact. Routes carry the ordering exposure of an ordinary AMM trade. The current
+design does not close this.
 
 ---
 

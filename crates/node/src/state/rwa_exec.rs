@@ -162,9 +162,10 @@ impl StateDB {
 
     /// Records that a holder cleared an asset's rule.
     ///
-    /// The caller has already verified the disclosure proof against the roots
-    /// the chain holds; this writes down that it happened and when it stops
-    /// counting.
+    /// Writes the eligibility record. It does not verify a disclosure proof:
+    /// the payload carries none, so the record is a claim, not a proof. Do not
+    /// enable this path for a live asset until the proof is carried and checked
+    /// against the chain's roots.
     ///
     /// # Errors
     ///
