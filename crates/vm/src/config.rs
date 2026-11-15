@@ -36,7 +36,7 @@ use crate::error::{Result, VmError};
 ///
 /// Asserted by a test. If the dependency moves, that test fails and the change
 /// is surfaced as the consensus event it is.
-pub const WASMTIME_VERSION: &str = "48.0.7";
+pub const WASMTIME_VERSION: &str = "48.0.8";
 
 /// WebAssembly page size in bytes.
 pub const PAGE_SIZE: usize = 64 * 1024;
@@ -167,7 +167,8 @@ pub fn config_digest() -> [u8; 32] {
     // across versions — see the pin in Cargo.toml — so a version change must
     // invalidate every cached module too.
     hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
-    hasher.update(b"wasmtime-48.0.1");
+    hasher.update(b"wasmtime-");
+    hasher.update(WASMTIME_VERSION.as_bytes());
     *hasher.finalize().as_bytes()
 }
 

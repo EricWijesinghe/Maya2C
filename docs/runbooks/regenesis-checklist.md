@@ -11,7 +11,7 @@ against a live server on its own.
 |---|---|---|
 | `bft.mining` (ADR-044), funded keyless reserve | mining has never run on the live testnet | `cargo xtask mining-localnet` |
 | Security council 2-of-3 (ADR-050) | the old genesis has none | `genesis-ceremony council ...` |
-| wasmtime 48.0.7 | consensus-VM bump, a hard fork | #190, vm tests |
+| wasmtime 48.0.8 | consensus-VM bump, a hard fork | #268, `the_wasmtime_version_pin_has_not_drifted` |
 | Staking record v3, stake added in an epoch earns from the next | state format change | PR for `fix/reward-sniping` |
 | ML-DSA-87 validator keys (ADR-051 option 3) | key type is fixed in genesis | built (feat/validator-mldsa87, spec CRY-4); every key must be regenerated with the new binary |
 | 20% per-operator cap, 7+ validators | policy | `cargo xtask genesis-check FILE` |
