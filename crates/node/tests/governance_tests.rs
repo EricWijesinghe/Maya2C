@@ -869,7 +869,7 @@ fn a_later_passed_change_to_a_waiting_validity_rule_replaces_it() {
 fn a_block_validity_parameter_takes_effect_only_at_its_scheduled_height() {
     // A per-block ceiling decides which blocks are valid, so a passed change
     // to one waits a full upgrade lead after execution (ADR-082 amendment 2026-11-15)
-    // and builders, mempools and wallets see it coming. It is promoted at the
+    // and sits on chain under `g:pending:` until then. It is promoted at the
     // end of the block before its activation height, so the committed table a
     // builder reads at the tip is the one the activation block is judged by.
     let fixture = fixture();
@@ -1045,6 +1045,34 @@ fn a_waiting_change_is_under_the_state_root_and_one_out_of_range_is_dropped() {
         fixture.db.state_root().expect("root"),
         root_before,
         "the record is deleted and no table is written"
+    );
+}
+
+#[test]
+fn a_proposal_of_only_validity_rules_leaves_the_table_unwritten_until_promotion() {
+    // Execution writes `g:params` only when a key that applies at once moved,
+    // the rule the promotion pass follows: a table the vote did not change is
+    // not materialised in state.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let (id, executable) = fixture.propose(ParameterKey::DexMaxOrdersPerBook, 512, 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], executable).expect("execute");
+    assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+
+    // Writing the default table moves the root only if none was stored.
+    let root = fixture.db.state_root().expect("root");
+    let defaults = fixture.db.parameters().expect("parameters").encode();
+    fixture
+        .db
+        .raw_put_for_test(b"g:params", &defaults)
+        .expect("stage");
+    assert_ne!(
+        fixture.db.state_root().expect("root"),
+        root,
+        "execution must not have written an unchanged table"
     );
 }
 

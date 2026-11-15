@@ -686,6 +686,9 @@ impl StateDB {
     ) -> Result<()> {
         let sunsets = self.effective_schedule_through(overlay)?.sunsets;
         let mut table = self.parameters_through(overlay)?;
+        // Write the table only if a key in force from E + 1 moved, as the
+        // promotion pass does; an unchanged table stays unmaterialised.
+        let mut changed = false;
         for (tag, value) in &record.changes {
             let key = ParameterKey::from_tag(*tag).map_err(governance_error)?;
             ParameterChange { key, value: *value }
@@ -705,9 +708,12 @@ impl StateDB {
                 );
             } else {
                 table = table.with(key, *value);
+                changed = true;
             }
         }
-        Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());
+        if changed {
+            Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());
+        }
         Ok(())
     }
 
