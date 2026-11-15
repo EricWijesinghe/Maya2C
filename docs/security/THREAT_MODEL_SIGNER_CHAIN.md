@@ -269,8 +269,10 @@ to add, and the test that would prove the control. Ranks are in section 4.
   secrets to an offline signer with a second person present; add monotonic
   version refusal in `apps/app-update`; document key rotation and the
   revocation path; keep the manifest on a path that P2 does not share.
-- **Test.** `updater_refuses_older_version`; `updater_refuses_bundle_not_signed_by_pinned_key`;
-  `updater_refuses_manifest_pointing_off_origin`.
+- **Test (planned; no such test exists in the tree yet).** `updater_refuses_older_version`;
+  `updater_refuses_bundle_not_signed_by_pinned_key`; `updater_refuses_manifest_pointing_off_origin`.
+  The pinned key is read from the tagged working tree (`.github/workflows/release-binaries.yml`),
+  so the key itself is not yet out of the repo's reach.
 
 ### P8. Supply chain: Rust crates, npm packages, CI actions
 
@@ -484,7 +486,7 @@ the path is enabled. MEDIUM is a judgment call with a written reason.
 | HIGH | Hub runs any binary named in settings; key path unchecked | P5 | Settings edit or UI change runs code | Bundle-restricted or hash-pinned miner; key ownership check | `hub_refuses_miner_outside_bundle` |
 | HIGH | Site build job holds `id-token: write`; `npm ci` runs lifecycle scripts; build writes the Pages artifact | P8 | Malicious package reaches origin deploy | Least-privilege permissions per job; `npm ci --ignore-scripts` with allow-list | Workflow lint fails on `id-token: write` in build |
 | HIGH | Installers not OS-signed; Windows and macOS not reproducibility-checked; reproducible build not required | P6, P15 | Users click through warnings; the release cannot be rebuilt on two of three platforms | Authenticode and notarization off-runner; reproducible check as a required check on tags | `gh attestation verify` step; required-check list includes reproducible build |
-| HIGH | Updater not live; enabling it without key-isolation and rollback refusal | P7 | Would push one bad build to every install | Offline signer, two-person presence, monotonic version check | `updater_refuses_older_version` |
+| HIGH | Updater not live; enabling it without key-isolation and rollback refusal | P7 | Would push one bad build to every install | Offline signer, two-person presence, monotonic version check | planned, not in tree: `updater_refuses_older_version` |
 | HIGH | Validator keys: plaintext loaded on testnet; Windows relies on ACL; BitLocker off at audit time; mainnet planned from the PC | P9 | Live chain equivocation or key theft | Sealed keys on every network that holds value; full-disk encryption verified; key off the PC before mainnet | `validator_refuses_plaintext_on_mainnet_config` |
 | HIGH | custody-mpc combiner sees the key and message; no isolation; custodians' summary not verified against bytes (unverified in code read) | P10 | Custody at scale is the Bybit shape | Summary-to-bytes check in combiner; isolated host or TEE; written residual | `combiner_refuses_message_not_matching_approved_summary` |
 | MEDIUM | `cargo vet` report mode, 1068 exemptions | P8 | Unreviewed crates reach binaries | Blocking for core crates before the rest | `cargo vet check --locked` on core set |
