@@ -39,7 +39,7 @@ fn relabelling_a_file_as_another_kind_fails_the_tag() {
 }
 
 #[test]
-fn a_format_or_kdf_swap_is_refused_before_any_hashing() {
+fn a_format_or_kdf_swap_is_refused_as_a_format_error() {
     let text = sealed::seal(b"s", b"p", VALIDATOR_KEY_KIND, PASS).unwrap();
     for (name, value) in [
         ("format", Value::from(1)),

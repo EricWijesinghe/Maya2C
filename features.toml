@@ -3377,9 +3377,9 @@ domain = "Cryptography and key management"
 paths = "`crates/signer/src/sealed.rs`, `bins/maya2c-node/src/validator_key.rs`, `bins/l1-wallet/src/staking.rs`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = ["crates/signer/tests/sealed_tests.rs", "crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
-note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. P2 red team 2026-11-17: sealed_tests.rs fails closed on a relabelled kind, format/KDF swap, nonce tamper, ciphertext transplant, truncation and non-file input; dropping kind from the AAD turns it red. The production refusal tests (validator_key.rs, cfg(feature = \"production\")) are not in any CI test job; CI builds that feature only in release-binaries.yml. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
+note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. P2 red team 2026-11-14 (tests re-run 2026-11-17): sealed_tests.rs fails closed on a relabelled kind, format/KDF swap, nonce tamper, ciphertext transplant, truncation and non-file input; dropping kind from the AAD turns it red. The production refusal tests (validator_key.rs, cfg(feature = \"production\")) are not in any CI test job; CI builds that feature only in release-binaries.yml, so the entry is held at working until a CI test job runs `--features production`. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
 
 [[subsystem]]
 id = "dos-guard"
@@ -3390,7 +3390,7 @@ tier = "core"
 class = "RESEARCH"
 status = "verified"
 tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs", "crates/dos-guard/tests/edges.rs"]
-note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack, so verified means the crate does what it says, not that the node is defended (class stays RESEARCH). P2 red team 2026-11-14 found and fixed two levers in the defences themselves: a full inbound table recorded every refused subnet (unbounded memory under IPv6 rotation), and a same-nonce replacement could grow a transaction 100x for a 10% fee bump. The diversity table has no release path for closed connections yet."
+note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack, so verified means the crate does what it says, not that the node is defended (class stays RESEARCH). P2 red team 2026-11-14 (tests re-run 2026-11-17) found and fixed two levers in the defences themselves: a full inbound table recorded every refused subnet (unbounded memory under IPv6 rotation), and a same-nonce replacement could grow a transaction 100x for a 10% fee bump. The diversity table has no release path for closed connections yet."
 
 [[subsystem]]
 id = "exchange-deposit-watcher"
