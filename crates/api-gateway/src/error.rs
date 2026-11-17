@@ -42,6 +42,11 @@ pub enum GatewayError {
     /// The requested object does not exist.
     #[error("not found")]
     NotFound,
+
+    /// The caller already holds as many event subscriptions as it may, or
+    /// the gateway as many as it will keep.
+    #[error("subscription limit reached: {0}")]
+    TooManySubscriptions(String),
 }
 
 impl GatewayError {
@@ -53,6 +58,7 @@ impl GatewayError {
             Self::BadRequest(_) | Self::Rejected(_) => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
+            Self::TooManySubscriptions(_) => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 
@@ -127,6 +133,10 @@ mod tests {
             StatusCode::BAD_GATEWAY
         );
         assert_eq!(GatewayError::NotFound.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            GatewayError::TooManySubscriptions("x".into()).status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         assert_eq!(
             GatewayError::Rejected("x".into()).status(),
             StatusCode::BAD_REQUEST
