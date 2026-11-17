@@ -25,8 +25,11 @@ node's protocol — `l1-wallet`, the desktop wallet, and the Go and Python SDKs.
 It is not a proxy: each method below is parsed and checked by the gateway, and
 anything else is refused before it reaches the node.
 
-The public testnet's gateway will be `https://rpc.maya2c.dev` once the testnet
-is live. `gateway.example.com` below stands for whichever gateway you use.
+The public testnet is paused (since 2026-10-28), so there is no public gateway
+to call today. `cargo xtask kit up` starts a local one on
+`http://127.0.0.1:8080`, in front of a four-validator devnet
+([quickstart](/guides/quickstart/)). `gateway.example.com` below stands for
+whichever gateway you use. Client libraries: [SDK wizard](/guides/sdk-wizard/).
 
 ## Endpoints
 
@@ -39,18 +42,31 @@ is live. `gateway.example.com` below stands for whichever gateway you use.
 | `GET` | `/v1/supply/circulating` | Circulating supply in whole coins, plain text (for listing sites) |
 | `GET` | `/v1/supply/total` | Total supply in whole coins, plain text |
 | `GET` | `/v1/fees` | Fee terms: `active`, `base_fee` per byte, and the `collector` the fee is paid to |
+| `GET` | `/v1/chain` | The genesis id a transaction must be signed for (ADR-036), the chain id, and the tip height |
 | `POST` | `/v1/transactions` | Submit a signed transaction |
 | `POST` | `/v1/sealed` | Submit a sealed (encrypted-mempool) transaction |
-| `POST` | `/rpc` | JSON-RPC 2.0: `get_balance`, `get_block_by_height`, `get_fee_info`, `get_supply`, `send_raw_transaction`. Batches are refused. |
+| `POST` | `/graphql` | GraphQL reads: `account`, `supply`, `block` |
+| `POST` | `/rpc` | JSON-RPC 2.0: `get_balance`, `get_block_by_height`, `get_fee_info`, `get_chain_info`, `get_bft_status`, `get_checkpoint`, `get_supply`, `get_mining_work`, `send_raw_transaction`. Batches are refused. |
+| `GET` | `/openapi.json` | The OpenAPI document for the REST routes above |
+
+## OpenAPI
 
 The machine-readable document is served at **`/openapi.json`** by the gateway
 itself, rather than only committed here — a spec that lives in a repository and
 not at the endpoint is a spec that drifts from the deployment somebody is
-actually pointing a client at.
+actually pointing a client at. It is generated from the route handlers
+(`crates/api-gateway/src/rest.rs`, utoipa), and `tests/openapi_tests.rs` fails
+when a route the router registers is missing from it.
 
 ```bash
 curl https://gateway.example.com/openapi.json | jq .
+curl http://127.0.0.1:8080/openapi.json            # the gateway `cargo xtask kit up` starts
 ```
+
+**Not on master yet:** a separate, versioned indexer API for the explorer, with
+its own OpenAPI file (`apps/explorer/openapi/v1.yaml`, ADR-092), is in open
+pull request [#414](https://github.com/EricWijesinghe/Maya2C/pull/414). Until it
+merges, nothing on this page describes it.
 
 ## `/health` does not proxy
 
@@ -117,8 +133,9 @@ Measured end to end on 2026-09-29 through a local gateway on a fee-charging
 chain: a hybrid-signed transfer was 13,255 bytes, so the minimum fee at base fee
 1 was 13,255, and the wallets' default ("Standard") paid twice that, 26,510.
 
-Build and sign with `sdk-wasm`; see [wallet integration](/guides/wallet). This
-API never sees a private key.
+Build and sign with `l1-wallet send --no-broadcast`, which prints the signed
+hex; see [wallet integration](/guides/wallet). This API never sees a private
+key.
 
 ## Rate limits
 
@@ -133,3 +150,49 @@ testnet runs). Behind another reverse proxy, it is the **last**
 `X-Forwarded-For` entry (`x-forwarded-for-last`): a client can prepend entries
 to that header but cannot remove the one the proxy in front appends. Set
 `--rate-per-second` and `--rate-burst` to change the limits.
+
+## Node JSON-RPC methods
+
+Every method the node registers on master, read from
+`crates/node/src/rpc/server.rs`, `bootstrap.rs` and `peers.rs` (commit
+`c7ebb4d2`). These are the node's own port: loopback by default, no
+authentication. The **Gateway** column says what a client can reach through
+`/rpc` (`crates/api-gateway/src/allowlist.rs`): *yes*, *bootstrap* (only on a
+gateway started with `--bootstrap`), *denied* (named in the deny list), or
+*no* (not forwarded). Params are a JSON array; addresses are 64 hex characters.
+
+| Method | Params | Returns | Gateway |
+|---|---|---|---|
+| `get_balance` | `[address]` | Balance and next nonce | yes |
+| `get_account_at_tip` | `[address]` | The account with the tip height and block id it was read at | no |
+| `get_balance_at_height` | `[address, height]` | The balance as of a past height | no |
+| `get_balance_changes` | `[height]` | The balances one block changed | no |
+| `vault_get` | `[address]` | A vault account's settings, or `null` (ADR-030) | no |
+| `get_chain_info` | `[]` | Genesis id, chain id, tip height | yes |
+| `get_node_version` | `[]` | `version`, `protocol`, `header_version`, for upgrade checks | no |
+| `get_bft_status` | `[]` | Epoch, round, committed round, committee size, this node's index; `null` off DAG-BFT | yes |
+| `get_checkpoint` | `[]` or `[epoch]` | The newest checkpoint, or an epoch's final one | yes |
+| `get_certificates` | `[epoch, offset, max]` | One bounded page of an epoch's certificate log (ADR-052) | no |
+| `get_validators` | `[]` | Registered validators and this epoch's committee | no |
+| `get_peers` | `[]` | Connected peers | no |
+| `get_fee_info` | `[]` | `active`, `base_fee` per byte, `collector` | yes |
+| `get_supply` | `[]` | Circulating, total, `shielded`, `burned` | yes |
+| `get_mempool_info` | `[]` | `size` and `bytes` of the pool | no |
+| `send_raw_transaction` | `[raw_hex]` | The transaction hash, once the mempool accepts it | yes |
+| `get_block_by_height` | `[height]` | A block | yes |
+| `get_blocks_by_height_range` | `[from, count]` | Consecutive blocks, stopping at the first missing one | no |
+| `get_mining_work` | `[miner_address]` | A share header bound to that payout address (ADR-044) | yes |
+| `get_mining_candidate` | `[]` | A full block template | denied |
+| `submit_block` | `[raw_hex]` | Whether a mined block was accepted | denied |
+| `get_tip_height` | `[]` | The tip height | bootstrap |
+| `get_headers` | `[from, to]` | A bounded run of headers | bootstrap |
+| `get_snapshot_manifest` | `[]` | The newest state snapshot's manifest | bootstrap |
+| `get_snapshot_chunk` | `[height, index]` | One snapshot chunk | bootstrap |
+| `htlc_get_lock` | `[lock_id]` | A hash-time-locked contract's state | no |
+| `stateless_transaction_witness` | `[raw_hex]` | Research branch: refused until stateless accounts activate, which is no network today | no |
+| `threat_indicators` | `[]` | Every threat-intel indicator, judged at the tip | no |
+| `threat_peer_addresses` | `[]` | Connected peers' ids and IPs, for the threat-intel tooling | no |
+| `iot_device` | `[device_id]` | An IoT anchor device's status and latest batch, never readings | no |
+
+A method on an open pull request and not on master is not listed; this table
+changes when one merges.

@@ -60,23 +60,26 @@ reason.
 
 | Package | Does | Does not |
 |---|---|---|
-| `maya2c.js` | reads and submits, through the gateway | sign |
-| `sdks/sdk-wasm` | builds and signs transactions | touch the network |
-| Python bindings (`sdks/sdk-ffi`) | sign and verify | build transactions; not on PyPI yet |
+| `l1-wallet` | builds and signs transactions (`send --no-broadcast` prints the signed hex) | run in a browser |
+| `maya2c.js` | reads and submits, through the gateway | sign; not on npm yet |
+| `sdks/sdk-wasm` | derives addresses and verifies hybrid signatures in the browser | build or sign transactions (on master); touch the network |
+| Go and Python SDKs (`sdks/go`, `sdks/python`) | read over JSON-RPC; transfer by calling `l1-wallet` | sign in their own language |
+| Python bindings (`sdks/sdk-ffi`) | sign and verify messages | build transactions; not on PyPI yet |
 
 The split is deliberate. Signing needs the two post-quantum primitives, which
-means compiled code: wasm in the browser, a native library in Python. Reading
-needs only HTTP.
+means compiled code: a native binary or library, or wasm in the browser.
+Reading needs only HTTP. Install steps for each language, published or not:
+the [SDK wizard](/guides/sdk-wizard/).
 
 ```ts
 import { MayaClient } from "maya2c.js";
 
-const client = new MayaClient({ baseUrl: "https://gateway.example.com" });
+const client = new MayaClient("https://gateway.example.com");
 const { balance, nonce } = await client.getBalance(address);
 
-// ... build and sign with sdk-wasm, producing rawHex ...
+// ... sign with `l1-wallet send --no-broadcast`, producing rawHex ...
 
-const { txid } = await client.submitTransaction(rawHex);
+const { hash } = await client.sendRawTransaction(rawHex);
 ```
 
 ## Talk to the gateway, not to a node

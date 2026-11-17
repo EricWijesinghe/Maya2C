@@ -1,6 +1,7 @@
 # The Go and Python SDK unit tests. Before this file, nothing in CI ran them:
 # ci.yml is Rust-only, and nightly.yml runs the SDKs only against a live devnet.
 # The live-node tests skip here (no MAYA_RPC_URL / L1_WALLET in the env).
+# install-lines: every registry install command in the SDK READMEs resolves.
 name: sdks
 
 on:
@@ -8,10 +9,12 @@ on:
     branches: ["master", "main"]
     paths:
       - "sdks/**"
+      - "docs/site/authored/sdk-wizard.mdx"
       - ".github/workflows/sdks.yml"
   pull_request:
     paths:
       - "sdks/**"
+      - "docs/site/authored/sdk-wizard.mdx"
       - ".github/workflows/sdks.yml"
 
 permissions:
@@ -51,3 +54,72 @@ jobs:
           python-version: "3.12"
       - name: unittest
         run: python -m unittest discover -s tests
+
+  # W-05 (reports/audits/2026-11-12-brand-ux-devex-seo.md): `npm install
+  # maya2c.js` and `pip install maya2c` were a newcomer's first command and both
+  # 404'd. A registry install line must resolve, or sit under a heading that
+  # says "Not published yet" beside from-source steps. Local paths, --git and
+  # --path installs are not registry lines and are skipped.
+  install-lines:
+    name: SDK install lines resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Resolve every registry install line
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prints "kind package file:line" for each registry install line in a fenced
+          # block, outside any heading that says "Not published yet" (and its subheadings).
+          extract() {
+            awk '
+              /^[ \t]*```/ { fence = !fence; next }
+              !fence && /^#+ / {
+                lvl = index($0, " ") - 1
+                if (skip && lvl <= skip) skip = 0
+                if (!skip && tolower($0) ~ /not published yet/) skip = lvl
+                next
+              }
+              fence && !skip {
+                line = $0
+                sub(/^[ \t$>]*/, "", line)
+                if (line ~ /--git|--path/) next
+                n = split(line, w, /[ \t]+/)
+                kind = ""
+                if (w[1] == "npm" && (w[2] == "install" || w[2] == "i" || w[2] == "add")) { kind = "npm"; s = 3 }
+                else if ((w[1] == "pip" || w[1] == "pip3") && w[2] == "install") { kind = "pip"; s = 3 }
+                else if (w[1] == "cargo" && w[2] == "add") { kind = "cargo"; s = 3 }
+                else if (w[1] == "go" && w[2] == "get") { kind = "go"; s = 3 }
+                if (kind == "") next
+                for (i = s; i <= n; i++) if (w[i] !~ /^-/) { print kind, w[i], FILENAME ":" FNR; break }
+              }' "$@"
+          }
+
+          fail=0
+          checked=0
+          while read -r kind pkg where; do
+            case "$pkg" in
+              .*|/*|~*|*://*|git+*|"#"*) echo "local    $where  $pkg"; continue ;;
+            esac
+            case "$kind" in
+              # A scoped name keeps its leading @; a trailing @version is dropped.
+              npm) rest="${pkg:1}"; name="${pkg:0:1}${rest%%@*}"
+                   url="https://registry.npmjs.org/${name/\//%2f}" ;;
+              pip) url="https://pypi.org/pypi/${pkg%%[=<>~\[!]*}/json" ;;
+              cargo) url="https://crates.io/api/v1/crates/${pkg%%@*}" ;;
+              # shortcut: no case-escaping of module paths (proxy wants !x for X); add it when a module path has capitals.
+              go) url="https://proxy.golang.org/${pkg%%@*}/@latest" ;;
+            esac
+            code=$(curl -s -o /dev/null -w '%{http_code}' -A 'maya2c-sdks-ci install-line check' \
+              --retry 3 --max-time 30 "$url" || true)
+            checked=$((checked + 1))
+            if [ "$code" = "200" ]; then
+              echo "ok       $where  $kind $pkg"
+            else
+              echo "::error file=${where%%:*},line=${where##*:}::'$kind $pkg' does not resolve ($url answered $code). Publish it, or move the line under a 'Not published yet' heading with from-source steps."
+              fail=1
+            fi
+          done < <(extract sdks/*/README.md sdks/*/bindings/*/README.md docs/site/authored/sdk-wizard.mdx)
+          echo "install lines checked against a registry: $checked"
+          exit "$fail"

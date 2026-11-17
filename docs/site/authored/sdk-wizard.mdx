@@ -1,0 +1,344 @@
+---
+title: SDK wizard — install and a first transfer
+head:
+  - tag: title
+    content: "Maya2C SDK Wizard: Rust, TypeScript, Python, Go and C++"
+description: Pick a language, then your computer, and get the exact install steps and a program that sends a post-quantum-signed transfer on a local devnet. Says plainly which packages are not published yet.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Pick a language, then your computer. Each tab gives the install steps as they
+work today and a first program that sends a transfer.
+
+| Language | Package | Published? | Talks to | Signs with |
+|---|---|---|---|---|
+| Rust | `maya2c-sdk` (`sdks/rust`) | No: git dependency | gateway REST `/v1` | `l1-wallet` |
+| TypeScript | `maya2c.js` (`sdks/sdk-js`) | No: build from source | gateway REST `/v1` | `l1-wallet` |
+| Python | `maya2c_sdk` (`sdks/python`) | No: clone on `PYTHONPATH` | node JSON-RPC | `l1-wallet`, called by the SDK |
+| Go | `maya2c.dev/sdk` (`sdks/go`) | `go get` works (untagged; resolves master) | node JSON-RPC | `l1-wallet`, called by the SDK |
+| C++ | over `sdk-ffi` | Not on master: open pull request [#498](https://github.com/EricWijesinghe/Maya2C/pull/498) | — | — |
+
+Registry state was checked on 2026-11-13: npm, PyPI and crates.io answered 404
+for the three unpublished names; `proxy.golang.org` resolved the Go module. CI
+re-checks every install line in the SDK READMEs and on this page
+(`.github/workflows/sdks.yml`), so a line that stops resolving fails a build
+rather than a reader.
+
+Every SDK leaves signing to `l1-wallet`, the Rust wallet shipped with the node,
+so no second implementation of the hybrid ML-DSA-65 + SLH-DSA signature or the
+wire format exists to disagree with the chain. [Wallet
+integration](/guides/wallet/) says why.
+
+## 1. A chain to talk to
+
+From a clone of the repository, with Rust installed (the
+[quickstart](/guides/quickstart/) sets both up per OS):
+
+```sh
+cargo xtask kit up
+```
+
+It builds `l1-wallet` and the node into `target/debug/`, starts four
+validators (node 0's JSON-RPC on `127.0.0.1:32000`) and a gateway on
+`127.0.0.1:8080`, and funds a wallet at `target/up/wallet.key` with the devnet
+password `devnet-only-password`. Run the programs below from the repository
+root, so those relative paths resolve.
+
+## 2. Your language
+
+<Tabs syncKey="sdk-lang">
+<TabItem label="Rust">
+
+#### Not published yet, build from source
+
+Rust 1.88 or later (edition 2024). In your project:
+
+```sh
+cargo add maya2c-sdk --git https://github.com/EricWijesinghe/Maya2C
+```
+
+The SDK takes a signed transaction as hex. Sign one with `l1-wallet`:
+
+<Tabs syncKey="os">
+<TabItem label="Windows" icon="seti:windows">
+
+```powershell
+$env:L1_WALLET_PASSWORD = 'devnet-only-password'
+$genesis = (Invoke-RestMethod http://127.0.0.1:8080/v1/chain).genesis
+$out = .\target\debug\l1-wallet.exe --keystore target\up\wallet.key `
+    --rpc-url http://127.0.0.1:32000 send --yes --genesis $genesis --no-broadcast `
+    --to 7777777777777777777777777777777777777777777777777777777777777777 --amount 500
+$env:RAW_TX = (($out | Select-String '^raw:') -split ':\s*')[1]
+```
+
+</TabItem>
+<TabItem label="Mac" icon="apple">
+
+```bash
+export L1_WALLET_PASSWORD='devnet-only-password'
+GENESIS=$(curl -s http://127.0.0.1:8080/v1/chain | sed -n 's/.*"genesis":"\([0-9a-f]*\)".*/\1/p')
+export RAW_TX=$(target/debug/l1-wallet --keystore target/up/wallet.key \
+  --rpc-url http://127.0.0.1:32000 send --yes --genesis "$GENESIS" --no-broadcast \
+  --to 7777777777777777777777777777777777777777777777777777777777777777 --amount 500 \
+  | sed -n 's/^raw: *//p')
+```
+
+</TabItem>
+<TabItem label="Linux" icon="linux">
+
+```bash
+export L1_WALLET_PASSWORD='devnet-only-password'
+GENESIS=$(curl -s http://127.0.0.1:8080/v1/chain | sed -n 's/.*"genesis":"\([0-9a-f]*\)".*/\1/p')
+export RAW_TX=$(target/debug/l1-wallet --keystore target/up/wallet.key \
+  --rpc-url http://127.0.0.1:32000 send --yes --genesis "$GENESIS" --no-broadcast \
+  --to 7777777777777777777777777777777777777777777777777777777777777777 --amount 500 \
+  | sed -n 's/^raw: *//p')
+```
+
+</TabItem>
+</Tabs>
+
+`src/main.rs`, then `cargo run` in the same terminal:
+
+```rust
+use std::time::Duration;
+
+fn main() -> Result<(), maya2c_sdk::Error> {
+    let client = maya2c_sdk::Client::new("http://127.0.0.1:8080")?;
+    let raw = std::env::var("RAW_TX").unwrap_or_default();
+    let hash = client.send_raw_transaction(&raw)?;
+    let height = client.wait_for_transaction(&hash, Duration::from_secs(60))?;
+    println!("{hash} is in block {height}");
+    let balance = client.balance("7777777777777777777777777777777777777777777777777777777777777777")?;
+    println!("recipient: {} units", balance.balance);
+    Ok(())
+}
+```
+
+Checked by CI: the client's mock-gateway tests. Not checked: this program
+(`cargo xtask sdk-e2e` has no Rust lane). [README](https://github.com/EricWijesinghe/Maya2C/blob/master/sdks/rust/README.md)
+
+</TabItem>
+<TabItem label="TypeScript">
+
+#### Not published yet, build from source
+
+Node 20 or later; ESM only. `maya2c.js` is not on npm, so build it and install
+the folder:
+
+<Tabs syncKey="os">
+<TabItem label="Windows" icon="seti:windows">
+
+```powershell
+cd sdks\sdk-js; npm ci; npm run build; cd ..\..
+mkdir hello-ts; cd hello-ts; npm init -y; npm pkg set type=module
+npm install ..\sdks\sdk-js
+```
+
+</TabItem>
+<TabItem label="Mac" icon="apple">
+
+```bash
+(cd sdks/sdk-js && npm ci && npm run build)
+mkdir hello-ts && cd hello-ts && npm init -y && npm pkg set type=module
+npm install ../sdks/sdk-js
+```
+
+</TabItem>
+<TabItem label="Linux" icon="linux">
+
+```bash
+(cd sdks/sdk-js && npm ci && npm run build)
+mkdir hello-ts && cd hello-ts && npm init -y && npm pkg set type=module
+npm install ../sdks/sdk-js
+```
+
+</TabItem>
+</Tabs>
+
+Sign the transfer with `l1-wallet` exactly as in the Rust tab (it sets
+`RAW_TX`), then `hello.mjs`, run with `node hello.mjs`:
+
+```js
+import { GatewayError, MayaClient } from "maya2c.js";
+
+const client = new MayaClient("http://127.0.0.1:8080");
+try {
+  const { hash } = await client.sendRawTransaction(process.env.RAW_TX ?? "");
+  console.log("accepted into the mempool:", hash);
+  const { balance } = await client.getBalance("7777777777777777777777777777777777777777777777777777777777777777");
+  console.log("recipient:", balance); // a decimal string: amounts are 256-bit
+} catch (e) {
+  if (e instanceof GatewayError) console.error(e.status, e.message);
+  else throw e;
+}
+```
+
+Acceptance is acceptance into a mempool; poll the balance until it shows.
+Checked: `cargo xtask sdk-e2e --lang ts` runs this flow (Rust-signed,
+submitted from TypeScript, seen finalized) when run locally; nightly CI does
+not run the TypeScript lane. [README](https://github.com/EricWijesinghe/Maya2C/blob/master/sdks/sdk-js/README.md)
+
+</TabItem>
+<TabItem label="Python">
+
+#### Not published yet, build from source
+
+Standard library only, no packaging file yet: put the SDK on `PYTHONPATH`.
+CI runs it on Python 3.12.
+
+<Tabs syncKey="os">
+<TabItem label="Windows" icon="seti:windows">
+
+```powershell
+$env:PYTHONPATH = "$PWD\sdks\python"
+$env:L1_WALLET_PASSWORD = 'devnet-only-password'
+python hello.py
+```
+
+</TabItem>
+<TabItem label="Mac" icon="apple">
+
+```bash
+export PYTHONPATH="$PWD/sdks/python"
+export L1_WALLET_PASSWORD='devnet-only-password'
+python3 hello.py
+```
+
+</TabItem>
+<TabItem label="Linux" icon="linux">
+
+```bash
+export PYTHONPATH="$PWD/sdks/python"
+export L1_WALLET_PASSWORD='devnet-only-password'
+python3 hello.py
+```
+
+</TabItem>
+</Tabs>
+
+`hello.py` (the SDK calls `l1-wallet` itself):
+
+```python
+import os, sys
+from maya2c_sdk import Client, Wallet
+
+client = Client("http://127.0.0.1:32000")
+genesis = client.call("get_chain_info")["genesis"]
+l1_wallet = "target/debug/l1-wallet" + (".exe" if sys.platform == "win32" else "")
+wallet = Wallet(l1_wallet, "target/up/wallet.key", os.environ["L1_WALLET_PASSWORD"], client, genesis=genesis)
+
+recipient = "7777777777777777777777777777777777777777777777777777777777777777"
+print("txid:", wallet.transfer(recipient, 1_000))
+client.wait_until(lambda: client.balance(recipient) >= 1_000, timeout=60)
+print("recipient:", client.balance(recipient))
+```
+
+Checked by CI: the unit tests on every change, and nightly
+`cargo xtask sdk-e2e --lang python`, which signs and submits a transfer with
+`Wallet.transfer` against a devnet. [README](https://github.com/EricWijesinghe/Maya2C/blob/master/sdks/python/README.md)
+
+</TabItem>
+<TabItem label="Go">
+
+#### Install with `go get`
+
+Go 1.25 or later to fetch (the vanity import needs it). Start from the
+repository root, so the two paths point at what `kit up` built:
+
+<Tabs syncKey="os">
+<TabItem label="Windows" icon="seti:windows">
+
+```powershell
+$env:L1_WALLET_PASSWORD = 'devnet-only-password'
+$env:L1_WALLET = "$PWD\target\debug\l1-wallet.exe"
+$env:MAYA_KEYSTORE = "$PWD\target\up\wallet.key"
+mkdir hello-go; cd hello-go; go mod init hello
+go get maya2c.dev/sdk
+# write main.go (below), then:
+go run .
+```
+
+</TabItem>
+<TabItem label="Mac" icon="apple">
+
+```bash
+export L1_WALLET_PASSWORD='devnet-only-password'
+export L1_WALLET="$PWD/target/debug/l1-wallet" MAYA_KEYSTORE="$PWD/target/up/wallet.key"
+mkdir hello-go && cd hello-go && go mod init hello
+go get maya2c.dev/sdk
+# write main.go (below), then:
+go run .
+```
+
+</TabItem>
+<TabItem label="Linux" icon="linux">
+
+```bash
+export L1_WALLET_PASSWORD='devnet-only-password'
+export L1_WALLET="$PWD/target/debug/l1-wallet" MAYA_KEYSTORE="$PWD/target/up/wallet.key"
+mkdir hello-go && cd hello-go && go mod init hello
+go get maya2c.dev/sdk
+# write main.go (below), then:
+go run .
+```
+
+</TabItem>
+</Tabs>
+
+`main.go`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"math/big"
+	"os"
+
+	maya2c "maya2c.dev/sdk"
+)
+
+func main() {
+	client := maya2c.NewClient("http://127.0.0.1:32000")
+	var info struct{ Genesis string }
+	if err := client.Call("get_chain_info", nil, &info); err != nil {
+		log.Fatal(err)
+	}
+	wallet := maya2c.NewWallet(os.Getenv("L1_WALLET"), os.Getenv("MAYA_KEYSTORE"),
+		os.Getenv("L1_WALLET_PASSWORD"), client)
+	wallet.Genesis = info.Genesis
+	txid, err := wallet.Transfer("7777777777777777777777777777777777777777777777777777777777777777", big.NewInt(1_000))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("txid:", txid)
+}
+```
+
+`L1_WALLET` and `MAYA_KEYSTORE` are the names the SDK's own live test reads.
+Checked by CI: `go test ./...` on every change, nightly
+`cargo xtask sdk-e2e --lang go` (a transfer through `Wallet.Transfer`), and the
+`go get` line above against `proxy.golang.org`. [README](https://github.com/EricWijesinghe/Maya2C/blob/master/sdks/go/README.md)
+
+</TabItem>
+<TabItem label="C++">
+
+#### Not on master yet
+
+A C++ SDK over `sdk-ffi` is in open pull request
+[#498](https://github.com/EricWijesinghe/Maya2C/pull/498), marked `stub`. This
+page gets its install steps and a first program when it merges. Until then,
+sign and verify through the C ABI of `sdks/sdk-ffi`, or call the gateway's REST
+API from any HTTP client ([API reference](/guides/api/)).
+
+</TabItem>
+</Tabs>
+
+## What next
+
+- [API reference](/guides/api/): every gateway route and node method.
+- [Wallet integration](/guides/wallet/): keys, nonces, fees and the keystore.
+- [Post-quantum signatures](/guides/signatures/): the hybrid pair.
