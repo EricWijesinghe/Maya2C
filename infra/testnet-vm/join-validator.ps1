@@ -242,6 +242,16 @@ function Protect-Secret($path) {
     if ($LASTEXITCODE -ne 0) { Die "could not remove inherited access on $path (icacls exit $LASTEXITCODE)" }
 }
 
+# Locks the data directory before any secret is written into it. Files created
+# later inherit this ACL, so the key and wallet are never readable by other local
+# users, even in the moments before Protect-Secret runs on each file.
+function Lock-DataDir {
+    & icacls $DataDir /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not restrict access to $DataDir (icacls exit $LASTEXITCODE)" }
+    & icacls $DataDir /inheritance:r | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not remove inherited access on $DataDir (icacls exit $LASTEXITCODE)" }
+}
+
 function Show-Consent {
     Write-Host ''
     Write-Host '  Maya2C testnet validator installer' -ForegroundColor White
@@ -341,6 +351,7 @@ function Install-LocalNode {
 function Install-Genesis {
     Write-Step 'Fetching and verifying genesis'
     New-Item -ItemType Directory -Force -Path $DataDir, $LogDir, $NodeDataDir | Out-Null
+    Lock-DataDir
     if (Test-Path -LiteralPath $GenesisUrl) { Copy-Item -LiteralPath $GenesisUrl -Destination $GenesisPath -Force }
     else { Invoke-WebRequest $GenesisUrl -OutFile $GenesisPath -UseBasicParsing }
     $got = Get-Sha256 $GenesisPath
@@ -564,6 +575,7 @@ function Invoke-Wallet {
 function Invoke-Apply {
     if (-not (Test-Path $PubPath)) { Die 'no validator key yet: run the installer first' }
     if (-not (Test-Path $WalletPath)) {
+        Lock-DataDir
         Write-Step 'Making your wallet. Choose a password and write it down: it cannot be recovered.'
         Invoke-Wallet generate
         Protect-Secret $WalletPath
