@@ -33,7 +33,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ConnectInfo;
-use axum::http::Request;
+use axum::http::{Extensions, HeaderMap, Request};
 use governor::middleware::NoOpMiddleware;
 use tower_governor::GovernorError;
 use tower_governor::governor::{GovernorConfig, GovernorConfigBuilder};
@@ -80,42 +80,45 @@ impl KeyExtractor for ClientKey {
     type Key = IpAddr;
 
     fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
-        let peer = request
-            .extensions()
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|ConnectInfo(peer)| peer.ip());
-        // Believed only from a loopback peer, the proxy on this host. From any
-        // other peer the header is client-written, so the socket is the key.
-        let from_header = match (self.0, peer) {
-            (ClientIp::Socket, _) | (_, None) => None,
-            (_, Some(ip)) if !ip.is_loopback() => None,
-            (ClientIp::CfConnectingIp, Some(_)) => {
-                header_ip(request, "cf-connecting-ip", |value| Some(value))
-            }
-            (ClientIp::XForwardedForLast, Some(_)) => {
-                header_ip(request, "x-forwarded-for", |value| value.rsplit(',').next())
-            }
-        };
-        from_header
-            .or(peer)
+        client_address(self.0, request.headers(), request.extensions())
             .ok_or(GovernorError::UnableToExtractKey)
     }
 }
 
-fn header_ip<T>(
-    request: &Request<T>,
+/// The client's address as the limiter keys it, for anything else that must
+/// count per client the same way (the event subscription caps).
+#[must_use]
+pub fn client_address(
+    mode: ClientIp,
+    headers: &HeaderMap,
+    extensions: &Extensions,
+) -> Option<IpAddr> {
+    let peer = extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(peer)| peer.ip());
+    // Believed only from a loopback peer, the proxy on this host. From any
+    // other peer the header is client-written, so the socket is the key.
+    let from_header = match (mode, peer) {
+        (ClientIp::Socket, _) | (_, None) => None,
+        (_, Some(ip)) if !ip.is_loopback() => None,
+        (ClientIp::CfConnectingIp, Some(_)) => {
+            header_ip(headers, "cf-connecting-ip", |value| Some(value))
+        }
+        (ClientIp::XForwardedForLast, Some(_)) => {
+            header_ip(headers, "x-forwarded-for", |value| value.rsplit(',').next())
+        }
+    };
+    from_header.or(peer)
+}
+
+fn header_ip(
+    headers: &HeaderMap,
     name: &str,
     pick: impl Fn(&str) -> Option<&str>,
 ) -> Option<IpAddr> {
     // Several header lines are one comma-joined list (RFC 9110 5.3), and the
     // proxy's own entry is on the last line; the first is client-written.
-    let value = request
-        .headers()
-        .get_all(name)
-        .iter()
-        .next_back()?
-        .to_str()
-        .ok()?;
+    let value = headers.get_all(name).iter().next_back()?.to_str().ok()?;
     pick(value)?.trim().parse().ok()
 }
 

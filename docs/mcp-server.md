@@ -43,14 +43,14 @@ Restart the client after editing the config.
 |---|---|
 | `get_height` | Height, chain id and genesis (the chain tag signatures commit to) |
 | `get_block` | Header, transaction count and txids for a height |
-| `get_tx` | Finds a txid inside the block at a given height |
+| `get_tx` | Finds a txid inside the block at a given height; the on-chain summary comes back as `untrusted_summary` (control characters removed, length capped) |
 | `get_balance` | Balance (base units) and next nonce; `maya1...` or hex |
 | `get_validators` | Validator set and staking record |
 | `get_supply` | Total, circulating and burned supply |
 | `estimate_fee` | Minimum fee for a standard transfer |
 | `draft_transfer` | Unsigned transfer (hex), fee, total, balance check and a summary |
 | `decode_transaction` | Decodes a hex transaction with the node's decoder |
-| `review_intent` | Compares claimed and simulated effects; lists warnings |
+| `review_intent` | Compares claimed and simulated effects; lists warnings. No balances or contacts are supplied, so drain and look-alike warnings never fire here |
 | `explain_error` | Plain-language meaning of a node error kind, with its spec rule |
 
 Amounts in `draft_transfer` are coins, up to 24 decimal places (`"1.5"`).
