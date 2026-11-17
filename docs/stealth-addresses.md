@@ -22,8 +22,13 @@ to the same person, or to the published address, until one of them is spent.
 | Meta-address `A ‖ ek` (1216 bytes) | public | lets anyone pay |
 
 `A` is the ordinary suite address of `spend_pk`; `ek` is the ML-KEM-768
-encapsulation key of the view key. `ScanSeed` and `ViewKey` are zeroized on
-drop and print as `<redacted>`.
+encapsulation key of the view key. `ScanSeed`, `ViewKey` and `Tweak` print as
+`<redacted>`. Zeroizing is partial: the `ScanSeed` box, the `Tweak` and the
+KDF output buffer are wiped on drop, and `ViewKey` relies on `ml-kem`'s
+`zeroize` feature. Three transient copies are not wiped: the SHAKE256 state
+that absorbed `ss` (crypto-pq builds `sha3` without its `zeroize` feature),
+the by-value seed `ml-kem` takes in `kem.rs` (`DecapsulationKey::from_seed`),
+and the `[u8; 64]` a caller passes to `ScanSeed::from_bytes`.
 
 ## Sending
 
@@ -52,11 +57,11 @@ only skips the address derivation. Measured with
 | foreign (another recipient's) | 28.89 | 34,616 |
 | own (detected) | 29.23 | 34,211 |
 
-Measured 2026-11-17 on branch `feat/v3-stealth` (base `14bbd2f8`, the
-commit that adds this page), Intel Core Ultra 9 275HX, 31 GB RAM, Windows 11
+Measured 2026-11-17 on branch `feat/v3-stealth` (base `14bbd2f8` plus the
+change that adds this page), Intel Core Ultra 9 275HX, 31 GB RAM, Windows 11
 Pro Insider build 29708, `rustc 1.99.0-nightly (da80ed070 2026-07-14)`, bench
 profile, one core, while other builds shared the machine. One run, no
-confidence interval. The two rows are within a percent of each other because
+confidence interval. The two rows differ by 1.2% because
 the decapsulation dominates both; the tag saves only the derivation.
 
 ## Spending

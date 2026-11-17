@@ -101,6 +101,9 @@ fn two_payments_to_one_recipient_are_unlinkable_on_chain() {
         for chunk in p.announcement.ciphertext().as_chunks::<32>().0 {
             assert_ne!(one_time_address(&a, chunk), p.one_time_address);
         }
+        // `P` is not a function of `A` alone: a derivation that dropped the
+        // tweak would land every payment on this one address.
+        assert_ne!(one_time_address(&a, &[0; 32]), p.one_time_address);
     }
 
     // Yet both belong to the recipient, under different tweaks.
@@ -113,6 +116,9 @@ fn two_payments_to_one_recipient_are_unlinkable_on_chain() {
         .unwrap()
         .tweak;
     assert_ne!(t1.as_bytes(), t2.as_bytes());
+    // And each `P` is exactly `A` under its own tweak, so the tweak is what separates them.
+    assert_eq!(one_time_address(&a, t1.as_bytes()), p1.one_time_address);
+    assert_eq!(one_time_address(&a, t2.as_bytes()), p2.one_time_address);
 }
 
 #[test]

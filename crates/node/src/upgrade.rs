@@ -61,6 +61,8 @@ impl FeatureSet {
     /// fixed, refused by [`UpgradeSchedule::new`] until the v10 frame exists.
     pub const STEALTH: u64 = 1 << 10;
     /// Every bit this binary defines. A bit outside it names no feature.
+    // Merge note: when SHIELDED (bit 8) and ACCOUNT_AUTHORITY (bit 9) land,
+    // KNOWN is the union of all three; each branch's test pins its own bit.
     pub const KNOWN: u64 = ((1 << 8) - 1) | Self::STEALTH;
 
     /// Whether every bit names a defined feature.
