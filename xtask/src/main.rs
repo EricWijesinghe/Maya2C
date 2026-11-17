@@ -63,6 +63,8 @@ mod sweep;
 mod trust_facts;
 mod up;
 mod verify_release;
+#[cfg(test)]
+mod workflow_hardening;
 
 use std::process::ExitCode;
 
