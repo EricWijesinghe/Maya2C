@@ -5935,22 +5935,29 @@ dependencies = [
  "async-trait",
  "axum",
  "clap 4.6.7",
+ "futures-util",
+ "getrandom 0.4.3",
  "governor",
  "hex",
+ "hmac 0.12.1",
  "http-body-util",
  "jsonrpsee",
  "maya-amount",
  "maya-web-security",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite 0.29.0",
  "tower",
  "tower-http",
  "tower_governor",
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "zeroize",
 ]
 
 [[package]]
@@ -6992,6 +6999,7 @@ name = "maya2c-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap 4.6.7",
  "custom-l1-node",
  "gimli",
@@ -7001,6 +7009,7 @@ dependencies = [
  "maya-address",
  "maya-vm",
  "primitive-types",
+ "rpassword",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -7008,6 +7017,7 @@ dependencies = [
  "tokio",
  "wasmparser 0.258.3",
  "wat",
+ "zeroize",
 ]
 
 [[package]]

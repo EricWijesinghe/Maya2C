@@ -3,5 +3,24 @@
   "identifier": "default",
   "description": "Minimal capability set, as the wallet's: the key, the relay and the files are reached only through this app's Rust commands, never from the webview.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-status",
+    "allow-create-identity",
+    "allow-set-relay",
+    "allow-publish",
+    "allow-add-contact",
+    "allow-history",
+    "allow-send",
+    "allow-poll",
+    "allow-deliveries",
+    "allow-dismiss-delivery",
+    "allow-sticker-packs",
+    "allow-sticker-file",
+    "allow-import-sticker",
+    "allow-create-pack",
+    "allow-remove-pack",
+    "allow-send-sticker",
+    "allow-request-pack"
+  ]
 }

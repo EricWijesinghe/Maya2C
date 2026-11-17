@@ -10,7 +10,10 @@
 
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::SEED_LEN;
-use maya_wallet_core::vault::{MemoryStore, OsKeychain, SecretStore, Vault, seal, unseal};
+use maya_wallet_core::vault::{
+    MIN_PASSPHRASE_CHARS, MemoryStore, OsKeychain, SecretStore, Vault, check_new_passphrase, seal,
+    unseal,
+};
 
 fn seed(byte: u8) -> [u8; SEED_LEN] {
     [byte; SEED_LEN]
@@ -359,4 +362,26 @@ fn a_keychain_write_failure_is_an_error_and_only_ciphertext_was_offered() {
         assert!(!w.windows(8).any(|win| win.iter().all(|b| *b == 0x5A)));
         assert_eq!(*unseal(w, "pw").unwrap(), seed(0x5A));
     }
+}
+
+#[test]
+fn a_new_passphrase_must_meet_the_minimum_length() {
+    let short = "x".repeat(MIN_PASSPHRASE_CHARS - 1);
+    let exact = "x".repeat(MIN_PASSPHRASE_CHARS);
+
+    assert_eq!(
+        check_new_passphrase(&short).err(),
+        Some(WalletError::PassphraseTooShort(MIN_PASSPHRASE_CHARS))
+    );
+    assert!(check_new_passphrase(&exact).is_ok());
+    // Counted in characters, so a multi-byte passphrase is not waved through early.
+    assert!(check_new_passphrase(&"é".repeat(MIN_PASSPHRASE_CHARS - 1)).is_err());
+}
+
+#[test]
+fn a_short_passphrase_still_seals_and_unseals() {
+    // The minimum is enforced where a passphrase is chosen, not on unlock, so
+    // wallets sealed before the rule keep opening.
+    let envelope = seal(&seed(7), "pw").expect("seal");
+    assert_eq!(*unseal(&envelope, "pw").expect("unseal"), seed(7));
 }
