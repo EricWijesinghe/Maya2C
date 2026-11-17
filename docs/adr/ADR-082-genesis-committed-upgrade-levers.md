@@ -200,8 +200,9 @@ day at the rate the chain actually runs (docs/block-time.md).
 to any `ParameterKey` was written into `g:params` at execution, so a per-block
 ceiling could move one block after a timelock nobody outside governance was
 watching. Now `ParameterKey::is_validity_rule` (an exhaustive match with no
-wildcard: tags 2-8, the DEX fill and order ceilings, the oracle and shielded
-per-block caps, the three VM bounds) splits the keys:
+wildcard: tags 2-8, 17 and 18, the DEX fill and order ceilings, the oracle and
+shielded per-block caps, the three VM bounds and ADR-142's two gas caps) splits
+the keys:
 
 - a validity rule is written to `g:pending:<tag>` (under the governance layer, so
   under the state root and the undo journal, invariant 25) with activation
@@ -216,7 +217,7 @@ per-block caps, the three VM bounds) splits the keys:
   the tip is the one the activation block is judged by (a builder never fills
   a block under a ceiling the importer has already moved). It re-checks the
   range at promotion; a value a later release no longer accepts is dropped,
-  not applied and not a block error. It reads the seven validity tags by
+  not applied and not a block error. It reads the nine validity tags by
   point lookup, not by a prefix scan, so its cost per block is fixed;
 - the settle pass now also runs `ParameterChange::validate` before executing
   a proposal (it ran only `check_parameter` before), so a value a release
@@ -247,7 +248,9 @@ per-block caps, so both are validity rules and take the lead. Whichever of the
 two PRs merges second extends the test's tag list and the "tags 2-8" wording
 here, in spec CON-17, `docs/governance.md`, `features.toml` and
 `docs/architecture-vision.md`; classifying them as immediate just to compile
-would let a gas cap move one block after a timelock.
+would let a gas cap move one block after a timelock. Done in the re-freeze
+integration (`refreeze/integration`, 2026-11-17): tags 17 and 18 are validity
+rules, the test list is `[2, 3, 4, 5, 6, 7, 8, 17, 18]`.
 
 Two limits, recorded rather than changed:
 

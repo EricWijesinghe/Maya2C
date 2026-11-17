@@ -586,7 +586,9 @@ fn gas_exhaustion_discards_the_writes_that_preceded_it() {
     );
 
     let baseline = MemoryState::default();
-    let execution = vm.execute(&module, CONTRACT, &[], 200_000, baseline);
+    // Enough for the upfront price (ADR-142: length and shape) and the write,
+    // so the loop is what runs out.
+    let execution = vm.execute(&module, CONTRACT, &[], 2_000_000, baseline);
 
     assert!(matches!(execution.outcome, Err(VmError::OutOfGas { .. })));
 
