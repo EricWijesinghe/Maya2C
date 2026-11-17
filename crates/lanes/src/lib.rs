@@ -18,7 +18,7 @@
 //! Integer-only. Not wired into the node: its fee market is inactive
 //! (`reports/18-economics.md`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use maya_amount::Amount;
 
@@ -99,7 +99,8 @@ impl Fees {
         let p = self.params;
         let total: u64 = usage.values().sum();
         self.global = step(self.global, total, p.global_target, p.denom, p.floor);
-        let apps: Vec<App> = self.local.keys().chain(usage.keys()).copied().collect();
+        // A set: an app in both maps must step once, not twice.
+        let apps: BTreeSet<App> = self.local.keys().chain(usage.keys()).copied().collect();
         for app in apps {
             let fee = self.local.get(&app).copied().unwrap_or(p.floor);
             self.local.insert(
