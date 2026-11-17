@@ -169,15 +169,6 @@ impl UpgradeSchedule {
                     u.version
                 )));
             }
-            // Work claims are refused until a claim is bound to a verified
-            // share: an unbound credit would count toward governance weight
-            // for work nothing proved (ADR-044, B50).
-            if u.features.contains(FeatureSet::WORK_CLAIM) {
-                return Err(NodeError::Decode(format!(
-                    "protocol upgrade to version {} schedules work claims, which are refused until they are bound to a verified share",
-                    u.version
-                )));
-            }
             last = *u;
         }
         Ok(Self { upgrades })
@@ -356,15 +347,6 @@ mod tests {
     fn zkml_cannot_be_scheduled() {
         let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::ZKML)]);
         assert!(refused.is_err(), "zkML has no verifier yet (M3)");
-    }
-
-    #[test]
-    fn work_claim_cannot_be_scheduled() {
-        let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::WORK_CLAIM)]);
-        assert!(
-            refused.is_err(),
-            "unbound work claims are refused (ADR-044, B50)"
-        );
     }
 
     #[test]

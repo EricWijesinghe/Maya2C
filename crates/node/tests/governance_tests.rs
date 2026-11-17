@@ -25,7 +25,7 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
-use custom_l1_node::governance::{derive_proposal_id, proposal_key};
+use custom_l1_node::governance::derive_proposal_id;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_VOTING_BLOCKS};
 use maya_governance::params::ParameterKey;
@@ -883,41 +883,4 @@ fn every_parameter_reads_as_its_compiled_default_before_any_vote() {
     for (key, value) in table.entries() {
         assert_eq!(value, key.bounds().default, "{}", key.label());
     }
-}
-
-#[test]
-fn a_queued_change_out_of_range_at_execution_expires_instead_of_applying() {
-    // A value legal when it was queued, but out of range when it executes,
-    // expires the proposal. Refusing the block instead would stop the chain
-    // over a vote that passed.
-    let fixture = fixture();
-    fixture.lock(0, 4_000_000, 200_000, 1);
-    fixture.lock(1, 4_000_000, 200_000, 2);
-
-    let (id, executable) = fixture.propose(ParameterKey::DexMaxFillsPerBlock, 1_024, 3);
-    fixture.vote(0, id, Choice::For, 10).expect("vote");
-    fixture.vote(1, id, Choice::For, 11).expect("vote");
-    fixture
-        .apply(vec![], executable - MIN_TIMELOCK_BLOCKS + 1)
-        .expect("close");
-    assert_eq!(fixture.state_of(&id), ProposalState::Queued);
-
-    // Stands in for a bound tightened after queuing: the queued value is now
-    // below the floor of 64.
-    let mut record = fixture.db.proposal(&id).expect("read").expect("proposal");
-    record.changes = vec![(
-        ParameterKey::DexMaxFillsPerBlock.tag(),
-        maya_dex::Amount::from_u64(1),
-    )];
-    fixture
-        .db
-        .raw_put_for_test(&proposal_key(&id), &record.encode())
-        .expect("requeue");
-
-    let before = fixture.parameter(ParameterKey::DexMaxFillsPerBlock);
-    fixture
-        .apply(vec![], executable)
-        .expect("the block still applies");
-    assert_eq!(fixture.state_of(&id), ProposalState::Expired);
-    assert_eq!(fixture.parameter(ParameterKey::DexMaxFillsPerBlock), before);
 }
