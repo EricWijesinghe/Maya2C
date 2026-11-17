@@ -766,6 +766,42 @@ mod tests {
     }
 
     #[test]
+    fn a_council_rotation_names_the_count_threshold_height_and_each_new_key() {
+        use crate::core::council_payload::{CouncilAction, Rotation};
+        use crate::crypto::PUBLIC_KEY_LEN;
+        let members = vec![
+            [1u8; PUBLIC_KEY_LEN],
+            [2u8; PUBLIC_KEY_LEN],
+            [3u8; PUBLIC_KEY_LEN],
+        ];
+        let d = describe_kind(&TxKind::Council(Box::new(CouncilAction {
+            kind: CouncilKind::Rotate {
+                rotation: Rotation {
+                    activation: 90_000,
+                    threshold: 2,
+                    members: members.clone(),
+                },
+                acceptances: vec![],
+            },
+            nonce: 0,
+            approvals: vec![],
+        })));
+        assert_eq!(d.review, Review::Careful);
+        assert_eq!(
+            d.summary,
+            "Council: hand over to 3 new member key(s), 2 needed, from height 90000."
+        );
+        let (_, shown) = d.details.iter().find(|(l, _)| *l == "new members").unwrap();
+        let prefixes: Vec<&str> = shown.split(", ").collect();
+        assert_eq!(prefixes.len(), members.len());
+        for (prefix, key) in prefixes.iter().zip(&members) {
+            assert_eq!(prefix.len(), 32);
+            assert!(prefix.bytes().all(|b| b.is_ascii_hexdigit()));
+            assert_eq!(*prefix, &blake3::hash(key).to_hex()[..32]);
+        }
+    }
+
+    #[test]
     fn every_description_is_a_sentence() {
         let samples = vec![
             TxKind::Transfer,

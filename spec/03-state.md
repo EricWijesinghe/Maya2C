@@ -41,7 +41,7 @@ the node's own test suite, and `spec-coverage` checks only that it exists
 
 ## Gaps
 
-- CNL-1 to CNL-4 have no reference-crate vectors: `spec-ref` has no council model, and the node tests cited are the only evidence. They were added in 0.1.2, before genesis, without a MIP; `spec/mips/` holds no MIP for any rule yet, and the process starts with the first change after genesis.
+- CNL-1 to CNL-4 have no reference-crate vectors: `spec-ref` has no council model, and the node tests cited are the only evidence. `cargo xtask spec-coverage --strict` counts them covered because of the external-vectors label, not because conformance vectors exist (tracked in BACKLOG.md, P2). They were added in 0.1.2, before genesis, without a MIP; `spec/mips/` holds no MIP for any rule yet, and the process starts with the first change after genesis.
 
 - ROOT-5 is pinned by the accounts-only vectors: the node folds every layer it has and must still reproduce the reference's accounts-only root. No vector yet populates a layer.
 - The end-of-block passes (sealed swaps, trading, oracle, governance,

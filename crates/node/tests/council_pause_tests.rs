@@ -24,7 +24,8 @@ use custom_l1_node::state::BlockContext;
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::invariant_guard::Module;
 use maya_governance::limits::{
-    COUNCIL_RENEWAL_COOLDOWN_BLOCKS, COUNCIL_ROTATION_LEAD_BLOCKS, MAX_SCHEDULE_HORIZON_BLOCKS,
+    COUNCIL_RENEWAL_COOLDOWN_BLOCKS, COUNCIL_ROTATION_LEAD_BLOCKS, MAX_COUNCIL_PAUSE_BLOCKS,
+    MAX_SCHEDULE_HORIZON_BLOCKS,
 };
 use tempfile::TempDir;
 
@@ -835,4 +836,18 @@ fn a_genesis_council_of_more_than_32_members_is_refused() {
     council(32).record().unwrap();
     let err = council(33).record().unwrap_err().to_string();
     assert!(err.contains("32"), "{err}");
+}
+
+#[test]
+fn a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused() {
+    // The renewal cooldown bounds nothing if one pause may last for years.
+    let council = |max_pause_blocks: u64| CouncilGenesis {
+        max_pause_blocks,
+        ..config().security_council.unwrap()
+    };
+    council(MAX_COUNCIL_PAUSE_BLOCKS).record().unwrap();
+    for refused in [0, MAX_COUNCIL_PAUSE_BLOCKS + 1, u64::MAX] {
+        let err = council(refused).record().unwrap_err().to_string();
+        assert!(err.contains("max_pause_blocks"), "{err}");
+    }
 }

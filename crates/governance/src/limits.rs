@@ -107,6 +107,15 @@ pub const MAX_SCHEDULE_HORIZON_BLOCKS: u64 = 31_536_000;
 /// shortens it (founder audit Q7, Eric 2026-11-14; ADR-082 amendment).
 pub const COUNCIL_RENEWAL_COOLDOWN_BLOCKS: u64 = 86_400;
 
+/// Longest single pause a genesis may give the security council: one day at
+/// one block per second, the same as the renewal cooldown.
+///
+/// The cooldown only bounds the council if one pause is bounded too: with a
+/// `max_pause_blocks` of years, one pause never ends in practice. At this
+/// bound a module the council pauses is open at least as long as it was shut.
+/// The recorded choice (DECISIONS.md, B30) is six hours of blocks, inside it.
+pub const MAX_COUNCIL_PAUSE_BLOCKS: u64 = COUNCIL_RENEWAL_COOLDOWN_BLOCKS;
+
 /// Fewest blocks between a council rotation landing and the new member set
 /// taking over: one day at one block per second.
 ///

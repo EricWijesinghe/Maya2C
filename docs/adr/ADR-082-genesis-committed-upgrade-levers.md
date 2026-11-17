@@ -207,7 +207,8 @@ block that carries the new tag, and the upgrade schedule does not govern it.
 
 ## Amendment 2026-11-14: council hardening (founder audit Q7, Q8)
 
-**Status:** Accepted, 2026-11-14. Eric chose the recommended option on every
+**Status:** Accepted (decision), 2026-11-14; implementation pending the merge
+of PR #544 and green CI (`features.toml` status `working`). Eric chose the recommended option on every
 founder-audit question ("I approve everything, proceed"): Q7 A plus a cooldown,
 Q8 A. Pre-genesis: it changes the council action wire format and the council
 record, so it ships in the re-freeze binary.
@@ -247,6 +248,14 @@ sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
    *Residual, from the audit:* nothing caps how many modules the council has
    paused at once. Each module has its own cooldown; the council can still
    pause every pausable module in one stretch.
+   *Ceiling on one pause (review of PR #544, 2026-11-17):* the cooldown bounds
+   nothing if a genesis sets `max_pause_blocks` to years, and before this only
+   0 was refused. `MAX_COUNCIL_PAUSE_BLOCKS` (86,400, equal to the cooldown, so
+   a module is open at least as long as the council shut it) is compiled in
+   `crates/governance/src/limits.rs`, and `CouncilGenesis::record` refuses 0 or
+   anything above it. The recorded choice, six hours of blocks (DECISIONS.md,
+   B30), is inside it; the ceremony rehearsal uses 21,600 and the proving run
+   7,200.
 3. **The council could not rotate.** If a key was lost or compromised, the
    only way to recover was re-genesis. **Decision:** a new action,
    `CouncilKind::Rotate` (wire kind 3). A quorum of the council *in force*
@@ -311,6 +320,7 @@ Pinned by `crates/node/tests/council_pause_tests.rs`:
 `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
 `a_rotation_takes_effect_at_its_height_and_not_before`,
 `the_committed_council_read_after_activation_is_the_new_one`,
-`a_genesis_council_of_more_than_32_members_is_refused`; and by the
+`a_genesis_council_of_more_than_32_members_is_refused`,
+`a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused`; and by the
 `state::council` unit tests `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
 and `the_record_round_trips` (one form per record).

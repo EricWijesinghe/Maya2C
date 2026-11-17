@@ -165,8 +165,9 @@ impl CouncilGenesis {
     ///
     /// # Errors
     ///
-    /// A malformed key, a duplicate member, a threshold that is not a strict
-    /// majority (a minority could pause over the majority's head), or more
+    /// A malformed key, a duplicate member, a `max_pause_blocks` of zero or
+    /// above `MAX_COUNCIL_PAUSE_BLOCKS` (2026-11-17), a threshold that is not
+    /// a strict majority (a minority could pause over the majority's head), or more
     /// than `MAX_COUNCIL_MEMBERS` (32) members: a new bound since 2026-11-14,
     /// because a strict majority of 33 would not fit in `MAX_APPROVALS`.
     pub fn record(&self) -> Result<crate::state::council::CouncilRecord> {
@@ -184,6 +185,14 @@ impl CouncilGenesis {
         // looser than a genesis one.
         crate::state::council::check_member_set(self.threshold, &members)
             .map_err(|why| NodeError::Decode(format!("security_council: {why}")))?;
+        // Without a compiled ceiling the renewal cooldown bounds nothing.
+        let max = maya_governance::limits::MAX_COUNCIL_PAUSE_BLOCKS;
+        if self.max_pause_blocks == 0 || self.max_pause_blocks > max {
+            return Err(NodeError::Decode(format!(
+                "security_council: max_pause_blocks {} is not 1 to {max}",
+                self.max_pause_blocks
+            )));
+        }
         Ok(crate::state::council::CouncilRecord {
             threshold: self.threshold,
             max_pause_blocks: self.max_pause_blocks,

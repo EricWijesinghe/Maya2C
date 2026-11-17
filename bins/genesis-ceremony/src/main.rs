@@ -180,7 +180,7 @@ fn print_usage() {
          --council <DIR>              security council (ADR-050): the *.council.public\n                               \
          files from `council key`; required on a value-bearing chain\n  \
          --council-threshold <N>      approvals a pause needs, a strict majority\n  \
-         --council-max-pause-blocks <N>  longest single pause, in blocks\n  \
+         --council-max-pause-blocks <N>  longest single pause, in blocks, 1 to 86400\n  \
          --min-self-bond <UNITS>      least self bond to register a validator;\n                               \
          required on a value-bearing chain\n  \
          --min-delegation <UNITS>     least one delegation adds; required on a\n                               \

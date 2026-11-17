@@ -276,8 +276,9 @@ phase that did it.
     `COUNCIL_ROTATION_LEAD_BLOCKS` (86,400) after it lands, needs a quorum of
     the council in force and a signed acceptance from every new member, names
     a strict-majority set of 1 to 32 distinct valid keys, and replaces any
-    pending rotation. Both constants are compiled in
-    `crates/governance/src/limits.rs`.
+    pending rotation. A genesis council's `max_pause_blocks` is 1 to
+    `MAX_COUNCIL_PAUSE_BLOCKS` (86,400), or the cooldown bounds nothing. The
+    three constants are compiled in `crates/governance/src/limits.rs`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and
@@ -285,7 +286,9 @@ phase that did it.
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`,
     `the_council_can_neither_pause_nor_resume_governance`,
     `a_council_pause_cannot_be_renewed_within_the_cooldown`,
+    `a_council_sunset_cannot_follow_another_within_the_cooldown`,
     `a_council_pause_that_expires_unresumed_cools_down_from_its_end`,
+    `a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused`,
     `a_rotation_naming_a_key_nobody_signed_for_is_refused`,
     `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
     `a_rotation_takes_effect_at_its_height_and_not_before`) and the
