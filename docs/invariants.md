@@ -256,15 +256,21 @@ phase that did it.
     already written.** Governance's `ScheduleUpgrade` needs
     `MIN_UPGRADE_LEAD_BLOCKS` (30 days at one block per second) between the last
     height its proposal can execute at and its activation. The security council's
-    `SunsetSuites` needs `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about
-    13.6 days) and may schedule nothing else. Neither can move funds or mint: a
+    `SunsetSuites` needs `COUNCIL_SUNSET_LEAD_BLOCKS` (3,592,000 blocks, about
+    41.6 days at one block per second) and may schedule nothing else. Neither can move funds or mint: a
     schedule entry switches on a dark feature or retires a suite. Both leads are
     compiled, so no proposal shortens them: `MIN_UPGRADE_LEAD_BLOCKS` in
     `crates/governance/src/limits.rs` (invariant 12), and
     `COUNCIL_SUNSET_LEAD_BLOCKS` in `crates/node/src/state/upgrades.rs`, derived
     as `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW`
-    (1,000,000 + 172,800) so a vault withdrawal a sunset announcement starts can
+    (1,000,000 + 2,592,000) so a vault withdrawal a sunset announcement starts can
     finish before the sunset height (ADR-082).
+    Every lead and window here is counted in blocks at one block per second, so
+    a `maya-mainnet` genesis must set `bft.round_interval_ms` to
+    `CANONICAL_ROUND_INTERVAL_MS` (500; an anchor every two rounds):
+    `GenesisConfig::validate` refuses anything else
+    (`a_value_bearing_genesis_refuses_a_round_interval_off_the_canonical_rate`),
+    and so does `cargo xtask genesis-check`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and

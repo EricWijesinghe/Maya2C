@@ -30,4 +30,10 @@ order, and the first rule that fails is the result:
 - The end-of-block passes (sealed swaps, trading, oracle, governance,
   invariant guard) run after the transfers; with no records they are inert,
   which is what the vectors exercise. Their own rules are specified by code.
+- Governance settles only proposals named by its settlement index,
+  `g:due:<height u64 BE><proposal id>` (empty value, under the governance
+  layer): `propose` writes keys at `voting_closes + 1` and `executable_from`,
+  at most 64 per height, and the pass consumes every key at or below its
+  height in proposal-identifier order (ADR-082 amendment 2026-11-13). No
+  vector populates the governance layer, so the vectors are unchanged.
 - The sparse accounts tree (stateless mode, dark) has no vectors.
