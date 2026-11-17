@@ -2819,9 +2819,9 @@ domain = "Tooling and formal verification"
 paths = "`apps/status`"
 tier = "extended"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crate:maya-status"]
-note = "Uptime and every halt derived from the chain's own block timestamps (get_headers, 2,000 per call), so anyone can recompute it. Serves status.maya2c.dev and /api/status; optional push alert on a halt (--ntfy). Live on maya-testnet-1 since 2026-10-04."
+note = "Uptime and every halt derived from the chain's own block timestamps (get_headers, 2,000 per call), so anyone can recompute it. Serves status.maya2c.dev and /api/status; optional push alert on a halt (--ntfy). Live on maya-testnet-1 since 2026-10-04. Verified 2026-11-17 (red team in src/lib.rs tests: a replayed genesis block no longer resets the timeline, repeated heights and backward clocks are not halts, uptime stays in 0..=1); the HTTP server and the ntfy push are not covered by a test."
 
 [[subsystem]]
 id = "lean-4-mathematical-proof-engine"
@@ -3421,9 +3421,9 @@ domain = "Security and macro engines"
 paths = "`crates/treasury`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/treasury/tests/treasury_tests.rs"]
-note = "Master Prompt 18 §6. Dependency-free state machines; not wired into the node's governance path."
+status = "verified"
+tests = ["crates/treasury/tests/treasury_tests.rs", "crates/treasury/tests/spending_edge_tests.rs", "crates/treasury/tests/treasury_redteam_tests.rs"]
+note = "Master Prompt 18 §6. Dependency-free state machines; not wired into the node's governance path. Verified 2026-11-17: the red-team file found and pins two fixes, a clawback after termination returned the unvested part twice, and an approval at an earlier epoch reset the epoch limit (now SpendError::PastEpoch)."
 
 [[subsystem]]
 id = "clear-signing-review"
@@ -3476,8 +3476,8 @@ domain = "Consensus and execution"
 paths = "`crates/lanes`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/lanes/tests/viral_app.rs", "crates/lanes/tests/lanes_tests.rs"]
+status = "verified"
+tests = ["crates/lanes/tests/viral_app.rs", "crates/lanes/tests/lanes_tests.rs", "crates/lanes/tests/lanes_redteam.rs"]
 note = "Master Prompt 26. [SIM] viral app at 60% of demand: other apps' fees 1.0x with local fees + per-app cap (global target above cap + demand), 370x under a global market. Not wired into the node."
 
 [[subsystem]]
@@ -3704,8 +3704,8 @@ domain = "Operations"
 paths = "`apps/sentinel`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crate:maya-sentinel"]
+status = "verified"
+tests = ["crate:maya-sentinel", "apps/sentinel/tests/redteam.rs"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
