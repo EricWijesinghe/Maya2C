@@ -166,6 +166,13 @@ impl SigningKey {
         hex::encode(self.inner.address())
     }
 
+    /// The address as its Bech32m text form (ADR-081) on the chain `chain_id`,
+    /// or `None` for a chain with no text form. `address()` stays hex.
+    pub fn address_text(&self, chain_id: String) -> Option<String> {
+        let network = maya_address::Network::for_chain_id(&chain_id)?;
+        Some(maya_address::encode(network, &self.inner.address()))
+    }
+
     /// Signs `message`, returning the 11,165-byte hybrid signature.
     ///
     /// # Errors
@@ -254,6 +261,22 @@ mod tests {
 
     fn key() -> Arc<SigningKey> {
         SigningKey::from_seed(vec![7u8; 32]).expect("valid seed")
+    }
+
+    #[test]
+    fn the_text_address_decodes_to_the_hex_address_on_its_chain() {
+        let key = key();
+        let text = key
+            .address_text("maya-testnet-1".to_string())
+            .expect("registered chain");
+        let (network, id) = maya_address::decode_any(&text).unwrap();
+        assert_eq!(network, maya_address::Network::Testnet);
+        assert_eq!(hex::encode(id), key.address());
+    }
+
+    #[test]
+    fn an_unregistered_chain_has_no_text_address() {
+        assert_eq!(key().address_text("made-up-chain".to_string()), None);
     }
 
     #[test]

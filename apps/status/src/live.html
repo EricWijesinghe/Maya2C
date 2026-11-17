@@ -232,7 +232,8 @@
     const f = Math.floor((seats - 1) / 3), q = seats - f;
     const tip = Math.max(0, ...nodes.map((n) => n.height || 0));
     const hist = view.history || [];
-    $("net").textContent = `${view.network} · ${fmt.format(view.seen_total)} peers seen since start`;
+    const floor = view.seen_capped ? "at least " : "";
+    $("net").textContent = `${view.network} · ${floor}${fmt.format(view.seen_total)} peers seen since start`;
     $("kHeight").textContent = fmt.format(tip);
     spark($("sHeight"), hist.slice(-120).map((s) => s.height), "#1fb5c2");
     const rs = rates(hist), last = rs.filter((v) => v != null);
