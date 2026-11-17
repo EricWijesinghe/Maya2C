@@ -99,6 +99,33 @@ Setting a per-block ceiling to zero does not remove a subsystem — it stops it
 while leaving every transaction that uses it apparently valid.
 `no_parameter_can_be_voted_to_zero_where_zero_disables_a_subsystem` checks this.
 
+### A block-validity rule waits a full upgrade lead
+
+A key for which `ParameterKey::is_validity_rule` is true (the DEX fill and
+order ceilings, the oracle and shielded per-block caps, the three VM bounds)
+decides which blocks every node accepts. A passed change to one is written to
+`g:pending:<tag>` when its proposal executes, with activation height = execution
+height + `VALIDITY_RULE_LEAD_BLOCKS` (= `MIN_UPGRADE_LEAD_BLOCKS`, 30 days at
+one block a second), and is promoted into the table at the end of the block
+before that height, so the committed table at the tip is the one the next block
+is judged by. One change waits per key: a later passed change to the same key
+replaces one still waiting. The protocol fee, the proposal deposit and the
+default signature suite apply at execution as before. ADR-082 amendment 2026-11-15
+(Eric 2026-11-14 MCQ); pinned by
+`a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`.
+
+The waiting value is on chain under `g:pending:<tag>` from execution, so
+anyone reading state can see it. No RPC lists it yet (the parameter RPC reads
+`g:params` only; follow-up in BACKLOG), so a wallet sees a waiting change only
+through a state read.
+
+A voter's stake must stay locked until the proposal's execution height, not
+until a validity change binds 30 days later. That matches `ScheduleUpgrade`
+proposals, whose entries also bind after the lock ends: the lock guards the
+decision against vote-then-sell, and the lead is notice to everyone else, so
+extending the lock by the lead would make every validity vote a 30-day longer
+commitment without changing who decided.
+
 ### The protocol fee, specifically
 
 `crates/node/src/state/dex_exec.rs` used to say the rate was zero *"because there is no
@@ -152,7 +179,8 @@ pool-participant-directed. A pool's miners contribute the hashes; the operator
 decides who is credited. The mechanism cannot fix that — attributing work to
 individual hashers needs the share data the pool holds off chain.
 
-Credit halves every 5,760 blocks (~1 day). Voting power should reflect hash power
+Credit halves every 86,400 blocks (one day at one block a second; 5,760 until
+the 2026-11-14 rescale, which was a day only at the old 15 s target). Voting power should reflect hash power
 *now*; an all-time accumulator would let a farm that ran two years ago govern
 forever. Halving is exact in integers — it is a shift — where a fractional decay
 would need a rounding rule, and a rounding rule in voting weight is a bias.

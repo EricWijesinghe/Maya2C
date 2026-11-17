@@ -3190,12 +3190,14 @@ horizon ([\texttt{crate::error::NodeError::BelowPruneHorizon}]). An archive node
 prunes nothing, has no horizon, and is unaffected. Pruning is opt-in and
 off by default.
 
-[\texttt{PRUNE\_DEPTH}] is one DAG epoch, 30,000 blocks, about 5.2 days at 15-second
-blocks. That is far deeper than any honest reorg on a working network.
+[\texttt{PRUNE\_DEPTH}] is its own constant, 30,000 blocks, about 8.3 hours at one
+block a second. It was one DAG epoch until the epoch was rescaled to 450,000
+blocks (ADR-082 amendment 2026-11-15); it is node-local policy, not consensus,
+and under DAG-BFT finality no honest reorg reaches it.
 
 \subsubsection{What is kept}
 
-Every header, forever: 144 bytes each, about 4.3 MB per 30,000 blocks.
+Every header, forever: 145 bytes each, about 4.4 MB per 30,000 blocks.
 A header carries \texttt{tx\_root} and \texttt{state\_root}, which is all a pruned body is
 ever verified against. Those are the "light Merkle roots" left where the
 blocks were. Bodies and undo journals below the horizon are deleted.
