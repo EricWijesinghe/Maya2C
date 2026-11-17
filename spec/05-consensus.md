@@ -18,7 +18,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 - **CON-7** The active chain is the one with the greatest cumulative work, a target's work being `2^256 ÷ (target + 1)`. *(positive only: a choice between valid branches, never a refusal)*
 - **CON-8** A block at or below the prune horizon is refused.
 - **CON-9** Under DAG-BFT a block's `difficulty_target` equals its parent's, so every block carries the genesis target; otherwise invalid. A DAG-BFT genesis must declare `difficulty_bits` and `pow_limit_bits` of 0 (the unlimited target). There is no retarget and no activation pin: the target certifies nothing here, and a retarget on one-second blocks drove cumulative work to 2^256 − 1 within about 12,500 blocks, which stopped the chain (ADR-035).
-- **CON-10** A header's `version` is 0; any other value is invalid, and a header of another length is not a header (ADR-063).
+- **CON-10** A header's `version` byte is `hash_id << 4 | layout`; its layout (low nibble) is 0, any other layout is invalid, and a header of another length is not a header (ADR-063). The layout is judged before the hash id (CON-16).
 - **CON-11** On a chain whose target is retargeted (CON-5), a block's timestamp is later than the median of the timestamps of its parent and up to ten earlier ancestors (the upper middle when fewer than eleven exist); otherwise invalid. A DAG-BFT chain (CON-9) does not apply this rule: it has no retarget to steer, and its blocks can come faster than once a second (ADR-063).
 - **CON-12** A block's wire size is `145 + 8 + Σ(8 + len)` bytes, where `len` is each transaction's encoding, and it is at most `MAX_BLOCK_BYTES` = 5 MiB (5,242,880) (ADR-072, provisional). A block over the cap is invalid, whoever built it. A builder admits transactions first-fit, in order: one that would take the block over the cap is passed over and the ones after it are still considered; a transaction that does not execute costs no room. The admitted indices are a function of the order and the cap alone, so every node makes the same cut. *(provisional value: pending measurement on the launch host)*
 - **CON-13** *(positive only: CON-13 selects payloads and never refuses one; a refusal is CON-12's `BlockTooLarge`)* A DAG-BFT builder decodes a committed sub-DAG's batch payloads within `DECODE_BUDGET` = 3/2 × `MAX_BLOCK_BYTES` (7,864,320), shared fairly among authors by deficit round-robin.
@@ -30,6 +30,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
+- **CON-16** The high nibble of a header's `version` byte is its hash id: the hash its block id (CON-2), proof-of-work seed, `tx_root` (CON-3) and `state_root` (CON-4) are computed under. 0 is BLAKE3, the only hash defined; a header naming any other hash id is invalid (`UnknownHashId`). A later hash is a scheduled upgrade that defines a new id, never a change to what 0 means (ADR-143).
 
 - **CON-14** An upgrade-schedule entry that names a version is admitted whatever feature bits it carries, subject to the lead, the horizon, strictly increasing versions and heights, and the suite rules (ADR-082). A sunset-only entry that carries any feature bit is refused. *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
 - **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, zkML while it has no verifier, or the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED` is false, ADR-044 amendment 2026-11-15; negative case `work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
@@ -39,7 +40,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
-not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
+not) and CON-5 to CON-8, CON-10, CON-11, CON-12 and CON-16 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
 (`argonblake-pow`) has no language-neutral vector. CON-14 and CON-15 are
 pinned by the node's own tests (`upgrade_schedule_tests.rs`, positive and

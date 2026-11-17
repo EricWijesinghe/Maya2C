@@ -157,9 +157,30 @@ fn check(case: &Value) {
             );
         }
         "header_version" => {
+            // CON-10 and CON-16 through the node's own decoder: a header with
+            // this version byte, and which of the two rules refused it.
             let version = u8::try_from(case["version"].as_u64().unwrap()).unwrap();
-            let accepted = custom_l1_node::core::block::HEADER_VERSION == version;
-            assert_eq!(outcome(accepted), want, "{id}");
+            let mut bytes = custom_l1_node::core::block::BlockHeader {
+                prev_hash: [0; 32],
+                state_root: [0; 32],
+                timestamp: 0,
+                nonce: 0,
+                difficulty_target: [0xff; 32],
+                tx_root: [0; 32],
+                version: 0,
+            }
+            .serialize();
+            bytes[custom_l1_node::core::block::VERSION_OFFSET] = version;
+            let decoded = custom_l1_node::core::block::BlockHeader::from_bytes(&bytes);
+            assert_eq!(outcome(decoded.is_ok()), want, "{id}");
+            if let Err(e) = decoded {
+                let named = if e.to_string().contains("hash id") {
+                    "UnknownHashId"
+                } else {
+                    "UnsupportedHeaderVersion"
+                };
+                assert_eq!(named, expect["error"].as_str().unwrap(), "{id}");
+            }
         }
         "median_time" => {
             let recent: Vec<u64> = case["recent"].as_array().unwrap().iter().map(num).collect();

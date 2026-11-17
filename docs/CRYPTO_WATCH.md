@@ -82,3 +82,10 @@ this is a rehearsed procedure, RESEARCH.
 
 Block ids (`CON-2`) move the same way: a header past E is identified under the
 new hash, and the bridge block is identified under both.
+
+A header says which hash it is under: the high nibble of its version byte is
+a hash id (`CON-16`, ADR-143). 0 is BLAKE3, and any other value is refused
+until a build defines it, so a migration gives the new hash an id and
+schedules it, and no header is ever read under the wrong one. Txids and
+addresses need no id of their own, because the signed wire version (`TX-6`)
+and the suite already choose their hash.

@@ -7,8 +7,9 @@
 //! in the node), and the device signs exactly those. So before a user is asked
 //! anything, the bytes are parsed here and refused unless they are:
 //!
-//! - under the v7 signing domain, so they are a transaction and not some
-//!   other message a host would like signed;
+//! - under the v7 signing domain and naming wire version 7 in the signed
+//!   header (ADR-143), so they are a transaction and not some other message
+//!   a host would like signed;
 //! - for suite `0x10` with **this device's** public key, so a host cannot get
 //!   a signature for a key the user did not choose, and the address on screen
 //!   is the account that pays;
@@ -21,9 +22,13 @@
 use crate::suite::{PUBLIC_KEY_LEN, SUITE_ID};
 
 /// The node's v7 signing domain (`crates/node/src/core/suite_tx.rs`).
-pub const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v2";
+pub const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v3";
 /// Bytes of the genesis id every signature commits to (ADR-036).
 pub const GENESIS_LEN: usize = 32;
+/// The wire version the signed header names after the genesis (ADR-143).
+pub const WIRE_VERSION_SUITE: u8 = 7;
+/// Bytes of that header: wire version, then suite.
+pub const SIGNED_HEADER_LEN: usize = 2;
 /// Most outputs a reviewed transfer may have.
 pub const MAX_OUTPUTS: usize = 4;
 /// Most inputs a reviewed transfer may spend.
@@ -142,6 +147,15 @@ pub fn review(
     }
     let mut genesis = [0u8; GENESIS_LEN];
     genesis.copy_from_slice(r.take(GENESIS_LEN)?);
+    // The signed header (ADR-143): a v7 frame, under the suite this device
+    // signs with. The body names the suite again and is checked below too.
+    let header = r.take(SIGNED_HEADER_LEN)?;
+    if header[0] != WIRE_VERSION_SUITE {
+        return Err(ReviewError::NotATransaction);
+    }
+    if header[1] != SUITE_ID {
+        return Err(ReviewError::WrongSuite(header[1]));
+    }
 
     let input_count = r.count(MAX_INPUTS)?;
     r.take(input_count * INPUT_BYTES)?;

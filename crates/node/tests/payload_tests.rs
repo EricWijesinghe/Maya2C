@@ -103,14 +103,16 @@ fn transfer_tx() -> Transaction {
 // ---------------------------------------------------------------------------
 
 /// The prefix of a transfer's signing bytes: domain, the chain tag (ADR-036),
-/// input count, output count, and the single output's amount and recipient.
+/// the signed header (wire version 5, suite `0x30`, ADR-143), input count,
+/// output count, and the single output's amount and recipient.
 ///
 /// Only the prefix is a literal. The 1984-byte public key pair that follows
 /// would make a full literal 3968 hex characters, so the complete encoding is
 /// pinned by [`TRANSFER_SIGNING_DIGEST`] instead.
 const TRANSFER_SIGNING_PREFIX: &str = "\
-637573746f6d2d6c312d6e6f64652e74782e7634\
+637573746f6d2d6c312d6e6f64652e74782e7635\
 2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a\
+0530\
 0000000000000000\
 0100000000000000\
 f401000000000000000000000000000000000000000000000000000000000000\
@@ -125,13 +127,20 @@ f401000000000000000000000000000000000000000000000000000000000000\
 /// Re-pinned 2026-10-13 for ADR-046: the output amount became 32 bytes. That
 /// is the consensus change this constant exists to make deliberate; every
 /// signature over the old 8-byte form is invalid on a re-genesised chain.
+///
+/// Re-pinned 2026-11-15 for ADR-143: the domain became `tx.v5` and the signed
+/// header (version 5, suite `0x30`) follows the chain tag, as
+/// [`TRANSFER_SIGNING_PREFIX`] spells out byte by byte.
 const TRANSFER_SIGNING_DIGEST: &str =
-    "002988bfd60e9ec080eb541072d63117ea489dddddfe3c8939e3a1b96da90e5a";
+    "ade12344d37060ae951eed5a6c8a47c482799926c466de7db18180af0050e3cb";
 
-/// Length of those signing bytes: domain, chain tag, two counts, one output,
-/// both public keys, and the nonce.
+/// Length of those signing bytes: domain, chain tag, signed header, two
+/// counts, one output, both public keys, and the nonce.
 const TRANSFER_SIGNING_LEN: usize =
-    20 + 32 + 8 + 8 + 32 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
+    20 + 32 + 2 + 8 + 8 + 32 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
+
+/// Where the signed header's version byte sits: after the domain and chain tag.
+const SIGNED_VERSION_AT: usize = 20 + 32;
 
 /// The genesis id the documented bytes are signed for: fixed here rather than
 /// taken from a test helper, so the literal above cannot drift with one.
@@ -383,10 +392,16 @@ fn a_payload_can_never_collide_with_a_transfer() {
     let plain = transfer.signing_bytes(&common::test_chain());
     let payload = with_payload.signing_bytes(&common::test_chain());
 
-    // The payload section is appended after fixed-width fields, so a payload'd
-    // transaction is strictly longer and shares the transfer as a prefix.
+    // The signed header names version 5 against 6 (ADR-143), and the payload
+    // section is appended after fixed-width fields, so a payload'd transaction
+    // is strictly longer and otherwise shares the transfer as a prefix.
+    assert_eq!(plain[SIGNED_VERSION_AT], 5);
+    assert_eq!(payload[SIGNED_VERSION_AT], 6);
     assert!(payload.len() > plain.len());
-    assert_eq!(&payload[..plain.len()], &plain[..]);
+    assert_eq!(
+        &payload[SIGNED_VERSION_AT + 1..plain.len()],
+        &plain[SIGNED_VERSION_AT + 1..]
+    );
 }
 
 #[test]
@@ -667,8 +682,9 @@ fn a_route_longer_than_the_ceiling_is_rejected_before_it_is_allocated() {
 #[test]
 fn a_trading_payload_cannot_collide_with_a_transfer() {
     // The same property the channel payloads have, restated for the kinds added
-    // since. A payload section is appended after fixed-width fields, so a
-    // payload'd transaction is strictly longer and shares the transfer as a
+    // since. The signed header names a different version (ADR-143), and a
+    // payload section is appended after fixed-width fields, so a payload'd
+    // transaction is strictly longer and otherwise shares the transfer as a
     // prefix — which is what makes one signature unable to mean two things.
     let transfer = Transaction::new(vec![], vec![], 0).signing_bytes(&common::test_chain());
 
@@ -683,8 +699,12 @@ fn a_trading_payload_cannot_collide_with_a_transfer() {
         TxKind::CancelOrder([0u8; 32]),
     ] {
         let payload = Transaction::with_kind(kind, 0).signing_bytes(&common::test_chain());
+        assert_ne!(payload[SIGNED_VERSION_AT], transfer[SIGNED_VERSION_AT]);
         assert!(payload.len() > transfer.len());
-        assert_eq!(&payload[..transfer.len()], &transfer[..]);
+        assert_eq!(
+            &payload[SIGNED_VERSION_AT + 1..transfer.len()],
+            &transfer[SIGNED_VERSION_AT + 1..]
+        );
     }
 }
 

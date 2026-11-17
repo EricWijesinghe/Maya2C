@@ -247,6 +247,11 @@ phase that did it.
     is a constant — the genesis schedule under mainnet rules — so neither a
     governance vote nor a node's config can change which signatures a block's
     validity rests on. `SUITE_ENVELOPE_ACTIVATION_HEIGHT` is 0 (ADR-013).
+    Every signed message names its wire version and suite right after the
+    chain tag, from the same function `to_bytes` takes the version byte
+    from, so a signature made under one version's reading never verifies
+    another's (TX-6, ADR-143; pinned by
+    `crates/node/tests/signed_header_tests.rs`).
     Pinned by `crates/node/tests/suite_parity_tests.rs` and
     `crates/node/tests/suite_envelope_live_tests.rs` — ADR-007, ADR-013.
 32. **A vault account moves at most its `limit` per window of `delay_blocks`

@@ -407,7 +407,7 @@ fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
     // fixed genesis id shows the layout.
     let chain_tag = [0x5A; 32];
     let good = |id: &str, f: &Frame| {
-        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3", "TX-5"], "bytes": hex(&wire::encode(f)),
+        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3", "TX-5", "TX-6"], "bytes": hex(&wire::encode(f)),
                "chain_tag": hex(&chain_tag),
                "expect": {"result": "ok", "txid": hex(&wire::txid(f)), "sender": hex(&wire::address_of(&f.public_key)), "nonce": f.nonce.to_string(),
                           "signing_bytes_blake3": hex(blake3::hash(&wire::signing_bytes(f, &chain_tag)).as_bytes())}})
@@ -566,19 +566,25 @@ fn prune_cases() -> Vec<Value> {
         .collect()
 }
 
-/// CON-10: a header version other than 0 is invalid.
+/// CON-10: a header layout other than 0 is invalid; CON-16: so is a hash id
+/// other than 0 (the version byte's high nibble, ADR-143).
 fn header_version_cases() -> Vec<Value> {
-    [("header-version-zero", 0u8), ("header-version-one-is-invalid", 1), ("header-version-max-is-invalid", 255)]
-        .iter()
-        .map(|(id, version)| {
-            let expect = if consensus::header_version_ok(*version) {
-                json!({"result": "ok"})
-            } else {
-                json!({"result": "error", "error": "UnsupportedHeaderVersion"})
-            };
-            json!({"id": id, "rules": ["CON-10"], "fn": "header_version", "version": version, "expect": expect})
-        })
-        .collect()
+    [
+        ("header-version-zero", 0u8, &["CON-10", "CON-16"][..]),
+        ("header-version-one-is-invalid", 1, &["CON-10"][..]),
+        ("header-version-max-is-invalid", 255, &["CON-10"][..]),
+        ("header-hash-id-one-is-invalid", 0x10, &["CON-16"][..]),
+        ("header-hash-id-max-is-invalid", 0xF0, &["CON-16"][..]),
+    ]
+    .iter()
+    .map(|(id, version, rules)| {
+        let expect = match consensus::header_version(*version) {
+            Ok(()) => json!({"result": "ok"}),
+            Err(why) => json!({"result": "error", "error": why}),
+        };
+        json!({"id": id, "rules": rules, "fn": "header_version", "version": version, "expect": expect})
+    })
+    .collect()
 }
 
 /// CON-12: the wire size of a block, the transactions a cap admits (first-fit,

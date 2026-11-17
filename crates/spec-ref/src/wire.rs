@@ -21,7 +21,9 @@ pub const WIRE_VERSION_TRANSFER: u8 = 5;
 /// ENC-6: the largest count a collection prefix may carry.
 pub const MAX_COLLECTION_LEN: u64 = 65_536;
 
-const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v4";
+const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v5";
+/// TX-6: the suite an untagged (v5/v6) frame signs under, the hybrid `0x30`.
+pub const SUITE_HYBRID: u8 = 0x30;
 const TXID_DOMAIN: &[u8] = b"custom-l1-node.txid.v1";
 /// ENC-8: the authorization kind a plain hybrid transfer's id is hashed under.
 const TXID_KIND_HYBRID: u8 = 0;
@@ -78,13 +80,15 @@ fn body(frame: &Frame) -> Vec<u8> {
     out
 }
 
-/// TX-3: what both signatures sign — `domain ‖ chain_tag ‖ io ‖ public_key ‖
-/// nonce_le64`, where `chain_tag` is the genesis block id of the one chain the
-/// signature is valid on (TX-5, ADR-036).
+/// TX-3: what both signatures sign — `domain ‖ chain_tag ‖ version ‖ suite ‖
+/// io ‖ public_key ‖ nonce_le64`, where `chain_tag` is the genesis block id of
+/// the one chain the signature is valid on (TX-5, ADR-036) and `version ‖
+/// suite` is TX-6's signed header (ADR-143).
 #[must_use]
 pub fn signing_bytes(frame: &Frame, chain_tag: &[u8; 32]) -> Vec<u8> {
     let mut out = TX_DOMAIN.to_vec();
     out.extend_from_slice(chain_tag);
+    out.extend_from_slice(&[WIRE_VERSION_TRANSFER, SUITE_HYBRID]);
     out.extend(body(frame));
     out
 }
