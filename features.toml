@@ -2128,11 +2128,12 @@ note = "Retired 2026-09-21 with crates/zkml and crates/zkml-prover: halo2/KZG ov
 id = "stateless-transfer-verification"
 name = "Stateless transfer verification"
 domain = "Consensus and execution"
-paths = "`crates/stateless-core`, `crates/node/src/state/stateless.rs`, `crates/light-client/src/stateless.rs`"
+paths = "`crates/stateless-core`, `crates/node/src/state/stateless.rs`, `crates/node/src/state/root_cache.rs`, `crates/light-client/src/stateless.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs"]
+tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs", "crates/node/tests/root_cache_chain_tests.rs"]
+note = "ADR-062a (2026-11-14, revised after the PR #540 review): the sparse accounts root is maintained incrementally from a local-only `smt:` cache of branches (N - 1 entries for N accounts, whatever the addresses), equal to the full rebuild; unit tests in crates/node/src/state/root_cache_tests.rs, chain-level test named above. Dark with the sparse tree: at genesis accounts are the dense tree and no cache is kept, so mainnet per-block accounts cost is unchanged until STATELESS activates. Accounts layer only; record layers are still rebuilt each block."
 
 [[subsystem]]
 id = "universal-evm-svm-move-transpilation"
