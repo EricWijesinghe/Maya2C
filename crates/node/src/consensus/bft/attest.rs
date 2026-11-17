@@ -363,7 +363,8 @@ impl Collector {
     /// # Errors
     ///
     /// As [`Attestation::verify`]: a bad attestation is refused, never
-    /// counted.
+    /// counted. A repeat of the block already counted for its slot returns
+    /// [`Collected::Ignored`] without being verified again (ADR-147).
     pub fn add(
         &mut self,
         attestation: Attestation,

@@ -65,5 +65,9 @@ permissions before being tightened.
 - The safety guard still checks every epoch directory, not only the current
   epoch's; scoping it needs the epoch passed in and is left open.
 - Windows has no mode bits; owner-only ACLs for the key file stay with ADR-049.
+- Invariant review (`docs/invariants.md`, 1-34): none is touched. No item
+  writes state, reads a clock in a validity rule, or changes what a block,
+  transaction or attestation must satisfy; the orphan, rate and connection
+  tables are node-local memory, iterated only to pick an eviction victim.
 - `pub fn restrict` is removed from the `custom_l1_node` library; no caller
   remains in the repository.
