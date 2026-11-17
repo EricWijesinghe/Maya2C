@@ -46,7 +46,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | chat-pay | Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3) | chat + wallet hand-off | hand-off protocol ADR | M | W1 |
 | chat-expression | Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries | `apps/chat`, `apps/chat-gui`, chat-pay, chat-v2 | Eric's answers to ADR-140 section 10; gifts need chat-pay merged | L | W1 |
 | explorer-v2 | Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending | `apps/explorer` | none | M | W1 |
-| status-v2 | Public network status with a history of incidents and gate progress | `apps/status`, `apps/sentinel` | none | S | W1 |
+| status-v2 | Public network status with a history of incidents and gate progress. Started 2026-11-10: the site's [Live network](https://maya2c.dev/network/) page draws validators, blocks and finality from the existing endpoints | `apps/status`, `apps/sentinel` | none | S | W1 |
 | notifications | Opt-in alerts (payment received, validator down) without a central server | `apps/hub` `notify.rs`, sentinel ntfy | privacy statement | M | W2 |
 
 ## B. Money and commerce
