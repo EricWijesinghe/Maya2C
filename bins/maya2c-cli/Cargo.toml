@@ -39,7 +39,7 @@ serde = { workspace = true, features = ["derive"] }
 sha2.workspace = true
 # Notary file hashes (ADR-094): BLAKE3, the digest the node already uses for its own ids.
 blake3.workspace = true
-rpassword = "7"
+rpassword.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

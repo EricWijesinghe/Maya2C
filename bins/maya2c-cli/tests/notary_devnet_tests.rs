@@ -68,7 +68,17 @@ async fn a_stamp_lands_in_a_block_and_verifies_with_a_receipt() {
         .unwrap();
     wait_nonce(client, &address, 1, "the stamp").await;
 
-    let receipt = verify(&file, &txid, &url, 1).await.unwrap();
+    // A node whose genesis is not the expected one is refused before any scan.
+    let wrong = "00".repeat(32);
+    let refused = format!(
+        "{:#}",
+        verify(&file, &txid, &url, Some(&wrong), 1)
+            .await
+            .unwrap_err()
+    );
+    assert!(refused.contains("refusing"), "{refused}");
+
+    let receipt = verify(&file, &txid, &url, Some(&genesis), 1).await.unwrap();
     assert_eq!(receipt.hash, hex::encode(hash_file(&file).unwrap()));
     assert_eq!(receipt.txid, txid);
     assert_eq!(receipt.sender, address);
@@ -88,6 +98,11 @@ async fn a_stamp_lands_in_a_block_and_verifies_with_a_receipt() {
 
     // One changed byte, and the same receipt no longer verifies.
     write(&file, b"lease agreement, page 2");
-    let refused = format!("{:#}", verify(&file, &txid, &url, 1).await.unwrap_err());
+    let refused = format!(
+        "{:#}",
+        verify(&file, &txid, &url, Some(&genesis), 1)
+            .await
+            .unwrap_err()
+    );
     assert!(refused.contains("does not match"), "{refused}");
 }
