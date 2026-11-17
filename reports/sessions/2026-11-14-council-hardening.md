@@ -114,3 +114,26 @@ or `genesis.rs`.
 - Node integration test targets other than `council_pause_tests` were not run
   locally.
 - `features.toml` stays `working` until CI is green on PR #544.
+
+## Resume 2026-11-17: master merged
+
+PR #544 showed as conflicting after master moved. `git merge origin/master`
+(dc65ea7a) went through with no textual conflict. On master, the only change
+to a file this PR touches is `bins/genesis-ceremony/src/main.rs`, from the
+ceremony hardening in #595; this PR adds one `mod council_rotate;` line to that
+file. Earlier CI reds were not from this PR. nextest (core) and clippy failed
+on `apps/explorer/src/explain.rs:80` (E0593, which was broken on master then),
+and cargo-deny failed on RUSTSEC-2026-0534 (libp2p-gossipsub).
+
+Re-run after the merge, on Windows:
+
+- `cargo test -p custom-l1-node --test council_pause_tests`: 17 passed, 0 failed.
+- `cargo test -p genesis-ceremony council`: 12 passed, 0 failed, 22 filtered out.
+  It printed one warning: `write_secret` is an unused import at `main.rs:1406`.
+  That code is on master, and the import is used under `#[cfg(unix)]`.
+- `cargo xtask spec-coverage --strict`: 66 rules, 164 vectors, 63 consensus
+  rules covered, 0 gaps.
+- `cargo xtask claims-check`: 99 public files scanned, 0 unauthorised claims.
+
+NOT VERIFIED after the merge: `--lib council`, `--lib describe`, and clippy.
+They are left to CI.
