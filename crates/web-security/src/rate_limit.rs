@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ConnectInfo;
-use axum::http::Request;
+use axum::http::{Extensions, HeaderMap, Request};
 use governor::middleware::NoOpMiddleware;
 use tower_governor::GovernorError;
 use tower_governor::governor::{GovernorConfig, GovernorConfigBuilder};
@@ -78,39 +78,42 @@ impl KeyExtractor for ClientKey {
     type Key = IpAddr;
 
     fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
-        let from_header = match self.0 {
-            ClientIp::Socket => None,
-            ClientIp::CfConnectingIp => header_ip(request, "cf-connecting-ip", |value| Some(value)),
-            ClientIp::XForwardedForLast => {
-                header_ip(request, "x-forwarded-for", |value| value.rsplit(',').next())
-            }
-        };
-        from_header
-            .or_else(|| {
-                request
-                    .extensions()
-                    .get::<ConnectInfo<SocketAddr>>()
-                    .map(|ConnectInfo(peer)| peer.ip())
-            })
+        client_address(self.0, request.headers(), request.extensions())
             .ok_or(GovernorError::UnableToExtractKey)
     }
 }
 
-fn header_ip<T>(
-    request: &Request<T>,
+/// The client's address as the limiter keys it, for anything else that must
+/// count per client the same way (the gateway's event subscription caps).
+#[must_use]
+pub fn client_address(
+    mode: ClientIp,
+    headers: &HeaderMap,
+    extensions: &Extensions,
+) -> Option<IpAddr> {
+    let from_header = match mode {
+        ClientIp::Socket => None,
+        ClientIp::CfConnectingIp => header_ip(headers, "cf-connecting-ip", |value| Some(value)),
+        ClientIp::XForwardedForLast => {
+            header_ip(headers, "x-forwarded-for", |value| value.rsplit(',').next())
+        }
+    };
+    from_header.or_else(|| {
+        extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(peer)| peer.ip())
+    })
+}
+
+fn header_ip(
+    headers: &HeaderMap,
     name: &str,
     pick: impl Fn(&str) -> Option<&str>,
 ) -> Option<IpAddr> {
     // The last header line, not the first: a client can send its own
     // `X-Forwarded-For` line before the proxy's, and the proxy's line is the
-    // one appended last.
-    let value = request
-        .headers()
-        .get_all(name)
-        .iter()
-        .next_back()?
-        .to_str()
-        .ok()?;
+    // one appended last (several lines are one comma-joined list, RFC 9110 5.3).
+    let value = headers.get_all(name).iter().next_back()?.to_str().ok()?;
     pick(value)?.trim().parse().ok()
 }
 

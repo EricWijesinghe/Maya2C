@@ -155,11 +155,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let state = AppState {
-        store: Arc::clone(&store),
-        events,
-        node_rpc: Some(args.node_rpc.clone()),
-        assets,
         api_client_ip: args.api_client_ip,
+        ..AppState::new(
+            Arc::clone(&store),
+            events,
+            Some(args.node_rpc.clone()),
+            assets,
+        )
     };
 
     let server = serve(args.listen, state).await?;

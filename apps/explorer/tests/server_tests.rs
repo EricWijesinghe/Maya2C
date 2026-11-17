@@ -74,17 +74,17 @@ async fn harness(blocks: i64) -> Harness {
     }
 
     let (events, _) = broadcast::channel(64);
-    let state = AppState {
-        store: Arc::clone(&store) as Arc<dyn BlockStore>,
-        events: events.clone(),
-        node_rpc: None,
-        // The real directory, resolved from the manifest rather than the
-        // working directory, so the asset routes are exercised as deployed
-        // rather than skipped. `cargo test` and `cargo nextest` do not agree
-        // on the cwd of a test binary; `CARGO_MANIFEST_DIR` is fixed.
-        assets: Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")),
-        api_client_ip: maya_web_security::rate_limit::ClientIp::Socket,
-    };
+    // The real directory, resolved from the manifest rather than the working
+    // directory, so the asset routes are exercised as deployed rather than
+    // skipped. `cargo test` and `cargo nextest` do not agree on the cwd of a
+    // test binary; `CARGO_MANIFEST_DIR` is fixed.
+    let assets = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"));
+    let state = AppState::new(
+        Arc::clone(&store) as Arc<dyn BlockStore>,
+        events.clone(),
+        None,
+        assets,
+    );
 
     // Port 0: the OS assigns one, so concurrent tests never collide.
     let server = serve("127.0.0.1:0".parse().expect("addr"), state)
@@ -575,13 +575,7 @@ async fn a_deployment_without_an_assets_directory_still_serves_pages() {
     let (events, _) = broadcast::channel(64);
     let server = serve(
         "127.0.0.1:0".parse().expect("addr"),
-        AppState {
-            store: store as Arc<dyn BlockStore>,
-            events,
-            node_rpc: None,
-            assets: None,
-            api_client_ip: maya_web_security::rate_limit::ClientIp::Socket,
-        },
+        AppState::new(store as Arc<dyn BlockStore>, events, None, None),
     )
     .await
     .expect("serve");

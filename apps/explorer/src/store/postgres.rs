@@ -211,7 +211,9 @@ impl PostgresStore {
             .max_connections(max_connections)
             .connect(url)
             .await
-            .map_err(|e| ExplorerError::Store(format!("connecting to {url}: {e}")))?;
+            // The URL carries the password, so it is kept out of the message:
+            // this error is printed by `main` on startup failure.
+            .map_err(|e| ExplorerError::Store(format!("connecting to the database: {e}")))?;
 
         sqlx::raw_sql(SCHEMA)
             .execute(&pool)

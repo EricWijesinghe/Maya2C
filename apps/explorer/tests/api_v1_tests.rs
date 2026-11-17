@@ -820,13 +820,7 @@ fn openapi_matches_the_golden_file() {
 #[tokio::test]
 async fn legacy_api_is_marked_deprecated_and_v1_is_not() {
     let (events, _) = broadcast::channel(16);
-    let state = AppState {
-        store: seeded(1).await,
-        events,
-        node_rpc: None,
-        assets: None,
-        api_client_ip: ClientIp::Socket,
-    };
+    let state = AppState::new(seeded(1).await, events, None, None);
     let app = explorer_router(state);
     let legacy = get(&app, "/api/stats").await;
     assert_eq!(legacy.headers["deprecation"], "true");
