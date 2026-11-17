@@ -27,6 +27,8 @@ pub mod dex_exec;
 pub mod fee_exec;
 pub mod fees;
 pub mod governance_exec;
+#[cfg(test)]
+mod governance_settle_tests;
 pub mod htlc;
 pub mod htlc_exec;
 pub mod identity;
@@ -40,6 +42,7 @@ pub mod mining_exec;
 pub mod oracle_exec;
 pub(crate) mod preview;
 pub mod proof;
+pub(crate) mod root_cache;
 pub mod rwa;
 pub mod rwa_exec;
 pub mod sealed_exec;
@@ -47,6 +50,12 @@ pub mod settlement;
 pub mod shielded;
 pub mod staking;
 pub mod staking_exec;
+pub(crate) mod staking_records;
+pub(crate) mod staking_store;
+#[cfg(test)]
+mod staking_store_tests;
+#[cfg(test)]
+mod staking_vectors_tests;
 pub mod stateless;
 pub mod threat;
 pub mod threat_exec;
@@ -56,6 +65,9 @@ pub mod vault;
 pub mod verified;
 pub mod vm_exec;
 pub mod zkml;
+
+#[cfg(test)]
+mod scan_bounds_tests;
 
 // Re-exported so that a caller wiring up a trade does not have to take a
 // direct dependency on `maya-dex` to name a direction or a side. The engine is
@@ -74,6 +86,7 @@ pub use dex::{OrderRecord, PoolRecord, canonical_pair, derive_lp_asset, derive_p
 pub use invariant_guard::{BreakerRecord, Invariant, MODULES, Module};
 pub use merkle::{PathStep, account_leaf, merkle_path, merkle_root, verify_path};
 pub use proof::{AccountProof, LayerDigest, StateLayer};
+pub use root_cache::RootCacheStats;
 pub use shielded::{MAX_SHIELDED_PER_BLOCK, ShieldedPool};
 pub use stateless::{
     STATELESS_ACTIVATION_HEIGHT, StateWitness, StatelessError, verify_block, verify_block_under,

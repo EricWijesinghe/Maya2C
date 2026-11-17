@@ -57,8 +57,8 @@ use crate::core::sealed_payload::{
 use crate::error::{NodeError, Result};
 use crate::sealed::{
     COMMITTEE_KEY, CommitteeRecord, EnvelopeRecord, MAX_REVEAL_DELAY, MAX_REVEAL_SHARES_PER_BLOCK,
-    MAX_SEALED_PER_BLOCK, MIN_REVEAL_DELAY, envelope_height_prefix, envelope_key,
-    share_envelope_prefix, share_key,
+    MAX_SEALED_PER_BLOCK, MAX_SEALED_PER_REVEAL_HEIGHT, MIN_REVEAL_DELAY, envelope_height_prefix,
+    envelope_key, share_envelope_prefix, share_key,
 };
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
@@ -124,15 +124,17 @@ impl StateDB {
     /// The ciphertext is not decrypted, inspected, or validated beyond its
     /// shape — there is nothing here that could inspect it, which is the point.
     /// What *is* checked is everything visible: that a committee exists, that
-    /// the reveal height is in the future and not too far into it, and that the
-    /// block has not already accepted more envelopes than it may.
+    /// the reveal height is in the future and not too far into it, and that
+    /// neither the block nor the reveal height already holds as many envelopes
+    /// as it may.
     ///
     /// # Errors
     ///
     /// - [`NodeError::SealedCommitteeUnset`] on a chain with no committee.
     /// - [`NodeError::SealedRevealWindow`] for a reveal height in this block,
     ///   in the past, or beyond [`MAX_REVEAL_DELAY`].
-    /// - [`NodeError::SealedBlockLimit`] past [`MAX_SEALED_PER_BLOCK`].
+    /// - [`NodeError::SealedBlockLimit`] past [`MAX_SEALED_PER_BLOCK`], or
+    ///   past [`MAX_SEALED_PER_REVEAL_HEIGHT`] waiting for the same height.
     /// - [`NodeError::SealedEnvelopeExists`] for a repeated identifier.
     pub(crate) fn stage_envelope(
         &self,
@@ -182,6 +184,19 @@ impl StateDB {
         let key = envelope_key(envelope.reveal_height, &id);
         if self.record(overlay, &key)?.is_some() {
             return Err(NodeError::SealedEnvelopeExists(hex::encode(id)));
+        }
+
+        // Bounded by the cap itself: the height never holds more to read.
+        let queued = self
+            .merged_records(overlay, &envelope_height_prefix(envelope.reveal_height))?
+            .len();
+        if queued >= MAX_SEALED_PER_REVEAL_HEIGHT {
+            return Err(NodeError::SealedBlockLimit {
+                reason: format!(
+                    "reveal height {} already holds {MAX_SEALED_PER_REVEAL_HEIGHT} envelopes",
+                    envelope.reveal_height
+                ),
+            });
         }
 
         StateDB::put_record(
@@ -301,6 +316,33 @@ impl StateDB {
         // envelope could have been accepted and `due` would be empty.
         let committee = self.require_committee(overlay)?.to_committee();
 
+        // Contract gas (GAS-2): the revealed actions get a budget of their own,
+        // starting at zero, rather than whatever the plaintext transactions
+        // left. Settling runs after every plaintext transaction, so on a shared
+        // budget one call that used it all made every sealed call due here
+        // fail and be consumed: the censorship this module exists to prevent,
+        // for one byte fee (PR #549 review). Added back afterwards, so the
+        // block's total stays the sum of both.
+        //
+        // Restored on every path, an early error included: the overlay must
+        // never be left in sealed mode with the plaintext gas dropped, even
+        // though every caller today discards it on `Err` (PR #549 review).
+        let plaintext_gas = std::mem::take(&mut overlay.vm_gas);
+        overlay.revealing = true;
+        let settled = self.settle_due(overlay, due, &committee, context);
+        overlay.revealing = false;
+        overlay.vm_gas = overlay.vm_gas.saturating_add(plaintext_gas);
+        settled
+    }
+
+    /// The loop of [`StateDB::settle_sealed`], in sealed mode.
+    fn settle_due(
+        &self,
+        overlay: &mut Overlay,
+        due: BTreeMap<Vec<u8>, Vec<u8>>,
+        committee: &Committee,
+        context: BlockContext,
+    ) -> Result<()> {
         for (key, bytes) in due {
             let Some(id) = envelope_id_from_key(&key) else {
                 // A key under this prefix that is not the right length cannot
@@ -313,7 +355,7 @@ impl StateDB {
             let record = EnvelopeRecord::decode(&bytes)?;
 
             let shares = self.gather_shares(overlay, context.height, &id)?;
-            let opened = open_envelope(&committee, &record, &id, context.height, &shares);
+            let opened = open_envelope(committee, &record, &id, context.height, &shares);
 
             // Consumed either way, and before the action runs. An envelope that
             // stayed pending after being opened could be opened again in a
@@ -335,17 +377,26 @@ impl StateDB {
                 // error instead yields a root the header does not match, which
                 // invariant 24 refuses, so it costs that node a retry, not a
                 // fork (S-020, review 2026-10-30).
-                let mut attempt = overlay.clone();
-                if self
-                    .apply_revealed(&mut attempt, &record.sender, &id, &kind, context)
-                    .is_ok()
-                {
-                    *overlay = attempt;
+                //
+                // A contract call or deployment needs no copy: it stages its
+                // writes only once it has succeeded, so a failed one leaves
+                // behind exactly the gas it spent, which must stay spent
+                // (ADR-142, GAS-2), and nothing else. Copying the overlay for
+                // each of up to 128 reveals was O(staged state) work apiece.
+                if matches!(kind, TxKind::CallContract(_) | TxKind::DeployContract(_)) {
+                    let _ = self.apply_revealed(overlay, &record.sender, &id, &kind, context);
+                } else {
+                    let mut attempt = overlay.clone();
+                    if self
+                        .apply_revealed(&mut attempt, &record.sender, &id, &kind, context)
+                        .is_ok()
+                    {
+                        *overlay = attempt;
+                    }
                 }
                 overlay.revealed += 1;
             }
         }
-
         Ok(())
     }
 

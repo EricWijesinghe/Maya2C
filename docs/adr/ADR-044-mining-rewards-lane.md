@@ -194,3 +194,57 @@ is not true as built. The decision above (the lane is meant to carry other
 work, activated at a written height after its own ADR) is unchanged. ADR-129
 (branch `docs/adr-125-130-gaps`, PR #470) proposes `TxKind::ClaimCompute` as the
 carrier instead of a `kind` byte on `WorkClaim`.
+
+## Amendment 2026-11-15: a work-kind byte on both payloads, and a compiled claim guard
+
+Eric 2026-11-14 MCQ ("all format fixes"), before the re-genesis. This replaces
+the 2026-11-12 amendment's statement of fact: the byte now exists.
+
+- **`WorkKind`, a closed `#[repr(u8)]` enum** (`crates/node/src/core/mining_payload.rs`).
+  `0 = DagPow` is the only variant. Both payloads begin with it:
+  `MiningShare` is `kind ‖ epoch (u64 LE) ‖ nonce (u64 LE)`, 17 bytes, and
+  `WorkClaim` is `kind ‖ beneficiary[32]`, 33 bytes. Any other byte is a decode
+  error (spec MINE-11), so a frame naming an unknown kind is refused at
+  `Transaction::from_bytes`, before RPC, gossip, the mempool or block import
+  see it. Same reasoning as `SuiteId` (invariant 29): a kind some nodes know
+  and others do not is a fork, so there is no fallback.
+- **Extending the registry** is a code change, not a vote: a new variant in a
+  new binary, refused by the executor below the activation height of its own
+  `FeatureSet` bit, which only a scheduled upgrade sets (ADR-082). ADR-079's
+  `kind = 1` (verified compute) and ADR-129's `TxKind::ClaimCompute` remain
+  alternatives; this byte makes the first possible without another format
+  change, and decides neither. The share header (MINE-9) and the spent-share
+  key (`seen_key(epoch, header, nonce)`) do not commit to the kind, so a new
+  kind must use its own header domain and its own spent-key prefix, or the
+  same nonce could be paid once per kind. Both executors
+  (`apply_mining_share`, `claim_work`) destructure the kind irrefutably, so
+  adding a variant is a compile error at the place its gate belongs.
+- **`WORK_CLAIM_ADR_ACCEPTED = false`** (`crates/node/src/upgrade.rs`). While it
+  is false, `FeatureSet::WORK_CLAIM` (bit 4) is outside
+  `FeatureSet::IMPLEMENTED`, the same model as zkML under the ADR-082
+  amendment of 2026-11-12 (PR #506). A genesis schedule naming it is refused at
+  boot (`GenesisConfig::upgrade_schedule`). A governance entry naming it is
+  admitted by every binary, written, and halts this binary with
+  `UpgradeRequired` at its activation height, and `features().work_claim`
+  stays `u64::MAX`. Refusing the entry at the vote instead would split this
+  binary from a later one that has the ADR, at the block carrying the vote
+  (review of PR #570). `Mempool::validate` refuses `TxKind::ClaimWork` with
+  `NodeError::WorkClaimInactive`, and the executor's refusal (above) is
+  unchanged. The flag is set to `true` only in the change that lands an
+  Accepted ADR binding a claim to a verified share.
+
+Tests: `crates/node/tests/payload_tests.rs`
+(`a_share_and_a_claim_encode_kind_zero_first`,
+`every_work_kind_byte_but_zero_is_refused_at_decode`,
+`an_undefined_work_kind_is_refused_at_mempool_admission`),
+`crates/node/tests/upgrade_schedule_tests.rs`
+(`work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`),
+`crates/node/tests/governance_tests.rs`
+(`a_work_claim_is_refused_at_mempool_admission`); vectors `spec/tests/mining.json`
+(`MINE-11`), replayed by `crates/node/tests/conformance.rs` and
+`spec/verifier-ts`. The share path is otherwise unchanged:
+`crates/node/tests/mining_rewards_tests.rs` runs as before.
+
+This amendment depends on PR #506 (unknown or unimplemented upgrade bits are
+admitted and halt at activation instead of being refused): the branch merges
+#506, so #506 merges first.

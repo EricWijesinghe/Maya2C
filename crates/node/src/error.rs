@@ -142,10 +142,11 @@ pub enum NodeError {
     #[error("balance arithmetic overflowed")]
     BalanceOverflow,
 
-    /// The upgrade schedule puts a protocol version this binary does not
-    /// implement in force at the height being validated (`crate::upgrade`).
+    /// The upgrade schedule puts a protocol version or a feature this binary
+    /// does not implement in force at the height being validated (`crate::upgrade`).
     #[error(
-        "upgrade required before height {height}: protocol version {version} activates there and this binary supports up to version {supported}"
+        "upgrade required before height {height}: {}",
+        upgrade_reason(*.version, *.supported, *.unimplemented_features)
     )]
     UpgradeRequired {
         /// The version that activates.
@@ -154,6 +155,10 @@ pub enum NodeError {
         height: u64,
         /// The newest version this binary implements.
         supported: u32,
+        /// Feature bits the entry carries that this binary cannot execute:
+        /// undefined ones, and zkML until it has a verifier. Zero when the
+        /// version alone is what this binary lacks.
+        unimplemented_features: u64,
     },
 
     /// The computed post-state root did not match the value committed in the
@@ -346,6 +351,28 @@ pub enum NodeError {
     /// The virtual machine refused or failed the execution.
     #[error("vm: {0}")]
     Vm(String),
+
+    /// A contract call names more gas than one transaction may, or a
+    /// deployment needs more than one block has (ADR-142, GAS-1).
+    #[error("gas limit {limit} is above the cap of {cap}")]
+    GasAboveCap {
+        /// The gas the transaction asked for.
+        limit: u64,
+        /// `min(vm.max_tx_gas, vm.max_block_gas)` for a call, the block cap for
+        /// a deployment.
+        cap: u64,
+    },
+
+    /// The block has less contract gas left than the transaction needs
+    /// (ADR-142, GAS-2). Not this transaction's fault: a block producer
+    /// leaves it for a later block.
+    #[error("needs {needed} gas and the block has {remaining} left")]
+    BlockGasExhausted {
+        /// The gas the transaction needs.
+        needed: u64,
+        /// What the block has left.
+        remaining: u64,
+    },
 
     /// A shielded proof did not hold against its public inputs.
     #[error("shielded proof rejected: {0}")]
@@ -891,3 +918,24 @@ impl From<std::io::Error> for NodeError {
 ///
 /// Leading `::` disambiguates the `core` crate from this crate's `core` module.
 pub type Result<T> = ::core::result::Result<T, NodeError>;
+
+/// The cause half of [`NodeError::UpgradeRequired`]'s message: the version, the
+/// feature bits, or both, whichever this binary lacks.
+fn upgrade_reason(version: u32, supported: u32, unimplemented: u64) -> String {
+    match (version > supported, unimplemented) {
+        (true, 0) => format!(
+            "protocol version {version} activates there and this binary supports up to version {supported}"
+        ),
+        // Unreachable from `check_halt`, which builds the error only for an
+        // unsupported entry; kept honest for a hand-built error.
+        (false, 0) => format!(
+            "protocol version {version} activates there; this binary supports up to version {supported} and implements every bit it names"
+        ),
+        (false, bits) => format!(
+            "protocol version {version} activates there with feature bits {bits:#x} this binary does not implement (unknown: upgrade required)"
+        ),
+        (true, bits) => format!(
+            "protocol version {version} activates there with feature bits {bits:#x}; this binary supports up to version {supported} and does not implement those bits (unknown: upgrade required)"
+        ),
+    }
+}

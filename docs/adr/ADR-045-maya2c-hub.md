@@ -34,7 +34,7 @@ see; a miner who sees only text quits early.
    browser, the UI runs on synthetic preview data and says so in its header
    (Standing Order 3).
 5. **The Universe page lists every app and field with an honest status**
-   (Live on testnet / Building / Research / Planned), kept in
+   (Built (testnet paused) — "Live on testnet" until 2026-11-16 / Building / Research / Planned), kept in
    `apps/hub/ui/universe.js` and to be kept in step with `features.toml`.
 6. **No web libraries.** Canvas drawing and self-hosted fonts (OFL) keep the
    app offline-capable under a `'self'`-only CSP.

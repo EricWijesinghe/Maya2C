@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use custom_l1_node::consensus::U256;
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
-use custom_l1_node::core::mining_payload::MiningShare;
+use custom_l1_node::core::mining_payload::{MiningShare, WorkKind};
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::Transaction;
 use custom_l1_node::crypto::dag::Params;
@@ -136,7 +136,11 @@ fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
 
 fn share(epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], vec![], tx_nonce);
-    tx.kind = TxKind::MiningShare(MiningShare { epoch, nonce });
+    tx.kind = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch,
+        nonce,
+    });
     tx.sign(&miner(), &common::test_chain()).unwrap();
     tx
 }

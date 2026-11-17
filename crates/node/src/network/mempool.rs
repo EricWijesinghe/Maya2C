@@ -272,6 +272,16 @@ impl Mempool {
         {
             return self.validate_share(tx, share);
         }
+        // A work claim is never pooled or relayed until an Accepted ADR binds
+        // it to a verified share (ADR-044). The executor refuses it as well.
+        if matches!(tx.kind, crate::core::TxKind::ClaimWork(_))
+            && !crate::upgrade::WORK_CLAIM_ADR_ACCEPTED
+        {
+            return Err(NodeError::WorkClaimInactive {
+                height: self.admission_height()?,
+                activation: crate::state::context::WORK_CLAIM_ACTIVATION_HEIGHT,
+            });
+        }
         if let Some(fees) = self.state.committed_fees()? {
             let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
             let offered = tx
@@ -329,6 +339,11 @@ impl Mempool {
             self.admission_height()?,
         )?;
 
+        // A contract call over the gas cap, or a deployment whose length alone
+        // no block could hold, can never be included (ADR-142, GAS-1). Refused
+        // before the signature: constant work, far below a signature's.
+        self.state.admit_vm_gas(&tx.kind)?;
+
         // Then the signature, with the same rule block execution applies, at
         // the first height this transaction could execute at, under the policy
         // governance has chosen:
@@ -350,6 +365,9 @@ impl Mempool {
         let sunsets = self.state.effective_schedule()?.sunsets;
         let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
         self.state.verify_cached(tx, height, &policy)?;
+        // A deployment's shape is a scan of the whole module: only for a
+        // signed one (PR #549 review).
+        self.state.admit_deploy_shape(&tx.kind)?;
 
         // Evidence is stateless to check, so garbage never reaches a block
         // template — the executor checks it again regardless. Chain tag is required

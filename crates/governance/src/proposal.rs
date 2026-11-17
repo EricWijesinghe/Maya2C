@@ -353,6 +353,11 @@ mod tests {
         Proposal::open(100, MIN_VOTING_BLOCKS, MIN_TIMELOCK_BLOCKS).expect("open")
     }
 
+    /// The first height at which the vote is closed, so finalizing is legal.
+    fn after_close() -> u64 {
+        open().schedule.voting_closes + 1
+    }
+
     #[test]
     fn a_schedule_below_the_compiled_floors_is_refused() {
         // These floors are the reason governance cannot make itself unsafe, so
@@ -418,7 +423,7 @@ mod tests {
         let proposal = open()
             .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert_eq!(proposal.state, ProposalState::Queued);
@@ -431,7 +436,7 @@ mod tests {
         let queued = open()
             .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         let early = queued.schedule.executable_from - 1;
@@ -452,7 +457,7 @@ mod tests {
         let proposal = open()
             .vote(Choice::For, Amount::from_u64(3), 200)
             .expect("vote")
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert_eq!(proposal.state, ProposalState::Rejected);
@@ -465,7 +470,7 @@ mod tests {
             .expect("for")
             .vote(Choice::Against, Amount::from_u64(500), 200)
             .expect("against")
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert_eq!(proposal.state, ProposalState::Rejected);
@@ -478,7 +483,7 @@ mod tests {
         let queued = open()
             .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         let past = queued.schedule.expires_after + 1;
@@ -504,7 +509,7 @@ mod tests {
         let queued = open()
             .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert!(matches!(
@@ -517,7 +522,7 @@ mod tests {
     #[test]
     fn a_settled_proposal_admits_nothing_further() {
         let rejected = open()
-            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
+            .finalize(after_close(), Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
         assert!(rejected.state.is_settled());
 

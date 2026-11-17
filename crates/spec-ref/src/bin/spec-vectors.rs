@@ -407,7 +407,7 @@ fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
     // fixed genesis id shows the layout.
     let chain_tag = [0x5A; 32];
     let good = |id: &str, f: &Frame| {
-        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3", "TX-5"], "bytes": hex(&wire::encode(f)),
+        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3", "TX-5", "TX-6"], "bytes": hex(&wire::encode(f)),
                "chain_tag": hex(&chain_tag),
                "expect": {"result": "ok", "txid": hex(&wire::txid(f)), "sender": hex(&wire::address_of(&f.public_key)), "nonce": f.nonce.to_string(),
                           "signing_bytes_blake3": hex(blake3::hash(&wire::signing_bytes(f, &chain_tag)).as_bytes())}})
@@ -566,19 +566,25 @@ fn prune_cases() -> Vec<Value> {
         .collect()
 }
 
-/// CON-10: a header version other than 0 is invalid.
+/// CON-10: a header layout other than 0 is invalid; CON-16: so is a hash id
+/// other than 0 (the version byte's high nibble, ADR-143).
 fn header_version_cases() -> Vec<Value> {
-    [("header-version-zero", 0u8), ("header-version-one-is-invalid", 1), ("header-version-max-is-invalid", 255)]
-        .iter()
-        .map(|(id, version)| {
-            let expect = if consensus::header_version_ok(*version) {
-                json!({"result": "ok"})
-            } else {
-                json!({"result": "error", "error": "UnsupportedHeaderVersion"})
-            };
-            json!({"id": id, "rules": ["CON-10"], "fn": "header_version", "version": version, "expect": expect})
-        })
-        .collect()
+    [
+        ("header-version-zero", 0u8, &["CON-10", "CON-16"][..]),
+        ("header-version-one-is-invalid", 1, &["CON-10"][..]),
+        ("header-version-max-is-invalid", 255, &["CON-10"][..]),
+        ("header-hash-id-one-is-invalid", 0x10, &["CON-16"][..]),
+        ("header-hash-id-max-is-invalid", 0xF0, &["CON-16"][..]),
+    ]
+    .iter()
+    .map(|(id, version, rules)| {
+        let expect = match consensus::header_version(*version) {
+            Ok(()) => json!({"result": "ok"}),
+            Err(why) => json!({"result": "error", "error": why}),
+        };
+        json!({"id": id, "rules": rules, "fn": "header_version", "version": version, "expect": expect})
+    })
+    .collect()
 }
 
 /// CON-12: the wire size of a block, the transactions a cap admits (first-fit,
@@ -873,6 +879,7 @@ fn mining_vectors() -> Value {
     mine_retarget_cases(&mut cases);
     validate_cases(&mut cases);
     share_header_and_target_cases(&mut cases);
+    work_kind_cases(&mut cases);
     json!({"format": 1, "u64": "decimal strings", "spec": "spec/09-mining.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
 }
 
@@ -1055,6 +1062,44 @@ fn share_header_and_target_cases(cases: &mut Vec<Value>) {
             expect["error"] = json!("MINE-10");
         }
         cases.push(json!({"id": id, "rules": ["MINE-10"], "fn": "meets_target", "digest": hex(&digest), "target": hex(&target), "expect": expect}));
+    }
+}
+
+/// MINE-11: a share's and a claim's payload under kind 0, 1 and 255.
+fn work_kind_cases(cases: &mut Vec<Value>) {
+    let mut share = vec![0u8];
+    share.extend_from_slice(&7u64.to_le_bytes());
+    share.extend_from_slice(&9u64.to_le_bytes());
+    let mut claim = vec![0u8];
+    claim.extend_from_slice(&[0x33; 32]);
+    for (payload_type, base, len) in [
+        ("mining_share", share, mining::SHARE_PAYLOAD_LEN),
+        ("work_claim", claim, mining::CLAIM_PAYLOAD_LEN),
+    ] {
+        for kind in [0u8, 1, 255] {
+            let mut payload = base.clone();
+            payload[0] = kind;
+            let expect = match mining::work_payload(&payload, len) {
+                Ok(()) => json!({"result": "ok"}),
+                Err(rule) => json!({"result": "error", "error": rule}),
+            };
+            let id = if kind == 0 {
+                format!("{payload_type}-kind-0")
+            } else {
+                format!("refuse-{payload_type}-kind-{kind}")
+            };
+            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(&payload), "expect": expect}));
+        }
+        // The exact-length half of MINE-11, with kind 0 so only the length is
+        // wrong: one byte short (a pre-kind 16-byte share or 32-byte claim
+        // whose first byte happens to be 0 decodes this way) and one trailing.
+        let mut long = base.clone();
+        long.push(0);
+        for payload in [&base[..len - 1], &long[..]] {
+            assert!(mining::work_payload(payload, len).is_err());
+            let id = format!("refuse-{payload_type}-len-{}", payload.len());
+            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(payload), "expect": {"result": "error", "error": "MINE-11"}}));
+        }
     }
 }
 

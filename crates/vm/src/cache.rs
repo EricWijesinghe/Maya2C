@@ -60,12 +60,22 @@ use crate::error::{Result, VmError};
 /// number that matters is that one exists.
 pub const MAX_CACHED_MODULES: usize = 256;
 
+/// The most module bytes one VM's cache holds, summed over its entries.
+///
+/// The count alone allowed 256 modules of 512 KiB, and compiled code is
+/// several times its input (PR #549 review). A bound on what one node keeps
+/// resident; node-local, so it changes how often a module recompiles, never
+/// what a call costs (the price follows the block's order, GAS-3).
+pub const MAX_CACHED_BYTES: usize = 32 * 1024 * 1024;
+
 /// A cache key: the configuration and the bytecode, hashed together.
 type Key = [u8; 32];
 
 /// One cached module and when it was last used.
 struct Entry {
     module: Module,
+    /// Length of the bytes it was compiled from, against `MAX_CACHED_BYTES`.
+    bytes: usize,
     /// Monotonic counter, not a clock. A clock would make eviction depend on
     /// wall time, and this runs inside block execution where nothing may.
     touched: u64,
@@ -180,19 +190,29 @@ impl ModuleCache {
         // Another thread may have compiled the same module while this one was
         // working. Both results are the same code, so either is correct and the
         // duplicate work is simply lost.
-        if entries.len() >= MAX_CACHED_MODULES
-            && !entries.contains_key(&key)
-            && let Some(coldest) = entries
-                .iter()
-                .min_by_key(|(_, entry)| entry.touched)
-                .map(|(key, _)| *key)
-        {
-            entries.remove(&coldest);
+        if !entries.contains_key(&key) {
+            // Coldest first until both bounds hold with the new entry in.
+            // `touched` is unique, so the order is the same on every run.
+            while !entries.is_empty()
+                && (entries.len() >= MAX_CACHED_MODULES
+                    || entries.values().map(|entry| entry.bytes).sum::<usize>() + wasm.len()
+                        > MAX_CACHED_BYTES)
+            {
+                let Some(coldest) = entries
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.touched)
+                    .map(|(key, _)| *key)
+                else {
+                    break;
+                };
+                entries.remove(&coldest);
+            }
         }
         entries.insert(
             key,
             Entry {
                 module: module.clone(),
+                bytes: wasm.len(),
                 touched,
             },
         );

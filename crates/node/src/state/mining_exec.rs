@@ -9,7 +9,7 @@ use maya_stateless_core::amount::{to_amount, to_u256};
 use std::sync::Arc;
 
 use crate::core::block::BlockHeader;
-use crate::core::mining_payload::MiningShare;
+use crate::core::mining_payload::{MiningShare, WorkKind};
 use crate::crypto::dag::cache::Cache;
 use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
@@ -114,6 +114,9 @@ impl StateDB {
         miner: &Address,
         share: &MiningShare,
     ) -> Result<()> {
+        // A new kind must add its feature-bit gate and its own header domain
+        // and seen-key prefix here before this compiles (ADR-044, MINE-11).
+        let WorkKind::DagPow = share.kind;
         let Some(mut record) = self.mining_record(overlay)? else {
             return Err(refuse("this chain does not mine"));
         };

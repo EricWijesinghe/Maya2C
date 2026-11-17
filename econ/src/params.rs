@@ -5,7 +5,7 @@ use maya_fee_market::FeeConfig;
 /// Everything a run needs besides the scenario.
 #[derive(Clone, Copy, Debug)]
 pub struct EconParams {
-    /// The chain's fee market configuration, used unmodified.
+    /// The chain's fee configuration, at the node's `treasury_bps = 0`.
     pub fees: FeeConfig,
     /// Seconds per block (ADR-015: DAG-BFT; 2 s draft).
     pub block_secs: u64,
@@ -44,12 +44,19 @@ impl EconParams {
     /// Draft mainnet parameters. Every number here is a modelling assumption
     /// for Master Prompt 20's genesis review, not a decision.
     pub const DRAFT: Self = Self {
-        fees: FeeConfig::TESTING,
+        // The node's split: `FeesGenesis::record` compiles `treasury_bps: 0`,
+        // so the whole base fee burns (ADR-029, DECISIONS B-16).
+        fees: FeeConfig {
+            treasury_bps: 0,
+            ..FeeConfig::TESTING
+        },
         block_secs: 2,
         epoch_blocks: 43_200, // one day at 2 s
-        // 10M tokens. This was half of the old 21M cap; since ADR-046 the
-        // chain's cap is 2^256 - 1 and never binds, so emission alone shapes
-        // supply here, as it does on the chain.
+        // 10M tokens, a modelling input (the chain's own genesis is
+        // `--supply 0` plus the mining reserve, and its four halving eras pay
+        // 19,687,500 coins, ADR-068). Since ADR-046 the chain's cap is
+        // 2^256 - 1 and never binds, so emission alone shapes supply here, as
+        // it does on the chain.
         genesis_supply: 10_000_000 * UNIT,
         emission_ppm_per_year: 30_000, // 3%
         validators: 100,

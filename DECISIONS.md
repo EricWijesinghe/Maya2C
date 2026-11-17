@@ -444,7 +444,7 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   and is not claimed to be better than any chain's.
 ## 2026-10-28 — Supply, capacity and the governance deposit (Claude decided, Eric delegated)
 
-- **Supply stays 21M coins at 18 decimals (2026-10-26 stands).** Capacity is already the
+- **Supply stays 21M coins at 18 decimals (2026-10-26 stands).** *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]* Capacity is already the
   maximum (U256, 2^256 base units, the EVM width), and 18 decimals is Ethereum's divisibility
   and 10^10 times Bitcoin's. A supply at the ceiling would make each coin worthless and
   overflow on the first reward. Eric's aim, "no numberwise disadvantage, and value", is met
@@ -511,7 +511,7 @@ refuses or clamps. Bare `*` on amounts appears only on constants (`10 * COIN`) a
   change, pre-genesis.
 - LOW-7: protocol floor unchanged (1 unit); mainnet genesis sets min_base_fee ≥ 10^6 (runbook).
 - INFO-8: no protocol supply cap; genesis is the cap; with the tail, total > 21M by design
-  (runbook).
+  (runbook). *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]*
 ## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
 
 Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
@@ -524,7 +524,7 @@ network before mainnet.
 ## 2026-10-29 — Supply, miner pay, freeze rule (Eric delegated: "you decide the best for me")
 
 - **No 512-bit amounts, no new minting.** Eric: "I don't wanna involve 512 bits". Supply
-  stays ADR-068: about 21M coins over the halving phase, then a tail paid forever from the
+  stays ADR-068: about 21M coins over the halving phase, *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]* then a tail paid forever from the
   keyless genesis reserve sized to the last `u64` height. Nothing is ever minted, so the end
   of the halving phase changes nothing for miners: the tail simply continues. The 2^256
   base-unit total discussed on 10-29 is not built.
@@ -846,13 +846,13 @@ Owner approved the recommended option for each item below. Docs only; no consens
 - **A5 and B43, supply wording (ADR-044):** the text now matches the code.
   - One coin is 10^24 base units (`maya_amount::COIN_DECIMALS = 24`, `ONE_COIN = 10^24`, `crates/amount/src/lib.rs`).
   - `fee_market::supply::MAX_SUPPLY` = `Amount::MAX` = 2^256 − 1 base units (`crates/fee-market/src/supply.rs`).
-  - 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap. The old "21M × 10^8" wording is removed from ADR-044 and `docs/fee-market.md`.
+  - 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap. *[Superseded 2026-11-16, Eric 2026-11-14 MCQ: the headline is the 19,687,500 coins the four halving eras issue, as coded; the tail and the 7,000 bond coins are shown separately; 24 decimals since ADR-068.]* The old "21M × 10^8" wording is removed from ADR-044 and `docs/fee-market.md`.
   - The reserve is an explicit allocation to the keyless `MINING_RESERVE`, not `MAX_SUPPLY − Σ allocations`. With a tail, genesis refuses a reserve below `lifetime_emission()` (`crates/node/src/genesis.rs`).
 - **B-16, fee treasury (code check):** the 20% share is burned today, as decided.
   - The node sets `treasury_bps: 0` (`crates/node/src/genesis.rs`). The base fee moves wholly to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`, `settle_fees`).
   - The 80/20 split in `crates/fee-market/src/execute.rs` has no caller outside the crate.
   - `docs/fee-market.md` and `docs/site/authored/transactions.mdx` now say so.
-  - Still differs: `spec/04-fees.md` FEE-1 defines the treasury split as live, and the crate default `FeeConfig::TESTING` uses 2000 bps. Not changed here (consensus spec). Open item.
+  - Still differs: `spec/04-fees.md` FEE-1 defines the treasury split as live, and the crate default `FeeConfig::TESTING` uses 2000 bps. Not changed here (consensus spec). Open item. *[Closed 2026-11-16, Eric 2026-11-14 MCQ: FEE-1 now states the 100% base-fee burn (spec 4 v0.1.1), and the econ model runs at `treasury_bps = 0`.]*
 - **B30, council (ADR-050):** `max_pause_blocks` = 6 hours of blocks, the value ADR-050 already records (2026-10-19 settings). The block count is computed at the ceremony. The offline council key is held in owner-held offline hardware; the location is not published. ADR-050 now carries this decision.
 - **B45:** the `release/*` ruleset is applied by the lead session, not by this PR.
 - **C15, doc drift:**
@@ -909,3 +909,250 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+## 2026-11-14 — ADR-062a: incremental sparse accounts root built; genesis format unchanged (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ: "incremental root now". Built as an amendment to ADR-062
+(`crates/node/src/state/root_cache.rs`): a persistent, local-only (`smt:`) cache of every
+sparse-tree node holding two or more accounts (layout superseded by the revision below: branches
+only), updated in the same `WriteBatch` as each commit
+and revert, withdrawn by any out-of-band account write, checked node by node against a full
+rebuild at `Chain::open`. Root value unchanged; `state_root()` stays the full rebuild.
+
+Two findings that contradict the brief, reported rather than worked around (Standing Order 9):
+
+1. The brief said the node "rebuilds the whole sparse root every block". It does not at genesis:
+   `STATELESS_ACTIVATION_HEIGHT = u64::MAX`, so the accounts root is the dense address-ordered
+   tree, which cannot be incremental at the same value (an insertion shifts every later leaf).
+   The cache only works once the sparse tree is active. Activating it at genesis is a separate
+   choice for Eric: it changes the genesis root format and retires the dense `account_proof`
+   that the light client's SPV path verifies.
+2. Record layers (DEX, sealed, governance, staking, ...), channels, contracts and nullifiers are
+   dense full rebuilds too and stay so (205-213 ms at 100k records, test profile). Not touched.
+
+### Revision after the PR #540 review (Eric 2026-11-14 MCQ, same item)
+
+- **Branches only.** The first layout stored every node holding two or more accounts,
+  single-child levels included: recipient pairs one bit apart cost about 240 entries each, so a
+  5 MiB block of them was a storage and slow-block vector once the sparse tree activates
+  (review, HIGH, found by reading the code). The cache now stores one entry per branch (N − 1 for
+  N accounts, whatever the addresses), with the children's digests, and folds single-child runs in
+  memory. Pinned by `neighbour_addresses_cost_one_branch_each_not_a_spine`.
+- **One walk a block, and a crossover.** The plan made with the root is carried to the commit in
+  the overlay and staged if the write generation is unchanged. A block touching enough keys
+  (touched × (bits(N) + 1) × 2 > N, N ≥ 4,096) builds from every account instead. (Crossover
+  removed by the second revision below.)
+- **A wrong cache no longer stalls a validator.** A declared root that the full rebuild matches
+  and the cache does not is accepted on the full rebuild, and the cache is withdrawn; repairs are
+  counted (`root_cache_stats`). Debug builds cross-check every planned root.
+- **Still dark at genesis, accounts layer only.** Not changed by the revision. The choice stays
+  Eric's: (a) activate `FeatureSet::STATELESS` at genesis (genesis root format, `spec/03-state.md`
+  rule and vectors for the sparse root, light-client SPV moved off the dense `account_proof`), or
+  (b) keep ADR-062a dark and accept that mainnet's per-block accounts cost is unchanged by it.
+
+### Second revision after the PR #540 re-review (Eric 2026-11-14 MCQ, same item)
+
+- **No crossover: a valid cache is always walked.** The crossover's build rewrote all N − 1
+  branches plus a range tombstone in the block's batch (about 105 MB at 1M accounts) and was the
+  slower path at 1M in its own measurement. The walk is bounded by the union of the touched paths
+  and writes only changed branches. A build runs only without a valid cache.
+- **Generation moves on entry and exit of every write** (`preview::WriteGuard`), so a plan read
+  without the lock mid-write never fits a commit. The chain mutex no longer carries that.
+- **Periodic check on the preview path:** `holds()` every 256 heights (`CONFIRM_EVERY`), once per
+  height; on a difference the header gets the full rebuild's root and the commit replaces the
+  cache. Detection, not prevention, between two checks (ADR-062a, net 3).
+- **Debug nodes repair instead of panicking**; only unit tests panic on a cross-check difference.
+- **Invariant 24** now names `check_declared_root` and the full rebuild as the reference.
+- **Still open, for Eric:** (a) or (b) above. Not decided by this revision. Until (a), the
+  brief's per-block cost goal is not delivered on the genesis chain.
+## 2026-11-15 — Per-delegation staking records before genesis (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, "per-delegation records": ADR-062b is built for the re-genesis instead of
+after mainnet (the 2026-10-28 deferral is withdrawn). Choices made while building it (Claude):
+
+- **Same rules, partial state.** The node loads only the records an operation touches and runs
+  `maya-staking`'s own function on them. The only new rule entry point is
+  `Staking::end_epoch_deferred`, which shares `pay_rewards` with `end_epoch`.
+- **Delegator rewards are owed, then paid.** The amounts are exactly the old ones. They arrive on
+  the delegation's next touch or through the per-block pass (1,024 a block), not in the boundary
+  block. Chosen over F1-style reward accumulators, which would change every delegator's rounding
+  and break equivalence with the rules Eric approved.
+- **Slash stays eager.** A lazy slash cannot keep each validator's `delegated` exact, because a sum
+  of per-delegation floors is not the floor of the sum. Its cost is the offender's own records, a
+  key range. Reported as a residual, not hidden.
+- **Delegation record ceiling** `1,024 × epoch_blocks / 2`, so a payout backlog cannot outgrow the
+  pass. It replaces the 8 MiB record cap (and #522's 1 MiB cap and 16-per-block count, which
+  existed only because every staking transaction decoded the whole record).
+- **Still Eric's:** a real `min_delegation`. The ceiling bounds the backlog, but dust that fills it
+  still refuses new delegation records.
+
+### 2026-11-15 — ADR-062b review round 1 (PR #555, Eric 2026-11-14 MCQ "per-delegation records")
+
+Choices made fixing the first review (Claude; the MCQ decision itself is Eric's):
+
+- **Merged #522 into #555, not rebased** (no force-push). #555 now carries #522's sealed and DEX
+  bounds and removes its staking parts: the 1 MiB record cap and its test, `MAX_STAKING_TX_PER_BLOCK`
+  and `Overlay::staking_actions`. The 16-per-block count is **removed**, not kept: each staking
+  transaction reads its own records, so the 64th in a block costs the 1st
+  (`scan_bounds_tests::a_block_of_staking_transactions_costs_each_one_the_same`), and the block's
+  byte cap bounds their number. `StateDB::scan_range` uses #522's overlay range
+  (`Overlay::records_from`, which `records_under` also uses). Merge order: #522 first, or #555
+  alone (it contains #522).
+- **Chain-wide ceiling fixed at 131,072 delegation records** (`MAX_DELEGATION_RECORDS`, or the
+  half-epoch drain bound on short epochs), down from `1,024 × epoch_blocks / 2` = 1,843,200. The
+  state root still folds every staking record each block (ADR-062a covers accounts only), so the
+  ceiling is a per-block root cost bound, set near master's 8 MiB record (about 87,000
+  delegations). Measured figure: the session report.
+- **Per-validator ceiling 16,384** (`MAX_DELEGATIONS_PER_VALIDATOR`, an eighth of the chain's).
+  It bounds one slash or downtime boundary, and a dust crowd now has to fill eight validators to
+  close delegation for everyone. Top-ups are never refused.
+- **Evidence against a tombstoned or unknown validator is refused** after one record read, where
+  the rule returned `Ok(empty)`. A public equivocation pair can no longer be replayed into blocks
+  that each read the offender's whole key ranges.
+- **A delegation record is rewritten only when its meaning changes**, and settling with nothing owed
+  leaves `next_payout_epoch` alone: a slash or downtime cut of zero writes nothing.
+- **The payout pass resumes after the last payout key** within a block and shares a validator's walk
+  between its open payouts.
+- **512-bit step in `delegator_share`** (`Amount::mul_div`): kept, with its bound written beside it
+  (`earning ≤ total`, so the result is at most `rest`). It is the same arithmetic `end_epoch` used,
+  and removing it is the open 512-bit decision (Eric 2026-11-01, `u256-ceiling-no-512`), not this
+  PR's.
+- **Still Eric's, before the freeze closes:** `min_delegation` as a genesis parameter. At the
+  default 10 base units, eight validators' worth of dust (131,072 records) still costs only fees.
+  For example 1 coin would make filling the chain-wide ceiling cost 131,072 coins locked.
+
+### 2026-11-15 — ADR-062b review round 2 (PR #555, Eric 2026-11-14 MCQ "per-delegation records")
+
+Choices made fixing the second review (Claude; the MCQ decision itself is Eric's):
+
+- **Ceilings count positions: delegation records plus unbonding entries.** An entry holds its
+  position until it is released, so a delegate-and-leave churn from fresh addresses frees nothing;
+  before, it grew unbonding entries without bound past both ceilings. Chosen over a budgeted release
+  pass, which would change when funds arrive and which entries a slash still reaches. Exits are never
+  refused: a full undelegation trades its record for the entry, folding into this epoch's entry adds
+  nothing, and an operator's unbond (one entry per release epoch) is exempt. A partial undelegation
+  that would open a new entry at a full chain or validator is refused; the owner can still leave in full.
+- **Zero entries are deleted.** An entry a slash cuts to zero is removed with its release index
+  entry (it credits nothing and the rules' retain ignores it), so counts equal records.
+- **A report against an unknown or tombstoned validator is refused before any key read or signature
+  check** (two record reads). Under the single-record rules it was a valid no-op; invalid is intended.
+- **Validator records are rewritten only when their meaning changes**, as delegations already were.
+- **`min_delegation` = 0 is an invalid parameter set** (it admits a zero delegation record).
+- **Corrected:** the residual text said `min_delegation` was undecided at 10 base units. The mainnet
+  floor is 1 coin (2026-10-30 above); 10 base units is the devnet default.
+- **Open for Eric, not accepted on his behalf:** (1) the dust lockout at the 1-coin floor: 16,384
+  coins locked close one chosen validator to new delegators, a targeted attack on honest validators
+  the per-validator ceiling makes possible; 131,072 coins locked close every new delegation record.
+  Options: keep it, a refundable deposit per record, a floor that rises as the ceiling fills, or a
+  higher ceiling once the staking root is incremental. (2) PARTIAL per-block cost: the staking
+  layer's root folds every record each block (worst case 238.6 ms, test profile), and the boundary
+  that releases every position at once took 797.9 ms on the test profile. Genesis with these as
+  stated, or an incremental staking root first.
+## 2026-11-13 — Per-block work is bounded by caps, not by how much state exists (Claude, re-freeze bundle)
+
+A sweep of the apply path after PR #500's governance index measured every end-of-block pass against attacker-created records (ADR-062 amendment 2026-11-13, `reports/sessions/2026-11-13-per-block-scan-bounds.md`). Three were fixed with caps that refuse a transaction, never a block, and no key layout change:
+
+- **Sealed mempool:** at most 128 envelopes per reveal height (`MAX_SEALED_PER_REVEAL_HEIGHT`), so a reveal block does what the per-block cap was written to allow. 32,640 at one height cost 18.95 s before.
+- **DEX:** the books one block touches may hold 16,384 resting orders between them (`MAX_BOOK_ORDERS_PER_BLOCK`); the first book is always admitted. 16 full books cost 549 ms before.
+- **Staking:** the one-value record is capped at 1 MiB (was 8 MiB) and a block carries at most 16 staking transactions, slashing evidence exempt. A full 8 MiB record cost 289 ms every block and 152 ms per staking transaction.
+- `merged_records` and two sibling loops read the overlay by range instead of filtering every staged record; an equivalence test pins the output.
+- **Not fixed, for Eric:** the state root is O(all state) per block, and accounts cost fees alone to create (ADR-062a or a state-creation price); dust delegations at the default `min_delegation` (10 base units) can fill the staking record; the VM's `gas_limit` is uncapped (`state/context.rs` already says so) and `storage_set` carries no host charge.
+## 2026-11-13 — Governance and migration windows sized at 1 block/s (re-freeze bundle, Eric)
+
+The chain makes about one block a second (`docs/block-time.md`), and four compiled windows were sized at the 15 s PoW spacing, so each was 15x shorter in wall-clock than its comment said. Eric approved re-sizing them in the re-freeze bundle (PR #500):
+
+- **`MIN_VOTING_BLOCKS`** 480 -> 7,200 (2 h) and **`MIN_TIMELOCK_BLOCKS`** 960 -> 14,400 (4 h), `crates/governance/src/limits.rs` (invariant 12).
+- **`MIN_MIGRATION_WINDOW`** 172,800 -> 2,592,000 (30 d) and **`MIN_EMERGENCY_WINDOW`** 17,280 -> 259,200 (3 d), `crates/crypto-pq/src/agility/mod.rs`. This replaces the 2026-11-08 "2-day migration window stays".
+- **Council sunset lead** follows, being derived: 1,172,800 -> 3,592,000 blocks (about 41.6 d), replacing the 13.6 d recorded on 2026-11-08 (ADR-082 H3).
+- **The rate is pinned:** a `maya-mainnet` genesis must set `bft.round_interval_ms = 500`, refused otherwise by `GenesisConfig::validate` and `cargo xtask genesis-check`.
+- **Not changed, flagged:** `MAX_VOTING_BLOCKS`, `MAX_TIMELOCK_BLOCKS` and `EXECUTION_GRACE_BLOCKS` are still 15 s-sized (27.8 h, 55.6 h, 27.8 h at 1 s). They are ceilings, so not a safety hole; left for Eric. (Superseded the same day: see "Eric: governance caps x15" below.)
+
+## 2026-11-13 — Eric: governance caps x15 (re-freeze bundle, PR #500)
+
+Eric chose (MCQ, recommended option) to scale the three governance ceilings x15 so they keep the wall-clock durations their 15 s sizes meant, now that the chain makes one block a second. `crates/governance/src/limits.rs`:
+
+- **`MAX_VOTING_BLOCKS`** 100,000 -> 1,500,000 (about 17.4 d).
+- **`MAX_TIMELOCK_BLOCKS`** 200,000 -> 3,000,000 (about 34.7 d).
+- **`EXECUTION_GRACE_BLOCKS`** 100,000 -> 1,500,000 (about 17.4 d).
+
+Floors unchanged and still under their ceilings (7,200 <= 1,500,000; 14,400 <= 3,000,000; the `const` block in `limits_tests.rs` fails the build otherwise). The schedule horizon (`MAX_SCHEDULE_HORIZON_BLOCKS`, 31,536,000) is measured from `expires_after`, so a longer grace does not shrink it at proposal time; the stake-lock requirement is `executable_from`, unaffected by grace. All schedule arithmetic is `saturating_add` on `u64`. Pinned by `the_ceilings_keep_their_15_second_era_durations_at_one_block_per_second`.
+
+## 2026-11-13 — The governance settlement pass reads only due proposals (re-freeze bundle, PR #500)
+
+The end-of-block pass read every proposal record ever written, settled ones included, on every block. Measured on the test profile: 286 ms a block at 100,000 records, linear at about 2.9 µs a record (`reports/sessions/2026-11-13-governance-settle-index.md`). An attacker could reach that in 3,125 blocks for fees alone: the deposit is refundable, nothing limits proposals per account, and settled records stayed in the scan. Fix, recorded as an ADR-082 amendment: a settlement index `g:due:<height BE><id>` under the existing governance layer (no new prefix, invariant 25 unchanged). `propose` writes keys at `voting_closes + 1` and `executable_from`, at most `MAX_PROPOSALS_DUE_PER_HEIGHT` = 64 per height, and refuses a proposal that would overflow one. The pass consumes keys at or below its height in proposal-identifier order. Rejected: a cap on open proposals (an attacker holding it blocks governance for refundable capital) and a per-block budget with carry-over (it shifts when proposals finalize, and a flood delays honest ones). It changes the governance layer's root whenever a proposal exists, which is why it lands before genesis. Pinned by `the_pass_reads_no_proposal_that_is_not_due`, `the_indexed_pass_matches_the_full_scan` and `a_height_takes_at_most_the_capped_number_of_due_proposals`.
+## 2026-11-15 — Block-validity parameters wait a full upgrade lead; 15 s-era constants rescaled to 1 block/s (Eric 2026-11-14 MCQ)
+
+Eric chose "all format fixes" in the 2026-11-14 re-freeze MCQ. Two of them land together (ADR-082 amendment 2026-11-15):
+
+- **Validity parameters through the schedule.** A passed change to a `ParameterKey` that decides block validity (tags 2-8: DEX fill and order ceilings, oracle and shielded per-block caps, VM memory/module/default-gas bounds) no longer lands at execution. It waits in `g:pending:<tag>` and is in force from execution + `MIN_UPGRADE_LEAD_BLOCKS` (30 days), the lead a protocol upgrade carries, which is what the 2026-10-28 entry's "parameters change by protocol upgrade at an activation height, not by a live governance knob" asked for. The protocol fee, proposal deposit and default suite still apply at execution. One change waits per key; a later passed change to the same key replaces it. The lead is compiled, not chosen by the proposal, so the transaction format does not change.
+- **Rescale:** `WORK_HALF_LIFE_BLOCKS` 5,760 -> 86,400 (one day), DAG `EPOCH_LENGTH` 30,000 -> 450,000 (5.2 days; `DAG_ACTIVATION_HEIGHT` follows it), smart-account `BLOCKS_PER_DAY` 43,200 -> 86,400 (ADR-086 F7 closed), PQ transport `ROTATION_INTERVAL_BLOCKS` 1,000 -> 15,000 with the 15,000 s fallback unchanged. `TARGET_BLOCK_TIME` stays 15 and is documented as PoW-only. The governance windows, migration windows and the round-interval pin are in PR #500 (open).
+- **Not rescaled:** `PRUNE_DEPTH` (node-local policy, was defined as `EPOCH_LENGTH`) is now its own constant and stays 30,000 (8.3 h at 1 block/s). Following the epoch would have raised a default pruned node's worst case to ~2.1 TiB at the 5 MiB block cap, and the default `--bootstrap-from` and snapshot-serve depths, which are `PRUNE_DEPTH`, would have served no snapshot for the first 5.2 days. The `get_balance_at_height` bound `MAX_BALANCE_REWIND` (was `PRUNE_DEPTH`) is its own 30,000, so one public call never walks 450,000 heights. Both pinned by unit tests.
+- **Settle-time range check:** a passed proposal whose value fails `ParameterChange::validate` at execution (a release tightened the bound mid-vote) now expires instead of failing every candidate block, matching the promotion pass.
+- **Review fixes (2026-11-16):** the spec rule is CON-17, not CON-16 (#573 holds CON-16 for the header hash id; claimed in adr-claims.txt). Execution writes `g:params` only when a key that applies at once changed, the rule promotion already follows, so a validity-only or upgrade-only proposal no longer materialises an unchanged table. Kept as they are, with the reason in ADR-082: `MAX_LINKED_GAP` stays 50,000 (13.9 h at 1 block/s, node-local, the byte cap binds), and the vote lock stays at execution for validity changes, as for upgrades. #549's `VmMaxTxGas`/`VmMaxBlockGas` must be classified as validity rules when the two PRs meet.
+- Consequence for operators: default pruning, bootstrap and snapshot depths are unchanged. **This binary is not a rolling upgrade:** `dag_epoch()` divides by `EPOCH_LENGTH`, so old and new binaries hash mining shares against different DAG caches from height 30,000. It needs the planned re-genesis. Activating work claims later must re-check the work-to-stake weight ratio, since steady-state work credit grows with the 15x longer half-life.
+## 2026-11-14 — Contract gas is capped per transaction and per block, and native work is priced (Eric 2026-11-14 MCQ, ADR-142)
+
+Eric chose "cap + price now" in the 2026-11-14 MCQ. A call's `gas_limit` was sender-chosen up to `u64::MAX`, nothing bounded a block's contract work, host functions and the per-call module compile were unmetered, and every call loaded the contract's whole storage. Now:
+
+- **Caps:** `vm.max_tx_gas` (tag 17) and `vm.max_block_gas` (tag 18), 250 M each, governed within compiled bounds `[239,979,600, 500,000,000]`; a call is capped at the smaller, a block's calls and deployments share the block cap. Refused at admission and in block validation; the builder leaves what does not fit for a later block.
+- **Prices** (`crates/vm/src/gas.rs`), at about 1 ns of measured worst-case native work per unit: 50,000 per call, 450 per module byte on a contract's first call in a block (the compile) and 1 after, 600 per host call, storage reads 5,000 + 1/byte, writes 5,000 + 240/byte (priced by persistence: ≤ ~1 MiB of new state per block), events 600 + 1/byte. No refunds.
+- **Lazy storage:** the host reads committed storage one key at a time; randomized equivalence against the old whole-storage load is a test.
+- **Not decided here, left open:** a fee per gas (economics, Eric's), charging failed plaintext calls (changes STF-8), and an incremental contracts root (the root still folds all contract state each block).
+
+## 2026-11-14 — ADR-142 amended after the PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+The review found work running below its price or outside the block's budget; measured on this PC, the worst was a module of 200 functions with 50,000 locals each that compiled in 678 ms (release) against a price of 0.78 M gas, and 40,000 `if`s in one function that compiled in 10.4 s. Implementing "cap + price now" fully therefore needed:
+
+- **Compile priced by shape** (`crates/vm/src/shape.rs`): a linear pre-pass before any compile; at most 1,024 locals and 2,000 control operators per function and 10,000 functions; cold price adds 125,000 per function, 170 per local, 30,000 per control operator, 8,000 per call; a module whose cold price exceeds 235,979,600 is refused at deployment, so the governance floor still keeps every deployed module callable.
+- **Linear memory priced** at 6,000 a page held (GAS-7), and a call may hold only what its gas pays for.
+- **Refused host calls trap**, and event topics are capped at 256 bytes.
+- **Failed work stays counted:** a failed call spends the gas it used (not its limit) and a failed deployment its price, counted before the compile, in block selection and in revealed sealed actions.
+- **Revealed sealed actions get their own budget**, a quarter of `vm.max_block_gas`, so a plaintext call cannot void a due sealed call.
+- **Warm and cold storage reads:** the block's first read of a committed key pays 95,000 more (measured 73–113 µs from disk with direct I/O). A bloom filter was measured and left out (it made hits slower with a small cache).
+- **No per-call copies** of the block's staged contract storage; contract trials no longer clone the overlay.
+- **Ceiling 300 M** for both caps (was 500 M).
+
+Raised with Eric, not decided here: one gas-filling call per block crowds out other contract calls for a byte fee (fee per gas or a per-sender share is economics); failing calls are free and stay pooled (eviction after a failed execution is node policy; charging them changes STF-8); the end-of-block bisection may re-run a block's contract work up to ~41 times on one anchor (audit finding 3); the contracts layer of the state root still folds all contract state each block (533 ms at 400,000 entries, dev; ~10 blocks of cheap writes) and blocks genesis until it is incremental or contract state is capped.
+
+## 2026-11-14 — ADR-142 amendment 2: the second PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+- **Multi-value is bounded and priced:** a function type names at most 16 params and results together, a function holds at most 10,000 calls, and the cold price adds 2,500 per value carried by each function's type, typed block, `if` and call, and 30,000 per value a `loop` carries (typed loops compiled 5.09 ns/fuel at 2,500, their time per value growing with the loops in the function; measured in release, ADR-142 amendment 2). The review's `[1000]->[1000]` blocks compiled 166× slower than their price.
+- **A failed call's gas is the same on every validator and counts all its work:** a stack overflow (whose point depends on the ISA) reports its limit plus every page its gas could pay for; any other failure reports what it ran plus its memory, not capped at the limit.
+- **Builder work:** a call refused below its upfront price counts `50,000 + len`; one failing contract trial per sender per selection; deployments are shape-checked at admission only after their signature, and refused there above `MAX_COLD_CALL_FUEL`.
+- **Not taken:** a separate failed-work budget in selection (the review's proposal). A call is only known to fail by running it, so it doubles the builder's worst case without letting through an honest call the shared budget refuses.
+- **Genesis blockers, recorded in BACKLOG.md G1–G3:** free failing calls (needs failed calls included with fee and nonce bump, an STF-8 change: Eric's economics decision), the contracts root fold, and the bisection's re-runs.
+## 2026-11-15 — Work-kind byte on shares and claims; work claims refused by a compiled guard (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, "all format fixes", applied before the re-genesis. ADR-044 amendment 2026-11-15.
+
+- **`WorkKind` byte:** `MiningShare` and `WorkClaim` now start with a closed `#[repr(u8)]` kind byte. `0 = DagPow` is the only kind. Any other byte is a decode error (spec MINE-11). This is a wire change for both payloads (share 16 → 17 bytes, claim 32 → 33), so it lands only with the re-genesis.
+- **Registry:** new kinds come only from a new binary, gated by a new feature bit and a scheduled activation (ADR-082). Neither governance nor genesis can add one. ADR-079's `kind = 1` and ADR-129's `ClaimCompute` are both still open.
+- **`WORK_CLAIM_ADR_ACCEPTED = false`:** while it is false, `FeatureSet::WORK_CLAIM` is outside `FeatureSet::IMPLEMENTED` (the zkML model of PR #506). A genesis naming it is refused at boot; a governance entry naming it is admitted, written, and halts this binary at its activation height; `features().work_claim` stays `u64::MAX`. The mempool refuses `TxKind::ClaimWork`. The executor's existing refusal (`WorkClaimInactive` below `u64::MAX`) is unchanged. Flipping the flag is part of the change that lands an Accepted ADR binding a claim to a verified share.
+- **Why not refuse at the vote (review of #570, 2026-11-15):** the first version refused the entry in `UpgradeSchedule::new`. A later binary with the flag set would admit the same entry, and this binary would refuse the block carrying the vote: a fork at the vote, which #506 removes for zkML. The brief said "refuse scheduling"; that wording conflicts with #506's halt model, and this is reported rather than worked around. What is refused is genesis scheduling (at boot) and the claim itself (mempool, executor); a governance entry halts instead. #570 merges #506 into its branch, so #506 merges first.
+- **Kind namespaces:** the share header and spent-share key do not commit to the kind. Rather than change the share header now, any new kind must use its own header domain and spent-key prefix (MINE-11, ADR-044 amendment); both executors destructure the kind irrefutably so a new variant fails to compile until its gate is written.
+- **Open for Eric (third review of #570, 2026-11-15):** the MCQ approved "refuse scheduling"; what ships refuses a genesis entry and halts at activation for a governance or council entry. In practice a passed vote naming bit `0x10` halts the whole network at its activation height, as scheduling an unsupported version already does. Eric has not yet acknowledged this reading; it needs his explicit OK before #570 merges, and the merge order stays #506, then #570. Also declined in that review: mixing the kind into MINE-9's share header and spent-share key now. It would change MINE-9's vectors and every miner for a kind that does not exist; the irrefutable destructure plus MINE-11's own-domain rule keep kinds apart, and a new kind's binary adds its domain then.
+## 2026-11-15 — Signatures name their wire version and suite; headers reserve a hash id (Eric 2026-11-14 MCQ, ADR-143)
+
+Eric chose "all format fixes" in the 2026-11-14 MCQ. Two of them land here, before genesis, because after it either would be a fork.
+
+- **Signed header (TX-6):** every transaction signature now covers `domain ‖ chain_tag ‖ wire_version ‖ suite ‖ body`. The suite is `0x30` for v5/v6, the frame's suite for v7, and `0x00` for v8 (each multisig key names its own suite in the signed policy). The domains moved to `tx.v5`, `tx.suite.v3` and `tx.multisig.v3`. No replay was possible before: domains and the payload tag kept v5 to v8 apart. What changes is that a later version reusing a domain cannot open one by accident. Every signature, and every real txid, changes; re-genesis is planned.
+- **Header hash id (CON-16):** the high nibble of the header's version byte names the hash used for the block id, the PoW seed, `tx_root` and `state_root`. 0 is BLAKE3, and any other value is refused. No byte was added, because a 146th header byte would have touched the XDP relay, the GPU and pool miners, Stratum V2 and the light client. Txids and addresses get no byte of their own: the signed wire version and suite already select their hash, and adding a new one of either is already a scheduled upgrade.
+## 2026-11-16 — Genesis records and public wording made consistent (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, answers (2), (3) and (4). PR "[re-freeze] genesis records and public wording".
+
+- **Validator floor 7:** `genesis-ceremony` refused fewer than 4 validators on a value-bearing chain while `genesis-check` refused fewer than 7, so the ceremony could write a genesis its own check rejected. `MIN_LAUNCH_VALIDATORS` is now 7 (`bins/genesis-ceremony/src/committee.rs`), pinned by `mainnet_needs_seven_validators_a_testnet_does_not`. ADR-047 amendment 2026-11-16. The node accepts any committee size, as before.
+- **Supply headline 19,687,500:** the coins the four halving eras issue, as coded (`the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256`). The tail after those eras and the 7,000 coins of genesis bonds are shown as separate figures. Older records that say 21M are marked superseded above, not deleted.
+- **Burn:** spec FEE-1 (v0.1.1) and the econ SIM now state the recorded 100% base-fee burn (ADR-029; B-16 above). The split function is **not** deleted: it is called by the econ SIM, `spec-ref`, a Kani harness, the Lean and Z3 proofs and the FEE-1 vectors, so it is not dead code, and deleting it would lower `cargo xtask proof-ratchet`. The node never calls it (`FeesGenesis::record` fixes `treasury_bps: 0`). This closes the B-16 open item.
+- **Public sentence:** "Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding." On the site (FAQ, launch ladder), README, SECURITY.md, MISSION.md, EMPIRE.md, ADR-042, LAUNCH.md, the announcement draft, the exchange notes and the OSTIF application. It replaces "external audit pending".
+- **Review follow-up (same PR):** a value-bearing ceremony without `--validators` is now refused, since it would skip the floor and write a proof-of-work genesis (`a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one`); the node still has no runtime floor. `spec/tests/units.json` no longer publishes a 21M cap: it carries `halving_era_issuance_coins` 19,687,500 and the exact schedule sum in base units (pinned by `coin_constants_match_the_spec_vector`). The site's `/v1/supply` example now shows the real genesis shape (reserve plus bonds, about 1.23 × 10^17 coins) and says the reserve is counted as circulating until a later node release. Testnet copy says it is paused. The headline is worded as a schedule total that is at most paid. Follow-up: `harden-host.ps1` still checks only v2..v4 until the mainnet start script fixes v5..v7's ports.
+- **Review round 2 (same answers):** a value-bearing run without `--validators` is refused in `parse_args` (`check_launch_args`), before any directory or key is written, and both `run()` and `assemble` read the committee and council before creating the out dir. The ceremony and foundation-validator runbooks, the explorer HUD (seven validators drawn) and the econ SIM's validator floor (7) follow the floor. The Hub's testnet chip reads "Built (testnet paused)". The spec README now records the FEE-1 and spec 9 in-place corrections as a dated note only; the earlier general rule (pre-genesis spec corrections without a MIP) is withdrawn, because no decision of Eric's covers it. FEE-1 is conditioned on staking (without `bft.staking` the tip stays in the collector), and spec 4's Gaps says the routing is state-level and that the tip-to-pool step has no test yet.
+
+## 2026-11-17 — Re-freeze bundle integration: merge order and conflict resolutions (Eric 2026-11-14 MCQ)
+
+Branch `refreeze/integration` merges every re-freeze PR onto master to prove they compose; it is a check, not a merge path.
+- **Order:** #540 (state root) → #555 (carries #522) → #500 → #575 → #549 → #570 (carries #506) → #573 → #598. #520 was already on master.
+- **#555 × #540, ADR-062:** both appended amendments; kept both in date order (2026-11-13, 2026-11-14, 2026-11-15) and noted under the 2026-11-13 "root not fixed" paragraph that 062a is accounts-only and dark at genesis.
+- **#575 × #500, `governance_exec.rs`:** #500 split settlement into `settle_one` + `admitted` over the `g:due:` index; #575 edited the old loop body. Kept #500's structure and moved #575's two changes into it: `ParameterChange::validate` in `admitted` (an out-of-range value expires the proposal, never fails the block) and `apply_changes(.., height)` (validity keys go to `g:pending:`). Both prefixes (`g:due:`, `g:pending:`) kept; `activate_parameters` still runs after `settle_governance`.
+- **#549 × #575, `ParameterKey::is_validity_rule`:** the exhaustive match refused #549's tags 17 and 18 (E0004). Classified both as validity rules (a gas cap refuses a call or a block, GAS-1/GAS-2), so a passed cap change waits `VALIDITY_RULE_LEAD_BLOCKS`; the test list is `[2..8, 17, 18]`. ADR-082 had said the second-merged PR does exactly this.
+- **#570 × #575:** spec rules kept in number order (CON-14, 15, 16, 17), invariant 34 keeps both paragraphs, test imports unioned.
+- **#598 × master (#595):** ceremony test imports and tests unioned; spec README keeps `09-mining` 0.1.1 and the `10-vm-gas` row.

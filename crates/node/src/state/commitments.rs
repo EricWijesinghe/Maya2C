@@ -101,6 +101,9 @@ pub const LOCAL_ONLY_PREFIXES: &[&[u8]] = &[
     crate::state::db::UNDO_PREFIX,
     BLOCK_STORE_PREFIX,
     crate::state::balance_changes::BALANCE_CHANGES_PREFIX,
+    // The sparse accounts root cache (ADR-062a): derived from `acct:`, so a
+    // node rebuilds it rather than trusting anyone else's.
+    crate::state::root_cache::ROOT_CACHE_PREFIX,
 ];
 
 /// Hashes one spent nullifier into its leaf of the nullifier layer.
@@ -146,7 +149,7 @@ impl StateDB {
         for (contract, code) in &overlay.code {
             merged.insert(code_key(contract), code.clone());
         }
-        for ((contract, key), value) in &overlay.contract_storage {
+        for ((contract, key), value) in overlay.contract_storage.iter() {
             merged.insert(contract_storage_key(contract, key), value.clone());
         }
         Ok(merged)
@@ -305,8 +308,7 @@ mod tests {
 
         let mut overlay = Overlay::default();
         overlay.code.insert(contract, b"code".to_vec());
-        overlay
-            .contract_storage
+        std::sync::Arc::make_mut(&mut overlay.contract_storage)
             .insert((contract, b"k".to_vec()), b"v".to_vec());
         overlay.nullifiers.insert([9u8; 32]);
 

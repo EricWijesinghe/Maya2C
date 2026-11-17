@@ -53,6 +53,7 @@ use crate::crypto::hybrid::{
 };
 use crate::crypto::keys::ADDRESS_LEN;
 use crate::error::{NodeError, Result};
+use maya_crypto_pq::suite::SuiteId;
 use std::fmt;
 
 /// Chain identifier: the genesis block id of the chain a transaction is valid on.
@@ -88,10 +89,10 @@ impl fmt::Display for ChainTag {
 /// Domain separator for signatures. Prevents a signed transaction payload from ever being
 /// reinterpreted as a signed message of some other kind.
 ///
-/// Bumped to v4 with chain-bound signatures (ADR-036). Transactions now commit to
-/// the genesis block id, preventing cross-chain replay attacks. The domain bump means
-/// all signatures under v3 are invalid (intentional: testnet requires a new genesis).
-const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v4";
+/// Bumped to v4 with chain-bound signatures (ADR-036), and to v5 when the signed
+/// header (wire version and suite, ADR-143) arrived, so no message under an
+/// older layout can be read under this one on any genesis.
+const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v5";
 
 /// Domain separator for txid computation. Txids are chain-independent (used only
 /// for deduplication within a chain). Signature verification is what prevents
@@ -133,6 +134,29 @@ pub const MAX_TX_BYTES: usize = 4 * 1024 * 1024;
 /// carry two signatures, so nothing in it can satisfy the rule that both must
 /// verify.
 const LAST_SINGLE_SIGNATURE_WIRE_VERSION: u8 = 4;
+
+/// The bytes every transaction signature covers (TX-6, ADR-143):
+/// `domain ‖ chain_tag ‖ wire_version ‖ suite ‖ body`.
+///
+/// The version and suite are signed so a signature is bound to one version's
+/// reading of the body. Without them, separation rested on each version's
+/// domain and layout happening to differ, and the v5 transfer and the v7
+/// suite-`0x30` envelope share a key, a suite and a body shape.
+pub(crate) fn signed_message(
+    domain: &[u8],
+    chain: &ChainTag,
+    version: u8,
+    suite: u8,
+    body: &[u8],
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(domain.len() + 32 + 2 + body.len());
+    buf.extend_from_slice(domain);
+    buf.extend_from_slice(&chain.0);
+    buf.push(version);
+    buf.push(suite);
+    buf.extend_from_slice(body);
+    buf
+}
 
 /// Encoded size of a [`TxInput`]: 32-byte hash plus a `u32` index.
 const INPUT_SIZE: usize = 36;
@@ -284,13 +308,29 @@ impl Transaction {
         buf
     }
 
+    /// The wire version [`Transaction::to_bytes`] writes, and the one the
+    /// signed header names: one function, so encoder and signer cannot differ.
+    #[must_use]
+    pub fn wire_version(&self) -> u8 {
+        if self.multisig.is_some() {
+            multisig_tx::WIRE_VERSION_MULTISIG
+        } else if self.suite_auth.is_some() {
+            suite_tx::WIRE_VERSION_SUITE
+        } else if self.kind.has_payload() {
+            WIRE_VERSION_PAYLOAD
+        } else {
+            WIRE_VERSION
+        }
+    }
+
     /// Canonical byte encoding covered by the signature.
     ///
     /// Excludes `signature` itself — a signature cannot commit to its own value.
     /// The chain tag is written immediately after the domain, binding the
     /// signature to a specific chain and preventing cross-chain replay (ADR-036).
     ///
-    /// Structure: `TX_DOMAIN || chain_tag || body_bytes()`
+    /// Structure: `TX_DOMAIN || chain_tag || wire_version || 0x30 || body_bytes()`
+    /// ([`signed_message`]; the suite of an untagged frame is the hybrid).
     #[must_use]
     pub fn signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
         if let Some(auth) = &self.multisig {
@@ -299,14 +339,13 @@ impl Transaction {
         if let Some(auth) = &self.suite_auth {
             return suite_tx::signing_bytes(self, auth, chain);
         }
-        let body = self.body_bytes();
-        let mut buf = Vec::with_capacity(TX_DOMAIN.len() + 32 + body.len());
-
-        buf.extend_from_slice(TX_DOMAIN);
-        buf.extend_from_slice(&chain.0);
-        buf.extend_from_slice(&body);
-
-        buf
+        signed_message(
+            TX_DOMAIN,
+            chain,
+            self.wire_version(),
+            SuiteId::HybridMlDsa65SlhDsa128s.to_byte(),
+            &self.body_bytes(),
+        )
     }
 
     /// Signs the transaction under both schemes, adopting `signing_key`'s
@@ -396,11 +435,7 @@ impl Transaction {
                 + HYBRID_SIGNATURE_LENGTH,
         );
 
-        buf.push(if self.kind.has_payload() {
-            WIRE_VERSION_PAYLOAD
-        } else {
-            WIRE_VERSION
-        });
+        buf.push(self.wire_version());
         self.encode_io_into(&mut buf);
 
         self.public_key.encode_into(&mut buf);

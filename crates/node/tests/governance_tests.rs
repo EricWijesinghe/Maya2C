@@ -21,17 +21,22 @@
 use custom_l1_node::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
+use custom_l1_node::core::mining_payload::WorkKind;
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
-use custom_l1_node::governance::derive_proposal_id;
+use custom_l1_node::governance::{
+    PendingParameter, derive_proposal_id, pending_parameter_key, proposal_key,
+};
+use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
-use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_VOTING_BLOCKS};
+use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_UPGRADE_LEAD_BLOCKS, MIN_VOTING_BLOCKS};
 use maya_governance::params::ParameterKey;
 use maya_governance::proposal::ProposalState;
 use maya_governance::tally::Choice;
 use primitive_types::U256;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 mod common;
@@ -193,6 +198,11 @@ impl Fixture {
     /// Opens a proposal from holder 0 changing one parameter, and returns its
     /// identifier and the height it becomes executable at.
     fn propose(&self, key: ParameterKey, value: u64, height: u64) -> ([u8; 32], u64) {
+        self.propose_changes(&[(key, value)], height)
+    }
+
+    /// [`Self::propose`] with several changes in one proposal.
+    fn propose_changes(&self, changes: &[(ParameterKey, u64)], height: u64) -> ([u8; 32], u64) {
         let nonce = self.nonce_of(0);
         let id = derive_proposal_id(&self.address(0), nonce);
 
@@ -202,7 +212,10 @@ impl Fixture {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS,
                 upgrade: None,
-                changes: vec![(key.tag(), maya_dex::Amount::from_u64(value))],
+                changes: changes
+                    .iter()
+                    .map(|(key, value)| (key.tag(), maya_dex::Amount::from_u64(*value)))
+                    .collect(),
             })),
             height,
         )
@@ -331,7 +344,14 @@ fn a_work_claim_credits_the_address_the_miner_named() {
     let beneficiary = fixture.address(1);
 
     fixture
-        .act_with_claims(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
+        .act_with_claims(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                kind: WorkKind::DagPow,
+                beneficiary,
+            }),
+            1,
+        )
         .expect("claim");
 
     assert!(fixture.db.work_credit(&beneficiary, 1).expect("credit") > 0);
@@ -352,7 +372,10 @@ fn a_work_claim_is_refused_at_every_height_at_launch_and_credits_nothing() {
     let fixture = fixture();
     let beneficiary = fixture.address(1);
     let claim = signed(
-        TxKind::ClaimWork(WorkClaim { beneficiary }),
+        TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
+            beneficiary,
+        }),
         fixture.nonce_of(0),
         &fixture.holders[0],
     );
@@ -382,7 +405,14 @@ fn with_a_refused_claim_present_the_voting_weight_is_locked_stake_alone() {
     let voter = fixture.address(0);
     fixture.lock(0, 1_000, 1_000_000, 1);
 
-    let refused = fixture.act(1, TxKind::ClaimWork(WorkClaim { beneficiary: voter }), 2);
+    let refused = fixture.act(
+        1,
+        TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
+            beneficiary: voter,
+        }),
+        2,
+    );
     assert!(matches!(refused, Err(NodeError::WorkClaimInactive { .. })));
 
     assert_eq!(
@@ -392,12 +422,42 @@ fn with_a_refused_claim_present_the_voting_weight_is_locked_stake_alone() {
 }
 
 #[test]
+fn a_work_claim_is_refused_at_mempool_admission() {
+    // The compiled guard (`WORK_CLAIM_ADR_ACCEPTED`): a claim is never pooled
+    // or relayed, so no honest template carries one for the executor to refuse.
+    let Fixture {
+        db,
+        holders,
+        _dir: dir,
+    } = fixture();
+    let pool = Mempool::new(Arc::new(db));
+    let claim = signed(
+        TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
+            beneficiary: holders[1].address(),
+        }),
+        0,
+        &holders[0],
+    );
+    let refused = pool.insert(claim.clone());
+    assert!(
+        matches!(refused, Err(NodeError::WorkClaimInactive { .. })),
+        "{refused:?}"
+    );
+    let refused = pool.insert_encoded(&claim.to_bytes());
+    assert!(matches!(refused, Err(NodeError::WorkClaimInactive { .. })));
+    assert!(pool.is_empty());
+    drop(dir);
+}
+
+#[test]
 fn a_block_may_credit_its_work_only_once() {
     // A block represents one unit of work. A second claim would let a miner
     // mint voting weight out of a single proof of work.
     let fixture = fixture();
     let first = signed(
         TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
             beneficiary: fixture.address(1),
         }),
         0,
@@ -405,6 +465,7 @@ fn a_block_may_credit_its_work_only_once() {
     );
     let second = signed(
         TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
             beneficiary: fixture.address(2),
         }),
         1,
@@ -426,7 +487,14 @@ fn work_credit_decays_so_a_departed_miner_stops_governing() {
     let fixture = fixture();
     let beneficiary = fixture.address(1);
     fixture
-        .act_with_claims(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
+        .act_with_claims(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                kind: WorkKind::DagPow,
+                beneficiary,
+            }),
+            1,
+        )
         .expect("claim");
 
     let fresh = fixture.db.work_credit(&beneficiary, 1).expect("credit");
@@ -609,6 +677,7 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
         .act_with_claims(
             0,
             TxKind::ClaimWork(WorkClaim {
+                kind: WorkKind::DagPow,
                 beneficiary: fixture.address(0),
             }),
             1,
@@ -631,6 +700,7 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
             .act_with_claims(
                 2,
                 TxKind::ClaimWork(WorkClaim {
+                    kind: WorkKind::DagPow,
                     beneficiary: fixture.address(2),
                 }),
                 height,
@@ -806,7 +876,290 @@ fn a_governed_ceiling_is_read_from_state_rather_than_from_the_binary() {
     fixture.apply(vec![], executable).expect("execute");
 
     assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+    // A validity rule binds a full upgrade lead after execution (ADR-082
+    // amendment 2026-11-15); the end of the block before that height promotes it.
+    fixture
+        .apply(vec![], executable + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("promote");
     assert_eq!(fixture.parameter(ParameterKey::DexMaxOrdersPerBook), 512);
+}
+
+#[test]
+fn a_later_passed_change_to_a_waiting_validity_rule_replaces_it() {
+    // One change waits per key, so the record stays bounded by the key count
+    // and the decision in force is the latest one.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let key = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(key);
+
+    let (first, first_at) = fixture.propose(key, 512, 3);
+    let (second, second_at) = fixture.propose(key, 256, 4);
+    assert_eq!(second_at, first_at + 1);
+    for (index, height) in [(0, 10), (1, 11)] {
+        fixture
+            .vote(index, first, Choice::For, height)
+            .expect("vote");
+    }
+    for (index, height) in [(0, 12), (1, 13)] {
+        fixture
+            .vote(index, second, Choice::For, height)
+            .expect("vote");
+    }
+    fixture.apply(vec![], first_at).expect("execute first");
+    fixture.apply(vec![], second_at).expect("execute second");
+    assert_eq!(fixture.state_of(&second), ProposalState::Executed);
+
+    fixture
+        .apply(vec![], first_at + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("the first change's promoting block");
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "the first change was replaced"
+    );
+    fixture
+        .apply(vec![], second_at + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("the second change's promoting block");
+    assert_eq!(fixture.parameter(key), 256);
+}
+
+#[test]
+fn a_block_validity_parameter_takes_effect_only_at_its_scheduled_height() {
+    // A per-block ceiling decides which blocks are valid, so a passed change
+    // to one waits a full upgrade lead after execution (ADR-082 amendment 2026-11-15)
+    // and sits on chain under `g:pending:` until then. It is promoted at the
+    // end of the block before its activation height, so the committed table a
+    // builder reads at the tip is the one the activation block is judged by.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let key = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(key);
+
+    let (id, executable) = fixture.propose(key, 512, 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], executable).expect("execute");
+    assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "executed is not yet in force"
+    );
+
+    let activation = executable + MIN_UPGRADE_LEAD_BLOCKS;
+    fixture
+        .apply(vec![], activation - 2)
+        .expect("two blocks before");
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "the block before activation still runs under the old ceiling"
+    );
+
+    // The promoting block, journaled, so a reorg is seen to restore the
+    // pending change and the record is seen to be under the state root.
+    let root_before = fixture.db.state_root().expect("root");
+    let block_id = [78u8; 32];
+    let context = BlockContext::at_height(activation - 1);
+    let mut block = block_of(vec![]);
+    block.header.state_root = fixture.db.preview_root(&block, context).expect("preview");
+    fixture
+        .db
+        .apply_block_journaled(&block, &block_id, context)
+        .expect("promote");
+    assert_eq!(
+        fixture.db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "the pending record must be under the state root"
+    );
+    assert_eq!(
+        fixture.parameter(key),
+        512,
+        "the activation block runs under the new ceiling"
+    );
+
+    fixture.db.revert_block(&block_id).expect("revert");
+    assert_eq!(fixture.parameter(key), default);
+    assert_eq!(fixture.db.state_root().expect("root"), root_before);
+}
+
+#[test]
+fn a_replacement_executed_the_block_before_activation_keeps_the_old_value_out() {
+    // The settle pass runs before the promotion pass in the same block, so a
+    // replacement executing at activation - 1 overwrites the change due at
+    // activation before it is promoted: the first value never binds, and the
+    // second waits its own full lead.
+    let fixture = fixture();
+    let unlock = 4 * MIN_UPGRADE_LEAD_BLOCKS;
+    fixture.lock(0, 4_000_000, unlock, 1);
+    fixture.lock(1, 4_000_000, unlock, 2);
+    let key = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(key);
+
+    let (first, first_at) = fixture.propose(key, 512, 3);
+    fixture.vote(0, first, Choice::For, 10).expect("vote");
+    fixture.vote(1, first, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], first_at).expect("execute first");
+    let activation = first_at + MIN_UPGRADE_LEAD_BLOCKS;
+
+    // Submitted so that it becomes executable exactly at activation - 1.
+    let submit = activation - 1 - (first_at - 3);
+    let (second, second_at) = fixture.propose(key, 256, submit);
+    assert_eq!(second_at, activation - 1);
+    fixture
+        .vote(0, second, Choice::For, submit + 1)
+        .expect("vote");
+    fixture
+        .vote(1, second, Choice::For, submit + 2)
+        .expect("vote");
+    fixture
+        .apply(vec![], second_at)
+        .expect("execute the replacement at activation - 1");
+    assert_eq!(fixture.state_of(&second), ProposalState::Executed);
+    assert_eq!(
+        fixture.parameter(key),
+        default,
+        "the replaced value never binds"
+    );
+
+    fixture
+        .apply(vec![], activation)
+        .expect("the old activation block");
+    assert_eq!(fixture.parameter(key), default);
+    fixture
+        .apply(vec![], second_at + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("the replacement's promoting block");
+    assert_eq!(fixture.parameter(key), 256);
+}
+
+#[test]
+fn a_mixed_proposal_applies_its_price_at_once_and_waits_for_its_ceiling() {
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let price = ParameterKey::DexProtocolFeeBps;
+    let ceiling = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(ceiling);
+
+    let (id, executable) = fixture.propose_changes(&[(price, 25), (ceiling, 512)], 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], executable).expect("execute");
+    assert_eq!(
+        fixture.parameter(price),
+        25,
+        "a price is in force from E + 1"
+    );
+    assert_eq!(fixture.parameter(ceiling), default);
+
+    fixture
+        .apply(vec![], executable + MIN_UPGRADE_LEAD_BLOCKS - 2)
+        .expect("two blocks before");
+    assert_eq!(fixture.parameter(ceiling), default);
+    fixture
+        .apply(vec![], executable + MIN_UPGRADE_LEAD_BLOCKS - 1)
+        .expect("promote");
+    assert_eq!(fixture.parameter(ceiling), 512);
+    assert_eq!(fixture.parameter(price), 25);
+}
+
+#[test]
+fn a_waiting_change_is_under_the_state_root_and_one_out_of_range_is_dropped() {
+    let fixture = fixture();
+    let key = ParameterKey::DexMaxOrdersPerBook;
+    let default = fixture.parameter(key);
+    let root_before = fixture.db.state_root().expect("root");
+
+    // Above the key's hard maximum: what a release that tightened the bound
+    // after the vote would find waiting.
+    let stale = PendingParameter {
+        activation: 7,
+        value: maya_dex::Amount::from_u64(u64::MAX),
+    };
+    fixture
+        .db
+        .raw_put_for_test(&pending_parameter_key(key.tag()), &stale.encode())
+        .expect("stage");
+    let root_waiting = fixture.db.state_root().expect("root");
+    assert_ne!(
+        root_waiting, root_before,
+        "a waiting change moves the state root"
+    );
+    assert_eq!(
+        fixture.db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "the waiting record must be under the state root"
+    );
+
+    fixture.apply(vec![], 5).expect("not yet due");
+    assert_eq!(fixture.db.state_root().expect("root"), root_waiting);
+
+    fixture
+        .apply(vec![], 6)
+        .expect("a stale value is dropped, not a block error");
+    assert_eq!(fixture.parameter(key), default);
+    assert_eq!(
+        fixture.db.state_root().expect("root"),
+        root_before,
+        "the record is deleted and no table is written"
+    );
+}
+
+#[test]
+fn a_proposal_of_only_validity_rules_leaves_the_table_unwritten_until_promotion() {
+    // Execution writes `g:params` only when a key that applies at once moved,
+    // the rule the promotion pass follows: a table the vote did not change is
+    // not materialised in state.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let (id, executable) = fixture.propose(ParameterKey::DexMaxOrdersPerBook, 512, 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], executable).expect("execute");
+    assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+
+    // Writing the default table moves the root only if none was stored.
+    let root = fixture.db.state_root().expect("root");
+    let defaults = fixture.db.parameters().expect("parameters").encode();
+    fixture
+        .db
+        .raw_put_for_test(b"g:params", &defaults)
+        .expect("stage");
+    assert_ne!(
+        fixture.db.state_root().expect("root"),
+        root,
+        "execution must not have written an unchanged table"
+    );
+}
+
+#[test]
+fn a_passed_change_out_of_range_at_execution_expires_instead_of_halting() {
+    // A release can tighten a bound between the vote and execution. The block
+    // must still apply, or the chain stops over a vote that passed.
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 200_000, 1);
+    fixture.lock(1, 4_000_000, 200_000, 2);
+    let key = ParameterKey::DexProtocolFeeBps;
+    let (id, executable) = fixture.propose(key, 25, 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+
+    let mut record = fixture.db.proposal(&id).expect("read").expect("proposal");
+    record.changes[0].1 = maya_dex::Amount::from_u64(u64::MAX);
+    fixture
+        .db
+        .raw_put_for_test(&proposal_key(&id), &record.encode())
+        .expect("stage");
+
+    fixture
+        .apply(vec![], executable)
+        .expect("the block applies");
+    assert_eq!(fixture.state_of(&id), ProposalState::Expired);
+    assert_eq!(fixture.parameter(key), 0);
 }
 
 // ---------------------------------------------------------------------------

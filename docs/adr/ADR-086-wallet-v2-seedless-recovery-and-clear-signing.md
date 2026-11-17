@@ -24,8 +24,9 @@ invariants 7, 24, 25, 28, 29, 30, 31, 32, 34.
    guardian proposing first can lock recovery forever (`account.rs:559-563`).
 4. [ADR-056](ADR-056-guardian-recovery-transactions.md)'s 30-day maximum delay exceeds [ADR-082](ADR-082-genesis-committed-upgrade-levers.md)'s council lead (H3); the
    longest delay that lead covers is `vault::MAX_DELAY_BLOCKS` (1,000,000).
-5. `BLOCKS_PER_DAY = 43_200` in `crates/smart-account/src/policy.rs:7` assumes
-   2 s blocks; [ADR-056](ADR-056-guardian-recovery-transactions.md)/082 assume 1 block/s. Any "days" copy is off by 2× until settled.
+5. `BLOCKS_PER_DAY` in `crates/smart-account/src/policy.rs:7` was 43,200 (2 s
+   blocks) against the 1 block/s that [ADR-056](ADR-056-guardian-recovery-transactions.md)/082 assume. Decided
+   2026-11-14 (Eric MCQ, ADR-082 amendment 2026-11-15): 86,400.
 6. Nothing must be fixed at genesis; every consensus part can activate later via [ADR-082](ADR-082-genesis-committed-upgrade-levers.md).
 
 ## 1. Context
@@ -135,7 +136,7 @@ library is still fixed so it stops modelling a different rule.
 | F4 | `account.rs:571-585` | removed guardians' approvals count | count current guardians only |
 | F5 | `account.rs:571-597` | thief-queued pending transfers survive recovery | cancel back to balance on finish |
 | F6 | `account.rs:559-563` | first proposer fixes the key; one guardian can lock recovery forever | approval follows latest proposal; per-digest requests; `WithdrawApproval` |
-| F7 | `policy.rs:7` | `BLOCKS_PER_DAY = 43_200` | one constant from the node's block target; decide before any "days" copy |
+| F7 | `policy.rs:7` | `BLOCKS_PER_DAY` was 43,200 (2 s blocks) | **decided** 2026-11-14 (Eric MCQ, ADR-082 amendment 2026-11-15): 86,400 at one block a second |
 
 ## 5. Threat model
 

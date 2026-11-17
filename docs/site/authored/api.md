@@ -78,13 +78,26 @@ curl https://gateway.example.com/v1/accounts/a71cf0…
 # {"balance":8400000000,"nonce":3}
 
 curl https://gateway.example.com/v1/supply
-# {"circulating":"20999998400000000000000000000000","total":"21000000000000000000000000000000"}
+# {"circulating":"122753829695366067419575633036805965021648","total":"122753829695366067419575633036805965021648"}
 ```
 
 Both figures are decimal strings of base units: amounts are 256-bit
 ([ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md)),
-wider than a JSON number can carry exactly. The values above show the shape,
-not real chain figures.
+wider than a JSON number can carry exactly. The values above are the shape a
+mainnet genesis would report, before any fee burns: about 1.23 × 10^17 coins,
+not 19,687,500. That is because `total` sums every account, and genesis funds
+the keyless mining reserve with the whole lifetime emission
+(`--mining-reserve`, [deploy/genesis/mainnet/README.md](https://github.com/EricWijesinghe/Maya2C/blob/master/deploy/genesis/mainnet/README.md)),
+plus the 7,000 coins of genesis validator bonds (7 × 1,000, one operator).
+**Until a later node release lists the reserve as non-circulating, `circulating`
+counts the reserve too**, although nobody can spend it: today only the fee sink
+is excluded. Mining rewards are paid out of that reserve over time; the
+schedule for the four halving eras totals 19,687,500 coins (at most that is
+paid), followed by a small tail for ever
+([ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md)).
+To derive the spendable figure, subtract the reserve's balance
+(`/v1/accounts/6d61796132632f6d696e696e672f726573657276652f76310000000000000000`, the ASCII `maya2c/mining/reserve/v1`
+zero-padded) from `circulating`.
 
 `total` counts every unit that exists, including units that can never move;
 `circulating` counts the units that can. For the breakdown, ask the node's

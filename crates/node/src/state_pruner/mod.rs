@@ -11,8 +11,9 @@
 //! prunes nothing, has no horizon, and is unaffected. Pruning is opt-in and
 //! off by default.
 //!
-//! [`PRUNE_DEPTH`] is one DAG epoch, 30,000 blocks, about 5.2 days at 15-second
-//! blocks. That is far deeper than any honest reorg on a working network.
+//! [`PRUNE_DEPTH`] is 30,000 blocks, about 8.3 hours at one block a second.
+//! That is far deeper than any honest reorg on a working network, and under
+//! DAG-BFT finality no honest reorg exists at all.
 //!
 //! # What is kept
 //!
@@ -35,12 +36,17 @@ pub mod cold;
 pub mod prefetch;
 pub mod snapshot;
 
-use crate::crypto::dag::EPOCH_LENGTH;
 use crate::error::{NodeError, Result};
 use crate::state::db::StateDB;
 
-/// Default depth below the tip before a body may be pruned: one DAG epoch.
-pub const PRUNE_DEPTH: u64 = EPOCH_LENGTH;
+/// Default depth below the tip before a body may be pruned: 30,000 blocks.
+///
+/// Its own constant, not the DAG epoch it used to be defined as: it is
+/// node-local policy, and when the epoch went to 450,000 blocks for one block
+/// a second (ADR-082 amendment 2026-11-15) following it would have meant about
+/// 2.1 TiB of bodies at the 5 MiB block cap, and, as the default bootstrap and
+/// snapshot-serve depth, no default snapshot for the chain's first 5.2 days.
+pub const PRUNE_DEPTH: u64 = 30_000;
 
 /// Default number of blocks archived and pruned together.
 pub const PRUNE_BATCH: u64 = 1_000;
@@ -212,8 +218,13 @@ mod tests {
     }
 
     #[test]
-    fn the_default_depth_is_one_dag_epoch() {
-        assert_eq!(PruneConfig::default().depth, 30_000);
+    fn the_default_depth_is_its_own_constant_not_the_dag_epoch() {
+        // Node-local policy, not consensus: a DAG epoch rescale must not move it
+        // (2026-11-15: following EPOCH_LENGTH to 450,000 would have meant ~2 TiB
+        // of bodies at the 5 MiB cap and no default snapshot for 5.2 days).
+        assert_eq!(PRUNE_DEPTH, 30_000);
+        assert_ne!(PRUNE_DEPTH, crate::crypto::dag::EPOCH_LENGTH);
+        assert_eq!(PruneConfig::default().depth, PRUNE_DEPTH);
         assert_eq!(PruneConfig::default().archive, ArchivePolicy::Required);
     }
 }

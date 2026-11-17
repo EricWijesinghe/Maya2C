@@ -146,3 +146,11 @@ refusal described under "Gate" is on `TxKind::ClaimWork` as a whole
 decisions in this ADR (job market as a lane on the reward system, escrow, no
 mint) are unchanged. ADR-129 (branch `docs/adr-125-130-gaps`, PR #470) proposes
 `TxKind::ClaimCompute` as the carrier instead of a `kind` byte on `WorkClaim`.
+
+## Amendment 2026-11-15: the `kind` byte exists
+
+ADR-044's 2026-11-15 amendment adds a closed `WorkKind` byte to `WorkClaim`
+and `MiningShare` (`0 = DagPow`, every other byte refused at decode). Kind `1`
+is not defined; defining it is the code change R2 describes, behind its own
+feature bit and activation height. The choice between `kind = 1` and ADR-129's
+`TxKind::ClaimCompute` is still open.

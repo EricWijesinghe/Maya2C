@@ -28,7 +28,11 @@ use crate::consensus::uint::U256;
 /// Blocks between difficulty recalculations.
 pub const RETARGET_INTERVAL: u64 = 100;
 
-/// Intended seconds per block.
+/// Intended seconds per block **on a retargeting proof-of-work chain only**.
+///
+/// DAG-BFT (the launch consensus) bypasses the retarget (`fixed_target`) and
+/// makes about one block a second (docs/block-time.md). Never derive a
+/// wall-clock duration from this on a DAG-BFT chain.
 pub const TARGET_BLOCK_TIME: u64 = 15;
 
 /// Intended seconds per retarget window.

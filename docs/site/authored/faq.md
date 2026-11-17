@@ -89,8 +89,10 @@ decentralized validator set.
   arithmetic, and an unsafe-code survey. They run on every pull request and nightly.
   The document states what each check does and does not prove. See
   [Security audit](/reference/security-audit/).
-- **Plan:** mainnet is to launch labelled "external audit pending" until a report
-  lands ([ADR-042](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-042-solo-launch-path.md)).
+- **At launch:** Pre-audit: no external audit yet; validators run by one
+  operator at launch; external audit planned after funding
+  ([ADR-042](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-042-solo-launch-path.md),
+  [ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)).
 
 ## How do I run a node or a wallet?
 

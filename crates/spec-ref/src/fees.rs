@@ -11,7 +11,9 @@ pub const BPS: u64 = 10_000;
 pub const MAX_BASE_FEE_PER_BYTE: u64 = 7_567_158_531_971_244_797;
 
 /// FEE-1: `treasury = floor(base × min(bps, 10000) / 10000)`,
-/// `burned = base − treasury`; the tip goes whole to the producer.
+/// `burned = base − treasury`. Every node genesis fixes `bps = 0`, so the
+/// whole base fee burns; the tip goes to the fee collector, which becomes the
+/// staking reward pool at the epoch boundary.
 #[must_use]
 pub fn split(base_fee_paid: u64, treasury_bps: u64) -> (u64, u64) {
     let bps = u128::from(treasury_bps.min(BPS));
