@@ -57,6 +57,9 @@ pub mod verified;
 pub mod vm_exec;
 pub mod zkml;
 
+#[cfg(test)]
+mod scan_bounds_tests;
+
 // Re-exported so that a caller wiring up a trade does not have to take a
 // direct dependency on `maya-dex` to name a direction or a side. The engine is
 // an implementation detail of this crate's state transition; its vocabulary is

@@ -244,6 +244,7 @@ bound the *count*, which is what every node pays for in storage. Hence
 | `MAX_BATCH_INTENTS` | 256 | The clearing loop is quadratic in the worst case | 4.1 µs normally; **30.6 µs** when every intent misses its bound and the loop removes one per round |
 | `MAX_FILLS_PER_BLOCK` | 1024 | One deep book crossed by one order is work every node redoes | ~0.75 µs per fill, so **~0.8 ms** for a full block |
 | `MAX_ORDERS_PER_BOOK` | 4096 | Storage and book reconstruction cost | 117 µs to rebuild 1024 orders |
+| `MAX_BOOK_ORDERS_PER_BLOCK` | 16384 | The per-book ceiling times the number of pairs one block can touch: every touched book is rebuilt whole at the end of the block. A transaction that would touch a book past it is refused; the first book is always admitted | 86 ms for four full books in `settle_trading` on the test profile, against 549 ms for sixteen (`state::scan_bounds_tests`, 2026-11-13) |
 | `MAX_ROUTE_LEGS` | 4 | Pools loaded per transaction, and the search space a miner could grind | 22.6 ns per curve evaluation |
 | `MAX_TOTAL_FEE_BPS` | 500 | How badly a pool creator can misconfigure one | — |
 

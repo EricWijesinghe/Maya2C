@@ -112,6 +112,10 @@ pub(crate) struct Overlay {
     /// an end-of-block pass. Ordered, so the pass visits them identically on
     /// every node.
     pub(crate) touched_pairs: BTreeSet<PairId>,
+    /// Resting orders in the books of `touched_pairs` when each was first
+    /// touched, against `MAX_BOOK_ORDERS_PER_BLOCK`: the end-of-block pass
+    /// rebuilds each of those books whole.
+    pub(crate) book_orders: u64,
     /// Order fills produced so far, against the per-block ceiling.
     pub(crate) fills: usize,
     /// The VRF output proved for this block, if a valid proof arrived.
@@ -128,6 +132,9 @@ pub(crate) struct Overlay {
     pub(crate) feed_submissions: usize,
     /// Governance transactions staged so far, against the per-block ceiling.
     pub(crate) governance_actions: usize,
+    /// Staking transactions staged so far, slashing evidence aside, against
+    /// `MAX_STAKING_TX_PER_BLOCK`.
+    pub(crate) staking_actions: usize,
     /// Whether this block has already credited its work to somebody.
     ///
     /// A block represents one unit of work, so it credits one beneficiary.
@@ -165,6 +172,22 @@ pub(crate) struct Overlay {
 impl Overlay {
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// The staged records under `prefix`, in key order: a range of the map,
+    /// not a filter over all of it. A pass that reads one prefix per item
+    /// (an envelope, a pair) would otherwise walk the whole block's writes
+    /// each time, which is quadratic in the block.
+    pub(crate) fn records_under<'a>(
+        &'a self,
+        prefix: &'a [u8],
+    ) -> impl Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a {
+        self.records
+            .range::<[u8], _>((
+                std::ops::Bound::Included(prefix),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(move |(key, _)| key.starts_with(prefix))
     }
 }
 
@@ -757,10 +780,7 @@ impl StateDB {
     ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         let mut merged: BTreeMap<Vec<u8>, Vec<u8>> =
             self.scan_prefix(prefix)?.into_iter().collect();
-        for (key, value) in &overlay.records {
-            if !key.starts_with(prefix) {
-                continue;
-            }
+        for (key, value) in overlay.records_under(prefix) {
             match value {
                 Some(bytes) => merged.insert(key.clone(), bytes.clone()),
                 None => merged.remove(key),
