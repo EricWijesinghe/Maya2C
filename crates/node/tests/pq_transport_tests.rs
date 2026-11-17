@@ -324,6 +324,51 @@ async fn a_1024_required_node_refuses_a_768_only_peer() {
     assert_eq!(server.stats.negotiated(PqProtocol::MlKem1024), 0);
 }
 
+#[test]
+fn each_policy_offers_exactly_its_protocols() {
+    // The offer list is the whole downgrade surface: a stripped or reordered
+    // list is how level 5 would quietly become level 3.
+    let offers = |p: MlKem1024Policy| -> Vec<String> {
+        PqUpgrade::new()
+            .with_mlkem1024(p)
+            .protocol_info()
+            .map(|p| p.as_ref().to_string())
+            .collect()
+    };
+    assert_eq!(offers(MlKem1024Policy::Required), vec![PROTOCOL_1024]);
+    assert_eq!(
+        offers(MlKem1024Policy::Preferred),
+        vec![PROTOCOL_1024, PROTOCOL]
+    );
+    assert_eq!(offers(MlKem1024Policy::Off), vec![PROTOCOL]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_1024_required_listener_refuses_a_768_only_dialer() {
+    // The inbound side of the same rule: a listener that requires level 5
+    // must not accept a dialer offering only level 3. A level-5 control dials
+    // first and must connect, so the refusal can only be the policy.
+    let server = spawn_with_pq(PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Required));
+    let control = spawn_with_pq(PqUpgrade::new());
+    let _ = control.handle.dial(server.address.clone()).await;
+    assert!(
+        wait_for(TIMEOUT, async || peer_count(&control.handle).await > 0).await,
+        "positive control failed: a level-5 dialer could not reach the listener"
+    );
+
+    let legacy = spawn_with_pq(PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off));
+    let _ = legacy.handle.dial(server.address.clone()).await;
+    tokio::time::sleep(REFUSAL_WINDOW).await;
+
+    assert_eq!(
+        peer_count(&legacy.handle).await,
+        0,
+        "a level-5-only listener accepted level 3"
+    );
+    assert_eq!(server.stats.negotiated(PqProtocol::MlKem1024), 1);
+    assert_eq!(server.stats.negotiated(PqProtocol::MlKem768), 0);
+}
+
 // ---------------------------------------------------------------------------
 // rotation
 // ---------------------------------------------------------------------------
