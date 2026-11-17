@@ -26,7 +26,7 @@
 //! that arrives without the header (a local health check) falls back to its
 //! socket address rather than failing.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -98,11 +98,27 @@ pub fn client_address(
             header_ip(headers, "x-forwarded-for", |value| value.rsplit(',').next())
         }
     };
-    from_header.or_else(|| {
-        extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|ConnectInfo(peer)| peer.ip())
-    })
+    from_header
+        .or_else(|| {
+            extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|ConnectInfo(peer)| peer.ip())
+        })
+        .map(bucket_of)
+}
+
+/// An IPv6 client counts as its /64: one subscriber is normally handed a
+/// whole /64, so keying on the full address would give it 2^64 buckets to
+/// rotate through. An IPv4-mapped address (`::ffff:a.b.c.d`) stays the IPv4
+/// address it is, or every IPv4 client of a dual-stack socket would share one.
+fn bucket_of(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & !u128::from(u64::MAX))),
+        },
+        IpAddr::V4(_) => ip,
+    }
 }
 
 fn header_ip(
@@ -145,14 +161,17 @@ pub fn config(limits: &RateLimit) -> Result<Config, InvalidRateLimit> {
 ///
 /// Spawned once by the binary; tests do not need it.
 pub fn spawn_pruning(config: &Config) -> tokio::task::JoinHandle<()> {
-    let limiter = Arc::clone(config.limiter());
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(PRUNE_INTERVAL);
-        loop {
-            tick.tick().await;
-            limiter.retain_recent();
-        }
-    })
+    tokio::spawn(prune(Arc::clone(config)))
+}
+
+/// The pruning loop itself, for a caller that runs it inside its own task
+/// (so aborting that task stops it too). Never returns.
+pub async fn prune(config: Config) {
+    let mut tick = tokio::time::interval(PRUNE_INTERVAL);
+    loop {
+        tick.tick().await;
+        config.limiter().retain_recent();
+    }
 }
 
 #[cfg(test)]
@@ -177,5 +196,27 @@ mod tests {
         assert_eq!(key.extract(&honest).expect("key"), expected);
         assert_eq!(key.extract(&spoofed).expect("key"), expected);
         assert_eq!(key.extract(&rotated).expect("key"), expected);
+    }
+
+    fn key_of(ip: &str) -> IpAddr {
+        let mut headers = HeaderMap::new();
+        headers.insert("cf-connecting-ip", ip.parse().expect("header"));
+        client_address(ClientIp::CfConnectingIp, &headers, &Extensions::new()).expect("key")
+    }
+
+    #[test]
+    fn ipv6_clients_in_one_slash_64_share_a_bucket() {
+        assert_eq!(
+            key_of("2001:db8:1:2::1"),
+            key_of("2001:db8:1:2:ffff:abcd::9")
+        );
+        assert_ne!(key_of("2001:db8:1:2::1"), key_of("2001:db8:1:3::1"));
+    }
+
+    #[test]
+    fn ipv4_keys_are_untouched_even_when_mapped_into_ipv6() {
+        assert_ne!(key_of("::ffff:198.51.100.1"), key_of("::ffff:198.51.100.2"));
+        assert_eq!(key_of("::ffff:198.51.100.1"), key_of("198.51.100.1"));
+        assert_ne!(key_of("198.51.100.1"), key_of("198.51.100.2"));
     }
 }
