@@ -67,6 +67,9 @@ pub enum SpendError {
     OverEpochLimit,
     /// The treasury balance is short.
     Insufficient,
+    /// The height is in an epoch before the last one paid from; that epoch's
+    /// total is no longer known, so paying it could exceed its limit.
+    PastEpoch,
 }
 
 /// The treasury.
@@ -144,6 +147,9 @@ impl Treasury {
             return Ok(&self.spends[i].status);
         }
         let epoch = height / self.epoch_blocks;
+        if epoch < self.spent_epoch.0 {
+            return Err(SpendError::PastEpoch);
+        }
         let spent = if self.spent_epoch.0 == epoch {
             self.spent_epoch.1
         } else {

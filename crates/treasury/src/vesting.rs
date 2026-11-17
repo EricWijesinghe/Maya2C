@@ -6,7 +6,8 @@
 //! - **Termination** (an employee leaving) freezes vesting at the height it
 //!   happens: what had vested stays claimable, the rest returns to the treasury.
 //! - **Clawback** (a governance decision, only if the grant allows it)
-//!   returns everything not yet *claimed*, vested or not. Whether a grant is
+//!   returns everything not yet *claimed*, vested or not (after a
+//!   termination, only the vested part is still held). Whether a grant is
 //!   clawback-eligible is fixed when it is created and cannot be added later.
 
 use maya_amount::Amount;
@@ -135,7 +136,10 @@ impl Grant {
         if self.clawed_back {
             return Err(VestingError::AlreadyClosed);
         }
+        // After termination the unvested part has already gone back; only
+        // the vested, unclaimed part is left to return.
+        let held = self.terminated_at.map_or(self.total, |t| self.vested(t));
         self.clawed_back = true;
-        Ok(self.total.saturating_sub(self.claimed))
+        Ok(held.saturating_sub(self.claimed))
     }
 }
