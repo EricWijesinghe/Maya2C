@@ -15,6 +15,9 @@
 //!   ML-KEM + HQC dual-KEM combiners (ADR-009).
 //! - [`agility`] — default-suite policy, the security audit, and migration
 //!   off a deprecated suite.
+//! - [`stealth`] — one-time payment addresses over ML-KEM-768 (ADR-102):
+//!   derivation, announcements, view-key scanning, spend authorization.
+//!   RESEARCH; nothing in consensus calls it.
 //!
 //! ## Why this crate exists at all
 //!
@@ -48,4 +51,5 @@ pub mod kem;
 pub mod kem_suite;
 pub mod multisig;
 pub mod sig;
+pub mod stealth;
 pub mod suite;

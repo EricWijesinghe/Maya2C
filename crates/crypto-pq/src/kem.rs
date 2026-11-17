@@ -238,6 +238,22 @@ impl EncapsulationKey {
 }
 
 impl DecapsulationKey {
+    /// Rebuilds a keypair from the FIPS 203 64-byte seed `d ‖ z`.
+    ///
+    /// Crate-private on purpose: [`generate_keypair`] explains why a transport
+    /// key has no seeded door. The one caller is the stealth scan key
+    /// (`crate::stealth`, ADR-102), which must outlive a session and be
+    /// restorable from a wallet backup — the opposite requirement.
+    pub(crate) fn from_seed(seed: &[u8; 64]) -> (Self, EncapsulationKey) {
+        // shortcut: the by-value `Seed` copy on the stack is not wiped (ml-kem
+        // takes it by value); upgrade if ml-kem gains a by-reference constructor.
+        let dk = ml_kem::ml_kem_768::DecapsulationKey::from_seed((*seed).into());
+        let ek = dk.encapsulation_key().clone();
+        let mut encoded = [0u8; ENCAPSULATION_KEY_LEN];
+        encoded.copy_from_slice(&ek.to_bytes());
+        (Self { inner: dk }, EncapsulationKey { inner: ek, encoded })
+    }
+
     /// Recovers the shared secret from a peer's ciphertext.
     ///
     /// Infallible by design, and that is a property of ML-KEM rather than an

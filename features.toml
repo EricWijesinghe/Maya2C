@@ -1793,6 +1793,17 @@ status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/node/tests/dualkem_negotiation_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
 
 [[subsystem]]
+id = "stealth-addresses-ml-kem"
+name = "Stealth addresses over ML-KEM-768 (ADR-102)"
+domain = "Cryptography and key management"
+paths = "`crates/crypto-pq/src/stealth.rs`, `crates/node/src/upgrade.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/crypto-pq/tests/stealth_tests.rs"]
+note = "Derivation, 1089-byte announcement, view-key scanning, spend authorization and conformance vectors (spec ST-1..ST-5). Dark: STEALTH_ACTIVATION_HEIGHT = u64::MAX and a schedule naming FeatureSet::STEALTH is refused. Not built: the StealthAnnounce transaction kind, the v10 spend frame, the wallet UI. The spend reveals the spend address. Not externally reviewed."
+
+[[subsystem]]
 id = "p2p-mlkem-1024"
 name = "P2P transport at ML-KEM-1024 (FIPS 203, NIST level 5), level-3 fallback"
 domain = "Cryptography and key management"
