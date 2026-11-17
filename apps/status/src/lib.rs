@@ -88,7 +88,10 @@ impl Timeline {
     /// wait is a launch, not a halt.
     pub fn observe(&mut self, height: u64, timestamp: u64) -> Option<Halt> {
         if height == 0 {
-            self.last = Some((0, timestamp));
+            // Genesis only starts a timeline; fed again later it is out of order.
+            if self.last.is_none() {
+                self.last = Some((0, timestamp));
+            }
             return None;
         }
         match self.last {
@@ -243,6 +246,46 @@ mod tests {
         assert!(r.halts.is_empty());
         assert_eq!(r.genesis, 5_000);
         assert_eq!(r.uptime, 1.0);
+    }
+
+    /// Found red-teaming: a genesis block fed again mid-stream reset the
+    /// timeline to height 0, so block 1 restarted the clock and the uptime
+    /// history was measured from the wrong genesis.
+    #[test]
+    fn a_replayed_genesis_block_changes_nothing() {
+        let mut t = Timeline::new(60);
+        let last = steady(&mut t, 0, 10, 0);
+        assert_eq!(t.observe(0, 99_999), None);
+        assert_eq!(t.height(), Some(10));
+        assert_eq!(t.observe(1, 99_999), None);
+        assert_eq!(t.report(last).unwrap().genesis, 1);
+        assert_eq!(t.observe(11, last + 1), None, "the stream continues");
+        assert_eq!(t.height(), Some(11));
+    }
+
+    #[test]
+    fn a_repeated_height_or_a_clock_running_backwards_is_not_a_halt() {
+        let mut t = Timeline::new(60);
+        steady(&mut t, 0, 5, 1_000);
+        assert_eq!(t.observe(5, 9_999), None, "same height again is ignored");
+        assert_eq!(t.observe(6, 1_004), None, "an earlier stamp is a zero gap");
+        let r = t.report(1_006).unwrap();
+        assert!(r.halts.is_empty());
+        assert_eq!(r.uptime, 1.0);
+    }
+
+    #[test]
+    fn downtime_never_exceeds_the_time_since_genesis() {
+        let mut t = Timeline::new(1);
+        t.observe(0, 0);
+        t.observe(1, 100);
+        // Asked about a moment before the last block: no negative uptime.
+        let r = t.report(50).unwrap();
+        assert!((0.0..=1.0).contains(&r.uptime), "{}", r.uptime);
+        // Silent for far longer than the chain has existed.
+        let r = t.report(1_000_000).unwrap();
+        assert!(r.halted_now);
+        assert!(r.uptime >= 0.0, "{}", r.uptime);
     }
 
     #[test]
