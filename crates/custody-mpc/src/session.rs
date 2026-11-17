@@ -354,6 +354,8 @@ impl SigningSession {
     /// - [`CustodyError::DuplicateContribution`] if this custodian already
     ///   contributed. A "quorum" that is one custodian three times is not a
     ///   quorum, and it is also a division by zero in the interpolation.
+    /// - [`CustodyError::InconsistentShare`] if the share does not open the
+    ///   vault's commitments. Such a share does not take its slot.
     pub fn contribute(&mut self, contribution: &CustodianShare) -> Result<()> {
         if contribution.vault != self.descriptor.id {
             return Err(CustodyError::WrongVault);
@@ -384,6 +386,9 @@ impl SigningSession {
         if self.contributors.contains(&share.index) {
             return Err(CustodyError::DuplicateContribution(share.index));
         }
+        // Checked on arrival: a forged share is refused and leaves its custodian's
+        // slot free, instead of failing the whole signing at `sign`.
+        vss::verify(&share, &self.descriptor.commitments, share.index)?;
 
         self.contributors.push(share.index);
         self.shares.push(share);
