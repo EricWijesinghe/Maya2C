@@ -727,7 +727,7 @@ fn a_rotation_naming_a_key_nobody_signed_for_is_refused() {
     let wrong = member(6)
         .sign(&set.acceptance_message(&common::test_chain()))
         .unwrap();
-    acceptances[2] = Box::new(wrong);
+    *acceptances[2] = wrong;
     let kind = CouncilKind::Rotate {
         rotation: set.clone(),
         acceptances: acceptances.clone(),
@@ -736,7 +736,7 @@ fn a_rotation_naming_a_key_nobody_signed_for_is_refused() {
     assert!(err.contains("acceptance"), "{err}");
     // An acceptance for another chain is not one for this chain.
     let elsewhere = custom_l1_node::core::ChainTag::from_genesis([0xEE; 32]);
-    acceptances[2] = Box::new(member(5).sign(&set.acceptance_message(&elsewhere)).unwrap());
+    *acceptances[2] = member(5).sign(&set.acceptance_message(&elsewhere)).unwrap();
     let kind = CouncilKind::Rotate {
         rotation: set.clone(),
         acceptances: acceptances.clone(),
