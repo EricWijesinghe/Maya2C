@@ -13,6 +13,10 @@
 #      only Cloudflare's own rewrites (email obfuscation, Web Analytics beacon);
 #   4. on any difference: uploads the differing bodies, opens or updates an
 #      issue labelled `site-integrity`, and fails the run.
+#
+# Limit: every fetch uses one fixed User-Agent from GitHub's runner network.
+# The check detects origin drift only; an edge that answers differently by
+# user agent or by IP would look clean here. It is not proof of edge honesty.
 name: site-integrity
 
 on:

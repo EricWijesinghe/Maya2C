@@ -61,6 +61,7 @@ jobs:
         run: npm ci --ignore-scripts
       # Runs the .ts tests with Node's built-in type stripping (Node 22.18+).
       - name: Test the site scripts
+      - name: Unit tests (page data mapping, node --test)
         working-directory: docs/site
         run: npm test
       - name: Build the site

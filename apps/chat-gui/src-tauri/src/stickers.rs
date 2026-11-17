@@ -38,6 +38,8 @@ const MAX_HEADER: usize = 4 << 10;
 pub const MAX_PACK_ITEMS: usize = 120;
 /// Characters in a pack title.
 pub const MAX_TITLE_CHARS: usize = 64;
+/// Characters in a sticker's emoji (a family ZWJ sequence is seven code points).
+const MAX_EMOJI_CHARS: usize = 32;
 
 /// What a sticker file is, read from its bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,9 +78,14 @@ impl Format {
             Some(Self::Png)
         } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
             Some(Self::Gif)
-        } else if trimmed.starts_with("<svg") || (trimmed.starts_with("<?xml") && text.contains("<svg")) {
+        } else if trimmed.starts_with("<svg")
+            || (trimmed.starts_with("<?xml") && text.contains("<svg"))
+        {
             Some(Self::Svg)
-        } else if trimmed.starts_with('{') && serde_json::from_slice::<serde_json::Value>(bytes).is_ok_and(|v| v.get("layers").is_some()) {
+        } else if trimmed.starts_with('{')
+            && serde_json::from_slice::<serde_json::Value>(bytes)
+                .is_ok_and(|v| v.get("layers").is_some())
+        {
             Some(Self::Lottie)
         } else {
             None
@@ -108,9 +115,8 @@ pub fn check_file(bytes: &[u8]) -> Result<(String, Format), String> {
             bytes.len().div_ceil(1024)
         ));
     }
-    let format = Format::sniff(bytes).ok_or(
-        "not a sticker format: use Lottie (.json or .tgs), WebM, WebP, PNG, GIF or SVG",
-    )?;
+    let format = Format::sniff(bytes)
+        .ok_or("not a sticker format: use Lottie (.json or .tgs), WebM, WebP, PNG, GIF or SVG")?;
     Ok((sticker_id(bytes), format))
 }
 
@@ -159,7 +165,9 @@ pub fn make_pack(title: &str, items: Vec<PackItem>, mine: bool) -> Result<Pack, 
         return Err("give the pack a name".into());
     }
     if title.chars().count() > MAX_TITLE_CHARS {
-        return Err(format!("a pack name is at most {MAX_TITLE_CHARS} characters"));
+        return Err(format!(
+            "a pack name is at most {MAX_TITLE_CHARS} characters"
+        ));
     }
     if items.is_empty() || items.len() > MAX_PACK_ITEMS {
         return Err(format!("a pack holds 1 to {MAX_PACK_ITEMS} stickers"));
@@ -189,10 +197,7 @@ pub enum Content {
     /// "Send me the rest of this pack."
     PackRequest { pack: String },
     /// One sticker of a pack being shared; the file follows the header.
-    PackItem {
-        pack: Pack,
-        index: u16,
-    },
+    PackItem { pack: Pack, index: u16 },
 }
 
 /// Frames `content` and `file` as a message plaintext.
@@ -232,29 +237,49 @@ pub fn is_structured(plain: &[u8]) -> bool {
 /// Truncated or oversized framing, a header that does not parse, a file that
 /// does not hash to the id it claims, or a pack item that is not in its pack.
 pub fn decode(plain: &[u8]) -> Result<Decoded, String> {
-    let rest = plain.strip_prefix(MAGIC).ok_or("not a structured message")?;
+    let rest = plain
+        .strip_prefix(MAGIC)
+        .ok_or("not a structured message")?;
     let (len, rest) = rest.split_first_chunk::<4>().ok_or("truncated message")?;
     let len = u32::from_le_bytes(*len) as usize;
     if len > MAX_HEADER || len > rest.len() {
         return Err("malformed message header".into());
     }
     let (header, file) = rest.split_at(len);
-    let content: Content = serde_json::from_slice(header).map_err(|e| format!("malformed message: {e}"))?;
-    let claimed = match &content {
-        Content::Sticker { id, .. } => Some(id.clone()),
+    let content: Content =
+        serde_json::from_slice(header).map_err(|e| format!("malformed message: {e}"))?;
+    let (claimed, declared) = match &content {
+        Content::Sticker { id, .. } => (Some(id.clone()), None),
         Content::PackItem { pack, index } => {
             if pack.id != pack_id(&pack.title, &pack.items) || pack.items.len() > MAX_PACK_ITEMS {
                 return Err("the pack does not match its id".into());
             }
-            let item = pack.items.get(usize::from(*index)).ok_or("the pack item is not in its pack")?;
-            Some(item.id.clone())
+            // The id covers the title and sticker ids only, so the limits
+            // make_pack applies to them are checked here too.
+            if pack.title.chars().count() > MAX_TITLE_CHARS {
+                return Err(format!(
+                    "a pack name is at most {MAX_TITLE_CHARS} characters"
+                ));
+            }
+            let item = pack
+                .items
+                .get(usize::from(*index))
+                .ok_or("the pack item is not in its pack")?;
+            if item.emoji.chars().count() > MAX_EMOJI_CHARS {
+                return Err(format!("an emoji is at most {MAX_EMOJI_CHARS} characters"));
+            }
+            (Some(item.id.clone()), Some(item.format))
         }
-        Content::PackRequest { .. } => None,
+        Content::PackRequest { .. } => (None, None),
     };
     if let Some(id) = claimed {
-        let (actual, _) = check_file(file)?;
+        let (actual, format) = check_file(file)?;
         if actual != id {
             return Err("the sticker does not match its id".into());
+        }
+        // The declared format is not covered by the id, so it must match the bytes.
+        if declared.is_some_and(|d| d != format) {
+            return Err("the pack's format does not match its file".into());
         }
     } else if !file.is_empty() {
         return Err("unexpected bytes after the message".into());
@@ -273,7 +298,11 @@ mod tests {
 
     fn item(bytes: &[u8], emoji: &str) -> PackItem {
         let (id, format) = check_file(bytes).unwrap();
-        PackItem { id, emoji: emoji.into(), format }
+        PackItem {
+            id,
+            emoji: emoji.into(),
+            format,
+        }
     }
 
     #[test]
@@ -281,11 +310,24 @@ mod tests {
         assert_eq!(Format::sniff(GIF), Some(Format::Gif));
         assert_eq!(Format::sniff(b"\x89PNG\r\n\x1a\nrest"), Some(Format::Png));
         assert_eq!(Format::sniff(b"RIFF\0\0\0\0WEBPVP8 "), Some(Format::Webp));
-        assert_eq!(Format::sniff(&[0x1a, 0x45, 0xdf, 0xa3, 1]), Some(Format::Webm));
+        assert_eq!(
+            Format::sniff(&[0x1a, 0x45, 0xdf, 0xa3, 1]),
+            Some(Format::Webm)
+        );
         assert_eq!(Format::sniff(&[0x1f, 0x8b, 8, 0]), Some(Format::Tgs));
-        assert_eq!(Format::sniff(br#"{"v":"5.7","layers":[]}"#), Some(Format::Lottie));
-        assert_eq!(Format::sniff(br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#), Some(Format::Svg));
-        assert_eq!(Format::sniff(br#"{"not":"lottie"}"#), None, "JSON without layers");
+        assert_eq!(
+            Format::sniff(br#"{"v":"5.7","layers":[]}"#),
+            Some(Format::Lottie)
+        );
+        assert_eq!(
+            Format::sniff(br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#),
+            Some(Format::Svg)
+        );
+        assert_eq!(
+            Format::sniff(br#"{"not":"lottie"}"#),
+            None,
+            "JSON without layers"
+        );
         assert_eq!(Format::sniff(b"MZ\x90\x00 an exe"), None);
     }
 
@@ -315,7 +357,10 @@ mod tests {
         let mut other = GIF.to_vec();
         *other.last_mut().unwrap() = b'!';
         let plain = encode(&content, &other).unwrap();
-        assert_eq!(decode(&plain).unwrap_err(), "the sticker does not match its id");
+        assert_eq!(
+            decode(&plain).unwrap_err(),
+            "the sticker does not match its id"
+        );
     }
 
     #[test]
@@ -343,17 +388,87 @@ mod tests {
         let items = vec![item(GIF, "😂")];
         let pack = make_pack(" Mine ", items.clone(), true).unwrap();
         assert_eq!(pack.title, "Mine");
-        assert_eq!(pack.id, pack_id("Mine", &items), "same pack, same id anywhere");
+        assert_eq!(
+            pack.id,
+            pack_id("Mine", &items),
+            "same pack, same id anywhere"
+        );
         assert_ne!(pack.id, pack_id("Yours", &items));
 
-        let ok = encode(&Content::PackItem { pack: pack.clone(), index: 0 }, GIF).unwrap();
+        let ok = encode(
+            &Content::PackItem {
+                pack: pack.clone(),
+                index: 0,
+            },
+            GIF,
+        )
+        .unwrap();
         assert!(decode(&ok).is_ok());
-        let past_end = encode(&Content::PackItem { pack: pack.clone(), index: 1 }, GIF).unwrap();
+        let past_end = encode(
+            &Content::PackItem {
+                pack: pack.clone(),
+                index: 1,
+            },
+            GIF,
+        )
+        .unwrap();
         assert!(decode(&past_end).is_err());
         let mut forged = pack;
         forged.title = "Renamed".into();
-        let forged = encode(&Content::PackItem { pack: forged, index: 0 }, GIF).unwrap();
-        assert_eq!(decode(&forged).unwrap_err(), "the pack does not match its id");
+        let forged = encode(
+            &Content::PackItem {
+                pack: forged,
+                index: 0,
+            },
+            GIF,
+        )
+        .unwrap();
+        assert_eq!(
+            decode(&forged).unwrap_err(),
+            "the pack does not match its id"
+        );
+    }
+
+    #[test]
+    fn a_pack_item_whose_format_is_not_the_files_is_refused() {
+        let items = vec![PackItem {
+            id: sticker_id(GIF),
+            emoji: "😂".into(),
+            format: Format::Png,
+        }];
+        let pack = make_pack("Mine", items, true).unwrap();
+        let plain = encode(&Content::PackItem { pack, index: 0 }, GIF).unwrap();
+        assert_eq!(
+            decode(&plain).unwrap_err(),
+            "the pack's format does not match its file"
+        );
+    }
+
+    #[test]
+    fn an_overlong_emoji_or_title_in_a_pack_item_is_refused() {
+        let long_emoji = PackItem {
+            id: sticker_id(GIF),
+            emoji: "x".repeat(MAX_EMOJI_CHARS + 1),
+            format: Format::Gif,
+        };
+        let items = vec![long_emoji];
+        let pack = Pack {
+            id: pack_id("Mine", &items),
+            title: "Mine".into(),
+            items,
+            mine: false,
+        };
+        assert!(decode(&encode(&Content::PackItem { pack, index: 0 }, GIF).unwrap()).is_err());
+
+        let long_title = "x".repeat(MAX_TITLE_CHARS + 1);
+        let items = vec![item(GIF, "😂")];
+        let pack = Pack {
+            id: pack_id(&long_title, &items),
+            title: long_title,
+            items,
+            mine: false,
+        };
+        assert!(decode(&encode(&Content::PackItem { pack, index: 0 }, GIF).unwrap()).is_err());
     }
 
     #[test]
@@ -361,7 +476,14 @@ mod tests {
         assert!(make_pack("", vec![item(GIF, "😂")], true).is_err());
         assert!(make_pack("x", vec![], true).is_err());
         assert!(make_pack("x", vec![item(GIF, " ")], true).is_err());
-        assert!(make_pack(&"x".repeat(MAX_TITLE_CHARS + 1), vec![item(GIF, "😂")], true).is_err());
+        assert!(
+            make_pack(
+                &"x".repeat(MAX_TITLE_CHARS + 1),
+                vec![item(GIF, "😂")],
+                true
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -397,4 +519,3 @@ mod tests {
         assert_eq!(decoded.file, file);
     }
 }
-

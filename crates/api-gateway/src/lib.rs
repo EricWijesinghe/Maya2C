@@ -37,12 +37,15 @@
 pub mod allowlist;
 pub mod coins;
 pub mod error;
+pub mod events;
 pub mod graphql;
 pub mod jsonrpc;
 pub mod limit;
 pub mod node;
 pub mod rest;
 pub mod sealed;
+pub mod ssrf;
+pub mod webhooks;
 
 use std::sync::Arc;
 
@@ -97,6 +100,21 @@ pub fn app_with_limiter(node: Arc<dyn NodeClient>, config: &limit::Config) -> Ro
     // Inside `secure`, so a 429 from the limiter carries the headers too.
     secure(
         routes(node).layer(tower_governor::GovernorLayer::new(Arc::clone(config))),
+        CONTENT_SECURITY_POLICY,
+    )
+}
+
+/// [`app_with_limiter`] plus the event subscription routes
+/// ([`events::router`]), under the same limiter and headers.
+pub fn app_with_events(
+    node: Arc<dyn NodeClient>,
+    config: &limit::Config,
+    events: Arc<events::Events>,
+) -> Router {
+    secure(
+        routes(node)
+            .merge(events::router(events))
+            .layer(tower_governor::GovernorLayer::new(Arc::clone(config))),
         CONTENT_SECURITY_POLICY,
     )
 }

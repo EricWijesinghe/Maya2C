@@ -23,10 +23,11 @@ services:
     image: grafana/grafana:11.1.0
     container_name: attacknet-grafana
     ports:
-      - "35311:3000"
+      - "127.0.0.1:35311:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=lab
+      # Read from infra/monitoring/.env (untracked); compose refuses to start without it.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in infra/monitoring/.env}
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
     volumes:
       - "grafana-data:/var/lib/grafana"
