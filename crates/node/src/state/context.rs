@@ -76,7 +76,22 @@ pub struct BlockContext {
     /// Suite deprecations the chain's genesis committed (ADR-082). Empty
     /// everywhere the node builds a context unless the chain names some.
     pub suite_sunsets: SuiteSunsets,
+    /// First height whose block application verifies signatures on every
+    /// core before the sequential pass (v3 P1).
+    ///
+    /// [`PARALLEL_APPLY_ACTIVATION_HEIGHT`] everywhere the node builds a
+    /// context. Tests set it with [`Self::with_parallel_apply_activation`].
+    pub parallel_apply_activation: u64,
 }
+
+/// First height at which block application runs its parallel phase: none.
+///
+/// The parallel phase only fills the verified-signature cache, which cannot
+/// change a result (`state::verified`), so this is not a state-root format
+/// change. It stays dark anyway until a measured gain on the node's real
+/// apply path justifies a written height (v3 P1, `reports/bench/`), and so
+/// that switching it on is a recorded decision rather than a default.
+pub const PARALLEL_APPLY_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which shielded join-splits execute, for a genesis that
 /// names none: zero, which is what every network meant before ADR-037.
@@ -203,7 +218,23 @@ impl BlockContext {
             dvp_activation: DVP_ACTIVATION_HEIGHT,
             rwa_strict_activation: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
             suite_sunsets: SuiteSunsets::EMPTY,
+            parallel_apply_activation: PARALLEL_APPLY_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same context with the parallel apply phase on from `height`.
+    #[must_use]
+    pub const fn with_parallel_apply_activation(self, height: u64) -> Self {
+        Self {
+            parallel_apply_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether this block's application runs the parallel phase.
+    #[must_use]
+    pub const fn parallel_apply_active(self) -> bool {
+        self.height >= self.parallel_apply_activation
     }
 
     /// The same context with every dark feature at the height the upgrade
