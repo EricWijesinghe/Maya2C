@@ -51,7 +51,7 @@ fn lazy_storage_reads_exactly_what_the_whole_storage_load_did() {
         let mut overlay = Overlay::new();
         for _ in 0..20 {
             let owner = owners[(next(&mut seed) % 3) as usize];
-            let key = if next(&mut seed) % 2 == 0 {
+            let key = if next(&mut seed).is_multiple_of(2) {
                 probes[(next(&mut seed) % probes.len() as u64) as usize].clone()
             } else {
                 bytes(&mut seed, 5)
