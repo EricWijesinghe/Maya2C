@@ -30,7 +30,7 @@
 
 use maya_governance::Amount;
 use maya_governance::error::GovernanceError;
-use maya_governance::params::{ParameterChange, ParameterKey};
+use maya_governance::params::{ALL_KEYS, ParameterChange, ParameterKey, VALIDITY_RULE_LEAD_BLOCKS};
 use maya_governance::proposal::{Proposal, ProposalState};
 use maya_governance::tally::Choice;
 use maya_stateless_core::amount::to_amount;
@@ -41,11 +41,13 @@ use crate::core::governance_payload::{
     Ballot, ProposalSubmission, ScheduleUpgrade, StakeLock, StakeUnlock, WorkClaim,
 };
 use crate::error::{NodeError, Result};
-use crate::governance::record::{LockRecord, ParameterTable, ProposalRecord, Totals};
+use crate::governance::record::{
+    LockRecord, ParameterTable, PendingParameter, ProposalRecord, Totals,
+};
 use crate::governance::work::{WorkRecord, narrow_work};
 use crate::governance::{
     DUE_PREFIX, PARAMETERS_KEY, TOTALS_KEY, ballot_key, derive_proposal_id, due_height_prefix,
-    due_key, lock_key, proposal_key, work_key,
+    due_key, lock_key, pending_parameter_key, proposal_key, work_key,
 };
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
@@ -692,7 +694,7 @@ impl StateDB {
         // block instead would stop the chain on a vote that passed.
         if record.proposal.is_executable(context.height) {
             if self.admitted(overlay, &record, context.height)? {
-                self.apply_changes(overlay, &record)?;
+                self.apply_changes(overlay, &record, context.height)?;
                 if let Some(upgrade) = &record.upgrade {
                     let (entry, sunsets) = crate::state::upgrades::EffectiveSchedule::entry_for(
                         &schedule_request(upgrade),
@@ -748,8 +750,12 @@ impl StateDB {
         };
         let sunsets = self.effective_schedule_through(overlay)?.sunsets;
         let changes_ok = record.changes.iter().all(|(tag, value)| {
+            // `validate` too: `apply_changes` re-checks the range, and a value
+            // a release tightened out of range must expire the proposal here,
+            // not fail the block (#575).
             ParameterKey::from_tag(*tag).is_ok_and(|key| {
-                crate::crypto::suites::check_parameter(key, *value, &sunsets).is_ok()
+                ParameterChange { key, value: *value }.validate().is_ok()
+                    && crate::crypto::suites::check_parameter(key, *value, &sunsets).is_ok()
             })
         });
         Ok(schedule_ok && changes_ok)
@@ -770,23 +776,103 @@ impl StateDB {
         Ok(())
     }
 
-    /// Writes a passed proposal's changes into the parameter table.
+    /// Writes a passed proposal's changes into the parameter table, or, for a
+    /// block-validity rule, into `g:pending:` to bind
+    /// [`VALIDITY_RULE_LEAD_BLOCKS`] after `height` (ADR-082 amendment 2026-11-15).
     ///
     /// Every value is range-checked again here. A release between the proposal
     /// and its execution could have tightened a bound, and a value that was
     /// legal when proposed must not become law after it stopped being legal.
-    fn apply_changes(&self, overlay: &mut Overlay, record: &ProposalRecord) -> Result<()> {
+    fn apply_changes(
+        &self,
+        overlay: &mut Overlay,
+        record: &ProposalRecord,
+        height: u64,
+    ) -> Result<()> {
         let sunsets = self.effective_schedule_through(overlay)?.sunsets;
         let mut table = self.parameters_through(overlay)?;
+        // Write the table only if a key in force from E + 1 moved, as the
+        // promotion pass does; an unchanged table stays unmaterialised.
+        let mut changed = false;
         for (tag, value) in &record.changes {
             let key = ParameterKey::from_tag(*tag).map_err(governance_error)?;
             ParameterChange { key, value: *value }
                 .validate()
                 .map_err(governance_error)?;
             crate::crypto::suites::check_parameter(key, *value, &sunsets)?;
-            table = table.with(key, *value);
+            if key.is_validity_rule() {
+                // One waiting change per key: a later decision replaces it.
+                let pending = PendingParameter {
+                    activation: height.saturating_add(VALIDITY_RULE_LEAD_BLOCKS),
+                    value: *value,
+                };
+                Self::put_record(
+                    overlay,
+                    pending_parameter_key(*tag),
+                    pending.encode().to_vec(),
+                );
+            } else {
+                table = table.with(key, *value);
+                changed = true;
+            }
         }
-        Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());
+        if changed {
+            Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());
+        }
+        Ok(())
+    }
+
+    /// Promotes every waiting validity change whose activation height is the
+    /// next block's or earlier into the parameter table.
+    ///
+    /// Runs at the end of every block, after [`Self::settle_governance`], so
+    /// the table committed at the tip is the one the next block is judged by
+    /// and a builder never fills a block under a ceiling the importer has
+    /// already moved. One point read per validity key, in tag order: no prefix
+    /// scan, so the cost per block is fixed. A value a later release no longer
+    /// accepts is deleted, not applied, and is not a block error: refusing the
+    /// block would stop the chain over a vote that passed. The table is
+    /// written only when a value was promoted.
+    pub(crate) fn activate_parameters(
+        &self,
+        overlay: &mut Overlay,
+        context: BlockContext,
+    ) -> Result<()> {
+        let next = context.height.saturating_add(1);
+        let mut table: Option<ParameterTable> = None;
+        for key in ALL_KEYS
+            .iter()
+            .copied()
+            .filter(|key| key.is_validity_rule())
+        {
+            let record_key = pending_parameter_key(key.tag());
+            let Some(bytes) = self.record(overlay, &record_key)? else {
+                continue;
+            };
+            let pending = PendingParameter::decode(&bytes)?;
+            if pending.activation > next {
+                continue;
+            }
+            Self::delete_record(overlay, record_key);
+            let sunsets = self.effective_schedule_through(overlay)?.sunsets;
+            let accepted = ParameterChange {
+                key,
+                value: pending.value,
+            }
+            .validate()
+            .is_ok()
+                && crate::crypto::suites::check_parameter(key, pending.value, &sunsets).is_ok();
+            if accepted {
+                let current = match table.take() {
+                    Some(current) => current,
+                    None => self.parameters_through(overlay)?,
+                };
+                table = Some(current.with(key, pending.value));
+            }
+        }
+        if let Some(table) = table {
+            Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());
+        }
         Ok(())
     }
 
