@@ -72,6 +72,9 @@ rustc-ice-*.txt
 # explicit `git rm -r --cached apps/wallet-gui/ui/target` to actually leave the repo.
 /apps/wallet-gui/ui/target/
 /apps/wallet-gui/ui/dist/
+# Playwright for ui/tests/overflow.mjs, installed with `npm install --no-save`.
+/apps/wallet-gui/ui/tests/node_modules/
+/apps/wallet-gui/ui/tests/package-lock.json
 
 # The docs site is a Node project inside docs/. Its content collection is
 # generated from docs/*.md by scripts/ingest.mjs on every build.
