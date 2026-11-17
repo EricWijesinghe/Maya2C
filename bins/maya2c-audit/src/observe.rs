@@ -91,8 +91,10 @@ mod tests {
 
     #[test]
     fn a_transport_failure_stops_the_read() {
-        let mut fake = Fake::default();
-        fake.broken = true;
+        let fake = Fake {
+            broken: true,
+            ..Default::default()
+        };
         assert!(matches!(observe(&fake, 1, 2), Err(RpcError::Transport(_))));
     }
 }
