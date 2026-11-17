@@ -107,7 +107,7 @@ Start-IfStopped 'maya-chat' `
 # Block explorer, published as explorer.maya2c.dev through the tunnel. Its
 # index is in memory and rebuilt from the node at start: no database to keep.
 Start-IfStopped 'maya-explorer' `
-    "`"$bin\maya-explorer.exe`" --node-rpc http://127.0.0.1:8545 --listen 127.0.0.1:3000 --assets `"$root\explorer-assets`"" `
+    "`"$bin\maya-explorer.exe`" --node-rpc http://127.0.0.1:8545 --listen 127.0.0.1:3000 --api-client-ip cf --assets `"$root\explorer-assets`"" `
     'explorer.log'
 
 # Status page and uptime API, published as status.maya2c.dev. It reads the
