@@ -1,6 +1,6 @@
 # parallel_apply: block application with the parallel verify phase off and on (v3 P1)
 
-- code: branch `feat/v3-parallel-exec` on base `14bbd2f8` (`postgen/v3`); the commit that adds the bench is the one measured
+- commit measured: `28e7207c` (branch `feat/v3-parallel-exec`, base `14bbd2f8` on `postgen/v3`)
 - machine: Intel Core Ultra 9 275HX, 24 logical cores, 31.4 GiB RAM, Windows 11 Pro Insider Preview build 29708
 - toolchain: rustc 1.99.0-nightly (da80ed070 2026-07-14)
 - command: `cargo bench -p custom-l1-node --bench parallel_apply --profile dev`
