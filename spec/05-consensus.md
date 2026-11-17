@@ -31,6 +31,8 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
+- **CON-14** An upgrade-schedule entry that names a version is admitted whatever feature bits it carries, subject to the lead, the horizon, strictly increasing versions and heights, and the suite rules (ADR-082). A sunset-only entry that carries any feature bit is refused. *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+- **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, zkML while it has no verifier, or the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED` is false, ADR-044 amendment 2026-11-15; negative case `work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
 - **CON-17** A passed governance change to a block-validity parameter (`ParameterKey::is_validity_rule`: tags 2 to 8, 17 and 18, the DEX fill and order ceilings, the oracle and shielded per-block caps, the VM memory, module and default-gas bounds, and the per-transaction and per-block contract gas caps of ADR-142) is not in force at its proposal's execution height `E`. It is held in `g:pending:<tag>` and is in force from height `E + MIN_UPGRADE_LEAD_BLOCKS` (2,592,000): the end-of-block pass of height `E + MIN_UPGRADE_LEAD_BLOCKS − 1` writes it into `g:params`, so the committed table at that tip is the one the activation block is judged by. At most one change waits per key; a later passed change to the same key replaces it. Tags 1, 9 and 10 (protocol fee, proposal deposit, default suite) are in force from `E + 1` as before. A change whose value is outside its key's range at `E` expires the proposal and the block is valid; a waiting value outside the range at promotion is deleted and never applied. `g:params` is written at execution only when a key in force from `E + 1` changed, and at promotion only when a value was promoted (ADR-082 amendment 2026-11-15). *(external vectors: crates/node/tests/governance_tests.rs)*
 
 ## Vectors and gaps
@@ -39,7 +41,10 @@ CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
 not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
-(`argonblake-pow`) has no language-neutral vector.
+(`argonblake-pow`) has no language-neutral vector. CON-14 and CON-15 are
+pinned by the node's own tests (`upgrade_schedule_tests.rs`, positive and
+negative cases), not by language-neutral vectors: the schedule lives in typed
+governance payloads, which `crates/spec-ref` does not model.
 
 CON-17 has no language-neutral vector: it is a rule over the governance
 layer's records, pinned by `crates/node/tests/governance_tests.rs` (the

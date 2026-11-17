@@ -128,9 +128,16 @@ impl EffectiveSchedule {
     ///
     /// Refuses an entry that schedules nothing, a version or a height that does
     /// not lie after every existing one, an activation fewer than `min_lead`
-    /// blocks after `now`, unknown feature bits, features on a sunset-only entry,
+    /// blocks after `now`, features (known or not) on a sunset-only entry,
     /// and any sunset the genesis policy would refuse (a duplicate, the default
     /// suite, or a window shorter than the minimum).
+    ///
+    /// Feature bits this binary does not define are admitted on a version
+    /// entry: the entry is then unsupported here and [`Self::check_halt`] stops
+    /// the node at its activation (ADR-082 amendment). Refusing them would make
+    /// every older binary reject the block that schedules a later binary's
+    /// feature, a fork at the vote. Governance gains nothing it lacked: it can
+    /// already schedule a version this binary does not implement.
     ///
     /// # Errors
     ///
@@ -145,9 +152,6 @@ impl EffectiveSchedule {
         let refuse = |reason: String| Err(NodeError::Governance { reason });
         if request.version.is_none() && request.sunsets.is_empty() {
             return refuse("a schedule entry must schedule a version or a sunset".into());
-        }
-        if !request.features.is_known() {
-            return refuse(format!("unknown feature bits {:#x}", request.features.0));
         }
         if request.version.is_none() && request.features.0 != 0 {
             return refuse("a sunset-only entry cannot switch features on".into());
@@ -555,16 +559,23 @@ mod tests {
     }
 
     #[test]
-    fn zkml_cannot_be_scheduled_through_admission() {
-        // M3: a version that switches zkML on is refused until its verifier is real.
+    fn zkml_is_admitted_but_halts_this_binary_at_its_activation() {
+        // M3: this binary cannot verify zkML proofs, so an entry switching it on
+        // halts it rather than running unverified proofs. Admission does not
+        // refuse it: a later binary with a real verifier writes the same entry,
+        // and a refusal here would fork at the vote.
+        let activation = NOW + MIN_UPGRADE_LEAD_BLOCKS;
         let request = ScheduleRequest {
             features: FeatureSet(FeatureSet::ZKML),
-            ..version_at(NOW + MIN_UPGRADE_LEAD_BLOCKS)
+            ..version_at(activation)
         };
-        assert!(
-            empty()
-                .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
-                .is_err()
-        );
+        empty()
+            .admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+            .expect("admitted");
+        let (entry, _) = EffectiveSchedule::entry_for(&request);
+        let schedule = UpgradeSchedule::new(entry.into_iter().collect()).unwrap();
+        assert!(schedule.check(activation - 1).is_ok());
+        assert!(schedule.check(activation).is_err());
+        assert_eq!(schedule.features().zkml, u64::MAX);
     }
 }

@@ -873,6 +873,7 @@ fn mining_vectors() -> Value {
     mine_retarget_cases(&mut cases);
     validate_cases(&mut cases);
     share_header_and_target_cases(&mut cases);
+    work_kind_cases(&mut cases);
     json!({"format": 1, "u64": "decimal strings", "spec": "spec/09-mining.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
 }
 
@@ -1055,6 +1056,44 @@ fn share_header_and_target_cases(cases: &mut Vec<Value>) {
             expect["error"] = json!("MINE-10");
         }
         cases.push(json!({"id": id, "rules": ["MINE-10"], "fn": "meets_target", "digest": hex(&digest), "target": hex(&target), "expect": expect}));
+    }
+}
+
+/// MINE-11: a share's and a claim's payload under kind 0, 1 and 255.
+fn work_kind_cases(cases: &mut Vec<Value>) {
+    let mut share = vec![0u8];
+    share.extend_from_slice(&7u64.to_le_bytes());
+    share.extend_from_slice(&9u64.to_le_bytes());
+    let mut claim = vec![0u8];
+    claim.extend_from_slice(&[0x33; 32]);
+    for (payload_type, base, len) in [
+        ("mining_share", share, mining::SHARE_PAYLOAD_LEN),
+        ("work_claim", claim, mining::CLAIM_PAYLOAD_LEN),
+    ] {
+        for kind in [0u8, 1, 255] {
+            let mut payload = base.clone();
+            payload[0] = kind;
+            let expect = match mining::work_payload(&payload, len) {
+                Ok(()) => json!({"result": "ok"}),
+                Err(rule) => json!({"result": "error", "error": rule}),
+            };
+            let id = if kind == 0 {
+                format!("{payload_type}-kind-0")
+            } else {
+                format!("refuse-{payload_type}-kind-{kind}")
+            };
+            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(&payload), "expect": expect}));
+        }
+        // The exact-length half of MINE-11, with kind 0 so only the length is
+        // wrong: one byte short (a pre-kind 16-byte share or 32-byte claim
+        // whose first byte happens to be 0 decodes this way) and one trailing.
+        let mut long = base.clone();
+        long.push(0);
+        for payload in [&base[..len - 1], &long[..]] {
+            assert!(mining::work_payload(payload, len).is_err());
+            let id = format!("refuse-{payload_type}-len-{}", payload.len());
+            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(payload), "expect": {"result": "error", "error": "MINE-11"}}));
+        }
     }
 }
 

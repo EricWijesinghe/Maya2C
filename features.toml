@@ -2349,7 +2349,7 @@ tier = "extended"
 class = "RESEARCH"
 status = "planned"
 tests = []
-note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim kind 1 is unassigned, no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
+note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim carries a WorkKind byte since 2026-11-15 but kind 1 is undefined (refused at decode), no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
 
 [[subsystem]]
 id = "hub-gpu-auto-tuner"
@@ -3011,7 +3011,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
-note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
+note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. Every share and work claim starts with a closed WorkKind byte (0 = DAG PoW; any other byte refused at decode, MINE-11, ADR-044 amendment 2026-11-15). Work claims never switch on while the compiled WORK_CLAIM_ADR_ACCEPTED = false: bit 4 is outside FeatureSet::IMPLEMENTED (a genesis naming it is refused at boot, a governance entry halts the node at its activation), and the mempool refuses the transaction. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
 
 [[subsystem]]
 id = "maya2c-hub"

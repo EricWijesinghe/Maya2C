@@ -21,6 +21,7 @@
 use custom_l1_node::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
+use custom_l1_node::core::mining_payload::WorkKind;
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
@@ -28,12 +29,14 @@ use custom_l1_node::error::NodeError;
 use custom_l1_node::governance::{
     PendingParameter, derive_proposal_id, pending_parameter_key, proposal_key,
 };
+use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_UPGRADE_LEAD_BLOCKS, MIN_VOTING_BLOCKS};
 use maya_governance::params::ParameterKey;
 use maya_governance::proposal::ProposalState;
 use maya_governance::tally::Choice;
 use primitive_types::U256;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 mod common;
@@ -341,7 +344,14 @@ fn a_work_claim_credits_the_address_the_miner_named() {
     let beneficiary = fixture.address(1);
 
     fixture
-        .act_with_claims(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
+        .act_with_claims(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                kind: WorkKind::DagPow,
+                beneficiary,
+            }),
+            1,
+        )
         .expect("claim");
 
     assert!(fixture.db.work_credit(&beneficiary, 1).expect("credit") > 0);
@@ -362,7 +372,10 @@ fn a_work_claim_is_refused_at_every_height_at_launch_and_credits_nothing() {
     let fixture = fixture();
     let beneficiary = fixture.address(1);
     let claim = signed(
-        TxKind::ClaimWork(WorkClaim { beneficiary }),
+        TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
+            beneficiary,
+        }),
         fixture.nonce_of(0),
         &fixture.holders[0],
     );
@@ -392,7 +405,14 @@ fn with_a_refused_claim_present_the_voting_weight_is_locked_stake_alone() {
     let voter = fixture.address(0);
     fixture.lock(0, 1_000, 1_000_000, 1);
 
-    let refused = fixture.act(1, TxKind::ClaimWork(WorkClaim { beneficiary: voter }), 2);
+    let refused = fixture.act(
+        1,
+        TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
+            beneficiary: voter,
+        }),
+        2,
+    );
     assert!(matches!(refused, Err(NodeError::WorkClaimInactive { .. })));
 
     assert_eq!(
@@ -402,12 +422,42 @@ fn with_a_refused_claim_present_the_voting_weight_is_locked_stake_alone() {
 }
 
 #[test]
+fn a_work_claim_is_refused_at_mempool_admission() {
+    // The compiled guard (`WORK_CLAIM_ADR_ACCEPTED`): a claim is never pooled
+    // or relayed, so no honest template carries one for the executor to refuse.
+    let Fixture {
+        db,
+        holders,
+        _dir: dir,
+    } = fixture();
+    let pool = Mempool::new(Arc::new(db));
+    let claim = signed(
+        TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
+            beneficiary: holders[1].address(),
+        }),
+        0,
+        &holders[0],
+    );
+    let refused = pool.insert(claim.clone());
+    assert!(
+        matches!(refused, Err(NodeError::WorkClaimInactive { .. })),
+        "{refused:?}"
+    );
+    let refused = pool.insert_encoded(&claim.to_bytes());
+    assert!(matches!(refused, Err(NodeError::WorkClaimInactive { .. })));
+    assert!(pool.is_empty());
+    drop(dir);
+}
+
+#[test]
 fn a_block_may_credit_its_work_only_once() {
     // A block represents one unit of work. A second claim would let a miner
     // mint voting weight out of a single proof of work.
     let fixture = fixture();
     let first = signed(
         TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
             beneficiary: fixture.address(1),
         }),
         0,
@@ -415,6 +465,7 @@ fn a_block_may_credit_its_work_only_once() {
     );
     let second = signed(
         TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
             beneficiary: fixture.address(2),
         }),
         1,
@@ -436,7 +487,14 @@ fn work_credit_decays_so_a_departed_miner_stops_governing() {
     let fixture = fixture();
     let beneficiary = fixture.address(1);
     fixture
-        .act_with_claims(0, TxKind::ClaimWork(WorkClaim { beneficiary }), 1)
+        .act_with_claims(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                kind: WorkKind::DagPow,
+                beneficiary,
+            }),
+            1,
+        )
         .expect("claim");
 
     let fresh = fixture.db.work_credit(&beneficiary, 1).expect("credit");
@@ -619,6 +677,7 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
         .act_with_claims(
             0,
             TxKind::ClaimWork(WorkClaim {
+                kind: WorkKind::DagPow,
                 beneficiary: fixture.address(0),
             }),
             1,
@@ -641,6 +700,7 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
             .act_with_claims(
                 2,
                 TxKind::ClaimWork(WorkClaim {
+                    kind: WorkKind::DagPow,
                     beneficiary: fixture.address(2),
                 }),
                 height,

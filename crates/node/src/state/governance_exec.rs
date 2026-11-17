@@ -40,6 +40,7 @@ use crate::consensus::difficulty::work_from_target;
 use crate::core::governance_payload::{
     Ballot, ProposalSubmission, ScheduleUpgrade, StakeLock, StakeUnlock, WorkClaim,
 };
+use crate::core::mining_payload::WorkKind;
 use crate::error::{NodeError, Result};
 use crate::governance::record::{
     LockRecord, ParameterTable, PendingParameter, ProposalRecord, Totals,
@@ -385,6 +386,9 @@ impl StateDB {
         claim: &WorkClaim,
         context: BlockContext,
     ) -> Result<()> {
+        // A new kind must add its feature-bit gate here before this compiles
+        // (ADR-044 amendment 2026-11-15).
+        let WorkKind::DagPow = claim.kind;
         if overlay.work_claimed {
             return Err(NodeError::DuplicateWorkClaim);
         }
