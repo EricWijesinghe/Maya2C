@@ -36,9 +36,6 @@ use crate::error::{Result, WalletError};
 /// SLIP-0010 curve seed for ed25519.
 const ED25519_CURVE: &[u8] = b"ed25519 seed";
 
-/// BIP-39 PBKDF2 iteration count, fixed by the specification.
-const PBKDF2_ROUNDS: u32 = 2048;
-
 /// Length of a BIP-39 seed.
 pub const SEED_LEN: usize = 64;
 
@@ -101,6 +98,22 @@ impl DerivationPath {
                 index | HARDENED,
             ],
         }
+    }
+
+    /// Like [`DerivationPath::account`], but refuses an index that already has
+    /// the hardened bit set: `index | HARDENED` would otherwise alias it onto a
+    /// lower account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Derivation`] if `account` or `index` is `>= HARDENED`.
+    pub fn try_account(account: u32, index: u32) -> Result<Self> {
+        if account >= HARDENED || index >= HARDENED {
+            return Err(WalletError::Derivation(format!(
+                "account {account} or index {index} has the hardened bit set"
+            )));
+        }
+        Ok(Self::account(account, index))
     }
 
     /// Parses a path such as `m/44'/2992'/0'/0'/0'`.
@@ -210,23 +223,11 @@ pub fn word_count(phrase: &str) -> usize {
 ///
 /// Returns [`WalletError::Mnemonic`] if the phrase is invalid.
 pub fn seed_from_mnemonic(phrase: &str, passphrase: &str) -> Result<Zeroizing<[u8; SEED_LEN]>> {
-    validate_mnemonic(phrase)?;
-
-    let normalized = phrase.trim();
-    let mut salt = Zeroizing::new(String::with_capacity(8 + passphrase.len()));
-    salt.push_str("mnemonic");
-    salt.push_str(passphrase);
-
-    let mut seed = Zeroizing::new([0u8; SEED_LEN]);
-    pbkdf2::pbkdf2::<Hmac<Sha512>>(
-        normalized.as_bytes(),
-        salt.as_bytes(),
-        PBKDF2_ROUNDS,
-        seed.as_mut(),
-    )
-    .map_err(|e| WalletError::Mnemonic(format!("seed derivation failed: {e}")))?;
-
-    Ok(seed)
+    // BIP-39 hashes the canonical words, not the raw input: separators pasted
+    // from multi-line sources would otherwise change the seed silently.
+    let mnemonic = bip39::Mnemonic::parse_normalized(phrase.trim())
+        .map_err(|e| WalletError::Mnemonic(e.to_string()))?;
+    Ok(Zeroizing::new(mnemonic.to_seed_normalized(passphrase)))
 }
 
 /// The SLIP-0010 master key for ed25519.
