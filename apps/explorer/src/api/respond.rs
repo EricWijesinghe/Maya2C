@@ -122,7 +122,7 @@ pub async fn conditional(request: Request, next: Next) -> Response {
     let matches = response
         .headers()
         .get(header::ETAG)
-        .is_some_and(|etag| etag == &wanted);
+        .is_some_and(|etag| *etag == wanted);
     if response.status() != StatusCode::OK || !matches {
         return response;
     }

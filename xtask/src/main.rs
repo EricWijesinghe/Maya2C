@@ -38,8 +38,10 @@ mod hybrid_genesis;
 mod kheavyhash;
 mod kit;
 mod localnet;
+mod md_links;
 mod mesh_check;
 mod mining_localnet;
+mod netfault;
 mod node_box;
 mod og_card;
 mod ordered_json;
@@ -99,6 +101,7 @@ fn main() -> ExitCode {
         "proof-ratchet" => proof_ratchet::run(rest),
         "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
+        "netfault" => netfault::netfault(rest),
         "up" => up::up(),
         "down" => up::down(),
         "kit" => kit::run(rest),
@@ -107,6 +110,7 @@ fn main() -> ExitCode {
         "sweep" => sweep::run(rest),
         "verify-release" => verify_release::run(rest),
         "site-integrity" => site_integrity::run(rest),
+        "md-links" => md_links::run(rest),
         "bench-gate" => return bench_gate::run(rest),
         "bench-report" => return bench_report::run(rest),
         "gap-register" => return gap_register::run(rest),
@@ -195,6 +199,8 @@ cargo xtask <command>
   trust-facts           Run go-no-go, readiness, coverage and proof-ratchet into
                         reports/trust-facts.{{md,json}}: evidence or GAP per line
                         [--out <dir>].
+  md-links              Fail if a relative link in a tracked Markdown file names
+                        a file that does not exist (issue #530).
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
@@ -220,7 +226,11 @@ cargo xtask <command>
   hub-bundle            Build the release miner and package the Maya2C Hub
                         with it: NSIS/MSI on Windows, deb/rpm/AppImage on
                         Linux (run in WSL).
-  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME]
+  netfault [--scenario partition|latency|loss|all] [--seed N]
+                        Four validators with every p2p link through a fault relay
+                        (ADR-097): a 2|2 partition must not finalise and must heal;
+                        latency and loss profiles are timed. Report in reports/netfault/.
+  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME] [--netfault latency|loss]
                         Seven validators as processes, attacked (--scenario: one attack once):
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery

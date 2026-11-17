@@ -905,3 +905,10 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 ## 2026-11-14 — Public indexer API v1 proposed for `/api/v1` (ADR-092, PR #414)
 
 Under Eric's general approval ("I approve everything, proceed", Eric 2026-11-14), the explorer's public indexer API (ADR-092) goes forward as a normal, non-node PR: `/api/v1` is read-only and rate limited, cursors only page the list that issued them, and every list is an index range read whatever the client sends, because an address with no history used to cost a walk of the whole `transactions` table. The ADR stays Proposed until the PR merges. Deploying it resets the explorer index (generation 3 to 4), so it goes out against an archive node or at re-genesis, never against a pruned node, which could not rebuild the history it lost.
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
