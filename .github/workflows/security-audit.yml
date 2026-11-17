@@ -82,6 +82,8 @@ jobs:
           - sealed_payload_decode
           # PoW target arithmetic and the prune-horizon predicate (pure rules).
           - pow_target
+          # Fork choice and reorg depth: work, retarget and the prune horizon.
+          - reorg_prune
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -353,8 +355,9 @@ jobs:
           command: check advisories bans licenses sources
 
   # ---------------------------------------------------------------------------
-  # Report-only. Each Tauri app is its own workspace, so the root `deny` job
-  # never reads their Cargo.lock files; this checks advisories over each one.
+  # Report-only. Each Tauri app and the nested fuzz/ and offsec-sandbox/
+  # workspaces are their own workspaces, so the root `deny` job never reads
+  # their Cargo.lock files; this checks advisories over each one.
   # GHSA-wrw7 (glib, via gtk-rs 0.18) is accepted in deny.tauri.toml with its
   # reason. Flip continue-on-error off once the open advisories are cleared.
   tauri-manifests:
@@ -366,7 +369,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: find
-        run: echo "manifests=$(ls apps/*/src-tauri/Cargo.toml | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+        run: echo "manifests=$(ls apps/*/src-tauri/Cargo.toml fuzz/Cargo.toml offsec-sandbox/Cargo.toml | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
 
   tauri-advisories:
     name: advisories / ${{ matrix.manifest }} (report-only)

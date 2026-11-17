@@ -180,7 +180,10 @@ else
     step "terraform plan (infra/terraform)"
     if need terraform; then
         if [[ "$MODE" == apply ]] && approved infrastructure; then
-            (cd infra/terraform && terraform init -input=false >/dev/null && terraform apply -input=false -auto-approve) || die "terraform apply failed"
+            # The plan file is what gets applied, so the reviewed plan is the applied one.
+            (cd infra/terraform && terraform init -input=false >/dev/null && terraform plan -input=false -out=tfplan \
+                && terraform show -no-color tfplan && terraform apply -input=false tfplan; rc=$?; rm -f tfplan; exit $rc) \
+                || die "terraform apply failed"
             COMPLETED+=(infrastructure); ok "(applied)"
         else
             (cd infra/terraform && terraform init -backend=false -input=false >/dev/null && terraform validate >/dev/null) \

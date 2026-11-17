@@ -916,3 +916,10 @@ Owner decision (Eric 2026-11-14, "I approve everything, proceed"). The rule sat 
 - **CI:** a step in the `reality ledger` job, which needs no build of the node.
 - **Not covered:** a float reached by type inference with no float token (`"0.5".parse()`, an `f64` from an excluded crate). `clippy::float_arithmetic` would close this and is a post-genesis item. WASM guest floats are outside the invariant; the VM makes them deterministic (`crates/vm/src/config.rs`).
 - **No ADR:** this pins an existing rule; no behaviour changes. ADR-079 carries a one-line amendment noting that invariant 20 is now 36.
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
