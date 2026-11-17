@@ -44,8 +44,8 @@ use crate::error::{NodeError, Result};
 use crate::governance::record::{LockRecord, ParameterTable, ProposalRecord, Totals};
 use crate::governance::work::{WorkRecord, narrow_work};
 use crate::governance::{
-    PARAMETERS_KEY, PROPOSAL_PREFIX, TOTALS_KEY, ballot_key, derive_proposal_id, lock_key,
-    proposal_key, work_key,
+    DUE_PREFIX, PARAMETERS_KEY, TOTALS_KEY, ballot_key, derive_proposal_id, due_height_prefix,
+    due_key, lock_key, proposal_key, work_key,
 };
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
@@ -56,10 +56,32 @@ use crate::state::upgrades::ScheduleRequest;
 ///
 /// Thirty-two. Each is at most a signature verification the block already pays
 /// for plus a handful of record reads, so this is not a CPU bound — it is a
-/// bound on how much the end-of-block pass can be made to do, since every
-/// proposal opened in a block is a proposal the pass must visit for the rest of
-/// its life.
+/// bound on how much governance work one block can add.
 pub const MAX_GOVERNANCE_TX_PER_BLOCK: usize = 32;
+
+/// Most proposals the settlement index may hold for one height.
+///
+/// The end-of-block pass settles every proposal due at its height, and a
+/// proposer chooses that height through its voting period and timelock, so
+/// without a cap 32 proposals a block for the 17 days of the longest vote
+/// could all come due at once. Sixty-four is two full blocks of proposals
+/// that chose the same schedule; at the cost measured per due proposal
+/// (`reports/sessions/2026-11-13-governance-settle-index.md`) a full height
+/// is a small part of a one-second block. A proposal that would overflow a
+/// height is refused, and its author moves the voting period or timelock by
+/// one block.
+pub const MAX_PROPOSALS_DUE_PER_HEIGHT: usize = 64;
+
+/// The heights at which `proposal` can change state: the first block after
+/// its vote closes, and the first it may execute at. Its `expires_after` is
+/// not one: a proposal still queued then was already due at
+/// `executable_from`.
+const fn due_heights(proposal: &Proposal) -> [u64; 2] {
+    [
+        proposal.schedule.voting_closes.saturating_add(1),
+        proposal.schedule.executable_from,
+    ]
+}
 
 /// The parameters in force when no table has ever been written.
 ///
@@ -454,6 +476,22 @@ impl StateDB {
                 reason: "a proposal with this identifier already exists".to_string(),
             });
         }
+        for height in due_heights(&proposal) {
+            // Bounded: no height is ever let past the cap, so this reads at
+            // most `MAX_PROPOSALS_DUE_PER_HEIGHT` keys.
+            if self
+                .merged_records(overlay, &due_height_prefix(height))?
+                .len()
+                >= MAX_PROPOSALS_DUE_PER_HEIGHT
+            {
+                return Err(NodeError::Governance {
+                    reason: format!(
+                        "height {height} already has {MAX_PROPOSALS_DUE_PER_HEIGHT} proposals \
+                         due; choose a voting period or timelock one block different"
+                    ),
+                });
+            }
+        }
 
         // The deposit is anti-spam, not a barrier: it returns when the proposal
         // settles, whatever the outcome. Charging only for rejection would make
@@ -466,6 +504,9 @@ impl StateDB {
         );
         self.debit_native(overlay, sender, deposit)?;
 
+        for height in due_heights(&proposal) {
+            Self::put_record(overlay, due_key(height, &id), Vec::new());
+        }
         Self::put_record(
             overlay,
             proposal_key(&id),
@@ -567,99 +608,164 @@ impl StateDB {
 
     // ------------------------------------------------------- end of block
 
-    /// Finalizes closed votes and applies passed proposals.
+    /// Finalizes closed votes and applies passed proposals that are due.
     ///
-    /// Runs once per block, after every transaction has been staged, in
-    /// proposal-identifier order — a property of the set rather than of the
-    /// block, so no arrangement of transactions changes what happens or when.
+    /// Runs once per block, after every transaction has been staged. It reads
+    /// the settlement index up to this height (`g:due:`), deletes what it read,
+    /// and settles those proposals in proposal-identifier order: a property of
+    /// the set rather than of the block, so no arrangement of transactions
+    /// changes what happens or when. A proposal the index does not name would
+    /// be a no-op here (`the_indexed_pass_matches_the_full_scan`), so the pass
+    /// costs what is due, never what is stored (ADR-082 amendment 2026-11-13).
     pub(crate) fn settle_governance(
         &self,
         overlay: &mut Overlay,
         context: BlockContext,
     ) -> Result<()> {
-        // Everyone who can cast a vote: locked stake and decayed work credit,
-        // the same two terms a ballot's weight is made of.
+        // shortcut: a key due at `u64::MAX` is never read; no chain reaches that height.
+        let end = due_height_prefix(context.height.saturating_add(1));
+        let due = self.merged_records_before(overlay, DUE_PREFIX, &end)?;
+        if due.is_empty() {
+            return Ok(());
+        }
+        let mut ids: Vec<[u8; 32]> = Vec::with_capacity(due.len());
+        for key in due.into_keys() {
+            let id = key
+                .get(DUE_PREFIX.len() + 8..)
+                .and_then(|tail| <[u8; 32]>::try_from(tail).ok())
+                .ok_or_else(|| NodeError::Decode("malformed settlement index key".to_string()))?;
+            ids.push(id);
+            Self::delete_record(overlay, key);
+        }
+        // Both of a proposal's keys are due at once on a replay that skips
+        // heights; it is settled once, exactly as the full scan would.
+        ids.sort_unstable();
+        ids.dedup();
+
+        let eligible = self.eligible_weight(overlay, context.height)?;
+        for id in ids {
+            let key = proposal_key(&id);
+            if let Some(bytes) = self.record(overlay, &key)? {
+                self.settle_one(overlay, key, &bytes, context, eligible)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Everyone who can cast a vote: locked stake and decayed work credit,
+    /// the same two terms a ballot's weight is made of.
+    fn eligible_weight(&self, overlay: &Overlay, height: u64) -> Result<Amount> {
         let totals = self.totals_through(overlay)?;
-        let eligible = to_amount(
+        Ok(to_amount(
             totals
                 .locked
-                .saturating_add(U256::from(totals.work.value_at(context.height))),
-        );
-        let quorum_bps = maya_governance::limits::MIN_QUORUM_BPS;
-        let approval_bps = maya_governance::limits::MIN_APPROVAL_BPS;
+                .saturating_add(U256::from(totals.work.value_at(height))),
+        ))
+    }
 
-        for (key, bytes) in self.merged_records(overlay, PROPOSAL_PREFIX)? {
-            let mut record = ProposalRecord::decode(&bytes)?;
-            let before = record.proposal;
+    /// Settles one proposal: closes its vote, applies or expires it, and
+    /// returns its deposit once it can change no further.
+    fn settle_one(
+        &self,
+        overlay: &mut Overlay,
+        key: Vec<u8>,
+        bytes: &[u8],
+        context: BlockContext,
+        eligible: Amount,
+    ) -> Result<()> {
+        let mut record = ProposalRecord::decode(bytes)?;
+        let before = record.proposal;
 
-            // Close the vote if its window has passed.
-            record.proposal = record
-                .proposal
-                .finalize(context.height, eligible, quorum_bps, approval_bps)
-                .unwrap_or(record.proposal);
+        // Close the vote if its window has passed.
+        record.proposal = record
+            .proposal
+            .finalize(
+                context.height,
+                eligible,
+                maya_governance::limits::MIN_QUORUM_BPS,
+                maya_governance::limits::MIN_APPROVAL_BPS,
+            )
+            .unwrap_or(record.proposal);
 
-            // Apply it if the timelock has run. A schedule entry whose lead has
-            // run out is not applied, and the proposal expires: refusing the
-            // block instead would stop the chain on a vote that passed.
-            if record.proposal.is_executable(context.height) {
-                // Both the schedule entry and the parameter changes are checked
-                // again here against the state they will land in. A failure
-                // expires the proposal: a block that refused it would stop the
-                // chain over a vote that passed (ADR-082).
-                let schedule_ok = match &record.upgrade {
-                    Some(upgrade) => {
-                        let default = self.default_after(overlay, &record.changes)?;
-                        self.effective_schedule_through(overlay)?
-                            .admit(
-                                &schedule_request(upgrade),
-                                context.height,
-                                maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
-                                default,
-                            )
-                            .is_ok()
-                    }
-                    None => true,
-                };
-                let changes_ok = {
-                    let sunsets = self.effective_schedule_through(overlay)?.sunsets;
-                    record.changes.iter().all(|(tag, value)| {
-                        ParameterKey::from_tag(*tag).is_ok_and(|key| {
-                            crate::crypto::suites::check_parameter(key, *value, &sunsets).is_ok()
-                        })
-                    })
-                };
-                let admitted = schedule_ok && changes_ok;
-                if admitted {
-                    self.apply_changes(overlay, &record)?;
-                    if let Some(upgrade) = &record.upgrade {
-                        let (entry, sunsets) = crate::state::upgrades::EffectiveSchedule::entry_for(
-                            &schedule_request(upgrade),
-                        );
-                        Self::stage_schedule(overlay, entry, &sunsets);
-                    }
-                    record.proposal = record
-                        .proposal
-                        .execute(context.height)
-                        .map_err(governance_error)?;
-                } else {
-                    record.proposal.state = ProposalState::Expired;
+        // Apply it if the timelock has run. A schedule entry whose lead has
+        // run out is not applied, and the proposal expires: refusing the
+        // block instead would stop the chain on a vote that passed.
+        if record.proposal.is_executable(context.height) {
+            if self.admitted(overlay, &record, context.height)? {
+                self.apply_changes(overlay, &record)?;
+                if let Some(upgrade) = &record.upgrade {
+                    let (entry, sunsets) = crate::state::upgrades::EffectiveSchedule::entry_for(
+                        &schedule_request(upgrade),
+                    );
+                    Self::stage_schedule(overlay, entry, &sunsets);
                 }
+                record.proposal = record
+                    .proposal
+                    .execute(context.height)
+                    .map_err(governance_error)?;
             } else {
-                record.proposal = record.proposal.expire_if_stale(context.height);
+                record.proposal.state = ProposalState::Expired;
             }
+        } else {
+            record.proposal = record.proposal.expire_if_stale(context.height);
+        }
 
-            if record.proposal.state.is_settled() {
-                self.release_deposit(overlay, &mut record)?;
-            }
+        if record.proposal.state.is_settled() {
+            self.release_deposit(overlay, &mut record)?;
+        }
 
-            // Written only when something moved, so a block that touched no
-            // proposal writes nothing and its state root is unchanged by the
-            // pass having run.
-            if record.proposal != before
-                || record.deposit.is_zero() && before.state != record.proposal.state
-            {
-                Self::put_record(overlay, key, record.encode());
+        // Written only when something moved, so a block that touched no
+        // proposal writes nothing and its state root is unchanged by the
+        // pass having run.
+        if record.proposal != before
+            || record.deposit.is_zero() && before.state != record.proposal.state
+        {
+            Self::put_record(overlay, key, record.encode());
+        }
+        Ok(())
+    }
+
+    /// Whether a proposal due to execute still may, against the state it will
+    /// land in.
+    ///
+    /// Both the schedule entry and the parameter changes are checked again
+    /// here. A failure expires the proposal: a block that refused it would
+    /// stop the chain over a vote that passed (ADR-082).
+    fn admitted(&self, overlay: &Overlay, record: &ProposalRecord, height: u64) -> Result<bool> {
+        let schedule_ok = match &record.upgrade {
+            Some(upgrade) => {
+                let default = self.default_after(overlay, &record.changes)?;
+                self.effective_schedule_through(overlay)?
+                    .admit(
+                        &schedule_request(upgrade),
+                        height,
+                        maya_governance::limits::MIN_UPGRADE_LEAD_BLOCKS,
+                        default,
+                    )
+                    .is_ok()
             }
+            None => true,
+        };
+        let sunsets = self.effective_schedule_through(overlay)?.sunsets;
+        let changes_ok = record.changes.iter().all(|(tag, value)| {
+            ParameterKey::from_tag(*tag).is_ok_and(|key| {
+                crate::crypto::suites::check_parameter(key, *value, &sunsets).is_ok()
+            })
+        });
+        Ok(schedule_ok && changes_ok)
+    }
+
+    /// The pass as it was before the index: every proposal record, every
+    /// block. Kept for the equivalence test and the measurement only.
+    #[cfg(test)]
+    pub(crate) fn settle_governance_full_scan(
+        &self,
+        overlay: &mut Overlay,
+        context: BlockContext,
+    ) -> Result<()> {
+        let eligible = self.eligible_weight(overlay, context.height)?;
+        for (key, bytes) in self.merged_records(overlay, crate::governance::PROPOSAL_PREFIX)? {
+            self.settle_one(overlay, key, &bytes, context, eligible)?;
         }
         Ok(())
     }
