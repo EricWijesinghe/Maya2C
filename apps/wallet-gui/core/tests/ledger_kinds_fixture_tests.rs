@@ -13,13 +13,13 @@
 //!   call, vault request and vault configure;
 //! - refusal probes the wallet neither builds nor describes: 0 and 5 output
 //!   transfers, deploy-contract, open-channel, delegate, lock-stake,
-//!   cancel-order, finalize-dispute, cancel-proposal, and a v8 multisig spend.
+//!   cancel-order, finalize-dispute, cancel-proposal, and a v8 multisig spend;
+//! - one value of every payload kind the node defines (tags 1 to 53), decoded
+//!   by the node itself, as the `every-kind-NN-*` lines.
 //!
-//! That is 12 of the node's 53 payload kinds. The device clear-signs none of
-//! them: it shows only plain transfers of 1 to 4 outputs. The other kinds
-//! rely on the device's general refusal of any byte after the nonce. The
-//! app's host tests and its Speculos tests read the file and assert each
-//! verdict.
+//! The device clear-signs no payload kind: it shows only plain transfers of
+//! 1 to 4 outputs and must refuse every kind line. The app's host tests and
+//! its Speculos tests read the file and assert each verdict.
 //!
 //! The device key is written as `KEY`: each test puts its own key there, as
 //! `ledger_tests.rs` already does for the transfer fixture.
@@ -32,6 +32,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use custom_l1_node::core::ChainTag;
+use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::dex_payload::{AssetTransfer, SwapRequest};
 use custom_l1_node::core::governance_payload::StakeLock;
 use custom_l1_node::core::multisig_tx::MultisigAuth;
@@ -254,24 +255,146 @@ fn fixture() -> String {
         line(name, verdict, &tx);
     }
     line("multisig-v8-spend", "6a90", &multisig_spend(&raw));
+    // Every payload kind the node defines, each refused before a screen.
+    for kind in every_payload_kind() {
+        let tag = wire_tag(&kind).expect("a payload kind");
+        let name = format!("every-kind-{tag:02}-{}", kind.label());
+        let mut tx = frame(vec![output(9, 0x33)], kind);
+        tx.sign_with_suite::<MlDsa65>(&key, &CHAIN).expect("sign");
+        line(&name, "6a95", &tx);
+    }
     out
+}
+
+/// The wire tag of every kind, written out by hand. Exhaustive on purpose: a
+/// new `TxKind` variant does not compile until it is added here, and then
+/// [`every_payload_kind`] and the fixture must carry it too.
+fn wire_tag(kind: &TxKind) -> Option<u8> {
+    let tag = match kind {
+        TxKind::Transfer => return None,
+        TxKind::OpenChannel(_) => 1,
+        TxKind::CooperativeClose(_) => 2,
+        TxKind::DisputeClose(_) => 3,
+        TxKind::PenaltyClaim(_) => 4,
+        TxKind::SettleBatch(_) => 5,
+        TxKind::FinalizeDispute(_) => 6,
+        TxKind::DeployContract(_) => 7,
+        TxKind::CallContract(_) => 8,
+        TxKind::Shielded(_) => 9,
+        TxKind::RegisterAsset(_) => 10,
+        TxKind::TransferAsset(_) => 11,
+        TxKind::CreatePool(_) => 12,
+        TxKind::AddLiquidity(_) => 13,
+        TxKind::RemoveLiquidity(_) => 14,
+        TxKind::Swap(_) => 15,
+        TxKind::SwapRoute(_) => 16,
+        TxKind::PlaceOrder(_) => 17,
+        TxKind::CancelOrder(_) => 18,
+        TxKind::CreateFeed(_) => 19,
+        TxKind::SubmitFeed(_) => 20,
+        TxKind::RotateAuthorities(_) => 21,
+        TxKind::SubmitBeacon(_) => 22,
+        TxKind::ClaimWork(_) => 23,
+        TxKind::LockStake(_) => 24,
+        TxKind::UnlockStake(_) => 25,
+        TxKind::Propose(_) => 26,
+        TxKind::CastVote(_) => 27,
+        TxKind::CancelProposal(_) => 28,
+        TxKind::Seal(_) => 29,
+        TxKind::RevealShare(_) => 30,
+        TxKind::RegisterDid(_) => 31,
+        TxKind::RotateDidKey(_) => 32,
+        TxKind::RevokeDid(_) => 33,
+        TxKind::AnchorAttestation(_) => 34,
+        TxKind::SetRevocationBit(_) => 35,
+        TxKind::IssueRwa(_) => 36,
+        TxKind::SettleDvp(_) => 37,
+        TxKind::RecordEligibility(_) => 38,
+        TxKind::DistributeRevenue(_) => 39,
+        TxKind::AttestLegal(_) => 40,
+        TxKind::HtlcLock(_) => 41,
+        TxKind::HtlcClaim(_) => 42,
+        TxKind::HtlcRefund(_) => 43,
+        TxKind::AttestAttack(_) => 44,
+        TxKind::EnrollDevice(_) => 45,
+        TxKind::SubmitTelemetry(_) => 46,
+        TxKind::ReportTamper(_) => 47,
+        TxKind::ProveEquivocation(_) => 48,
+        TxKind::RevokeDevice(_) => 49,
+        TxKind::Staking(_) => 50,
+        TxKind::Council(_) => 51,
+        TxKind::Vault(_) => 52,
+        TxKind::MiningShare(_) => 53,
+    };
+    Some(tag)
+}
+
+/// The highest payload tag `wire_tag` names. The node must refuse the next
+/// one (`no_payload_tag_past_the_last_is_defined`), so a kind added to the
+/// node without being named here fails a test.
+const LAST_TAG: u8 = 53;
+
+/// One value of every payload kind, as the node itself decodes it from its
+/// tag and a body of zero bytes.
+fn every_payload_kind() -> Vec<TxKind> {
+    (1..=LAST_TAG)
+        .map(|tag| {
+            let bytes = payload_bytes(tag);
+            let mut reader = ByteReader::new(&bytes);
+            TxKind::decode(&mut reader).unwrap_or_else(|e| panic!("tag {tag}: {e}"))
+        })
+        .collect()
+}
+
+/// `tag` and a body the node decodes: zeros (empty lengths, zero amounts,
+/// all-zero keys and hashes), with one byte set for the kinds whose decoder
+/// refuses an all-zero body. Each entry is `(tag, body offset, value)`.
+fn payload_bytes(tag: u8) -> Vec<u8> {
+    // Room for the largest body: a channel closure carries two hybrid signatures.
+    const ZEROS: usize = 65_536;
+    const NOT_ALL_ZERO: [(u8, usize, u8); 8] = [
+        (16, 0, 1),     // swap route: one leg
+        (20, 48, 1),    // feed submission: one observation
+        (26, 16, 1),    // proposal: one parameter change
+        (29, 8, 48),    // sealed envelope: the minimum ciphertext
+        (41, 72, 2),    // HTLC lock: a BLAKE3 hash lock, not a lattice one
+        (44, 0, 1),     // attack attestation: offence 1
+        (45, 1_952, 1), // device enrollment: sensor class 1, after the key
+        (47, 40, 1),    // tamper report: cause 1
+    ];
+    let mut bytes = vec![tag];
+    bytes.resize(1 + ZEROS, 0);
+    for (_, offset, value) in NOT_ALL_ZERO.iter().filter(|(t, _, _)| *t == tag) {
+        bytes[1 + offset] = *value;
+    }
+    bytes
 }
 
 #[test]
 fn every_payload_kind_carries_bytes_after_the_nonce() {
     // The device refuses anything after the nonce; that is only a refusal of
-    // every payload kind if no payload kind encodes to nothing. Checked here
-    // for the 12 kinds in the fixture; every other kind's encoding also
-    // starts with a tag byte (`TxKind::encode_into`).
-    for (name, _, tx) in cases() {
+    // every payload kind if no payload kind encodes to nothing. Checked for
+    // one value of each of the node's kinds, not just the fixture's.
+    let kinds = every_payload_kind();
+    assert_eq!(kinds.len(), usize::from(LAST_TAG));
+    for (tag, kind) in (1..=LAST_TAG).zip(&kinds) {
         let mut tail = Vec::new();
-        tx.kind.encode_into(&mut tail);
-        assert_eq!(
-            tail.is_empty(),
-            matches!(tx.kind, TxKind::Transfer),
-            "{name}"
-        );
+        kind.encode_into(&mut tail);
+        assert_eq!(tail.first(), Some(&tag), "{}", kind.label());
+        assert_eq!(wire_tag(kind), Some(tag), "{}", kind.label());
     }
+    let mut tail = Vec::new();
+    TxKind::Transfer.encode_into(&mut tail);
+    assert!(tail.is_empty(), "a plain transfer carries no payload section");
+    for (name, _, tx) in cases() {
+        assert_eq!(wire_tag(&tx.kind).is_none(), matches!(tx.kind, TxKind::Transfer), "{name}");
+    }
+}
+
+#[test]
+fn no_payload_tag_past_the_last_is_defined() {
+    let bytes = payload_bytes(LAST_TAG + 1);
+    assert!(TxKind::decode(&mut ByteReader::new(&bytes)).is_err());
 }
 
 #[test]

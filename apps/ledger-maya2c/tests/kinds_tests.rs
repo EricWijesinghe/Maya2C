@@ -1,14 +1,13 @@
 //! Clear signing, kind by kind (P-11): every shape in the kinds fixture, as
 //! the node encodes it, reaches the verdict the fixture names. The fixture
-//! holds the shapes the wallet builds or describes plus payload kinds the
-//! device must refuse (12 of the node's 53 payload kinds, and a v8 multisig
-//! spend). Only a plain transfer of 1 to 4 outputs is shown and signed; the
-//! device clear-signs no payload kind (swap, asset transfer, contract call,
-//! vault included). Every payload kind's encoding starts with a tag byte, and
-//! any byte at all after the nonce is refused before a screen (all 256
-//! values, below), so the 41 kinds not in the fixture rely on that general
-//! refusal. Clear-signing a payload kind on the device is open work: its own
-//! ADR and a firmware change.
+//! holds the shapes the wallet builds or describes, a v8 multisig spend, and
+//! one value of every payload kind the node defines (tags 1 to 53, the
+//! `every-kind-*` lines). Only a plain transfer of 1 to 4 outputs is shown
+//! and signed; the device clear-signs no payload kind (swap, asset transfer,
+//! contract call, vault included), and refuses each one here, kind by kind.
+//! Any byte at all after the nonce is also refused (all 256 values, below).
+//! Clear-signing a payload kind on the device is open work: its own ADR and a
+//! firmware change.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -28,6 +27,11 @@ fn every_fixture_shape_reaches_its_verdict() {
     let key = device();
     let cases = kinds::cases(&key);
     assert!(cases.len() >= 18, "{} cases", cases.len());
+    let every_kind = cases
+        .iter()
+        .filter(|c| c.name.starts_with("every-kind-"))
+        .count();
+    assert_eq!(every_kind, 53, "one line per node payload kind");
     for case in &cases {
         let got = match review::review(&case.signing_bytes, &key) {
             Ok(_) => 0x9000,

@@ -137,7 +137,7 @@ Queue abbreviations: P-1..P-16 = `.claude/plans/q1-90day-roadmap.plan.md`; V3-*,
 | Desktop wallet | all | (common) | `features.toml:2685` REAL/verified | shipped |
 | Browser-extension wallet | MetaMask, Phantom | (common) | **none** | P-9 |
 | Mobile wallet / light client | all; TON in Telegram, mini-apps (T) | https://dev.to/ton-adoption/ton-roadmap-2026-2027-what-developers-are-promising-5ec6 | **none**; chat `2801` RESEARCH | P-10; gap P-45 (chat mini-apps) |
-| Hardware wallet | Ledger | (common) | `features.toml:2847` working | P-11 |
+| Hardware wallet | Ledger | (common) | `features.toml:2847` working | P-11 partial (device clear-signs plain transfers only; swap, asset, call, vault refused) |
 | Signed update channel | most apps | (common) | `apps/app-update`, ADR-075 | shipped |
 
 ### Oracles, identity, AI

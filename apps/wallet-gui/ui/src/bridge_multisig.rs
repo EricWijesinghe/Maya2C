@@ -26,7 +26,22 @@ pub struct Account {
     /// `m`.
     pub threshold: usize,
     /// Members in policy order.
-    pub members: Vec<MemberKey>,
+    pub members: Vec<Member>,
+    /// False when none of this wallet's accounts is a member.
+    pub holds_member: bool,
+}
+
+/// One member as the account card shows it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Member {
+    /// The suite byte.
+    pub suite: u8,
+    /// Full public key, hex.
+    pub public_key: String,
+    /// BLAKE3 of the key, 16 bytes, hex: what members compare.
+    pub fingerprint: String,
+    /// This wallet's account index holding the key, if any.
+    pub account: Option<u32>,
 }
 
 /// A proposal and its approvals so far.

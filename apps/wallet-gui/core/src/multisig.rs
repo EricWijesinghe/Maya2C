@@ -21,8 +21,13 @@
 //!
 //! A finished v8 spend carries the policy and `m` approvals, so it is larger
 //! than a single-signature transfer. [`MultisigAccount::spend_size`] measures
-//! it, and [`Proposal::check_fee`] refuses an underpaid fee before anyone
-//! signs: the fee is inside the signed bytes.
+//! it, and [`Proposal::check_fee`] refuses a fee already underpaid at the
+//! current base fee before anyone signs: the fee is inside the signed bytes.
+//! That check cannot see the future. The base fee can rise every block while
+//! approvals are collected, so a fee priced at today's minimum can still be
+//! refused at broadcast (`FeeTooLow`), and every member must then approve a
+//! new proposal. The fee chosen at propose time has to carry that headroom;
+//! the screen pre-fills the Standard tier and says so.
 //!
 //! # What travels between members
 //!
@@ -81,6 +86,43 @@ impl MemberKey {
     }
 }
 
+/// Bytes of BLAKE3 a member's fingerprint shows: 128 bits, so a coordinator
+/// cannot swap in a key that looks the same (a prefix of an ML-DSA key is its
+/// public seed, which anyone can grind to match).
+const FINGERPRINT_LEN: usize = 16;
+
+/// One member as the account card shows it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemberView {
+    /// The suite byte.
+    pub suite: u8,
+    /// The full encoded public key, hex.
+    pub public_key: String,
+    /// BLAKE3 of the public key, first 16 bytes, hex: what members compare.
+    pub fingerprint: String,
+    /// This wallet's account index whose key this is, if any.
+    pub account: Option<u32>,
+}
+
+/// An account as the multisig screen shows it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountView {
+    /// The policy, hex: what every member pastes to open the same account.
+    pub account_hex: String,
+    /// The account's address, hex.
+    pub address: String,
+    /// The address in grouped Bech32m for the network.
+    pub grouped: String,
+    /// `m`.
+    pub threshold: usize,
+    /// The members, in policy order.
+    pub members: Vec<MemberView>,
+    /// False when none of this wallet's derived accounts is a member: this
+    /// wallet could never approve a spend, so the screen warns before anyone
+    /// funds the address.
+    pub holds_member: bool,
+}
+
 /// A multisig account: the policy, which is the account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MultisigAccount {
@@ -103,12 +145,40 @@ impl MultisigAccount {
             .collect::<Result<Vec<_>>>()?;
         let policy = MultisigPolicy::new(threshold, keys)
             .map_err(|e| WalletError::Multisig(e.to_string()))?;
-        // Only a hybrid 0x30 key can approve today: the Ledger app refuses v8
-        // bytes and there is no way to import an approval signed elsewhere.
-        // An account needing any other approval would take funds it can never
-        // spend. Relax this when a Ledger v8 review and an "add external
-        // approval" command exist (the `multisig-v8-spend` Ledger fixture
-        // case flips with the first).
+        Self::spendable(policy)
+    }
+
+    /// Reads an account another member shared with [`MultisigAccount::to_hex`].
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Multisig`] for malformed hex, a malformed policy,
+    /// trailing bytes, or a threshold above the number of hybrid `0x30`
+    /// members (an account built elsewhere is held to the same rule as
+    /// [`MultisigAccount::new`]).
+    pub fn from_hex(text: &str) -> Result<Self> {
+        let bytes = hex::decode(text.trim())
+            .map_err(|_| WalletError::Multisig("the account is not hexadecimal".into()))?;
+        let (policy, used) =
+            MultisigPolicy::decode(&bytes).map_err(|e| WalletError::Multisig(e.to_string()))?;
+        if used != bytes.len() {
+            return Err(WalletError::Multisig(
+                "trailing bytes after the account policy".into(),
+            ));
+        }
+        Self::spendable(policy)
+    }
+
+    /// `policy` as an account, if a quorum of hybrid `0x30` keys can spend it.
+    ///
+    /// Only a hybrid key can approve today: the Ledger app refuses v8 bytes
+    /// and there is no way to import an approval signed elsewhere. An account
+    /// needing any other approval would take funds it can never spend. Relax
+    /// this when a Ledger v8 review and an "add external approval" command
+    /// exist (the `multisig-v8-spend` Ledger fixture case flips with the
+    /// first). ADR-145.
+    fn spendable(policy: MultisigPolicy) -> Result<Self> {
+        let threshold = policy.threshold();
         let approvers = policy
             .keys()
             .iter()
@@ -120,25 +190,6 @@ impl MultisigAccount {
                  hybrid suite; a Ledger or other suite cannot approve yet, so the account \
                  could never spend"
             )));
-        }
-        Ok(Self { policy })
-    }
-
-    /// Reads an account another member shared with [`MultisigAccount::to_hex`].
-    ///
-    /// # Errors
-    ///
-    /// [`WalletError::Multisig`] for malformed hex, a malformed policy, or
-    /// trailing bytes.
-    pub fn from_hex(text: &str) -> Result<Self> {
-        let bytes = hex::decode(text.trim())
-            .map_err(|_| WalletError::Multisig("the account is not hexadecimal".into()))?;
-        let (policy, used) =
-            MultisigPolicy::decode(&bytes).map_err(|e| WalletError::Multisig(e.to_string()))?;
-        if used != bytes.len() {
-            return Err(WalletError::Multisig(
-                "trailing bytes after the account policy".into(),
-            ));
         }
         Ok(Self { policy })
     }
@@ -184,6 +235,35 @@ impl MultisigAccount {
 
     pub(crate) fn policy(&self) -> &MultisigPolicy {
         &self.policy
+    }
+
+    /// The account card for `genesis`'s network. `own` pairs this wallet's
+    /// account indexes with their member keys; a member matching one is
+    /// marked as that account.
+    #[must_use]
+    pub fn view(&self, genesis: &str, own: &[(u32, PolicyKey)]) -> AccountView {
+        let members: Vec<MemberView> = self
+            .policy
+            .keys()
+            .iter()
+            .map(|key| MemberView {
+                suite: key.suite.to_byte(),
+                public_key: hex::encode(&key.public_key),
+                fingerprint: hex::encode(
+                    &blake3::hash(&key.public_key).as_bytes()[..FINGERPRINT_LEN],
+                ),
+                account: own.iter().find(|(_, k)| k == key).map(|(i, _)| *i),
+            })
+            .collect();
+        let network = crate::networks::address_network(genesis);
+        AccountView {
+            account_hex: self.to_hex(),
+            address: hex::encode(self.address()),
+            grouped: maya_clear_sign::grouped(network, &self.address()),
+            threshold: self.threshold(),
+            holds_member: members.iter().any(|m| m.account.is_some()),
+            members,
+        }
     }
 
     /// Bytes a finished spend from this account occupies: one payment, a fee
@@ -381,6 +461,10 @@ impl Proposal {
     /// as underpaid (ADR-029), and the fee is inside the signed bytes, so
     /// every member would have to approve a new proposal. A zero `base_fee`
     /// (fees off) checks nothing.
+    ///
+    /// Passing this is not a promise the spend will be accepted: `base_fee`
+    /// is the rate now, and it can rise every block while approvals are
+    /// collected (see the module's "Fees").
     ///
     /// # Errors
     ///

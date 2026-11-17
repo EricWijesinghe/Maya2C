@@ -27,6 +27,14 @@ fn suite_name(suite: u8) -> &'static str {
     }
 }
 
+/// "Member 2 (you, account 0)" for this wallet's key, "Member 2" otherwise.
+fn member_label(position: usize, account: Option<u32>) -> String {
+    match account {
+        Some(index) => format!("Member {position} (you, account {index})"),
+        None => format!("Member {position}"),
+    }
+}
+
 /// One member per line as `suite:hex` (`30:…`), the form "Copy my key" gives.
 /// A line without a prefix is read as this wallet's hybrid suite.
 fn parse_members(text: &str) -> Result<Vec<ms::MemberKey>, String> {
@@ -285,18 +293,25 @@ pub fn Multisig() -> impl IntoView {
                 .iter()
                 .enumerate()
                 .map(|(i, m)| {
-                    let short = m.public_key.get(..16).unwrap_or(&m.public_key).to_string();
                     view! {
-                        <div><span>{format!("Member {i}")}</span>
-                        <span class="mono">{format!("{} \u{b7} {short}\u{2026}", suite_name(m.suite))}</span></div>
+                        <div><span>{member_label(i, m.account)}</span>
+                        <span class="mono">{format!("{} \u{b7} {}", suite_name(m.suite), m.fingerprint)}</span></div>
                     }
                 })
                 .collect_view();
+            let stranger = (!a.holds_member).then(|| view! {
+                <p class="hint warning">
+                    "None of this wallet's accounts is a member, so it can never approve a \
+                     spend. Check each fingerprint with the member who owns it before anyone \
+                     funds this address."
+                </p>
+            });
             let copy_text = Signal::derive({
                 let hex = a.account_hex.clone();
                 move || hex.clone()
             });
             view! {
+                {stranger}
                 <div class="summary">
                     <p class="description">
                         {format!("{} of {} members must approve every spend.", a.threshold, a.members.len())}
@@ -391,6 +406,12 @@ pub fn Multisig() -> impl IntoView {
             <label>"Fee (MAYA)"</label>
             <input inputmode="decimal" prop:value=move || fee.get()
                 on:input=move |ev| fee.set(event_target_value(&ev))/>
+            <p class="hint">
+                "Every member signs this fee, and the network's base fee can rise while \
+                 approvals are collected. The pre-filled Standard fee is twice today's \
+                 minimum; a fee at the minimum may be refused at broadcast, and the spend \
+                 would have to be proposed and approved again."
+            </p>
             <button class="ghost wide" disabled=move || busy.get() on:click=propose>"Propose"</button>
 
             <h2>"4. Approve, collect, finish"</h2>
@@ -435,7 +456,13 @@ pub fn Multisig() -> impl IntoView {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_members;
+    use super::{member_label, parse_members};
+
+    #[test]
+    fn this_wallets_member_is_marked_as_you() {
+        assert_eq!(member_label(2, Some(0)), "Member 2 (you, account 0)");
+        assert_eq!(member_label(1, None), "Member 1");
+    }
 
     #[test]
     fn member_lines_read_their_suite_prefix() {

@@ -11,14 +11,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use custom_l1_node::core::multisig_tx::MultisigAuth;
+use custom_l1_node::core::payload::{ContractCall, TxKind};
+use custom_l1_node::core::staking_payload::StakingAction;
+use custom_l1_node::core::transaction::{TxInput, TxOutput};
 use custom_l1_node::core::{ChainTag, Transaction};
 use custom_l1_node::state::context::SUITE_ENVELOPE_ACTIVATION_HEIGHT;
 use custom_l1_node::state::fees::FEE_COLLECTOR;
 use maya_clear_sign::Context;
 use maya_crypto_pq::agility::{Network, SuitePolicy};
-use maya_crypto_pq::multisig::Approval;
+use maya_crypto_pq::multisig::{Approval, MultisigPolicy};
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 use maya_wallet_core::error::WalletError;
+use maya_wallet_core::payment::FEE_SINK;
 use maya_wallet_core::multisig::{MemberKey, MultisigAccount, Proposal, ProposalStatus};
 use maya_wallet_core::wallet::{SignTerms, Wallet};
 use primitive_types::U256;
@@ -409,4 +413,169 @@ fn a_read_proposal_reports_its_own_progress() {
             complete: true,
         }
     );
+}
+
+/// A 2-of-2 of a wallet key and a Ledger key, encoded as another tool would
+/// share it: `MultisigAccount::new` refuses to build it, so only an outside
+/// encoder can produce the text.
+fn ledger_bound_policy_hex(w: &Wallet) -> String {
+    let keys = [w.member_key(0).expect("0"), ledger_member()]
+        .iter()
+        .map(|m| m.to_policy_key().expect("key"))
+        .collect();
+    hex::encode(MultisigPolicy::new(2, keys).expect("valid policy").encode())
+}
+
+#[test]
+fn an_account_shared_from_elsewhere_that_no_wallet_quorum_can_spend_is_refused() {
+    let w = wallet();
+    assert!(matches!(
+        MultisigAccount::from_hex(&ledger_bound_policy_hex(&w)),
+        Err(WalletError::Multisig(_))
+    ));
+}
+
+#[test]
+fn the_account_card_marks_this_wallets_members_and_flags_a_stranger() {
+    const GENESIS: &str = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
+    let mut w = wallet();
+    w.account(0).expect("derive 0");
+    w.account(1).expect("derive 1");
+    let card = w.multisig_view(&account(&w), GENESIS).expect("view");
+    let marks: Vec<Option<u32>> = card.members.iter().map(|m| m.account).collect();
+    assert_eq!(marks, [Some(0), Some(1), None]);
+    assert!(card.holds_member);
+    // Fingerprints are BLAKE3 of the whole key, 16 bytes, not a key prefix.
+    let ledger = &card.members[2];
+    let key = hex::decode(&ledger.public_key).expect("hex");
+    assert_eq!(
+        ledger.fingerprint,
+        hex::encode(&blake3::hash(&key).as_bytes()[..16])
+    );
+    assert_eq!(ledger.public_key, ledger_member().public_key, "the full key");
+
+    // Another wallet's account, opened here: nothing is marked, and the card
+    // says this wallet can never approve.
+    let mut stranger = Wallet::from_mnemonic(
+        "legal winner thank year wave sausage worth useful legal winner thank yellow",
+        "",
+    )
+    .expect("phrase");
+    stranger.account(0).expect("derive");
+    let theirs = MultisigAccount::new(1, &[stranger.member_key(0).expect("0"), ledger_member()])
+        .expect("1-of-2");
+    let opened = MultisigAccount::from_hex(&theirs.to_hex()).expect("read");
+    let card = w.multisig_view(&opened, GENESIS).expect("view");
+    assert!(!card.holds_member);
+    assert!(card.members.iter().all(|m| m.account.is_none()));
+}
+
+#[test]
+fn every_refusal_after_the_dialog_is_known_before_it() {
+    // The Tauri command runs this before the native Approve dialog, so a
+    // person is never asked to approve what the core will not sign.
+    let mut w = wallet();
+    let draft = propose(&w);
+    assert!(w.check_multisig_approval(0, &draft, U256::zero()).is_ok());
+    assert!(matches!(
+        w.check_multisig_approval(5, &draft, U256::zero()),
+        Err(WalletError::Multisig(_))
+    ));
+    let one = approve(&mut w, 0, &draft);
+    assert!(matches!(
+        w.check_multisig_approval(0, &one, U256::zero()),
+        Err(WalletError::Multisig(_))
+    ));
+    let two = approve(&mut w, 1, &one);
+    // Both have approved, and nobody may add to a met quorum.
+    for index in [0, 1] {
+        assert!(matches!(
+            w.check_multisig_approval(index, &two, U256::zero()),
+            Err(WalletError::Multisig(_))
+        ));
+    }
+    let short = propose_paying(&w, 1, 0).expect("fees off");
+    assert!(matches!(
+        w.check_multisig_approval(0, &short, U256::one()),
+        Err(WalletError::Multisig(_))
+    ));
+}
+
+/// `p`'s transaction after `edit`, re-encoded as a member could send it.
+fn reshaped(p: &Proposal, edit: impl FnOnce(&mut Transaction)) -> String {
+    let mut tx = Transaction::from_bytes(&hex::decode(p.to_hex()).expect("hex")).expect("v8");
+    edit(&mut tx);
+    hex::encode(tx.to_bytes())
+}
+
+fn refused(text: &str) -> bool {
+    matches!(
+        Proposal::from_hex(text, &CHAIN),
+        Err(WalletError::Multisig(_))
+    )
+}
+
+#[test]
+fn a_proposal_of_another_kind_is_refused_when_read() {
+    let w = wallet();
+    let p = propose(&w);
+    let call = reshaped(&p, |tx| {
+        tx.kind = TxKind::CallContract(ContractCall {
+            contract: [0x41; 32],
+            input: vec![1, 2],
+            gas_limit: 9,
+        });
+    });
+    assert!(refused(&call), "a contract call from the shared account");
+    let delegate = reshaped(&p, |tx| {
+        tx.kind = TxKind::Staking(Box::new(StakingAction::Delegate {
+            validator: [0x41; 32],
+            amount: U256::from(3),
+        }));
+    });
+    assert!(refused(&delegate), "a delegation of the shared account's funds");
+}
+
+#[test]
+fn a_proposal_spending_an_input_is_refused_when_read() {
+    let w = wallet();
+    let p = propose(&w);
+    let with_input = reshaped(&p, |tx| {
+        tx.inputs.push(TxInput {
+            prev_tx: [0x22; 32],
+            index: 1,
+        });
+    });
+    assert!(refused(&with_input));
+}
+
+#[test]
+fn a_proposal_with_two_fee_outputs_is_refused_when_read() {
+    // Each extra output alone is a fee output; three outputs are still more
+    // than the one payment and one fee the screen shows.
+    let w = wallet();
+    let p = propose(&w);
+    let fee = |recipient| TxOutput {
+        amount: U256::from(10),
+        recipient,
+    };
+    let text = reshaped(&p, |tx| {
+        tx.outputs.truncate(1);
+        tx.outputs.push(fee(FEE_COLLECTOR));
+        tx.outputs.push(fee(FEE_SINK));
+    });
+    assert!(refused(&text));
+}
+
+#[test]
+fn a_single_signature_frame_is_not_read_as_a_proposal() {
+    // A v7 frame: the same transfer, signed by one key, no multisig section.
+    let w = wallet();
+    let p = propose(&w);
+    let text = reshaped(&p, |tx| {
+        tx.multisig = None;
+        tx.sign_with_suite::<MlDsa65>(&ledger_key(), &CHAIN)
+            .expect("sign");
+    });
+    assert!(refused(&text));
 }

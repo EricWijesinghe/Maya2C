@@ -23,7 +23,7 @@ use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use crate::confirm::{Confirmation, confirmation, confirmation_with};
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
-use crate::multisig::{MemberKey, MultisigAccount, Proposal};
+use crate::multisig::{AccountView, MemberKey, MultisigAccount, Proposal};
 use crate::node_url::check_node_url;
 use crate::payment::{
     FEE_SINK, SignedTransfer, check_fee_collector, decode_address, finish_transfer, transfer_size,
@@ -385,20 +385,7 @@ impl Wallet {
                     .to_string(),
             ));
         }
-        let amount = proposal
-            .transaction()
-            .outputs
-            .first()
-            .map(|o| o.amount)
-            .unwrap_or_default();
-        check_fee_cap(proposal.fee(), amount, false)?;
-        // The fee is inside the signed bytes: an underpaid spend would be
-        // refused after every member approved, and need proposing again.
-        proposal.check_fee(base_fee)?;
-        let (signing_key, member) = self.member_signer(index)?;
-        let position = proposal.account().position_of(&member).ok_or_else(|| {
-            WalletError::Multisig(format!("account {index} is not a member of this account"))
-        })?;
+        let (signing_key, position) = self.multisig_signer(index, proposal, base_fee)?;
         let signature = signing_key
             .sign(&proposal.signing_bytes(chain))
             .map_err(|e| WalletError::Signing(e.to_string()))?;
@@ -413,6 +400,73 @@ impl Wallet {
         )?;
         self.reviewed = None;
         Ok(approved)
+    }
+
+    /// Every refusal [`Wallet::approve_multisig`] can give after the confirm
+    /// screen, checked first so a person is never asked to approve what the
+    /// core would not sign: the fee cap, the fee for the finished spend,
+    /// membership, a repeat approval and a met quorum. Signs nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Wallet::approve_multisig`], less the confirm-screen check.
+    pub fn check_multisig_approval(
+        &self,
+        index: u32,
+        proposal: &Proposal,
+        base_fee: primitive_types::U256,
+    ) -> Result<()> {
+        self.multisig_signer(index, proposal, base_fee).map(|_| ())
+    }
+
+    /// Account `index`'s key and policy position, once every pre-signing
+    /// check on `proposal` passes.
+    fn multisig_signer(
+        &self,
+        index: u32,
+        proposal: &Proposal,
+        base_fee: primitive_types::U256,
+    ) -> Result<(HybridSigningKey, u8)> {
+        let amount = proposal
+            .transaction()
+            .outputs
+            .first()
+            .map(|o| o.amount)
+            .unwrap_or_default();
+        check_fee_cap(proposal.fee(), amount, false)?;
+        // The fee is inside the signed bytes: an underpaid spend would be
+        // refused after every member approved, and need proposing again.
+        proposal.check_fee(base_fee)?;
+        let (signing_key, member) = self.member_signer(index)?;
+        let position = proposal.account().position_of(&member).ok_or_else(|| {
+            WalletError::Multisig(format!("account {index} is not a member of this account"))
+        })?;
+        if proposal.approved_by().contains(&position) {
+            return Err(WalletError::Multisig(format!(
+                "member {position} has already approved"
+            )));
+        }
+        if proposal.is_complete() {
+            return Err(WalletError::Multisig(
+                "the quorum is already met; no further approval is needed".into(),
+            ));
+        }
+        Ok((signing_key, position))
+    }
+
+    /// The account card for `account`, marking the members whose keys are
+    /// this wallet's derived accounts.
+    ///
+    /// # Errors
+    ///
+    /// Propagates derivation failures.
+    pub fn multisig_view(&self, account: &MultisigAccount, genesis: &str) -> Result<AccountView> {
+        let own = self
+            .accounts
+            .keys()
+            .map(|&i| Ok((i, self.member_signer(i)?.1)))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(account.view(genesis, &own))
     }
 
     /// Signed transfers, newest first.

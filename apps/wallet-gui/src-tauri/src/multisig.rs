@@ -8,41 +8,22 @@
 
 use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::multisig::{
-    MemberKey, MultisigAccount, Proposal, ProposalStatus as ProposalView,
+    AccountView, MemberKey, MultisigAccount, Proposal, ProposalStatus as ProposalView,
 };
-use maya_wallet_core::networks;
 use maya_wallet_core::payment::SignedTransfer;
 use maya_wallet_core::wallet::SignTerms;
-use serde::Serialize;
 
 use crate::commands::{
     DialogSlot, FeeTerms, Session, native_ok, parse_amount_arg, parse_genesis, priced_fee_terms,
 };
 
-/// An account as the multisig screen shows it.
-#[derive(Serialize)]
-pub struct AccountView {
-    /// The policy, hex: what every member pastes to open the same account.
-    pub account_hex: String,
-    /// The account's address, hex.
-    pub address: String,
-    /// The address in grouped Bech32m for `genesis`'s network.
-    pub grouped: String,
-    /// `m`.
-    pub threshold: usize,
-    /// The members, in policy order.
-    pub members: Vec<MemberKey>,
-}
-
-fn account_view(account: &MultisigAccount, genesis: &str) -> AccountView {
-    let network = networks::address_network(genesis);
-    AccountView {
-        account_hex: account.to_hex(),
-        address: hex::encode(account.address()),
-        grouped: maya_clear_sign::grouped(network, &account.address()),
-        threshold: account.threshold(),
-        members: account.members(),
-    }
+/// The account card, marking which members are this wallet's accounts.
+fn account_view(
+    account: &MultisigAccount,
+    genesis: &str,
+    session: &Session,
+) -> Result<AccountView, String> {
+    session.with(|w| w.multisig_view(account, genesis).map_err(|e| e.to_string()))
 }
 
 fn proposal_view(proposal: &Proposal) -> ProposalView {
@@ -64,16 +45,21 @@ pub fn multisig_create(
     threshold: usize,
     members: Vec<MemberKey>,
     genesis: String,
+    session: tauri::State<'_, Session>,
 ) -> Result<AccountView, String> {
     let account = MultisigAccount::new(threshold, &members).map_err(|e| e.to_string())?;
-    Ok(account_view(&account, &genesis))
+    account_view(&account, &genesis, &session)
 }
 
 /// Opens an account another member shared.
 #[tauri::command]
-pub fn multisig_open(account_hex: String, genesis: String) -> Result<AccountView, String> {
+pub fn multisig_open(
+    account_hex: String,
+    genesis: String,
+    session: tauri::State<'_, Session>,
+) -> Result<AccountView, String> {
     let account = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
-    Ok(account_view(&account, &genesis))
+    account_view(&account, &genesis, &session)
 }
 
 /// The fee presets for a spend from the account, priced for the finished v8
@@ -175,6 +161,12 @@ pub async fn multisig_approve(
                 .to_string(),
         );
     }
+    // Every refusal the core would give after the dialog, given before it:
+    // a person is never asked to approve what the core would not sign.
+    session.with(|w| {
+        w.check_multisig_approval(index, &proposal, base_fee)
+            .map_err(|e| e.to_string())
+    })?;
     let message = approval_message(&shown);
     if !native_ok(&app, &window, "Approve multisig spend", message, "Approve").await? {
         return Err("cancelled on the native confirm screen; nothing was signed".to_string());
