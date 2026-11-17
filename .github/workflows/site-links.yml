@@ -30,13 +30,16 @@ jobs:
         working-directory: docs/site
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           check-latest: true
           cache: npm
           cache-dependency-path: docs/site/package-lock.json
-      - run: npm ci
+      # No lifecycle scripts, as in site.yml: the build needs none (ADR-071).
+      - run: npm ci --ignore-scripts
       - run: npm run build
       - name: Check every link in the built site
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2

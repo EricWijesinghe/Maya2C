@@ -225,6 +225,42 @@ fn the_passphrase_changes_the_wallet_entirely() {
 }
 
 #[test]
+fn spacing_in_the_phrase_does_not_change_the_seed() {
+    // A phrase pasted from a multi-line source often carries double spaces or
+    // tabs. BIP-39 defines the seed over the canonical words, so the same words
+    // must restore the same wallet regardless of separator.
+    let canonical = "abandon abandon abandon abandon abandon abandon abandon abandon \
+                     abandon abandon abandon about";
+    let spaced = canonical.replace(' ', "  ");
+    let tabbed = canonical.replace(' ', "\t");
+
+    let expected = seed_from_mnemonic(canonical, "").expect("seed");
+    assert_eq!(
+        seed_from_mnemonic(&spaced, "").expect("seed").as_ref(),
+        expected.as_ref()
+    );
+    assert_eq!(
+        seed_from_mnemonic(&tabbed, "").expect("seed").as_ref(),
+        expected.as_ref()
+    );
+}
+
+#[test]
+fn an_account_index_with_the_hardened_bit_set_is_refused() {
+    // `index | HARDENED` would otherwise give index 0x8000_0005 the same key as
+    // account 5, so two accounts would share an address.
+    assert!(DerivationPath::try_account(0, 5).is_ok());
+    assert!(DerivationPath::try_account(0, 0x8000_0005).is_err());
+    assert!(DerivationPath::try_account(0x8000_0000, 0).is_err());
+
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon \
+                  abandon abandon abandon about";
+    let mut wallet = maya_wallet_core::wallet::Wallet::from_mnemonic(phrase, "").expect("wallet");
+    assert!(wallet.account(0x8000_0005).is_err());
+    assert!(wallet.account(5).is_ok());
+}
+
+#[test]
 fn an_invalid_phrase_produces_no_seed() {
     assert!(seed_from_mnemonic("not a real mnemonic at all", "").is_err());
 }

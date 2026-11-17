@@ -130,3 +130,4 @@ docs/site/public/updates/
 
 # Stray dev output of `maya2c-genesis` (its default --out is the cwd); never source.
 /genesis.json
+infra/monitoring/.env
