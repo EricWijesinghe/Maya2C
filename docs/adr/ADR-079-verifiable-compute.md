@@ -133,3 +133,16 @@ R0 and R1 have no consensus effect and may start on a branch as soon as mainnet 
 - No revival of the retired halo2/KZG zkML crates (ADR-008).
 - No lattice proof-of-useful-work as a verifier; `lattice-pow` stays RESEARCH (ADR-016).
 - No activation height written in this ADR. Heights are decided per network in the ADR that enables each phase.
+
+
+## Amendment 2026-11-12: `WorkClaim` has no `kind` byte
+
+Section 2 ("Payment through `WorkClaim`") and the summary line say a claim
+carries `kind = 1` for verified compute. The code has no `kind` field:
+`WorkClaim { beneficiary }` only (`crates/node/src/core/governance_payload.rs:120-123`),
+encoded as the 32-byte beneficiary (`governance_payload.rs:168-180`). The
+refusal described under "Gate" is on `TxKind::ClaimWork` as a whole
+(`crates/node/src/state/settlement.rs:185-190`), not on a kind value. The
+decisions in this ADR (job market as a lane on the reward system, escrow, no
+mint) are unchanged. ADR-129 (branch `docs/adr-125-130-gaps`, PR #470) proposes
+`TxKind::ClaimCompute` as the carrier instead of a `kind` byte on `WorkClaim`.

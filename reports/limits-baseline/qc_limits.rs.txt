@@ -1,0 +1,58 @@
+//! Throwaway measurement harness (Lane 0, report only). Not for merge.
+//! Certificate = quorum of ML-DSA-87 validator signatures over one digest.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_precision_loss)]
+use maya_crypto_pq::suite::validator::{PUBLIC_KEY_LEN, SIGNATURE_LEN, ValidatorSigningKey, verify};
+use std::time::Instant;
+
+const REPEATS: usize = 5;
+
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v[v.len() / 2]
+}
+
+fn main() {
+    println!("qc_limits: ML-DSA-87 validator suite, PUBLIC_KEY_LEN={PUBLIC_KEY_LEN} SIGNATURE_LEN={SIGNATURE_LEN}");
+    for n in [7usize, 16, 32, 64, 100] {
+        // Byzantine quorum for n validators with uniform weight: 2f+1, f = floor((n-1)/3).
+        let quorum = 2 * ((n - 1) / 3) + 1;
+        let keys: Vec<ValidatorSigningKey> = (0..n)
+            .map(|i| {
+                let mut seed = [0u8; 32];
+                seed[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                ValidatorSigningKey::from_seed(&seed)
+            })
+            .collect();
+        let pks: Vec<[u8; PUBLIC_KEY_LEN]> = keys.iter().map(|k| k.public_key()).collect();
+        let digest = [0xABu8; 32];
+        let mut sign_ms = Vec::new();
+        let mut build_ms = Vec::new();
+        let mut verify_ms = Vec::new();
+        let mut cert: Vec<(u16, [u8; SIGNATURE_LEN])> = Vec::new();
+        for _ in 0..REPEATS {
+            let t = Instant::now();
+            let s: Vec<[u8; SIGNATURE_LEN]> = keys[..quorum].iter().map(|k| k.sign(&digest).unwrap()).collect();
+            sign_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            // Build: assemble u16 voter ids and signatures into the certificate container.
+            let t = Instant::now();
+            cert = (0..quorum as u16).zip(s.iter().copied()).collect();
+            build_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            // Verify: every signature in the certificate, serial.
+            let t = Instant::now();
+            for (id, sig) in &cert {
+                assert!(verify(&pks[*id as usize], &digest, sig));
+            }
+            verify_ms.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+        let sig_bytes = cert.len() * SIGNATURE_LEN;
+        let vote_id_bytes = cert.len() * 2;
+        println!(
+            "n={n:>3} quorum={quorum:>3} sig_bytes={sig_bytes} vote_id_bytes={vote_id_bytes} total_payload_bytes={} \
+             sign_quorum_ms_median={:.3} build_ms_median={:.6} verify_serial_ms_median={:.3} repeats={REPEATS}",
+            sig_bytes + vote_id_bytes,
+            median(sign_ms),
+            median(build_ms),
+            median(verify_ms)
+        );
+    }
+}

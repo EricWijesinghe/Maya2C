@@ -68,20 +68,21 @@ node is trusted for nothing.
 - **Record `(height, block id, txid)` with every credit.** Credit each txid at
   most once.
 
-### The reference watcher is not ready for 24 decimals
+### The reference watcher credits 24-decimal amounts
 
 `crates/deposit-watcher` credits each deposit exactly once across crashes
 (append-only, fsync'd journal; tested with 100,090 deposits and 40 SIGKILLs,
-`reports/17-integrations.md`). Two gaps today:
+`reports/17-integrations.md`). Its `Transfer::amount` is a 256-bit
+`maya_amount::Amount` (ADR-046) and is journaled as a base-10 string; a
+balance that would pass 2^256 - 1 is refused before the journal moves.
+`tests/amounts.rs` credits one coin (10²⁴) and reads it back after a restart.
 
-- Its `Transfer::amount` is a `u64`. One coin is 10²⁴ base units, larger than
-  `u64::MAX` (about 1.8 × 10¹⁹), so it cannot hold one whole coin. It
-  predates ADR-046.
+One gap remains:
+
 - It ships no RPC `BlockSource`. You implement `finalized_height` (return
   `get_chain_info.height`) and `transfers`.
-
-Use it as a pattern for exactly-once crediting, not as a drop-in service,
-until it moves to `U256`.
+- It does not reverse credits on a reorg. Choose a confirmation depth deeper
+  than any reorg you expect; see `docs/runbooks/deep-reorg.md`.
 
 ## Addresses: Bech32m text, hex underneath
 
