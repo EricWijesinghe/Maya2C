@@ -906,6 +906,19 @@ impl StateDB {
         // building it inside the loop would suggest it could differ between two
         // transactions of one block.
         let policy = crate::crypto::suites::verification_policy(&context.suite_sunsets)?;
+        // v3 P1: the optimistic pattern of `maya-parallel-exec` with the one
+        // phase of a node transaction that reads no state. Signatures verify on
+        // every core into the cache; the loop below is still the reference and
+        // still verifies each transaction, in order, through that cache.
+        // `tests/parallel_apply_tests.rs` pins the two paths to one root.
+        if context.parallel_apply_active() {
+            match self.prewarm_verification(&block.transactions, context.height, &policy) {
+                // An unbound chain is refused by the loop below, after the
+                // first nonce check, so both paths return the same error.
+                Ok(()) | Err(NodeError::Storage(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
         for tx in &block.transactions {
             self.stage_transaction(&mut overlay, tx, context, &policy)?;
         }

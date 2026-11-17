@@ -353,6 +353,11 @@ harness = false
 name = "apply_pipeline"
 harness = false
 
+# v3 P1: apply with the parallel verify phase off and on, cold and warm cache.
+[[bench]]
+name = "parallel_apply"
+harness = false
+
 # The root package inherits the same lint policy as every member.
 [lints]
 workspace = true
