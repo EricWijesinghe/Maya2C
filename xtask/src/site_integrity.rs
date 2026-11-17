@@ -36,6 +36,18 @@ const BEACON_SRC: &str = "https://static.cloudflareinsights.com/beacon.min.js";
 const EMAIL_DECODE_SRC: &str =
     r"^/cdn-cgi/scripts/[0-9a-f]+/cloudflare-static/email-decode\.min\.js$";
 
+/// Cloudflare's bot-detection bootstrap, which the edge adds to HTML pages.
+/// Its text is fixed apart from the per-request ray id and token, so the whole
+/// element is matched exactly: a script that differs by one byte is not removed.
+const CF_CHALLENGE_TEMPLATE: &str = r#"<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'{RAY}',t:'{TOKEN}'};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray={RAY}',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>"#;
+
+static CF_CHALLENGE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    let pattern = regex::escape(CF_CHALLENGE_TEMPLATE)
+        .replace(r"\{RAY\}", "[0-9a-f]{16}")
+        .replace(r"\{TOKEN\}", "[A-Za-z0-9+/=]+");
+    Regex::new(&pattern).expect("static pattern compiles")
+});
+
 static SCRIPT_TAG: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r"(?is)<script\b([^>]*)>\s*</script>\s*").expect("static pattern compiles")
 });
@@ -101,7 +113,8 @@ fn is_cloudflare_script(attrs: &str) -> bool {
 /// Undoes Cloudflare's own rewrites so built and served HTML compare equal.
 /// Anything else (an injected script, a changed link) is left in place.
 pub fn normalize(html: &str) -> String {
-    let no_scripts = SCRIPT_TAG.replace_all(html, |c: &Captures| {
+    let html = CF_CHALLENGE.replace_all(html, "");
+    let no_scripts = SCRIPT_TAG.replace_all(&html, |c: &Captures| {
         if is_cloudflare_script(&c[1]) {
             String::new()
         } else {
@@ -316,6 +329,19 @@ mod tests {
         );
         let built = r#"<html><head><script type="module" src="/_astro/a.js"></script></head><body><p>Write to <a href="mailto:ops@maya2c.dev" class="x">ops@maya2c.dev</a>.</p><script>console.log(1)</script></body></html>"#;
         assert_eq!(normalize(&served), normalize(built));
+    }
+
+    #[test]
+    fn cloudflare_challenge_bootstrap_normalizes_but_a_tampered_one_does_not() {
+        let genuine = CF_CHALLENGE_TEMPLATE
+            .replace("{RAY}", "0123456789abcdef")
+            .replace("{TOKEN}", "dG9rZW4=");
+        let served = format!("<html><body><p>x</p>{genuine}</body></html>");
+        let built = "<html><body><p>x</p></body></html>";
+        assert_eq!(normalize(&served), normalize(built));
+        let tampered = genuine.replace("var l=", "fetch('https://evil.example/x');var l=");
+        let served_bad = format!("<html><body><p>x</p>{tampered}</body></html>");
+        assert_ne!(normalize(&served_bad), normalize(built));
     }
 
     #[test]
