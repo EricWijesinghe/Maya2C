@@ -108,6 +108,13 @@ Only the protocol's rate applies to a book trade, and only to the taker. The LP
 rate pays providers for the use of pooled capital, and a book trade uses none —
 the counterparty is another trader.
 
+The rate is the governed `DexProtocolFeeBps`, read from the parameter table at
+the end of the block, for book fills as for batched swaps (invariant 17). A pool
+whose own LP rate plus the governed rate is over the fee ceiling cannot carry
+it: that block refunds the pool's batch and leaves its book resting, and the
+block itself is valid (invariant 7). A route through such a pool is refused as
+a transaction error. ADR-144.
+
 ### Dust
 
 A trade can round to a zero quote: one base unit at a price below one quote unit
@@ -209,8 +216,9 @@ from their own balance. Lending the first leg against a repayment check requires
 re-entry into the borrower's code, which means the contract host ABI in
 `crates/vm/src/host.rs`. That is a larger change than this one and is not pretended at.
 
-Routes execute in place and are not batched. Their ordering exposure is a known
-limitation; see the design note.
+Routes execute in place and are not batched, so they carry no batch protection:
+a route's price depends on where it sits in the block. A plain swap is the
+batched, protected path.
 
 ---
 

@@ -305,6 +305,10 @@ fn fee_vectors() -> Value {
         let (burned, treasury) = fees::split(base, bps);
         cases.push(json!({"id": format!("split-{base}-{bps}"), "rules": ["FEE-1"], "fn": "split", "base_fee_paid": base.to_string(), "treasury_bps": bps.to_string(), "expect": {"burned": burned.to_string(), "treasury": treasury.to_string()}}));
     }
+    for (inputs, outputs) in [(0usize, 0usize), (1, 0), (0, 1), (1, 1)] {
+        let exempt = fees::share_fee_exempt(inputs, outputs);
+        cases.push(json!({"id": format!("share-exempt-{inputs}-{outputs}"), "rules": ["FEE-7"], "fn": "share_exempt", "inputs": inputs.to_string(), "outputs": outputs.to_string(), "expect": {"exempt": exempt}}));
+    }
     let steps = [
         (
             "at-target",

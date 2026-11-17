@@ -10,6 +10,7 @@ Reference: `crates/spec-ref/src/fees.rs`. Node: `crates/fee-market`.
 - **FEE-4** The next base fee is never below the configured floor. *(positive only: defines a value)*
 - **FEE-5** A transaction whose `max_fee` is below `base_fee × size_bytes` makes its block invalid (`Underpriced`).
 - **FEE-6** A rise ends at `max(MAX_BASE_FEE_PER_BYTE, parent)`: no block raises the base fee above the compiled-in ceiling, and a fee already above it holds. The ceiling is a placeholder pending the economics decision in ADR-076. *(positive only: defines a value)*
+- **FEE-7** A mining share (`TxKind::MiningShare`, ADR-044) is exempt from the base fee only when it carries no inputs and no outputs. A share that carries either pays the base fee on its size like any other transaction; with no output to the fee collector it cannot, so its block is invalid (`FeeTooLow`) and the mempool refuses it. Node: `crates/node/src/state/fee_exec.rs` `is_free_share`, shared by the executor and the mempool. *(positive only: defines a value)*
 
 ## Gaps
 

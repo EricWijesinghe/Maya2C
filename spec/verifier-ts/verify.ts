@@ -164,6 +164,9 @@ function fees(): number {
     if (c.fn === "admit") {
       const ok = BigInt(c.max_fee) >= BigInt(c.base_fee) * BigInt(c.size_bytes); // FEE-5
       check(ok === (c.expect.result === "ok"), `${c.id}`);
+    } else if (c.fn === "share_exempt") {
+      const exempt = BigInt(c.inputs) === 0n && BigInt(c.outputs) === 0n; // FEE-7
+      check(exempt === c.expect.exempt, `${c.id}`);
     } else if (c.fn === "split") {
       const bps = BigInt(c.treasury_bps) < 10000n ? BigInt(c.treasury_bps) : 10000n;
       const treasury = (BigInt(c.base_fee_paid) * bps) / 10000n;

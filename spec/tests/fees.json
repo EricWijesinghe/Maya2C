@@ -79,6 +79,54 @@
       "treasury_bps": "20000"
     },
     {
+      "expect": {
+        "exempt": true
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-0-0",
+      "inputs": "0",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "expect": {
+        "exempt": false
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-1-0",
+      "inputs": "1",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "expect": {
+        "exempt": false
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-0-1",
+      "inputs": "0",
+      "outputs": "1",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "expect": {
+        "exempt": false
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-1-1",
+      "inputs": "1",
+      "outputs": "1",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
       "ceiling": "7567158531971244797",
       "denominator": "8",
       "expect": "1000",

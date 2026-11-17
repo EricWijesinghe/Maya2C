@@ -909,3 +909,12 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-17 — State and fee rule hardening joins re-freeze bundle 3 (Claude, under Eric 2026-11-17 pre-approval)
+
+Eric pre-approved Claude's recommendation (2026-11-17) to move PR #584 into re-freeze bundle 3. Recorded in [ADR-144](docs/adr/ADR-144-state-and-fee-rule-hardening.md).
+
+- **Fee-free shares carry nothing (spec FEE-7):** a mining share is exempt from the base fee only with no inputs and no outputs; one predicate (`state::fee_exec::is_free_share`) serves the executor and the mempool. No fee level or parameter changes.
+- **Governed DEX rate:** a pool that cannot carry the governed protocol rate refunds its batch and rests its book for the block instead of failing the block (invariant 7); book fills take the governed rate as `docs/dex.md` states (invariant 17). The governed default is 0 bps, so genesis behaviour is unchanged.
+- **Confidential-AI** participants refuse a second share set and a second masked input per instance (RESEARCH crate, not consensus).
+- **Dropped from #584 as duplicates or conflicts:** the settlement range recheck is carried by #575; the work-claim schedule refusal conflicts with #570/#506, which make unimplemented bits halt at activation rather than refuse at construction.

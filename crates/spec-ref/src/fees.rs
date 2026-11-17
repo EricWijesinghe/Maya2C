@@ -1,4 +1,4 @@
-//! Fee rules — `spec/04-fees.md` FEE-1 .. FEE-6.
+//! Fee rules — `spec/04-fees.md` FEE-1 .. FEE-7.
 
 use crate::balance::Balance;
 
@@ -66,4 +66,11 @@ pub fn next_base_fee(
 #[must_use]
 pub fn admits(base_fee: u64, size_bytes: u64, max_fee: u64) -> bool {
     u128::from(max_fee) >= u128::from(base_fee) * u128::from(size_bytes)
+}
+
+/// FEE-7: a mining share is exempt from the base fee only when it carries no
+/// inputs and no outputs. Any other share pays the base fee on its size.
+#[must_use]
+pub const fn share_fee_exempt(inputs: usize, outputs: usize) -> bool {
+    inputs == 0 && outputs == 0
 }

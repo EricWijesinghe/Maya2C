@@ -320,6 +320,30 @@ fn fee_vectors() {
                 );
                 assert_eq!(got, wide(&case["expect"]), "{id}");
             }
+            "share_exempt" => {
+                // FEE-7, against the node's own predicate (executor and mempool).
+                let inputs = (0..n("inputs"))
+                    .map(|index| custom_l1_node::core::transaction::TxInput {
+                        prev_tx: [1; 32],
+                        index: u32::try_from(index).expect("small"),
+                    })
+                    .collect();
+                let outputs = (0..n("outputs"))
+                    .map(|_| TxOutput {
+                        amount: primitive_types::U256::one(),
+                        recipient: [2; 32],
+                    })
+                    .collect();
+                let mut tx = Transaction::new(inputs, outputs, 0);
+                tx.kind = custom_l1_node::core::payload::TxKind::MiningShare(
+                    custom_l1_node::core::mining_payload::MiningShare { epoch: 1, nonce: 0 },
+                );
+                assert_eq!(
+                    custom_l1_node::state::fee_exec::is_free_share(&tx),
+                    case["expect"]["exempt"].as_bool().expect("bool"),
+                    "{id}"
+                );
+            }
             "admit" => {
                 let c = maya_fee_market::FeeConfig::TESTING;
                 assert_eq!(

@@ -13,7 +13,8 @@ use crate::state::shielded::FEE_SINK;
 ///
 /// Inputs count too: they are carried in the encoding and cost bytes, so a
 /// share that names one is not the zero-value share the exemption describes.
-pub(crate) fn is_free_share(tx: &Transaction) -> bool {
+#[must_use]
+pub fn is_free_share(tx: &Transaction) -> bool {
     matches!(tx.kind, TxKind::MiningShare(_)) && tx.outputs.is_empty() && tx.inputs.is_empty()
 }
 
