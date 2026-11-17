@@ -48,6 +48,12 @@ pub mod settlement;
 pub mod shielded;
 pub mod staking;
 pub mod staking_exec;
+pub(crate) mod staking_records;
+pub(crate) mod staking_store;
+#[cfg(test)]
+mod staking_store_tests;
+#[cfg(test)]
+mod staking_vectors_tests;
 pub mod stateless;
 pub mod threat;
 pub mod threat_exec;
@@ -57,6 +63,9 @@ pub mod vault;
 pub mod verified;
 pub mod vm_exec;
 pub mod zkml;
+
+#[cfg(test)]
+mod scan_bounds_tests;
 
 // Re-exported so that a caller wiring up a trade does not have to take a
 // direct dependency on `maya-dex` to name a direction or a side. The engine is

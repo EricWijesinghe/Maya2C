@@ -971,7 +971,7 @@ impl GenesisConfig {
     /// validator count, or a bond the staking rules refuse.
     pub fn staking_records(&self) -> Result<std::collections::BTreeMap<Vec<u8>, Vec<u8>>> {
         use crate::state::staking::{
-            STATE_KEY, StakingRecord, committee_record, encode_committee, key_record, validator_id,
+            StakingRecord, committee_record, encode_committee, key_record, validator_id,
         };
         let mut records = std::collections::BTreeMap::new();
         let Some(bft) = &self.bft else {
@@ -1058,7 +1058,8 @@ impl GenesisConfig {
             expected: std::collections::BTreeMap::new(),
             authored: std::collections::BTreeMap::new(),
         };
-        records.insert(STATE_KEY.to_vec(), record.encode());
+        // One record per validator and the meta record (ADR-062b).
+        records.extend(record.to_records()?);
         records.insert(committee_record(0), encode_committee(&active));
         if staking.stake_weighted {
             records.insert(
@@ -1364,7 +1365,7 @@ pub fn decode_address(value: &str) -> Result<Address> {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use crate::state::staking::{STATE_KEY, StakingRecord};
+    use crate::state::staking::StakingRecord;
     use maya_staking::{Effect, Participation};
 
     #[test]
@@ -1401,9 +1402,19 @@ mod tests {
             }),
         };
         let records = config.staking_records().unwrap();
-        let bytes = records.get(STATE_KEY).unwrap().clone();
-        let mut record = StakingRecord::decode(&bytes).unwrap();
-        assert_eq!(record.encode(), bytes);
+        let mut record = StakingRecord::from_records(&records).unwrap().unwrap();
+        let staking_only = |r: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>| {
+            r.iter()
+                .filter(|(k, _)| {
+                    !k.starts_with(b"k:key:") && !k.starts_with(b"k:cmt:") && k.starts_with(b"k:")
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert_eq!(
+            staking_only(&record.to_records().unwrap()),
+            staking_only(&records)
+        );
         let pool = to_amount(U256::from(1_000));
         let out = record
             .staking
