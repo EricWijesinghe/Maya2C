@@ -186,6 +186,16 @@ pub const HASH_LOCK_ACTIVATION_HEIGHT: u64 = 0;
 /// `docs/zkml.md`.
 pub const ZKML_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
+/// First height at which stealth payments (`StealthAnnounce`) and stealth
+/// spends (wire v10) are admitted: none.
+///
+/// ADR-102. The derivation, announcement format, scanning and spend
+/// authorization exist in `maya_crypto_pq::stealth` with conformance vectors;
+/// the transaction kind and the v10 frame do not, so nothing could activate.
+/// Until they do, an upgrade entry naming `FeatureSet::STEALTH` is refused
+/// (`upgrade::UpgradeSchedule::new`). See `docs/stealth-addresses.md`.
+pub const STEALTH_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 impl BlockContext {
     /// Context for a block at `height`.
     #[must_use]
