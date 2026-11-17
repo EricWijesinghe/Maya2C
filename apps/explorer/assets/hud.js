@@ -2,7 +2,8 @@
 //
 // Two canvases. A faint particle field behind every page, and on the
 // dashboard a propagation core: every real block from /ws/blocks fires a
-// shockwave from the core out to the four validators and the quorum's
+// shockwave from the core out to the seven validators (the mainnet floor,
+// ADR-047 amendment) and the quorum's
 // signatures back. Only the block data is live; the node layout is a picture.
 // No dependencies; it pauses when the tab is hidden, and with reduced motion
 // it draws one still frame.
@@ -15,8 +16,8 @@
   document.head.appendChild(css);
   var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
-  var COLORS = ['#7eeaf0', '#d9b97a', '#e6b260', '#45e0a0', '#1fb5c2'];
-  var NODES = ['SEED', 'V2', 'V3', 'V4'];
+  var COLORS = ['#7eeaf0', '#d9b97a', '#e6b260', '#45e0a0', '#1fb5c2', '#b08d57', '#9fb4c8'];
+  var NODES = ['V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7'];
 
   function fit(canvas) {
     var r = canvas.getBoundingClientRect();
@@ -102,7 +103,7 @@
     if (start) heightEl.textContent = start.textContent;
 
     function nodePos(i, t) {
-      var a = t * 0.00012 + i * Math.PI / 2;
+      var a = t * 0.00012 + i * 2 * Math.PI / NODES.length;
       var rx = Math.min(g.w * 0.42, 520), ry = Math.min(g.h * 0.36, 170);
       return { x: g.w / 2 + Math.cos(a) * rx, y: g.h / 2 + 18 + Math.sin(a) * ry, z: Math.sin(a) };
     }

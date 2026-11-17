@@ -109,8 +109,9 @@ closed before the gate is called met.
    (`bins/genesis-ceremony/src/committee.rs`, `MIN_LAUNCH_VALIDATORS`), so a
    ceremony could write a genesis its own check then refused. Both now say 7,
    pinned by `mainnet_needs_seven_validators_a_testnet_does_not`. A
-   value-bearing ceremony without `--validators` is refused too, since it
-   would skip the floor and write a proof-of-work genesis
+   value-bearing ceremony without `--validators` is refused too, at argument
+   parsing and before any directory or key is written, since it would skip
+   the floor and write a proof-of-work genesis
    (`a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one`).
    The node itself still has no floor, at genesis or after unbonding. Decisions 1
    and 4 above read "seven" where they say "four"; the gate-5 check is

@@ -459,7 +459,7 @@ function renderUniverse() {
       name.textContent = item.name;
       const chip = document.createElement("span");
       chip.className = `chip ${item.status}`;
-      chip.textContent = { live: "Live on testnet", building: "Building", research: "Research", planned: "Planned" }[item.status];
+      chip.textContent = { live: "Built (testnet paused)", building: "Building", research: "Research", planned: "Planned" }[item.status];
       b.append(glyph, name, chip);
       b.addEventListener("click", () => {
         host.querySelectorAll(".planet").forEach((p) => p.classList.remove("selected"));

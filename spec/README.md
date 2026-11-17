@@ -20,11 +20,10 @@ so and lists the rule as a gap instead of specifying behaviour no code has.
 section goes through a [MIP](mips/README.md) and bumps that section's
 version.
 
-**Before mainnet genesis, corrections are made in place without a MIP.** No
-network runs these rules yet, so a text that misdescribes what the code does
-is fixed where it stands and the section's version is bumped with a dated
-note (FEE-1 and the spec 9 preamble, v0.1.1, 2026-11-16; the u256 edits;
-#515). From genesis on, the MIP rule above holds without exception.
+Note, 2026-11-16: FEE-1 and the spec 9 preamble (both v0.1.1) were corrected
+in place, without a MIP, so the text states what the code does; each section
+carries a dated note. No network runs these rules yet. This note records those
+two corrections only; it sets no general rule for skipping a MIP.
 
 ## Rules
 

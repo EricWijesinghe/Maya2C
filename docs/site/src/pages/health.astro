@@ -6,10 +6,10 @@
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 ---
 
-<StarlightPage frontmatter={{ title: "Live health", description: "Is maya-testnet-1 finalizing now, how long since its last halt, and what the public gateway does and does not show.", template: "splash" }}>
+<StarlightPage frontmatter={{ title: "Live health", description: "Whether maya-testnet-1 is finalizing (paused since 2026-10-28; returns with the next genesis), how long since its last halt, and what the public gateway does and does not show.", template: "splash" }}>
   <section class="hl" aria-label="Live health">
     <header class="hl-head">
-      <p class="hl-kicker">maya-testnet-1 · live</p>
+      <p class="hl-kicker">maya-testnet-1 · paused since 2026-10-28</p>
       <h2 class="hl-title">No-halt streak</h2>
       <p id="streak" class="streak" aria-live="off">—</p>
       <p class="hl-sub">Counted from the tip block's header timestamp back to the last recorded halt. Not from your clock.</p>

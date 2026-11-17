@@ -284,21 +284,33 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     if args.chain_id.is_empty() {
         return Err("--chain-id is required".into());
     }
+    check_launch_args(&args)?;
+    Ok(args)
+}
+
+/// The launch policy a genesis run's flags must meet, checked at parse time
+/// so a refused run writes no directory and no key.
+fn check_launch_args(args: &Args) -> Result<(), Box<dyn Error>> {
     check_supply_policy(&args.chain_id, args.supply)?;
+    if !is_value_bearing(&args.chain_id) {
+        return Ok(());
+    }
     // ADR-050: a value-bearing chain launches with its bounded emergency
     // brake, or it has none until a hard fork adds one.
-    if is_value_bearing(&args.chain_id) && args.council_dir.is_none() {
+    if args.council_dir.is_none() {
         return Err("a value-bearing chain needs --council <DIR> (ADR-050)".into());
+    }
+    // Without a committee the seven-validator floor is never checked and
+    // the genesis is proof of work (ADR-047 amendment 2026-11-16).
+    if args.validators.is_none() {
+        return Err("a value-bearing chain needs --validators <FILE> (ADR-047)".into());
     }
     // The devnet floors are 10^-21 and 10^-23 of a coin: a validator seat or a
     // delegation for dust. A value-bearing chain states its own.
-    if is_value_bearing(&args.chain_id)
-        && args.validators.is_some()
-        && (args.min_self_bond.is_none() || args.min_delegation.is_none())
-    {
+    if args.min_self_bond.is_none() || args.min_delegation.is_none() {
         return Err("a value-bearing chain needs --min-self-bond and --min-delegation".into());
     }
-    Ok(args)
+    Ok(())
 }
 
 /// Zero premine (ADR-044, Eric 2026-11-07): a value-bearing chain mints no root
@@ -333,11 +345,7 @@ fn is_value_bearing(chain_id: &str) -> bool {
 /// The committee named by `--validators`, checked for a launch's size.
 fn read_committee(args: &Args) -> Result<Option<Vec<committee::Member>>, Box<dyn Error>> {
     let Some(path) = &args.validators else {
-        // Without a committee the seven-validator floor is never checked and
-        // the genesis is proof of work (ADR-047 amendment 2026-11-16).
-        if is_value_bearing(&args.chain_id) {
-            return Err("a value-bearing chain needs --validators <FILE> (ADR-047)".into());
-        }
+        // check_launch_args has already refused this on a value-bearing chain.
         return Ok(None);
     };
     let members = committee::read(path)?;
@@ -637,6 +645,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         )
         .into());
     }
+    // Read before anything is written, so a refused committee or council
+    // leaves no partial ceremony directory.
+    let committee = read_committee(&args)?;
+    let council = read_council(&args)?;
     fs::create_dir_all(&args.out_dir)?;
 
     let (treasury_balance, distributable) = split_supply(args.supply, args.treasury_share_bps)?;
@@ -709,9 +721,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     // --- genesis -----------------------------------------------------------
-    let committee = read_committee(&args)?;
     let mut config = launch_config(&args, allocations, treasury, committee.as_deref());
-    let council = read_council(&args)?;
     config.security_council = council.as_ref().map(|(c, _)| c.clone());
 
     config.validate()?;
@@ -1005,6 +1015,9 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         )
         .into());
     }
+    // Read before anything is written, as in run().
+    let committee = read_committee(args)?;
+    let council = read_council(args)?;
     fs::create_dir_all(&args.out_dir)?;
 
     let (treasury_balance, distributable) = split_supply(args.supply, args.treasury_share_bps)?;
@@ -1083,9 +1096,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         None
     };
 
-    let committee = read_committee(args)?;
     let mut config = launch_config(args, allocations, treasury, committee.as_deref());
-    let council = read_council(args)?;
     config.security_council = council.as_ref().map(|(c, _)| c.clone());
 
     config.validate()?;
@@ -1208,7 +1219,8 @@ mod mining_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::{
-        Args, check_supply_policy, committee, launch_config, read_committee, split_supply,
+        Args, check_launch_args, check_supply_policy, committee, launch_config, read_committee,
+        split_supply,
     };
     use custom_l1_node::crypto::validator_keys as keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
@@ -1228,7 +1240,8 @@ mod mining_tests {
 
     #[test]
     fn zero_supply_mints_only_the_reserve_and_the_bonds() {
-        // The genesis money must be exactly the reserve plus the four bonds.
+        // The genesis money must be exactly the reserve plus the bonds (a
+        // four-member fixture: launch_config does not apply the size floor).
         let config = launch_config(&mainnet_args(0), Vec::new(), None, Some(&members()));
         let addresses: Vec<String> = config
             .allocations
@@ -1283,12 +1296,18 @@ mod mining_tests {
     fn a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one() {
         // Without --validators the seven-validator floor (ADR-047 amendment
         // 2026-11-16) would never be checked: a proof-of-work mainnet genesis.
-        let err = read_committee(&mainnet_args(0)).unwrap_err().to_string();
+        // Refused at parse time, before run() creates the out dir or a key.
+        let mainnet = Args {
+            council_dir: Some("council".into()),
+            ..mainnet_args(0)
+        };
+        let err = check_launch_args(&mainnet).unwrap_err().to_string();
         assert!(err.contains("--validators"), "{err}");
         let testnet = Args {
             chain_id: "maya-testnet-2".into(),
             ..Args::default()
         };
+        assert!(check_launch_args(&testnet).is_ok());
         assert!(read_committee(&testnet).unwrap().is_none());
     }
 
