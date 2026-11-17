@@ -372,16 +372,21 @@ fn percent_encode(value: &str) -> String {
 /// Returns [`WalletError::Qr`] if the image cannot be decoded, is larger than
 /// [`MAX_QR_PIXELS`] on a side, or contains no readable QR code.
 pub fn decode_qr_png(png: &[u8]) -> Result<String> {
-    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .map_err(|e| WalletError::Qr(format!("not a readable PNG: {e}")))?;
+    // Dimensions come from the header, so an oversized image is refused before
+    // any pixel buffer is allocated for it.
+    let (width, height) =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png)
+            .into_dimensions()
+            .map_err(|e| WalletError::Qr(format!("not a readable PNG: {e}")))?;
 
-    if image.width() > MAX_QR_PIXELS || image.height() > MAX_QR_PIXELS {
+    if width > MAX_QR_PIXELS || height > MAX_QR_PIXELS {
         return Err(WalletError::Qr(format!(
-            "image is {}x{}, larger than the {MAX_QR_PIXELS} pixel limit",
-            image.width(),
-            image.height()
+            "image is {width}x{height}, larger than the {MAX_QR_PIXELS} pixel limit"
         )));
     }
+
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|e| WalletError::Qr(format!("not a readable PNG: {e}")))?;
 
     let luma = image.to_luma8();
     let mut prepared = rqrr::PreparedImage::prepare(luma);

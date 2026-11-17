@@ -56,6 +56,12 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Restaking and shared-security export (restaking)](restaking.md) — searched 2026-11-12
 - [Paid storage markets with possession proofs (storage-market)](storage-market.md) — searched 2026-11-12
 - [Appchains secured by a base chain's validators (appchains)](appchains.md) — searched 2026-11-12
+- [Succinct chain-state proofs (succinct-chain-proof)](succinct-chain-proof.md) — searched 2026-11-12
+- [Bitcoin anchoring of checkpoints (bitcoin-anchoring)](bitcoin-anchoring.md) — searched 2026-11-12
+- [Randomness and VRF verification for contracts (contract-randomness)](contract-randomness.md) — searched 2026-11-12
+- [Threshold decryption as a contract primitive (threshold-decryption)](threshold-decryption.md) — searched 2026-11-12
+- [Verifiable-compute markets and inference receipts (verifiable-inference)](verifiable-inference.md) — searched 2026-11-12
+- [Agent registries and agent-to-agent payments (agent-registry)](agent-registry.md) — searched 2026-11-12
 - [Shielded transfers of user-issued tokens (ADR-110)](shielded-tokens.md) — searched 2026-11-12
 - [Treasury spend path and grants (ADR-111)](treasury-grants.md) — partially searched 2026-11-12
 - [Pull oracle with on-chain report verification (ADR-112)](pull-oracle.md) — searched 2026-11-12
