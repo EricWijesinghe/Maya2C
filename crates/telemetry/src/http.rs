@@ -36,7 +36,7 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use tokio::sync::broadcast;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 
 use crate::collector::Collector;
 use crate::region::Region;
@@ -62,10 +62,18 @@ pub const MAX_BODY_BYTES: usize = 4096;
 /// staleness nobody sees.
 pub const BROADCAST_CAPACITY: usize = 16;
 
+/// Live-feed sockets open at once.
+///
+/// Each socket holds a task and a broadcast receiver until it closes, and the
+/// feed never reads from the socket, so the count is the cost. Refused past
+/// this rather than queued.
+pub const MAX_FEED_SOCKETS: usize = 256;
+
 /// The collector, the broadcast channel, and the proxy-trust setting.
 pub struct TelemetryService {
     collector: Mutex<Collector>,
     updates: broadcast::Sender<Snapshot>,
+    feed_slots: Arc<Semaphore>,
     /// Whether [`COUNTRY_HEADER`] is read.
     ///
     /// Off by default: with no geolocating proxy in front, the header is
@@ -82,8 +90,17 @@ impl TelemetryService {
         Self {
             collector: Mutex::new(Collector::new()),
             updates,
+            feed_slots: Arc::new(Semaphore::new(MAX_FEED_SOCKETS)),
             trust_proxy: false,
         }
+    }
+
+    /// A slot on the live feed, or `None` when [`MAX_FEED_SOCKETS`] are open.
+    ///
+    /// The permit is held by the socket task for the socket's lifetime.
+    #[must_use]
+    pub fn open_feed_slot(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.feed_slots).try_acquire_owned().ok()
     }
 
     /// Reads the country from [`COUNTRY_HEADER`].
@@ -236,14 +253,19 @@ async fn websocket(
     State(service): State<Arc<TelemetryService>>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    upgrade.on_upgrade(move |socket| feed(socket, service))
+    // Checked before the upgrade: once the 101 is sent there is no status
+    // code left to refuse with.
+    let Some(slot) = service.open_feed_slot() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    upgrade.on_upgrade(move |socket| feed(socket, service, slot))
 }
 
 /// Pushes the current snapshot, then every subsequent one.
 ///
 /// The immediate first send matters: a client that connected between two
 /// reports would otherwise stare at an empty page until somebody reported.
-async fn feed(mut socket: WebSocket, service: Arc<TelemetryService>) {
+async fn feed(mut socket: WebSocket, service: Arc<TelemetryService>, _slot: OwnedSemaphorePermit) {
     let mut updates = service.subscribe();
 
     if send(&mut socket, &service.snapshot(now())).await.is_err() {
@@ -334,6 +356,23 @@ mod tests {
             .ingest(report, Region::UNKNOWN, 1_000)
             .expect("accepted");
         assert_eq!(snapshot.hash_rate, 500);
+    }
+
+    #[test]
+    fn the_live_feed_refuses_sockets_past_its_cap() {
+        // Without a cap, each open socket costs a task and a receiver for as
+        // long as the peer keeps it open, and nothing bounds the count.
+        let service = TelemetryService::new();
+        let held: Vec<_> = (0..MAX_FEED_SOCKETS)
+            .map(|_| service.open_feed_slot().expect("under the cap"))
+            .collect();
+        assert!(service.open_feed_slot().is_none(), "the cap is enforced");
+
+        drop(held);
+        assert!(
+            service.open_feed_slot().is_some(),
+            "a closed socket frees its slot"
+        );
     }
 
     #[tokio::test]
