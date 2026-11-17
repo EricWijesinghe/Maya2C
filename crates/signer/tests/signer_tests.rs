@@ -490,12 +490,22 @@ fn an_imported_proposal_history_carries_its_watermark() {
     let pk = a.public_key().to_vec();
     b.db_mut().import(&a.db().export(&pk), &pk).unwrap();
     // A different slot, below the round the key already proposed in.
-    assert!(!signed(&b.handle(&req(Kind::Vertex, 39, 1, b"new machine"))));
+    assert!(!signed(&b.handle(&req(
+        Kind::Vertex,
+        39,
+        1,
+        b"new machine"
+    ))));
     assert!(signed(&b.handle(&req(Kind::Vertex, 41, 0, b"new machine"))));
     // And it survives a restart of the importing signer.
     drop(b);
     let mut b = service(&dir_b);
-    assert!(!signed(&b.handle(&req(Kind::Vertex, 40, 0, b"new machine"))));
+    assert!(!signed(&b.handle(&req(
+        Kind::Vertex,
+        40,
+        0,
+        b"new machine"
+    ))));
 }
 
 #[test]

@@ -61,14 +61,26 @@ fn a_format_or_kdf_swap_is_refused_before_any_hashing() {
 fn a_tampered_or_resized_nonce_never_opens() {
     let text = sealed::seal(b"s", b"p", VALIDATOR_KEY_KIND, PASS).unwrap();
     let nonce = field(&text, "nonce").as_str().unwrap().to_string();
-    let flipped = format!("{}{}", if nonce.starts_with('0') { "1" } else { "0" }, &nonce[1..]);
+    let flipped = format!(
+        "{}{}",
+        if nonce.starts_with('0') { "1" } else { "0" },
+        &nonce[1..]
+    );
     assert!(matches!(
-        sealed::open(&with(&text, "nonce", flipped.into()), VALIDATOR_KEY_KIND, PASS),
+        sealed::open(
+            &with(&text, "nonce", flipped.into()),
+            VALIDATOR_KEY_KIND,
+            PASS
+        ),
         Err(KeystoreError::Decrypt)
     ));
     for resized in [&nonce[..22], &format!("{nonce}00")[..]] {
         assert!(matches!(
-            sealed::open(&with(&text, "nonce", resized.into()), VALIDATOR_KEY_KIND, PASS),
+            sealed::open(
+                &with(&text, "nonce", resized.into()),
+                VALIDATOR_KEY_KIND,
+                PASS
+            ),
             Err(KeystoreError::Format(_))
         ));
     }
@@ -99,14 +111,23 @@ fn sealing_twice_never_reuses_a_salt_or_nonce() {
 
 #[test]
 fn a_truncated_ciphertext_fails_closed() {
-    let text = sealed::seal(b"thirty-two bytes of seed material", b"p", VALIDATOR_KEY_KIND, PASS)
-        .unwrap();
+    let text = sealed::seal(
+        b"thirty-two bytes of seed material",
+        b"p",
+        VALIDATOR_KEY_KIND,
+        PASS,
+    )
+    .unwrap();
     let ct = field(&text, "ciphertext").as_str().unwrap().to_string();
     // Shorter than the 16-byte tag, exactly the tag, and one byte short.
     for cut in ["", &ct[..16], &ct[..32], &ct[..ct.len() - 2]] {
         assert!(
             matches!(
-                sealed::open(&with(&text, "ciphertext", cut.into()), VALIDATOR_KEY_KIND, PASS),
+                sealed::open(
+                    &with(&text, "ciphertext", cut.into()),
+                    VALIDATOR_KEY_KIND,
+                    PASS
+                ),
                 Err(KeystoreError::Decrypt)
             ),
             "ciphertext cut to {} hex chars",
@@ -141,7 +162,10 @@ fn the_passphrase_minimum_is_exact() {
     ));
     let text = sealed::seal(b"s", b"p", VALIDATOR_KEY_KIND, &exact).unwrap();
     assert_eq!(
-        sealed::open(&text, VALIDATOR_KEY_KIND, &exact).unwrap().0.as_slice(),
+        sealed::open(&text, VALIDATOR_KEY_KIND, &exact)
+            .unwrap()
+            .0
+            .as_slice(),
         b"s"
     );
 }
