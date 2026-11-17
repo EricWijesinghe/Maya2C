@@ -92,6 +92,11 @@ pub enum WalletError {
     #[error("a passphrase is required")]
     EmptyPassphrase,
 
+    /// A new passphrase is shorter than the minimum. Existing wallets are not
+    /// re-checked on unlock, only when a passphrase is chosen.
+    #[error("the passphrase must be at least {0} characters")]
+    PassphraseTooShort(usize),
+
     /// A QR payload could not be decoded or parsed.
     #[error("qr: {0}")]
     Qr(String),

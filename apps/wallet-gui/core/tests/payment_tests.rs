@@ -11,8 +11,8 @@ use custom_l1_node::core::Transaction;
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};
 use maya_wallet_core::payment::{
-    FEE_SINK, FeeTier, PaymentRequest, SignedTransfer, check_fee_collector, decode_qr_png,
-    normalize_address, priced_fee_tiers, scan_payment_request, transfer_size,
+    FEE_SINK, FeeTier, MAX_QR_PIXELS, PaymentRequest, SignedTransfer, check_fee_collector,
+    decode_qr_png, normalize_address, priced_fee_tiers, scan_payment_request, transfer_size,
 };
 use maya_wallet_core::wallet::{SignTerms, Wallet};
 
@@ -769,4 +769,17 @@ fn a_percent_escape_at_the_very_end_decodes_and_a_cut_one_stays_literal() {
     assert_eq!(full.label.as_deref(), Some("AA"));
     let cut = PaymentRequest::parse(&format!("maya:{base}?label=A%4")).expect("parse");
     assert_eq!(cut.label.as_deref(), Some("A%4"));
+}
+
+#[test]
+fn an_oversized_png_is_refused_by_its_header() {
+    // Only the dimensions are checked before decoding, so a single row this
+    // wide is refused without a pixel buffer of that size being allocated.
+    let wide = image::GrayImage::new(MAX_QR_PIXELS + 1, 1);
+    let mut png = Vec::new();
+    wide.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("encode png");
+
+    let error = decode_qr_png(&png).expect_err("too wide to decode");
+    assert!(format!("{error}").contains("pixel limit"));
 }

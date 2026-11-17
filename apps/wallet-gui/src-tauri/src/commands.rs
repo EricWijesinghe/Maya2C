@@ -36,7 +36,7 @@ use maya_wallet_core::networks;
 use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::hd::seed_from_mnemonic;
 use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
-use maya_wallet_core::vault::{OsKeychain, Vault};
+use maya_wallet_core::vault::{OsKeychain, Vault, check_new_passphrase};
 use maya_wallet_core::wallet::{
     Account, ChainTag, PendingTransfer, SignTerms, TransferStatus, Wallet,
 };
@@ -209,6 +209,7 @@ pub fn create_wallet(
     passphrase: String,
     session: tauri::State<'_, Session>,
 ) -> Result<CreatedWallet, String> {
+    check_new_passphrase(&passphrase).map_err(|e| e.to_string())?;
     let mnemonic = generate_mnemonic().map_err(|e| e.to_string())?;
 
     // An empty BIP-39 passphrase here is deliberate: the wallet passphrase
@@ -242,6 +243,7 @@ pub fn recover_wallet(
     // Validate before touching the keychain, so a typo does not create a
     // half-configured wallet.
     validate_mnemonic(&phrase).map_err(|e| e.to_string())?;
+    check_new_passphrase(&passphrase).map_err(|e| e.to_string())?;
 
     let seed = seed_from_mnemonic(&phrase, "").map_err(|e| e.to_string())?;
 
@@ -266,6 +268,21 @@ pub fn check_phrase(phrase: String) -> Result<bool, String> {
     Ok(validate_mnemonic(&phrase).is_ok())
 }
 
+/// Most accounts one unlock derives eagerly. The count comes from the webview,
+/// and each derived account is kept in memory.
+const MAX_UNLOCK_ACCOUNTS: u32 = 100;
+
+/// The number of accounts an unlock derives for a requested count.
+fn unlock_account_count(requested: u32) -> Result<u32, String> {
+    let count = requested.max(1);
+    if count > MAX_UNLOCK_ACCOUNTS {
+        return Err(format!(
+            "at most {MAX_UNLOCK_ACCOUNTS} accounts can be derived at unlock"
+        ));
+    }
+    Ok(count)
+}
+
 /// Unlocks a stored wallet.
 #[tauri::command]
 pub fn unlock(
@@ -274,12 +291,13 @@ pub fn unlock(
     accounts: u32,
     session: tauri::State<'_, Session>,
 ) -> Result<Vec<Account>, String> {
+    let count = unlock_account_count(accounts)?;
     let seed = Vault::new(OsKeychain::new())
         .unlock(&name, &passphrase)
         .map_err(|e| e.to_string())?;
 
     let mut wallet = Wallet::from_seed(seed);
-    for index in 0..accounts.max(1) {
+    for index in 0..count {
         wallet.account(index).map_err(|e| e.to_string())?;
     }
     let derived = wallet.accounts();
@@ -906,5 +924,21 @@ mod tests {
         let two_pow_256 =
             "115792089237316195423570985008687907853269984665640564039457584007913129639936";
         assert!(parse_amount_arg("amount", two_pow_256).is_err());
+    }
+}
+
+#[cfg(test)]
+mod unlock_tests {
+    use super::{MAX_UNLOCK_ACCOUNTS, unlock_account_count};
+
+    #[test]
+    fn unlock_refuses_an_unbounded_account_count() {
+        assert_eq!(unlock_account_count(0), Ok(1));
+        assert_eq!(
+            unlock_account_count(MAX_UNLOCK_ACCOUNTS),
+            Ok(MAX_UNLOCK_ACCOUNTS)
+        );
+        assert!(unlock_account_count(MAX_UNLOCK_ACCOUNTS + 1).is_err());
+        assert!(unlock_account_count(u32::MAX).is_err());
     }
 }

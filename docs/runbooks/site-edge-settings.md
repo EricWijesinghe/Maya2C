@@ -34,6 +34,7 @@ Pages cannot set headers. These go in a Transform Rule. Create it in
 | Header name | Value |
 |---|---|
 | `Content-Security-Policy` | `frame-ancestors 'none'; script-src-attr 'none'` |
+| `X-Frame-Options` | `DENY` (for browsers that ignore `frame-ancestors`) |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` |
@@ -71,9 +72,14 @@ rotation are recorded in `notice-draft.md`), not checked by CI.
 
 ## 5. Known limits of the check (so a green run is read correctly)
 
-- Only files in `integrity-manifest.json` are compared: every HTML, JS, MJS and CSS
-  file in the build. A new page path that the build did not produce is **not**
-  detected. Sitemaps, `robots.txt`, feeds and `.txt` files are not covered.
+- Files in `integrity-manifest.json` are compared: every HTML, JS, MJS, CSS,
+  JSON, SVG, TXT and XML file in the build (sitemaps, `robots.txt` and the health
+  feeds included). Images and fonts are not compared. A new page path that the
+  build did not produce is **not** detected.
+- A Cloudflare `email-decode.min.js` tag is removed before hashing, so the file it
+  names is compared separately against `CF_EMAIL_DECODE_SHA256` in
+  `xtask/src/site_integrity.rs`. That list is empty until a trusted copy is
+  recorded, so a page carrying the tag reports `unpinned email-decode script`.
 - The check runs hourly. A script served to a visitor between two runs is not
   caught by the check; SRI and the CSP are the per-request controls.
 - For about an hour after each deploy the check skips (CDN propagation,
