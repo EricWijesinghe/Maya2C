@@ -901,3 +901,10 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-15 — Signatures name their wire version and suite; headers reserve a hash id (Eric 2026-11-14 MCQ, ADR-143)
+
+Eric chose "all format fixes" in the 2026-11-14 MCQ. Two of them land here, before genesis, because after it either would be a fork.
+
+- **Signed header (TX-6):** every transaction signature now covers `domain ‖ chain_tag ‖ wire_version ‖ suite ‖ body`. The suite is `0x30` for v5/v6, the frame's suite for v7, and `0x00` for v8 (each multisig key names its own suite in the signed policy). The domains moved to `tx.v5`, `tx.suite.v3` and `tx.multisig.v3`. No replay was possible before: domains and the payload tag kept v5 to v8 apart. What changes is that a later version reusing a domain cannot open one by accident. Every signature, and every real txid, changes; re-genesis is planned.
+- **Header hash id (CON-16):** the high nibble of the header's version byte names the hash used for the block id, the PoW seed, `tx_root` and `state_root`. 0 is BLAKE3, and any other value is refused. No byte was added, because a 146th header byte would have touched the XDP relay, the GPU and pool miners, Stratum V2 and the light client. Txids and addresses get no byte of their own: the signed wire version and suite already select their hash, and adding a new one of either is already a scheduled upgrade.

@@ -1978,7 +1978,8 @@ paths = "`crates/node/src/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/malleability_tests.rs"]
+tests = ["crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/malleability_tests.rs", "crates/node/tests/signed_header_tests.rs"]
+note = "ADR-143: every signed message names its wire version and suite after the chain tag (TX-6), so a v5 signature never verifies a v7 suite-0x30 frame or the reverse."
 
 [[subsystem]]
 id = "ethash-style-dag-proof-of-work"
@@ -3344,8 +3345,8 @@ paths = "`crates/node/tests/hash_migration_rehearsal.rs`, `docs/CRYPTO_WATCH.md`
 tier = "core"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/node/tests/hash_migration_rehearsal.rs"]
-note = "Master Prompt 15 §6. Re-commitment at an epoch boundary with a dual-hash bridge record; the node implements no second hash."
+tests = ["crates/node/tests/hash_migration_rehearsal.rs", "crates/node/tests/signed_header_tests.rs"]
+note = "Master Prompt 15 §6. Re-commitment at an epoch boundary with a dual-hash bridge record; the node implements no second hash. The header reserves a hash id (high nibble of the version byte, CON-16, ADR-143): 0 = BLAKE3, refused otherwise; that check is REAL, the migration stays RESEARCH."
 
 [[subsystem]]
 id = "performance-regression-gate"

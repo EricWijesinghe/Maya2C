@@ -83,8 +83,8 @@ is the thing the hybrid exists to rule out
 ### What gets signed
 
 ```text
-TX_DOMAIN     = "custom-l1-node.tx.v4"
-signing_bytes = TX_DOMAIN ‖ chain_tag ‖ body_bytes()        (signature excluded)
+TX_DOMAIN     = "custom-l1-node.tx.v5"
+signing_bytes = TX_DOMAIN ‖ chain_tag ‖ version ‖ suite ‖ body_bytes()   (signature excluded)
 TXID_DOMAIN   = "custom-l1-node.txid.v1"
 txid          = BLAKE3(TXID_DOMAIN ‖ kind ‖ body ‖ σ_ML ‖ σ_SLH)   (hybrid)
 ```
@@ -92,6 +92,10 @@ txid          = BLAKE3(TXID_DOMAIN ‖ kind ‖ body ‖ σ_ML ‖ σ_SLH)   (hy
 The txid hashes the signatures too, so re-signing changes the id. Signing is
 deterministic (see [signatures](/guides/signatures/)), so one payload signed
 by one key pair always gives one id.
+
+`version ‖ suite` is the wire version and the suite the signature is under
+(`0x30` for 5 and 6, the frame's suite for 7, `0x00` for 8), so a signature
+made for one version never verifies another (ADR-143).
 
 The chain tag is the genesis block id (ADR-036). A transaction signed for one
 Maya2C network cannot verify on another. The txid is chain-independent and only
