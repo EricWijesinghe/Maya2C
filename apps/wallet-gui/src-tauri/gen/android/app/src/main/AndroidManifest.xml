@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- The Scan screen reads payment QR codes; asked for at runtime, optional hardware. -->
+    <!-- The Scan screen reads payment QR codes; optional hardware. UNTESTED on Android:
+         nothing yet answers the WebView's camera permission request (ANDROID.md). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
-    <!-- allowBackup off: the sealed seed lives in the Keystore-bound store and the
-         address book is wallet data; neither belongs in adb or cloud backups. -->
+    <!-- allowBackup off: the sealed seed will live in a Keystore-bound store once one is
+         built (none exists yet, ANDROID.md), and the address book is wallet data; neither
+         belongs in adb or cloud backups. -->
     <application
         android:allowBackup="false"
         android:fullBackupContent="false"

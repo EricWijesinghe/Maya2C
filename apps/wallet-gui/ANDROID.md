@@ -14,14 +14,16 @@ watch and sign, they do not mine (platform rules, 2026-10-12).
 | `src-tauri/Cargo.toml` | `tauri-plugin-single-instance` moved under a not-Android, not-iOS target table: the crate is empty on mobile |
 | `src-tauri/src/commands.rs`, `deeplink.rs` | the confirm dialog's `parent` window and `unminimize` are desktop-only APIs, now `#[cfg(desktop)]` |
 | `ui/styles.css` | phone-width rules (360 px and up), safe-area padding for the edge-to-edge activity |
-| `ui/tests/overflow.mjs` | Playwright check: every screen at 360 and 390 px, no horizontal overflow |
+| `ui/tests/overflow.mjs` | Playwright check: every screen at 360 and 390 px, no element past the left or right edge (clipped text inside a box is not checked) |
 
 Edits to the generated project, each for a reason:
 
 - `AndroidManifest.xml`: `allowBackup="false"` and `fullBackupContent="false"`. Wallet data
   does not belong in `adb backup` or a cloud backup.
 - `AndroidManifest.xml`: `CAMERA` permission with `camera.any` not required, for the Scan
-  screen. Android asks at runtime; a phone without a camera can still install.
+  screen; a phone without a camera can still install. **Untested:** nothing in the app
+  answers the WebView's camera permission request yet, so the Scan screen may not get a
+  camera on Android until that handler is written and tried on a device.
 - `MainActivity.kt`: `FLAG_SECURE`. No screenshots, screen recording or recents thumbnail
   of the recovery phrase.
 

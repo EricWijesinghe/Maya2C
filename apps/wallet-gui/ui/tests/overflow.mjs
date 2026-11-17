@@ -2,7 +2,8 @@
 //
 // Opens the built frontend (ui/dist, from `trunk build`) in Chromium at 360
 // and 390 CSS px, walks every screen that needs no camera or node, and fails
-// when the page scrolls sideways or any element pokes past the right edge.
+// when the page scrolls sideways or any element pokes past the left or right
+// edge. Text clipped inside its own box (overflow: hidden) is not detected.
 //
 // The Tauri bridge is replaced by a fake `window.__TAURI__.core.invoke` that
 // answers with realistic worst-case data (24-word phrase, full-length
@@ -15,7 +16,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve, dirname } from 'node:path';
+import { extname, join, normalize, resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WIDTHS = [360, 390];
@@ -38,7 +39,7 @@ const server = createServer((req, res) => {
   let file = join(dist, normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)));
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
   // Refuse anything that normalizes outside dist.
-  if (!file.startsWith(dist) || !existsSync(file)) { res.writeHead(404).end(); return; }
+  if (!file.startsWith(dist + sep) || !existsSync(file)) { res.writeHead(404).end(); return; }
   res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
   res.end(readFileSync(file));
 });
@@ -76,7 +77,7 @@ function fakeTauri(existing) {
   };
 }
 
-// Every element whose right edge passes the viewport, plus the page's own
+// Every element whose left or right edge passes the viewport, plus the page's own
 // sideways scroll. Returns human-readable offenders.
 async function overflow(page) {
   return page.evaluate((slack) => {
@@ -87,8 +88,8 @@ async function overflow(page) {
     }
     for (const el of document.body.querySelectorAll('*')) {
       const r = el.getBoundingClientRect();
-      if (r.width && r.right > vw + slack) {
-        out.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} right=${Math.round(r.right)}`);
+      if (r.width && (r.right > vw + slack || r.left < -slack)) {
+        out.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} left=${Math.round(r.left)} right=${Math.round(r.right)}`);
       }
     }
     return out.slice(0, 8);
