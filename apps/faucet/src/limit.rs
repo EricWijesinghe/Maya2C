@@ -38,19 +38,25 @@
 //! first and writes both after.
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::hash::Hash;
+use std::net::{IpAddr, Ipv6Addr};
 use std::time::{Duration, SystemTime};
 
 /// How long one grant blocks the next, for both keys.
 pub const WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// Distinct IPs and addresses tracked before a sweep.
+/// Distinct IPs and addresses tracked, hard.
 ///
 /// The tables are the memory an attacker grows by varying their key, so they
-/// need a ceiling. Entries older than [`WINDOW`] are dropped when it is
-/// reached: an expired entry and an absent one produce the same answer, so
-/// forgetting it changes no decision.
+/// need a ceiling. When it is reached, entries older than [`WINDOW`] are dropped
+/// first; if every entry is still live, the oldest is evicted. An expired entry
+/// and an absent one give the same answer, and an evicted live entry can only
+/// re-open one key early, which the daily cap still bounds.
 pub const MAX_TRACKED: usize = 262_144;
+
+/// An IPv6 host owns its whole `/64`, so its 2^64 source addresses share one
+/// bucket. IPv4 addresses are keyed as they are.
+const IPV6_SUBNET_MASK: u128 = u128::MAX << 64;
 
 /// Why a request was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,7 +122,7 @@ impl Limiter {
     /// deliberately does not commit, so polling it cannot exhaust anything.
     #[must_use]
     pub fn would_permit(&self, ip: IpAddr, address: &[u8; 32], now: SystemTime) -> Option<Refusal> {
-        if let Some(retry_after) = remaining(self.ips.get(&ip), now) {
+        if let Some(retry_after) = remaining(self.ips.get(&bucket(ip)), now) {
             return Some(Refusal::Ip { retry_after });
         }
         if let Some(retry_after) = remaining(self.addresses.get(address), now) {
@@ -143,11 +149,8 @@ impl Limiter {
             return Err(refusal);
         }
 
-        if self.ips.len() >= MAX_TRACKED || self.addresses.len() >= MAX_TRACKED {
-            self.sweep(now);
-        }
-
-        self.ips.insert(ip, now);
+        self.make_room(now);
+        self.ips.insert(bucket(ip), now);
         self.addresses.insert(*address, now);
         Ok(())
     }
@@ -156,7 +159,7 @@ impl Limiter {
     /// later of two times for one key, so replay order does not matter.
     pub fn record(&mut self, ip: IpAddr, address: &[u8; 32], at: SystemTime) {
         let later = |old: &mut SystemTime| *old = (*old).max(at);
-        self.ips.entry(ip).and_modify(later).or_insert(at);
+        self.ips.entry(bucket(ip)).and_modify(later).or_insert(at);
         self.addresses
             .entry(*address)
             .and_modify(later)
@@ -170,6 +173,21 @@ impl Limiter {
             .retain(|_, at| remaining(Some(at), now).is_some());
     }
 
+    /// Before inserting, keeps both tables under [`MAX_TRACKED`]. Only sweeps
+    /// once a table is full, so ordinary traffic never pays for the scan.
+    fn make_room(&mut self, now: SystemTime) {
+        if self.ips.len() < MAX_TRACKED && self.addresses.len() < MAX_TRACKED {
+            return;
+        }
+        self.sweep(now);
+        if self.ips.len() >= MAX_TRACKED {
+            evict_oldest(&mut self.ips);
+        }
+        if self.addresses.len() >= MAX_TRACKED {
+            evict_oldest(&mut self.addresses);
+        }
+    }
+
     /// IPs currently held.
     #[must_use]
     pub fn tracked_ips(&self) -> usize {
@@ -180,6 +198,24 @@ impl Limiter {
     #[must_use]
     pub fn tracked_addresses(&self) -> usize {
         self.addresses.len()
+    }
+}
+
+/// The key an IP is limited under: its `/64` for IPv6.
+fn bucket(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & IPV6_SUBNET_MASK)),
+        v4 @ IpAddr::V4(_) => v4,
+    }
+}
+
+/// Removes the entry granted longest ago.
+// shortcut: a linear scan, run only when a table is at MAX_TRACKED; upgrade to
+// a time-ordered queue if load tests show the scan on the request path.
+fn evict_oldest<K: Copy + Eq + Hash>(table: &mut HashMap<K, SystemTime>) {
+    let oldest = table.iter().min_by_key(|(_, at)| **at).map(|(key, _)| *key);
+    if let Some(key) = oldest {
+        table.remove(&key);
     }
 }
 
@@ -386,6 +422,94 @@ mod tests {
                 .check_and_commit(ip(1), &address(1), earlier)
                 .is_err(),
             "a clock that went backwards must not open the window"
+        );
+    }
+
+    #[test]
+    fn an_ipv6_subnet_is_one_bucket() {
+        // A host with a /64 has 2^64 source addresses; each must not be a fresh
+        // allowance.
+        let base = u128::from(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, 0));
+        let host = |n: u128| IpAddr::V6(Ipv6Addr::from(base | n));
+        let mut limiter = Limiter::new();
+        limiter
+            .check_and_commit(host(1), &address(0), now())
+            .expect("first request");
+
+        for byte in 2..=250u8 {
+            let refusal = limiter
+                .check_and_commit(host(u128::from(byte)), &address(byte), now())
+                .expect_err("a sibling address in the same /64 must share the window");
+            assert!(matches!(refusal, Refusal::Ip { .. }));
+        }
+
+        let other_subnet = u128::from(Ipv6Addr::new(0x2001, 0xdb8, 1, 3, 0, 0, 0, 0));
+        limiter
+            .check_and_commit(
+                IpAddr::V6(Ipv6Addr::from(other_subnet | 1)),
+                &address(251),
+                now(),
+            )
+            .expect("a different /64 is a different host");
+    }
+
+    #[test]
+    fn the_tables_never_grow_past_their_ceiling() {
+        // Fresh keys at one instant: nothing is expired, so the table must
+        // evict rather than grow.
+        let mut limiter = Limiter::new();
+        let at = now();
+        for n in 0..(MAX_TRACKED as u64 + 8) {
+            let subnet = IpAddr::V6(Ipv6Addr::from(u128::from(n) << 64));
+            let mut key = [0u8; 32];
+            key[..8].copy_from_slice(&n.to_be_bytes());
+            limiter
+                .check_and_commit(subnet, &key, at)
+                .expect("a fresh key is granted");
+        }
+        assert!(limiter.tracked_ips() <= MAX_TRACKED);
+        assert!(limiter.tracked_addresses() <= MAX_TRACKED);
+    }
+
+    #[test]
+    fn a_full_table_evicts_the_oldest_grant_first() {
+        let mut limiter = Limiter::new();
+        for n in 0..MAX_TRACKED as u64 {
+            let mut key = [0u8; 32];
+            key[..8].copy_from_slice(&n.to_be_bytes());
+            let subnet = IpAddr::V6(Ipv6Addr::from(u128::from(n) << 64));
+            // Milliseconds apart, so the whole table is inside one window.
+            let at = now() + Duration::from_millis(n);
+            limiter.check_and_commit(subnet, &key, at).expect("granted");
+        }
+        // The newest is still held, so it is still refused.
+        let newest = (MAX_TRACKED as u64) - 1;
+        let mut newest_key = [0u8; 32];
+        newest_key[..8].copy_from_slice(&newest.to_be_bytes());
+        let newest_at = now() + Duration::from_millis(newest);
+        assert!(
+            limiter
+                .would_permit(
+                    IpAddr::V6(Ipv6Addr::from(u128::from(newest) << 64)),
+                    &newest_key,
+                    newest_at,
+                )
+                .is_some()
+        );
+
+        // One more distinct key evicts the oldest (n = 0), not the newest.
+        let mut fresh = [0u8; 32];
+        fresh[..8].copy_from_slice(&u64::MAX.to_be_bytes());
+        let later = now() + Duration::from_secs(1_000);
+        limiter
+            .check_and_commit(IpAddr::V6(Ipv6Addr::from(u128::MAX)), &fresh, later)
+            .expect("granted");
+        assert_eq!(limiter.tracked_ips(), MAX_TRACKED);
+        assert!(
+            limiter
+                .would_permit(IpAddr::V6(Ipv6Addr::from(0u128)), &[0u8; 32], later)
+                .is_none(),
+            "the oldest grant was evicted"
         );
     }
 }

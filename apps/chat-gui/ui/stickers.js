@@ -10,6 +10,7 @@ const Stickers = (() => {
   const ACCEPT = ".json,.tgs,.webm,.webp,.png,.apng,.gif,.svg";
   const urls = new Map(); // id -> object URL (images, video)
   const anims = new Map(); // id -> parsed Lottie JSON
+  const TGS_MAX_BYTES = 4 << 20; // an unpacked animation; larger is refused
   let packs = [];
   let recent = [];
   let onSend = async () => {};
@@ -18,13 +19,34 @@ const Stickers = (() => {
     return new Uint8Array(await invoke("sticker_file", { id }));
   }
 
+  // Unpacks gzip, refusing output past `max` bytes: a small gzip can inflate to far more.
+  async function gunzipCapped(bytes, max) {
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+    const parts = [];
+    let total = 0;
+    for (let next = await reader.read(); !next.done; next = await reader.read()) {
+      total += next.value.byteLength;
+      if (total > max) {
+        await reader.cancel();
+        throw new Error("this animation is too large once unpacked");
+      }
+      parts.push(next.value);
+    }
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.byteLength;
+    }
+    return out;
+  }
+
   async function lottieOf(id, format) {
     if (anims.has(id)) return anims.get(id);
     let bytes = await bytesOf(id);
     if (format === "tgs") {
       // Telegram's .tgs is gzipped Lottie JSON.
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+      bytes = await gunzipCapped(bytes, TGS_MAX_BYTES);
     }
     const data = JSON.parse(new TextDecoder().decode(bytes));
     anims.set(id, data);

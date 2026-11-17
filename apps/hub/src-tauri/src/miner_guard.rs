@@ -371,8 +371,11 @@ pub fn resolve_key_file(requested: &str, data: &Path) -> Result<PathBuf, GuardEr
 ///
 /// The key resolves outside `data`, cannot be read, or is open to other accounts.
 pub fn check_key_file(target: &Path, data: &Path) -> Result<(), GuardError> {
-    if fs::symlink_metadata(target).is_err() {
-        return Ok(());
+    // Only a missing key passes; any other stat failure must not look like one.
+    match fs::symlink_metadata(target) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io(e)),
     }
     let data = data.canonicalize().map_err(io)?;
     let real = target.canonicalize().map_err(io)?;
@@ -688,6 +691,17 @@ mod tests {
         let data = base.join("data");
         fs::create_dir_all(&data).unwrap();
         assert!(check_key_file(&data.join("miner.key"), &data).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_path_that_cannot_be_stat_is_refused_not_passed() {
+        let base = scratch("key-unstatable");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        // A regular file in the middle of the path: stat fails with ENOTDIR, not NotFound.
+        fs::write(data.join("plain"), b"x").unwrap();
+        assert!(check_key_file(&data.join("plain").join("miner.key"), &data).is_err());
     }
 
     #[cfg(unix)]

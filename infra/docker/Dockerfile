@@ -102,8 +102,9 @@ VOLUME ["/data"]
 # 8545 JSON-RPC, 8546 aggregator market/supply HTTP, 9600 Prometheus exporter,
 # 30333 libp2p TCP.
 #
-# EXPOSE is documentation, not a firewall. Only 30333 and 8545 are meant to be
-# reachable from outside a cluster; 9600 publishes peer topology and mempool
+# EXPOSE is documentation, not a firewall. 8545 is reached by cluster peers and
+# through the rate-limited ingress in infra/k8s/base/ingress.yaml; the compose
+# file publishes it on 127.0.0.1. 9600 publishes peer topology and mempool
 # contents and is confined by the NetworkPolicy in infra/k8s/base/ingress.yaml.
 EXPOSE 8545 8546 9600 30333
 
