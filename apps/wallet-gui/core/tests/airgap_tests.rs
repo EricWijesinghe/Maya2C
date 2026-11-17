@@ -249,3 +249,24 @@ fn frames_from_two_different_transfers_cannot_be_mixed() {
         .expect_err("a frame from another transfer must be refused");
     assert!(format!("{error}").contains("different payload"));
 }
+
+#[test]
+fn a_hand_built_frame_past_the_total_is_refused_not_panicked_on() {
+    let frame = Frame {
+        total: 2,
+        index: 5,
+        digest: [7; 32],
+        chunk: vec![1, 2, 3],
+    };
+    let mut assembler = Assembler::new(&Frame {
+        total: 2,
+        index: 0,
+        digest: [7; 32],
+        chunk: vec![0],
+    });
+
+    let error = assembler
+        .add(&frame)
+        .expect_err("an index past the total must be refused");
+    assert!(format!("{error}").contains("out of range"));
+}
