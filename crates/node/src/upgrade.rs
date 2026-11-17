@@ -56,8 +56,12 @@ impl FeatureSet {
     pub const ZKML: u64 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
     pub const RWA_STRICT: u64 = 1 << 7;
+    /// Stealth addresses (ADR-102). Bit 10 as claimed; bits 8 and 9 belong to
+    /// the shielded and account-authority branches. Defined so the position is
+    /// fixed, refused by [`UpgradeSchedule::new`] until the v10 frame exists.
+    pub const STEALTH: u64 = 1 << 10;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u64 = ((1 << 8) - 1) | Self::STEALTH;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -166,6 +170,15 @@ impl UpgradeSchedule {
             if u.features.contains(FeatureSet::ZKML) {
                 return Err(NodeError::Decode(format!(
                     "protocol upgrade to version {} schedules zkML, which is refused until its verifier exists",
+                    u.version
+                )));
+            }
+            // Stealth stays at STEALTH_ACTIVATION_HEIGHT (u64::MAX): the
+            // `StealthAnnounce` kind and the v10 spend frame are not built, so
+            // switching the bit on would activate nothing a node can check.
+            if u.features.contains(FeatureSet::STEALTH) {
+                return Err(NodeError::Decode(format!(
+                    "protocol upgrade to version {} schedules stealth addresses, which are refused until the v10 frame exists",
                     u.version
                 )));
             }
@@ -347,6 +360,14 @@ mod tests {
     fn zkml_cannot_be_scheduled() {
         let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::ZKML)]);
         assert!(refused.is_err(), "zkML has no verifier yet (M3)");
+    }
+
+    #[test]
+    fn stealth_is_dark_and_cannot_be_scheduled() {
+        assert_eq!(crate::state::context::STEALTH_ACTIVATION_HEIGHT, u64::MAX);
+        assert!(FeatureSet(FeatureSet::STEALTH).is_known());
+        let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::STEALTH)]);
+        assert!(refused.is_err(), "stealth has no v10 frame yet (ADR-102)");
     }
 
     #[test]
