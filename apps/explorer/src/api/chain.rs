@@ -1,13 +1,13 @@
 //! Chain-level and live routes: status, accounts, validators, supply, mempool.
 
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::response::Response;
 use maya_address::Network;
 
 use crate::api::address;
 use crate::api::dto::{self, Account, Counts, Status};
 use crate::api::node::Mempool;
-use crate::api::problem::{ApiError, Code};
+use crate::api::problem::{ApiError, ApiPath, Code};
 use crate::api::respond::{self, Freshness, Meta};
 use crate::api::{ApiState, LIVE_TTL, SUPPLY_TTL, chain_meta, finalized_height, network_of};
 use crate::error::ExplorerError;
@@ -45,8 +45,24 @@ pub fn node_error(error: &ExplorerError) -> ApiError {
     )
 )]
 pub async fn status(State(state): State<ApiState>) -> Result<Response, ApiError> {
-    let info = chain_meta(&state).await;
-    let finalized = finalized_height(&state).await;
+    let fetch = || summary(&state);
+    let (body, _) = state
+        .live
+        .status
+        .get_or_fetch("status", LIVE_TTL, fetch)
+        .await?;
+    let meta = Meta {
+        indexed: body.indexed_height,
+        tip: body.tip_height,
+        cache: None,
+    };
+    Ok(respond::json(&body, Freshness::Live, meta))
+}
+
+/// The `/status` body, built fresh: five store queries and two node reads.
+async fn summary(state: &ApiState) -> Result<Status, ApiError> {
+    let info = chain_meta(state).await;
+    let finalized = finalized_height(state).await;
     let network = info
         .as_ref()
         .and_then(|i| i.chain_id.as_deref())
@@ -85,7 +101,7 @@ pub async fn status(State(state): State<ApiState>) -> Result<Response, ApiError>
         (Some(tip), Some(indexed)) => Some(tip.saturating_sub(indexed)),
         _ => None,
     };
-    let body = Status {
+    Ok(Status {
         chain_id: info.as_ref().and_then(|i| i.chain_id.clone()),
         network: network.map(|n| n.hrp().to_string()),
         indexed_height: indexed,
@@ -95,13 +111,7 @@ pub async fn status(State(state): State<ApiState>) -> Result<Response, ApiError>
         lag_blocks: lag,
         counts,
         average_block_time_seconds: average_block_time(&window),
-    };
-    let meta = Meta {
-        indexed,
-        tip,
-        cache: None,
-    };
-    Ok(respond::json(&body, Freshness::Live, meta))
+    })
 }
 
 /// Live balance and next nonce of an account.
@@ -118,7 +128,7 @@ pub async fn status(State(state): State<ApiState>) -> Result<Response, ApiError>
 )]
 pub async fn account(
     State(state): State<ApiState>,
-    Path(raw): Path<String>,
+    ApiPath(raw): ApiPath<String>,
 ) -> Result<Response, ApiError> {
     let id = address::parse(&raw, network_of(&state).await)?;
     let id_hex = hex::encode(id);

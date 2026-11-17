@@ -42,7 +42,10 @@ The contract is [`apps/explorer/openapi/v1.yaml`](../../apps/explorer/openapi/v1
 ## Caching
 
 - A block or transaction at or below the finalized height is
-  `Cache-Control: public, max-age=31536000, immutable`.
+  `Cache-Control: public, max-age=31536000, immutable`, but only when the node
+  answered for the network (so no address is null) and its block at that
+  height is the one the index holds. Otherwise it is `max-age=5` until both
+  hold.
 - Other history: `public, max-age=5`.
 - Live data (balance, validators, supply, mempool, status): `no-cache` with an
   `ETag`. Send `If-None-Match` to get `304`.
@@ -53,7 +56,14 @@ Default 10 requests per second per client, burst 30. The client is the socket
 address by default. Behind a proxy, start the explorer with
 `--api-client-ip cf` (Cloudflare) or `--api-client-ip xff` (a proxy that appends
 to `X-Forwarded-For`). Only use a header mode when the proxy is the only route
-in: a client can otherwise write its own header.
+in: a client can otherwise write its own header. The explorer refuses to start
+with `cf` or `xff` on a non-loopback `--listen` address unless
+`--trust-proxy-header` says a firewall makes the proxy the only way in, and it
+warns when socket mode listens on loopback (every visitor would arrive from the
+proxy and share one bucket). An IPv6 client is counted per /64.
+
+Node reads from the API and the legacy pages share 16 slots (a call waits up
+to 2 s for one) and time out after 10 s.
 
 ## Routes
 

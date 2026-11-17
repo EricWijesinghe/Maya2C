@@ -52,9 +52,20 @@ cannot take that prefix.
    carries `Retry-After` and `RateLimit-Limit`, `RateLimit-Remaining`,
    `RateLimit-Reset`. Only `ClientIp::Socket` is the default; the header
    modes are for a deployment behind a proxy that overwrites the header.
+   The explorer refuses `cf`/`xff` on a non-loopback listen address unless
+   `--trust-proxy-header` is passed, and warns on socket mode over loopback;
+   `infra/hybrid-testnet/start-testnet.ps1` runs `--api-client-ip cf` on
+   127.0.0.1. An IPv6 client is keyed on its /64 (an IPv4-mapped address
+   stays IPv4), in `maya-web-security`, so the gateway counts the same way.
+   Node calls from `/api/v1` hold one of the explorer's 16 node slots
+   (shared with the legacy pages, a 2 s wait for one) and time out after 10 s;
+   `/status` is cached for the live TTL.
 7. **Caching.** A block or transaction at or below the finalized height
-   (`get_checkpoint`) is `Cache-Control: public, max-age=31536000, immutable`.
-   Anything above it is `max-age=5`. Live data is `no-cache` with an `ETag`
+   (`get_checkpoint`) is `Cache-Control: public, max-age=31536000, immutable`
+   only if the node also answered for the chain's network (so no address in
+   the body is null) and its block at that height (`get_block_by_height`) is
+   the one the index holds: a stale fork block the indexer has not yet
+   repaired is never frozen. Anything else is `max-age=5`. Live data is `no-cache` with an `ETag`
    over the body and `If-None-Match` returns 304.
 8. **Store.** The index gains `tx_outputs(txid, idx, recipient, amount,
    height, position)` and `IndexedOutput`. The index generation is bumped to

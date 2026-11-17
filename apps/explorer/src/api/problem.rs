@@ -1,5 +1,7 @@
 //! RFC 9457 problem responses. Every v1 failure carries a stable `code`.
 
+use axum::extract::FromRequestParts;
+use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -112,5 +114,29 @@ pub fn problem_response(code: Code, detail: &str, extra: HeaderMap) -> Response 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         problem_response(self.code, &self.detail, HeaderMap::new())
+    }
+}
+
+/// `Query`, with a malformed query string answered as `invalid_param` problem
+/// JSON rather than axum's plain-text 400.
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Query), rejection(ApiError))]
+pub struct ApiQuery<T>(pub T);
+
+/// `Path`, with an undecodable segment answered as `invalid_param`.
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Path), rejection(ApiError))]
+pub struct ApiPath<T>(pub T);
+
+// Fixed wording: the rejection's own text is axum's, not part of the contract.
+impl From<QueryRejection> for ApiError {
+    fn from(_: QueryRejection) -> Self {
+        Self::new(Code::InvalidParam, "the query string could not be read")
+    }
+}
+
+impl From<PathRejection> for ApiError {
+    fn from(_: PathRejection) -> Self {
+        Self::new(Code::InvalidParam, "the path could not be read")
     }
 }

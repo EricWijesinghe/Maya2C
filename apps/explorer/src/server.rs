@@ -21,9 +21,9 @@ use serde::Deserialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 use tower_http::services::{ServeDir, ServeFile};
 
-use maya_web_security::rate_limit::RateLimit;
+use maya_web_security::rate_limit::{self, RateLimit};
 
-use crate::api::node::{NoNode, NodeSource, RpcNode};
+use crate::api::node::{Limited, NoNode, NodeSource, RpcNode};
 use crate::api::{self, ApiState, LiveCache};
 use crate::error::{ExplorerError, Result};
 use crate::indexer::IndexEvent;
@@ -170,24 +170,34 @@ fn node_unavailable(error: &ExplorerError, sentence: &str) -> String {
     sentence.to_string()
 }
 
-/// Builds the router.
+/// Builds the router. Spawns nothing, so it can be built outside a runtime;
+/// [`serve`] runs the limiter's pruning.
+pub fn router(state: AppState) -> Router {
+    app(state).0
+}
+
+/// The router and the `/api/v1` limiter whose table [`serve`] prunes.
 ///
 /// # Panics
 ///
 /// Never in practice: the API's rate limit is a constant that
 /// [`api::default_rate_limit`] keeps valid.
 #[allow(clippy::expect_used)]
-pub fn router(state: AppState) -> Router {
+fn app(state: AppState) -> (Router, rate_limit::Config) {
     let api_state = ApiState {
         store: Arc::clone(&state.store),
-        node: node_for(state.node_rpc.as_deref()),
+        // Same slots as the legacy pages: one node budget for the explorer.
+        node: Arc::new(Limited::new(
+            node_for(state.node_rpc.as_deref()),
+            Arc::clone(&state.node_calls),
+        )),
         live: Arc::new(LiveCache::default()),
     };
     let limit = RateLimit {
         client_ip: state.api_client_ip,
         ..api::default_rate_limit()
     };
-    let v1 = api::router(api_state, &limit).expect("default API rate limit is valid");
+    let (v1, limiter) = api::router(api_state, &limit).expect("default API rate limit is valid");
 
     let router = Router::new()
         .merge(v1)
@@ -233,7 +243,8 @@ pub fn router(state: AppState) -> Router {
         .merge(maya_web_security::security_txt())
         .layer(axum::middleware::from_fn(api::respond::legacy_api))
         .layer(cors);
-    maya_web_security::secure(router, CONTENT_SECURITY_POLICY).with_state(state)
+    let router = maya_web_security::secure(router, CONTENT_SECURITY_POLICY).with_state(state);
+    (router, limiter)
 }
 
 /// The explorer's pages run their own inline `<script>` and `<style>` blocks
@@ -745,10 +756,17 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
     // Connect info gives the /api/v1 limiter the peer address: without it every
     // request in socket mode, and every request missing the proxy header in
     // cf/xff mode, has no client key and fails.
-    let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
+    let (router, limiter) = app(state);
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    // Pruning lives in the server's task, so aborting the handle stops both.
     let handle = tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, app).await {
-            eprintln!("explorer server stopped: {error}");
+        tokio::select! {
+            result = axum::serve(listener, service) => {
+                if let Err(error) = result {
+                    eprintln!("explorer server stopped: {error}");
+                }
+            }
+            () = rate_limit::prune(limiter) => {}
         }
     });
 

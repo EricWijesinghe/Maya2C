@@ -46,8 +46,15 @@ use tower::ServiceExt;
 struct FakeNode {
     supply_calls: AtomicUsize,
     down: AtomicBool,
+    /// Only `get_chain_info` fails: the network is unknown, finality is not.
+    chain_down: AtomicBool,
     finalized: Option<u64>,
     staking: bool,
+    /// The node's canonical block here differs from the seeded (indexed) one.
+    fork_at: Option<u64>,
+    /// `get_balance` calls running now, and the most seen at once.
+    in_flight: AtomicUsize,
+    peak: AtomicUsize,
 }
 
 impl FakeNode {
@@ -64,6 +71,9 @@ impl FakeNode {
 impl NodeSource for FakeNode {
     async fn chain(&self) -> Result<ChainInfo> {
         self.answer()?;
+        if self.chain_down.load(Ordering::SeqCst) {
+            return Err(ExplorerError::NodeRpc("timed out".to_string()));
+        }
         Ok(ChainInfo {
             genesis: "00".repeat(32),
             chain_id: Some("maya-testnet-1".to_string()),
@@ -82,6 +92,10 @@ impl NodeSource for FakeNode {
     }
 
     async fn account(&self, address_hex: &str) -> Result<AccountInfo> {
+        let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(now, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
         self.answer()?;
         Ok(AccountInfo {
             address: address_hex.to_string(),
@@ -121,6 +135,14 @@ impl NodeSource for FakeNode {
             size: 2,
             bytes: 512,
         })
+    }
+
+    async fn block_id(&self, height: u64) -> Result<String> {
+        self.answer()?;
+        if self.fork_at == Some(height) {
+            return Ok(hash(0xf0));
+        }
+        Ok(hash(height as u8))
     }
 }
 
@@ -220,7 +242,7 @@ fn app_with(store: Arc<MemoryStore>, node: Arc<FakeNode>, limit: RateLimit) -> R
         node,
         live: Arc::new(LiveCache::default()),
     };
-    api::router::<()>(state, &limit).expect("valid limit")
+    api::router::<()>(state, &limit).expect("valid limit").0
 }
 
 fn peer(last: u8) -> SocketAddr {
@@ -514,6 +536,30 @@ async fn bad_limits_and_cursors_are_typed_errors() {
 }
 
 #[tokio::test]
+async fn malformed_query_strings_and_paths_are_problem_json() {
+    let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
+    for uri in [
+        "/api/v1/blocks?limit=%ZZ",
+        "/api/v1/blocks?limit=1&limit=2",
+        "/api/v1/blocks/%FF",
+        "/api/v1/transactions/%FF",
+        "/api/v1/accounts/%FF",
+    ] {
+        let reply = get(&app, uri).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{uri}");
+        assert_eq!(reply.code(), "invalid_param", "{uri}: {}", reply.body);
+    }
+}
+
+#[test]
+fn the_router_builds_outside_a_runtime() {
+    // No task is spawned while building: serve() owns the limiter's pruning.
+    let (events, _) = broadcast::channel(16);
+    let state = AppState::new(Arc::new(MemoryStore::new()), events, None, None);
+    drop(explorer_router(state));
+}
+
+#[tokio::test]
 async fn cursor_from_another_block_is_refused() {
     let app = build_app(seeded(3).await, Arc::new(FakeNode::default()));
     let first = get(&app, "/api/v1/blocks/3/transactions?limit=1").await;
@@ -738,6 +784,90 @@ async fn without_a_checkpoint_nothing_is_immutable() {
     let app = build_app(seeded(2).await, Arc::new(FakeNode::default()));
     let block = get(&app, "/api/v1/blocks/1").await;
     assert_eq!(block.headers["cache-control"], "public, max-age=5");
+}
+
+#[tokio::test]
+async fn an_unknown_network_is_never_frozen_into_an_immutable_response() {
+    // Finality answers, chain info does not: addresses would serialize as null.
+    let node = Arc::new(FakeNode {
+        finalized: Some(3),
+        ..FakeNode::default()
+    });
+    node.chain_down.store(true, Ordering::SeqCst);
+    let app = build_app(seeded(5).await, node);
+    for uri in [
+        "/api/v1/blocks/2".to_string(),
+        "/api/v1/blocks/2/transactions".to_string(),
+        format!("/api/v1/transactions/{}", txid(2, 0)),
+    ] {
+        let reply = get(&app, &uri).await;
+        assert_eq!(reply.status, StatusCode::OK, "{uri}");
+        assert_eq!(reply.headers["cache-control"], "public, max-age=5", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn an_indexed_block_the_node_disowns_is_not_immutable() {
+    // The indexer still holds a fork block at 2; it repairs on its next poll.
+    let node = Arc::new(FakeNode {
+        finalized: Some(3),
+        fork_at: Some(2),
+        ..FakeNode::default()
+    });
+    let app = build_app(seeded(5).await, node);
+    let stale = get(&app, "/api/v1/blocks/2").await;
+    assert_eq!(stale.headers["cache-control"], "public, max-age=5");
+    let stale_tx = get(&app, &format!("/api/v1/transactions/{}", txid(2, 1))).await;
+    assert_eq!(stale_tx.headers["cache-control"], "public, max-age=5");
+    let canonical = get(&app, "/api/v1/blocks/1").await;
+    assert_eq!(
+        canonical.headers["cache-control"],
+        "public, max-age=31536000, immutable"
+    );
+}
+
+#[tokio::test]
+async fn node_calls_wait_for_a_slot_and_never_exceed_the_cap() {
+    let node = Arc::new(FakeNode::default());
+    let cap = 4;
+    let limited = Arc::new(api::node::Limited::new(
+        Arc::clone(&node) as Arc<dyn NodeSource>,
+        Arc::new(tokio::sync::Semaphore::new(cap)),
+    ));
+    let mut tasks = Vec::new();
+    for n in 0..24u8 {
+        let limited = Arc::clone(&limited);
+        tasks.push(tokio::spawn(async move {
+            limited.account(&addr_hex(n)).await.is_ok()
+        }));
+    }
+    for task in tasks {
+        assert!(task.await.unwrap(), "a call waited out its slot");
+    }
+    let peak = node.peak.load(Ordering::SeqCst);
+    assert!(peak <= cap, "{peak} calls in flight, cap {cap}");
+    assert_eq!(peak, cap, "the cap is reached, so the test exercised it");
+}
+
+#[tokio::test]
+async fn status_is_reused_for_the_live_ttl() {
+    let store = seeded(3).await;
+    let app = build_app(Arc::clone(&store), Arc::new(FakeNode::default()));
+    assert_eq!(get(&app, "/api/v1/status").await.body["indexed_height"], 3);
+    let next = IndexedBlock {
+        height: 4,
+        id: hash(4),
+        prev_hash: hash(3),
+        state_root: hash(0xab),
+        timestamp: 1_700_000_060,
+        nonce: 4,
+        difficulty_target: hash(0xff),
+        tx_count: 0,
+        work: "1".to_string(),
+    };
+    store.put_block(&next, &[]).await.unwrap();
+    // Within the TTL the counts are not re-run against the store.
+    assert_eq!(get(&app, "/api/v1/status").await.body["indexed_height"], 3);
 }
 
 #[tokio::test]

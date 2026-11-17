@@ -33,6 +33,7 @@ use tower_governor::{GovernorError, GovernorLayer};
 use crate::api::cache::TtlCache;
 use crate::api::node::{Mempool, NodeSource};
 use crate::api::problem::{Code, problem_response};
+use crate::api::respond::Freshness;
 use crate::store::BlockStore;
 
 /// How long live node answers are reused. Short: a wallet should see a new
@@ -42,6 +43,10 @@ pub const LIVE_TTL: Duration = Duration::from_secs(2);
 
 /// `get_supply` scans every account on the node, so it is reused for longer.
 pub const SUPPLY_TTL: Duration = Duration::from_secs(30);
+
+/// The node's block id at a height, once that height is final. A final block
+/// never changes, so this only bounds how long the entry holds a slot.
+pub const CANONICAL_TTL: Duration = Duration::from_secs(300);
 
 /// Every route the router serves. The OpenAPI test checks the spec against it.
 pub const ROUTES: &[&str] = &[
@@ -83,6 +88,11 @@ pub struct LiveCache {
     pub supply: TtlCache<SupplyReport>,
     /// `get_mempool_info`, under one key.
     pub mempool: TtlCache<Mempool>,
+    /// The node's block id, keyed by height (see [`freshness`]).
+    pub canonical: TtlCache<String>,
+    /// The `/status` body: its counts are full scans of the store, whose
+    /// pool the indexer writes through.
+    pub status: TtlCache<dto::Status>,
 }
 
 /// What every v1 handler needs.
@@ -99,14 +109,19 @@ pub struct ApiState {
 /// Builds the v1 router, generic over the outer application's state so it can
 /// be merged into a router that carries its own.
 ///
+/// Also returns the limiter's configuration. Its table must be pruned on a
+/// timer ([`rate_limit::prune`]) or it grows with every address that ever
+/// called; that is left to whoever serves the router, so building one spawns
+/// nothing and needs no runtime.
+///
 /// # Errors
 ///
 /// [`InvalidRateLimit`] if `limit` allows nothing.
-pub fn router<S>(state: ApiState, limit: &RateLimit) -> Result<Router<S>, InvalidRateLimit> {
+pub fn router<S>(
+    state: ApiState,
+    limit: &RateLimit,
+) -> Result<(Router<S>, rate_limit::Config), InvalidRateLimit> {
     let config = rate_limit::config(limit)?;
-    // Forgotten clients are pruned on a timer; without it the table grows with
-    // every address that ever called.
-    drop(rate_limit::spawn_pruning(&config));
     let burst = limit.burst;
     let router = Router::new()
         .route("/api/v1/status", get(chain::status))
@@ -128,9 +143,12 @@ pub fn router<S>(state: ApiState, limit: &RateLimit) -> Result<Router<S>, Invali
         .route("/api/v1/mempool", get(chain::mempool))
         .layer(axum::middleware::from_fn(respond::conditional))
         // Outermost, so a limited client costs nothing beyond this check.
-        .layer(GovernorLayer::new(config).error_handler(move |error| rate_limited(burst, error)))
+        .layer(
+            GovernorLayer::new(Arc::clone(&config))
+                .error_handler(move |error| rate_limited(burst, error)),
+        )
         .with_state(state);
-    Ok(router)
+    Ok((router, config))
 }
 
 /// The 429 a limited client gets: problem JSON, with the retry headers.
@@ -184,6 +202,32 @@ pub async fn chain_meta(state: &ApiState) -> Option<ChainInfo> {
 pub async fn network_of(state: &ApiState) -> Option<maya_address::Network> {
     let info = chain_meta(state).await?;
     maya_address::Network::for_chain_id(info.chain_id.as_deref()?)
+}
+
+/// How long a response about the indexed block `block_id` at `height` may be
+/// kept. Immutable needs all three of: the height is final; the network is
+/// known (without it every address in the body is null); and the node's block
+/// at that height is the indexed one (the indexer repairs a stale fork block
+/// only on its next poll). Anything unanswered is [`Freshness::Short`].
+pub async fn freshness(state: &ApiState, height: i64, block_id: &str) -> Freshness {
+    if respond::for_height(height, finalized_height(state).await) != Freshness::Immutable
+        || network_of(state).await.is_none()
+    {
+        return Freshness::Short;
+    }
+    let Ok(at) = u64::try_from(height) else {
+        return Freshness::Short;
+    };
+    let fetch = || async { state.node.block_id(at).await };
+    match state
+        .live
+        .canonical
+        .get_or_fetch(&at.to_string(), CANONICAL_TTL, fetch)
+        .await
+    {
+        Ok((canonical, _)) if canonical == block_id => Freshness::Immutable,
+        _ => Freshness::Short,
+    }
 }
 
 /// The finalized height, if the chain has a finality checkpoint.

@@ -4,6 +4,9 @@
 //! fails on demand, or answers slowly. The production implementation is
 //! [`RpcNode`].
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use custom_l1_node::rpc::types::CheckpointInfo;
 use custom_l1_node::rpc::validators::ValidatorsInfo;
@@ -12,6 +15,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use serde::Deserialize;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::{ExplorerError, Result};
 
@@ -39,7 +43,20 @@ pub trait NodeSource: Send + Sync {
     async fn supply(&self) -> Result<SupplyReport>;
     /// Mempool occupancy (`get_mempool_info`).
     async fn mempool(&self) -> Result<Mempool>;
+    /// Hex id of the node's block at `height` (`get_block_by_height`), so a
+    /// response is only marked immutable for the block the chain kept.
+    async fn block_id(&self, height: u64) -> Result<String>;
 }
+
+/// How long one node call may take. jsonrpsee's default is 60 s, which lets a
+/// stalled node hold every request (and every node slot) for a minute.
+/// shortcut: one figure for every method, `get_supply` included; give the scan
+/// its own if a large state ever needs longer.
+pub const NODE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long a call waits for a node slot before it is answered
+/// `node_unavailable`.
+pub const SLOT_WAIT: Duration = Duration::from_secs(2);
 
 /// A node reached over its JSON-RPC port.
 pub struct RpcNode {
@@ -54,6 +71,7 @@ impl RpcNode {
     /// [`ExplorerError::NodeRpc`] if the URL cannot be used.
     pub fn connect(url: &str) -> Result<Self> {
         let client = HttpClientBuilder::default()
+            .request_timeout(NODE_TIMEOUT)
             .build(url)
             .map_err(|e| ExplorerError::NodeRpc(e.to_string()))?;
         Ok(Self { client })
@@ -95,6 +113,80 @@ impl NodeSource for RpcNode {
     async fn mempool(&self) -> Result<Mempool> {
         self.call("get_mempool_info", rpc_params![]).await
     }
+
+    async fn block_id(&self, height: u64) -> Result<String> {
+        // Only the header id is read; serde skips the rest of the block.
+        #[derive(Deserialize)]
+        struct Header {
+            id: String,
+        }
+        #[derive(Deserialize)]
+        struct Block {
+            header: Header,
+        }
+        let block: Block = self
+            .call("get_block_by_height", rpc_params![height])
+            .await?;
+        Ok(block.header.id)
+    }
+}
+
+/// A [`NodeSource`] that holds one of a shared set of slots per call.
+///
+/// The explorer reaches the node from one address, and the node limits calls
+/// per address, so the v1 API and the legacy pages draw on the same slots
+/// (`AppState::node_calls`). A call waits up to [`SLOT_WAIT`] for one.
+pub struct Limited {
+    inner: Arc<dyn NodeSource>,
+    slots: Arc<Semaphore>,
+}
+
+impl Limited {
+    /// Wraps `inner`, drawing slots from `slots`.
+    #[must_use]
+    pub fn new(inner: Arc<dyn NodeSource>, slots: Arc<Semaphore>) -> Self {
+        Self { inner, slots }
+    }
+
+    async fn slot(&self) -> Result<OwnedSemaphorePermit> {
+        let busy = || ExplorerError::NodeRpc("no node slot free".to_string());
+        tokio::time::timeout(SLOT_WAIT, Arc::clone(&self.slots).acquire_owned())
+            .await
+            .map_err(|_| busy())?
+            .map_err(|_| busy())
+    }
+}
+
+#[async_trait]
+impl NodeSource for Limited {
+    async fn chain(&self) -> Result<ChainInfo> {
+        let _slot = self.slot().await?;
+        self.inner.chain().await
+    }
+    async fn checkpoint(&self) -> Result<Option<CheckpointInfo>> {
+        let _slot = self.slot().await?;
+        self.inner.checkpoint().await
+    }
+    async fn account(&self, address_hex: &str) -> Result<AccountInfo> {
+        let _slot = self.slot().await?;
+        self.inner.account(address_hex).await
+    }
+    async fn validators(&self) -> Result<Option<ValidatorsInfo>> {
+        let _slot = self.slot().await?;
+        self.inner.validators().await
+    }
+    async fn supply(&self) -> Result<SupplyReport> {
+        let _slot = self.slot().await?;
+        self.inner.supply().await
+    }
+    async fn mempool(&self) -> Result<Mempool> {
+        let _slot = self.slot().await?;
+        self.inner.mempool().await
+    }
+    async fn block_id(&self, height: u64) -> Result<String> {
+        let _slot = self.slot().await?;
+        self.inner.block_id(height).await
+    }
 }
 
 /// Stands in when no node URL is configured: every live call fails, so the
@@ -119,6 +211,9 @@ impl NodeSource for NoNode {
         Err(unconfigured())
     }
     async fn mempool(&self) -> Result<Mempool> {
+        Err(unconfigured())
+    }
+    async fn block_id(&self, _height: u64) -> Result<String> {
         Err(unconfigured())
     }
 }

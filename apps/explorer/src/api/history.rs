@@ -4,7 +4,7 @@
 //! chain's network and finality are read from the node's cache, and a node
 //! that is down only blanks the fields that need it.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::State;
 use axum::response::Response;
 use maya_address::Network;
 use serde::Deserialize;
@@ -12,10 +12,10 @@ use serde::Deserialize;
 use crate::api::address;
 use crate::api::chain::index_error;
 use crate::api::dto::{Block, Output, Page, Transaction, TransactionDetail};
-use crate::api::problem::{ApiError, Code};
+use crate::api::problem::{ApiError, ApiPath, ApiQuery, Code};
 use crate::api::query::{self, BlockRef, CursorKind};
 use crate::api::respond::{self, Freshness, Meta};
-use crate::api::{ApiState, chain_meta, finalized_height, network_of};
+use crate::api::{ApiState, chain_meta, freshness, network_of};
 use crate::model::{IndexedBlock, IndexedTx};
 use crate::store::Seek;
 
@@ -73,7 +73,7 @@ async fn find_block(state: &ApiState, reference: &BlockRef) -> Result<IndexedBlo
 )]
 pub async fn blocks(
     State(state): State<ApiState>,
-    Query(params): Query<ListParams>,
+    ApiQuery(params): ApiQuery<ListParams>,
 ) -> Result<Response, ApiError> {
     let limit = query::limit(params.limit.as_deref())?;
     let before = query::cursor(CursorKind::Blocks, params.cursor.as_deref())?;
@@ -111,13 +111,13 @@ pub async fn blocks(
 )]
 pub async fn block(
     State(state): State<ApiState>,
-    Path(reference): Path<String>,
+    ApiPath(reference): ApiPath<String>,
 ) -> Result<Response, ApiError> {
     let reference = query::block_ref(&reference)?;
     let found = find_block(&state, &reference).await?;
-    let freshness = respond::for_height(found.height, finalized_height(&state).await);
+    let fresh = freshness(&state, found.height, &found.id).await;
     let meta = meta_for(&state, indexed_height(&state).await?).await;
-    Ok(respond::json(&Block::from(&found), freshness, meta))
+    Ok(respond::json(&Block::from(&found), fresh, meta))
 }
 
 /// Transactions in one block, in inclusion order.
@@ -141,8 +141,8 @@ pub async fn block(
 )]
 pub async fn block_transactions(
     State(state): State<ApiState>,
-    Path(reference): Path<String>,
-    Query(params): Query<ListParams>,
+    ApiPath(reference): ApiPath<String>,
+    ApiQuery(params): ApiQuery<ListParams>,
 ) -> Result<Response, ApiError> {
     let reference = query::block_ref(&reference)?;
     let limit = query::limit(params.limit.as_deref())?;
@@ -166,9 +166,9 @@ pub async fn block_transactions(
         .take(usize::try_from(limit).unwrap_or(0))
         .collect();
     let page = Page::new(keyed, limit, CursorKind::BlockTransactions);
-    let freshness = respond::for_height(block.height, finalized_height(&state).await);
+    let fresh = freshness(&state, block.height, &block.id).await;
     let meta = meta_for(&state, indexed_height(&state).await?).await;
-    Ok(respond::json(&page, freshness, meta))
+    Ok(respond::json(&page, fresh, meta))
 }
 
 /// A block's transactions with their positions, as v1 rows.
@@ -201,7 +201,7 @@ fn placed(height: i64, txs: &[IndexedTx], network: Option<Network>) -> Vec<(Seek
 )]
 pub async fn transactions(
     State(state): State<ApiState>,
-    Query(params): Query<ListParams>,
+    ApiQuery(params): ApiQuery<ListParams>,
 ) -> Result<Response, ApiError> {
     let limit = query::limit(params.limit.as_deref())?;
     let before = query::cursor(CursorKind::Transactions, params.cursor.as_deref())?;
@@ -234,7 +234,7 @@ pub async fn transactions(
 )]
 pub async fn transaction(
     State(state): State<ApiState>,
-    Path(raw): Path<String>,
+    ApiPath(raw): ApiPath<String>,
 ) -> Result<Response, ApiError> {
     let txid = query::txid(&raw)?;
     let (seek, tx) = state
@@ -256,9 +256,18 @@ pub async fn transaction(
             .map(|output| Output::new(output, network))
             .collect(),
     };
-    let freshness = respond::for_height(tx.height, finalized_height(&state).await);
+    // The transaction is only as final as the block the index holds it in.
+    let block = state
+        .store
+        .block_by_height(tx.height)
+        .await
+        .map_err(|e| index_error(&e))?;
+    let fresh = match block {
+        Some(block) => freshness(&state, tx.height, &block.id).await,
+        None => Freshness::Short,
+    };
     let meta = meta_for(&state, indexed_height(&state).await?).await;
-    Ok(respond::json(&body, freshness, meta))
+    Ok(respond::json(&body, fresh, meta))
 }
 
 /// Transactions an address sent, received or both, newest first.
@@ -279,8 +288,8 @@ pub async fn transaction(
 )]
 pub async fn account_transactions(
     State(state): State<ApiState>,
-    Path(raw): Path<String>,
-    Query(params): Query<ListParams>,
+    ApiPath(raw): ApiPath<String>,
+    ApiQuery(params): ApiQuery<ListParams>,
 ) -> Result<Response, ApiError> {
     let network = network_of(&state).await;
     let id = address::parse(&raw, network)?;
