@@ -36,12 +36,15 @@ fn with_automation_args<R: tauri::Runtime>(mut context: tauri::Context<R>) -> ta
 /// Builds and runs the application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // Must be first: a second launch (with a link) hands its argv to the
-        // running app and exits, instead of opening a second wallet.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            deeplink::focus(app);
-        }))
+    let builder = tauri::Builder::default();
+    // Must be first: a second launch (with a link) hands its argv to the
+    // running app and exits, instead of opening a second wallet. Desktop
+    // only; Android's `singleTask` activity is the same guarantee.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        deeplink::focus(app);
+    }));
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(maya_app_update::dialog())
         .setup(|app| {
