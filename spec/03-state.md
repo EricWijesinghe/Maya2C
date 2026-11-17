@@ -1,4 +1,4 @@
-# 3. State transition — v0.1.2
+# 3. State transition — v0.1.3
 
 The accounts-only transfer path. Reference: `crates/spec-ref/src/{stf,root}.rs`.
 Node: `StateDB::stage_transaction`, `StateDB::apply_block`,
@@ -38,10 +38,11 @@ the node's own test suite, and `spec-coverage` checks only that it exists
 - **CNL-2** A council pause or resume naming Governance (module tag 4) is refused. *(external vectors: crates/node/tests/council_pause_tests.rs)*
 - **CNL-3** A council pause of a module is refused before the end of the last council pause of that module plus `COUNCIL_RENEWAL_COOLDOWN_BLOCKS`; a council resume ends the pause at its own height. That end is the one the council record keeps for the module; an automatic breaker trip of the module does not change it. A council sunset is refused before the council's last sunset height plus the same cooldown. *(external vectors: crates/node/tests/council_pause_tests.rs)*
 - **CNL-4** A council rotation names 1 to 32 distinct valid ML-DSA-65 keys and a threshold above half of them and at most all of them, and an activation from `COUNCIL_ROTATION_LEAD_BLOCKS` to `MAX_SCHEDULE_HORIZON_BLOCKS` after the block that carries it. It carries one acceptance per new member, in member order: that member's signature over the rotation-accept domain, the chain tag and the rotation; one that does not verify refuses the rotation. It replaces any pending rotation. From the activation height the new members and threshold are the council in force, and the nonce carries on. *(external vectors: crates/node/tests/council_pause_tests.rs)*
+- **CNL-5** While an automatic breaker trip of a module (any invariant but the council pause) holds at the block's height, a council resume of that module is refused, and a council pause of it writes the trip's record with its end raised to the later of the trip's end and the pause's; the council record keeps the pause's own end for the cooldown. *(external vectors: crates/node/src/state/council.rs)*
 
 ## Gaps
 
-- CNL-1 to CNL-4 have no reference-crate vectors: `spec-ref` has no council model, and the node tests cited are the only evidence. `cargo xtask spec-coverage --strict` counts them covered because of the external-vectors label, not because conformance vectors exist (tracked in BACKLOG.md, P2). They were added in 0.1.2, before genesis, without a MIP; `spec/mips/` holds no MIP for any rule yet, and the process starts with the first change after genesis.
+- CNL-1 to CNL-5 have no reference-crate vectors: `spec-ref` has no council model, and the node tests cited are the only evidence. `cargo xtask spec-coverage --strict` counts them covered because of the external-vectors label, not because conformance vectors exist (tracked in BACKLOG.md, P2). CNL-1 to CNL-4 were added in 0.1.2 and CNL-5 in 0.1.3, before genesis, without a MIP; `spec/mips/` holds no MIP for any rule yet, and the process starts with the first change after genesis.
 
 - ROOT-5 is pinned by the accounts-only vectors: the node folds every layer it has and must still reproduce the reference's accounts-only root. No vector yet populates a layer.
 - The end-of-block passes (sealed swaps, trading, oracle, governance,

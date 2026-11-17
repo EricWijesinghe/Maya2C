@@ -256,6 +256,16 @@ sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
    anything above it. The recorded choice, six hours of blocks (DECISIONS.md,
    B30), is inside it; the ceremony rehearsal uses 21,600 and the proving run
    7,200.
+   *Council over an automatic trip (same review; on master before #544):*
+   `apply_council` wrote the module's breaker record without reading it, so
+   a council resume lifted an invariant-guard trip still in force, and a
+   short council pause shortened one. The council's power is meant to be
+   what the breaker's is, so a compromised quorum could reopen a module the
+   guard had just halted. **Decision:** while a trip holds, a council resume
+   is refused, and a council pause writes the trip's record with the later
+   of the two ends, keeping the trip's name so no later council resume lifts
+   it early. The council record still keeps the pause's own end for the
+   cooldown. Spec CNL-5.
 3. **The council could not rotate.** If a key was lost or compromised, the
    only way to recover was re-genesis. **Decision:** a new action,
    `CouncilKind::Rotate` (wire kind 3). A quorum of the council *in force*
@@ -323,4 +333,6 @@ Pinned by `crates/node/tests/council_pause_tests.rs`:
 `a_genesis_council_of_more_than_32_members_is_refused`,
 `a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused`; and by the
 `state::council` unit tests `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
+`a_council_resume_does_not_lift_an_automatic_trip_in_force`,
+`a_council_pause_neither_shortens_nor_relabels_an_automatic_trip`
 and `the_record_round_trips` (one form per record).

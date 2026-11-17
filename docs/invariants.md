@@ -278,7 +278,10 @@ phase that did it.
     a strict-majority set of 1 to 32 distinct valid keys, and replaces any
     pending rotation. A genesis council's `max_pause_blocks` is 1 to
     `MAX_COUNCIL_PAUSE_BLOCKS` (86,400), or the cooldown bounds nothing. The
-    three constants are compiled in `crates/governance/src/limits.rs`.
+    three constants are compiled in `crates/governance/src/limits.rs`. A
+    council action never lifts or shortens an automatic breaker trip still
+    in force: a resume is refused, and a pause keeps the later end under the
+    trip's name (2026-11-17).
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`) and
@@ -292,6 +295,8 @@ phase that did it.
     `a_rotation_naming_a_key_nobody_signed_for_is_refused`,
     `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
     `a_rotation_takes_effect_at_its_height_and_not_before`) and the
-    `state::council` unit test
-    `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
+    `state::council` unit tests
+    `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`,
+    `a_council_resume_does_not_lift_an_automatic_trip_in_force` and
+    `a_council_pause_neither_shortens_nor_relabels_an_automatic_trip`
     — ADR-082.
