@@ -7,6 +7,15 @@ Listed so a second client can interoperate. Node: `crates/node/src/network/`.
 - **NET-2** Gossip messages above 8 MiB are dropped.
 - **NET-3** Blocks and transactions are gossiped in the encodings of §1 and §5.
 
+## Node-local bounds (not interoperability rules)
+
+A second client need not copy these; they are one node's resource limits
+(ADR-147). Blocks whose parent is unknown are buffered up to 512 blocks, at
+most 8 under one parent. The block-sync request table and the RPC per-address
+rate table evict their oldest entry at their ceiling rather than refusing a
+newcomer or growing. The market HTTP server serves at most 256 live
+connections and closes one whose request head takes longer than 10 s.
+
 ## Gaps
 
 No vectors; the handshake is covered by `crates/node/tests` and the KEM KATs.

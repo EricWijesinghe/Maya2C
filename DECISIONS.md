@@ -909,3 +909,10 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-17 — Node-local network, RPC and validator-guard bounds enter re-freeze bundle 3 (Claude, Eric 2026-11-17 pre-approval)
+
+- **What:** PR #589 ([ADR-147](docs/adr/ADR-147-node-local-network-bounds.md)): the orphan pool counts blocks with a per-parent share of 8; the block-sync and RPC rate tables evict their oldest entry at the ceiling; the market HTTP server caps live connections at 256 and the request head at 10 s; a repeat of a counted attestation is ignored before signature checks; the double-sign guard needs `safety.log` itself; the node key file is created owner-only and never overwritten.
+- **Why now:** each is a bound on one node's resources or a stricter restart check; none changes a validity rule, a state root or the wire format, so it fits the re-freeze without a re-genesis.
+- **Accepted trade-off:** eviction at a full table lets the oldest entry regain its quota after a table's worth of newer ids; the previous behaviour refused newcomers (sync) or grew past the ceiling (RPC).
+- **Left open:** scoping the safety guard to the current epoch, Windows ACLs for the key file (ADR-049), and the deferred items listed in PR #589.
