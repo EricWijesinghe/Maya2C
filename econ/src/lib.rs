@@ -22,8 +22,10 @@
 //!
 //! The base-fee step and the burn/treasury split are
 //! `maya_fee_market::next_base_fee` and `maya_fee_market::split`, called with
-//! `maya_fee_market::FeeConfig::TESTING` — the active configuration the
-//! chain's fee market ships. The AMM is `maya_dex`. The emission schedule is
+//! `maya_fee_market::FeeConfig::TESTING` at `treasury_bps = 0`: the node
+//! compiles that share into every fee genesis, so the whole base fee burns
+//! and the treasury column stays zero (ADR-029, DECISIONS B-16). The AMM is
+//! `maya_dex`. The emission schedule is
 //! a draft parameter set ([`params::EconParams::DRAFT`]) because the chain has
 //! no final genesis emission yet (Master Prompt 20 freezes it).
 

@@ -200,9 +200,12 @@ From ADR-086 (phases P0 and P1), in `apps/wallet-gui/core`:
 
 ## Fees are burned
 
-There is no coinbase. The fee goes to an unspendable address rather than to a
-miner, so total supply is conserved and circulating supply falls.
-`/v1/supply` reports both.
+There is no coinbase. The whole base fee goes to an unspendable address, so
+total supply is conserved and circulating supply falls; the tip goes to the
+validators' staking reward pool. Mining rewards are paid out of a reserve funded
+at genesis, not minted. `/v1/supply` reports both figures; until a later node
+release excludes it, both also count that unspendable reserve
+([API reference: reading](/guides/api/#reading)).
 
 </TabItem>
 <TabItem label="For scientists">

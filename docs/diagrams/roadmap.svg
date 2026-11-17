@@ -30,5 +30,5 @@
 <rect x="30" y="250" width="1140" height="56" rx="10" fill="#1d1709" stroke="#d9b97a" stroke-opacity=".7"/>
 <text x="50" y="274" class="s" font-weight="700" fill="#d9b97a">Bronze = a gate code alone cannot pass: an audit report, a go/no-go decision.</text>
 <text x="50" y="294" class="s">Nothing advances until the previous milestone's exit criteria are met and recorded (docs/EMPIRE.md). Dates are not promised here.</text>
-<text x="600" y="322" text-anchor="middle" class="s" fill="#d9b97a">ADR-042: mainnet may launch labelled "external audit pending" before the M7 report lands.</text>
+<text x="600" y="322" text-anchor="middle" class="s" fill="#d9b97a">Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding (ADR-042, ADR-047).</text>
 </svg>

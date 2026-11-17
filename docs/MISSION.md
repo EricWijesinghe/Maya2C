@@ -27,7 +27,7 @@ advances a milestone until the previous one's criteria are met and recorded.
 | M4 | CONNECTED | Proof-verified interoperability and the integration layer. |
 | M5 | OPERABLE | Security, spec and conformance, validator key handling, operations and runbooks. |
 | M6 | PUBLIC TESTNET | Open testnet with external validators; attack round survived; beat bars measured. |
-| M7 | AUDITED | External audits complete; no open critical or high findings. |
+| M7 | AUDITED | External audits complete; no open critical or high findings. Today: Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding. |
 | M8 | MAINNET | Go/no-go passed; genesis; first-90-days plan active. |
 | M9 | ECOSYSTEM | Chat, then wallet integration, then AI services — separate apps on a shared identity ([ECOSYSTEM.md](ECOSYSTEM.md)). |
 

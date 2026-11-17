@@ -1,15 +1,20 @@
 //! The supply bound, and what fees do to supply.
 //!
-//! # A cap on a supply nothing increases
+//! # A cap on a supply nothing mints after genesis
 //!
-//! There is no emission on this chain: no coinbase, no block reward, nothing
-//! that mints. Supply is fixed at genesis, and the only thing that changes any
-//! supply figure is value landing at the unspendable fee sink — `total` is
-//! conserved and `circulating` falls (`src/rpc/market.rs`).
+//! Nothing mints after genesis: no coinbase. Mining rewards (ADR-044,
+//! ADR-068) are transfers out of the keyless mining reserve, which genesis
+//! funds with the schedule's whole lifetime emission. The schedule for the
+//! four halving eras totals 19,687,500 coins of it (at most that is paid:
+//! epoch 0 takes no shares, and unclaimed miner budget stays in the reserve); the tail then pays about 23.96 coins an epoch
+//! for ever, counted separately. Genesis also holds the validators' bonds,
+//! 7 × 1,000 = 7,000 coins, again counted separately. After genesis the only
+//! thing that changes a supply figure is value landing at the unspendable
+//! fee sink: `total` is conserved and `circulating` falls (`src/rpc/market.rs`
+//! in the node).
 //!
-//! So [`MAX_SUPPLY`] bounds nothing today. It exists so that the day emission
-//! is added, the bound is already here and already tested, and an emission bug
-//! meets a refusal rather than a quiet overshoot.
+//! So [`MAX_SUPPLY`] bounds nothing on a running chain. It exists so that a
+//! minting bug meets a refusal rather than a quiet overshoot.
 //!
 //! # The cap is the width of a balance (ADR-046)
 //!

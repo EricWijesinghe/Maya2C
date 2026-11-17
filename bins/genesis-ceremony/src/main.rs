@@ -15,6 +15,12 @@
 //!                  --out-dir ./ceremony
 //! ```
 //!
+//! That is the 2026 rc1 test-chain run, kept as an example of the flags; its
+//! premine is superseded. A value-bearing chain is refused any `--supply` but 0
+//! (ADR-044) and needs `--validators`, `--mining`, `--mining-reserve`,
+//! `--council` and the bond floors; the mainnet command is in
+//! `deploy/genesis/mainnet/README.md`.
+//!
 //! # A mainnet genesis has the shielded pool off
 //!
 //! `docs/mainnet-readiness.md §1`: the shielded pool's circuit has had no
@@ -176,7 +182,7 @@ fn print_usage() {
          required when --treasury-share-bps is non-zero\n
          OPTIONS:\n  \
          --chain-id <ID>              network identifier; a value-bearing id keeps the\n                               \
-         shielded pool off (ADR-037) and needs 4+ validators\n  \
+         shielded pool off (ADR-037) and needs 7+ validators\n  \
          --validators <FILE>          DAG-BFT committee, `label key [operator bond]` per\n                               \
          line; keys from `maya2c-node --generate-validator-key`\n  \
          --epoch-blocks <N>           staking epoch when bonds are given (default 3600)\n  \
@@ -327,6 +333,11 @@ fn is_value_bearing(chain_id: &str) -> bool {
 /// The committee named by `--validators`, checked for a launch's size.
 fn read_committee(args: &Args) -> Result<Option<Vec<committee::Member>>, Box<dyn Error>> {
     let Some(path) = &args.validators else {
+        // Without a committee the seven-validator floor is never checked and
+        // the genesis is proof of work (ADR-047 amendment 2026-11-16).
+        if is_value_bearing(&args.chain_id) {
+            return Err("a value-bearing chain needs --validators <FILE> (ADR-047)".into());
+        }
         return Ok(None);
     };
     let members = committee::read(path)?;
@@ -1196,7 +1207,9 @@ mod shielded_tests {
 mod mining_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use super::{Args, check_supply_policy, committee, launch_config, split_supply};
+    use super::{
+        Args, check_supply_policy, committee, launch_config, read_committee, split_supply,
+    };
     use custom_l1_node::crypto::validator_keys as keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
 
@@ -1264,6 +1277,19 @@ mod mining_tests {
         let mut unbonded = members();
         unbonded[1].bond = None;
         assert!(committee::check_tiny_bonds(&unbonded, floor).is_err());
+    }
+
+    #[test]
+    fn a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one() {
+        // Without --validators the seven-validator floor (ADR-047 amendment
+        // 2026-11-16) would never be checked: a proof-of-work mainnet genesis.
+        let err = read_committee(&mainnet_args(0)).unwrap_err().to_string();
+        assert!(err.contains("--validators"), "{err}");
+        let testnet = Args {
+            chain_id: "maya-testnet-2".into(),
+            ..Args::default()
+        };
+        assert!(read_committee(&testnet).unwrap().is_none());
     }
 
     #[test]

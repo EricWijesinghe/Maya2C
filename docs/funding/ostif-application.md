@@ -20,9 +20,8 @@ talk over libp2p with an ML-KEM-768 layer over Noise.
 
 ## Why an audit matters now
 
-Mainnet is planned with four project-run validators, to start the record a
-public chain needs. It will be labelled "external audit pending" until an
-independent report exists. The project has not yet commissioned one. Post-quantum signing in consensus is recent
+Mainnet is planned with seven project-run validators, to start the record a
+public chain needs. Until an independent report exists it says: "Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding." The project has not yet commissioned one. Post-quantum signing in consensus is recent
 territory, and a flaw in this code would be paid for by users, not by
 the project.
 

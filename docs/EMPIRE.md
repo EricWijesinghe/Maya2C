@@ -103,6 +103,10 @@ against a live network. Needs `APPROVED:` for spend and deploy.
 External audits of consensus, crypto-pq, VM host functions, custody,
 privacy circuits; no open critical or high finding.
 
+Status, in the public wording (Eric 2026-11-14 MCQ): Pre-audit: no external
+audit yet; validators run by one operator at launch; external audit planned
+after funding.
+
 ### M8 MAINNET — Owner
 `cargo xtask go-no-go` all PASS (2026-09-28: 8 PASS, 5 FAIL, 3 NEEDS HUMAN);
 signed genesis; 90-day plan.

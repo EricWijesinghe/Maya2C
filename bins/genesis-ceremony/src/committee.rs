@@ -25,9 +25,10 @@ const VALIDATOR_KEY_HEX: usize = 2 * custom_l1_node::crypto::validator_keys::PUB
 /// Hex characters in an address.
 const ADDRESS_HEX: usize = 64;
 /// Fewest validators a launch committee may have: DAG-BFT tolerates `f`
-/// faults among `3f + 1`, so below four a single fault halts the chain
-/// (mainnet gate 4).
-pub const MIN_LAUNCH_VALIDATORS: usize = 4;
+/// faults among `3f + 1`, and seven survive two (Eric 2026-11-14 MCQ,
+/// ADR-047 amendment). The same floor as `genesis-check`'s `MIN_VALIDATORS`,
+/// so the ceremony never writes a genesis its own check refuses.
+pub const MIN_LAUNCH_VALIDATORS: usize = 7;
 /// Blocks per staking epoch unless the coordinator says otherwise; the
 /// testnet's value.
 pub const DEFAULT_EPOCH_BLOCKS: u64 = 3_600;
@@ -155,8 +156,8 @@ pub fn genesis(members: &[Member], epoch_blocks: u64) -> BftGenesis {
     bft
 }
 
-/// Refuses a value-bearing chain whose committee is too small to survive one
-/// faulty validator (mainnet gate 4).
+/// Refuses a value-bearing chain whose committee is too small to survive two
+/// faulty validators (mainnet gate 4, ADR-047 amendment).
 ///
 /// # Errors
 ///
@@ -164,8 +165,8 @@ pub fn genesis(members: &[Member], epoch_blocks: u64) -> BftGenesis {
 pub fn check_launch_size(value_bearing: bool, members: &[Member]) -> Result<(), Box<dyn Error>> {
     if value_bearing && members.len() < MIN_LAUNCH_VALIDATORS {
         return Err(format!(
-            "a value-bearing chain needs at least {MIN_LAUNCH_VALIDATORS} validators run by \
-             separate operators (gate 4); this committee has {}",
+            "a value-bearing chain needs at least {MIN_LAUNCH_VALIDATORS} validators \
+             (gate 4, ADR-047); this committee has {}",
             members.len()
         )
         .into());
@@ -330,23 +331,20 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_needs_four_validators_a_testnet_does_not() {
-        let three: Vec<Member> = ['a', 'b', 'c']
-            .iter()
-            .map(|c| Member {
-                label: c.to_string(),
-                key: key(*c),
-                bond: None,
-            })
-            .collect();
-        assert!(check_launch_size(true, &three).is_err());
-        assert!(check_launch_size(false, &three).is_ok());
-        let mut four = three.clone();
-        four.push(Member {
-            label: "d".into(),
-            key: key('d'),
-            bond: None,
-        });
-        assert!(check_launch_size(true, &four).is_ok());
+    fn mainnet_needs_seven_validators_a_testnet_does_not() {
+        let committee = |n: usize| -> Vec<Member> {
+            ('a'..='z')
+                .take(n)
+                .map(|c| Member {
+                    label: c.to_string(),
+                    key: key(c),
+                    bond: None,
+                })
+                .collect()
+        };
+        // Eric 2026-11-14 MCQ: the floor is 7, the same as genesis-check's.
+        assert!(check_launch_size(true, &committee(6)).is_err());
+        assert!(check_launch_size(false, &committee(6)).is_ok());
+        assert!(check_launch_size(true, &committee(7)).is_ok());
     }
 }

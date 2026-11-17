@@ -3052,8 +3052,8 @@ paths = "`bins/genesis-ceremony/src/main.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crates/node/tests/genesis_tests.rs"]
-note = "Multi-party genesis key ceremony, distinct from the genesis file writer."
+tests = ["crates/node/tests/genesis_tests.rs", "crate:genesis-ceremony"]
+note = "Multi-party genesis key ceremony, distinct from the genesis file writer. A value-bearing chain needs at least 7 validators, the same floor as genesis-check (Eric 2026-11-14 MCQ, ADR-047 amendment; mainnet_needs_seven_validators_a_testnet_does_not), and a value-bearing ceremony without --validators is refused (a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one)."
 
 [[subsystem]]
 id = "benchmark-suite"

@@ -89,7 +89,7 @@
       '<span>LAST BLOCK <b id="hud-age">—</b></span>' +
       '<span>TXS <b id="hud-tx">—</b></span></div>' +
       '<p class="hud-note">Live: every wave is a real block from this explorer’s feed. ' +
-      'The four validators are drawn, not mapped.</p>';
+      'The validator dots are drawn, not mapped.</p>';
     tiles.parentNode.insertBefore(sec, tiles);
     var canvas = sec.querySelector('canvas');
     var g = fit(canvas);
