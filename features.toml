@@ -3089,8 +3089,8 @@ paths = "`crates/parallel-exec`"
 tier = "core"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/parallel-exec/tests/differential.rs"]
-note = "ADR-017. 100,000 random blocks: parallel == sequential, byte for byte. Speedup curves in reports/12-performance.md. Not in the node."
+tests = ["crates/parallel-exec/tests/differential.rs", "crates/node/tests/parallel_apply_tests.rs"]
+note = "ADR-017. 100,000 random blocks: parallel == sequential, byte for byte. Speedup curves in reports/12-performance.md. The crate itself is not in the node. v3 P1 (ADR-146, post-genesis): the node's apply path has a parallel signature-verify phase behind PARALLEL_APPLY_ACTIVATION_HEIGHT = u64::MAX; equal roots and errors on seeded conflicting and refused blocks; measured x4.42 cold cache, x0.95 (no gain) warm cache, dev profile, one machine (reports/bench/2026-11-17-parallel-apply.md). Stateful speculation not built."
 
 [[subsystem]]
 id = "smart-account"
