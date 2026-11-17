@@ -2747,6 +2747,17 @@ tests = ["crate:maya-wallet-core"]
 note = "ADR-083 decision 4 (2026-11-10, feat/hub-launch): `maya2c-wallet://` registered via tauri-plugin-deep-link 2.6.3 (tauri.conf.json plugins.deep-link.desktop.schemes) with single-instance 2.5.5 (deep-link feature). Strict parser in apps/wallet-gui/src-tauri/src/deeplink.rs, unit tests in that file: `open`, and `pay?to=<maya1…>&amount=<decimal>` that only prefills Send; the UI polls take_pending_pay on the Wallet screen only. Nothing is signed or sent from a link. Not verified: installed-build registration (NSIS/MSI, .desktop) and a live link. See docs/app-link-schemes.md."
 
 [[subsystem]]
+id = "android-wallet"
+name = "Android wallet (P-10 skeleton)"
+domain = "Tooling and formal verification"
+paths = "`apps/wallet-gui/src-tauri/gen/android`, `apps/wallet-gui/ANDROID.md`, `apps/wallet-gui/ui/tests/overflow.mjs`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["apps/wallet-gui/ui/tests/overflow.mjs"]
+note = "P-10 (feat/p10-android-wallet). The desktop wallet's Tauri 2 Android project (gen/android: allowBackup off, FLAG_SECURE, optional camera), single-instance gated to desktop, and a Playwright check that every screen fits 360 and 390 px without horizontal overflow. Stub because key storage does not work on Android yet: keyring 4's v1 API has no Android store, so wallet creation fails closed (vault.rs `entry`, no plain-file fallback); the Android Keystore store and its threat model are a written TODO in ANDROID.md. No mining code. `cargo check --target aarch64-linux-android` of src-tauri passes (2026-11-17, NDK 30); no APK has been built or run on a device; signing a release needs an upload key Eric holds."
+
+[[subsystem]]
 id = "leptos-block-explorer-and-dashboard"
 name = "Leptos block explorer and dashboard"
 domain = "Tooling and formal verification"
