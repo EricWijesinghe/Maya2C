@@ -13,6 +13,9 @@
 //!   The end is kept in the council record (`last_pause_end`), not read back
 //!   from the breaker record, because an automatic trip overwrites that one;
 //!   every action advances the nonce;
+//! - it never lifts or shortens an automatic trip still in force: a resume is
+//!   refused, and a pause over a trip keeps the later end under the trip's
+//!   name, so no later resume lifts it early;
 //! - it is recorded under the governance prefix, so it is in the state root
 //!   and every node enforces it identically.
 //!
@@ -337,11 +340,44 @@ impl StateDB {
                 until: context.height,
             },
         };
-        StateDB::put_record(overlay, guard_key(module), record.encode().to_vec());
+        // The council's own end, before any trip raises the written one.
         council.last_pause_end.insert(module_tag, record.until);
+        let record = self.over_trip(overlay, record, context.height)?;
+        StateDB::put_record(overlay, guard_key(module), record.encode().to_vec());
         council.nonce = council.nonce.saturating_add(1);
         StateDB::put_record(overlay, COUNCIL_KEY.to_vec(), council.encode());
         Ok(())
+    }
+
+    /// What a council pause or resume (`record`) writes over the module's
+    /// breaker. An automatic trip still in force is the invariant guard's
+    /// halt: a resume is refused, and a pause keeps the later end under the
+    /// trip's name, so it never shortens the trip and no later council resume
+    /// lifts it early (review of PR #544, 2026-11-17).
+    fn over_trip(
+        &self,
+        overlay: &Overlay,
+        record: BreakerRecord,
+        height: u64,
+    ) -> Result<BreakerRecord> {
+        let Some(trip) = self
+            .breaker(overlay, record.module)?
+            .filter(|b| b.invariant != Invariant::CouncilPause && b.holds_at(height))
+        else {
+            return Ok(record);
+        };
+        if !record.holds_at(height) {
+            return Err(NodeError::Network(format!(
+                "council action refused: {} is halted by the invariant guard ({}) until height {}",
+                record.module.label(),
+                trip.invariant.label(),
+                trip.until
+            )));
+        }
+        Ok(BreakerRecord {
+            until: trip.until.max(record.until),
+            ..trip
+        })
     }
 
     /// Schedules a suite sunset the council proposed (ADR-082). Only a sunset:
@@ -537,11 +573,16 @@ mod tests {
         assert_eq!((rotated.pending, rotated.nonce), (None, 3));
     }
 
-    /// An automatic trip rewrites the module's breaker record. Before
-    /// 2026-11-14's review the cooldown was read from that record, so a trip
-    /// during the cooldown let the council pause again at once.
-    #[test]
-    fn an_automatic_trip_does_not_reset_the_council_renewal_cooldown() {
+    /// A council over a fresh state, and a builder for actions its first two
+    /// members approve.
+    fn rig(
+        max_pause_blocks: u64,
+    ) -> (
+        tempfile::TempDir,
+        StateDB,
+        Overlay,
+        impl Fn(CouncilKind, u64) -> CouncilAction,
+    ) {
         let dir = tempfile::TempDir::new().unwrap();
         let db = StateDB::open(dir.path()).unwrap();
         let chain = ChainTag::from_genesis([7; 32]);
@@ -552,7 +593,7 @@ mod tests {
         let mut overlay = Overlay::default();
         let council = CouncilRecord {
             threshold: 2,
-            max_pause_blocks: 10,
+            max_pause_blocks,
             nonce: 0,
             members: keys.iter().map(|k| k.verifying_key().to_bytes()).collect(),
             pending: None,
@@ -560,12 +601,9 @@ mod tests {
             last_pause_end: BTreeMap::new(),
         };
         StateDB::put_record(&mut overlay, COUNCIL_KEY.to_vec(), council.encode());
-        let pause = |nonce: u64| {
+        let act = move |kind: CouncilKind, nonce: u64| {
             let mut action = CouncilAction {
-                kind: CouncilKind::Pause {
-                    module: Module::Dex.tag(),
-                    blocks: 10,
-                },
+                kind,
                 nonce,
                 approvals: vec![],
             };
@@ -575,6 +613,98 @@ mod tests {
                 .collect();
             action
         };
+        (dir, db, overlay, act)
+    }
+
+    const fn dex_pause(blocks: u64) -> CouncilKind {
+        CouncilKind::Pause {
+            module: Module::Dex.tag(),
+            blocks,
+        }
+    }
+
+    const fn dex_resume() -> CouncilKind {
+        CouncilKind::Resume {
+            module: Module::Dex.tag(),
+        }
+    }
+
+    /// The council's power is the breaker's; before 2026-11-17 a council
+    /// resume wrote an expired record over a trip still in force.
+    #[test]
+    fn a_council_resume_does_not_lift_an_automatic_trip_in_force() {
+        let (_dir, db, mut overlay, act) = rig(10);
+        let trip =
+            StateDB::trip_breaker(&mut overlay, Module::Dex, Invariant::PoolValuePerShare, 5);
+        let err = db
+            .apply_council(
+                &mut overlay,
+                &act(dex_resume(), 0),
+                BlockContext::at_height(6),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("invariant guard"), "{err}");
+        assert!(db.require_module(&overlay, Module::Dex, 6).is_err());
+        assert_eq!(db.breaker(&overlay, Module::Dex).unwrap(), Some(trip));
+        // Once the trip has run out, a resume is the council's again.
+        db.apply_council(
+            &mut overlay,
+            &act(dex_resume(), 0),
+            BlockContext::at_height(trip.until),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_council_pause_neither_shortens_nor_relabels_an_automatic_trip() {
+        // Shorter than the trip: the trip stands as it was.
+        let (_dir, db, mut overlay, act) = rig(10);
+        let trip =
+            StateDB::trip_breaker(&mut overlay, Module::Dex, Invariant::PoolValuePerShare, 5);
+        db.apply_council(
+            &mut overlay,
+            &act(dex_pause(10), 0),
+            BlockContext::at_height(6),
+        )
+        .unwrap();
+        assert_eq!(db.breaker(&overlay, Module::Dex).unwrap(), Some(trip));
+        assert!(
+            db.require_module(&overlay, Module::Dex, trip.until - 1)
+                .is_err()
+        );
+
+        // Longer: the later end, under the guard's name, so a council resume
+        // cannot lift it before then.
+        let (_dir, db, mut overlay, act) = rig(500);
+        let trip =
+            StateDB::trip_breaker(&mut overlay, Module::Dex, Invariant::PoolValuePerShare, 5);
+        db.apply_council(
+            &mut overlay,
+            &act(dex_pause(300), 0),
+            BlockContext::at_height(6),
+        )
+        .unwrap();
+        let held = db.breaker(&overlay, Module::Dex).unwrap().unwrap();
+        assert_eq!((held.invariant, held.until), (trip.invariant, 306));
+        assert!(
+            db.apply_council(
+                &mut overlay,
+                &act(dex_resume(), 1),
+                BlockContext::at_height(7)
+            )
+            .is_err()
+        );
+        assert!(db.require_module(&overlay, Module::Dex, 305).is_err());
+        assert!(db.require_module(&overlay, Module::Dex, 306).is_ok());
+    }
+
+    /// An automatic trip rewrites the module's breaker record. Before
+    /// 2026-11-14's review the cooldown was read from that record, so a trip
+    /// during the cooldown let the council pause again at once.
+    #[test]
+    fn an_automatic_trip_does_not_reset_the_council_renewal_cooldown() {
+        let (_dir, db, mut overlay, act) = rig(10);
+        let pause = |nonce: u64| act(dex_pause(10), nonce);
         db.apply_council(&mut overlay, &pause(0), BlockContext::at_height(1))
             .unwrap();
         // The council pause ends at 11; an automatic trip lands at 20.
