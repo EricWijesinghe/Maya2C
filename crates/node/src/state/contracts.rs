@@ -37,6 +37,12 @@ use maya_vm::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
 use crate::state::account::Address;
 use crate::state::db::{BlockStorageReads, StagedContractStorage};
 
+/// A finished call's storage writes and the committed keys it read cold.
+type WritesAndReads = (
+    BTreeMap<Vec<u8>, Vec<u8>>,
+    std::collections::BTreeSet<Vec<u8>>,
+);
+
 /// One contract's committed storage, read through a shared database handle.
 #[derive(Clone)]
 struct CommittedStorage {
@@ -241,12 +247,7 @@ impl ChainHost {
     /// cold. Dropping the host first releases its handles on the overlay's
     /// shared maps, so writing them back copies nothing.
     #[must_use]
-    pub(crate) fn into_writes_and_reads(
-        self,
-    ) -> (
-        BTreeMap<Vec<u8>, Vec<u8>>,
-        std::collections::BTreeSet<Vec<u8>>,
-    ) {
+    pub(crate) fn into_writes_and_reads(self) -> WritesAndReads {
         (self.writes, self.cold_reads)
     }
 }
