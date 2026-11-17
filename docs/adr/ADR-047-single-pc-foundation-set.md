@@ -94,3 +94,41 @@ closed before the gate is called met.
   the target. It is what replaces this ADR when machines or money arrive,
   and no new genesis is needed (ADR-040: stake-weighted committees, open
   registration).
+
+## Amendment 2026-11-16: seven validators, and the pre-audit sentence
+
+- Status: Accepted (Eric 2026-11-14 MCQ: "genesis validator floor 7";
+  "honest pre-audit wording")
+- Scope: the ceremony tool's refusal and public wording. No consensus rule
+  changes: the node accepts any committee size, as before.
+
+1. **The genesis floor is seven validators, not four.** n = 7, f = 2: any two
+   validator processes can stop without halting the chain. `genesis-check`
+   already required seven (`xtask/src/genesis_check.rs`, `MIN_VALIDATORS`);
+   the ceremony tool still accepted four
+   (`bins/genesis-ceremony/src/committee.rs`, `MIN_LAUNCH_VALIDATORS`), so a
+   ceremony could write a genesis its own check then refused. Both now say 7,
+   pinned by `mainnet_needs_seven_validators_a_testnet_does_not`. A
+   value-bearing ceremony without `--validators` is refused too, at argument
+   parsing and before any directory or key is written, since it would skip
+   the floor and write a proof-of-work genesis
+   (`a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one`).
+   The node itself still has no floor, at genesis or after unbonding. Decisions 1
+   and 4 above read "seven" where they say "four"; the gate-5 check is
+   committee 7. Follow-up before the gate-5 check: `infra/foundation-pc/harden-host.ps1`
+   still queries only the seed and v2..v4 (`$ValidatorRpc`); v5..v7 are added
+   once the mainnet start script fixes their RPC ports, which no file in this
+   repository records yet.
+2. **One operator still holds every key.** "What it does not give" is
+   unchanged: seven processes add a second tolerated fault, not a second
+   operator. The one-machine sentence in decision 2 stays for as long as
+   every seat runs on one machine, and now reads: "All seven foundation
+   validators run on one machine, operated by the project. One machine
+   failing halts the chain until it returns; it does not fork it."
+3. **The public sentence**, the same words on the site, the README,
+   `docs/MISSION.md`, `docs/EMPIRE.md`, ADR-042 and the launch notes:
+
+   > Pre-audit: no external audit yet; validators run by one operator at
+   > launch; external audit planned after funding.
+
+   It replaces "external audit pending" wherever that label stood.

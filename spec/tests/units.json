@@ -1,7 +1,7 @@
 {
-  "description": "Coin unit constants (ADR-068). Pinned by crates/amount, crates/api-gateway and the wallet; SDKs and docs must agree.",
+  "description": "Coin unit constants (ADR-068). Pinned by crates/amount, crates/api-gateway and the wallet; SDKs and docs must agree. There is no supply cap (ADR-046: MAX_SUPPLY = 2^256 - 1). halving_era_issuance is the sum of the mainnet schedule over the four halving eras (epochs 0..140256); at most that is paid, and the tail emission after it and the 7,000 coins of genesis validator bonds are separate figures.",
   "coin_decimals": 24,
   "base_units_per_coin": "1000000000000000000000000",
-  "supply_cap_coins": "21000000",
-  "supply_cap_base_units": "21000000000000000000000000000000"
+  "halving_era_issuance_coins": "19687500",
+  "halving_era_issuance_base_units": "19687499999999999999999999910864"
 }

@@ -151,8 +151,16 @@ fn coin_constants_match_the_spec_vector() {
     let spec = include_str!("../../../spec/tests/units.json");
     assert!(spec.contains(&format!("\"coin_decimals\": {COIN_DECIMALS},")));
     assert!(spec.contains(&format!("\"base_units_per_coin\": \"{ONE_COIN}\"")));
-    // 21,000,000 coins in base units: well inside a 256-bit balance.
-    let cap = 21_000_000 * ONE_COIN;
-    assert!(spec.contains(&format!("\"supply_cap_base_units\": \"{cap}\"")));
-    assert_eq!(Amount::from_u128(cap).to_string(), cap.to_string());
+    // There is no supply cap (ADR-046): the vector must not publish one.
+    assert!(!spec.contains("supply_cap"), "units.json publishes a cap");
+    // The halving-era headline (Eric 2026-11-14 MCQ): 19,687,500 coins, and
+    // the exact schedule sum the node pins (crates/node/src/state/mining.rs,
+    // the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256),
+    // which falls short of the headline by the truncation of each halving.
+    assert!(spec.contains("\"halving_era_issuance_coins\": \"19687500\""));
+    let exact: u128 = 19_687_499_999_999_999_999_999_999_910_864;
+    assert!(spec.contains(&format!("\"halving_era_issuance_base_units\": \"{exact}\"")));
+    let headline = 19_687_500 * ONE_COIN;
+    assert!(exact <= headline && headline - exact < ONE_COIN);
+    assert_eq!(Amount::from_u128(exact).to_string(), exact.to_string());
 }

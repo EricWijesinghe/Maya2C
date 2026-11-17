@@ -52,6 +52,10 @@ ADR-027).
 
 ## Gate 5 — External audit
 
+Public wording until this gate passes (Eric 2026-11-14 MCQ): Pre-audit: no
+external audit yet; validators run by one operator at launch; external audit
+planned after funding.
+
 | Criterion | Evidence | State |
 |---|---|---|
 | Audit packets for scopes (a)–(d) delivered | `docs/audit/` | see `reports/20-mainnet-readiness.md` |

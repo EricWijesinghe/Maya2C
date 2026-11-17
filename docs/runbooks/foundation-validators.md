@@ -1,15 +1,17 @@
 # Foundation validators: four machines, one operator (ADR-042, gate 5)
 
 > **Superseded for launch by [ADR-047](../adr/ADR-047-single-pc-foundation-set.md)
-> (2026-10-12):** mainnet launches with all four foundation validators on
-> Eric's PC, hardened by `infra/foundation-pc/harden-host.ps1`. The
-> four-machine layout below stays the target, and replaces the single-PC
-> set without a new genesis once machines or money arrive.
+> (2026-10-12):** mainnet launches with all seven foundation validators on
+> one PC (n = 7, f = 2; ADR-047 amendment 2026-11-16), hardened by
+> `infra/foundation-pc/harden-host.ps1`. The four-machine layout below is
+> the old target, kept as the testnet rehearsal record; a multi-machine set
+> replaces the single-PC set without a new genesis once machines or money
+> arrive.
 
 Rehearsed on maya-testnet-1 first. The mainnet genesis ceremony repeats
 the same steps with mainnet keys.
 
-## The layout, and what it survives
+## The old four-machine target, and what it survives
 
 | Validator | Machine | Cost |
 |---|---|---|
@@ -18,7 +20,7 @@ the same steps with mainnet keys.
 | v3 | Google Cloud free tier e2-micro (1 GB + 2 GB swap, Ubuntu 24.04) | free |
 | v4 | Oracle Always Free, a second A1 VM in another **fault domain** | free |
 
-With n = 4 the chain tolerates f = 1 down:
+With n = 4 the chain tolerates f = 1 down (mainnet is n = 7, f = 2):
 
 - **Survives:** any one machine dying, the PC rebooting for Windows Update,
   a power cut or ISP outage at home, a single Oracle or Google host failing.
@@ -88,7 +90,7 @@ bootnode (`p2p.maya2c.dev`) outward. Leave the cloud firewalls at
 
 ## When it counts
 
-Gate 5 is met on testnet when four validators on these four machines have
+Gate 5 was set on testnet as four validators on these four machines having
 committed for seven days with none halting, as measured by
 status.maya2c.dev. The mainnet ceremony then repeats steps 4–9 against the
 mainnet genesis.

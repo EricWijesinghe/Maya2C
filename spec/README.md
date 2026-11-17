@@ -9,17 +9,22 @@ so and lists the rule as a gap instead of specifying behaviour no code has.
 | 1 | [01-encoding.md](01-encoding.md) | protocol | 0.1.0 | `tests/encoding.json` |
 | 2 | [02-transactions.md](02-transactions.md) | protocol | 0.1.0 | `tests/encoding.json`, `tests/state_transitions.json` |
 | 3 | [03-state.md](03-state.md) | protocol | 0.1.1 | `tests/state_transitions.json` |
-| 4 | [04-fees.md](04-fees.md) | economics | 0.1.0 | `tests/fees.json` |
+| 4 | [04-fees.md](04-fees.md) | economics | 0.1.1 | `tests/fees.json` |
 | 5 | [05-consensus.md](05-consensus.md) | consensus | 0.1.0 | none yet — every rule is a listed gap |
 | 6 | [06-staking.md](06-staking.md) | consensus | 0.1.0 | external: `crates/node/src/state/staking_store_tests.rs` |
 | 7 | [07-networking.md](07-networking.md) | networking | 0.1.0 | none (not consensus) |
 | 8 | [08-crypto.md](08-crypto.md) | cryptography | 0.1.0 | FIPS KATs in `crates/crypto-pq/tests/` |
-| 9 | [09-mining.md](09-mining.md) | economics | 0.1.0 | `tests/mining.json` |
+| 9 | [09-mining.md](09-mining.md) | economics | 0.1.1 | `tests/mining.json` |
 | 10 | [10-vm-gas.md](10-vm-gas.md) | protocol | 0.2.0 | `tests/vm_gas.json` |
 
 "Owner" is a role, not a person: nobody is assigned yet. A change to any
 section goes through a [MIP](mips/README.md) and bumps that section's
 version.
+
+Note, 2026-11-16: FEE-1 and the spec 9 preamble (both v0.1.1) were corrected
+in place, without a MIP, so the text states what the code does; each section
+carries a dated note. No network runs these rules yet. This note records those
+two corrections only; it sets no general rule for skipping a MIP.
 
 ## Rules
 
