@@ -250,7 +250,10 @@ fn the_launch_binary_carries_no_neural_fee_model() {
     for root in ["custom-l1-node", "maya2c-node"] {
         let reached = lock_closure(&lock, root);
         // A parse that found nothing would pass the check below vacuously.
-        assert!(reached.contains("maya-fee-market"), "{root}: lock walk is broken");
+        assert!(
+            reached.contains("maya-fee-market"),
+            "{root}: lock walk is broken"
+        );
         for banned in ["maya-neural-fee", "maya-neural-gas-trainer"] {
             assert!(!reached.contains(banned), "{root} reaches {banned}");
         }
