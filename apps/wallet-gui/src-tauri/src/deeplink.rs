@@ -172,6 +172,8 @@ pub fn handle<R: Runtime, U: std::fmt::Display>(app: &AppHandle<R>, urls: &[U]) 
 /// stop a valid link from being applied.
 pub fn focus<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
+        // Desktop only: a mobile app has no minimized state to leave.
+        #[cfg(desktop)]
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
