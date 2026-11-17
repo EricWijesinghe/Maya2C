@@ -235,6 +235,18 @@ mod tests {
         assert_eq!(std::fs::read(&path).expect("read"), vec![9u8; SEED_LEN]);
     }
 
+    #[test]
+    fn a_failed_seed_write_leaves_no_partial_key_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = key_path(dir.path());
+        std::fs::write(&path, []).expect("create");
+        // A read-only handle makes the write fail the way a full disk would.
+        let read_only = std::fs::File::open(&path).expect("open");
+
+        write_or_remove(read_only, &path, &[1u8; SEED_LEN]).expect_err("write must fail");
+        assert!(!path.exists(), "a partial key file was left behind");
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_new_key_file_is_owner_only_from_creation() {

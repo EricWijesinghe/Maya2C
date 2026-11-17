@@ -26,6 +26,7 @@ use maya_dag_bft::Certificate;
 use super::wire::{Envelope, decode_certificate, encode_certificate};
 use crate::error::{NodeError, Result};
 
+/// File name of an epoch's own-message log, the double-sign guard's evidence.
 pub const SAFETY_LOG: &str = "safety.log";
 const CERTS_LOG: &str = "certs.log";
 

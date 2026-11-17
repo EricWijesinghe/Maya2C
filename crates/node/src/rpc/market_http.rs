@@ -460,6 +460,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unfinished_request_head_is_closed_after_the_header_timeout() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (server, _dir) = start(MarketFeed::empty()).await;
+        let mut stream = tokio::net::TcpStream::connect(server.address)
+            .await
+            .expect("connect");
+        stream
+            .write_all(b"GET /api/v1/total_supply HTTP/1.1\r\n")
+            .await
+            .expect("write");
+
+        // Without the timeout the server waits for the rest of the head forever.
+        let mut response = Vec::new();
+        let closed = tokio::time::timeout(
+            HEADER_READ_TIMEOUT + Duration::from_secs(5),
+            stream.read_to_end(&mut response),
+        )
+        .await;
+        assert!(
+            closed.is_ok(),
+            "an unfinished request head held the socket open"
+        );
+    }
+
+    #[tokio::test]
     async fn total_supply_is_a_bare_number() {
         // The aggregators parse the whole body as a decimal. A JSON wrapper, a
         // unit suffix, or a trailing newline would each break that parse.
