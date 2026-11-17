@@ -1,4 +1,4 @@
-//! Maya wallet frontend.
+//! Maya2C Wallet frontend.
 //!
 //! Client-side Leptos with fine-grained signals. Every privileged action is a
 //! call into the Rust core through [`bridge`]; nothing here can reach a key,
@@ -6,8 +6,8 @@
 //!
 //! ## Screens
 //!
-//! - **Setup** — create a wallet or recover one from a BIP-39 phrase
-//! - **Backup** — show the recovery phrase once, and require confirmation
+//! - **Setup** — welcome, then create a wallet or recover one from a BIP-39 phrase
+//! - **Backup** — show the recovery phrase once, then ask for three of its words
 //! - **Wallet** — accounts, balance, send, and pending history
 //! - **Scan** — camera QR capture, decoded in Rust
 //! - **Send** — recipient, amount, and manual fee control
@@ -22,6 +22,9 @@ mod bridge;
 mod camera;
 mod receive;
 mod screens;
+mod send;
+mod theme;
+mod widgets;
 
 use leptos::prelude::*;
 
@@ -85,6 +88,12 @@ pub struct AppState {
     /// The network the node reports; `None` until it answers or when it
     /// cannot be reached.
     pub network: RwSignal<Option<bridge::NetworkStatus>>,
+    /// Why the node did not answer the last account read, raw. Shown in the
+    /// calm paused card's Details, never as a red banner: an unreachable or
+    /// paused node is an ordinary state, not something the user did wrong.
+    pub node_error: RwSignal<Option<String>>,
+    /// System, Light or Dark (Settings).
+    pub theme: RwSignal<theme::Theme>,
 }
 
 impl AppState {
@@ -102,6 +111,8 @@ impl AppState {
             error: RwSignal::new(None),
             notice: RwSignal::new(None),
             network: RwSignal::new(None),
+            node_error: RwSignal::new(None),
+            theme: RwSignal::new(theme::load()),
         }
     }
 
@@ -129,6 +140,7 @@ impl AppState {
 fn App() -> impl IntoView {
     let state = AppState::new();
     provide_context(state);
+    Effect::new(move |_| theme::apply(state.theme.get()));
 
     // Decide the opening screen from whether a wallet is already stored.
     let existing = LocalResource::new(move || async move {
@@ -181,7 +193,7 @@ fn App() -> impl IntoView {
                     width="40"
                     height="40"
                 />
-                <span class="name">"Maya Wallet"</span>
+                <span class="name">"Maya2C Wallet"</span>
                 <span class="spacer"></span>
                 <NetworkPill/>
                 <Show when=move || matches!(state.screen.get(), Screen::Wallet)>
@@ -217,7 +229,7 @@ fn App() -> impl IntoView {
                     Screen::Wallet => view! { <screens::wallet::WalletView/> }.into_any(),
                     Screen::Scan => view! { <screens::scan::Scan/> }.into_any(),
                     Screen::Send(request) => {
-                        view! { <screens::send::Send request=request/> }.into_any()
+                        view! { <send::Send request=request/> }.into_any()
                     }
                     Screen::Receive => view! { <receive::Receive/> }.into_any(),
                     Screen::Sent(sent) => view! { <receive::Sent sent=sent/> }.into_any(),
@@ -265,22 +277,35 @@ fn NetworkPill() -> impl IntoView {
     }
 }
 
-/// Error and success banners.
+/// Error and success banners: an error is an alert (announced at once), a
+/// notice is a status (announced when the reader is idle).
 #[component]
 fn Banner() -> impl IntoView {
     let state = expect_context::<AppState>();
 
     view! {
         <Show when=move || state.error.get().is_some()>
-            <div class="banner error">
-                {move || state.error.get().unwrap_or_default()}
-                <button class="dismiss" on:click=move |_| state.error.set(None)>"×"</button>
+            <div class="banner error" role="alert">
+                <span>{move || state.error.get().unwrap_or_default()}</span>
+                <button
+                    class="dismiss"
+                    aria-label="Dismiss"
+                    on:click=move |_| state.error.set(None)
+                >
+                    <span aria-hidden="true">"×"</span>
+                </button>
             </div>
         </Show>
         <Show when=move || state.notice.get().is_some()>
-            <div class="banner notice">
-                {move || state.notice.get().unwrap_or_default()}
-                <button class="dismiss" on:click=move |_| state.notice.set(None)>"×"</button>
+            <div class="banner notice" role="status">
+                <span>{move || state.notice.get().unwrap_or_default()}</span>
+                <button
+                    class="dismiss"
+                    aria-label="Dismiss"
+                    on:click=move |_| state.notice.set(None)
+                >
+                    <span aria-hidden="true">"×"</span>
+                </button>
             </div>
         </Show>
     }
@@ -289,5 +314,7 @@ fn Banner() -> impl IntoView {
 fn main() {
     // Without this a panic in the WASM bundle is an unexplained blank window.
     console_error_panic_hook::set_once();
+    // Before the first paint, so a remembered Light never flashes dark.
+    theme::apply(theme::load());
     leptos::mount::mount_to_body(App);
 }

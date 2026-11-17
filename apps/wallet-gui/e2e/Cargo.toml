@@ -5,7 +5,7 @@ version.workspace = true
 publish.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "End-to-end tests of the Maya Wallet through tauri-driver: a minimal W3C WebDriver client in Rust"
+description = "End-to-end tests of the Maya2C Wallet through tauri-driver: a minimal W3C WebDriver client in Rust"
 
 [dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }

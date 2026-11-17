@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+pub mod stub_node;
+
 /// The W3C element reference key.
 const ELEMENT: &str = "element-6066-11e4-a52e-4f735466cecf";
 
@@ -278,6 +280,68 @@ impl Session {
             "/execute/sync",
             Some(json!({"script": script, "args": []})),
         )
+    }
+
+    /// Runs `script` asynchronously: it ends by calling `arguments[0]` with
+    /// its result, which is returned.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed, the script threw, or it did not call back in time.
+    pub fn execute_async(&self, script: &str) -> Result<Value, DriverError> {
+        self.call(
+            reqwest::Method::POST,
+            "/execute/async",
+            Some(json!({"script": script, "args": []})),
+        )
+    }
+
+    /// The element's accessible name as the browser's accessibility tree
+    /// computes it: what a screen reader announces, not what the DOM holds.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed.
+    pub fn label(&self, e: &Element) -> Result<String, DriverError> {
+        Ok(self
+            .call(
+                reqwest::Method::GET,
+                &format!("/element/{}/computedlabel", e.0),
+                None,
+            )?
+            .as_str()
+            .unwrap_or_default()
+            .to_owned())
+    }
+
+    /// An attribute's value, `None` when it is absent.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed.
+    pub fn attribute(&self, e: &Element, name: &str) -> Result<Option<String>, DriverError> {
+        Ok(self
+            .call(
+                reqwest::Method::GET,
+                &format!("/element/{}/attribute/{name}", e.0),
+                None,
+            )?
+            .as_str()
+            .map(str::to_owned))
+    }
+
+    /// Resizes the window, so a layout can be checked at a narrow width.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed or refused the size.
+    pub fn resize(&self, width: u32, height: u32) -> Result<(), DriverError> {
+        self.call(
+            reqwest::Method::POST,
+            "/window/rect",
+            Some(json!({"width": width, "height": height})),
+        )
+        .map(|_| ())
     }
 
     /// Saves a PNG of the window to `path`: evidence of what a person sees,

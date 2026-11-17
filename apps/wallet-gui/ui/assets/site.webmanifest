@@ -1,5 +1,5 @@
 {
-  "name": "Maya Wallet",
+  "name": "Maya2C Wallet",
   "short_name": "Wallet",
   "icons": [
     {
@@ -13,7 +13,7 @@
       "type": "image/png"
     }
   ],
-  "theme_color": "#ffffff",
-  "background_color": "#ffffff",
+  "theme_color": "#08090b",
+  "background_color": "#08090b",
   "display": "standalone"
 }
