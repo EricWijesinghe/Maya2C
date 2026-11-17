@@ -117,31 +117,6 @@ fn header_ip(
     pick(value)?.trim().parse().ok()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn request_with(lines: &[&str]) -> Request<()> {
-        let mut builder = Request::builder();
-        for line in lines {
-            builder = builder.header("x-forwarded-for", *line);
-        }
-        builder.body(()).expect("request")
-    }
-
-    #[test]
-    fn a_second_forwarded_for_line_cannot_hide_the_proxys_hop() {
-        let key = ClientKey(ClientIp::XForwardedForLast);
-        let honest = request_with(&["203.0.113.9"]);
-        let spoofed = request_with(&["1.1.1.1", "203.0.113.9"]);
-        let rotated = request_with(&["2.2.2.2", "203.0.113.9"]);
-        let expected: IpAddr = "203.0.113.9".parse().expect("ip");
-        assert_eq!(key.extract(&honest).expect("key"), expected);
-        assert_eq!(key.extract(&spoofed).expect("key"), expected);
-        assert_eq!(key.extract(&rotated).expect("key"), expected);
-    }
-}
-
 /// The limiter's configuration, shared by the layer and the pruning task.
 pub type Config = Arc<GovernorConfig<ClientKey, NoOpMiddleware<governor::clock::QuantaInstant>>>;
 
@@ -178,4 +153,29 @@ pub fn spawn_pruning(config: &Config) -> tokio::task::JoinHandle<()> {
             limiter.retain_recent();
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request_with(lines: &[&str]) -> Request<()> {
+        let mut builder = Request::builder();
+        for line in lines {
+            builder = builder.header("x-forwarded-for", *line);
+        }
+        builder.body(()).expect("request")
+    }
+
+    #[test]
+    fn a_second_forwarded_for_line_cannot_hide_the_proxys_hop() {
+        let key = ClientKey(ClientIp::XForwardedForLast);
+        let honest = request_with(&["203.0.113.9"]);
+        let spoofed = request_with(&["1.1.1.1", "203.0.113.9"]);
+        let rotated = request_with(&["2.2.2.2", "203.0.113.9"]);
+        let expected: IpAddr = "203.0.113.9".parse().expect("ip");
+        assert_eq!(key.extract(&honest).expect("key"), expected);
+        assert_eq!(key.extract(&spoofed).expect("key"), expected);
+        assert_eq!(key.extract(&rotated).expect("key"), expected);
+    }
 }
