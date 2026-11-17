@@ -76,6 +76,10 @@
           <div class="card">
             <h2>Rigs <small id="gpu-note"></small></h2>
             <p class="fine">One miner per device. A miner that crashes restarts itself with a growing wait. A GPU that runs above its temperature ceiling is stopped until it cools.</p>
+            <p class="fine"><strong>Tune</strong> is a guided power-limit search, off until you press it. The Hub never changes your card. 1. Start mining with the power limit at its default. 2. The Hub shows the next limit to try; you set it (in your GPU tool, or with the command shown, as administrator). 3. The Hub reads it back, waits 30 seconds, measures hash rate per watt for a minute, and shows the next step. It stops when efficiency stops improving or hash rate drops below the floor below, and tells you which limit to keep. If anything goes wrong (heat, a crash, a wrong hash, rejected shares), it tells you to set the default back.</p>
+            <label class="fine tune-floor">Keep at least <output id="tune-floor-out">95%</output> of the default hash rate
+              <input type="range" id="tune-floor" min="80" max="100" step="1" value="95" aria-describedby="tune-floor-out"></label>
+            <p class="fine" id="tune-note"></p>
             <div class="devices" id="devices"></div>
           </div>
 
@@ -185,6 +189,8 @@
               <label>CPU threads <span id="s-threads-v"></span><input id="s-threads" type="range" min="1" max="64" /></label>
               <label>Stop a GPU above (°C) <input id="s-ceiling" type="number" min="50" max="95" step="1" /></label>
               <p class="fine">80 °C is the Hub's own default, not the driver's limit. A GPU above it is stopped, then restarted once it is 5 °C lower.</p>
+              <label>Driver tool (nvidia-smi) <input id="s-driver-tool" spellcheck="false" placeholder="leave empty to use the system one" /></label>
+              <p class="fine">The Hub reads GPU temperatures with nvidia-smi and will not start a GPU without them. It looks only in the system folder (System32 on Windows, /usr/bin on Linux). If your driver put it elsewhere, enter its full path. On Windows the path must be under Program Files or System32. On Linux the file must be owned by root and not writable by group or others. The Hub never searches PATH.</p>
               <label class="check"><input id="s-notify" type="checkbox" /> Show a system notification when a miner gives up or a GPU is stopped for heat</label>
               <p class="fine">Off by default. A notification names the device only, never an address or a key, and at most one per kind every ten minutes.</p>
             </div>
