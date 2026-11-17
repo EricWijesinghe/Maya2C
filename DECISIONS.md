@@ -909,3 +909,9 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-17 — PR #577 narrowed to the wasmtime pin; host-surface bounds left to #549 (Claude, under Eric 2026-11-17 pre-approval)
+
+- **Kept:** `WASMTIME_VERSION` corrected to the pinned `48.0.8`; the pin test now reads `crates/vm/Cargo.toml` and `Cargo.lock` instead of comparing the constant with itself; `config_digest` hashes the constant instead of a stale `48.0.1` literal (module-cache key only, held in memory, never in a state root).
+- **Dropped from #577, because #549 (ADR-142) already does them:** sizes checked before guest copies, an event topic cap (#549 sets 256 bytes; #577 had proposed 128), and one contract VM per `StateDB`. Two values for one consensus cap would contradict each other, so #549's stands.
+- **Dropped:** the comment rewrites in `runtime.rs`, `host.rs`, `vm_exec.rs` and `contracts.rs`. #549 rewrites those functions (host failures trap, storage reads lazily), so the rewritten comments would be wrong once it merges.

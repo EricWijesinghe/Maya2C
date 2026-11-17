@@ -33,16 +33,10 @@ pub const MAX_VALUE_BYTES: usize = 4 * 1024;
 /// Largest event payload a contract may emit.
 pub const MAX_EVENT_BYTES: usize = 4 * 1024;
 
-/// Largest event topic a contract may emit. Topics name an event kind, so they
-/// share the storage key's ceiling. Proposed value; it is final only once its
-/// ADR is recorded.
-pub const MAX_EVENT_TOPIC_BYTES: usize = 128;
-
 /// Maximum events one call may emit.
 ///
-/// Events are unmetered output, so the count is bounded independently of gas.
-/// The node does not persist them yet (`state::vm_exec`), so this bounds the
-/// memory one call holds while it runs.
+/// Events are unmetered output that every node must store and relay, so the
+/// count is bounded independently of gas.
 pub const MAX_EVENTS: usize = 64;
 
 /// An event emitted by a contract.

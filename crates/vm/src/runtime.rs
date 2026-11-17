@@ -40,8 +40,8 @@ use crate::config::{
 };
 use crate::error::{Result, VmError};
 use crate::host::{
-    Address, ContractId, Event, HostState, MAX_EVENT_BYTES, MAX_EVENT_TOPIC_BYTES, MAX_EVENTS,
-    MAX_KEY_BYTES, MAX_VALUE_BYTES, RANDOMNESS_LEN, check_size,
+    Address, ContractId, Event, HostState, MAX_EVENT_BYTES, MAX_EVENTS, MAX_KEY_BYTES,
+    MAX_VALUE_BYTES, RANDOMNESS_LEN, check_size,
 };
 use crate::trace::{CallSite, Traced};
 
@@ -79,8 +79,7 @@ pub(crate) struct CallContext<S: HostState> {
     contract: ContractId,
     events: Vec<Event>,
     /// First host-side failure. Host functions cannot return `Result` through
-    /// the wasm boundary, so the error is recorded. The guest is not trapped:
-    /// it keeps running, and the call returns the recorded error once it ends.
+    /// the wasm boundary, so the error is recorded and the guest is trapped.
     failure: Option<VmError>,
     /// Ceiling enforced by the resource limiter.
     max_pages: usize,
@@ -146,29 +145,6 @@ pub(crate) fn read_guest(
         });
     }
     Ok(data[start..end].to_vec())
-}
-
-/// Checks that a guest range lies inside memory, without copying it.
-///
-/// Host functions check ranges and sizes before they copy, so a refused request
-/// costs no copy. The error matches the one `read_guest` returns.
-pub(crate) fn check_guest_range(
-    memory: &Memory,
-    store: &impl wasmtime::AsContext,
-    ptr: u32,
-    len: u32,
-) -> Result<()> {
-    let within = (ptr as usize)
-        .checked_add(len as usize)
-        .is_some_and(|end| end <= memory.data(store).len());
-    if within {
-        Ok(())
-    } else {
-        Err(VmError::MemoryOutOfBounds {
-            offset: ptr,
-            length: len,
-        })
-    }
 }
 
 /// Writes into guest memory, refusing out-of-bounds offsets.
@@ -534,8 +510,8 @@ impl Vm {
 
         let invoked = self.invoke(&mut store, &instance, input, gas_limit);
 
-        // A failed host function does not trap the guest. The error the host
-        // recorded is reported, not whatever `invoke` returned.
+        // A host function that failed traps the guest, but the useful error is
+        // the one the host recorded, not the generic trap it produced.
         let recorded = store.data_mut().failure.take();
 
         let remaining = store.get_fuel().unwrap_or(0);
@@ -800,15 +776,6 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         .fail(VmError::MissingExport("memory".into()));
                     return -1;
                 };
-                // Range and size first, so a refused key is never copied.
-                if let Err(error) =
-                    check_guest_range(&memory, &caller, key_ptr as u32, key_len as u32).and_then(
-                        |()| check_size("storage key", key_len as u32 as usize, MAX_KEY_BYTES),
-                    )
-                {
-                    caller.data_mut().fail(error);
-                    return -1;
-                }
                 let key = match read_guest(&memory, &caller, key_ptr as u32, key_len as u32) {
                     Ok(key) => key,
                     Err(error) => {
@@ -816,6 +783,10 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         return -1;
                     }
                 };
+                if let Err(error) = check_size("storage key", key.len(), MAX_KEY_BYTES) {
+                    caller.data_mut().fail(error);
+                    return -1;
+                }
 
                 let contract = caller.data().contract;
                 let Some(value) = caller.data().state.storage_get(&contract, &key) else {
@@ -852,22 +823,6 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         .fail(VmError::MissingExport("memory".into()));
                     return;
                 };
-                // Both ranges, then both sizes, all before either copy: the first
-                // error reported is the same as when the copies came first.
-                if let Err(error) =
-                    check_guest_range(&memory, &caller, key_ptr as u32, key_len as u32)
-                        .and_then(|()| {
-                            check_guest_range(&memory, &caller, val_ptr as u32, val_len as u32)
-                        })
-                        .and_then(|()| {
-                            check_size("storage key", key_len as u32 as usize, MAX_KEY_BYTES)
-                        })
-                        .and_then(|()| {
-                            check_size("storage value", val_len as u32 as usize, MAX_VALUE_BYTES)
-                        })
-                {
-                    return caller.data_mut().fail(error);
-                }
                 let key = match read_guest(&memory, &caller, key_ptr as u32, key_len as u32) {
                     Ok(key) => key,
                     Err(error) => return caller.data_mut().fail(error),
@@ -876,6 +831,12 @@ fn register_host_functions<S: HostState + Send + 'static>(
                     Ok(value) => value,
                     Err(error) => return caller.data_mut().fail(error),
                 };
+                if let Err(error) = check_size("storage key", key.len(), MAX_KEY_BYTES) {
+                    return caller.data_mut().fail(error);
+                }
+                if let Err(error) = check_size("storage value", value.len(), MAX_VALUE_BYTES) {
+                    return caller.data_mut().fail(error);
+                }
 
                 let contract = caller.data().contract;
                 caller.data_mut().state.storage_set(&contract, key, value);
@@ -1012,36 +973,6 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         .fail(VmError::MissingExport("memory".into()));
                     return;
                 };
-                // Ranges, sizes and the count are all checked before either copy.
-                // The count is checked after the sizes, as it was before.
-                if let Err(error) =
-                    check_guest_range(&memory, &caller, topic_ptr as u32, topic_len as u32)
-                        .and_then(|()| {
-                            check_guest_range(&memory, &caller, data_ptr as u32, data_len as u32)
-                        })
-                        .and_then(|()| {
-                            check_size(
-                                "event topic",
-                                topic_len as u32 as usize,
-                                MAX_EVENT_TOPIC_BYTES,
-                            )
-                        })
-                        .and_then(|()| {
-                            check_size("event payload", data_len as u32 as usize, MAX_EVENT_BYTES)
-                        })
-                {
-                    return caller.data_mut().fail(error);
-                }
-                let emitted = caller.data().events.len();
-                if emitted >= MAX_EVENTS {
-                    // Events are unmetered output, so the count is capped
-                    // independently of gas.
-                    return caller.data_mut().fail(VmError::SizeLimit {
-                        what: "event count",
-                        actual: emitted + 1,
-                        limit: MAX_EVENTS,
-                    });
-                }
                 let topic = match read_guest(&memory, &caller, topic_ptr as u32, topic_len as u32) {
                     Ok(topic) => topic,
                     Err(error) => return caller.data_mut().fail(error),
@@ -1050,6 +981,19 @@ fn register_host_functions<S: HostState + Send + 'static>(
                     Ok(data) => data,
                     Err(error) => return caller.data_mut().fail(error),
                 };
+                if let Err(error) = check_size("event payload", data.len(), MAX_EVENT_BYTES) {
+                    return caller.data_mut().fail(error);
+                }
+                let emitted = caller.data().events.len();
+                if emitted >= MAX_EVENTS {
+                    // Events are unmetered output every node must store, so the
+                    // count is capped independently of gas.
+                    return caller.data_mut().fail(VmError::SizeLimit {
+                        what: "event count",
+                        actual: emitted + 1,
+                        limit: MAX_EVENTS,
+                    });
+                }
 
                 let contract = caller.data().contract;
                 let event = Event {

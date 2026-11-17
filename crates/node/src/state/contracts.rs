@@ -9,9 +9,8 @@
 //! - the contract's **entire** storage, read up front
 //! - a snapshot of the balances the caller pre-declared
 //!
-//! Reading a contract's whole key space before execution is a real cost.
-//! Storage size limits are a separate consensus decision, not in this change.
-//! The whole-space read buys two things:
+//! Reading a contract's whole key space before execution is a real cost, and it
+//! bounds how large a contract's storage can usefully get. It buys two things:
 //! the host is `'static` without any unsafe lifetime games, and reverting is
 //! simply dropping the map — a trapped call cannot leave a partial write
 //! because its writes never touched the database.

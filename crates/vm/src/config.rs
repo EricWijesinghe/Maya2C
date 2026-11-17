@@ -217,6 +217,21 @@ mod digest_tests {
     }
 
     #[test]
+    fn the_digest_hashes_the_pinned_wasmtime_version() {
+        // A version written out as a literal went stale (it named 48.0.1 while
+        // the crate pinned 48.0.8), so a bump left cached modules keyed to the
+        // old compiler. The digest must hash the constant the pin test checks.
+        let source = include_str!("config.rs").replace("\r\n", "\n");
+        let body = source
+            .split("pub fn config_digest()")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("config_digest body");
+        assert!(body.contains("WASMTIME_VERSION.as_bytes()"));
+        assert!(!body.contains("b\"wasmtime-4"));
+    }
+
+    #[test]
     fn the_digest_is_the_same_on_every_call() {
         // Two nodes must agree on it, so it cannot depend on anything but the
         // constants above.

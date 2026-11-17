@@ -51,8 +51,8 @@ impl StateDB {
     /// Reads a contract's entire storage.
     ///
     /// The VM's host must own its data, so the whole key space is loaded before
-    /// a call, whatever the call reads. Storage size limits are a separate
-    /// consensus decision, not in this change.
+    /// a call. That bounds how large a contract's storage can usefully become,
+    /// and is the price of a host that needs no lifetime games.
     ///
     /// # Errors
     ///
@@ -142,7 +142,7 @@ impl StateDB {
             )
             .with_zkml(context.zkml_active());
 
-        let vm = self.shared_vm()?;
+        let vm = Vm::new().map_err(|e| NodeError::Vm(e.to_string()))?;
         let execution = vm.execute(&code, call.contract, &call.input, call.gas_limit, host);
 
         let outcome = execution
@@ -151,24 +151,12 @@ impl StateDB {
 
         // Only now do the writes leave the host. Reaching this line means the
         // call completed within its gas.
-        // Events are dropped here: the node does not persist them yet.
         let (writes, _events) = execution.state.into_parts();
         for (key, value) in writes {
             overlay.contract_storage.insert((call.contract, key), value);
         }
 
         Ok(outcome.output)
-    }
-
-    /// The contract VM, built on first use and kept for the state database's
-    /// life, so its module cache serves every later call.
-    fn shared_vm(&self) -> Result<&Vm> {
-        if let Some(vm) = self.contract_vm.get() {
-            return Ok(vm);
-        }
-        let vm = Vm::new().map_err(|e| NodeError::Vm(e.to_string()))?;
-        // Two callers may race to build one. Either is equivalent; keep the first.
-        Ok(self.contract_vm.get_or_init(|| vm))
     }
 
     /// Reads a balance through the overlay, 256-bit (ADR-046): contracts see
@@ -179,24 +167,5 @@ impl StateDB {
             None => self.get_account(address)?.balance,
         };
         Ok(maya_stateless_core::amount::to_amount(balance))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::state::db::StateDB;
-    use tempfile::TempDir;
-
-    #[test]
-    fn the_contract_vm_is_built_once_per_state_database() {
-        // The module cache lives in the VM. A VM rebuilt per call would
-        // recompile every module on every call.
-        let dir = TempDir::new().expect("temp dir");
-        let db = StateDB::open(dir.path()).expect("open");
-
-        let first = db.shared_vm().expect("vm");
-        let second = db.shared_vm().expect("vm");
-
-        assert!(std::ptr::eq(first, second));
     }
 }
