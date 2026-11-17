@@ -272,6 +272,16 @@ impl Mempool {
         {
             return self.validate_share(tx, share);
         }
+        // A work claim is never pooled or relayed until an Accepted ADR binds
+        // it to a verified share (ADR-044). The executor refuses it as well.
+        if matches!(tx.kind, crate::core::TxKind::ClaimWork(_))
+            && !crate::upgrade::WORK_CLAIM_ADR_ACCEPTED
+        {
+            return Err(NodeError::WorkClaimInactive {
+                height: self.admission_height()?,
+                activation: crate::state::context::WORK_CLAIM_ACTIVATION_HEIGHT,
+            });
+        }
         if let Some(fees) = self.state.committed_fees()? {
             let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
             let offered = tx

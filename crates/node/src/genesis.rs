@@ -624,8 +624,22 @@ impl GenesisConfig {
     ///
     /// # Errors
     ///
-    /// [`NodeError::Decode`] if the upgrades are out of order.
+    /// [`NodeError::Decode`] if the upgrades are out of order, or an entry
+    /// carries a feature bit this binary does not implement. Admission and
+    /// stored records accept such bits (ADR-082 amendment); a genesis is
+    /// written for this binary, so one there is a mistake, refused at boot.
     pub fn upgrade_schedule(&self) -> Result<UpgradeSchedule> {
+        if let Some(u) = self
+            .protocol_upgrades
+            .iter()
+            .find(|u| u.features.unimplemented() != 0)
+        {
+            return Err(NodeError::Decode(format!(
+                "genesis upgrade to version {} names feature bits {:#x} this binary does not implement",
+                u.version,
+                u.features.unimplemented()
+            )));
+        }
         UpgradeSchedule::new(self.protocol_upgrades.clone())
     }
 

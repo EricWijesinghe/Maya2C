@@ -336,6 +336,11 @@ function mining(): number {
     } else if (c.fn === "meets_target") {
       const met = bigOf("0x" + c.digest) <= bigOf("0x" + c.target);
       check(met === (c.expect.result === "ok"), `${c.id}: meets target`);
+    } else if (c.fn === "work_payload") {
+      // MINE-11: kind 0 only, exact length (kind ‖ epoch ‖ nonce, or kind ‖ beneficiary).
+      const p = fromHex(c.payload);
+      const len = c.payload_type === "mining_share" ? 1 + 8 + 8 : 1 + 32;
+      check((p.length === len && p[0] === 0) === (c.expect.result === "ok"), `${c.id}: work payload`);
     } else check(false, `${c.id}: unknown fn ${c.fn}`);
   }
   return doc.cases.length;

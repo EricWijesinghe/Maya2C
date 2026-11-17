@@ -28,6 +28,7 @@ use custom_l1_node::core::dex_payload::{
 use custom_l1_node::core::governance_payload::{
     Ballot, MAX_CHANGES, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
+use custom_l1_node::core::mining_payload::{MiningShare, WorkKind};
 use custom_l1_node::core::oracle_payload::{
     BeaconSubmission, FeedCreation, FeedObservation, FeedSubmission, MAX_OBSERVATIONS,
     RegistryRotation,
@@ -329,10 +330,12 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             height: 9,
             proof: [10u8; 80],
         }),
-        // Governance. `ClaimWork` and `CancelProposal` both carry thirty-two
-        // opaque bytes and nothing else, so the tag is all that separates a
+        // Governance. `ClaimWork` (a work-kind byte, then thirty-two bytes)
+        // and `CancelProposal` (thirty-two bytes) both carry an opaque
+        // 32-byte value, so the tag and the length are all that separate a
         // beneficiary address from a proposal identifier.
         TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
             beneficiary: [11u8; 32],
         }),
         TxKind::LockStake(StakeLock {
@@ -824,6 +827,7 @@ fn a_beacon_proof_is_exactly_eighty_bytes_on_the_wire() {
 fn every_governance_kind_survives_a_round_trip_unchanged() {
     let kinds = vec![
         TxKind::ClaimWork(WorkClaim {
+            kind: WorkKind::DagPow,
             beneficiary: [0xAB; 32],
         }),
         TxKind::LockStake(StakeLock {
@@ -957,4 +961,148 @@ fn revocation_commitments_are_binding() {
     assert_ne!(commitment, revocation_commitment(&other));
     // The commitment must not simply be the secret.
     assert_ne!(commitment, secret);
+}
+
+// ---------------------------------------------------------------------------
+// work kinds (ADR-044, ADR-079)
+// ---------------------------------------------------------------------------
+
+/// The frame of an unsigned `kind` with its work-kind byte replaced by `byte`.
+/// `marker` is a run of payload bytes unique within the frame, beginning at
+/// the kind byte.
+fn with_kind_byte(kind: TxKind, marker: &[u8], byte: u8) -> Vec<u8> {
+    let mut frame = Transaction::with_kind(kind, 0).to_bytes();
+    let at = frame
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .expect("payload in frame");
+    frame[at] = byte;
+    frame
+}
+
+#[test]
+fn a_share_and_a_claim_encode_kind_zero_first() {
+    let mut share = Vec::new();
+    MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 7,
+        nonce: 9,
+    }
+    .encode_into(&mut share);
+    let mut want = vec![0u8];
+    want.extend_from_slice(&7u64.to_le_bytes());
+    want.extend_from_slice(&9u64.to_le_bytes());
+    assert_eq!(share, want, "kind 0, then epoch, then nonce");
+
+    let mut claim = Vec::new();
+    WorkClaim {
+        kind: WorkKind::DagPow,
+        beneficiary: [0x5A; 32],
+    }
+    .encode_into(&mut claim);
+    assert_eq!(claim[0], 0, "kind 0 first");
+    assert_eq!(&claim[1..], &[0x5A; 32]);
+}
+
+#[test]
+fn every_work_kind_byte_but_zero_is_refused_at_decode() {
+    let share = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 0x0102_0304_0506_0708,
+        nonce: 0x1112_1314_1516_1718,
+    });
+    let mut share_marker = vec![0u8];
+    share_marker.extend_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes());
+    let claim = TxKind::ClaimWork(WorkClaim {
+        kind: WorkKind::DagPow,
+        beneficiary: [0xC3; 32],
+    });
+    let mut claim_marker = vec![0u8];
+    claim_marker.extend_from_slice(&[0xC3; 32]);
+
+    for byte in 0..=u8::MAX {
+        for (kind, marker) in [(&share, &share_marker), (&claim, &claim_marker)] {
+            // `Transaction::from_bytes` is the decode every frame from RPC
+            // (`send_raw_transaction`) and gossip passes before the mempool
+            // sees it (`Mempool::insert_encoded`), and block import uses it too.
+            let decoded = Transaction::from_bytes(&with_kind_byte(kind.clone(), marker, byte));
+            if byte == 0 {
+                assert_eq!(decoded.expect("kind 0 decodes").kind, *kind);
+            } else {
+                let err = decoded.expect_err("an undefined work kind is refused");
+                assert!(err.to_string().contains("work kind"), "{byte}: {err}");
+            }
+        }
+    }
+}
+
+#[test]
+fn an_undefined_work_kind_is_refused_at_mempool_admission() {
+    // Pins that `insert_encoded`, the gossip/RPC entry point, refuses before
+    // pooling. The refusal comes from the same decode as the test above: a
+    // structurally built `TxKind` cannot carry an undefined kind.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state =
+        std::sync::Arc::new(custom_l1_node::state::StateDB::open(dir.path()).expect("state"));
+    let pool = custom_l1_node::network::mempool::Mempool::new(state);
+    let share = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 0x2122_2324_2526_2728,
+        nonce: 1,
+    });
+    let mut marker = vec![0u8];
+    marker.extend_from_slice(&0x2122_2324_2526_2728u64.to_le_bytes());
+    let err = pool
+        .insert_encoded(&with_kind_byte(share, &marker, 1))
+        .expect_err("kind 1 is refused");
+    assert!(
+        matches!(err, custom_l1_node::error::NodeError::Decode(_)),
+        "{err}"
+    );
+    assert!(pool.is_empty());
+}
+
+#[test]
+fn a_peer_block_carrying_an_undefined_work_kind_does_not_decode() {
+    // `Chain::insert_block` takes a typed `Block`, which cannot hold kind 1, so
+    // a peer's block is refused where its bytes become one: `Block::from_bytes`.
+    use custom_l1_node::core::{Block, BlockHeader};
+    use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+
+    let epoch = 0x3132_3334_3536_3738u64;
+    let share = Transaction::with_kind(
+        TxKind::MiningShare(MiningShare {
+            kind: WorkKind::DagPow,
+            epoch,
+            nonce: 1,
+        }),
+        0,
+    );
+    let block = Block::new(
+        BlockHeader {
+            version: 0,
+            prev_hash: [0u8; 32],
+            state_root: [0u8; 32],
+            timestamp: 1_789_200_000,
+            nonce: 0,
+            difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
+        },
+        vec![share],
+    );
+    let mut bytes = block.to_bytes();
+    Block::from_bytes(&bytes).expect("kind 0 in a block decodes");
+
+    let mut marker = vec![0u8];
+    marker.extend_from_slice(&epoch.to_le_bytes());
+    let at = bytes
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .expect("share payload in block");
+    bytes[at] = 1;
+    let err = Block::from_bytes(&bytes).expect_err("kind 1 in a block is refused");
+    assert!(
+        matches!(err, custom_l1_node::error::NodeError::Decode(_)),
+        "{err}"
+    );
 }
