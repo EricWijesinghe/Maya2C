@@ -29,9 +29,11 @@ days on a public network before mainnet. What stands in for that is above,
 plus launching with the project's own validator set, which can halt and
 recover by the tested runbook (gate 10).
 
-ADR-062a/b (incremental root, per-validator staking records) are deferred
-past launch: the measured root cost is under 7 ms at 10k accounts, and the
-sparse tree is behind an activation height, so it needs no re-genesis.
+ADR-062b (per-delegation staking records) ships in the re-genesis (Eric
+2026-11-14 MCQ "per-delegation records", PR #555). ADR-062a (incremental
+root) covers the accounts layer (PR #540); the staking layer's root still
+folds every staking record each block, which is why the delegation ceilings
+of ADR-062b exist.
 
 ## Lanes
 

@@ -901,3 +901,96 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-15 — Per-delegation staking records before genesis (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ, "per-delegation records": ADR-062b is built for the re-genesis instead of
+after mainnet (the 2026-10-28 deferral is withdrawn). Choices made while building it (Claude):
+
+- **Same rules, partial state.** The node loads only the records an operation touches and runs
+  `maya-staking`'s own function on them. The only new rule entry point is
+  `Staking::end_epoch_deferred`, which shares `pay_rewards` with `end_epoch`.
+- **Delegator rewards are owed, then paid.** The amounts are exactly the old ones. They arrive on
+  the delegation's next touch or through the per-block pass (1,024 a block), not in the boundary
+  block. Chosen over F1-style reward accumulators, which would change every delegator's rounding
+  and break equivalence with the rules Eric approved.
+- **Slash stays eager.** A lazy slash cannot keep each validator's `delegated` exact, because a sum
+  of per-delegation floors is not the floor of the sum. Its cost is the offender's own records, a
+  key range. Reported as a residual, not hidden.
+- **Delegation record ceiling** `1,024 × epoch_blocks / 2`, so a payout backlog cannot outgrow the
+  pass. It replaces the 8 MiB record cap (and #522's 1 MiB cap and 16-per-block count, which
+  existed only because every staking transaction decoded the whole record).
+- **Still Eric's:** a real `min_delegation`. The ceiling bounds the backlog, but dust that fills it
+  still refuses new delegation records.
+
+### 2026-11-15 — ADR-062b review round 1 (PR #555, Eric 2026-11-14 MCQ "per-delegation records")
+
+Choices made fixing the first review (Claude; the MCQ decision itself is Eric's):
+
+- **Merged #522 into #555, not rebased** (no force-push). #555 now carries #522's sealed and DEX
+  bounds and removes its staking parts: the 1 MiB record cap and its test, `MAX_STAKING_TX_PER_BLOCK`
+  and `Overlay::staking_actions`. The 16-per-block count is **removed**, not kept: each staking
+  transaction reads its own records, so the 64th in a block costs the 1st
+  (`scan_bounds_tests::a_block_of_staking_transactions_costs_each_one_the_same`), and the block's
+  byte cap bounds their number. `StateDB::scan_range` uses #522's overlay range
+  (`Overlay::records_from`, which `records_under` also uses). Merge order: #522 first, or #555
+  alone (it contains #522).
+- **Chain-wide ceiling fixed at 131,072 delegation records** (`MAX_DELEGATION_RECORDS`, or the
+  half-epoch drain bound on short epochs), down from `1,024 × epoch_blocks / 2` = 1,843,200. The
+  state root still folds every staking record each block (ADR-062a covers accounts only), so the
+  ceiling is a per-block root cost bound, set near master's 8 MiB record (about 87,000
+  delegations). Measured figure: the session report.
+- **Per-validator ceiling 16,384** (`MAX_DELEGATIONS_PER_VALIDATOR`, an eighth of the chain's).
+  It bounds one slash or downtime boundary, and a dust crowd now has to fill eight validators to
+  close delegation for everyone. Top-ups are never refused.
+- **Evidence against a tombstoned or unknown validator is refused** after one record read, where
+  the rule returned `Ok(empty)`. A public equivocation pair can no longer be replayed into blocks
+  that each read the offender's whole key ranges.
+- **A delegation record is rewritten only when its meaning changes**, and settling with nothing owed
+  leaves `next_payout_epoch` alone: a slash or downtime cut of zero writes nothing.
+- **The payout pass resumes after the last payout key** within a block and shares a validator's walk
+  between its open payouts.
+- **512-bit step in `delegator_share`** (`Amount::mul_div`): kept, with its bound written beside it
+  (`earning ≤ total`, so the result is at most `rest`). It is the same arithmetic `end_epoch` used,
+  and removing it is the open 512-bit decision (Eric 2026-11-01, `u256-ceiling-no-512`), not this
+  PR's.
+- **Still Eric's, before the freeze closes:** `min_delegation` as a genesis parameter. At the
+  default 10 base units, eight validators' worth of dust (131,072 records) still costs only fees.
+  For example 1 coin would make filling the chain-wide ceiling cost 131,072 coins locked.
+
+### 2026-11-15 — ADR-062b review round 2 (PR #555, Eric 2026-11-14 MCQ "per-delegation records")
+
+Choices made fixing the second review (Claude; the MCQ decision itself is Eric's):
+
+- **Ceilings count positions: delegation records plus unbonding entries.** An entry holds its
+  position until it is released, so a delegate-and-leave churn from fresh addresses frees nothing;
+  before, it grew unbonding entries without bound past both ceilings. Chosen over a budgeted release
+  pass, which would change when funds arrive and which entries a slash still reaches. Exits are never
+  refused: a full undelegation trades its record for the entry, folding into this epoch's entry adds
+  nothing, and an operator's unbond (one entry per release epoch) is exempt. A partial undelegation
+  that would open a new entry at a full chain or validator is refused; the owner can still leave in full.
+- **Zero entries are deleted.** An entry a slash cuts to zero is removed with its release index
+  entry (it credits nothing and the rules' retain ignores it), so counts equal records.
+- **A report against an unknown or tombstoned validator is refused before any key read or signature
+  check** (two record reads). Under the single-record rules it was a valid no-op; invalid is intended.
+- **Validator records are rewritten only when their meaning changes**, as delegations already were.
+- **`min_delegation` = 0 is an invalid parameter set** (it admits a zero delegation record).
+- **Corrected:** the residual text said `min_delegation` was undecided at 10 base units. The mainnet
+  floor is 1 coin (2026-10-30 above); 10 base units is the devnet default.
+- **Open for Eric, not accepted on his behalf:** (1) the dust lockout at the 1-coin floor: 16,384
+  coins locked close one chosen validator to new delegators, a targeted attack on honest validators
+  the per-validator ceiling makes possible; 131,072 coins locked close every new delegation record.
+  Options: keep it, a refundable deposit per record, a floor that rises as the ceiling fills, or a
+  higher ceiling once the staking root is incremental. (2) PARTIAL per-block cost: the staking
+  layer's root folds every record each block (worst case 238.6 ms, test profile), and the boundary
+  that releases every position at once took 797.9 ms on the test profile. Genesis with these as
+  stated, or an incremental staking root first.
+## 2026-11-13 — Per-block work is bounded by caps, not by how much state exists (Claude, re-freeze bundle)
+
+A sweep of the apply path after PR #500's governance index measured every end-of-block pass against attacker-created records (ADR-062 amendment 2026-11-13, `reports/sessions/2026-11-13-per-block-scan-bounds.md`). Three were fixed with caps that refuse a transaction, never a block, and no key layout change:
+
+- **Sealed mempool:** at most 128 envelopes per reveal height (`MAX_SEALED_PER_REVEAL_HEIGHT`), so a reveal block does what the per-block cap was written to allow. 32,640 at one height cost 18.95 s before.
+- **DEX:** the books one block touches may hold 16,384 resting orders between them (`MAX_BOOK_ORDERS_PER_BLOCK`); the first book is always admitted. 16 full books cost 549 ms before.
+- **Staking:** the one-value record is capped at 1 MiB (was 8 MiB) and a block carries at most 16 staking transactions, slashing evidence exempt. A full 8 MiB record cost 289 ms every block and 152 ms per staking transaction.
+- `merged_records` and two sibling loops read the overlay by range instead of filtering every staged record; an equivalence test pins the output.
+- **Not fixed, for Eric:** the state root is O(all state) per block, and accounts cost fees alone to create (ADR-062a or a state-creation price); dust delegations at the default `min_delegation` (10 base units) can fill the staking record; the VM's `gas_limit` is uncapped (`state/context.rs` already says so) and `storage_set` carries no host charge.
