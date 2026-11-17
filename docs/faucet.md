@@ -18,8 +18,8 @@ relaxing one is a decision about one.
 
 | Control | Bounds | Where |
 |---|---|---|
-| rate limiter | one actor, per IP **and** per address | `apps/faucet/src/limit.rs` |
-| daily cap | the whole day, regardless of who asks | `apps/faucet/src/lib.rs` |
+| rate limiter | one actor, per IP (an IPv6 host is its `/64`) **and** per address | `apps/faucet/src/limit.rs` |
+| daily cap | any rolling 24 hours, regardless of who asks | `apps/faucet/src/lib.rs` |
 | chain refusal | value-bearing chains, outright | `apps/faucet/src/lib.rs` |
 
 ### Why the limiter has two independent buckets
@@ -36,6 +36,11 @@ already funded loses their own daily access through no fault of theirs.
 
 A clock that has gone backwards refuses rather than granting twice. Refusing is
 recoverable in a day; granting twice is not recoverable at all.
+
+A host's IPv6 `/64` is one bucket, because its 2^64 source addresses would
+otherwise each be a fresh allowance. The daily budget is a rolling window: each
+grant returns to the budget 24 hours after it was made, so a full budget is
+never handed out twice across a fixed boundary.
 
 ### Why the cap is the control that matters
 
@@ -56,6 +61,12 @@ requests and proves:
 
 It does **not** prove that a distributed attacker cannot take the day's budget.
 They can. The cap is the choice of how much that costs.
+
+The cap counts the grant amount only. The network fee paid to the collector
+on each transfer is charged to the faucet account outside the cap, so total
+outflow can exceed the cap by the fees. Bounding that needs the fee quoted
+before the budget is committed; until then the faucet account's balance is the
+limit on fee spend.
 
 ## Status codes
 

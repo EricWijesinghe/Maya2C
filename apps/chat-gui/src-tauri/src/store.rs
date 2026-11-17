@@ -25,6 +25,11 @@ const PROFILE_DOMAIN: &str = "maya-chat-gui 2026-09-29 profile v1";
 const STICKER_DOMAIN: &str = "maya-chat-gui 2026-10-13 sticker cache v1";
 /// Recently sent stickers kept for the picker's first row.
 pub const RECENT_LIMIT: usize = 30;
+/// Bytes the sticker cache may hold. Stickers are cached before the app knows
+/// whether anyone asked for them, so the cache needs a ceiling of its own.
+/// shortcut: a full cache refuses new stickers and never evicts; upgrade to
+/// LRU eviction that keeps every sticker the profile or history still names.
+pub const STICKER_CACHE_BYTES: u64 = 256 << 20;
 const NONCE_LEN: usize = 12;
 
 /// A contact: a name the user chose and a chat address.
@@ -138,17 +143,55 @@ fn open(seed: &[u8; 32], domain: &str, sealed: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Writes `bytes` to `path` through a temporary file and a rename, so a
-/// crash leaves the old file or the new one, never half of each.
+/// crash leaves the old file or the new one, never half of each. The bytes
+/// are synced before the rename: without that a power cut can keep the rename
+/// and lose the data, leaving an empty file that blocks the next start.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&tmp)
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    drop(file);
+    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // The directory entry for the rename is durable only once the directory is synced.
+    #[cfg(unix)]
+    {
+        if let Some(dir) = path.parent() {
+            std::fs::File::open(dir)
+                .and_then(|d| d.sync_all())
+                .map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Bytes of every file in the sticker cache directory.
+fn cache_bytes(dir: &Path) -> Result<u64, String> {
+    std::fs::read_dir(dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?
+        .map(|entry| entry.and_then(|e| e.metadata()).map(|m| m.len()))
+        .sum::<std::io::Result<u64>>()
+        .map_err(|e| format!("{}: {e}", dir.display()))
 }
 
 /// A sticker id as a file name: 64 lowercase hex characters and nothing else,
 /// so an id from a message can never name a path outside the cache.
 fn is_hex_id(id: &str) -> bool {
-    id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    id.len() == 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The app's data directory and its files.
@@ -159,7 +202,16 @@ pub struct Files {
 
 impl Files {
     pub fn new(dir: PathBuf) -> Result<Self, String> {
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder
+            .create(&dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
         Ok(Self { dir })
     }
 
@@ -202,10 +254,28 @@ impl Files {
     /// Caches a sticker file under its id, encrypted like the profile: what
     /// someone was sent says who they talk to.
     pub fn save_sticker(&self, seed: &[u8; 32], bytes: &[u8]) -> Result<String, String> {
+        self.save_sticker_within(seed, bytes, STICKER_CACHE_BYTES)
+    }
+
+    /// [`Files::save_sticker`] with the cache's byte ceiling as a parameter.
+    fn save_sticker_within(
+        &self,
+        seed: &[u8; 32],
+        bytes: &[u8],
+        budget: u64,
+    ) -> Result<String, String> {
         let id = crate::stickers::sticker_id(bytes);
         let dir = self.dir.join("stickers");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        write_atomic(&dir.join(format!("{id}.bin")), &seal(seed, STICKER_DOMAIN, bytes)?)?;
+        let path = dir.join(format!("{id}.bin"));
+        let sealed = seal(seed, STICKER_DOMAIN, bytes)?;
+        // A rewrite of the same sticker replaces its bytes, so only the difference counts.
+        let replaced = std::fs::metadata(&path).map_or(0, |m| m.len());
+        let used = cache_bytes(&dir)?.saturating_sub(replaced);
+        if used.saturating_add(u64::try_from(sealed.len()).unwrap_or(u64::MAX)) > budget {
+            return Err("the sticker cache on this computer is full".into());
+        }
+        write_atomic(&path, &sealed)?;
         Ok(id)
     }
 
@@ -217,7 +287,10 @@ impl Files {
         let body = ChaCha20Poly1305::new(Key::from_slice(key.as_ref()))
             .encrypt(Nonce::from_slice(&nonce), plain.as_slice())
             .map_err(|_| "encrypting the profile failed".to_string())?;
-        write_atomic(&self.dir.join("profile.bin"), &[nonce.as_slice(), &body].concat())
+        write_atomic(
+            &self.dir.join("profile.bin"),
+            &[nonce.as_slice(), &body].concat(),
+        )
     }
 }
 
@@ -231,15 +304,31 @@ mod tests {
         let files = Files::new(dir.clone()).unwrap();
         let profile = Profile {
             relay: "/dns4/seed1.maya2c.dev/tcp/4001/p2p/x".into(),
-            contacts: vec![Contact { name: "Ann".into(), address: "ab".repeat(32) }],
-            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None, outbox: None }],
+            contacts: vec![Contact {
+                name: "Ann".into(),
+                address: "ab".repeat(32),
+            }],
+            history: vec![Line {
+                peer: "ab".repeat(32),
+                mine: true,
+                text: "hi".into(),
+                at: 1,
+                sticker: None,
+                outbox: None,
+            }],
             ..Profile::default()
         };
         files.save_profile(&[1; 32], &profile).unwrap();
         assert_eq!(files.profile(&[1; 32]).unwrap(), profile);
-        assert!(files.profile(&[2; 32]).is_err(), "another identity cannot read it");
+        assert!(
+            files.profile(&[2; 32]).is_err(),
+            "another identity cannot read it"
+        );
         let raw = std::fs::read(dir.join("profile.bin")).unwrap();
-        assert!(!String::from_utf8_lossy(&raw).contains("Ann"), "names are not in the clear");
+        assert!(
+            !String::from_utf8_lossy(&raw).contains("Ann"),
+            "names are not in the clear"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -250,10 +339,58 @@ mod tests {
         let gif = b"GIF89a-test-sticker".to_vec();
         let id = files.save_sticker(&[1; 32], &gif).unwrap();
         assert_eq!(files.sticker(&[1; 32], &id), Some(gif.clone()));
-        assert_eq!(files.sticker(&[2; 32], &id), None, "another identity cannot read it");
-        assert_eq!(files.sticker(&[1; 32], "../profile"), None, "an id is never a path");
+        assert_eq!(
+            files.sticker(&[2; 32], &id),
+            None,
+            "another identity cannot read it"
+        );
+        assert_eq!(
+            files.sticker(&[1; 32], "../profile"),
+            None,
+            "an id is never a path"
+        );
         let raw = std::fs::read(dir.join("stickers").join(format!("{id}.bin"))).unwrap();
         assert!(!raw.windows(6).any(|w| w == b"GIF89a"), "not in the clear");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_full_sticker_cache_refuses_new_stickers_and_keeps_old_ones() {
+        let dir = std::env::temp_dir().join(format!("maya-chat-gui-budget-{}", std::process::id()));
+        let files = Files::new(dir.clone()).unwrap();
+        // One 10-byte sticker seals to 38 bytes: a 12-byte nonce and a 16-byte tag.
+        let budget = 40;
+        let kept = files
+            .save_sticker_within(&[1; 32], b"GIF89a-one", budget)
+            .unwrap();
+        assert!(
+            files
+                .save_sticker_within(&[1; 32], b"GIF89a-two", budget)
+                .is_err(),
+            "over the budget"
+        );
+        assert_eq!(files.sticker(&[1; 32], &kept), Some(b"GIF89a-one".to_vec()));
+        assert!(
+            files
+                .save_sticker_within(&[1; 32], b"GIF89a-one", budget)
+                .is_ok(),
+            "a rewrite replaces its bytes"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn files_are_written_for_this_user_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("maya-chat-gui-mode-{}", std::process::id()));
+        let files = Files::new(dir.clone()).unwrap();
+        files.save_profile(&[1; 32], &Profile::default()).unwrap();
+        let mode = std::fs::metadata(dir.join("profile.bin"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

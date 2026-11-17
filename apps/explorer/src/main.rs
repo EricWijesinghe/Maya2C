@@ -138,12 +138,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None
     };
 
-    let state = AppState {
-        store: Arc::clone(&store),
+    let state = AppState::new(
+        Arc::clone(&store),
         events,
-        node_rpc: Some(args.node_rpc.clone()),
+        Some(args.node_rpc.clone()),
         assets,
-    };
+    );
 
     let server = serve(args.listen, state).await?;
     println!("http:   http://{}", server.address);
