@@ -46,7 +46,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | chat-pay | Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3) | chat + wallet hand-off | hand-off protocol ADR | M | W1 |
 | chat-expression | Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries | `apps/chat`, `apps/chat-gui`, chat-pay, chat-v2 | Eric's answers to ADR-140 section 10; gifts need chat-pay merged | L | W1 |
 | explorer-v2 | Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending | `apps/explorer` | none | M | W1 |
-| status-v2 | Public network status with a history of incidents and gate progress *(built on `feat/status-v2`: chained, operator-signed incident log; halt drafts; gate and SLO views; see architecture-vision.md)* | `apps/status`, `apps/sentinel` | none | S | W1 |
+| status-v2 | Public network status with a history of incidents and gate progress. Started 2026-11-10: the site's [Live network](https://maya2c.dev/network/) page draws validators, blocks and finality from the existing endpoints *(built on `feat/status-v2`: chained, operator-signed incident log; halt drafts; gate and SLO views; see architecture-vision.md)* | `apps/status`, `apps/sentinel` | none | S | W1 |
 | notifications | Opt-in alerts (payment received, validator down) without a central server | `apps/hub` `notify.rs`, sentinel ntfy | privacy statement | M | W2 |
 
 ## B. Money and commerce
@@ -73,7 +73,7 @@ L is more. *Wave* is when, defined at the end of the file.
 | identity-app | One `did:maya2c` across every app; verifiable credentials wallet | `crates/identity` | ADR (credential formats) | L | W2 |
 | personhood | Human verification without biometrics stored on chain | `crates/personhood` | privacy statement and red team | L | W3 |
 | names | Human-readable names for addresses | new state prefix `nm:`: ADR-105 (proposed) | consensus review (ADR-105) | M | W2 |
-| notary | Timestamp and prove that a document existed (hash only, never the file) | transaction memo or VM contract | none if hash-only | S | W1 |
+| notary | Timestamp and prove that a document existed (hash only, never the file). **Working** (ADR-094, `docs/ecosystem/notary.md`; devnet e2e `bins/maya2c-cli/tests/notary_devnet_tests.rs`; finality: checkpoint signatures unverified) | transaction memo or VM contract | none if hash-only | S | W1 |
 | reputation | Portable reputation for marketplaces and freelancers | identity-app | ADR (anti-gaming) | L | W3 |
 
 ## D. Builders and operators
@@ -82,7 +82,7 @@ L is more. *Wave* is when, defined at the end of the file.
 |---|---|---|---|---|---|
 | sdks-1.0 | Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`) | `sdks/`, `bins/l1-wallet` | publishing approval (Eric) | M | W1 |
 | dev-portal | Docs, tutorials, playground and contract templates | `apps/dev-hub`, `apps/portal`, `docs/ecosystem/COURSE.md` | none | M | W1 |
-| public-api | Indexer API (REST, later GraphQL) for wallets and dashboards | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
+| public-api | Indexer API (REST, later GraphQL) for wallets and dashboards. **Status:** event subscriptions built (P-44: WebSocket `/v1/subscribe`, signed webhooks; in-memory, see `docs/site/authored/api.md`) | explorer indexer, `crates/api-gateway` | per-IP rate limits, hosting cost | M | W1 |
 | mcp-server | AI assistants can read the chain and draft (never sign) transactions | `bins/maya2c-mcp` | key-safety review (pending, Eric); built per ADR-084 | S | W1 |
 | node-in-a-box | One-click validator and node installer with health checks | one-line-node-join, `apps/status` | none | M | W1 |
 | validator-console | Validator dashboard: uptime, rewards, slashing risk, alerts | `apps/sentinel`, staking RPC | none | M | W2 |
