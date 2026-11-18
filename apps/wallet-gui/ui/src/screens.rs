@@ -5,7 +5,7 @@ use leptos::task::spawn_local;
 
 use crate::amount;
 use crate::bridge;
-use crate::widgets::{PausedCard, SecretField, TestnetTag};
+use crate::widgets::{Glyph, Icon, Lattice, PausedCard, RevealToggle, SecretField, TestnetTag};
 use crate::{AppState, Screen};
 
 /// Shortens a hex string for display.
@@ -123,7 +123,12 @@ pub mod setup {
                 return;
             }
             spawn_local(async move {
-                phrase_ok.set(bridge::check_phrase(&candidate).await.unwrap_or(false));
+                let ok = bridge::check_phrase(&candidate).await.unwrap_or(false);
+                // Checks of earlier keystrokes can answer after the last one:
+                // only the answer for what is in the field now counts.
+                if phrase.get_untracked() == candidate {
+                    phrase_ok.set(ok);
+                }
             });
         });
 
@@ -178,12 +183,20 @@ pub mod setup {
         let welcome = move || {
             view! {
                 <section class="welcome enter">
-                    // Decorative: the heading beside it names the app.
-                    <img class="mark" src="assets/emblem.png" alt="" width="96" height="96"/>
-                    <h1>"Maya2C Wallet"</h1>
+                    // The header names the app; the mark here is decoration
+                    // on a slowly turning lattice, after ML-DSA-65 (hd.rs),
+                    // the lattice-based scheme this wallet signs with. Still
+                    // under reduced motion.
+                    <div class="mark-stage" aria-hidden="true">
+                        <Lattice/>
+                        <span class="mark-tile">
+                            <img class="mark" src="assets/emblem.png" alt="" width="96" height="96"/>
+                        </span>
+                    </div>
+                    <h1>"Your keys stay on this device"</h1>
                     <p class="lede">
-                        "Your keys are encrypted with a passphrase you choose and kept in \
-                         this device's keychain. They never leave it."
+                        "Encrypted with a passphrase you choose and kept in this \
+                         device's keychain."
                     </p>
                     <TestnetTag/>
                     <div class="choices">
@@ -225,19 +238,7 @@ pub mod setup {
                                     prop:value=move || phrase.get()
                                     on:input=move |ev| phrase.set(event_target_value(&ev))
                                 ></textarea>
-                                <button
-                                    type="button"
-                                    class="reveal"
-                                    aria-pressed=move || if phrase_shown.get() { "true" } else { "false" }
-                                    aria-label=move || if phrase_shown.get() {
-                                        "Hide recovery phrase"
-                                    } else {
-                                        "Show recovery phrase"
-                                    }
-                                    on:click=move |_| phrase_shown.update(|s| *s = !*s)
-                                >
-                                    {move || if phrase_shown.get() { "Hide" } else { "Show" }}
-                                </button>
+                                <RevealToggle what="recovery phrase".to_string() shown=phrase_shown/>
                             </div>
                             <p
                                 id="setup-phrase-hint"
@@ -369,6 +370,24 @@ pub mod backup {
         chosen
     }
 
+    /// The backup's two steps: a visible "Step n of 2" and the bars beside it.
+    #[component]
+    fn Steps(current: usize) -> impl IntoView {
+        const TOTAL: usize = 2;
+        let bars = (1..=TOTAL)
+            .map(|n| {
+                let done = n <= current;
+                view! { <span class:done=done></span> }
+            })
+            .collect::<Vec<_>>();
+        view! {
+            <p class="steps">
+                <span class="bars" aria-hidden="true">{bars}</span>
+                {format!("Step {current} of {TOTAL}")}
+            </p>
+        }
+    }
+
     /// Shows the phrase once, asks for an acknowledgement, then for three of
     /// its words before the wallet opens.
     #[component]
@@ -427,9 +446,7 @@ pub mod backup {
 
         let show_phrase = view! {
             <section class="card enter">
-                <ol class="steps" aria-label="Step 1 of 2">
-                    <li class="done"></li><li></li>
-                </ol>
+                <Steps current=1/>
                 <h1>"Write down your recovery phrase"</h1>
                 <TestnetTag/>
                 <p class="warn">
@@ -460,9 +477,7 @@ pub mod backup {
 
         let check = view! {
             <section class="card enter">
-                <ol class="steps" aria-label="Step 2 of 2">
-                    <li class="done"></li><li class="done"></li>
-                </ol>
+                <Steps current=2/>
                 <h1>"Check your backup"</h1>
                 <TestnetTag/>
                 <p class="muted">
@@ -569,6 +584,7 @@ pub mod unlock {
 /// The main wallet view: accounts, balance, history, settings.
 pub mod wallet {
     use super::*;
+    use crate::receive::CopyButton;
     use crate::theme::{self, Theme};
 
     /// Wallet home.
@@ -676,8 +692,8 @@ pub mod wallet {
                     <div class="empty">
                         <p>"No activity yet."</p>
                         <p class="muted small">
-                            "Use Receive to get your address, or ask the faucet on \
-                             maya2c.dev for testnet coins."
+                            "Use Receive to get your address. When the public testnet \
+                             is running, its faucet on maya2c.dev sends test coins."
                         </p>
                     </div>
                 }
@@ -731,9 +747,27 @@ pub mod wallet {
             state.clear();
             state.screen.set(screen);
         };
-        // Never a made-up zero: until the node has answered, the balance is
-        // a dash.
+        // Never a made-up zero: until the node has answered, a skeleton;
+        // when it cannot, the words, never a figure.
         let balance_known = move || !state.account_state.get().balance.is_empty();
+        let balance = move || {
+            if balance_known() {
+                view! {
+                    <span class="value">{pretty_amount(&state.account_state.get().balance)}</span>
+                    <span class="unit">{amount::TICKER}</span>
+                }
+                .into_any()
+            } else if state.node_error.get().is_some() {
+                view! { <span class="value unavailable">"Balance unavailable"</span> }.into_any()
+            } else {
+                view! {
+                    <span class="value skeleton shimmer" role="status">
+                        <span class="sr-only">"Reading the balance"</span>
+                    </span>
+                }
+                .into_any()
+            }
+        };
 
         let theme_buttons = Theme::ALL
             .into_iter()
@@ -757,33 +791,31 @@ pub mod wallet {
             <section class="hero-card enter">
                 <div class="hero-top">
                     <span class="label">{move || format!("Account {}", state.selected.get())}</span>
-                    <span class="mono faint">{move || short(&selected_address())}</span>
-                </div>
-                <div class="hero-balance">
-                    <span class=move || if balance_known() { "value" } else { "value missing" }>
-                        {move || if balance_known() {
-                            pretty_amount(&state.account_state.get().balance)
-                        } else {
-                            "\u{2014}".to_string()
-                        }}
+                    <span class="address">
+                        <span class="mono faint">{move || short(&selected_address())}</span>
+                        <CopyButton
+                            text=Signal::derive(selected_address)
+                            label="Copy address"
+                            compact=true
+                        />
                     </span>
-                    <span class="unit">{amount::TICKER}</span>
                 </div>
+                <div class="hero-balance">{balance}</div>
                 <TestnetTag/>
                 <div class="actions">
                     <button
                         class="action"
                         on:click=move |_| go(Screen::Send(bridge::PaymentRequest::default()))
                     >
-                        <span class="icon" aria-hidden="true">"\u{2197}"</span>
+                        <span class="icon"><Icon glyph=Glyph::Send/></span>
                         "Send"
                     </button>
                     <button class="action" on:click=move |_| go(Screen::Receive)>
-                        <span class="icon" aria-hidden="true">"\u{2199}"</span>
+                        <span class="icon"><Icon glyph=Glyph::Receive/></span>
                         "Receive"
                     </button>
                     <button class="action" on:click=move |_| go(Screen::Scan)>
-                        <span class="icon" aria-hidden="true">"\u{2b1a}"</span>
+                        <span class="icon"><Icon glyph=Glyph::Scan/></span>
                         "Scan"
                     </button>
                 </div>

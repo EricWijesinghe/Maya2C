@@ -23,7 +23,7 @@
         "title": "Maya2C Wallet",
         "width": 460,
         "height": 780,
-        "minWidth": 380,
+        "minWidth": 360,
         "minHeight": 620,
         "resizable": true,
         "center": true

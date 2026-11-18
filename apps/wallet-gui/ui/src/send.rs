@@ -14,6 +14,7 @@ use primitive_types::U256;
 
 use crate::amount;
 use crate::bridge;
+use crate::receive::CopyButton;
 use crate::screens::{chunks, input_amount, pretty_amount, trim_display, typed_amount};
 use crate::widgets::{NetBadge, PausedCard};
 use crate::{AppState, Screen};
@@ -42,6 +43,56 @@ impl Review {
             .checked_add(fee)
             .map(|sum: U256| trim_display(&amount::format_display(sum)))
     }
+}
+
+/// A count of changes to what a review is computed from. A request takes a
+/// ticket before it awaits the core; its answer is kept only if nothing has
+/// changed since, so a review computed from the old form can never land on a
+/// new one (the fee Effect can rewrite the fee while a preview is in flight).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Generation(u64);
+
+impl Generation {
+    /// Something the review depends on changed.
+    fn bumped(self) -> Self {
+        Self(self.0.wrapping_add(1))
+    }
+
+    /// `value` if `ticket` is still the current generation, else `None`.
+    fn keep<T>(self, ticket: Self, value: T) -> Option<T> {
+        (self == ticket).then_some(value)
+    }
+}
+
+/// A display amount as the summary shows it: trailing zeros dropped and the
+/// ticker joined by a no-break space, so a wrapped figure never leaves
+/// "MAYA" alone on a line.
+fn figure(display: &str) -> String {
+    format!("{}\u{a0}{}", trim_display(display), amount::TICKER)
+}
+
+/// Long fractions get the smaller mono style, so 24 decimals fit a phone.
+const LONG_FIGURE: usize = 14;
+
+/// A [`figure`] in its span, smaller when long. A long fraction may wrap
+/// anywhere, but its last digit, the no-break space and the ticker sit in one
+/// unbreakable span, so "MAYA" is never split or left alone on a line.
+fn figure_view(display: &str) -> impl IntoView + use<> {
+    let text = figure(display);
+    let class = if text.chars().count() > LONG_FIGURE {
+        "figure long"
+    } else {
+        "figure"
+    };
+    let tail_len = amount::TICKER.chars().count() + 2;
+    let split = text
+        .char_indices()
+        .rev()
+        .nth(tail_len - 1)
+        .map_or(0, |(i, _)| i);
+    let (head, tail) = text.split_at(split);
+    let (head, tail) = (head.to_string(), tail.to_string());
+    view! { <span class=class>{head}<span class="keep">{tail}</span></span> }
 }
 
 /// Signs exactly what was reviewed.
@@ -101,6 +152,7 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
     let busy = RwSignal::new(false);
     let fee_terms = RwSignal::new(bridge::FeeTerms::default());
     let fee_error = RwSignal::new(None::<String>);
+    let generation = StoredValue::new(Generation::default());
 
     // Priced by the node: on a fee-market chain a flat guess is refused as
     // underpaid, and the fee must go to the collector the node names.
@@ -131,6 +183,9 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         amount.track();
         fee.track();
         fee_terms.track();
+        state.account_state.track();
+        state.selected.track();
+        generation.update_value(|g| *g = g.bumped());
         preview.set(None);
         signed.set(None);
     });
@@ -151,6 +206,7 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         // Captured now: signing replays these terms, so the chain and the
         // collector the user reviewed cannot drift before the signature.
         let terms = fee_terms.get_untracked();
+        let ticket = generation.get_value();
         busy.set(true);
         spawn_local(async move {
             let outcome =
@@ -158,10 +214,7 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                     .await;
             match outcome {
                 Ok(confirmation) => {
-                    // A signature belongs to one review: never carry one
-                    // over to a new summary.
-                    signed.set(None);
-                    preview.set(Some(Review {
+                    let review = Review {
                         confirmation,
                         index,
                         recipient: to,
@@ -169,7 +222,15 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                         fee: fee_value,
                         nonce,
                         terms,
-                    }));
+                    };
+                    // Computed from a form that has changed since: dropped,
+                    // and the user reviews again.
+                    if let Some(review) = generation.get_value().keep(ticket, review) {
+                        // A signature belongs to one review: never carry one
+                        // over to a new summary.
+                        signed.set(None);
+                        preview.set(Some(review));
+                    }
                 }
                 Err(error) => state.fail(error),
             }
@@ -178,6 +239,7 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
     };
 
     let edit = move |_| {
+        generation.update_value(|g| *g = g.bumped());
         preview.set(None);
         signed.set(None);
         state.clear();
@@ -188,11 +250,15 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         let Some(review) = preview.get_untracked() else {
             return;
         };
+        let ticket = generation.get_value();
         busy.set(true);
         spawn_local(async move {
             match sign_reviewed(&review).await {
                 Ok(transfer) => {
-                    signed.set(Some(transfer));
+                    // Shown only beside the review it was made from.
+                    if generation.get_value().keep(ticket, ()).is_some() {
+                        signed.set(Some(transfer));
+                    }
                     state.inform("Signed. This transaction can be broadcast from any device.");
                     if let Ok(history) = bridge::history().await {
                         state.history.set(history);
@@ -331,6 +397,8 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         let c = review.confirmation;
         let shown_amount = trim_display(&c.amount.clone().unwrap_or_default());
         let fee_exceeds = c.fee_exceeds_amount;
+        // One form of the recipient only: the core's checksummed hex, in
+        // groups of four, and that same string is what Copy copies.
         let to = c.recipient.clone().unwrap_or_default();
         let groups = chunks(&to)
             .into_iter()
@@ -339,64 +407,49 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         let is_signed = move || signed.get().is_some();
         let final_label = format!("Send {shown_amount} {}", amount::TICKER);
         view! {
-            <div class="readouts">
-                <div class="readouts-head">
-                    <h2>"Your transfer"</h2>
+            // The summary is the locked step: the form's values as text,
+            // with Edit the one way back to the fields.
+            <section class="summary" aria-labelledby="review-title">
+                <div class="summary-top">
+                    <span class="eyebrow" id="review-title">"You are sending"</span>
                     // Disabled while signing or broadcasting: an Edit then
                     // would let a signature of this review land after the
                     // form had moved on.
                     <button
                         type="button"
-                        class="link"
+                        class="link edit"
                         disabled=move || busy.get()
                         on:click=edit
                     >
                         "Edit"
                     </button>
                 </div>
-                <div class="readout">
-                    <span class="field-label">"Recipient"</span>
-                    <span class="value mono">{review.recipient.clone()}</span>
-                </div>
-                <div class="readout">
-                    <span class="field-label">"Amount"</span>
-                    <span class="value">{format!("{} {}", pretty_amount(&review.amount), amount::TICKER)}</span>
-                </div>
-                <div class="readout">
-                    <span class="field-label">"Network fee"</span>
-                    <span class="value">{format!("{} {}", pretty_amount(&review.fee), amount::TICKER)}</span>
-                </div>
-            </div>
-
-            <section class="summary" aria-labelledby="review-title">
-                <div class="summary-top">
-                    <span class="eyebrow" id="review-title">"You are sending"</span>
-                    <NetBadge/>
-                </div>
+                <NetBadge/>
                 <div class="amount-hero">
                     <span class="value">{shown_amount.clone()}</span>
                     <span class="unit">{amount::TICKER}</span>
                 </div>
-                <p class="description">{c.description}</p>
                 <div class="kv">
                     <span>"To"</span>
-                    <span class="chunks">{groups}</span>
+                    <span class="to">
+                        <span class="chunks">{groups}</span>
+                        <CopyButton text=to.clone() label="Copy recipient" compact=true/>
+                    </span>
                 </div>
                 <div class="kv inline">
                     <span>"Fee"</span>
-                    <span>{format!("{} {}", trim_display(&c.fee.unwrap_or_default()), amount::TICKER)}</span>
+                    {figure_view(&c.fee.unwrap_or_default())}
                 </div>
                 <div class="kv inline total">
                     <span>"Total"</span>
-                    <span>
-                        {total.map_or_else(
-                            || "\u{2014}".to_string(),
-                            |t| format!("{t} {}", amount::TICKER),
-                        )}
-                    </span>
+                    {match total {
+                        Some(t) => figure_view(&t).into_any(),
+                        None => view! { <span>"\u{2014}"</span> }.into_any(),
+                    }}
                 </div>
-                <details>
+                <details class="disclosure">
                     <summary>"Details"</summary>
+                    <p class="description">{c.description}</p>
                     <div class="kv"><span>"Nonce"</span><span>{c.nonce}</span></div>
                     <div class="kv"><span>"Signing hash"</span><span class="mono">{c.signing_hash}</span></div>
                     <div class="kv"><span>"Chain"</span><span class="mono">{c.chain_id}</span></div>
@@ -433,14 +486,18 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                 </div>
             </Show>
 
-            <p class="irreversible">"This cannot be undone."</p>
-            <button
-                class="primary wide send-final"
-                disabled=move || busy.get()
-                on:click=send_final
-            >
-                {final_label}
-            </button>
+            // Pinned to the bottom of a short window, so the one action and
+            // its warning are always on screen with the summary.
+            <div class="send-bar">
+                <p class="irreversible">"This cannot be undone."</p>
+                <button
+                    class="primary wide send-final"
+                    disabled=move || busy.get()
+                    on:click=send_final
+                >
+                    {final_label}
+                </button>
+            </div>
             <Show when=move || !is_signed()>
                 <button
                     type="button"
@@ -530,6 +587,49 @@ mod tests {
     fn an_overflowing_total_is_none() {
         let max = U256::MAX.to_string();
         assert_eq!(review(&max, "1").total(), None);
+    }
+
+    #[test]
+    fn a_review_from_a_changed_form_is_discarded() {
+        let start = Generation::default();
+        let ticket = start;
+        assert_eq!(
+            start.keep(ticket, "review"),
+            Some("review"),
+            "unchanged: kept"
+        );
+        let after_edit = start.bumped();
+        assert_eq!(
+            after_edit.keep(ticket, "review"),
+            None,
+            "the form changed while the preview was in flight: dropped"
+        );
+        assert_eq!(after_edit.keep(after_edit, ()), Some(()));
+    }
+
+    #[test]
+    fn the_shown_fee_is_the_previewed_fee() {
+        // What the summary prints for a fee must read back as the exact base
+        // units that were previewed and will be signed.
+        for base in [
+            "10",
+            "1",
+            "100000000000000000000000",
+            "1234567890123456789012345678",
+        ] {
+            let previewed = U256::from_dec_str(base).unwrap();
+            let shown = figure(&amount::format_display(previewed));
+            let number = shown
+                .strip_suffix(&format!("\u{a0}{}", amount::TICKER))
+                .expect("the ticker follows a no-break space")
+                .replace(',', "");
+            assert_eq!(amount::parse_display(&number), Ok(previewed), "{shown}");
+        }
+        assert_eq!(
+            figure(&amount::format_display(U256::from(10))),
+            "0.00000000000000000000001\u{a0}MAYA",
+            "10 base units at 24 decimals"
+        );
     }
 
     #[test]

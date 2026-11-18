@@ -195,10 +195,16 @@ fn App() -> impl IntoView {
                 />
                 <span class="name">"Maya2C Wallet"</span>
                 <span class="spacer"></span>
-                <NetworkPill/>
+                // No network pill before a wallet exists: the first thing a
+                // new user would read is a grey "offline" about a node they
+                // have not used yet.
+                <Show when=move || !matches!(state.screen.get(), Screen::Setup | Screen::Backup(_))>
+                    <NetworkPill/>
+                </Show>
                 <Show when=move || matches!(state.screen.get(), Screen::Wallet)>
                     <button
-                        class="ghost"
+                        class="ghost lock"
+                        aria-label="Lock"
                         on:click=move |_| {
                             leptos::task::spawn_local(async move {
                                 let _ = bridge::lock().await;
@@ -207,14 +213,24 @@ fn App() -> impl IntoView {
                             });
                         }
                     >
-                        "Lock"
+                        <widgets::Icon glyph=widgets::Glyph::Lock/>
+                        // Hidden at phone width, where the button is the icon.
+                        <span class="lock-text" aria-hidden="true">"Lock"</span>
                     </button>
                 </Show>
             </header>
 
             <Banner/>
 
-            <main class="body">
+            // Short screens sit in the middle of the window rather than under
+            // the header with an empty half below.
+            <main
+                class="body"
+                class:center=move || matches!(
+                    state.screen.get(),
+                    Screen::Setup | Screen::Recover | Screen::Backup(_) | Screen::Unlock | Screen::Sent(_)
+                )
+            >
                 // Components take generated Props structs, so they are invoked
                 // through `view!` rather than called as plain functions.
                 {move || match state.screen.get() {

@@ -46,7 +46,93 @@ pub fn strength(passphrase: &str) -> (u8, &'static str) {
     }
 }
 
-/// A passphrase input with its label, a Show/Hide toggle and, optionally, a
+/// Line icons in the kit's style (24-unit box, `currentColor` stroke, round
+/// joins), drawn inline so they never depend on a fallback font's glyphs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Glyph {
+    /// An arrow leaving, up and right.
+    Send,
+    /// An arrow arriving, down and left, onto a line.
+    Receive,
+    /// A viewfinder's four corners and its scan line.
+    Scan,
+    /// An eye.
+    Eye,
+    /// Two overlapping sheets.
+    Copy,
+    /// A padlock.
+    Lock,
+}
+
+impl Glyph {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Send => "M7 17 17 7M9 7h8v8",
+            Self::Receive => "M17 5 7 15M15 15H7V7M4 20h16",
+            Self::Scan => {
+                "M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3\
+                 M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"
+            }
+            Self::Eye => {
+                "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z\
+                 M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+            }
+            Self::Copy => {
+                "M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z\
+                 M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"
+            }
+            Self::Lock => {
+                "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z\
+                 M8 11V8a4 4 0 0 1 8 0v3"
+            }
+        }
+    }
+}
+
+/// A decorative icon; the control around it carries the name.
+#[component]
+pub fn Icon(glyph: Glyph) -> impl IntoView {
+    view! {
+        <svg class="glyph" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+            <path
+                d=glyph.path()
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            />
+        </svg>
+    }
+}
+
+/// The Show toggle of a secret field. One constant name ("Show passphrase")
+/// and `aria-pressed` for the state: the toggle-button pattern, so a screen
+/// reader hears "Show passphrase, toggle button, pressed" rather than a name
+/// that flips between two verbs. The eye is struck through while shown.
+#[component]
+pub fn RevealToggle(
+    /// What the button reveals, lower case ("passphrase").
+    what: String,
+    /// Whether the secret is shown.
+    shown: RwSignal<bool>,
+) -> impl IntoView {
+    view! {
+        <button
+            type="button"
+            class="reveal"
+            class:on=move || shown.get()
+            aria-label=format!("Show {what}")
+            aria-pressed=move || if shown.get() { "true" } else { "false" }
+            on:click=move |_| shown.update(|s| *s = !*s)
+        >
+            <Icon glyph=Glyph::Eye/>
+            <span class="slash" aria-hidden="true"></span>
+        </button>
+    }
+}
+
+/// A passphrase input with its label, a Show toggle and, optionally, a
 /// strength hint. `autocomplete` is `new-password` where a passphrase is
 /// being chosen and `current-password` where one is typed back.
 #[component]
@@ -72,7 +158,9 @@ pub fn SecretField(
     let shown = RwSignal::new(false);
     let hint_id = format!("{id}-hint");
     let described = show_strength.then(|| hint_id.clone());
-    let name = label.to_lowercase();
+    // A memo, so the live region changes (and is announced) only when the
+    // level does, not on every keystroke.
+    let level = Memo::new(move |_| strength(&value.get()));
     view! {
         <div class="field">
             <label for=id>{label}</label>
@@ -97,22 +185,12 @@ pub fn SecretField(
                         }
                     }
                 />
-                <button
-                    type="button"
-                    class="reveal"
-                    aria-pressed=move || if shown.get() { "true" } else { "false" }
-                    aria-label=move || {
-                        format!("{} {name}", if shown.get() { "Hide" } else { "Show" })
-                    }
-                    on:click=move |_| shown.update(|s| *s = !*s)
-                >
-                    {move || if shown.get() { "Hide" } else { "Show" }}
-                </button>
+                <RevealToggle what=label.to_lowercase() shown=shown/>
             </div>
             <Show when=move || show_strength>
                 <p
                     id=hint_id.clone()
-                    class=move || format!("strength s{}", strength(&value.get()).0)
+                    class=move || format!("strength s{}", level.get().0)
                     aria-live="polite"
                 >
                     <span class="bars" aria-hidden="true">
@@ -120,13 +198,71 @@ pub fn SecretField(
                     </span>
                     <span>
                         {move || {
-                            let (_, word) = strength(&value.get());
+                            let (_, word) = level.get();
                             if word.is_empty() { String::new() } else { format!("Strength: {word}") }
                         }}
                     </span>
                 </p>
             </Show>
         </div>
+    }
+}
+
+/// Half the lattice drawing's square box, in SVG units.
+const LATTICE_HALF: i32 = 120;
+/// The two basis vectors: skewed, so the grid reads as a lattice and not as
+/// graph paper.
+const LATTICE_B1: (i32, i32) = (27, 7);
+const LATTICE_B2: (i32, i32) = (10, 25);
+/// Points further than this from the centre are left out, giving a disc.
+const LATTICE_RADIUS: i32 = 112;
+
+/// The lattice's points within the disc, as offsets from the centre.
+fn lattice_points() -> Vec<(i32, i32)> {
+    let mut points = Vec::new();
+    for i in -6..=6 {
+        for j in -6..=6 {
+            let x = i * LATTICE_B1.0 + j * LATTICE_B2.0;
+            let y = i * LATTICE_B1.1 + j * LATTICE_B2.1;
+            if x * x + y * y <= LATTICE_RADIUS * LATTICE_RADIUS {
+                points.push((x, y));
+            }
+        }
+    }
+    points
+}
+
+/// The welcome screen's backdrop: lattice points, joined along both basis
+/// vectors. Decorative (`aria-hidden` on its stage); CSS turns it slowly
+/// and lets a few points glow, and holds it still under reduced motion.
+#[component]
+pub fn Lattice() -> impl IntoView {
+    let points = lattice_points();
+    let inside = |p: (i32, i32)| points.contains(&p);
+    let mut edges = String::new();
+    for &(x, y) in &points {
+        for (dx, dy) in [LATTICE_B1, LATTICE_B2] {
+            if inside((x + dx, y + dy)) {
+                edges.push_str(&format!("M{x} {y}l{dx} {dy}"));
+            }
+        }
+    }
+    let dots = points
+        .iter()
+        .map(|&(x, y)| view! { <circle cx=x cy=y r="2"/> })
+        .collect::<Vec<_>>();
+    let view_box = format!(
+        "{} {} {} {}",
+        -LATTICE_HALF,
+        -LATTICE_HALF,
+        2 * LATTICE_HALF,
+        2 * LATTICE_HALF
+    );
+    view! {
+        <svg class="lattice" viewBox=view_box focusable="false">
+            <path class="edges" d=edges/>
+            <g class="dots">{dots}</g>
+        </svg>
     }
 }
 
@@ -159,7 +295,7 @@ pub fn PausedCard(
             <section class="state paused" role="status">
                 <p class="state-title">{title}</p>
                 <p>{body}</p>
-                <details>
+                <details class="disclosure">
                     <summary>"Details"</summary>
                     <code class="mono">{move || error.get().unwrap_or_default()}</code>
                 </details>
@@ -193,7 +329,21 @@ pub fn NetBadge() -> impl IntoView {
 
 #[cfg(test)]
 mod tests {
-    use super::strength;
+    use super::{LATTICE_HALF, lattice_points, strength};
+
+    #[test]
+    fn the_lattice_fits_its_box_and_is_symmetric() {
+        let points = lattice_points();
+        assert!(points.len() > 20, "enough points to read as a lattice");
+        assert!(points.contains(&(0, 0)));
+        for &(x, y) in &points {
+            assert!(
+                x.abs() < LATTICE_HALF && y.abs() < LATTICE_HALF,
+                "({x}, {y})"
+            );
+            assert!(points.contains(&(-x, -y)), "a lattice is symmetric");
+        }
+    }
 
     #[test]
     fn strength_grows_with_length_and_mix() {
@@ -202,7 +352,8 @@ mod tests {
         assert_eq!(
             strength("abcdefgh").0,
             1,
-            "8 lowercase letters is about 32 bits: weak"
+            "8 lowercase letters: the estimate floors log2(26) to 4 bits a \
+             character, 8 x 4 = 32, under the Fair line: weak"
         );
         assert_eq!(strength("abcdefghij").0, 2);
         assert_eq!(
