@@ -107,6 +107,45 @@ async fn one_client_exhausting_its_budget_does_not_block_another() {
 }
 
 #[tokio::test]
+async fn one_ipv6_slash_64_is_one_client() {
+    // A host routinely holds its whole /64; rotating the low bits must not
+    // buy a fresh bucket.
+    let app = app(ClientIp::Socket);
+    assert_eq!(status(&app, "[2001:db8:1:2::1]:5000", &[]).await, StatusCode::OK);
+    assert_eq!(status(&app, "[2001:db8:1:2::2]:5000", &[]).await, StatusCode::OK);
+    assert_eq!(
+        status(&app, "[2001:db8:1:2:ffff:1:2:3]:5000", &[]).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(status(&app, "[2001:db8:1:3::1]:5000", &[]).await, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn behind_a_proxy_an_ipv6_visitor_is_keyed_by_its_slash_64() {
+    let app = app(ClientIp::CfConnectingIp);
+    for n in 1..=2 {
+        let visitor = format!("2001:db8:5:6::{n}");
+        status(&app, "127.0.0.1:40000", &[("cf-connecting-ip", &visitor)]).await;
+    }
+    let refused = status(
+        &app,
+        "127.0.0.1:40000",
+        &[("cf-connecting-ip", "2001:db8:5:6::99")],
+    )
+    .await;
+    assert_eq!(refused, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[test]
+fn an_ipv4_mapped_address_is_its_own_ipv4_client() {
+    use maya_api_gateway::limit::bucket_key;
+    let mapped: std::net::IpAddr = "::ffff:192.0.2.7".parse().unwrap();
+    let other: std::net::IpAddr = "::ffff:192.0.2.8".parse().unwrap();
+    assert_eq!(bucket_key(mapped), "192.0.2.7".parse::<std::net::IpAddr>().unwrap());
+    assert_ne!(bucket_key(mapped), bucket_key(other));
+}
+
+#[tokio::test]
 async fn in_socket_mode_a_forged_header_is_ignored() {
     // Directly exposed, no proxy: a header is whatever the client wrote.
     let app = app(ClientIp::Socket);

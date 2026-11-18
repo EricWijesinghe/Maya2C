@@ -81,7 +81,27 @@ impl KeyExtractor for ClientKey {
 
     fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
         client_address(self.0, request.headers(), request.extensions())
+            .map(bucket_key)
             .ok_or(GovernorError::UnableToExtractKey)
+    }
+}
+
+/// The address a client is counted as: an IPv4 address as itself (unwrapped
+/// from its IPv4-mapped IPv6 form), an IPv6 address by its /64. One IPv6 host
+/// usually holds a whole /64, so keying the full address would hand it 2^64
+/// buckets. Same rule as the node's own RPC limiter.
+#[must_use]
+pub fn bucket_key(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V4(_) => address,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let mut segments = v6.segments();
+                segments[4..].fill(0);
+                IpAddr::V6(segments.into())
+            }
+        },
     }
 }
 
