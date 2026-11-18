@@ -10,6 +10,7 @@
 
 pub mod commands;
 pub mod deeplink;
+pub mod sign_checks;
 
 use commands::Session;
 use tauri_plugin_deep_link::DeepLinkExt;

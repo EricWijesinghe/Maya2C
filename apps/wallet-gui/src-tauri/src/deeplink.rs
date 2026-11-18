@@ -7,6 +7,7 @@
 
 use std::sync::{Mutex, PoisonError};
 
+use crate::sign_checks::{Opened, hex32};
 use maya_address::{Network, decode_any};
 use maya_wallet_core::amount::parse_display;
 use maya_wallet_core::chat_pay::PaidRequests;
@@ -166,6 +167,18 @@ pub fn record_paid<R: Runtime>(app: &AppHandle<R>, id: &[u8; 32], now: u64) -> R
     paid.save(&path).map_err(|e| e.to_string())
 }
 
+/// Undoes [`record_paid`] for a request whose signing then failed.
+///
+/// # Errors
+///
+/// No data directory, or an unreadable or unwritable file.
+pub fn forget_paid<R: Runtime>(app: &AppHandle<R>, id: &[u8; 32]) -> Result<(), String> {
+    let path = paid_path(app)?;
+    let mut paid = PaidRequests::load(&path).map_err(|e| e.to_string())?;
+    paid.forget(id);
+    paid.save(&path).map_err(|e| e.to_string())
+}
+
 fn paid_path<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -211,9 +224,39 @@ fn parse_whole_coins(text: &str) -> Result<U256, RouteError> {
     Ok(value)
 }
 
-/// The pay request waiting for the UI to pick it up.
+/// The pay request waiting for the UI to pick it up, and the chat requests
+/// already handed to it, which `sign_transfer` reads instead of trusting the
+/// UI's copy ([`crate::sign_checks`]).
 #[derive(Default)]
-pub struct PendingPay(Mutex<Option<PaymentRequest>>);
+pub struct PendingPay {
+    next: Mutex<Option<PaymentRequest>>,
+    opened: Mutex<Vec<Opened>>,
+}
+
+impl PendingPay {
+    /// The chat request a transfer to `recipient` pays; see
+    /// [`crate::sign_checks::resolve_chat`].
+    ///
+    /// # Errors
+    ///
+    /// As `resolve_chat`.
+    pub fn resolve_chat(
+        &self,
+        given: Option<&ChatRequest>,
+        recipient: &[u8; 32],
+    ) -> Result<Option<ChatRequest>, String> {
+        let opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::sign_checks::resolve_chat(&opened, given, recipient)
+    }
+
+    /// Forgets chat request `request` once it is paid.
+    pub fn close(&self, request: &str) {
+        self.opened
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|o| o.chat.request != request);
+    }
+}
 
 /// Applies links the OS or a second launch delivered. Refused links are
 /// dropped with a static log line that names only the reason.
@@ -239,7 +282,7 @@ pub fn handle<R: Runtime, U: std::fmt::Display>(app: &AppHandle<R>, urls: &[U]) 
                     ..Default::default()
                 };
                 let pending: State<'_, PendingPay> = app.state();
-                *pending.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(request);
+                *pending.next.lock().unwrap_or_else(PoisonError::into_inner) = Some(request);
             }
             Err(reason) => eprintln!("deep link refused: {reason:?}"),
         }
@@ -270,13 +313,30 @@ pub fn take_pending_pay(
     genesis: Option<String>,
 ) -> Result<Option<PaymentRequest>, String> {
     let taken = pending
-        .0
+        .next
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .take();
-    taken
+    let checked = taken
         .map(|request| crate::commands::checked_request(request, genesis.as_deref()))
-        .transpose()
+        .transpose()?;
+    if let Some(request) = &checked
+        && let Some(chat) = &request.chat
+        && let Some(recipient) = hex32(&request.recipient)
+    {
+        let mut opened = pending
+            .opened
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        crate::sign_checks::remember(
+            &mut opened,
+            Opened {
+                chat: chat.clone(),
+                recipient,
+            },
+        );
+    }
+    Ok(checked)
 }
 
 #[cfg(test)]

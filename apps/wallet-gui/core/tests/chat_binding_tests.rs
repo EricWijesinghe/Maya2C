@@ -6,7 +6,7 @@
 
 use custom_l1_node::crypto::hybrid::signing_key_from_seed;
 use maya_wallet_core::chat_pay::{
-    BindingKind, BindingTerms, MAX_BINDING_TTL, PAID_KEEP, PaidRequests, binding_message,
+    BindingKind, BindingTerms, MAX_BINDING_TTL, MAX_PAID, PAID_KEEP, PaidRequests, binding_message,
     check_pay_chain, sign_binding,
 };
 use maya_wallet_core::{Wallet, hd};
@@ -101,4 +101,30 @@ fn a_paid_request_cannot_be_paid_again_even_after_a_restart() {
     let mut later = reloaded;
     later.record(&[8; 32], 100 + PAID_KEEP).unwrap();
     assert!(later.check(&[7; 32]).is_ok(), "forgotten after PAID_KEEP");
+}
+
+/// A full list is refused before signing, not after (PR #441 review).
+#[test]
+fn a_full_paid_list_is_refused_before_anyone_is_asked() {
+    let mut paid = PaidRequests::default();
+    for n in 0..MAX_PAID {
+        let mut id = [0u8; 32];
+        id[..8].copy_from_slice(&(n as u64).to_le_bytes());
+        paid.record(&id, 1_000).unwrap();
+    }
+    let fresh = [0xff; 32];
+    assert!(paid.check(&fresh).is_ok(), "not paid");
+    assert!(paid.check_room(&fresh, 1_000).is_err(), "but no room");
+    assert!(paid.record(&fresh, 1_000).is_err());
+    // Room again once the old ids age out.
+    assert!(paid.check_room(&fresh, 1_000 + PAID_KEEP).is_ok());
+    assert!(paid.record(&fresh, 1_000 + PAID_KEEP).is_ok());
+}
+
+#[test]
+fn a_forgotten_request_can_be_paid() {
+    let mut paid = PaidRequests::default();
+    paid.record(&[3; 32], 10).unwrap();
+    paid.forget(&[3; 32]);
+    assert!(paid.check_room(&[3; 32], 10).is_ok());
 }

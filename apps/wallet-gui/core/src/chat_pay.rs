@@ -138,22 +138,44 @@ impl PaidRequests {
         Ok(())
     }
 
+    /// Refuses `id` unless [`Self::record`] would accept it at `now`: not
+    /// paid, and fewer than [`MAX_PAID`] ids paid in the last [`PAID_KEEP`].
+    /// Checked before the user is asked, so a payment is never signed and
+    /// then left unrecorded.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Signing`] for a paid request or a full list.
+    pub fn check_room(&self, id: &[u8; 32], now: u64) -> Result<()> {
+        self.check(id)?;
+        let recent = self
+            .paid
+            .values()
+            .filter(|at| at.saturating_add(PAID_KEEP) > now)
+            .count();
+        if recent >= MAX_PAID {
+            return Err(WalletError::Signing(
+                "too many payment requests paid recently; nothing was signed".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Records `id` as paid at `now`, dropping ids older than [`PAID_KEEP`].
     ///
     /// # Errors
     ///
-    /// [`WalletError::Signing`] if already paid, or if [`MAX_PAID`] recent
-    /// ids are held.
+    /// As [`Self::check_room`].
     pub fn record(&mut self, id: &[u8; 32], now: u64) -> Result<()> {
-        self.check(id)?;
+        self.check_room(id, now)?;
         self.paid.retain(|_, at| at.saturating_add(PAID_KEEP) > now);
-        if self.paid.len() >= MAX_PAID {
-            return Err(WalletError::Signing(
-                "too many payment requests paid recently".to_string(),
-            ));
-        }
         self.paid.insert(hex::encode(id), now);
         Ok(())
+    }
+
+    /// Drops `id`: for a request marked paid whose signing then failed.
+    pub fn forget(&mut self, id: &[u8; 32]) {
+        self.paid.remove(&hex::encode(id));
     }
 
     /// Reads the list from `path`; a missing file is an empty list.

@@ -12,6 +12,8 @@
 //! you trust.
 
 use std::future::Future;
+use std::net::IpAddr;
+use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -33,21 +35,63 @@ pub trait ChainRpc {
     ) -> impl Future<Output = Result<Value, ChatError>> + Send;
 }
 
+/// Longest a node gets to accept the connection.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Longest one call may take, answer included. The node is trusted for what
+/// it reports, not for answering at all.
+const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+/// Largest answer read. A block is at most 5 MiB raw (`MAX_BLOCK_BYTES`)
+/// and its hex JSON about twice that.
+/// shortcut: fixed bound, raise it if governance lifts the block cap past ~12 MiB.
+const MAX_ANSWER_BYTES: usize = 32 * 1024 * 1024;
+
 /// [`ChainRpc`] over HTTP(S) JSON-RPC.
 #[derive(Clone, Debug)]
 pub struct HttpRpc {
     client: reqwest::Client,
-    url: String,
+    url: reqwest::Url,
+    max_answer: usize,
 }
 
 impl HttpRpc {
-    /// A client for the node at `url`.
-    #[must_use]
-    pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            url: url.into(),
+    /// A client for the node at `url`: `https`, or plain `http` to this
+    /// machine only, since anyone on the path could rewrite an answer.
+    ///
+    /// # Errors
+    ///
+    /// [`ChatError::Network`] for a malformed URL, plain `http` to another
+    /// host, any other scheme, or a client that cannot be built.
+    pub fn new(url: &str) -> Result<Self, ChatError> {
+        let url = reqwest::Url::parse(url).map_err(net)?;
+        match url.scheme() {
+            "https" => {}
+            "http" if is_loopback(&url) => {}
+            _ => return Err(net("the node URL must be https, or http to this machine")),
         }
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(CALL_TIMEOUT)
+            // A redirect could take an https call to plain http.
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(net)?;
+        Ok(Self {
+            client,
+            url,
+            max_answer: MAX_ANSWER_BYTES,
+        })
+    }
+}
+
+fn is_loopback(url: &reqwest::Url) -> bool {
+    match url.host_str() {
+        Some("localhost") => true,
+        Some(host) => host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback()),
+        None => false,
     }
 }
 
@@ -55,19 +99,41 @@ fn net(e: impl std::fmt::Display) -> ChatError {
     ChatError::Network(e.to_string())
 }
 
+/// Reads the body, refusing one longer than `max` bytes before buffering it.
+async fn read_capped(mut response: reqwest::Response, max: usize) -> Result<Vec<u8>, ChatError> {
+    let too_long = || net(format!("the node's answer is over {max} bytes"));
+    if response
+        .content_length()
+        .is_some_and(|n| usize::try_from(n).map_or(true, |n| n > max))
+    {
+        return Err(too_long());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(net)? {
+        if body.len().saturating_add(chunk.len()) > max {
+            return Err(too_long());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 impl ChainRpc for HttpRpc {
     async fn call(&self, method: &str, params: Value) -> Result<Value, ChatError> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
         let response = self
             .client
-            .post(&self.url)
+            .post(self.url.clone())
             .header("content-type", "application/json")
             .body(body.to_string())
             .send()
             .await
             .map_err(net)?;
-        let text = response.text().await.map_err(net)?;
-        let mut answer: Value = serde_json::from_str(&text).map_err(net)?;
+        if !response.status().is_success() {
+            return Err(net(format!("the node answered HTTP {}", response.status())));
+        }
+        let bytes = read_capped(response, self.max_answer).await?;
+        let mut answer: Value = serde_json::from_slice(&bytes).map_err(net)?;
         if let Some(error) = answer.get("error") {
             return Err(net(error));
         }
@@ -320,5 +386,77 @@ pub(crate) mod tests {
             Err(ChatError::Refused("node is on another chain"))
         );
         assert_eq!(run(tip_height(&node(Some(20)), &CHAIN)), Ok(42));
+    }
+
+    #[test]
+    fn plain_http_is_refused_except_to_this_machine() {
+        for url in ["http://example.com:8545", "ftp://127.0.0.1/", "not a url"] {
+            assert!(HttpRpc::new(url).is_err(), "accepted: {url}");
+        }
+        for url in [
+            "https://rpc.example.com",
+            "http://127.0.0.1:8545",
+            "http://localhost:8545",
+            "http://[::1]:8545",
+        ] {
+            assert!(HttpRpc::new(url).is_ok(), "refused: {url}");
+        }
+    }
+
+    /// Answers one HTTP request on a loopback port with `reply`, raw.
+    fn one_shot_node(reply: String) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(reply.as_bytes());
+        });
+        format!("http://{addr}")
+    }
+
+    fn call_once(reply: String, max_answer: usize) -> Result<Value, ChatError> {
+        let mut rpc = HttpRpc::new(&one_shot_node(reply)).unwrap();
+        rpc.max_answer = max_answer;
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(rpc.call("get_chain_info", json!([])))
+    }
+
+    fn http(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[test]
+    fn a_node_answer_is_read_within_its_bounds() {
+        let body = r#"{"jsonrpc":"2.0","id":1,"result":{"height":7}}"#;
+        assert_eq!(
+            call_once(http("200 OK", body), 1024),
+            Ok(json!({"height": 7}))
+        );
+        let refused = call_once(http("503 Service Unavailable", body), 1024);
+        assert!(
+            matches!(refused, Err(ChatError::Network(ref e)) if e.contains("503")),
+            "{refused:?}"
+        );
+        let refused = call_once(http("200 OK", body), 16);
+        assert!(
+            matches!(refused, Err(ChatError::Network(ref e)) if e.contains("over 16")),
+            "{refused:?}"
+        );
+        // No Content-Length: the cap holds while the body streams in.
+        let chunked = format!("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{body}");
+        let refused = call_once(chunked, 16);
+        assert!(
+            matches!(refused, Err(ChatError::Network(ref e)) if e.contains("over 16")),
+            "{refused:?}"
+        );
     }
 }
