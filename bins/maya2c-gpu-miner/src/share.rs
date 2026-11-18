@@ -206,18 +206,21 @@ fn emit(json_mode: bool, event: &Value) {
 /// where shares pay; the file is the wallet, so it is never printed.
 fn load_or_create_seed(path: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     let mut seed = Zeroizing::new([0u8; 32]);
-    if path.exists() {
-        let text = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| e.to_string())?);
-        hex::decode_to_slice(text.trim(), seed.as_mut())
-            .map_err(|_| "key file is not 64 hex characters".to_string())?;
-        return Ok(seed);
-    }
     getrandom::fill(seed.as_mut()).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
         create_private_dir(dir)?;
     }
+    // Create-or-fail, not check-then-write: whatever is already at the path
+    // (an existing key, or a link) is read, never replaced or followed on write.
     let text = Zeroizing::new(hex::encode(seed.as_ref()));
-    write_new_private(path, text.as_str())?;
+    match crate::key_file::write_new(path, text.as_bytes()) {
+        Ok(()) => return Ok(seed),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e.to_string()),
+    }
+    let text = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| e.to_string())?);
+    hex::decode_to_slice(text.trim(), seed.as_mut())
+        .map_err(|_| "key file is not 64 hex characters".to_string())?;
     Ok(seed)
 }
 
@@ -232,23 +235,6 @@ fn create_private_dir(dir: &Path) -> Result<(), String> {
         builder.mode(0o700);
     }
     builder.create(dir).map_err(|e| e.to_string())
-}
-
-/// Creates the key file exclusively, owner-only on Unix. The mode is set at
-/// creation rather than chmod-ed afterwards, so the file is never readable by
-/// others even briefly, and `create_new` refuses to overwrite a file that
-/// appeared between the existence check and the write.
-fn write_new_private(path: &Path, text: &str) -> Result<(), String> {
-    use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes()).map_err(|e| e.to_string())
 }
 
 fn decode32(value: &str, what: &str) -> Result<[u8; 32], String> {
@@ -555,6 +541,21 @@ mod tests {
             0,
             "key file is readable by group or others: {mode:o}"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_new_key_file_has_no_inherited_access_on_windows() {
+        let dir = std::env::temp_dir().join(format!("maya-miner-acl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("miner.key");
+        load_or_create_seed(&path).unwrap();
+        let out = std::process::Command::new("icacls").arg(&path).output().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        let acl = String::from_utf8_lossy(&out.stdout);
+        // One line per entry, each `principal:(rights)`; `(I)` marks inherited.
+        assert_eq!(acl.matches(":(").count(), 1, "expected one entry:\n{acl}");
+        assert!(!acl.contains("(I)"), "an inherited entry survived:\n{acl}");
     }
 
     #[test]

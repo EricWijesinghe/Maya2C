@@ -16,6 +16,7 @@ use clap::Parser;
 
 #[cfg(feature = "gpu")]
 mod gpu_share;
+mod key_file;
 mod share;
 
 /// Cross-platform GPU miner for Maya2C's hashimoto proof of work.
