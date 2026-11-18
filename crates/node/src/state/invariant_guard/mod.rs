@@ -307,11 +307,14 @@ impl Module {
 
             // A cancel is the owner's defence and a withdrawal a guardian's
             // retreat, both during a delay the breaker cannot pause: halting
-            // either would hand the race to whoever proposed. Policy changes,
-            // proposals and finishing can wait for a breaker (ADR-086 §3.4).
+            // either would hand the race to whoever proposed. Revoking a
+            // session key is the owner's defence against a leaked one, for the
+            // same reason (ADR-135 P-5). Policy changes, proposals and
+            // finishing can wait for a breaker (ADR-086 §3.4).
             TxKind::Account(action) => match **action {
                 crate::core::account_payload::AccountAction::CancelRecovery { .. }
-                | crate::core::account_payload::AccountAction::WithdrawApproval { .. } => None,
+                | crate::core::account_payload::AccountAction::WithdrawApproval { .. }
+                | crate::core::account_payload::AccountAction::RevokeSessionKey { .. } => None,
                 _ => Some(Self::Account),
             },
         }

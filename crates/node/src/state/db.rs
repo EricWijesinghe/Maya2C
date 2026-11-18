@@ -802,12 +802,13 @@ impl StateDB {
         // anything but that policy; Rule B leaves an unbound address exactly
         // as before. Below activation it refuses every v9 frame and every
         // account action and reads nothing.
-        self.authority_check(
+        let session = self.authority_check(
             overlay,
             tx,
             &sender_address,
             context.height,
             context.account_authority_activation,
+            context.account_policy_activation,
         )?;
 
         // Authorization — an unsigned or forged transaction must never reach
@@ -837,13 +838,30 @@ impl StateDB {
         // partner key resolves to an account that holds nothing. A v9 frame is
         // the one exception — it names its account on the wire — and it got
         // here only because `authority_check` found that account's stored
-        // authority record equal to the policy whose quorum just verified.
-        // Without that record the frame was refused, so no wire field can name
-        // an account its signers do not control (ADR-086 Rule A).
+        // authority record equal to the policy whose quorum just verified, or
+        // a live `ka:s:` session row for that policy, granted by the authority
+        // generation in force (ADR-135 P-5). Without either the frame was
+        // refused, so no wire field can name an account its signers do not
+        // control (ADR-086 Rule A).
         // A vault account may send only in-limit transfers and vault actions
         // (ADR-030), checked before a unit moves.
         if let Some(vault) = self.vault_check(overlay, tx, &sender_address, context.height)? {
             StateDB::store_vault(overlay, &sender_address, &vault);
+        }
+        // An account's spending window (ADR-135 P-5) charges every frame
+        // acting for it, owner-signed or session-signed, the same way.
+        if let Some(window) = self.window_check(
+            overlay,
+            tx,
+            &sender_address,
+            context.height,
+            context.account_policy_activation,
+        )? {
+            StateDB::store_window(overlay, &sender_address, &window);
+        }
+        // A session key's total (ADR-135 P-5), checked in `authority_check`.
+        if let Some(session) = session {
+            StateDB::store_session(overlay, tx, &session);
         }
         // The double-spend guard is the nonce check above: the first spend bumps
         // the nonce, so a replay of the same transaction no longer matches.
@@ -1237,6 +1255,12 @@ impl StateDB {
         // valid transfer after it.
         let vault_key = crate::state::vault::record_key(&tx.sender());
         let vault_saved = overlay.records.get(&vault_key).cloned();
+        // The spending window (ADR-135 P-5) is charged at the same point.
+        let window_key = crate::state::account_policy::window_key(&tx.sender());
+        let window_saved = overlay.records.get(&window_key).cloned();
+        // And a session key's total.
+        let session_saved = crate::state::account_policy::session_row_key(tx)
+            .map(|k| (overlay.records.get(&k).cloned(), k));
         let failure = match self.stage_transaction(overlay, tx, context, policy) {
             Ok(()) => return Ok(true),
             Err(e) => e,
@@ -1244,6 +1268,15 @@ impl StateDB {
         match vault_saved {
             Some(previous) => overlay.records.insert(vault_key, previous),
             None => overlay.records.remove(&vault_key),
+        };
+        match window_saved {
+            Some(previous) => overlay.records.insert(window_key, previous),
+            None => overlay.records.remove(&window_key),
+        };
+        match session_saved {
+            Some((Some(previous), k)) => overlay.records.insert(k, previous),
+            Some((None, k)) => overlay.records.remove(&k),
+            None => None,
         };
         for (address, previous) in saved.into_iter().rev() {
             match previous {

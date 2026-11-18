@@ -13,6 +13,7 @@
 
 pub mod account;
 pub mod account_authority;
+pub mod account_policy;
 pub mod amount_serde;
 pub mod asset;
 pub mod balance_changes;
