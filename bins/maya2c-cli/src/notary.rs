@@ -14,9 +14,10 @@
 //! one call; that is a post-genesis node change.
 //! shortcut: the checkpoint signatures are not verified here, so finality is
 //! the node's word. Verifying the committee signatures is the next step.
-//! shortcut: the stamp's signature is checked against the chain tag the node
-//! reports (`get_chain_info`), so the chain identity is the node's word, as
-//! finality is. Pinning the genesis on verify (as `stamp` does) closes it.
+//! shortcut: verify pins the genesis (as `stamp` does), but the blocks, their
+//! heights and the `prev_hash` links between them are still the node's word:
+//! a hostile node can serve a made-up chain under the right genesis id.
+//! Checking header linkage and checkpoint signatures is the next step.
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -24,7 +25,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use custom_l1_node::core::identity_payload::{AnchorAttestation, RegisterDid};
-use custom_l1_node::core::{Block, Transaction, TxKind, TxOutput};
+use custom_l1_node::core::{Block, ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::HybridSigningKey;
 use custom_l1_node::rpc::types::{BlockInfo, ChainInfo};
 use jsonrpsee::core::client::ClientT;
@@ -228,15 +229,29 @@ pub async fn setup(
 ///
 /// # Errors
 ///
-/// Returns an error if the file cannot be read, the transaction is not found,
-/// the node serves a block whose bytes contradict its header, the transaction is
-/// not a notary stamp, or the file does not match the stamped hash.
-pub async fn verify(file: &Path, txid_hex: &str, rpc: &str, from: u64) -> Result<Receipt> {
+/// Returns an error if the file cannot be read, the node's genesis is not one
+/// the genesis rules trust (see [`guard::check_genesis`]; `genesis` is the
+/// expected id), the transaction is not found, the node serves a block whose
+/// bytes contradict its header, the stamp's signature does not verify, the
+/// transaction is not a notary stamp, or the file does not match the stamped hash.
+pub async fn verify(
+    file: &Path,
+    txid_hex: &str,
+    rpc: &str,
+    genesis: Option<&str>,
+    from: u64,
+) -> Result<Receipt> {
     let file_hash = hash_file(file)?;
     let txid = parse_hash(txid_hex)?;
     let client = HttpClientBuilder::default().build(rpc)?;
     let tip: ChainInfo = client.request("get_chain_info", rpc_params![]).await?;
-
+    guard::check_genesis(
+        &tip.genesis,
+        tip.chain_id.as_deref(),
+        genesis,
+        guard::MAINNET_GENESIS,
+        guard::TESTNET_GENESIS,
+    )?;
     let chain = tip.chain_tag().context("get_chain_info")?;
 
     let mut next = from.max(1);
@@ -248,9 +263,7 @@ pub async fn verify(file: &Path, txid_hex: &str, rpc: &str, from: u64) -> Result
         let after = next_height(&infos, next)?;
         for info in &infos {
             let block = decode_block(info)?;
-            if let Some(tx) = block.transactions.iter().find(|t| t.txid() == txid) {
-                tx.verify(&chain)
-                    .map_err(|e| anyhow!("the stamp's signature does not verify: {e}"))?;
+            if let Some(tx) = find_stamp(&block, &txid, &chain)? {
                 return finish(&client, file_hash, tx, &block, info.height).await;
             }
         }
@@ -260,6 +273,25 @@ pub async fn verify(file: &Path, txid_hex: &str, rpc: &str, from: u64) -> Result
         "transaction {txid_hex} is not in blocks {from}..={}",
         tip.height
     )
+}
+
+/// The transaction `txid` in `block`, or `None` when the block lacks it.
+///
+/// # Errors
+///
+/// Returns an error when the transaction is there but its signature does not
+/// verify under `chain`, so a tampered stamp never yields a receipt.
+pub fn find_stamp<'a>(
+    block: &'a Block,
+    txid: &[u8; 32],
+    chain: &ChainTag,
+) -> Result<Option<&'a Transaction>> {
+    let Some(tx) = block.transactions.iter().find(|t| t.txid() == *txid) else {
+        return Ok(None);
+    };
+    tx.verify(chain)
+        .map_err(|e| anyhow!("the stamp's signature does not verify: {e}"))?;
+    Ok(Some(tx))
 }
 
 /// The height after a served batch, refusing unless the batch is the
@@ -383,7 +415,7 @@ async fn fee_outputs(
     key: &HybridSigningKey,
     kind: &TxKind,
     nonce: u64,
-    chain: &custom_l1_node::core::ChainTag,
+    chain: &ChainTag,
 ) -> Result<Vec<TxOutput>> {
     let fee = client
         .get_fee_info()
