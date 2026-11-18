@@ -120,21 +120,30 @@ pub fn multisig_status(proposal_hex: String, genesis: String) -> Result<Proposal
         .map_err(|e| e.to_string())
 }
 
-/// The confirm screen's content for approving a proposal. Signs nothing.
+/// The confirm screen's content for account `index` approving a proposal
+/// from the account open on the screen (`account_hex`); a proposal spending
+/// from any other account is refused. Signs nothing.
 #[tauri::command]
 pub fn multisig_preview(
     app: tauri::AppHandle,
+    index: u32,
+    account_hex: String,
     proposal_hex: String,
     genesis: String,
     session: tauri::State<'_, Session>,
 ) -> Result<Confirmation, String> {
     let chain = parse_genesis(&genesis)?;
+    let open = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
     let proposal = Proposal::from_hex(&proposal_hex, &chain).map_err(|e| e.to_string())?;
     let ctx = session.review_context(&app)?;
-    session.with(|w| Ok(w.confirm_multisig(&proposal, &chain, &ctx)))
+    session.with(|w| {
+        w.confirm_multisig(index, &open, &proposal, &chain, &ctx)
+            .map_err(|e| e.to_string())
+    })
 }
 
-/// Adds account `index`'s approval, after the native confirm screen.
+/// Adds account `index`'s approval to a spend from the open account
+/// (`account_hex`), after the native confirm screen.
 /// `confirmed_hash` must be the hash [`multisig_preview`] returned;
 /// `base_fee` is the node's per-byte rate ("0" where fees are off).
 #[tauri::command]
@@ -143,6 +152,7 @@ pub async fn multisig_approve(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     index: u32,
+    account_hex: String,
     proposal_hex: String,
     genesis: String,
     confirmed_hash: String,
@@ -152,9 +162,13 @@ pub async fn multisig_approve(
     let _slot = DialogSlot::take(session.dialog_open())?;
     let chain = parse_genesis(&genesis)?;
     let base_fee = parse_amount_arg("base fee", &base_fee)?;
+    let open = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
     let proposal = Proposal::from_hex(&proposal_hex, &chain).map_err(|e| e.to_string())?;
     let ctx = session.review_context(&app)?;
-    let shown = session.with(|w| Ok(w.confirm_multisig(&proposal, &chain, &ctx)))?;
+    let shown = session.with(|w| {
+        w.confirm_multisig(index, &open, &proposal, &chain, &ctx)
+            .map_err(|e| e.to_string())
+    })?;
     if shown.signing_hash != confirmed_hash {
         return Err(
             "the proposal differs from the one on the confirm screen; nothing was signed"

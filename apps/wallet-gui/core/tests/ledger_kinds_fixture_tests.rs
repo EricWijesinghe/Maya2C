@@ -88,19 +88,25 @@ fn cases() -> Vec<(&'static str, &'static str, Transaction)> {
             frame(vec![output(9, 0x33)], TxKind::Transfer),
         ),
         (
-            // What `Wallet::sign` builds: the payment, then the fee to the collector.
+            // The shape `payment::transfer_tx` builds: no inputs, the payment,
+            // then the fee to the collector, here under the device's 0x10 key.
+            // No wallet flow sends a transaction to a Ledger yet.
             "transfer-wallet-shape",
             "ok",
-            frame(
-                vec![
-                    output(500, 0x33),
-                    TxOutput {
-                        amount: U256::from(21),
-                        recipient: FEE_COLLECTOR,
-                    },
-                ],
-                TxKind::Transfer,
-            ),
+            {
+                let mut tx = frame(
+                    vec![
+                        output(500, 0x33),
+                        TxOutput {
+                            amount: U256::from(21),
+                            recipient: FEE_COLLECTOR,
+                        },
+                    ],
+                    TxKind::Transfer,
+                );
+                tx.inputs.clear();
+                tx
+            },
         ),
         (
             "transfer-4-outputs",
@@ -385,9 +391,16 @@ fn every_payload_kind_carries_bytes_after_the_nonce() {
     }
     let mut tail = Vec::new();
     TxKind::Transfer.encode_into(&mut tail);
-    assert!(tail.is_empty(), "a plain transfer carries no payload section");
+    assert!(
+        tail.is_empty(),
+        "a plain transfer carries no payload section"
+    );
     for (name, _, tx) in cases() {
-        assert_eq!(wire_tag(&tx.kind).is_none(), matches!(tx.kind, TxKind::Transfer), "{name}");
+        assert_eq!(
+            wire_tag(&tx.kind).is_none(),
+            matches!(tx.kind, TxKind::Transfer),
+            "{name}"
+        );
     }
 }
 

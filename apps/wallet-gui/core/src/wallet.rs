@@ -310,7 +310,7 @@ impl Wallet {
     }
 
     fn member_signer(&self, index: u32) -> Result<(HybridSigningKey, PolicyKey)> {
-        let path = DerivationPath::account(0, index);
+        let path = DerivationPath::try_account(0, index)?;
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
         let mut public_key = Vec::new();
         signing_key.public_key().encode_into(&mut public_key);
@@ -348,16 +348,45 @@ impl Wallet {
     }
 
     /// What the confirm screen shows before account `index` approves
-    /// `proposal`. Signs nothing.
+    /// `proposal` from `open`, the account the screen has open. The text
+    /// starts with "Multisig k of n, signing as member i (account j)", so the
+    /// native dialog names the account and the signer too. Signs nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Multisig`] when `proposal` spends from another account
+    /// than `open` (a co-member of a second account could otherwise pass a
+    /// spend from it off as this one's), or account `index` is not a member;
+    /// derivation failures. Nothing is marked reviewed on an error.
     pub fn confirm_multisig(
         &mut self,
+        index: u32,
+        open: &MultisigAccount,
         proposal: &Proposal,
         chain: &ChainTag,
         ctx: &maya_clear_sign::Context,
-    ) -> Confirmation {
-        let shown = confirmation_with(proposal.transaction(), chain, ctx);
+    ) -> Result<Confirmation> {
+        let account = proposal.account();
+        if account.address() != open.address() {
+            return Err(WalletError::Multisig(
+                "this proposal spends from another multisig account than the one open; \
+                 nothing was shown"
+                    .into(),
+            ));
+        }
+        let (_, member) = self.member_signer(index)?;
+        let position = account.position_of(&member).ok_or_else(|| {
+            WalletError::Multisig(format!("account {index} is not a member of this account"))
+        })?;
+        let mut shown = confirmation_with(proposal.transaction(), chain, ctx);
+        shown.description = format!(
+            "Multisig {} of {}, signing as member {position} (account {index}). {}",
+            account.threshold(),
+            account.members().len(),
+            shown.description
+        );
         self.reviewed = Some(shown.signing_hash.clone());
-        shown
+        Ok(shown)
     }
 
     /// Adds account `index`'s approval to `proposal`, but only to the one

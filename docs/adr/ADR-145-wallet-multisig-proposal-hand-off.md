@@ -49,12 +49,15 @@ So today only a hybrid `0x30` key held by this wallet can approve.
      screen;
    - more approvals than the threshold (such a copy could never finish but
      would keep accepting approvals);
+   - a policy rule 3 refuses, so an account the wallet will not open cannot
+     be approved through a proposal for it either;
    - any approval that does not verify under the policy key it names, for
      this chain.
 3. **Hybrid-only approvers.** An account whose threshold is above its number
    of hybrid `0x30` members is refused, both when built here
    (`MultisigAccount::new`) and when opened from shared hex
-   (`MultisigAccount::from_hex`): funds sent to it could never move. Other
+   (`MultisigAccount::from_hex`), and when read inside a proposal
+   (`Proposal::from_hex`): funds sent to it could never move. Other
    post-quantum suites may sit in a policy as spare members.
 4. **The account card says who you are.** Each member is shown with its suite
    and a 16-byte BLAKE3 fingerprint of the whole public key, and members whose
@@ -63,12 +66,17 @@ So today only a hybrid `0x30` key held by this wallet can approve.
    address. A key prefix is not used: the first bytes of an ML-DSA key are its
    public seed, which a dishonest coordinator can grind to match.
 5. **Approval is a transfer's approval.** It needs this session's confirm
-   screen for the exact signing hash and the native OK dialog. Every refusal
+   screen for the exact signing hash and the native OK dialog. The confirm
+   screen is built for the account open on the screen and the signing
+   account: a proposal spending from any other multisig account is refused
+   (`Wallet::confirm_multisig`), and the confirm text, native dialog
+   included, starts with "Multisig k of n, signing as member i (account j)". Every refusal
    the core gives after the dialog (fee cap, fee for the finished frame,
    membership, repeat approval, met quorum) is checked before the dialog too
    (`Wallet::check_multisig_approval`).
 6. **The fee is priced for the finished v8 frame** (policy plus the `m`
-   longest member signatures) and refused when under `base_fee x size` at the
+   longest signatures among the members rule 3 lets approve; a spare member
+   that cannot approve never adds a signature) and refused when under `base_fee x size` at the
    current base fee. That check cannot see base-fee rises while approvals are
    collected, so the screen pre-fills the Standard tier (twice the current
    minimum) and says a fee at the minimum may be refused at broadcast.
@@ -78,7 +86,7 @@ So today only a hybrid `0x30` key held by this wallet can approve.
 - Relaxing rule 3 needs two things: a Ledger v8 multisig review (shown and
   clear-signed; the `multisig-v8-spend` fixture verdict flips) and an "add
   external approval" command. Until then a Ledger key cannot be a required
-  approver.
+  approver. The fee estimate's approver filter (rule 6) relaxes with it.
 - A proposal of any other kind (contract call, staking, vault) from a shared
   account is not supported in the wallet. Adding one means a full confirm
   screen for that kind first.

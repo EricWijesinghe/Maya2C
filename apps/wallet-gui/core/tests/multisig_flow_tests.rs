@@ -22,8 +22,8 @@ use maya_crypto_pq::agility::{Network, SuitePolicy};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy};
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 use maya_wallet_core::error::WalletError;
-use maya_wallet_core::payment::FEE_SINK;
 use maya_wallet_core::multisig::{MemberKey, MultisigAccount, Proposal, ProposalStatus};
+use maya_wallet_core::payment::FEE_SINK;
 use maya_wallet_core::wallet::{SignTerms, Wallet};
 use primitive_types::U256;
 
@@ -95,7 +95,7 @@ fn approve_at(
     p: &Proposal,
     base_fee: U256,
 ) -> Result<Proposal, WalletError> {
-    let shown = w.confirm_multisig(p, &CHAIN, &Context::default());
+    let shown = w.confirm_multisig(index, &p.account(), p, &CHAIN, &Context::default())?;
     w.approve_multisig(index, p, &CHAIN, &shown.signing_hash, base_fee)
 }
 
@@ -201,7 +201,8 @@ fn approving_needs_this_sessions_confirm_screen() {
     let mut w = wallet();
     let p = propose(&w);
     let hash = w
-        .confirm_multisig(&p, &CHAIN, &Context::default())
+        .confirm_multisig(0, &account(&w), &p, &CHAIN, &Context::default())
+        .expect("member 0")
         .signing_hash;
     // A hash for another proposal, or none at all, signs nothing.
     assert!(matches!(
@@ -452,7 +453,11 @@ fn the_account_card_marks_this_wallets_members_and_flags_a_stranger() {
         ledger.fingerprint,
         hex::encode(&blake3::hash(&key).as_bytes()[..16])
     );
-    assert_eq!(ledger.public_key, ledger_member().public_key, "the full key");
+    assert_eq!(
+        ledger.public_key,
+        ledger_member().public_key,
+        "the full key"
+    );
 
     // Another wallet's account, opened here: nothing is marked, and the card
     // says this wallet can never approve.
@@ -533,7 +538,10 @@ fn a_proposal_of_another_kind_is_refused_when_read() {
             amount: U256::from(3),
         }));
     });
-    assert!(refused(&delegate), "a delegation of the shared account's funds");
+    assert!(
+        refused(&delegate),
+        "a delegation of the shared account's funds"
+    );
 }
 
 #[test]
@@ -576,6 +584,141 @@ fn a_single_signature_frame_is_not_read_as_a_proposal() {
         tx.multisig = None;
         tx.sign_with_suite::<MlDsa65>(&ledger_key(), &CHAIN)
             .expect("sign");
+    });
+    assert!(refused(&text));
+}
+
+/// A spare SLH-DSA-SHAKE-256f member (a cold-vault key): it may sit in the
+/// policy, but cannot approve today, so it never adds a signature.
+fn cold_vault_member() -> MemberKey {
+    MemberKey {
+        suite: SuiteId::SlhDsaShake256f.to_byte(),
+        public_key: "11".repeat(SuiteId::SlhDsaShake256f.info().public_key_len),
+    }
+}
+
+#[test]
+fn a_spare_member_with_a_longer_signature_does_not_inflate_the_fee() {
+    // 2 of {0x30, 0x30, 0x21}: only the two hybrid members can approve, so
+    // the finished frame carries two hybrid signatures, never the 0x21 one.
+    let mut w = wallet();
+    let members = [
+        w.member_key(0).expect("0"),
+        w.member_key(1).expect("1"),
+        cold_vault_member(),
+    ];
+    let account = MultisigAccount::new(2, &members).expect("2-of-3");
+    let size = account.spend_size().expect("size");
+    let collector = hex::encode(FEE_COLLECTOR);
+    let terms = SignTerms {
+        fee: U256::from(size),
+        fee_to: Some(&collector),
+        nonce: 4,
+        chain: &CHAIN,
+        allow_high_fee: false,
+    };
+    let draft = w
+        .propose_multisig(
+            0,
+            &account,
+            RECIPIENT,
+            U256::from(1_000_000),
+            &terms,
+            U256::one(),
+        )
+        .expect("a correctly priced proposal is accepted");
+    let one = approve_at(&mut w, 0, &draft, U256::one()).expect("0");
+    let done = approve_at(&mut w, 1, &one, U256::one()).expect("1");
+    let raw = done.finish(&CHAIN).expect("finish").raw_hex;
+    assert_eq!(u64::try_from(raw.len() / 2).expect("len"), size);
+}
+
+#[test]
+fn an_approval_for_another_account_than_the_open_one_is_refused() {
+    // Wallet accounts 0 and 1 are members of two funded accounts. A spend
+    // from the second is handed over while the first is open on the screen.
+    let mut w = wallet();
+    let open = account(&w);
+    let other = MultisigAccount::new(
+        1,
+        &[w.member_key(0).expect("0"), w.member_key(1).expect("1")],
+    )
+    .expect("1-of-2");
+    let theirs = w
+        .propose_multisig(
+            0,
+            &other,
+            RECIPIENT,
+            U256::from(500),
+            &terms(U256::zero()),
+            U256::zero(),
+        )
+        .expect("propose");
+    assert!(matches!(
+        w.confirm_multisig(0, &open, &theirs, &CHAIN, &Context::default()),
+        Err(WalletError::Multisig(_))
+    ));
+    // The refusal marked nothing reviewed, so nothing can be approved.
+    let hash = maya_wallet_core::confirm::confirmation(theirs.transaction(), &CHAIN).signing_hash;
+    assert!(matches!(
+        w.approve_multisig(0, &theirs, &CHAIN, &hash, U256::zero()),
+        Err(WalletError::Signing(_))
+    ));
+    // With its own account open, the same spend is shown and approved.
+    let shown = w
+        .confirm_multisig(0, &other, &theirs, &CHAIN, &Context::default())
+        .expect("its own account");
+    assert_eq!(shown.signing_hash, hash);
+    assert!(
+        w.approve_multisig(0, &theirs, &CHAIN, &hash, U256::zero())
+            .is_ok()
+    );
+}
+
+#[test]
+fn the_confirm_text_names_the_policy_and_the_signer() {
+    let mut w = wallet();
+    let p = propose(&w);
+    let shown = w
+        .confirm_multisig(1, &account(&w), &p, &CHAIN, &Context::default())
+        .expect("member 1");
+    assert!(
+        shown
+            .description
+            .starts_with("Multisig 2 of 3, signing as member 1 (account 1). "),
+        "{}",
+        shown.description
+    );
+    let dialog = maya_wallet_core::confirm::approval_message(&shown);
+    assert!(
+        dialog.contains("Multisig 2 of 3, signing as member 1 (account 1)"),
+        "{dialog}"
+    );
+    // A non-member is refused before any confirm screen.
+    assert!(matches!(
+        w.confirm_multisig(5, &account(&w), &p, &CHAIN, &Context::default()),
+        Err(WalletError::Multisig(_))
+    ));
+}
+
+#[test]
+fn a_hardened_member_index_is_refused_not_aliased() {
+    // 2^31 would otherwise be ORed into account 0's hardened slot.
+    let w = wallet();
+    assert!(w.member_key(0x8000_0000).is_err());
+    assert!(w.member_key(u32::MAX).is_err());
+}
+
+#[test]
+fn a_proposal_for_an_account_this_wallet_refuses_to_open_is_refused_when_read() {
+    // The same spendable() rule as MultisigAccount::new and from_hex: a
+    // proposal naming a policy no hybrid quorum can spend is not approved.
+    let w = wallet();
+    let p = propose(&w);
+    let bytes = hex::decode(ledger_bound_policy_hex(&w)).expect("hex");
+    let (policy, _) = MultisigPolicy::decode(&bytes).expect("policy");
+    let text = reshaped(&p, |tx| {
+        tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy)));
     });
     assert!(refused(&text));
 }

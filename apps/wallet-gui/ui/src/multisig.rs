@@ -186,13 +186,18 @@ pub fn Multisig() -> impl IntoView {
 
     let preview = move |_| {
         state.clear();
-        let text = proposal.get_untracked();
+        let Some(a) = account.get_untracked() else {
+            state.fail("set up or open an account first");
+            return;
+        };
+        let (text, index) = (proposal.get_untracked(), state.selected.get_untracked());
         spawn_local(async move {
             let genesis = state.genesis();
             // The progress line and Finish describe the proposal in the box,
-            // read from its own text, never one handled earlier.
+            // read from its own text, never one handled earlier. The core
+            // refuses a proposal spending from another account than this one.
             let result = async {
-                let shown = ms::preview(&text, &genesis).await?;
+                let shown = ms::preview(index, &a.account_hex, &text, &genesis).await?;
                 Ok::<_, String>((shown, ms::status(&text, &genesis).await?))
             }
             .await;
@@ -207,7 +212,7 @@ pub fn Multisig() -> impl IntoView {
     };
 
     let approve = move |_| {
-        let Some(shown) = review.get_untracked() else {
+        let (Some(shown), Some(a)) = (review.get_untracked(), account.get_untracked()) else {
             return;
         };
         let (text, index, node) = (
@@ -223,6 +228,7 @@ pub fn Multisig() -> impl IntoView {
                 let base_fee = bridge::fee_options(&node, index, 0).await?.base_fee;
                 ms::approve(
                     index,
+                    &a.account_hex,
                     &text,
                     &state.genesis(),
                     &shown.signing_hash,

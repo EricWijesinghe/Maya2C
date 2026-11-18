@@ -5,7 +5,8 @@
 //! `every-kind-*` lines). Only a plain transfer of 1 to 4 outputs is shown
 //! and signed; the device clear-signs no payload kind (swap, asset transfer,
 //! contract call, vault included), and refuses each one here, kind by kind.
-//! Any byte at all after the nonce is also refused (all 256 values, below).
+//! Any byte at all after the nonce is also refused (all 256 values, on every
+//! fixture shape, below).
 //! Clear-signing a payload kind on the device is open work: its own ADR and a
 //! firmware change.
 
@@ -62,18 +63,24 @@ fn a_shown_transfer_shows_every_output_the_node_encoded() {
 #[test]
 fn any_byte_after_the_nonce_is_refused_whatever_its_value() {
     // An unknown or future kind tag is no more signable than a known one.
+    // Every fixture shape, all 256 values: a shown transfer becomes
+    // NotATransfer, and a shape already refused stays refused.
     let key = device();
-    let one = kinds::cases(&key)
-        .into_iter()
-        .find(|c| c.name == "transfer-1-output")
-        .expect("case");
-    for tag in 0..=u8::MAX {
-        let mut bytes = one.signing_bytes.clone();
-        bytes.push(tag);
-        assert_eq!(
-            review::review(&bytes, &key),
-            Err(ReviewError::NotATransfer),
-            "tag {tag:#04x}"
-        );
+    for case in kinds::cases(&key) {
+        for tag in 0..=u8::MAX {
+            let mut bytes = case.signing_bytes.clone();
+            bytes.push(tag);
+            let got = review::review(&bytes, &key);
+            if case.status == 0x9000 {
+                assert_eq!(
+                    got,
+                    Err(ReviewError::NotATransfer),
+                    "{} tag {tag:#04x}",
+                    case.name
+                );
+            } else {
+                assert!(got.is_err(), "{} tag {tag:#04x}", case.name);
+            }
+        }
     }
 }

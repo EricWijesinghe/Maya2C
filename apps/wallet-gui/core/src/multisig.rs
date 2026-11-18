@@ -86,6 +86,10 @@ impl MemberKey {
     }
 }
 
+/// The one suite whose members can approve today: this wallet's hybrid key.
+/// The Ledger app refuses v8 bytes and nothing imports an outside approval.
+const APPROVER_SUITE: SuiteId = SuiteId::HybridMlDsa65SlhDsa128s;
+
 /// Bytes of BLAKE3 a member's fingerprint shows: 128 bits, so a coordinator
 /// cannot swap in a key that looks the same (a prefix of an ML-DSA key is its
 /// public seed, which anyone can grind to match).
@@ -182,7 +186,7 @@ impl MultisigAccount {
         let approvers = policy
             .keys()
             .iter()
-            .filter(|k| k.suite == SuiteId::HybridMlDsa65SlhDsa128s)
+            .filter(|k| k.suite == APPROVER_SUITE)
             .count();
         if threshold > approvers {
             return Err(WalletError::Multisig(format!(
@@ -322,8 +326,9 @@ impl Proposal {
     ///
     /// # Errors
     ///
-    /// [`WalletError::Multisig`] for anything but a v8 plain transfer, or an
-    /// approval that does not verify.
+    /// [`WalletError::Multisig`] for anything but a v8 plain transfer, a
+    /// policy [`MultisigAccount::from_hex`] would refuse, or an approval that
+    /// does not verify.
     pub fn from_hex(text: &str, chain: &ChainTag) -> Result<Self> {
         let bytes = hex::decode(text.trim())
             .map_err(|_| WalletError::Multisig("the proposal is not hexadecimal".into()))?;
@@ -356,6 +361,9 @@ impl Proposal {
             ));
         }
         let proposal = Self { tx };
+        // The same rule as opening the account: a policy no hybrid quorum can
+        // spend is not approved through a proposal for it either (ADR-145).
+        MultisigAccount::spendable(proposal.auth().policy().clone())?;
         // The node decodes up to n approvals. A copy carrying more than m
         // could never finish, yet would keep accepting approvals: refused.
         if proposal.auth().approvals().len() > proposal.auth().policy().threshold() {
@@ -382,7 +390,9 @@ impl Proposal {
         &self.tx
     }
 
-    /// The account this spends from.
+    /// The account this spends from. Every constructor holds its policy to
+    /// the rule [`MultisigAccount::new`] applies, so this is an account the
+    /// wallet would open.
     #[must_use]
     pub fn account(&self) -> MultisigAccount {
         MultisigAccount {
@@ -424,7 +434,10 @@ impl Proposal {
     }
 
     /// Bytes this spend occupies once `m` members approve, counting the
-    /// longest signatures the policy allows.
+    /// longest signatures among the members that can approve today (the
+    /// hybrid `0x30` keys [`MultisigAccount::new`] counts). A spare member of
+    /// another suite never signs, so its signature length is not counted;
+    /// relax this filter together with that rule (ADR-145).
     ///
     /// # Errors
     ///
@@ -436,6 +449,7 @@ impl Proposal {
             .keys()
             .iter()
             .enumerate()
+            .filter(|(_, k)| k.suite == APPROVER_SUITE)
             .map(|(i, k)| Ok((k.suite.info().signature_len, u8::try_from(i)?)))
             .collect::<std::result::Result<Vec<_>, std::num::TryFromIntError>>()
             .map_err(|_| WalletError::Multisig("a policy index above 255".into()))?;

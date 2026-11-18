@@ -184,11 +184,28 @@ pub async fn status(proposal_hex: &str, genesis: &str) -> Result<Proposal, Strin
     .await
 }
 
-/// The confirm screen for approving a proposal. Signs nothing.
-pub async fn preview(proposal_hex: &str, genesis: &str) -> Result<Confirmation, String> {
+/// The confirm screen for account `index` approving a proposal from the open
+/// account `account_hex`; the core refuses a proposal from any other
+/// account. Signs nothing.
+pub async fn preview(
+    index: u32,
+    account_hex: &str,
+    proposal_hex: &str,
+    genesis: &str,
+) -> Result<Confirmation, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args<'a> {
+        index: u32,
+        account_hex: &'a str,
+        proposal_hex: &'a str,
+        genesis: &'a str,
+    }
     call(
         "multisig_preview",
-        &ProposalArgs {
+        &Args {
+            index,
+            account_hex,
             proposal_hex,
             genesis,
         },
@@ -196,9 +213,11 @@ pub async fn preview(proposal_hex: &str, genesis: &str) -> Result<Confirmation, 
     .await
 }
 
-/// Approves as account `index`, after the native confirm screen.
+/// Approves as account `index` a spend from the open account `account_hex`,
+/// after the native confirm screen.
 pub async fn approve(
     index: u32,
+    account_hex: &str,
     proposal_hex: &str,
     genesis: &str,
     confirmed_hash: &str,
@@ -208,6 +227,7 @@ pub async fn approve(
     #[serde(rename_all = "camelCase")]
     struct Args<'a> {
         index: u32,
+        account_hex: &'a str,
         proposal_hex: &'a str,
         genesis: &'a str,
         confirmed_hash: &'a str,
@@ -217,6 +237,7 @@ pub async fn approve(
         "multisig_approve",
         &Args {
             index,
+            account_hex,
             proposal_hex,
             genesis,
             confirmed_hash,
