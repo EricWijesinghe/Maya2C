@@ -152,6 +152,35 @@
     },
     {
       "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-fee-counts-against-cap",
+      "input": {
+        "amount": "1",
+        "max_amount": "100",
+        "required_fee": "5456"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-pays-no-recipient",
+      "input": {
+        "amount": "0",
+        "max_amount": "100"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
         "result": "ok"
       },
       "id": "AA-window-at-limit",

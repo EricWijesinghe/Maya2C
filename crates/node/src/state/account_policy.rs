@@ -14,7 +14,8 @@
 //! **A session key is void the moment the authority that granted it changes**
 //! (recovery, or a matured `AdoptPolicy`): its row names the granting digest
 //! and the height that digest took effect, and counts only while both are
-//! still in force, so A->B->A does not revive it. A thief who added a session
+//! still in force, so A->B->A at a later height does not revive it (two
+//! immediate changes inside one block share a height: ADR-135 amendment 1). A thief who added a session
 //! key before the guardians recovered the account keeps nothing, and no sweep
 //! has to find the row.
 //!
@@ -80,7 +81,8 @@ pub struct SessionRecord {
     pub granted_since: u64,
     /// What it may do.
     pub scope: SessionScope,
-    /// What its frames have moved so far; never above `scope.max_amount`.
+    /// What its frames have moved so far, fees included; never above
+    /// `scope.max_amount`.
     pub spent: U256,
 }
 
@@ -322,8 +324,25 @@ impl StateDB {
                 hex::encode(o.recipient)
             ));
         }
-        // The cap is the key's total, so repeating frames cannot pass it.
-        let moved = self.vault_outflow(overlay, tx)?;
+        // A frame that pays no listed recipient would only take a nonce (and,
+        // with fees on, burn the account's fee): a leaked key could keep the
+        // owner's revoke stale that way.
+        let paid = tx
+            .outputs
+            .iter()
+            .filter(|o| o.recipient != FEE_COLLECTOR)
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
+        if paid.is_zero() {
+            return refuse("a session frame must pay a listed recipient a non-zero amount");
+        }
+        // The cap is the key's total over every output, the fee included (the
+        // window and the vault exempt the required fee; a session key may not):
+        // a key at its cap can sign nothing, so it cannot burn the balance in fees.
+        // Saturating: an outflow past 2^256 is past any cap either way.
+        let moved = tx
+            .outputs
+            .iter()
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
         let spent = session
             .spent
             .checked_add(moved)
@@ -347,7 +366,8 @@ impl StateDB {
     /// The spending window (S-9: every frame acting for a limited account,
     /// owner-signed too). Returns the row to store once the frame applies;
     /// reads nothing below activation, where no row can exist. Counts what
-    /// [`StateDB::vault_outflow`] counts: every output, the required fee exempt.
+    /// [`StateDB::vault_outflow`] counts: every output, the required fee exempt
+    /// (the owner must always be able to pay a fee; session keys are charged it).
     ///
     /// A limited account sends only plain transfers, account actions and a
     /// vault's `Cancel` and `Execute` (ADR-030): any other kind can move value
@@ -424,6 +444,8 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         validate(scope, context.height)?;
+        // shortcut: no cap on live ka:s: rows per account (each add pays its byte fee,
+        // per-frame work is one keyed read), upgrade with ADR-135 amendment decision 6's trigger.
         let (authority, since) = self.opt_in(overlay, tx, owner, context.height)?;
         if &authority == key_hash {
             return refuse("the account's own authority cannot be a session key");

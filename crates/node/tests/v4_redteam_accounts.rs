@@ -249,3 +249,53 @@ fn a_sixteen_recipient_scope_pays_its_last_recipient() {
     s.session_pays(recipients[15], 1)
         .expect("the sixteenth recipient");
 }
+
+#[test]
+fn a_session_key_at_its_cap_cannot_burn_the_account_in_fees() {
+    // PR #548 review: with the required fee outside the cap, a leaked key at
+    // its cap could still sign frames that moved nothing but the fee, burning
+    // the balance until expiry and taking every nonce so the owner's revoke
+    // went stale. The cap now counts every output, the fee included, and a
+    // frame must pay a listed recipient something.
+    let mut s = Scene::opted_in();
+    let required = required_fee(|fee| s.session_pays_with_fee(1, fee));
+    s.regrant_session(1 + required).unwrap();
+    s.fees_on();
+    let tx = s.session_pays_with_fee(1, required);
+    s.chain
+        .send(tx)
+        .expect("1 plus the required fee == max_amount");
+    let session_sends = |s: &mut Scene, outputs| {
+        let tx = s.as_session(TxKind::Transfer, outputs);
+        s.chain.send(tx)
+    };
+    refused(&mut s, "listed recipient", |s| {
+        session_sends(s, with_fee(vec![], required))
+    });
+    refused(&mut s, "listed recipient", |s| {
+        session_sends(s, with_fee(pay_to(PAYEE, 0), required))
+    });
+    refused(&mut s, "max_amount", |s| {
+        let tx = s.session_pays_with_fee(1, required);
+        s.chain.send(tx)
+    });
+    // The key holds no nonce, so the owner's revoke at the next nonce lands.
+    let revoke = AccountAction::RevokeSessionKey {
+        key_hash: s.session_policy.digest(),
+    };
+    let fee = required_fee(|fee| s.as_owner(account(revoke.clone()), with_fee(vec![], fee)));
+    let tx = s.as_owner(account(revoke), with_fee(vec![], fee));
+    s.chain.send(tx).expect("the owner revokes");
+}
+
+#[test]
+fn a_session_frame_paying_nobody_cannot_take_nonces_with_fees_off() {
+    // Without fees a zero-value frame would cost the key nothing and take a
+    // nonce each time: the same stale-revoke attack, for free.
+    let mut s = Scene::opted_in();
+    refused(&mut s, "listed recipient", |s| s.session_pays(PAYEE, 0));
+    refused(&mut s, "listed recipient", |s| {
+        let tx = s.as_session(TxKind::Transfer, vec![]);
+        s.chain.send(tx)
+    });
+}

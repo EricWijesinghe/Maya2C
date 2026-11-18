@@ -276,6 +276,15 @@ impl Scene {
         self.chain.send(tx)
     }
 
+    /// The owner re-adds the session key with total `cap` (a fresh total), so
+    /// a fee-paying frame fits: an ML-DSA-65 frame's required fee is far above `CAP`.
+    pub fn regrant_session(&mut self, cap: u64) -> Result<(), String> {
+        self.owner_does(AccountAction::AddSessionKey {
+            key_hash: self.session_policy.digest(),
+            scope: scope(cap, EXPIRES, vec![PAYEE]),
+        })
+    }
+
     pub fn owner_does(&mut self, action: AccountAction) -> Result<(), String> {
         let tx = self.as_owner(account(action), vec![]);
         self.chain.send(tx)

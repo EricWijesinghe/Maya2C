@@ -209,19 +209,28 @@ fn the_window_caps_owner_and_session_frames_together() {
 }
 
 #[test]
-fn with_fees_on_a_session_frame_pays_its_fee_outside_its_cap_and_recipients() {
-    // The recipient list never names the fee collector and the required fee
-    // is outside `max_amount`: without both, no session key could pay a fee.
+fn with_fees_on_a_session_frames_fee_counts_against_its_cap() {
+    // The recipient list never names the fee collector, so a session key can
+    // pay a fee; the fee counts against `max_amount` (the window exempts the
+    // required fee, a session key may not), so the cap bounds what the key
+    // can cost the account, fees included.
     let mut s = Scene::opted_in();
-    s.fees_on();
     let required = required_fee(|fee| s.session_pays_with_fee(CAP, fee));
-    // A tip above the required fee is value the key moved: it counts.
+    s.regrant_session(CAP + required).unwrap();
+    s.fees_on();
+    refused(&mut s, "max_amount", |s| {
+        let tx = s.session_pays_with_fee(CAP + 1, required);
+        s.chain.send(tx)
+    });
+    // A tip above the required fee counts too.
     refused(&mut s, "max_amount", |s| {
         let tx = s.session_pays_with_fee(CAP, required + 1);
         s.chain.send(tx)
     });
     let tx = s.session_pays_with_fee(CAP, required);
-    s.chain.send(tx).expect("CAP plus exactly the required fee");
+    s.chain
+        .send(tx)
+        .expect("CAP plus the required fee == max_amount");
     assert_eq!(s.chain.balance(&PAYEE), U256::from(CAP));
     assert_eq!(
         s.chain.balance(&s.address),
@@ -250,7 +259,9 @@ fn with_fees_on_the_required_fee_is_outside_the_window() {
 
 #[test]
 fn the_mempool_admits_a_session_frame_inside_its_scope() {
-    let s = Scene::opted_in();
+    let mut s = Scene::opted_in();
+    let required = required_fee(|fee| s.session_pays_with_fee(CAP, fee));
+    s.regrant_session(CAP + required).unwrap();
     s.fees_on();
     // The mempool judges at the tip under the committed schedule: a tip at
     // height 0 and a version-2 entry switching bits 9 and 45 on at height 1.
@@ -273,7 +284,6 @@ fn the_mempool_admits_a_session_frame_inside_its_scope() {
         .db
         .raw_put_for_test(&version_key(2), &entry)
         .unwrap();
-    let required = required_fee(|fee| s.session_pays_with_fee(CAP, fee));
     let inside = s.session_pays_with_fee(CAP, required);
     let over = s.session_pays_with_fee(CAP + 1, required);
     let pool = Mempool::new(Arc::new(s.chain.db));
@@ -544,6 +554,12 @@ fn vector_cases() -> serde_json::Value {
     .unwrap();
     let vault = guarded_vault_request(&mut s);
     let guardian_cancel = s.guardian_cancels(vault);
+    let mut s = Scene::opted_in();
+    s.fees_on();
+    let required = required_fee(|fee| s.session_pays_with_fee(1, fee));
+    let tx = s.session_pays_with_fee(1, required);
+    let fee_over_cap = s.chain.send(tx);
+    let pays_nothing = Scene::opted_in().session_pays(PAYEE, 0);
 
     serde_json::json!({
         "description": "ADR-135 P-5 smart-account policy: session-key action encodings, session-frame scope, the spending window and activation. Regenerate with MAYA_REGEN_VECTORS=1 cargo test -p custom-l1-node --test account_policy_tests conformance; every implementation must agree.",
@@ -566,6 +582,8 @@ fn vector_cases() -> serde_json::Value {
             {"id": "AA-session-signed-sub-op", "rules": ["AA-8"], "expect": outcome(session_sub_op)},
             {"id": "AA-session-revoked", "rules": ["AA-8"], "expect": outcome(revoked)},
             {"id": "AA-session-total-over-cap", "rules": ["AA-8"], "input": {"spent": CAP.to_string(), "amount": "1", "max_amount": CAP.to_string()}, "expect": outcome(total_over)},
+            {"id": "AA-session-fee-counts-against-cap", "rules": ["AA-8"], "input": {"amount": "1", "required_fee": required.to_string(), "max_amount": CAP.to_string()}, "expect": outcome(fee_over_cap)},
+            {"id": "AA-session-pays-no-recipient", "rules": ["AA-8"], "input": {"amount": "0", "max_amount": CAP.to_string()}, "expect": outcome(pays_nothing)},
             {"id": "AA-window-at-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": "0", "amount": CAP.to_string()}, "expect": outcome(window_fill)},
             {"id": "AA-window-owner-over-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": CAP.to_string(), "amount": "2"}, "expect": outcome(window_over)},
             {"id": "AA-window-refuses-a-kind-without-outputs", "rules": ["AA-9"], "input": {"limit": CAP.to_string(), "kind": "open_channel", "funding": (FUNDS / 2).to_string()}, "expect": outcome(window_escrow)},

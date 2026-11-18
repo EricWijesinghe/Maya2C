@@ -292,7 +292,8 @@ phase that did it.
     in force (its digest and the height it took effect). A session key
     therefore never signs an account action, never changes who signs for
     `X`, and is void once the authority that granted it is replaced, even if
-    the same digest later returns. Pinned by
+    the same digest returns at a later height (the generation is per height,
+    ADR-135 amendment decision 1). Pinned by
     `a_session_key_cannot_sign_account_actions`,
     `an_authority_change_voids_every_session_key` and
     `a_voided_session_key_stays_void_when_the_old_authority_returns` in

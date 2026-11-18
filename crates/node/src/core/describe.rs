@@ -632,7 +632,7 @@ fn describe_account(action: &AccountAction) -> Description {
         .with("account", full(account)),
         AccountAction::AddSessionKey { key_hash, scope } => Description::new(
             format!(
-                "Let a session key send up to {} in total, fees aside, to {} listed recipients until block {}. Adding the same key again starts a new total.",
+                "Let a session key send up to {} in total, fees included, to {} listed recipients until block {}. Adding the same key again starts a new total.",
                 amount(scope.max_amount),
                 scope.recipients.len(),
                 scope.expires_at
@@ -654,7 +654,7 @@ fn describe_account(action: &AccountAction) -> Description {
                 "Remove this account's daily spending limit.".to_string()
             } else {
                 format!(
-                    "Cap what this account sends per day at {}, for every key that signs for it.",
+                    "Cap what this account sends at {} per 86,400-block window (aligned, so up to twice that across a window boundary), fees aside, for every key that signs for it. While set, only transfers, account actions and vault cancel/execute are allowed.",
                     amount(*limit)
                 )
             },

@@ -9,7 +9,8 @@ amendment so the PR that builds P-5 carries its own design record. When #477
 lands, this text is appended to ADR-135's "Amendment" section and this file is
 removed. Decided under Eric 2026-11-14 ("I approve everything, proceed"),
 except the items marked **PENDING Eric**, which that approval does not cover;
-DECISIONS.md has the entry.
+DECISIONS.md has the entry. Ten decisions below: 1-4, 6-8 and 10 decided
+under that approval; 5 and 9 **PENDING Eric**.
 
 ## Context
 
@@ -26,7 +27,14 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    force) and `granted_since` (the height that authority took effect). The
    key counts only while both match the authority in force. Recovery or a
    matured `AdoptPolicy` voids every older session key in O(1), with no
-   sweep, and a key stays void if the same digest later returns (A→B→A).
+   sweep, and a key stays void if the same digest later returns (A→B→A) at
+   a later height. The generation is per height: two immediate authority
+   changes inside one block (A→B→A with no guardians, both taking effect at
+   the same height `h`) give back `(A, h)`, and a key granted at `(A, h)`
+   earlier in that block counts again. Only the owner key can do that, so it
+   is not a theft path; a per-account counter bumped on every authority
+   write would close it (see Alternatives) and is the upgrade if the case
+   ever matters.
    Without this a thief holding the owner key could add a session key for
    himself and keep spending after the guardians recovered the account.
    Re-adopting the same policy is therefore also a way to void every session
@@ -37,13 +45,29 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    row per account per window, forever. This also keeps the limit out of
    #447's `ka:a:` record encoding.
 3. **The cap is the key's total, not a frame's or an output's, and counts
-   what the vault counts** (`vault_outflow`, invariant 32): every output,
-   collector outputs up to the required fee exempt. A per-output cap could be
-   split across two outputs, and a per-frame cap across two frames (see 9).
-   The fee collector is always an allowed recipient, so a session frame can
-   pay its fee. Tests:
-   `with_fees_on_a_session_frame_pays_its_fee_outside_its_cap_and_recipients`,
-   `with_fees_on_the_required_fee_is_outside_the_window`.
+   every output, the fee included.** A per-output cap could be split across
+   two outputs, and a per-frame cap across two frames (see 9). The fee
+   collector is always an allowed recipient, so a session frame can pay its
+   fee, but the fee is charged to `max_amount`: `max_amount` bounds what the
+   key can cost the account, fees included. A session frame must also pay
+   the listed recipients a non-zero total. Changed in the PR #548 review: as
+   first built the cap counted what the vault counts (`vault_outflow`,
+   collector outputs up to the required fee exempt), so a leaked key at its
+   cap could still sign frames that moved only the required fee (or 0-value
+   outputs), burning the balance in base fees at every nonce until
+   `expires_at`, and taking every nonce so the owner's `RevokeSessionKey`
+   kept going stale. With the fee charged and a non-zero payment required, a
+   used-up key signs nothing, and with fees off it cannot take nonces for
+   free. Considered instead: a per-key fee budget in `SessionScope` (changes
+   the action encoding for the same effect). The window (AA-9) and the vault
+   keep the required-fee exemption: they bound the owner's own frames, which
+   must always be able to pay a fee. Tests:
+   `with_fees_on_a_session_frames_fee_counts_against_its_cap`,
+   `with_fees_on_the_required_fee_is_outside_the_window`,
+   `a_session_key_at_its_cap_cannot_burn_the_account_in_fees`,
+   `a_session_frame_paying_nobody_cannot_take_nonces_with_fees_off`; vectors
+   `AA-session-fee-counts-against-cap`, `AA-session-pays-no-recipient`.
+   Decided under Eric 2026-11-14.
 4. **Window = 86,400 blocks**, not 43,200: one day at ADR-135 O-1's answer,
    "1 block/s", recorded in ADR-135's "Eric's answers (2026-11-12)" table
    (branch `docs/adr-135-v4-umbrella`, PR #477). 43,200 was the
@@ -65,7 +89,14 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    `RevokeSessionKey` deletes a row whether live, expired or voided, and an
    `AddSessionKey` with the same `key_hash` overwrites it; nothing else
    deletes one and no sweep runs. The storage is paid by the byte fee of the
-   `AddSessionKey` that wrote it.
+   `AddSessionKey` that wrote it. No cap on live `ka:s:` rows per account
+   exists, so the rows an account holds grow with every distinct key it adds
+   and does not revoke; each one costs only that account its byte fee, and
+   per-frame work does not depend on the count (one keyed read). A cap needs
+   a per-account count kept in another record, which changes an encoding.
+   Upgrade trigger: decided with decisions 5 and 9, before bit 45 is
+   scheduled, or sooner if a state-size sweep shows `ka:s:` among the
+   growing prefixes. The shortcut is marked in `add_session_key`.
 7. **A limited account sends only plain transfers and account actions.**
    The window counts output-carried value (decision 3). As first built,
    kinds that move value without outputs (channel funding, stake locks, DEX
@@ -81,8 +112,9 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    forms, is refused for a limited account until someone writes how the
    window charges it, rather than leaking until someone notices. The owner
    who needs one of those kinds lifts the limit first (`SetDailyLimit(0)`,
-   immediate), so against a compromised owner key the window is still
-   advisory; it is a bound on what a leaked session key and the owner's
+   which has no delay but, like every `SetDailyLimit`, is refused while the
+   circuit breaker halts the account, decision 8), so against a compromised
+   owner key the window is still advisory; it is a bound on what a leaked session key and the owner's
    ordinary frames can move. Tests:
    `a_limited_account_cannot_move_value_without_outputs`
    (`v4_redteam_accounts.rs`), vector
@@ -118,8 +150,19 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    needs a per-account key index, and the bound would still be advisory.
    Tests: `a_session_key_cannot_pass_its_cap_by_repeating_frames`,
    `a_skipped_session_frame_leaves_no_cap_charge_in_the_builder`; vector
-   `AA-session-total-over-cap`. **Eric confirms before bit 45 is
-   scheduled.**
+   `AA-session-total-over-cap`. **PENDING Eric** before bit 45 is
+   scheduled.
+10. **Class: RESEARCH, by the activation-height reading** (Standing Order
+    3). The code is reachable from consensus paths (staging, the mempool,
+    the state root, the invariant guard), so it does not fit RESEARCH read
+    as "nothing in consensus calls it". It fits the repo's other reading,
+    "activation height `u64::MAX`": every path is gated by
+    `ACCOUNT_POLICY_ACTIVATION_HEIGHT = u64::MAX` and by bit 45 in the
+    upgrade schedule, so no consensus outcome on any network depends on it
+    (vector `AA-root-without-policy-rows`: a chain with no policy rows keeps
+    its root byte for byte). Promotion to REAL is the written decision that
+    schedules bit 45 at a height, after decisions 5 and 9 are closed.
+    Decided under Eric 2026-11-14.
 
 Also as built: the verification budget (40 units) applies to session-signed
 frames only, so #447's 3-of-5 hybrid owner frames (55 units) are unchanged;
@@ -130,8 +173,9 @@ session key equal to the authority digest; a schedule naming bit 45 before
 ## Alternatives considered
 
 - For 1, a per-account counter bumped on every authority change: one more
-  field in #447's `ka:a:` record encoding for the same effect. The record's
-  existing `since` height already identifies the generation.
+  field in #447's `ka:a:` record encoding. The record's existing `since`
+  height identifies the generation across heights, but not between two
+  immediate changes in one block (decision 1).
 - For 6, implementing owner-frame cleanup: see 6.
 
 ## Consequences
@@ -145,13 +189,15 @@ session key equal to the authority digest; a schedule naming bit 45 before
   by tests (16 recipients admitted, 17 refused at decode; 40 units passes
   the budget, 41 refused), the read and write counts by inspection only: no
   test counts storage accesses.
-- Expired and voided `ka:s:` rows are never swept (decision 6), so an
-  account's rows grow with every distinct key it adds until it revokes them.
+- Expired and voided `ka:s:` rows are never swept and live rows are not
+  capped per account (decision 6), so an account's rows grow with every
+  distinct key it adds until it revokes them; the account pays for each.
 
 ## Open before bit 45 is scheduled
 
 - Decision 5 (methods are plain transfers only): Eric's confirmation.
 - Decision 9 (cumulative cap): Eric's confirmation.
+- Decision 6 (no per-account row cap): decided with 5 and 9.
 - Base: this PR is stacked on `postgen/account-authority` (#447), not on
   `postgen/v4` as briefed, because `postgen/v4` does not contain #447 yet.
   It is retargeted or rebased onto `postgen/v4` once #447 flows into it.
