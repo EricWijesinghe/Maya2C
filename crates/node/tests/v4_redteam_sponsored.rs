@@ -209,15 +209,15 @@ fn a_sponsorship_for_one_inner_cannot_pay_for_a_replacement_at_the_same_nonce() 
 
 // M1 (ADR-135 amendment, #501), tried two ways. As written there ("spare
 // approvals can pad the inner") it does not hold: the verifier takes exactly
-// `m` approvals, so a third one is refused. What remains open is narrower:
-// approvals are outside the txid, so a relay holding a spare approval can
-// swap *which* members signed. With a mixed-suite policy that changes the
-// size: an ML-DSA-87 approval (4,627 bytes) for an ML-DSA-65 one (3,309), and
-// the sponsor pays for bytes it never saw, up to max_fee and never past it.
-// When the fix lands (the sponsor signs `inner_len` or the approvals), the
-// swapped frame must be refused and the last assertion block flips.
+// `m` approvals, so a third one is refused. The narrower attack: approvals are
+// outside the txid, so a relay holding a spare approval can swap *which*
+// members signed. With a mixed-suite policy that changes the size: an
+// ML-DSA-87 approval (4,627 bytes) for an ML-DSA-65 one (3,309), and the
+// sponsor would pay for bytes it never saw. Closed by SP-2 signing
+// `inner_len`: the swapped frame is longer, so the sponsor's signature no
+// longer verifies and nothing is charged.
 #[test]
-fn m1_padding_is_refused_but_a_swapped_mixed_suite_quorum_still_costs_the_sponsor_more() {
+fn m1_padding_and_a_swapped_mixed_suite_quorum_are_both_refused() {
     let small = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0x71; 32]));
     let large: Vec<_> = (2..=3u8)
         .map(|i| MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([0x70 + i; 32])))
@@ -272,23 +272,13 @@ fn m1_padding_is_refused_but_a_swapped_mixed_suite_quorum_still_costs_the_sponso
     swapped.sponsor = seen.sponsor.clone();
     assert!(required(&swapped) > required(&seen));
 
-    // A ceiling at the fee the sponsor saw still binds.
-    let tight = sponsored(
-        with(vec![approve(0), approve(1)]),
-        &key,
-        required(&seen).as_u64(),
-    );
-    let mut tight_swapped = with(vec![approve(1), approve(2)]);
-    tight_swapped.sponsor = tight.sponsor.clone();
-    let err = apply(&n, vec![tight_swapped], V4).unwrap_err();
-    assert!(
-        matches!(&err, NodeError::SponsorshipRefused { reason } if reason.contains("max_fee")),
-        "{err:?}"
-    );
+    // Under any ceiling, even a generous one, the swapped frame is refused:
+    // the sponsor signed the inner's length, and the swap changed it.
+    let err = apply(&n, vec![swapped], V4).unwrap_err();
+    sponsor_signature_refused(&err);
+    assert_eq!(balance(&n, &payer), U256::from(FUNDS));
 
-    // The open residual: under a generous ceiling the swapped frame applies
-    // and the sponsor pays for the larger frame.
-    apply(&n, vec![swapped.clone()], V4).expect("M1 residual: the swapped quorum applies");
-    assert_eq!(balance(&n, &payer), U256::from(FUNDS) - required(&swapped));
-    assert!(required(&swapped) <= U256::from(GENEROUS));
+    // Control: the frame the sponsor saw applies and costs what it saw.
+    apply(&n, vec![seen.clone()], V4).expect("the frame the sponsor signed");
+    assert_eq!(balance(&n, &payer), U256::from(FUNDS) - required(&seen));
 }

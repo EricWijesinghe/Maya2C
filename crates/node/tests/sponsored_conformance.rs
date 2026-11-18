@@ -94,10 +94,17 @@ fn signing_case(case: &Value) {
         .unwrap()
         .try_into()
         .unwrap();
+    let inner_len: u32 = text(case, "inner_len").parse().unwrap();
     let max_fee = U256::from_dec_str(text(case, "max_fee")).unwrap();
     let valid_until: u64 = text(case, "valid_until").parse().unwrap();
     assert_eq!(
-        hex::encode(signing_bytes(&chain, &txid, &max_fee, valid_until)),
+        hex::encode(signing_bytes(
+            &chain,
+            &txid,
+            inner_len,
+            &max_fee,
+            valid_until
+        )),
         text(&case["expect"], "hex"),
         "{id}"
     );

@@ -6,7 +6,8 @@
 //!      ‖ suite:u8 ‖ pk_len:u32le ‖ sponsor_pk ‖ max_fee:32le ‖ valid_until:u64le
 //!      ‖ sig_len:u32le ‖ signature
 //! sponsor signing bytes =
-//!     "maya2c/sponsor/v1" ‖ chain_tag(32) ‖ txid(inner)(32) ‖ max_fee(32 LE) ‖ valid_until(8 LE)
+//!     "maya2c/sponsor/v1" ‖ chain_tag(32) ‖ txid(inner)(32) ‖ inner_len(4 LE)
+//!     ‖ max_fee(32 LE) ‖ valid_until(8 LE)
 //! ```
 //!
 //! A sponsor pays the fee of somebody else's transaction. The inner frame is
@@ -16,6 +17,10 @@
 //! - `txid(inner)` covers the inner's nonce and signatures, so one sponsorship
 //!   pays for one transaction once: a replay fails on the nonce (threat model
 //!   P-1), and changing a byte of the inner changes the txid it signed.
+//! - `inner_len` is there because a multisig inner's approvals are outside its
+//!   txid: a relay holding a spare approval could swap which members signed a
+//!   mixed-suite quorum and grow the frame the sponsor pays for (red team M1).
+//!   With the length signed, the sponsor pays for exactly the bytes it saw.
 //! - `max_fee` is the most this one sponsorship can ever cost. Apply debits
 //!   `required(outer_len)` and refuses the frame if that is above `max_fee`.
 //! - `valid_until` and the chain tag stop a stale or another chain's
@@ -84,16 +89,23 @@ impl Sponsorship {
 pub fn signing_bytes(
     chain: &ChainTag,
     inner_txid: &[u8; 32],
+    inner_len: u32,
     max_fee: &U256,
     valid_until: u64,
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(SPONSOR_DOMAIN.len() + 32 + 32 + 32 + 8);
+    let mut buf = Vec::with_capacity(SPONSOR_DOMAIN.len() + 32 + 32 + 4 + 32 + 8);
     buf.extend_from_slice(SPONSOR_DOMAIN);
     buf.extend_from_slice(&chain.0);
     buf.extend_from_slice(inner_txid);
+    buf.extend_from_slice(&inner_len.to_le_bytes());
     crate::core::codec::put_amount(&mut buf, max_fee);
     buf.extend_from_slice(&valid_until.to_le_bytes());
     buf
+}
+
+/// The inner frame's encoded length, as SP-1's `inner_len` field writes it.
+fn inner_len(tx: &Transaction) -> u32 {
+    u32::try_from(tx.inner_bytes().len()).unwrap_or(u32::MAX)
 }
 
 /// A length field. Every length written here is a registry length or an
@@ -192,6 +204,7 @@ pub(crate) fn verify(
     let message = signing_bytes(
         chain,
         &tx.inner_txid(),
+        inner_len(tx),
         &sponsorship.max_fee,
         sponsorship.valid_until,
     );
@@ -222,7 +235,13 @@ impl Transaction {
         valid_until: u64,
         chain: &ChainTag,
     ) -> Result<()> {
-        let message = signing_bytes(chain, &self.inner_txid(), &max_fee, valid_until);
+        let message = signing_bytes(
+            chain,
+            &self.inner_txid(),
+            inner_len(self),
+            &max_fee,
+            valid_until,
+        );
         let signature =
             S::sign(key, &message).map_err(|e| NodeError::SignatureSuite(e.to_string()))?;
         self.sponsor = Some(Box::new(Sponsorship {
@@ -244,15 +263,20 @@ mod tests {
     #[test]
     fn the_signed_bytes_are_the_documented_layout() {
         let chain = ChainTag::from_genesis([0xC7; 32]);
-        let bytes = signing_bytes(&chain, &[0x11; 32], &U256::from(0x0102u64), 0x0A0B);
+        let bytes = signing_bytes(&chain, &[0x11; 32], 0x0304, &U256::from(0x0102u64), 0x0A0B);
         assert_eq!(&bytes[..SPONSOR_DOMAIN.len()], b"maya2c/sponsor/v1");
         let rest = &bytes[SPONSOR_DOMAIN.len()..];
-        assert_eq!(rest.len(), 32 + 32 + 32 + 8);
+        assert_eq!(rest.len(), 32 + 32 + 4 + 32 + 8);
         assert_eq!(&rest[..32], &[0xC7; 32]);
         assert_eq!(&rest[32..64], &[0x11; 32]);
-        assert_eq!(&rest[64..66], &[0x02, 0x01], "max_fee little-endian");
-        assert!(rest[66..96].iter().all(|b| *b == 0));
-        assert_eq!(&rest[96..], &0x0A0Bu64.to_le_bytes());
+        assert_eq!(
+            &rest[64..68],
+            &[0x04, 0x03, 0, 0],
+            "inner_len little-endian"
+        );
+        assert_eq!(&rest[68..70], &[0x02, 0x01], "max_fee little-endian");
+        assert!(rest[70..100].iter().all(|b| *b == 0));
+        assert_eq!(&rest[100..], &0x0A0Bu64.to_le_bytes());
     }
 
     #[test]

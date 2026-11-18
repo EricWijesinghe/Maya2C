@@ -901,3 +901,10 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-18 — The sponsor signs the inner frame's length (V4-V1, M1 closed; Eric 2026-11-14)
+
+Under Eric's 2026-11-14 approval ("I approve everything, proceed") and his choice of the recommended option on every open question.
+
+- **M1 closed by signing `inner_len`** (SP-2, `core::sponsor_tx::signing_bytes`). A multisig inner's approvals are outside its txid, so a relay could swap a mixed-suite quorum and make the sponsor pay for a longer frame. The other option was a hash of the approvals. Rejected: it costs a hash per verify, and it would also refuse a swap between approvals of equal length, which costs the sponsor nothing. Fee is charged by length, so the length is what the sponsor must bind. The domain stays `maya2c/sponsor/v1` because the form has never been active on any chain (bit 44 compiled at `u64::MAX`).
+- **X1 recorded as a v4 activation blocker** (spec 02 residuals): a sponsorship can get around ADR-086 Rule A and the AA-9 window once #501 and #548 share a branch. It is fixed in the postgen/v4 integration, because neither branch can see the other's records.
