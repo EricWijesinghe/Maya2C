@@ -185,6 +185,8 @@ impl PayoutEngine {
         report.broadcast += progress.broadcast;
         report.confirmed += progress.confirmed;
         report.value_broadcast += progress.value_broadcast;
+        report.rebroadcast += progress.rebroadcast;
+        report.rebroadcast_refused += progress.rebroadcast_refused;
 
         if self.ledger.open_batches()?.is_empty() {
             let started = self.start_batch().await?;
