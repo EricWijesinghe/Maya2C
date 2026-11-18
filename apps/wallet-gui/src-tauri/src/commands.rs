@@ -679,10 +679,13 @@ async fn native_ok(
     message: String,
     ok: &str,
 ) -> Result<bool, String> {
-    let question = app
-        .dialog()
-        .message(message)
-        .parent(window)
+    let question = app.dialog().message(message);
+    // Mobile dialogs take no parent window: they belong to the one activity.
+    #[cfg(desktop)]
+    let question = question.parent(window);
+    #[cfg(mobile)]
+    let _ = window;
+    let question = question
         .title(title)
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom(
