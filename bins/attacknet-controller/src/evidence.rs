@@ -588,19 +588,26 @@ pub(crate) fn unix_now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// The instant `secs` after the epoch, or `None` past year 9999.
+fn utc(secs: u64) -> Option<time::OffsetDateTime> {
+    time::OffsetDateTime::from_unix_timestamp(i64::try_from(secs).ok()?).ok()
+}
+
+fn ymd(t: time::OffsetDateTime) -> String {
+    format!("{:04}-{:02}-{:02}", t.year(), u8::from(t.month()), t.day())
+}
+
 /// `YYYY-MM-DD` in UTC: the run directory name. An instant outside the
 /// representable range files under the epoch rather than failing the run.
 pub(crate) fn utc_date(secs: u64) -> String {
-    chrono::DateTime::from_timestamp(secs as i64, 0)
-        .unwrap_or_default()
-        .format("%Y-%m-%d")
-        .to_string()
+    ymd(utc(secs).unwrap_or(time::OffsetDateTime::UNIX_EPOCH))
 }
 
 /// `YYYY-MM-DD HH:MM:SS UTC`, or `None` outside the representable range.
 pub(crate) fn utc_datetime(secs: u64) -> Option<String> {
-    chrono::DateTime::from_timestamp(secs as i64, 0)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+    let t = utc(secs)?;
+    let (h, m, s) = t.to_hms();
+    Some(format!("{} {h:02}:{m:02}:{s:02} UTC", ymd(t)))
 }
 
 #[cfg(test)]
@@ -624,5 +631,13 @@ mod tests {
             utc_datetime(1_704_164_645).as_deref(),
             Some("2024-01-02 03:04:05 UTC")
         );
+    }
+
+    #[test]
+    fn an_unrepresentable_instant_is_not_wrapped_to_1969() {
+        // chrono's `as i64` turned u64::MAX into -1, i.e. 1969-12-31.
+        assert_eq!(utc_date(u64::MAX), "1970-01-01");
+        assert_eq!(utc_datetime(u64::MAX), None);
+        assert_eq!(utc_datetime(253_402_300_800), None); // 10000-01-01
     }
 }
