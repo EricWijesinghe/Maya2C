@@ -57,7 +57,8 @@ describe.skipIf(!url)("live node through the gateway", () => {
     const senderAfter = await client.getBalance(sender);
     expect(senderAfter.nonce).toBe(before.nonce + 1);
     // Fees are burned or paid out, so supply can only fall, never rise.
-    expect((await client.getSupply()).total).toBeLessThanOrEqual(supply.total);
+    // `total` is a u256 decimal string: compare as bigint, not as text.
+    expect(BigInt((await client.getSupply()).total)).toBeLessThanOrEqual(BigInt(supply.total));
     console.log(`sdk e2e: submitted via gateway, recipient credited after ${elapsed} ms`);
 
     // Replaying the same bytes must not pay twice, and the refusal must be a
