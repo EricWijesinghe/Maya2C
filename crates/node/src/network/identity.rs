@@ -74,7 +74,8 @@ pub fn load_or_create(data_dir: &Path) -> Result<Keypair> {
 /// Returns [`NodeError::Identity`] if the file cannot be read or is not a
 /// 32-byte ed25519 seed.
 pub fn load(path: &Path) -> Result<Keypair> {
-    let bytes = std::fs::read(path).map_err(|e| identity_error(path, e.to_string()))?;
+    let bytes =
+        Zeroizing::new(std::fs::read(path).map_err(|e| identity_error(path, e.to_string()))?);
 
     let mut seed = <[u8; SEED_LEN]>::try_from(bytes.as_slice()).map_err(|_| {
         identity_error(
@@ -138,12 +139,14 @@ fn write_new_owner_only(path: &Path, seed: &[u8]) -> std::io::Result<()> {
     write_or_remove(file, path, seed)
 }
 
-/// Writes the seed, and on failure removes the file so a half-written key does
+/// Writes and syncs the seed, and on failure removes the file so a half-written key does
 /// not block every later start with "found N bytes".
 fn write_or_remove(mut file: std::fs::File, path: &Path, seed: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
-    let result = file.write_all(seed);
+    // Synced before success: after a power cut a 0-byte key file would make
+    // every later start fail with "found 0 bytes".
+    let result = file.write_all(seed).and_then(|()| file.sync_all());
     if result.is_err() {
         // Closed before removal: Windows refuses to delete an open file.
         drop(file);

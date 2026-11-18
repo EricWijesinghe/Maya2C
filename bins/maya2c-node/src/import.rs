@@ -8,10 +8,12 @@ use std::time::Duration;
 
 use custom_l1_node::consensus::{Chain, InsertOutcome};
 use custom_l1_node::core::Block;
+use custom_l1_node::error::NodeError;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::peer_health::classify_import;
 use custom_l1_node::network::{NodeEvent, NodeHandle, Offence};
 use custom_l1_node::rpc::BlockInfo;
+use custom_l1_node::state::fees::MAX_BLOCK_BYTES;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
@@ -25,8 +27,15 @@ const BACKFILL_IDLE: Duration = Duration::from_secs(2);
 
 /// Maximum buffered blocks whose parent has not arrived, counted as blocks.
 ///
-/// Bounds the memory held for unattached blocks, whatever the gossip volume.
+/// One of two bounds on the pool; [`MAX_ORPHAN_BYTES`] is the other. A count
+/// alone would let large blocks hold `MAX_ORPHANS` times the gossip cap.
 const MAX_ORPHANS: usize = 512;
+
+/// Wire bytes the orphan pool may hold in all. Together with the per-block
+/// size check before buffering, this bounds the memory held for unattached
+/// blocks whatever the gossip volume. Twelve maximum-size blocks fit.
+const MAX_ORPHAN_BYTES: u64 = 64 * 1024 * 1024;
+const _: () = assert!(MAX_ORPHAN_BYTES >= MAX_BLOCK_BYTES);
 
 /// Buffered blocks allowed under one missing parent, so one parent id cannot
 /// hold the whole pool. Assumes honest DAG-BFT blocks form a linear
@@ -42,24 +51,82 @@ const MAX_SYNC_DEPTH: usize = 64;
 /// Buffered blocks waiting on a parent, keyed by that parent, with the peer to
 /// blame if each proves invalid: a gossiped block's author, a fetched block's
 /// responder — never a relay (see `NodeEvent::BlockReceived`).
-pub(super) type Orphans = HashMap<[u8; 32], Vec<(Block, Option<PeerId>)>>;
+///
+/// Keeps running block and byte totals so both pool bounds are checked
+/// without a scan. Looked up by key only; its iteration order is never used.
+#[derive(Default)]
+pub(super) struct Orphans {
+    by_parent: HashMap<[u8; 32], Vec<Orphan>>,
+    blocks: usize,
+    bytes: u64,
+}
+
+/// One buffered block, with its wire size so removal can return it.
+struct Orphan {
+    block: Block,
+    source: Option<PeerId>,
+    bytes: u64,
+}
+
+impl Orphans {
+    /// Whether one more block of `bytes` fits under `parent`: the pool's block
+    /// count, its byte budget and the per-parent share must all have room.
+    fn has_room(&self, parent: &[u8; 32], bytes: u64) -> bool {
+        let under_parent = self.by_parent.get(parent).map_or(0, Vec::len);
+        self.blocks < MAX_ORPHANS
+            && self.bytes.saturating_add(bytes) <= MAX_ORPHAN_BYTES
+            && under_parent < MAX_ORPHANS_PER_PARENT
+    }
+
+    /// Buffers `block` under `parent`. Returns `false` only when the pool has
+    /// no room; a block already held there is not added twice, so repeats from
+    /// backfill or an ancestor walk do not use up the parent's share.
+    fn buffer(
+        &mut self,
+        parent: [u8; 32],
+        block: Block,
+        source: Option<PeerId>,
+        bytes: u64,
+    ) -> bool {
+        let id = block.header.id();
+        let held = self
+            .by_parent
+            .get(&parent)
+            .is_some_and(|siblings| siblings.iter().any(|o| o.block.header.id() == id));
+        if held {
+            return true;
+        }
+        if !self.has_room(&parent, bytes) {
+            return false;
+        }
+        self.blocks += 1;
+        self.bytes += bytes;
+        self.by_parent.entry(parent).or_default().push(Orphan {
+            block,
+            source,
+            bytes,
+        });
+        true
+    }
+
+    /// Removes and returns the blocks waiting on `parent`, releasing their
+    /// share of both pool totals.
+    fn take_children(&mut self, parent: &[u8; 32]) -> Vec<(Block, Option<PeerId>)> {
+        let children = self.by_parent.remove(parent).unwrap_or_default();
+        self.blocks -= children.len();
+        self.bytes -= children.iter().map(|o| o.bytes).sum::<u64>();
+        children.into_iter().map(|o| (o.block, o.source)).collect()
+    }
+}
 
 /// What an import found that the network layer must hear about.
 #[derive(Default)]
 pub(super) struct ImportReport {
     /// Refused blocks, each against the peer to blame for it.
     pub(super) offences: Vec<(PeerId, Offence)>,
-    /// The imported block's parent, if it is unknown and the block was buffered.
+    /// The imported block's parent, if it is unknown. Set whether or not the
+    /// pool had room, so a full share under that parent still starts a walk.
     pub(super) missing_parent: Option<[u8; 32]>,
-}
-
-/// Whether the orphan pool can take one more block under `parent`.
-///
-/// Both limits count blocks: the pool total and the per-parent share.
-fn has_orphan_room(orphans: &Orphans, parent: &[u8; 32]) -> bool {
-    let buffered: usize = orphans.values().map(Vec::len).sum();
-    let under_parent = orphans.get(parent).map_or(0, Vec::len);
-    buffered < MAX_ORPHANS && under_parent < MAX_ORPHANS_PER_PARENT
 }
 
 /// Imports a block, buffering it if its parent has not arrived yet.
@@ -89,14 +156,19 @@ pub(super) fn import_block(
         };
 
         if !known_parent {
+            // The size check is stateless, so an oversized block is refused
+            // here; it would otherwise wait in the pool for `insert_block`.
+            if let Err(error) = block.check_size() {
+                refuse(&mut report, metrics, source, &error);
+                continue;
+            }
+            if id == first {
+                report.missing_parent = Some(parent);
+            }
             // Cap the buffer: an unbounded orphan pool is a memory-exhaustion
             // vector for any peer willing to send junk.
-            if has_orphan_room(orphans, &parent) {
-                if id == first {
-                    report.missing_parent = Some(parent);
-                }
-                orphans.entry(parent).or_default().push((block, source));
-            } else {
+            let bytes = block.to_bytes().len() as u64;
+            if !orphans.buffer(parent, block, source, bytes) {
                 metrics.record_rejection("orphan_buffer_full");
             }
             continue;
@@ -120,28 +192,25 @@ pub(super) fn import_block(
                 metrics.record_import();
                 println!("imported block, height now {height}");
                 // This block may be the parent something buffered was waiting on.
-                if let Some(children) = orphans.remove(&id) {
-                    pending.extend(children);
-                }
+                pending.extend(orphans.take_children(&id));
             }
-            Ok(_) => {
-                if let Some(children) = orphans.remove(&id) {
-                    pending.extend(children);
-                }
-            }
-            Err(error) => {
-                // The label is a fixed string, never the error text: a label
-                // drawn from an attacker-influenced message would let one peer
-                // create unbounded time series in every scraper on the network.
-                metrics.record_rejection("invalid");
-                eprintln!("rejected an imported block: {error}");
-                if let (Some(peer), Some(offence)) = (source, classify_import(&error)) {
-                    report.offences.push((peer, offence));
-                }
-            }
+            Ok(_) => pending.extend(orphans.take_children(&id)),
+            Err(error) => refuse(&mut report, metrics, source, &error),
         }
     }
     report
+}
+
+/// Counts a refused block and blames `source` if the error is an offence.
+fn refuse(report: &mut ImportReport, metrics: &Metrics, source: Option<PeerId>, error: &NodeError) {
+    // The label is a fixed string, never the error text: a label drawn from an
+    // attacker-influenced message would let one peer create unbounded time
+    // series in every scraper on the network.
+    metrics.record_rejection("invalid");
+    eprintln!("rejected an imported block: {error}");
+    if let (Some(peer), Some(offence)) = (source, classify_import(error)) {
+        report.offences.push((peer, offence));
+    }
 }
 
 /// Hands every offence an import found to the network layer.
@@ -174,7 +243,7 @@ enum Fetched {
 /// answered each request just under the timeout with yet another unknown
 /// parent could stall every import for minutes, unscored — an unknown parent is
 /// not an offence. Here a walk stalls only itself. What it fetches goes through
-/// [`import_block`] and the count-capped orphan buffer like gossip does, so
+/// [`import_block`] and the capped orphan buffer like gossip does, so
 /// nothing accumulates in the walk, and every block still meets
 /// [`Chain::insert_block`] before it counts. A walk ends at [`MAX_SYNC_DEPTH`],
 /// at the first parent the chain already holds, or when the relay runs out or
@@ -224,7 +293,7 @@ pub(super) async fn block_import_loop(
     metrics: Arc<Metrics>,
 ) {
     let mut events = network.subscribe();
-    let mut orphans = Orphans::new();
+    let mut orphans = Orphans::default();
     let (fetched_tx, mut fetched_rx) = mpsc::channel(FETCH_QUEUE);
     let mut walking: HashSet<PeerId> = HashSet::new();
 
@@ -293,7 +362,7 @@ pub(super) async fn backfill_loop(chain: Arc<Mutex<Chain>>, url: String, metrics
     };
 
     println!("backfill:    pulling history from {url}");
-    let mut orphans = Orphans::new();
+    let mut orphans = Orphans::default();
 
     loop {
         let next_height = lock_chain(&chain).height() + 1;
@@ -334,11 +403,16 @@ pub(super) async fn backfill_loop(chain: Arc<Mutex<Chain>>, url: String, metrics
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use custom_l1_node::core::BlockHeader;
+    use custom_l1_node::consensus::chain::ChainConfig;
+    use custom_l1_node::core::{BlockHeader, Transaction, TxOutput};
     use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+    use custom_l1_node::state::StateDB;
 
-    fn orphan_under(parent: [u8; 32], nonce: u64) -> (Block, Option<PeerId>) {
-        let header = BlockHeader {
+    /// Wire bytes one `TxOutput` adds: a 32-byte amount and a 32-byte address.
+    const OUTPUT_WIRE_BYTES: usize = 64;
+
+    fn header(parent: [u8; 32], nonce: u64) -> BlockHeader {
+        BlockHeader {
             version: 0,
             prev_hash: parent,
             state_root: [0; 32],
@@ -346,28 +420,147 @@ mod tests {
             nonce,
             difficulty_target: target_from_leading_zero_bits(0),
             tx_root: [0; 32],
+        }
+    }
+
+    /// A block under `parent` whose wire form is about `wire_bytes` long.
+    /// Unsigned: it only has to be buffered, never applied.
+    fn orphan(parent: [u8; 32], nonce: u64, wire_bytes: usize) -> Block {
+        let outputs = vec![
+            TxOutput {
+                amount: primitive_types::U256::one(),
+                recipient: [1; 32],
+            };
+            wire_bytes / OUTPUT_WIRE_BYTES
+        ];
+        let txs = if outputs.is_empty() {
+            vec![]
+        } else {
+            vec![Transaction::new(vec![], outputs, 0)]
         };
-        (Block::new(header, vec![]), None)
+        Block::new(header(parent, nonce), txs)
+    }
+
+    fn chain(dir: &std::path::Path) -> Mutex<Chain> {
+        let state = Arc::new(StateDB::open(dir).unwrap());
+        let genesis = Block::new(header([0; 32], 0), vec![]);
+        Mutex::new(Chain::open(state, genesis, ChainConfig::without_pow_verification()).unwrap())
+    }
+
+    fn import(
+        chain: &Mutex<Chain>,
+        block: Block,
+        source: Option<PeerId>,
+        orphans: &mut Orphans,
+    ) -> ImportReport {
+        import_block(chain, block, source, orphans, &Metrics::new())
     }
 
     #[test]
-    fn one_parent_cannot_hold_the_whole_pool() {
+    fn a_ninth_orphan_under_one_parent_is_refused_by_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let chain = chain(dir.path());
+        let mut orphans = Orphans::default();
         let parent = [7u8; 32];
-        let mut orphans: Orphans = HashMap::new();
+        for nonce in 0..=MAX_ORPHANS_PER_PARENT as u64 {
+            import(&chain, orphan(parent, nonce, 0), None, &mut orphans);
+        }
+        assert_eq!(
+            orphans.blocks, MAX_ORPHANS_PER_PARENT,
+            "per-parent share not enforced"
+        );
+        import(&chain, orphan([8u8; 32], 0, 0), None, &mut orphans);
+        assert_eq!(
+            orphans.blocks,
+            MAX_ORPHANS_PER_PARENT + 1,
+            "another parent is refused"
+        );
+    }
+
+    #[test]
+    fn a_refused_orphan_still_names_its_missing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let chain = chain(dir.path());
+        let mut orphans = Orphans::default();
+        let parent = [7u8; 32];
         for nonce in 0..MAX_ORPHANS_PER_PARENT as u64 {
-            assert!(has_orphan_room(&orphans, &parent));
-            orphans
-                .entry(parent)
-                .or_default()
-                .push(orphan_under(parent, nonce));
+            import(&chain, orphan(parent, nonce, 0), None, &mut orphans);
+        }
+        let report = import(&chain, orphan(parent, 99, 0), None, &mut orphans);
+        assert_eq!(
+            orphans.blocks, MAX_ORPHANS_PER_PARENT,
+            "the share was not full"
+        );
+        assert_eq!(report.missing_parent, Some(parent), "no walk would start");
+    }
+
+    #[test]
+    fn a_repeated_orphan_does_not_use_up_the_parent_share() {
+        let dir = tempfile::tempdir().unwrap();
+        let chain = chain(dir.path());
+        let mut orphans = Orphans::default();
+        let parent = [7u8; 32];
+        for _ in 0..=MAX_ORPHANS_PER_PARENT {
+            import(&chain, orphan(parent, 1, 0), None, &mut orphans);
+        }
+        assert_eq!(orphans.blocks, 1, "a repeat was buffered twice");
+        import(&chain, orphan(parent, 2, 0), None, &mut orphans);
+        assert_eq!(orphans.blocks, 2, "a new sibling was refused");
+    }
+
+    #[test]
+    fn an_oversized_orphan_is_refused_and_blamed_before_buffering() {
+        let dir = tempfile::tempdir().unwrap();
+        let chain = chain(dir.path());
+        let mut orphans = Orphans::default();
+        let author = PeerId::random();
+        let big = orphan([7u8; 32], 0, MAX_BLOCK_BYTES as usize + 1024);
+        assert!(big.check_size().is_err(), "fixture is not over the cap");
+
+        let report = import(&chain, big, Some(author), &mut orphans);
+        assert_eq!(orphans.blocks, 0, "an oversized block was buffered");
+        assert_eq!(report.offences.len(), 1, "the author was not blamed");
+        assert_eq!(
+            report.missing_parent, None,
+            "an invalid block started a walk"
+        );
+    }
+
+    #[test]
+    fn the_pool_refuses_at_its_byte_budget_before_its_block_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let chain = chain(dir.path());
+        let mut orphans = Orphans::default();
+        let size = 4 * 1024 * 1024;
+        let fits = usize::try_from(MAX_ORPHAN_BYTES).unwrap() / size;
+        for index in 0..=fits as u64 {
+            let mut parent = [0u8; 32];
+            parent[..8].copy_from_slice(&index.to_be_bytes());
+            import(&chain, orphan(parent, 0, size), None, &mut orphans);
         }
         assert!(
-            !has_orphan_room(&orphans, &parent),
-            "per-parent cap not enforced"
+            orphans.blocks < MAX_ORPHANS,
+            "the block count refused first"
         );
         assert!(
-            has_orphan_room(&orphans, &[8u8; 32]),
-            "another parent is refused"
+            orphans.bytes <= MAX_ORPHAN_BYTES,
+            "byte budget exceeded: {}",
+            orphans.bytes
+        );
+        assert!(orphans.blocks <= fits, "every large block was buffered");
+    }
+
+    #[test]
+    fn taking_children_releases_their_share_of_both_totals() {
+        let mut orphans = Orphans::default();
+        let parent = [7u8; 32];
+        assert!(orphans.buffer(parent, orphan(parent, 0, 0), None, 1_000));
+        assert!(orphans.buffer(parent, orphan(parent, 1, 0), None, 2_000));
+        assert_eq!(orphans.take_children(&parent).len(), 2);
+        assert_eq!(
+            (orphans.blocks, orphans.bytes),
+            (0, 0),
+            "totals not released"
         );
     }
 
@@ -375,25 +568,19 @@ mod tests {
     fn the_pool_limit_counts_blocks_not_parents() {
         // 64 parents x 8 blocks: 512 blocks under 64 keys. A key count would
         // still admit here (64 < 512), so only block counting refuses it.
-        let mut orphans: Orphans = HashMap::new();
+        let mut orphans = Orphans::default();
         for parent_index in 0..64u64 {
             let mut parent = [0u8; 32];
             parent[..8].copy_from_slice(&parent_index.to_be_bytes());
             for nonce in 0..MAX_ORPHANS_PER_PARENT as u64 {
-                orphans
-                    .entry(parent)
-                    .or_default()
-                    .push(orphan_under(parent, parent_index * 8 + nonce));
+                let block = orphan(parent, parent_index * 8 + nonce, 0);
+                assert!(orphans.buffer(parent, block, None, 1));
             }
         }
         assert_eq!(
-            orphans.values().map(Vec::len).sum::<usize>(),
-            MAX_ORPHANS,
+            orphans.blocks, MAX_ORPHANS,
             "pool not filled to its block limit"
         );
-        assert!(
-            !has_orphan_room(&orphans, &[0xff; 32]),
-            "full pool still admits"
-        );
+        assert!(!orphans.has_room(&[0xff; 32], 1), "full pool still admits");
     }
 }

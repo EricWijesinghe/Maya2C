@@ -432,6 +432,9 @@ mod tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let (server, _dir) = start(MarketFeed::empty()).await;
+        // shortcut: assumes the 256 local connects finish well inside
+        // HEADER_READ_TIMEOUT (10 s); a runner slower than that frees permits
+        // early and fails this spuriously. Inject the timeout if that is seen.
         let mut idle = Vec::with_capacity(MAX_MARKET_CONNECTIONS);
         for _ in 0..MAX_MARKET_CONNECTIONS {
             idle.push(

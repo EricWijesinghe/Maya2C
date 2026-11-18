@@ -10,8 +10,9 @@ Listed so a second client can interoperate. Node: `crates/node/src/network/`.
 ## Node-local bounds (not interoperability rules)
 
 A second client need not copy these; they are one node's resource limits
-(ADR-147). Blocks whose parent is unknown are buffered up to 512 blocks, at
-most 8 under one parent. The block-sync request table and the RPC per-address
+(ADR-147). Blocks whose parent is unknown are buffered up to 512 blocks and
+64 MiB of wire bytes in all, at most 8 under one parent; a block over the
+block byte cap is refused before it is buffered. The block-sync request table and the RPC per-address
 rate table evict their oldest entry at their ceiling rather than refusing a
 newcomer or growing. The market HTTP server serves at most 256 live
 connections and closes one whose request head takes longer than 10 s.

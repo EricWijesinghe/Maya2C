@@ -20,12 +20,22 @@ permissions before being tightened.
 
 ## Decision
 
-1. **Orphan pool counts blocks, with a per-parent share.** The 512 limit counts
-   buffered blocks, not parent ids, and one missing parent may hold at most 8.
-   This assumes honest DAG-BFT blocks form a linear `prev_hash` chain; raise
-   `MAX_ORPHANS_PER_PARENT` if a legitimate fork can exceed eight siblings.
-   Tests: `import::tests::one_parent_cannot_hold_the_whole_pool`,
-   `the_pool_limit_counts_blocks_not_parents`.
+1. **Orphan pool is bounded in blocks and in bytes, with a per-parent share.**
+   The 512 limit counts buffered blocks, not parent ids; the pool also holds at
+   most 64 MiB of block wire bytes; and one missing parent may hold at most 8.
+   A block over `MAX_BLOCK_BYTES` is refused (and its author blamed) before it
+   is buffered, since that check is stateless. A block already buffered under
+   its parent is not added again. A block refused for want of room still names
+   its missing parent, so an ancestor walk from its relay still starts. The
+   per-parent share assumes honest DAG-BFT blocks form a linear `prev_hash`
+   chain; raise `MAX_ORPHANS_PER_PARENT` if a legitimate fork can exceed eight
+   siblings. Tests (`import::tests`): `a_ninth_orphan_under_one_parent_is_refused_by_import`,
+   `the_pool_limit_counts_blocks_not_parents`,
+   `the_pool_refuses_at_its_byte_budget_before_its_block_count`,
+   `an_oversized_orphan_is_refused_and_blamed_before_buffering`,
+   `a_refused_orphan_still_names_its_missing_parent`,
+   `a_repeated_orphan_does_not_use_up_the_parent_share`,
+   `taking_children_releases_their_share_of_both_totals`.
 2. **Block-sync rate table admits a newcomer when full.** After expired windows
    are dropped, the window that started longest ago is evicted. Test:
    `network::sync::tests::a_newcomer_is_admitted_when_the_table_is_full`.
@@ -50,7 +60,9 @@ permissions before being tightened.
    `safety_guard::tests::only_an_epoch_directory_counts_as_a_safety_log`.
 7. **The node key file is created owner-only and never overwritten.** Mode 0600
    is set at `open` (Unix), `create_new` refuses an existing file, a failed write
-   removes the partial file, and the seed copy is zeroized. Tests:
+   removes the partial file, the seed is synced to disk before the node goes
+   on, and the seed copies are zeroized both when the file is created and when
+   it is read at start. Tests:
    `a_new_key_file_is_never_overwritten`, `a_new_key_file_is_owner_only_from_creation`
    (Unix), `a_failed_seed_write_leaves_no_partial_key_file`.
 
@@ -60,6 +72,19 @@ permissions before being tightened.
   record is oldest regains a full quota once roughly a table's worth of newer
   ids have cycled through. The previous behaviour was worse in each case: the
   sync table refused every newcomer, and the RPC table grew past its ceiling.
+- Orphans still never expire (the TTL sweep is left open). Blocks with
+  fabricated parents cost nothing to make and never reach `insert_block`, so
+  they are never scored. A full pool, or a parent whose share of 8 is held by
+  such blocks, makes the node refuse honest out-of-order blocks until backfill
+  or certificate replay catches it up. The per-parent share makes that refusal
+  targetable at one upcoming parent, not only pool-wide; the refused block
+  still starts an ancestor walk, and consensus is unaffected.
+- The market HTTP cap of 256 is global, with no per-source share. One client
+  that keeps reopening idle sockets (each closed after the 10 s head timeout)
+  can hold every permit and lock other clients out of the market endpoint.
+  This is node-local and does not touch consensus or the JSON-RPC server; the
+  previous behaviour let idle sockets hold tasks and file descriptors without
+  limit for the whole process. A per-IP share is left open.
 - The RPC eviction is a linear scan under the mutex while the table is full
   (a `shortcut:` note in the code names the LRU upgrade).
 - The safety guard still checks every epoch directory, not only the current
