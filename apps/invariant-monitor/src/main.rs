@@ -53,6 +53,10 @@ async fn run() -> Result<u8, String> {
             return Ok(0);
         }
         Command::Run(cfg) => cfg,
+        // The dead-man check belongs to the sentinel; the monitor writes no stamp.
+        Command::CheckHeartbeat { .. } => {
+            return Err("--check-heartbeat is a maya2c-sentinel flag".to_owned());
+        }
     };
     let topic = match std::env::var(TOPIC_ENV) {
         Ok(raw) if !cfg.dry_run => Some(notify::valid_topic(&raw)?.to_owned()),

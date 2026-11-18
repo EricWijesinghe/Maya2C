@@ -163,6 +163,14 @@ members = [
     # built only from what the public gateway serves; they reuse the sentinel.
     "apps/invariant-monitor",
     "apps/validator-ledger",
+    # Merchant checkout (ADR-091): invoices and signed webhooks. A member so
+    # its SSRF and matching rules are built with the workspace; it links no
+    # node crate, only the address codec.
+    "apps/checkout",
+    # Trust log (CATALOG §J: release-log-anchor, signed-incidents,
+    # foundation-canary). Signs with ML-DSA-87 and reads the chain over RPC
+    # only; it links no node crate, so nothing it does can reach consensus.
+    "apps/trust-log",
     # Threshold custody of a chain key. A member so its sharing arithmetic and
     # its quorum rules cannot rot, and because the one thing it must never do —
     # let a sub-threshold set of shares reconstruct anything — is a property a
@@ -451,6 +459,9 @@ futures-util = "0.3"
 futures_ringbuf = "0.4"
 getrandom = "0.4"
 hex = "0.4"
+# HMAC-SHA256 over webhook bodies (api-gateway). Already in the lock at 0.12
+# through the wallet; matches `sha2` 0.10 (digest 0.10).
+hmac = "0.12"
 proptest = "1"
 http-body-util = "0.1"
 hyper = "1"

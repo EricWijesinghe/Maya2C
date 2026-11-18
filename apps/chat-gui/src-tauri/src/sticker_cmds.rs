@@ -67,7 +67,10 @@ pub async fn sticker_file(app: State<'_, Arc<App>>, id: String) -> Result<Respon
 
 /// Checks and caches one file for a pack being made; the body is the file.
 #[tauri::command]
-pub async fn import_sticker(app: State<'_, Arc<App>>, request: Request<'_>) -> Result<PackItem, String> {
+pub async fn import_sticker(
+    app: State<'_, Arc<App>>,
+    request: Request<'_>,
+) -> Result<PackItem, String> {
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("send the file's bytes".into());
     };
@@ -84,7 +87,11 @@ pub async fn import_sticker(app: State<'_, Arc<App>>, request: Request<'_>) -> R
 
 /// Makes a pack from imported stickers.
 #[tauri::command]
-pub async fn create_pack(app: State<'_, Arc<App>>, title: String, items: Vec<NewItem>) -> Result<Pack, String> {
+pub async fn create_pack(
+    app: State<'_, Arc<App>>,
+    title: String,
+    items: Vec<NewItem>,
+) -> Result<Pack, String> {
     let mut guard = app.session.lock().await;
     let s = guard.as_mut().ok_or("create an identity first")?;
     let mut checked = Vec::with_capacity(items.len());
@@ -117,11 +124,26 @@ pub async fn remove_pack(app: State<'_, Arc<App>>, pack: String) -> Result<(), S
 
 /// Sends a sticker from an installed pack.
 #[tauri::command]
-pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, id: String) -> Result<Line, String> {
+pub async fn send_sticker(
+    app: State<'_, Arc<App>>,
+    peer: String,
+    pack: String,
+    id: String,
+) -> Result<Line, String> {
     let mut guard = app.session.lock().await;
     let s = guard.as_mut().ok_or("create an identity first")?;
-    let owner = s.profile.packs.iter().find(|p| p.id == pack).ok_or("that pack is not installed")?;
-    let item = owner.items.iter().find(|i| i.id == id).ok_or("that sticker is not in the pack")?.clone();
+    let owner = s
+        .profile
+        .packs
+        .iter()
+        .find(|p| p.id == pack)
+        .ok_or("that pack is not installed")?;
+    let item = owner
+        .items
+        .iter()
+        .find(|i| i.id == id)
+        .ok_or("that sticker is not in the pack")?
+        .clone();
     let title = owner.title.clone();
     let file = file_of(&app, s, &id).ok_or("this computer does not have that sticker")?;
     let content = Content::Sticker {
@@ -140,7 +162,12 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
         mine: true,
         text: item.emoji,
         at,
-        sticker: Some(StickerRef { id, format: item.format, pack, title }),
+        sticker: Some(StickerRef {
+            id,
+            format: item.format,
+            pack,
+            title,
+        }),
         outbox: Some(hex::encode(sent)),
     };
     remember(&mut s.profile, line.clone());
@@ -150,10 +177,22 @@ pub async fn send_sticker(app: State<'_, Arc<App>>, peer: String, pack: String, 
 
 /// Asks the sender of a sticker for its whole pack.
 #[tauri::command]
-pub async fn request_pack(app: State<'_, Arc<App>>, peer: String, pack: String) -> Result<(), String> {
+pub async fn request_pack(
+    app: State<'_, Arc<App>>,
+    peer: String,
+    pack: String,
+) -> Result<(), String> {
     let mut guard = app.session.lock().await;
     let s = guard.as_mut().ok_or("create an identity first")?;
-    deliver(&app, s, &peer, &stickers::encode(&Content::PackRequest { pack }, &[])?, now()).await?;
+    s.incoming.requested.insert(pack.clone());
+    deliver(
+        &app,
+        s,
+        &peer,
+        &stickers::encode(&Content::PackRequest { pack }, &[])?,
+        now(),
+    )
+    .await?;
     app.save(s)
 }
 
@@ -161,7 +200,13 @@ pub async fn request_pack(app: State<'_, Arc<App>>, peer: String, pack: String) 
 /// network is touched, so a failed send stays in the outbox and `poll` retries
 /// it. The session is never rewound (ADR-074, decision 0). Returns the
 /// outbox id, which the caller keeps to show the message's delivery state.
-pub(crate) async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8], at: u64) -> Result<[u8; 32], String> {
+pub(crate) async fn deliver(
+    app: &App,
+    s: &mut Session,
+    peer: &str,
+    plain: &[u8],
+    at: u64,
+) -> Result<[u8; 32], String> {
     let relay = relay_addr(&s.profile)?;
     let to = address(peer)?;
     let sent = courier::prepare(&mut s.client, &relay, to, plain, at)
@@ -182,6 +227,24 @@ pub(crate) struct Incoming {
     /// (peer, pack) pairs answered since the app started: a peer asking again
     /// and again gets the pack once, not once per request.
     answered: HashSet<(String, String)>,
+    /// Packs this user asked for. A pack that arrives unasked is not installed.
+    requested: HashSet<String>,
+}
+
+/// Records that `peer` is being answered for `pack`, once. Nothing is recorded
+/// for a pack this user does not hold, so an unknown pack costs no state.
+fn claim_answer(
+    answered: &mut HashSet<(String, String)>,
+    peer: &str,
+    pack: &str,
+    held: bool,
+) -> bool {
+    held && answered.insert((peer.to_owned(), pack.to_owned()))
+}
+
+/// Whether an arriving item of `pack` is for a pack this user requested.
+fn accepts_pack_item(incoming: &Incoming, pack: &str) -> bool {
+    incoming.requested.contains(pack)
 }
 
 /// Handles one structured message from `from`. Returns the line to show, if
@@ -196,7 +259,12 @@ pub(crate) async fn receive(
     let decoded = stickers::decode(plain).ok()?;
     let peer = hex::encode(from);
     match decoded.content {
-        Content::Sticker { id, emoji, pack, title } => {
+        Content::Sticker {
+            id,
+            emoji,
+            pack,
+            title,
+        } => {
             let (_, format) = stickers::check_file(&decoded.file).ok()?;
             app.files.save_sticker(&s.seed, &decoded.file).ok()?;
             Some(Line {
@@ -204,17 +272,26 @@ pub(crate) async fn receive(
                 mine: false,
                 text: emoji,
                 at: now(),
-                sticker: Some(StickerRef { id, format, pack, title }),
+                sticker: Some(StickerRef {
+                    id,
+                    format,
+                    pack,
+                    title,
+                }),
                 outbox: None,
             })
         }
         Content::PackRequest { pack } => {
-            if incoming.answered.insert((peer.clone(), pack.clone())) {
+            let held = s.profile.packs.iter().any(|p| p.id == pack);
+            if claim_answer(&mut incoming.answered, &peer, &pack, held) {
                 answer_request(app, s, &peer, &pack).await;
             }
             None
         }
         Content::PackItem { pack, index } => {
+            if !accepts_pack_item(incoming, &pack.id) {
+                return None;
+            }
             app.files.save_sticker(&s.seed, &decoded.file).ok()?;
             let title = pack.title.clone();
             let entry = incoming
@@ -241,10 +318,19 @@ async fn answer_request(app: &App, s: &mut Session, peer: &str, pack: &str) {
         return;
     };
     for (index, item) in pack.items.iter().enumerate() {
-        let Some(file) = file_of(app, s, &item.id) else { continue };
-        let Ok(index) = u16::try_from(index) else { break };
-        let content = Content::PackItem { pack: pack.clone(), index };
-        let Ok(plain) = stickers::encode(&content, &file) else { continue };
+        let Some(file) = file_of(app, s, &item.id) else {
+            continue;
+        };
+        let Ok(index) = u16::try_from(index) else {
+            break;
+        };
+        let content = Content::PackItem {
+            pack: pack.clone(),
+            index,
+        };
+        let Ok(plain) = stickers::encode(&content, &file) else {
+            continue;
+        };
         if deliver(app, s, peer, &plain, now()).await.is_err() {
             return;
         }
@@ -253,7 +339,9 @@ async fn answer_request(app: &App, s: &mut Session, peer: &str, pack: &str) {
 
 /// Installs a pack once every one of its files is on this computer.
 fn install_if_complete(app: &App, s: &mut Session, incoming: &mut Incoming, pack: &str) -> bool {
-    let Some((full, got)) = incoming.packs.get(pack) else { return false };
+    let Some((full, got)) = incoming.packs.get(pack) else {
+        return false;
+    };
     let complete = full
         .items
         .iter()
@@ -270,4 +358,32 @@ fn install_if_complete(app: &App, s: &mut Session, incoming: &mut Incoming, pack
     }
     s.profile.packs.push(installed);
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_request_is_answered_once_and_only_for_a_held_pack() {
+        let mut answered = HashSet::new();
+        assert!(!claim_answer(&mut answered, "peer", "unknown", false));
+        assert!(answered.is_empty(), "an unknown pack records nothing");
+        assert!(claim_answer(&mut answered, "peer", "held", true));
+        assert!(
+            !claim_answer(&mut answered, "peer", "held", true),
+            "once per peer and pack"
+        );
+    }
+
+    #[test]
+    fn only_a_requested_pack_is_accepted() {
+        let mut incoming = Incoming::default();
+        assert!(
+            !accepts_pack_item(&incoming, "pack"),
+            "nothing is installed unasked"
+        );
+        incoming.requested.insert("pack".into());
+        assert!(accepts_pack_item(&incoming, "pack"));
+    }
 }

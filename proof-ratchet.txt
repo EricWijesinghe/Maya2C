@@ -3,5 +3,5 @@
 acvp_vector_files = 8
 conformance_vectors = 164
 exploit_replays = 11
-fuzz_targets = 24
+fuzz_targets = 25
 kani_harnesses = 90

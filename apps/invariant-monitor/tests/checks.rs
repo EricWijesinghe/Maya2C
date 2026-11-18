@@ -20,6 +20,8 @@ fn sample(name: &str, height: u64) -> Sample {
             peers: None,
             supply: None,
             pending: None,
+            finalized: None,
+            bft: None,
         }),
     }
 }

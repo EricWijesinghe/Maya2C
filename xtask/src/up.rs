@@ -273,7 +273,7 @@ fn bring_up(work: &Path) -> Result<Value> {
             "faucet": format!("http://{FAUCET_ADDR}"),
             "explorer": format!("http://{EXPLORER_ADDR}"),
         },
-        "wallet": { "address": wallet, "keystore": work.join("wallet").display().to_string() },
+        "wallet": { "address": wallet, "keystore": work.join("wallet.key").display().to_string() },
         "logs": work.display().to_string(),
     }))
 }
