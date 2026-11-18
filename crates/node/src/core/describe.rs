@@ -632,7 +632,7 @@ fn describe_account(action: &AccountAction) -> Description {
         .with("account", full(account)),
         AccountAction::AddSessionKey { key_hash, scope } => Description::new(
             format!(
-                "Let a session key send up to {} per transaction to {} listed recipients until block {}. There is no total limit unless this account has a daily limit.",
+                "Let a session key send up to {} in total, fees aside, to {} listed recipients until block {}. Adding the same key again starts a new total.",
                 amount(scope.max_amount),
                 scope.recipients.len(),
                 scope.expires_at

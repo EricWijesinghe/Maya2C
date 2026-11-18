@@ -39,6 +39,7 @@ use crate::core::account_tx::signer_policy;
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
+use crate::state::account_policy::SessionRecord;
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
 
@@ -442,7 +443,9 @@ impl StateDB {
     /// Rules A and B, the session-key rule (ADR-135 P-5), and the activation
     /// gates for wire version 9, `TxKind::Account` and the policy actions.
     /// Reads at most two records and writes nothing, so staging runs it before
-    /// the signature and the fee, and the mempool runs it at the tip.
+    /// the signature and the fee, and the mempool runs it at the tip. For a
+    /// session-signed frame it returns the `ka:s:` row charged with the
+    /// frame's outflow, for staging to store once the signature verifies.
     ///
     /// # Errors
     ///
@@ -457,7 +460,7 @@ impl StateDB {
         height: u64,
         activation: u64,
         policy_activation: u64,
-    ) -> Result<()> {
+    ) -> Result<Option<SessionRecord>> {
         let bound = tx.multisig.as_deref().filter(|a| a.account().is_some());
         if height < policy_activation && is_policy_action(&tx.kind) {
             return refuse(format!("session keys are not active at height {height}"));
@@ -470,12 +473,12 @@ impl StateDB {
                 return refuse(format!("account actions are not active at height {height}"));
             }
             // Below activation no `ka:` record can exist: skip the read.
-            return Ok(());
+            return Ok(None);
         }
         let record = self.authority_record(overlay, sender)?;
         let moved = |why: String| Err(NodeError::AuthorityMoved(why));
         match (bound, record) {
-            (None, None) => Ok(()),
+            (None, None) => Ok(None),
             (None, Some(_)) => moved(format!(
                 "{} is signed for by a stored policy; only a v9 frame presenting it acts for it",
                 hex::encode(sender)
@@ -484,15 +487,17 @@ impl StateDB {
                 "{} has no authority record, so no v9 frame can name it",
                 hex::encode(sender)
             )),
-            (Some(auth), Some(r)) if r.effective(height) == auth.policy().digest() => Ok(()),
-            (Some(auth), Some(r)) if height >= policy_activation => self.session_check(
-                overlay,
-                tx,
-                auth,
-                sender,
-                (r.effective(height), r.effective_since(height)),
-                height,
-            ),
+            (Some(auth), Some(r)) if r.effective(height) == auth.policy().digest() => Ok(None),
+            (Some(auth), Some(r)) if height >= policy_activation => self
+                .session_check(
+                    overlay,
+                    tx,
+                    auth,
+                    sender,
+                    (r.effective(height), r.effective_since(height)),
+                    height,
+                )
+                .map(Some),
             (Some(_), Some(_)) => moved(format!(
                 "the policy presented is not the one signing for {}",
                 hex::encode(sender)

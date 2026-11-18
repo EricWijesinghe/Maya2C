@@ -184,13 +184,15 @@ fn the_window_caps_owner_and_session_frames_together() {
         limit: U256::from(150u64),
     })
     .unwrap();
-    s.session_pays(PAYEE, CAP).unwrap();
+    // One unit short of the key's own total, so the last refusal below is
+    // the window's.
+    s.session_pays(PAYEE, CAP - 1).unwrap();
     // S-9: an owner-signed frame counts against the same window.
     let owner_pay = |s: &mut Scene, amount| {
         let tx = s.as_owner(TxKind::Transfer, pay_to(STRANGER, amount));
         s.chain.send(tx)
     };
-    owner_pay(&mut s, 50).expect("spent + amount == limit");
+    owner_pay(&mut s, 51).expect("spent + amount == limit");
     refused(&mut s, "past the account's limit", |s| owner_pay(s, 1));
     refused(&mut s, "past the account's limit", |s| {
         s.session_pays(PAYEE, 1)
@@ -532,6 +534,16 @@ fn vector_cases() -> serde_json::Value {
         vec![],
     );
     let window_escrow = s.chain.send(escrow);
+    let mut s = Scene::opted_in();
+    s.session_pays(PAYEE, CAP).unwrap();
+    let total_over = s.session_pays(PAYEE, 1);
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::SetDailyLimit {
+        limit: U256::from(CAP),
+    })
+    .unwrap();
+    let vault = guarded_vault_request(&mut s);
+    let guardian_cancel = s.guardian_cancels(vault);
 
     serde_json::json!({
         "description": "ADR-135 P-5 smart-account policy: session-key action encodings, session-frame scope, the spending window and activation. Regenerate with MAYA_REGEN_VECTORS=1 cargo test -p custom-l1-node --test account_policy_tests conformance; every implementation must agree.",
@@ -553,9 +565,11 @@ fn vector_cases() -> serde_json::Value {
             {"id": "AA-session-unlisted-recipient", "rules": ["AA-8"], "expect": outcome(unlisted)},
             {"id": "AA-session-signed-sub-op", "rules": ["AA-8"], "expect": outcome(session_sub_op)},
             {"id": "AA-session-revoked", "rules": ["AA-8"], "expect": outcome(revoked)},
+            {"id": "AA-session-total-over-cap", "rules": ["AA-8"], "input": {"spent": CAP.to_string(), "amount": "1", "max_amount": CAP.to_string()}, "expect": outcome(total_over)},
             {"id": "AA-window-at-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": "0", "amount": CAP.to_string()}, "expect": outcome(window_fill)},
             {"id": "AA-window-owner-over-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": CAP.to_string(), "amount": "2"}, "expect": outcome(window_over)},
             {"id": "AA-window-refuses-a-kind-without-outputs", "rules": ["AA-9"], "input": {"limit": CAP.to_string(), "kind": "open_channel", "funding": (FUNDS / 2).to_string()}, "expect": outcome(window_escrow)},
+            {"id": "AA-window-admits-a-guardian-vault-cancel", "rules": ["AA-9"], "input": {"limit": CAP.to_string(), "kind": "vault_cancel"}, "expect": outcome(guardian_cancel)},
             {"id": "AA-policy-before-bit-45", "rules": ["AA-10"], "expect": outcome(dark)},
             {"id": "AA-root-without-policy-rows", "rules": ["AA-10"], "expect": {"result": "ok", "roots_equal_dark_chain": transfer_roots(1) == transfer_roots(u64::MAX)}}
         ]

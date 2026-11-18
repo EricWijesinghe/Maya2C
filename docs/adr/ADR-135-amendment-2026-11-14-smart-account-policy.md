@@ -7,7 +7,8 @@ ADR-135 itself is on `docs/adr-135-v4-umbrella` (PR #477) and not on this
 branch's base (`postgen/account-authority`, PR #447). This file holds the
 amendment so the PR that builds P-5 carries its own design record. When #477
 lands, this text is appended to ADR-135's "Amendment" section and this file is
-removed. Decided under Eric 2026-11-14 ("I approve everything, proceed");
+removed. Decided under Eric 2026-11-14 ("I approve everything, proceed"),
+except the items marked **PENDING Eric**, which that approval does not cover;
 DECISIONS.md has the entry.
 
 ## Context
@@ -35,11 +36,12 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    `ka:w:‖account‖window_start` per window. The per-window key left one stale
    row per account per window, forever. This also keeps the limit out of
    #447's `ka:a:` record encoding.
-3. **The cap is on the frame, not the output, and counts what the vault
-   counts** (`vault_outflow`, invariant 32): every output, collector outputs
-   up to the required fee exempt. A per-output cap could be split across two
-   outputs. The fee collector is always an allowed recipient, so a session
-   frame can pay its fee. Tests:
+3. **The cap is the key's total, not a frame's or an output's, and counts
+   what the vault counts** (`vault_outflow`, invariant 32): every output,
+   collector outputs up to the required fee exempt. A per-output cap could be
+   split across two outputs, and a per-frame cap across two frames (see 9).
+   The fee collector is always an allowed recipient, so a session frame can
+   pay its fee. Tests:
    `with_fees_on_a_session_frame_pays_its_fee_outside_its_cap_and_recipients`,
    `with_fees_on_the_required_fee_is_outside_the_window`.
 4. **Window = 86,400 blocks**, not 43,200: one day at ADR-135 O-1's answer,
@@ -50,8 +52,11 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    recipients/methods". P-5 binds the method to `Transfer` (S-1), and that is
    what was built: a method allow-list for contract calls would let value
    move where the cap does not see it. A per-kind allow-list is a later ADR.
-   **This is a scope reduction from the brief and needs Eric's explicit
-   confirmation.**
+   **PENDING Eric.** This is a scope reduction from the brief ("allowed
+   recipients/methods"), so the 2026-11-14 approval does not cover it; it
+   needs Eric's explicit confirmation before bit 45 is scheduled. If he
+   wants methods, the follow-up is a per-kind allow-list in the scope, each
+   kind admitted only with a rule for how its debit is charged to the cap.
 6. **Expired rows are kept until revoked or replaced.** P-5 says an expired
    `ka:s:` row is deleted "by the next `RevokeSessionKey` or by any
    owner-signed frame from that account touching it". Owner frames do not
@@ -83,6 +88,16 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    (`v4_redteam_accounts.rs`), vector
    `AA-window-refuses-a-kind-without-outputs`. Decided under Eric
    2026-11-14.
+   Two vault actions stay open (PR #548 review): `Cancel` and `Execute`.
+   Neither moves the sender's balance (`Cancel` returns escrow to the
+   vault's owner, `Execute` pays escrow already debited from it), and
+   `Cancel` is a guardian's one defence during a vault delay, never halted
+   by the breaker. Refusing it would let a thief's request at a vault whose
+   guardian has a daily limit run out its delay during a halt, since the
+   halt also blocks the `SetDailyLimit(0)` that would lift the limit.
+   `Request` and `Configure` stay refused. Test:
+   `a_guardian_with_a_daily_limit_cancels_a_vault_request_during_a_halt`;
+   vector `AA-window-admits-a-guardian-vault-cancel`.
 8. **`SetDailyLimit` stays halted by the circuit breaker**, while
    `RevokeSessionKey` is not. Considered: exempting a `SetDailyLimit` that
    lowers a non-zero limit, as a defensive move. Not done: the breaker's
@@ -90,11 +105,21 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    limit is lower depends on state; exempting every non-zero `SetDailyLimit`
    would let an owner-key thief raise the limit during a halt. Revoking the
    leaked session key is the defence that is never halted.
-9. **A per-frame cap with no window has no total bound.** `max_amount` caps
-   each frame; without a daily limit a leaked key can sign one frame per
-   nonce until `expires_at`. The clear-signing text of `AddSessionKey` says
-   so. Whether `AddSessionKey` should require a window is left open for the
-   ADR-135 review.
+9. **`max_amount` is cumulative** (changed in the PR #548 review). As first
+   built it capped each frame, so without a daily limit a leaked key could
+   sign one capped frame per nonce until `expires_at`, up to a year. Now the
+   `ka:s:` row carries `spent`, charged in staging next to the window (one
+   more write per session frame) and restored when the block builder skips
+   the frame, and a frame is refused once `spent + outflow > max_amount`.
+   `RECORD_VERSION` 1 is unreleased and dark, so the row changed in place.
+   Re-adding the same `key_hash` is the owner's way to start a new total.
+   Considered instead: refuse `AddSessionKey` without a `ka:w:` row, and
+   refuse `SetDailyLimit(0)` while a live session key exists; the second
+   needs a per-account key index, and the bound would still be advisory.
+   Tests: `a_session_key_cannot_pass_its_cap_by_repeating_frames`,
+   `a_skipped_session_frame_leaves_no_cap_charge_in_the_builder`; vector
+   `AA-session-total-over-cap`. **Eric confirms before bit 45 is
+   scheduled.**
 
 Also as built: the verification budget (40 units) applies to session-signed
 frames only, so #447's 3-of-5 hybrid owner frames (55 units) are unchanged;
@@ -111,8 +136,22 @@ session key equal to the authority digest; a schedule naming bit 45 before
 
 ## Consequences
 
-- `ka:s:` rows are 8 bytes longer than P-5's layout.
-- Bounded work per frame, by inspection (no test counts storage accesses):
-  at most three policy record reads (`ka:a:`, `ka:s:`, `ka:w:`) and one
-  `ka:w:` write, a membership test over at most 16 recipients per output, and
-  the 40-unit budget checked before any signature. No end-of-block step.
+- `ka:s:` rows are 40 bytes longer than P-5's layout (`granted_since`, and
+  the 32-byte `spent`).
+- Bounded work per frame: at most three policy record reads (`ka:a:`,
+  `ka:s:`, `ka:w:`) and two writes (`ka:s:`, `ka:w:`), a membership test
+  over at most 16 recipients per output, and the 40-unit budget checked
+  before any signature. No end-of-block step. The input bounds are pinned
+  by tests (16 recipients admitted, 17 refused at decode; 40 units passes
+  the budget, 41 refused), the read and write counts by inspection only: no
+  test counts storage accesses.
+- Expired and voided `ka:s:` rows are never swept (decision 6), so an
+  account's rows grow with every distinct key it adds until it revokes them.
+
+## Open before bit 45 is scheduled
+
+- Decision 5 (methods are plain transfers only): Eric's confirmation.
+- Decision 9 (cumulative cap): Eric's confirmation.
+- Base: this PR is stacked on `postgen/account-authority` (#447), not on
+  `postgen/v4` as briefed, because `postgen/v4` does not contain #447 yet.
+  It is retargeted or rebased onto `postgen/v4` once #447 flows into it.

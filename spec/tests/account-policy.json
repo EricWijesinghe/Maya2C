@@ -137,6 +137,21 @@
     },
     {
       "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-total-over-cap",
+      "input": {
+        "amount": "1",
+        "max_amount": "100",
+        "spent": "100"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
         "result": "ok"
       },
       "id": "AA-window-at-limit",
@@ -173,6 +188,19 @@
       "input": {
         "funding": "500000",
         "kind": "open_channel",
+        "limit": "100"
+      },
+      "rules": [
+        "AA-9"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "id": "AA-window-admits-a-guardian-vault-cancel",
+      "input": {
+        "kind": "vault_cancel",
         "limit": "100"
       },
       "rules": [

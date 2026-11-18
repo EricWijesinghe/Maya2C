@@ -7,8 +7,8 @@
 //!
 //! - `ka:s:<account><key_hash>` — a session key: the policy digest that may
 //!   sign plain transfers for `account`, the authority generation that granted
-//!   it (digest and the height it took effect), and its scope (total cap per
-//!   frame, last height, allowed recipients);
+//!   it (digest and the height it took effect), its scope (total cap over the
+//!   key's life, last height, allowed recipients), and what it has moved;
 //! - `ka:w:<account>` — the window cap and what this window has moved.
 //!
 //! **A session key is void the moment the authority that granted it changes**
@@ -19,7 +19,7 @@
 //! has to find the row.
 //!
 //! **Bounded work.** A frame does at most three record reads (`ka:a:`,
-//! `ka:s:`, `ka:w:`) and one write, a membership test over at most
+//! `ka:s:`, `ka:w:`) and two writes (`ka:s:`, `ka:w:`), a membership test over at most
 //! [`MAX_SESSION_RECIPIENTS`] recipients per output, and a verification budget
 //! of [`MAX_SESSION_COST`] units checked before any signature is. Nothing runs
 //! at the end of a block; expired rows are never swept (their cost was paid by
@@ -34,6 +34,7 @@ use crate::core::TxKind;
 use crate::core::account_payload::{MAX_SESSION_RECIPIENTS, SessionScope};
 use crate::core::codec::{ByteReader, put_amount};
 use crate::core::multisig_tx::MultisigAuth;
+use crate::core::vault_payload::VaultAction;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 use crate::state::context::BlockContext;
@@ -79,6 +80,8 @@ pub struct SessionRecord {
     pub granted_since: u64,
     /// What it may do.
     pub scope: SessionScope,
+    /// What its frames have moved so far; never above `scope.max_amount`.
+    pub spent: U256,
 }
 
 /// An account's spending window.
@@ -119,6 +122,7 @@ impl SessionRecord {
         out.extend_from_slice(&self.granted_by);
         out.extend_from_slice(&self.granted_since.to_le_bytes());
         self.scope.encode_into(&mut out);
+        put_amount(&mut out, &self.spent);
         out
     }
 
@@ -128,13 +132,23 @@ impl SessionRecord {
         let granted_by = r.read_array()?;
         let granted_since = r.read_u64()?;
         let scope = SessionScope::decode(&mut r)?;
+        let spent = r.read_amount()?;
         r.finish()?;
         Ok(Self {
             granted_by,
             granted_since,
             scope,
+            spent,
         })
     }
+}
+
+/// The `ka:s:` key a bound (v9) frame would be charged under, if it is
+/// session-signed: the account it names and its policy digest.
+pub(crate) fn session_row_key(tx: &Transaction) -> Option<Vec<u8>> {
+    let auth = tx.multisig.as_deref()?;
+    let account = auth.account()?;
+    Some(session_key(account, &auth.policy().digest()))
 }
 
 impl WindowRecord {
@@ -245,6 +259,8 @@ impl StateDB {
     /// A v9 frame whose policy is not the account's authority: admitted only
     /// as a session-key frame inside its scope. Reads, never writes; runs
     /// before any signature is checked, at staging and in the mempool.
+    /// Returns the row charged with this frame's outflow, which staging
+    /// stores ([`StateDB::store_session`]) once the signature verifies.
     ///
     /// # Errors
     ///
@@ -258,7 +274,7 @@ impl StateDB {
         account: &Address,
         authority: ([u8; 32], u64),
         height: u64,
-    ) -> Result<()> {
+    ) -> Result<SessionRecord> {
         let digest = auth.policy().digest();
         let not_signer = || {
             Err(NodeError::AuthorityMoved(format!(
@@ -306,14 +322,26 @@ impl StateDB {
                 hex::encode(o.recipient)
             ));
         }
+        // The cap is the key's total, so repeating frames cannot pass it.
         let moved = self.vault_outflow(overlay, tx)?;
-        if moved > scope.max_amount {
+        let spent = session
+            .spent
+            .checked_add(moved)
+            .ok_or(NodeError::BalanceOverflow)?;
+        if spent > scope.max_amount {
             return refuse(format!(
-                "{moved} is over the session key's max_amount {}",
-                scope.max_amount
+                "{moved} would take the session key past its max_amount {} ({} already used)",
+                scope.max_amount, session.spent
             ));
         }
-        Ok(())
+        Ok(SessionRecord { spent, ..session })
+    }
+
+    /// Stores a charged session row under the key `tx` presents.
+    pub(crate) fn store_session(overlay: &mut Overlay, tx: &Transaction, session: &SessionRecord) {
+        if let Some(key) = session_row_key(tx) {
+            StateDB::put_record(overlay, key, session.encode());
+        }
     }
 
     /// The spending window (S-9: every frame acting for a limited account,
@@ -321,11 +349,16 @@ impl StateDB {
     /// reads nothing below activation, where no row can exist. Counts what
     /// [`StateDB::vault_outflow`] counts: every output, the required fee exempt.
     ///
-    /// A limited account sends only plain transfers and account actions, as a
-    /// vault account does (ADR-030): any other kind can move value without an
-    /// output (channel funding, a stake lock, an escrow, a fee debit), which
-    /// the window cannot count. Fail-closed, so a kind added later is refused
-    /// until someone decides how the window charges it.
+    /// A limited account sends only plain transfers, account actions and a
+    /// vault's `Cancel` and `Execute` (ADR-030): any other kind can move value
+    /// without an output (channel funding, a stake lock, an escrow, a fee
+    /// debit), which the window cannot count. Fail-closed, so a kind added
+    /// later is refused until someone decides how the window charges it.
+    /// `Cancel` returns escrow to its vault's owner and `Execute` pays escrow
+    /// already debited from that owner: neither moves the sender's balance,
+    /// and `Cancel` is a guardian's one defence during a vault delay, never
+    /// halted by the breaker (`invariant_guard::Module::of`), so a limit that
+    /// cannot be lifted during a halt must not block it.
     ///
     /// # Errors
     ///
@@ -345,10 +378,18 @@ impl StateDB {
         let Some(window) = self.window_record(overlay, account)? else {
             return Ok(None);
         };
-        if !matches!(tx.kind, TxKind::Transfer | TxKind::Account(_)) {
+        let open = match &tx.kind {
+            TxKind::Transfer | TxKind::Account(_) => true,
+            TxKind::Vault(action) => matches!(
+                **action,
+                VaultAction::Cancel { .. } | VaultAction::Execute { .. }
+            ),
+            _ => false,
+        };
+        if !open {
             return refuse(format!(
-                "an account with a daily limit sends only plain transfers and account actions, \
-                 not `{}`; lift the limit first",
+                "an account with a daily limit sends only plain transfers, account actions \
+                 and vault cancels and executes, not `{}`; lift the limit first",
                 tx.kind.label()
             ));
         }
@@ -391,6 +432,7 @@ impl StateDB {
             granted_by: authority,
             granted_since: since,
             scope: scope.clone(),
+            spent: U256::zero(),
         };
         StateDB::put_record(overlay, session_key(owner, key_hash), record.encode());
         Ok(())
@@ -454,6 +496,7 @@ mod tests {
             granted_by: [3; 32],
             granted_since: 7,
             scope: scope(2, 50),
+            spent: U256::from(9u64),
         };
         assert_eq!(SessionRecord::decode(&s.encode()).unwrap(), s);
         let w = WindowRecord {

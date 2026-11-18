@@ -21,6 +21,11 @@
 //!   twice the limit. Pinned as documented behaviour.
 //! - **Replay** of a session frame: refused on its nonce.
 //! - **A key granted under B revived by A->B->A**: void once A returns.
+//! - **Passing the cap by repeating frames** (PR #548 review): `max_amount`
+//!   is the key's total, and a frame the builder skips gives its charge back.
+//! - **A guardian's vault cancel during a halt** (PR #548 review): the halt
+//!   blocks lifting the guardian's limit, so the window must not block the
+//!   never-halted cancel.
 //!
 //! Not testable on this base: a v13 sponsored frame (#501) wrapping a
 //! session-signed v9 frame. #501's SP-1 refuses a v13 inner frame, not a v9
@@ -153,4 +158,94 @@ fn a_key_granted_under_b_is_void_once_a_returns() {
     );
     s.chain.send(tx).expect("B -> A");
     refused(&mut s, "authority moved", |s| s.session_pays(PAYEE, 1));
+}
+
+#[test]
+fn a_session_key_cannot_pass_its_cap_by_repeating_frames() {
+    // `max_amount` is the key's total, not each frame's: without a window a
+    // leaked key would otherwise sign one capped frame per nonce until expiry.
+    let mut s = Scene::opted_in();
+    s.session_pays(PAYEE, CAP - 1).expect("under the cap");
+    s.session_pays(PAYEE, 1)
+        .expect("exactly the cap, over two frames");
+    refused(&mut s, "max_amount", |s| s.session_pays(PAYEE, 1));
+    assert_eq!(s.chain.balance(&PAYEE), U256::from(CAP));
+    // Re-granting is the owner's explicit act and starts a fresh total.
+    s.owner_does(AccountAction::AddSessionKey {
+        key_hash: s.session_policy.digest(),
+        scope: scope(CAP, EXPIRES, vec![PAYEE]),
+    })
+    .expect("owner re-grants");
+    s.session_pays(PAYEE, 1).expect("a fresh total");
+}
+
+#[test]
+fn a_skipped_session_frame_leaves_no_cap_charge_in_the_builder() {
+    // The session total is charged before the balance check, like the window.
+    // A frame that then fails on balance must not use up the key's total.
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::AddSessionKey {
+        key_hash: s.session_policy.digest(),
+        scope: scope(2 * FUNDS, EXPIRES, vec![PAYEE]),
+    })
+    .unwrap();
+    let broke = s.as_session(TxKind::Transfer, pay_to(PAYEE, 2 * FUNDS));
+    let good = s.as_session(TxKind::Transfer, pay_to(PAYEE, FUNDS / 2));
+    let kept = s
+        .chain
+        .db
+        .select_applicable(
+            vec![broke, good.clone()],
+            s.chain.context(s.chain.height + 1),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(kept, vec![good], "the failed frame's charge was undone");
+}
+
+#[test]
+fn a_guardian_with_a_daily_limit_cancels_a_vault_request_during_a_halt() {
+    use custom_l1_node::state::invariant_guard::{BreakerRecord, Invariant, Module, guard_key};
+    // The scene's account is the guardian G of another account's vault, and
+    // has a daily limit. A thief has requested a withdrawal from the vault.
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::SetDailyLimit {
+        limit: U256::from(CAP),
+    })
+    .unwrap();
+    let vault = guarded_vault_request(&mut s);
+    // The breaker halts Module::Account: G cannot lift its own limit.
+    let halt = BreakerRecord {
+        module: Module::Account,
+        invariant: Invariant::CouncilPause,
+        tripped_at: s.chain.height,
+        until: s.chain.height + 1_000,
+    };
+    s.chain
+        .db
+        .raw_put_for_test(&guard_key(Module::Account), &halt.encode())
+        .unwrap();
+    let lift = s.owner_does(AccountAction::SetDailyLimit {
+        limit: U256::zero(),
+    });
+    assert!(lift.unwrap_err().contains("halted"), "the lift is halted");
+    // The cancel, never halted, must not be refused by G's window either.
+    s.guardian_cancels(vault)
+        .expect("a guardian's cancel is open to a limited account");
+    assert_eq!(s.chain.balance(&vault), U256::from(FUNDS));
+}
+
+#[test]
+fn a_sixteen_recipient_scope_pays_its_last_recipient() {
+    // The membership test's bound (MAX_SESSION_RECIPIENTS) is admitted in
+    // full; seventeen does not decode (vector AA-seventeen-recipients).
+    let mut s = Scene::opted_in();
+    let recipients: Vec<Address> = (0..16u8).map(|i| [0xC0 + i; 32]).collect();
+    s.owner_does(AccountAction::AddSessionKey {
+        key_hash: s.session_policy.digest(),
+        scope: scope(CAP, EXPIRES, recipients.clone()),
+    })
+    .unwrap();
+    s.session_pays(recipients[15], 1)
+        .expect("the sixteenth recipient");
 }

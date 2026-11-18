@@ -49,12 +49,14 @@ const SET_DAILY_LIMIT: u8 = 8;
 /// Most recipients one session key may pay (ADR-135 P-5).
 pub const MAX_SESSION_RECIPIENTS: usize = 16;
 
-/// What a session key may do: plain transfers of at most `max_amount` in
-/// total (fee included) to `recipients` (and the fee collector), up to and
-/// including height `expires_at`.
+/// What a session key may do: plain transfers to `recipients` (and the fee
+/// collector), up to and including height `expires_at`, moving at most
+/// `max_amount` over the key's life, every frame summed, with each frame's
+/// required fee exempt (the vault's count, `vault_outflow`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionScope {
-    /// Most a session-signed frame may move, every output summed.
+    /// Most the key may move in total across all its frames, every output
+    /// summed, the required fee exempt. Re-adding the key starts a new total.
     pub max_amount: U256,
     /// Last height the key may sign at.
     pub expires_at: u64,

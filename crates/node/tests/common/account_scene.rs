@@ -8,6 +8,7 @@
 pub use custom_l1_node::core::account_payload::{AccountAction, SessionScope};
 pub use custom_l1_node::core::account_tx::signer_policy;
 pub use custom_l1_node::core::multisig_tx::MultisigAuth;
+pub use custom_l1_node::core::vault_payload::{VaultAction, VaultConfig};
 pub use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind, TxOutput};
 pub use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 pub use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
@@ -305,6 +306,43 @@ impl Scene {
     pub fn session_pays_with_fee(&self, amount: u64, fee: u64) -> Transaction {
         self.as_session(TxKind::Transfer, with_fee(pay_to(PAYEE, amount), fee))
     }
+
+    /// The owner, as a guardian of `vault`, cancels its request 0.
+    pub fn guardian_cancels(&mut self, vault: Address) -> Result<(), String> {
+        let cancel = VaultAction::Cancel {
+            owner: vault,
+            id: 0,
+        };
+        let tx = self.as_owner(TxKind::Vault(Box::new(cancel)), vec![]);
+        self.chain.send(tx)
+    }
+}
+
+/// Another funded account's vault naming the scene's account as its guardian,
+/// with one open request (id 0) for half its funds: a thief's withdrawal.
+pub fn guarded_vault_request(s: &mut Scene) -> Address {
+    let key = signing_key_from_seed(&[0x07; 32]).unwrap();
+    let vault = key.address();
+    let funded = Account {
+        balance: U256::from(FUNDS),
+        nonce: 0,
+    };
+    s.chain.db.put_account(&vault, &funded).unwrap();
+    let configure = VaultAction::Configure(VaultConfig {
+        delay_blocks: 10,
+        limit: U256::from(CAP),
+        guardians: vec![s.address],
+    });
+    let request = VaultAction::Request {
+        to: STRANGER,
+        amount: U256::from(FUNDS / 2),
+    };
+    for action in [configure, request] {
+        let mut tx = Transaction::with_kind(TxKind::Vault(Box::new(action)), s.chain.nonce(&vault));
+        tx.sign(&key, &CHAIN).unwrap();
+        s.chain.send(tx).unwrap();
+    }
+    vault
 }
 
 /// Runs `f` and asserts it was refused with `needle` and moved nothing.

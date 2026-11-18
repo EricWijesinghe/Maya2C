@@ -802,7 +802,7 @@ impl StateDB {
         // anything but that policy; Rule B leaves an unbound address exactly
         // as before. Below activation it refuses every v9 frame and every
         // account action and reads nothing.
-        self.authority_check(
+        let session = self.authority_check(
             overlay,
             tx,
             &sender_address,
@@ -858,6 +858,10 @@ impl StateDB {
             context.account_policy_activation,
         )? {
             StateDB::store_window(overlay, &sender_address, &window);
+        }
+        // A session key's total (ADR-135 P-5), checked in `authority_check`.
+        if let Some(session) = session {
+            StateDB::store_session(overlay, tx, &session);
         }
         // The double-spend guard is the nonce check above: the first spend bumps
         // the nonce, so a replay of the same transaction no longer matches.
@@ -1254,6 +1258,9 @@ impl StateDB {
         // The spending window (ADR-135 P-5) is charged at the same point.
         let window_key = crate::state::account_policy::window_key(&tx.sender());
         let window_saved = overlay.records.get(&window_key).cloned();
+        // And a session key's total.
+        let session_saved = crate::state::account_policy::session_row_key(tx)
+            .map(|k| (overlay.records.get(&k).cloned(), k));
         let failure = match self.stage_transaction(overlay, tx, context, policy) {
             Ok(()) => return Ok(true),
             Err(e) => e,
@@ -1265,6 +1272,11 @@ impl StateDB {
         match window_saved {
             Some(previous) => overlay.records.insert(window_key, previous),
             None => overlay.records.remove(&window_key),
+        };
+        match session_saved {
+            Some((Some(previous), k)) => overlay.records.insert(k, previous),
+            Some((None, k)) => overlay.records.remove(&k),
+            None => None,
         };
         for (address, previous) in saved.into_iter().rev() {
             match previous {
