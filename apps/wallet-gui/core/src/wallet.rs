@@ -23,11 +23,14 @@ use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use crate::confirm::{Confirmation, confirmation, confirmation_with};
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
+use crate::multisig::{AccountView, MemberKey, MultisigAccount, Proposal};
 use crate::node_url::check_node_url;
 use crate::payment::{
     FEE_SINK, SignedTransfer, check_fee_collector, decode_address, finish_transfer, transfer_size,
     transfer_tx,
 };
+use maya_crypto_pq::multisig::{Approval, PolicyKey};
+use maya_crypto_pq::suite::SuiteId;
 
 /// A derived account.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -294,6 +297,205 @@ impl Wallet {
         let path = DerivationPath::try_account(0, index)?;
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
         transfer_size(&signing_key, fee_to, nonce, chain)
+    }
+
+    /// Account `index`'s key as a multisig member: suite `0x30`, the same
+    /// hybrid key its ordinary transfers carry.
+    ///
+    /// # Errors
+    ///
+    /// Propagates derivation failures.
+    pub fn member_key(&self, index: u32) -> Result<MemberKey> {
+        Ok(MemberKey::from_policy_key(&self.member_signer(index)?.1))
+    }
+
+    fn member_signer(&self, index: u32) -> Result<(HybridSigningKey, PolicyKey)> {
+        let path = DerivationPath::try_account(0, index)?;
+        let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
+        let mut public_key = Vec::new();
+        signing_key.public_key().encode_into(&mut public_key);
+        let member = PolicyKey {
+            suite: SuiteId::HybridMlDsa65SlhDsa128s,
+            public_key,
+        };
+        Ok((signing_key, member))
+    }
+
+    /// An unapproved spend of `amount` to `recipient` from `account`, built
+    /// exactly as a transfer is (same fee output, same caps). `terms.nonce`
+    /// is the multisig account's nonce, not account `index`'s. `base_fee`
+    /// is the node's per-byte rate, zero where fees are off.
+    ///
+    /// # Errors
+    ///
+    /// As [`Wallet::sign`]'s fee cap and address checks;
+    /// [`WalletError::Multisig`] for a fee the finished spend would be
+    /// refused for ([`Proposal::check_fee`]).
+    pub fn propose_multisig(
+        &self,
+        index: u32,
+        account: &MultisigAccount,
+        recipient: &str,
+        amount: primitive_types::U256,
+        terms: &SignTerms<'_>,
+        base_fee: primitive_types::U256,
+    ) -> Result<Proposal> {
+        check_fee_cap(terms.fee, amount, terms.allow_high_fee)?;
+        let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
+        let proposal = Proposal::unsigned(account, tx);
+        proposal.check_fee(base_fee)?;
+        Ok(proposal)
+    }
+
+    /// What the confirm screen shows before account `index` approves
+    /// `proposal` from `open`, the account the screen has open. The text
+    /// starts with "Multisig k of n, signing as member i (account j)", so the
+    /// native dialog names the account and the signer too. Signs nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Multisig`] when `proposal` spends from another account
+    /// than `open` (a co-member of a second account could otherwise pass a
+    /// spend from it off as this one's), or account `index` is not a member;
+    /// derivation failures. Nothing is marked reviewed on an error.
+    pub fn confirm_multisig(
+        &mut self,
+        index: u32,
+        open: &MultisigAccount,
+        proposal: &Proposal,
+        chain: &ChainTag,
+        ctx: &maya_clear_sign::Context,
+    ) -> Result<Confirmation> {
+        let account = proposal.account();
+        if account.address() != open.address() {
+            return Err(WalletError::Multisig(
+                "this proposal spends from another multisig account than the one open; \
+                 nothing was shown"
+                    .into(),
+            ));
+        }
+        let (_, member) = self.member_signer(index)?;
+        let position = account.position_of(&member).ok_or_else(|| {
+            WalletError::Multisig(format!("account {index} is not a member of this account"))
+        })?;
+        let mut shown = confirmation_with(proposal.transaction(), chain, ctx);
+        shown.description = format!(
+            "Multisig {} of {}, signing as member {position} (account {index}). {}",
+            account.threshold(),
+            account.members().len(),
+            shown.description
+        );
+        self.reviewed = Some(shown.signing_hash.clone());
+        Ok(shown)
+    }
+
+    /// Adds account `index`'s approval to `proposal`, but only to the one
+    /// `confirmed_hash` names, as [`Wallet::sign`] does for a transfer.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Signing`] when no confirm screen showed this proposal
+    /// or the fee is over the cap; [`WalletError::Multisig`] when account
+    /// `index` is not a member or has already approved, or the fee is under
+    /// what `base_fee` (zero where fees are off) needs for the finished spend.
+    pub fn approve_multisig(
+        &mut self,
+        index: u32,
+        proposal: &Proposal,
+        chain: &ChainTag,
+        confirmed_hash: &str,
+        base_fee: primitive_types::U256,
+    ) -> Result<Proposal> {
+        let shown = confirmation(proposal.transaction(), chain);
+        if self.reviewed.as_deref() != Some(confirmed_hash) || shown.signing_hash != confirmed_hash
+        {
+            return Err(WalletError::Signing(
+                "no confirm screen in this session shows this proposal; nothing was signed"
+                    .to_string(),
+            ));
+        }
+        let (signing_key, position) = self.multisig_signer(index, proposal, base_fee)?;
+        let signature = signing_key
+            .sign(&proposal.signing_bytes(chain))
+            .map_err(|e| WalletError::Signing(e.to_string()))?;
+        let mut bytes = Vec::new();
+        signature.encode_into(&mut bytes);
+        let approved = proposal.with_approval(
+            Approval {
+                index: position,
+                signature: bytes,
+            },
+            chain,
+        )?;
+        self.reviewed = None;
+        Ok(approved)
+    }
+
+    /// Every refusal [`Wallet::approve_multisig`] can give after the confirm
+    /// screen, checked first so a person is never asked to approve what the
+    /// core would not sign: the fee cap, the fee for the finished spend,
+    /// membership, a repeat approval and a met quorum. Signs nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Wallet::approve_multisig`], less the confirm-screen check.
+    pub fn check_multisig_approval(
+        &self,
+        index: u32,
+        proposal: &Proposal,
+        base_fee: primitive_types::U256,
+    ) -> Result<()> {
+        self.multisig_signer(index, proposal, base_fee).map(|_| ())
+    }
+
+    /// Account `index`'s key and policy position, once every pre-signing
+    /// check on `proposal` passes.
+    fn multisig_signer(
+        &self,
+        index: u32,
+        proposal: &Proposal,
+        base_fee: primitive_types::U256,
+    ) -> Result<(HybridSigningKey, u8)> {
+        let amount = proposal
+            .transaction()
+            .outputs
+            .first()
+            .map(|o| o.amount)
+            .unwrap_or_default();
+        check_fee_cap(proposal.fee(), amount, false)?;
+        // The fee is inside the signed bytes: an underpaid spend would be
+        // refused after every member approved, and need proposing again.
+        proposal.check_fee(base_fee)?;
+        let (signing_key, member) = self.member_signer(index)?;
+        let position = proposal.account().position_of(&member).ok_or_else(|| {
+            WalletError::Multisig(format!("account {index} is not a member of this account"))
+        })?;
+        if proposal.approved_by().contains(&position) {
+            return Err(WalletError::Multisig(format!(
+                "member {position} has already approved"
+            )));
+        }
+        if proposal.is_complete() {
+            return Err(WalletError::Multisig(
+                "the quorum is already met; no further approval is needed".into(),
+            ));
+        }
+        Ok((signing_key, position))
+    }
+
+    /// The account card for `account`, marking the members whose keys are
+    /// this wallet's derived accounts.
+    ///
+    /// # Errors
+    ///
+    /// Propagates derivation failures.
+    pub fn multisig_view(&self, account: &MultisigAccount, genesis: &str) -> Result<AccountView> {
+        let own = self
+            .accounts
+            .keys()
+            .map(|&i| Ok((i, self.member_signer(i)?.1)))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(account.view(genesis, &own))
     }
 
     /// Signed transfers, newest first.

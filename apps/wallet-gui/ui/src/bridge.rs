@@ -661,6 +661,10 @@ unsafe extern "C" {
     async fn clipboard_write_text(text: &str) -> Result<JsValue, JsValue>;
 }
 
+/// The multisig commands (P-16), one file over for size; still this boundary.
+#[path = "bridge_multisig.rs"]
+pub mod multisig;
+
 /// Copies `text` to the clipboard.
 pub async fn copy_to_clipboard(text: &str) -> Result<(), String> {
     clipboard_write_text(text).await.map(|_| ()).map_err(|e| {
