@@ -5,7 +5,7 @@
 //! end-to-end test that needs `RocksDB`, a genesis file, and a mined block in
 //! order to check that a 404 is a 404 is a test nobody runs.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use jsonrpsee::core::client::ClientT;
@@ -20,6 +20,14 @@ use crate::error::GatewayError;
 /// A gateway that waits forever on a wedged node holds a connection per waiting
 /// client and turns one stuck backend into an exhausted frontend.
 pub const NODE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long one `get_supply` answer is reused.
+///
+/// The node computes supply by walking state, so it is the costliest public
+/// read; supply moves once per block, so two seconds of staleness changes
+/// nothing a caller can act on, and every gateway route then costs the node
+/// at most one walk per window however many clients ask.
+pub const SUPPLY_TTL: Duration = Duration::from_secs(2);
 
 /// An account's balance and nonce, as the node reports them.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -134,6 +142,10 @@ pub struct RpcNodeClient {
     client: HttpClient,
     /// Also forward [`allowlist::BOOTSTRAP_METHODS`] (`--bootstrap`).
     bootstrap: bool,
+    /// The last `get_supply` answer and when it arrived. Held across the
+    /// node call, so concurrent callers wait for one call instead of each
+    /// making their own.
+    supply: tokio::sync::Mutex<Option<(Instant, Supply)>>,
 }
 
 impl RpcNodeClient {
@@ -150,6 +162,7 @@ impl RpcNodeClient {
         Ok(Self {
             client,
             bootstrap: false,
+            supply: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -215,7 +228,15 @@ impl NodeClient for RpcNodeClient {
     }
 
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
-        self.call("get_supply", rpc_params![]).await
+        let mut cached = self.supply.lock().await;
+        if let Some((at, supply)) = cached.as_ref()
+            && at.elapsed() < SUPPLY_TTL
+        {
+            return Ok(supply.clone());
+        }
+        let supply: Supply = self.call("get_supply", rpc_params![]).await?;
+        *cached = Some((Instant::now(), supply.clone()));
+        Ok(supply)
     }
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {
