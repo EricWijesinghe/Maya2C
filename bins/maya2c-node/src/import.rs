@@ -34,6 +34,10 @@ const MAX_ORPHANS: usize = 512;
 /// Wire bytes the orphan pool may hold in all. Together with the per-block
 /// size check before buffering, this bounds the memory held for unattached
 /// blocks whatever the gossip volume. Twelve maximum-size blocks fit.
+///
+/// Both this assertion and the pre-buffer `check_size` use the compile-time
+/// cap, as `insert_block` does. If the cap becomes a scheduled parameter
+/// (ADR-147), both must follow the scheduled maximum.
 const MAX_ORPHAN_BYTES: u64 = 64 * 1024 * 1024;
 const _: () = assert!(MAX_ORPHAN_BYTES >= MAX_BLOCK_BYTES);
 
@@ -59,28 +63,41 @@ pub(super) struct Orphans {
     by_parent: HashMap<[u8; 32], Vec<Orphan>>,
     blocks: usize,
     bytes: u64,
+    /// Order of arrival, so eviction picks one victim whatever the map order.
+    next_seq: u64,
 }
 
-/// One buffered block, with its wire size so removal can return it.
+/// One buffered block, with its id and wire size so lookups and removal need
+/// neither to be recomputed.
 struct Orphan {
     block: Block,
+    id: [u8; 32],
     source: Option<PeerId>,
     bytes: u64,
+    seq: u64,
 }
 
 impl Orphans {
     /// Whether one more block of `bytes` fits under `parent`: the pool's block
     /// count, its byte budget and the per-parent share must all have room.
+    #[cfg(test)]
     fn has_room(&self, parent: &[u8; 32], bytes: u64) -> bool {
-        let under_parent = self.by_parent.get(parent).map_or(0, Vec::len);
-        self.blocks < MAX_ORPHANS
-            && self.bytes.saturating_add(bytes) <= MAX_ORPHAN_BYTES
-            && under_parent < MAX_ORPHANS_PER_PARENT
+        self.share_has_room(parent) && self.pool_has_room(bytes)
+    }
+
+    fn share_has_room(&self, parent: &[u8; 32]) -> bool {
+        self.by_parent.get(parent).map_or(0, Vec::len) < MAX_ORPHANS_PER_PARENT
+    }
+
+    fn pool_has_room(&self, bytes: u64) -> bool {
+        pool_fits(self.blocks, self.bytes, bytes)
     }
 
     /// Buffers `block` under `parent`. Returns `false` only when the pool has
     /// no room; a block already held there is not added twice, so repeats from
-    /// backfill or an ancestor walk do not use up the parent's share.
+    /// backfill or an ancestor walk do not use up the parent's share. The id
+    /// alone identifies a block here because `import_block` checks `tx_root`
+    /// before buffering.
     fn buffer(
         &mut self,
         parent: [u8; 32],
@@ -92,21 +109,86 @@ impl Orphans {
         let held = self
             .by_parent
             .get(&parent)
-            .is_some_and(|siblings| siblings.iter().any(|o| o.block.header.id() == id));
+            .is_some_and(|siblings| siblings.iter().any(|o| o.id == id));
         if held {
             return true;
         }
-        if !self.has_room(&parent, bytes) {
+        if !self.share_has_room(&parent) || !self.make_room(&id, bytes) {
             return false;
         }
         self.blocks += 1;
         self.bytes += bytes;
+        self.next_seq += 1;
         self.by_parent.entry(parent).or_default().push(Orphan {
             block,
+            id,
             source,
             bytes,
+            seq: self.next_seq,
         });
         true
+    }
+
+    /// Frees room for a block of `bytes` with id `id`, if it needs any.
+    ///
+    /// Only a block some buffered orphan waits on may displace another: an
+    /// ancestor walk fetches newest-first, so without this the top of a long
+    /// gap fills the pool and the blocks just above the tip are refused. The
+    /// victims are the most recently buffered orphans nothing waits on, the
+    /// ones farthest from the tip, never a child of `id` itself.
+    fn make_room(&mut self, id: &[u8; 32], bytes: u64) -> bool {
+        if self.pool_has_room(bytes) {
+            return true;
+        }
+        if !self.by_parent.contains_key(id) {
+            return false;
+        }
+        let mut leaves: Vec<(u64, [u8; 32], [u8; 32], u64)> = self
+            .by_parent
+            .iter()
+            .filter(|(parent, _)| *parent != id)
+            .flat_map(|(parent, siblings)| {
+                siblings
+                    .iter()
+                    .map(move |o| (o.seq, *parent, o.id, o.bytes))
+            })
+            .filter(|(_, _, child, _)| !self.by_parent.contains_key(child))
+            .collect();
+        // Newest first; `seq` is unique, so the map's iteration order is not used.
+        leaves.sort_unstable_by_key(|leaf| std::cmp::Reverse(leaf.0));
+        // Count the victims first, so a block that cannot be made to fit
+        // evicts nothing.
+        let (mut blocks, mut held, mut victims) = (self.blocks, self.bytes, 0);
+        for leaf in &leaves {
+            if pool_fits(blocks, held, bytes) {
+                break;
+            }
+            blocks -= 1;
+            held -= leaf.3;
+            victims += 1;
+        }
+        if !pool_fits(blocks, held, bytes) {
+            return false;
+        }
+        for (_, parent, child, _) in &leaves[..victims] {
+            self.remove(parent, child);
+        }
+        true
+    }
+
+    /// Drops the orphan `child` buffered under `parent`, releasing its share.
+    fn remove(&mut self, parent: &[u8; 32], child: &[u8; 32]) {
+        let Some(siblings) = self.by_parent.get_mut(parent) else {
+            return;
+        };
+        if let Some(index) = siblings.iter().position(|o| o.id == *child) {
+            let gone = siblings.swap_remove(index);
+            self.blocks -= 1;
+            self.bytes -= gone.bytes;
+        }
+        if siblings.is_empty() {
+            self.by_parent.remove(parent);
+        }
     }
 
     /// Removes and returns the blocks waiting on `parent`, releasing their
@@ -117,6 +199,12 @@ impl Orphans {
         self.bytes -= children.iter().map(|o| o.bytes).sum::<u64>();
         children.into_iter().map(|o| (o.block, o.source)).collect()
     }
+}
+
+/// Whether a pool holding `blocks` blocks and `held` bytes has room for one
+/// more block of `bytes`.
+const fn pool_fits(blocks: usize, held: u64, bytes: u64) -> bool {
+    blocks < MAX_ORPHANS && held.saturating_add(bytes) <= MAX_ORPHAN_BYTES
 }
 
 /// What an import found that the network layer must hear about.
@@ -156,18 +244,23 @@ pub(super) fn import_block(
         };
 
         if !known_parent {
-            // The size check is stateless, so an oversized block is refused
-            // here; it would otherwise wait in the pool for `insert_block`.
-            if let Err(error) = block.check_size() {
-                refuse(&mut report, metrics, source, &error);
-                continue;
-            }
+            // Both checks are stateless, so a bad block is refused here, in
+            // `insert_block`'s order, rather than waiting in the pool. The
+            // `tx_root` check makes the header id commit to the body, so a copy
+            // with another body cannot take the genuine block's place.
+            let checked = block.check_tx_root().and_then(|()| block.check_size());
+            let bytes = match checked {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    refuse(&mut report, metrics, source, &error);
+                    continue;
+                }
+            };
             if id == first {
                 report.missing_parent = Some(parent);
             }
             // Cap the buffer: an unbounded orphan pool is a memory-exhaustion
             // vector for any peer willing to send junk.
-            let bytes = block.to_bytes().len() as u64;
             if !orphans.buffer(parent, block, source, bytes) {
                 metrics.record_rejection("orphan_buffer_full");
             }
@@ -406,7 +499,7 @@ mod tests {
     use custom_l1_node::consensus::chain::ChainConfig;
     use custom_l1_node::core::{BlockHeader, Transaction, TxOutput};
     use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
-    use custom_l1_node::state::StateDB;
+    use custom_l1_node::state::{BlockContext, StateDB};
 
     /// Wire bytes one `TxOutput` adds: a 32-byte amount and a 32-byte address.
     const OUTPUT_WIRE_BYTES: usize = 64;
@@ -566,6 +659,112 @@ mod tests {
             (0, 0),
             "totals not released"
         );
+    }
+
+    #[test]
+    fn a_copy_with_a_swapped_body_cannot_displace_the_genuine_orphan() {
+        let dir = tempfile::tempdir().unwrap();
+        let chain = chain(dir.path());
+        let mut orphans = Orphans::default();
+        let parent = [7u8; 32];
+        let genuine = orphan(parent, 0, OUTPUT_WIRE_BYTES);
+        // Same header, so the same id, but not the body the header commits to.
+        let swapped = Block {
+            header: genuine.header.clone(),
+            transactions: vec![],
+        };
+
+        let report = import(&chain, swapped, Some(PeerId::random()), &mut orphans);
+        import(&chain, genuine.clone(), None, &mut orphans);
+
+        assert_eq!(report.offences.len(), 1, "the swapped body was not blamed");
+        assert_eq!(
+            report.missing_parent, None,
+            "an invalid block started a walk"
+        );
+        let held: Vec<Block> = orphans
+            .take_children(&parent)
+            .into_iter()
+            .map(|(block, _)| block)
+            .collect();
+        assert_eq!(held, vec![genuine], "the genuine block was lost");
+    }
+
+    /// Extends `source` by one empty block and returns it, as a peer ahead of
+    /// the local node would serve it.
+    fn next_block(source: &Mutex<Chain>, timestamp: u64) -> Block {
+        let mut source = source.lock().unwrap();
+        let tip = source.tip();
+        let mut block = Block::new(
+            BlockHeader {
+                difficulty_target: source.next_target(&tip).unwrap(),
+                timestamp,
+                ..header(tip, 0)
+            },
+            vec![],
+        );
+        block.header.state_root = source
+            .state()
+            .preview_root(&block, BlockContext::at_height(source.height() + 1))
+            .unwrap();
+        source.insert_block(block.clone()).unwrap();
+        block
+    }
+
+    #[test]
+    fn a_walk_into_a_nearly_full_pool_still_lands_a_run_of_blocks() {
+        const GAP: usize = 20;
+        const ROOM: usize = 5;
+        let (source_dir, local_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let source = chain(source_dir.path());
+        let local = chain(local_dir.path());
+        let gap: Vec<Block> = (0..GAP as u64)
+            .map(|i| next_block(&source, 2 + i))
+            .collect();
+
+        let mut orphans = Orphans::default();
+        // Unrelated orphans hold all but ROOM places in the pool.
+        for index in 0..(MAX_ORPHANS - ROOM) as u64 {
+            let mut parent = [0xee; 32];
+            parent[..8].copy_from_slice(&index.to_be_bytes());
+            import(&local, orphan(parent, 0, 0), None, &mut orphans);
+        }
+
+        // Each walk fetches newest-first, from the top of the gap down to the
+        // first block whose parent the node holds.
+        let mut walks = 0;
+        while lock_chain(&local).height() < GAP as u64 && walks < GAP {
+            walks += 1;
+            let height = usize::try_from(lock_chain(&local).height()).unwrap();
+            for block in gap[height..].iter().rev() {
+                import(&local, block.clone(), None, &mut orphans);
+            }
+        }
+        assert_eq!(
+            lock_chain(&local).height(),
+            GAP as u64,
+            "the tip never reached the top"
+        );
+        // Each walk lands its bottom block and the ROOM above it.
+        assert_eq!(
+            walks,
+            GAP.div_ceil(ROOM + 1),
+            "a walk landed only its bottom block"
+        );
+    }
+
+    #[test]
+    fn an_ancestor_that_cannot_be_made_to_fit_evicts_nothing() {
+        let mut orphans = Orphans::default();
+        let ancestor = orphan([1u8; 32], 0, 0);
+        let awaited = ancestor.header.id();
+        // Its own child fills most of the budget and is never a victim; the one
+        // other orphan is too small to make room.
+        assert!(orphans.buffer(awaited, orphan(awaited, 1, 0), None, MAX_ORPHAN_BYTES - 20));
+        assert!(orphans.buffer([2u8; 32], orphan([2u8; 32], 2, 0), None, 10));
+
+        assert!(!orphans.buffer([1u8; 32], ancestor, None, 100));
+        assert_eq!(orphans.blocks, 2, "an orphan was dropped for nothing");
     }
 
     #[test]
