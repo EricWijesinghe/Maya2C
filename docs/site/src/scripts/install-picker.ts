@@ -26,9 +26,16 @@ function save(storageKey: string, s: State): void {
   }
 }
 
+// Compares attributes instead of building a selector: a quote in a link's
+// ?os= or ?v= value would make querySelector throw and stop the picker.
 function hasRow(root: HTMLElement, name: string, os?: string): boolean {
-  const group = os ? `[data-group="${os}"]` : "";
-  return Boolean(root.querySelector(`.ip-row[data-row="${name}"]${group}`));
+  return [...root.querySelectorAll<HTMLElement>(".ip-row")].some(
+    (row) => row.dataset.row === name && (!os || row.dataset.group === os),
+  );
+}
+
+function walkFor(root: HTMLElement, combo: string): HTMLElement | undefined {
+  return [...root.querySelectorAll<HTMLElement>(".ip-walk")].find((w) => w.dataset.combo === combo);
 }
 
 /** The first choice of each OS's version row: the default when nothing is stored. */
@@ -149,11 +156,11 @@ export function initInstallPicker(root: HTMLElement): void {
     });
     // A link from another guide, or an edited one, can name a choice this
     // guide does not have: fall back to the defaults rather than show nothing.
-    if (!root.querySelector(`.ip-walk[data-combo="${key(root, state)}"]`)) {
+    if (!walkFor(root, key(root, state))) {
       const [os, , arch, m] = (root.dataset.default ?? "windows.11.-.-").split(".");
       if (!hasRow(root, "v", state.os)) state.os = os;
       state.v = { ...state.v, [state.os]: firstVersions(root)[state.os] };
-      if (!root.querySelector(`.ip-walk[data-combo="${key(root, state)}"]`)) {
+      if (!walkFor(root, key(root, state))) {
         state.arch = arch === "-" ? "x86_64" : arch;
         state.m = m;
       }
