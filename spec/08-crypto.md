@@ -12,6 +12,7 @@
 - **CRY-2** The hybrid signature is the ML-DSA-65 signature followed by the SLH-DSA-SHA2-128s signature, both over the same bytes (TX-3). *(external vectors: crates/node/tests/suite_parity_tests.rs)*
 - **CRY-3** Only parameter sets named in the signature-suite registry are compiled; an unknown suite byte is a decode error, never a fallback (invariant 29). *(external vectors: crates/crypto-pq/src/suite/tests.rs)*
 - **CRY-4** Validator keys (genesis `bft.validators`, staking registration, BFT votes, attestations and certificates) are ML-DSA-87 through the `ml-dsa` backend (invariant 4), signed deterministically under the FIPS 204 context `maya2c validator v1`; a signature under any other context, including the empty one transaction and suite keys use, does not verify. *(external vectors: crates/crypto-pq/src/suite/validator.rs)*
+- **CRY-5** The oracle beacon's VRF (RFC 9381 `ECVRF-EDWARDS25519-SHA512-TAI`, suite octet `0x03`, invariant 10) accepts a public key or a proof's gamma only in its canonical point encoding: the 32 bytes must equal the re-compression of the point they decode to. An encoding with y ≥ p, or a set sign bit on x = 0, is refused as an invalid point, so one key or one proof has exactly one byte form. The response scalar `s` must already be reduced. *(external vectors: crates/vrf/tests/encoding_tests.rs)*
 
 Evidence outside `spec/tests/`: `crates/crypto-pq/tests/acvp_tests.rs`
 (NIST ACVP vectors), `kem_kat_tests.rs`, and `spec/tests/keys.json`, whose

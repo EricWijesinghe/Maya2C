@@ -111,7 +111,12 @@ fn open_refuses_kdf_memory_below_the_accepted_range() {
 fn open_refuses_an_oversized_keystore_file() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("key.json");
-    std::fs::write(&path, "x".repeat(70 * 1024)).unwrap();
+    keystore::create(&path, &seed(1), b"correct horse").unwrap();
+    // A valid keystore padded past the cap with trailing whitespace, which
+    // JSON allows: only the size bound can refuse it.
+    let mut text = std::fs::read_to_string(&path).unwrap();
+    text.push_str(&" ".repeat(70 * 1024));
+    std::fs::write(&path, text).unwrap();
     assert!(matches!(
         keystore::open(&path, b"correct horse"),
         Err(KeystoreError::Format(_))

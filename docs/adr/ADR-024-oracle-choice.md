@@ -38,3 +38,23 @@ oracle membership to stake and makes a provably wrong signed price slashable.
   that is a governance decision somebody signs.
 - No GraphQL indexer or subgraph template is built. Indexer APIs are listed
   as a gap in `reports/17-integrations.md`.
+
+## Amendment 2026-11-18: one byte form per VRF key and proof
+
+Pre-approved by Eric on 2026-11-17 into re-freeze bundle 3 (PR #596).
+
+The beacon's VRF now accepts a public key and a proof's gamma only in their
+canonical point encoding (spec rule CRY-5). Point decompression alone accepts
+y ≥ p, so one point had several 32-byte forms. Verification hashes the
+re-compressed gamma, so before this a proof could be re-encoded and still
+verify: two proof byte strings for one beacon value. Verification also salts
+hash-to-curve with the key's raw bytes, so a re-encoded key would have been a
+second key with different outputs. Keys and proofs this code generates are
+always canonical, so honest output is unchanged; only re-encoded inputs are
+refused. The response scalar was already required to be reduced.
+
+Invariant 10 (suite octet `0x03`) and the RFC 9381 vectors are unchanged.
+Before genesis, no stored registry key or proof exists to check. Tests:
+`a_public_key_with_a_non_canonical_encoding_is_refused` and
+`a_proof_with_a_non_canonical_gamma_is_refused` in
+`crates/vrf/tests/encoding_tests.rs`.

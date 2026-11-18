@@ -89,3 +89,30 @@ On 2026-10-18, a rust-reviewer pass and a security-reviewer pass were run by AI 
   - mismatched public key;
   - no file left after a failed seal.
 - `bins/l1-wallet/src/staking.rs` covers a sealed key loading only with its passphrase.
+
+## Amendment 2026-11-18: passphrase files and keystores are owner-only
+
+Pre-approved by Eric on 2026-11-17 into re-freeze bundle 3 (PR #596).
+
+- **Passphrase files.** `sealed::read_passphrase_file` refuses, on Unix, a file
+  its group or others can read (mode must be 0600 or tighter). The mode is read
+  from the open handle, so the file checked is the file read. Every reader goes
+  through it: the node's validator key, the genesis-ceremony council key, the
+  wallet's staking path and the `maya2c-signer` CLI. This is a hard refusal, not
+  a warning: a passphrase another local user can read protects nothing. The
+  installers (`infra/testnet-vm/install.sh`, `scripts/join-testnet.sh`) already
+  write 0600; the dev and harness writers (`maya2c-cli dev`, `xtask` localnet,
+  ceremony rehearsal, proving) now do too.
+- **Windows.** ACLs are not inspected; point 6 above still applies.
+- **Remote-signer keystores** (`keystore::create`) refuse a passphrase shorter
+  than `MIN_PASSPHRASE_LEN` (12 bytes, as sealing already did), refuse to
+  overwrite an existing file, and create the file 0600 on Unix.
+  `keystore::open` caps the file at 64 KiB before parsing, applies the sealed
+  format's KDF bounds, and refuses any non-hex character instead of panicking.
+- **Slashing-protection database.** Compaction opens the new file's append
+  handle before the rename; import refuses an author at or above
+  `MAX_AUTHORS`, as signing does.
+
+Tests: `crates/signer/tests/hardening_tests.rs`, and
+`init_refuses_a_passphrase_file_others_can_read` in
+`bins/maya2c-signer/tests/cli_tests.rs`.
