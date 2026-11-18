@@ -21,6 +21,7 @@ use std::process::ExitCode;
 use maya_status::incident_store::{self as store, Entry, Kind, Severity};
 use maya_status::incidents;
 use maya_status::operator::{self, Operator};
+use zeroize::Zeroizing;
 
 const USAGE: &str = "usage:
   maya-incident keygen --out KEYFILE
@@ -89,7 +90,8 @@ fn keygen(out: &Path) -> Result<String, String> {
         .create_new(true)
         .open(out)
         .map_err(|e| format!("{}: {e}", out.display()))?;
-    writeln!(file, "{}", hex::encode(*seed)).map_err(|e| e.to_string())?;
+    let seed_hex = Zeroizing::new(hex::encode(seed.as_ref()));
+    writeln!(file, "{}", seed_hex.as_str()).map_err(|e| e.to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
     Ok(format!(
         "key written to {} (keep it off the repository)\npublic key, add to operators.txt:\n{}",
@@ -101,10 +103,11 @@ fn keygen(out: &Path) -> Result<String, String> {
 fn publish(f: &BTreeMap<String, String>) -> Result<String, String> {
     let dir = PathBuf::from(required(f, "dir")?);
     let trusted = operator::read_operators(&operators_path(f)?)?;
-    let seed_text =
-        std::fs::read_to_string(required(f, "key")?).map_err(|e| format!("key: {e}"))?;
+    let seed_text = Zeroizing::new(
+        std::fs::read_to_string(required(f, "key")?).map_err(|e| format!("key: {e}"))?,
+    );
     let seed = operator::parse_seed(&seed_text)?;
-    let op = Operator::from_seed(*seed);
+    let op = Operator::from_seed(&seed);
     let id = required(f, "id")?;
     let existing = incidents::fold(&store::load(&dir, &trusted).map_err(|e| e.to_string())?);
     let prior = existing.iter().find(|i| i.id == id);

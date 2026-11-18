@@ -363,7 +363,7 @@ mod tests {
 
     fn fixture() -> (tempfile::TempDir, Operator, Vec<Vec<u8>>) {
         let dir = tempfile::tempdir().unwrap();
-        let op = Operator::from_seed([9; 32]);
+        let op = Operator::from_seed(&[9; 32]);
         let trusted = vec![op.public_key().to_vec()];
         (dir, op, trusted)
     }
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn an_untrusted_operator_cannot_publish() {
         let (dir, _op, trusted) = fixture();
-        let stranger = Operator::from_seed([4; 32]);
+        let stranger = Operator::from_seed(&[4; 32]);
         let mut e = draft("a");
         e.kind = Kind::Signed;
         assert!(append(dir.path(), &trusted, &e, Some(&stranger)).is_err());
@@ -471,7 +471,7 @@ mod tests {
         let path = dir.path().join(FILE);
         let mut record: Record =
             serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
-        record.signer = Some(hex::encode(Operator::from_seed([4; 32]).public_key()));
+        record.signer = Some(hex::encode(Operator::from_seed(&[4; 32]).public_key()));
         std::fs::write(
             &path,
             format!("{}\n", serde_json::to_string(&record).unwrap()),

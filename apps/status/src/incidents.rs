@@ -315,7 +315,7 @@ mod tests {
             1_120,
         );
         log.sync_halts(&r, 2_000).unwrap();
-        let op = crate::operator::Operator::from_seed([3; 32]);
+        let op = crate::operator::Operator::from_seed(&[3; 32]);
         let log = Log::new(log.dir.as_path(), vec![op.public_key().to_vec()]);
         let publish = Entry {
             kind: Kind::Signed,

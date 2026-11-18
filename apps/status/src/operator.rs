@@ -18,8 +18,10 @@ pub struct Operator {
 impl Operator {
     /// The operator a seed names.
     #[must_use]
-    pub fn from_seed(seed: [u8; SEED_LEN]) -> Self {
-        let key = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes(seed));
+    pub fn from_seed(seed: &[u8; SEED_LEN]) -> Self {
+        // `MasterSeed::from_bytes` takes the array by value and boxes it; that
+        // one move is crypto-pq's API, frozen with the node binary.
+        let key = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes(*seed));
         let public = MlDsa65::public_key(&key);
         Self { key, public }
     }
@@ -32,7 +34,7 @@ impl Operator {
     pub fn generate() -> Result<(Zeroizing<[u8; SEED_LEN]>, Self), String> {
         let mut seed = Zeroizing::new([0u8; SEED_LEN]);
         getrandom::fill(seed.as_mut()).map_err(|e| format!("entropy: {e}"))?;
-        let op = Self::from_seed(*seed);
+        let op = Self::from_seed(&seed);
         Ok((seed, op))
     }
 
@@ -64,11 +66,15 @@ pub fn verify(public: &[u8], message: &[u8], signature: &[u8]) -> bool {
 ///
 /// The text is not 64 hex digits.
 pub fn parse_seed(text: &str) -> Result<Zeroizing<[u8; SEED_LEN]>, String> {
-    let bytes = hex::decode(text.trim()).map_err(|_| "key file is not hex".to_owned())?;
-    let seed: [u8; SEED_LEN] = bytes
-        .try_into()
-        .map_err(|_| format!("key file must hold {SEED_LEN} bytes"))?;
-    Ok(Zeroizing::new(seed))
+    // Decode straight into the zeroizing buffer: a `Vec` would be freed unwiped.
+    let mut seed = Zeroizing::new([0u8; SEED_LEN]);
+    hex::decode_to_slice(text.trim(), seed.as_mut()).map_err(|e| match e {
+        hex::FromHexError::OddLength | hex::FromHexError::InvalidStringLength => {
+            format!("key file must hold {SEED_LEN} bytes")
+        }
+        hex::FromHexError::InvalidHexCharacter { .. } => "key file is not hex".to_owned(),
+    })?;
+    Ok(seed)
 }
 
 /// The operator list: one hex public key per line; `#` starts a comment.
@@ -106,8 +112,8 @@ mod tests {
 
     #[test]
     fn a_signature_verifies_under_its_own_key_only() {
-        let a = Operator::from_seed([1; SEED_LEN]);
-        let b = Operator::from_seed([2; SEED_LEN]);
+        let a = Operator::from_seed(&[1; SEED_LEN]);
+        let b = Operator::from_seed(&[2; SEED_LEN]);
         let sig = a.sign(b"msg").unwrap();
         assert!(verify(a.public_key(), b"msg", &sig));
         assert!(!verify(a.public_key(), b"other", &sig));
@@ -116,9 +122,14 @@ mod tests {
 
     #[test]
     fn seed_files_must_hold_exactly_32_bytes_of_hex() {
-        assert!(parse_seed(&hex::encode([7u8; SEED_LEN])).is_ok());
+        let line = format!("  {}\n", hex::encode([7u8; SEED_LEN]));
+        assert_eq!(*parse_seed(&line).unwrap(), [7u8; SEED_LEN]);
         assert!(parse_seed("abcd").is_err());
         assert!(parse_seed("zz").is_err());
+        assert_eq!(
+            parse_seed(&"zz".repeat(SEED_LEN)).unwrap_err(),
+            "key file is not hex"
+        );
     }
 
     #[test]
