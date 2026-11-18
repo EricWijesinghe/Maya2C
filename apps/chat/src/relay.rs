@@ -337,10 +337,10 @@ impl Relay {
     pub fn challenge(&mut self, address: Address, now: u64) -> Result<[u8; 32], ChatError> {
         // A pending nonce is returned, not replaced: a second request must not
         // void the owner's fetch that is already on its way.
-        if let Some(&(nonce, issued)) = self.challenges.get(&address) {
-            if now.saturating_sub(issued) <= CHALLENGE_TTL {
-                return Ok(nonce);
-            }
+        if let Some(&(nonce, issued)) = self.challenges.get(&address)
+            && now.saturating_sub(issued) <= CHALLENGE_TTL
+        {
+            return Ok(nonce);
         }
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce).map_err(|_| ChatError::Entropy)?;
