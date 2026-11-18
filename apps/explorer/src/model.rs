@@ -99,12 +99,17 @@ pub struct IndexedTx {
     /// Whether signing it needs a closer look than a routine payment.
     #[serde(default)]
     pub careful: bool,
+    /// Plain-language explanation from the clear-sign renderer
+    /// ([`crate::explain::explain_tx`]). Empty in a row indexed before it.
+    #[serde(default)]
+    pub explanation: String,
 }
 
 impl IndexedTx {
-    /// Extracts every transaction from an RPC block.
+    /// Extracts every transaction from an RPC block; `network` is the text form
+    /// the explanation writes recipients in.
     #[must_use]
-    pub fn from_block(block: &BlockInfo) -> Vec<Self> {
+    pub fn from_block(block: &BlockInfo, network: maya_address::Network) -> Vec<Self> {
         block
             .transactions
             .iter()
@@ -125,6 +130,7 @@ impl IndexedTx {
                 kind: tx.kind.clone(),
                 summary: tx.summary.clone(),
                 careful: tx.careful,
+                explanation: crate::explain::explain_tx(tx, network),
             })
             .collect()
     }

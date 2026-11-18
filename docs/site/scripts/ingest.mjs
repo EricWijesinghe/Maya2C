@@ -211,6 +211,7 @@ const SEARCH_TITLES = {
   "MISSION.md": "Mission: A Post-Quantum Layer-1 Ecosystem | Maya2C",
   "oracle.md": "The Oracle: Randomness Beacon and Price Feed | Maya2C",
   "peer-health.md": "Peer Guard: Byzantine Peers and Quarantine | Maya2C",
+  "pq-transport.md": "Post-Quantum P2P Transport: FIPS 203 ML-KEM | Maya2C",
   "SECOND_CLIENT.md": "A Second Client: Why One Codebase Is Not Enough | Maya2C",
   "workspace-map.md": "Workspace Map: What Each Crate Is For | Maya2C",
 };

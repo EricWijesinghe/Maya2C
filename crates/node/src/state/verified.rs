@@ -72,6 +72,11 @@ impl VerifiedCache {
         if let Some(auth) = &tx.suite_auth {
             crate::crypto::suites::check_admissible(policy, auth.suite, height)?;
         }
+        // A v13 frame's sponsor suite is judged on every call too (ADR-135
+        // P-4): the cached bytes include it, but a sunset can arrive later.
+        if let Some(sponsor) = &tx.sponsor {
+            crate::crypto::suites::check_admissible(policy, sponsor.suite, height)?;
+        }
         // Cache key includes chain tag to prevent cross-chain cache hits (ADR-036).
         let mut hasher = blake3::Hasher::new_derive_key("maya.verified_cache.v1");
         hasher.update(&chain.0);

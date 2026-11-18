@@ -1,0 +1,69 @@
+{
+ "cases": [
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "43222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000000b00000000000000100e00000000000078000000",
+   "id": "SC-enc-create",
+   "rules": [
+    "SC-1"
+   ],
+   "size": "85",
+   "type": "encoding",
+   "note": "payee 0x22 x32, amount 100, first_due 11, interval 3600, runs 120. Hand-laid; NOT VERIFIED until CI runs schedule_conformance.rs"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "443333333333333333333333333333333333333333333333333333333333333333",
+   "id": "SC-enc-cancel",
+   "rules": [
+    "SC-1"
+   ],
+   "size": "33",
+   "type": "encoding",
+   "note": "schedule_id 0x33 x32. Hand-laid; NOT VERIFIED"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "43222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000000b00000000000000100e000000000000780000",
+   "id": "SC-enc-create-truncated",
+   "rules": [
+    "SC-1"
+   ],
+   "size": "84",
+   "type": "encoding",
+   "note": "runs cut to 3 bytes"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "4433333333333333333333333333333333333333333333333333333333333333",
+   "id": "SC-enc-cancel-truncated",
+   "rules": [
+    "SC-1"
+   ],
+   "size": "32",
+   "type": "encoding",
+   "note": "schedule_id cut to 31 bytes"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "43222222222222222222222222222222222222222222222222222222222222222264000000000000000000000000000000000000000000000000000000000000000b00000000000000100e0000000000007800000000",
+   "id": "SC-enc-create-trailing",
+   "rules": [
+    "SC-1"
+   ],
+   "size": "86",
+   "type": "encoding",
+   "note": "one byte past the fixed width"
+  }
+ ]
+}

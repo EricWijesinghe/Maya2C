@@ -29,6 +29,10 @@ use crate::state::context::{
     STATELESS_ACTIVATION_HEIGHT, THREAT_INTEL_ACTIVATION_HEIGHT, WORK_CLAIM_ACTIVATION_HEIGHT,
     ZKML_ACTIVATION_HEIGHT,
 };
+use crate::state::upgrades::{
+    ASSET_MINT_ACTIVATION_HEIGHT, NAMES_ACTIVATION_HEIGHT, NFT_ACTIVATION_HEIGHT,
+    SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT, SPONSORED_FEES_ACTIVATION_HEIGHT,
+};
 
 /// The newest protocol version whose rules this binary implements.
 pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
@@ -56,8 +60,25 @@ impl FeatureSet {
     pub const ZKML: u64 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
     pub const RWA_STRICT: u64 = 1 << 7;
+    /// Capped-asset mint and burn, tags 55-58 (ADR-135 P-1). Bits 8-40 are
+    /// claimed by other open ADRs (`adr-claims.txt`), not defined here.
+    pub const ASSET_MINT: u64 = 1 << 41;
+    /// Unique assets: collections and items, tags 59-62 (ADR-135 P-2).
+    pub const NFT: u64 = 1 << 42;
+    /// Names with commit-reveal, tags 63-66, and the name-fee parameters (ADR-135 P-3).
+    pub const NAMES: u64 = 1 << 43;
+    /// Wire-v13 sponsored fees (ADR-135 P-4).
+    pub const SPONSORED_FEES: u64 = 1 << 44;
+    /// Scheduled payments, tags 67-68 and the end-of-block step (ADR-135 P-7).
+    /// Bits 42-45 are ADR-135's other features, defined on their own branches.
+    pub const SCHEDULED_PAYMENTS: u64 = 1 << 46;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u64 = ((1 << 8) - 1)
+        | Self::ASSET_MINT
+        | Self::NFT
+        | Self::NAMES
+        | Self::SPONSORED_FEES
+        | Self::SCHEDULED_PAYMENTS;
 
     /// Whether every bit names a defined feature.
     #[must_use]
@@ -95,6 +116,16 @@ pub struct FeatureActivations {
     pub zkml: u64,
     /// Strictly ascending RWA issuer lists.
     pub rwa_strict: u64,
+    /// Capped-asset mint and burn (bit 41).
+    pub asset_mint: u64,
+    /// Unique assets (bit 42).
+    pub nft: u64,
+    /// Names with commit-reveal (bit 43).
+    pub names: u64,
+    /// Wire-v13 sponsored fees (bit 44).
+    pub sponsored_fees: u64,
+    /// Scheduled payments (bit 46).
+    pub scheduled: u64,
 }
 
 impl Default for FeatureActivations {
@@ -109,6 +140,11 @@ impl Default for FeatureActivations {
             htlc_lattice: HTLC_L_ACTIVATION_HEIGHT,
             zkml: ZKML_ACTIVATION_HEIGHT,
             rwa_strict: RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+            asset_mint: ASSET_MINT_ACTIVATION_HEIGHT,
+            nft: NFT_ACTIVATION_HEIGHT,
+            names: NAMES_ACTIVATION_HEIGHT,
+            sponsored_fees: SPONSORED_FEES_ACTIVATION_HEIGHT,
+            scheduled: SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -218,6 +254,11 @@ impl UpgradeSchedule {
             htlc_lattice: at(FeatureSet::HTLC_LATTICE, never.htlc_lattice),
             zkml: at(FeatureSet::ZKML, never.zkml),
             rwa_strict: at(FeatureSet::RWA_STRICT, never.rwa_strict),
+            asset_mint: at(FeatureSet::ASSET_MINT, never.asset_mint),
+            nft: at(FeatureSet::NFT, never.nft),
+            names: at(FeatureSet::NAMES, never.names),
+            sponsored_fees: at(FeatureSet::SPONSORED_FEES, never.sponsored_fees),
+            scheduled: at(FeatureSet::SCHEDULED_PAYMENTS, never.scheduled),
         }
     }
 
@@ -341,6 +382,55 @@ mod tests {
         let f = s.features();
         assert_eq!((f.dvp, f.iot), (10, 10));
         assert_eq!(f.rwa_strict, u64::MAX);
+    }
+
+    #[test]
+    fn asset_mint_is_dark_until_an_entry_names_bit_41() {
+        assert_eq!(FeatureActivations::default().asset_mint, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 77, FeatureSet::ASSET_MINT)]).unwrap();
+        assert_eq!(s.features().asset_mint, 77);
+        assert_eq!(
+            s.features().dvp,
+            u64::MAX,
+            "bit 41 switches on nothing else"
+        );
+        // The neighbours of bit 41 are other ADRs' claims, not features here.
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 40)]).is_err());
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 45)]).is_err());
+        let names = UpgradeSchedule::new(vec![with(2, 99, FeatureSet::NAMES)]).unwrap();
+        assert_eq!(names.features().names, 99);
+        assert_eq!(names.features().nft, u64::MAX);
+        // Bit 42 (NFT) is defined now; it switches on nothing else.
+        let n = UpgradeSchedule::new(vec![with(2, 88, FeatureSet::NFT)]).unwrap();
+        assert_eq!(n.features().nft, 88);
+        assert_eq!(n.features().asset_mint, u64::MAX);
+    }
+
+    #[test]
+    fn sponsored_fees_are_dark_until_an_entry_names_bit_44() {
+        assert_eq!(FeatureActivations::default().sponsored_fees, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 77, FeatureSet::SPONSORED_FEES)]).unwrap();
+        assert_eq!(s.features().sponsored_fees, 77);
+        assert_eq!(
+            s.features().asset_mint,
+            u64::MAX,
+            "bit 44 switches on nothing else"
+        );
+        // Bit 45 is reserved for smart-account policy (ADR-135 I5, not built).
+        assert!(UpgradeSchedule::new(vec![with(2, 77, 1 << 45)]).is_err());
+    }
+
+    #[test]
+    fn scheduled_payments_are_dark_until_an_entry_names_bit_46() {
+        assert_eq!(FeatureActivations::default().scheduled, u64::MAX);
+        let s = UpgradeSchedule::new(vec![with(2, 66, FeatureSet::SCHEDULED_PAYMENTS)]).unwrap();
+        assert_eq!(s.features().scheduled, 66);
+        assert_eq!(
+            s.features().asset_mint,
+            u64::MAX,
+            "bit 46 switches on nothing else"
+        );
+        assert!(UpgradeSchedule::new(vec![with(2, 66, 1 << 47)]).is_err());
     }
 
     #[test]

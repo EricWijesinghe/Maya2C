@@ -1,6 +1,6 @@
 ---
 title: How Maya2C compares on post-quantum security
-description: A dated comparison (searched 2026-11-01) of Maya2C with 18 post-quantum chain entries on signature schemes, mandatory use, dual-signature design, peer transport and status. Every cell is sourced; where others are ahead is listed too.
+description: "A dated comparison (searched 2026-11-01) of Maya2C with 18 post-quantum chain entries on signatures, mandatory use, dual signing, peer transport and status. Every cell is sourced."
 ---
 
 Maya2C is a testnet project. Mainnet has not launched. This page compares

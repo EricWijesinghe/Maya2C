@@ -49,7 +49,7 @@ impl Node {
             }
             "get_peers" => Ok(json!({ "peer_id": "replay", "peers": [{}, {}, {}] })),
             "get_mempool_info" => match *self.pending.lock().unwrap() {
-                Some(p) => Ok(json!({ "pending": p })),
+                Some(p) => Ok(json!({ "size": p, "bytes": 0 })),
                 None => Err("method not found".to_owned()),
             },
             _ => Err(format!("{method}: not scripted")),

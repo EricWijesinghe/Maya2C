@@ -1,0 +1,21 @@
+[
+  { "slug": "experience", "title": "Experience Maya2C", "line": "Touch every part of the Maya2C network: live blocks, real API calls, post-quantum signatures, wallet, chat and more." },
+  { "slug": "design", "title": "What we are designing next", "line": "Written design proposals for Maya2C in plain words. Proposals, not features: none is built or switched on." },
+  { "slug": "fields", "title": "Fields", "line": "Every field Maya2C spans, and the honest status of each part: shipped, research, simulator or planned." },
+  { "slug": "health", "title": "Live health", "line": "Is maya-testnet-1 finalizing now, how long since its last halt, and what the public gateway does and does not show." },
+  { "slug": "ecosystem/roadmap", "title": "Ecosystem roadmap", "line": "Every planned Maya2C app and service by wave, and how the chain compares with others." },
+  { "slug": "guides/quickstart", "title": "Quickstart: a local chain and a transaction", "line": "Build the node and wallet, start a one-validator chain on your machine, and send a post-quantum-signed transfer." },
+  { "slug": "guides/testnet", "title": "Join the testnet", "line": "Make a wallet, take free test coins, and send a post-quantum-signed transaction on maya-testnet-1." },
+  { "slug": "guides/help-run", "title": "Help run Maya2C: set up a testnet node", "line": "Pick your computer, paste one line, and your node is running. No technical background needed." },
+  { "slug": "guides/faq", "title": "FAQ", "line": "Direct answers on post-quantum algorithms, finality, mining, mainnet status, the audit status and running a node." },
+  { "slug": "guides/signatures", "title": "Post-quantum signatures", "line": "Two post-quantum schemes sign every transaction at once: ML-DSA-65 (lattices) and SLH-DSA (hashes)." },
+  { "slug": "guides/transactions", "title": "How a transaction works", "line": "From a signed transaction in your wallet to a balance change on every node: the checks in order, and the fee rule." },
+  { "slug": "guides/consensus", "title": "Consensus and finality (DAG-BFT)", "line": "How validators agree on one transaction order, and why a committed block is final." },
+  { "slug": "guides/wallet", "title": "Wallet integration", "line": "How a wallet holds keys, signs post-quantum transactions, sets nonces and fees, and talks to a gateway." },
+  { "slug": "guides/validators", "title": "Run a post-quantum validator", "line": "Run a DAG-BFT validator on maya-testnet-1: commands in order, penalties, and what still blocks open registration." },
+  { "slug": "guides/pq-comparison", "title": "How Maya2C compares on post-quantum security", "line": "A dated comparison with 18 post-quantum chain entries. Every cell is sourced, and where others are ahead is listed too." },
+  { "slug": "guides/mining", "title": "Mining, validators and rewards", "line": "How GPU miners earn on Maya2C, why validators order the blocks, and what is built today." },
+  { "slug": "reference/hybrid-signatures", "title": "Hybrid ML-DSA + SLH-DSA transaction signatures", "line": "Every transaction carries two signatures over the same bytes: a lattice proof under FIPS 204 and a hash-based proof under FIPS 205." },
+  { "slug": "reference/pq-transport", "title": "Post-quantum P2P transport", "line": "Every libp2p connection carries an ML-KEM key exchange above its Noise session, and every byte above that is sealed." },
+  { "slug": "learn/signatures-live", "title": "Post-quantum signatures, step by step", "line": "One Maya2C transaction carries an ML-DSA-65 and an SLH-DSA signature. Each check, with the real FIPS parameter sizes." }
+]

@@ -15,12 +15,12 @@ Findings are rewarded with **public credit**: your name in the advisory, in
 the release notes and on this page. Bounties are not offered, and nothing here promises tokens, money or a mainnet allocation.
 :::
 
-## What we already attack ourselves, every day
+## What we already attack ourselves
 
-The project runs `cargo xtask attacknet` daily: seven validators on one
-machine, attacked as follows.
+The project has run `cargo xtask attacknet` on 19 days between 2026-10-04
+and 2026-11-09: seven validators on one machine, attacked as follows.
 - Two crash; then three crash, which must **halt**, never fork.
-- A stolen key signs from a second machine.
+- A second process on the same machine signs with a copied validator key.
 - Random bytes hit hundreds of peer connections.
 - The RPC is flooded with malformed and invalid requests.
 - One validator is down past the engine's window and must rejoin.

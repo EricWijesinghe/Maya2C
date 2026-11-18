@@ -43,6 +43,9 @@
 
 use std::sync::Arc;
 
+mod describe;
+pub use describe::{Detail, TxDescription, describe_payload, describe_transaction};
+
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::crypto::hybrid::{
     self, HybridPublicKey, HybridSignature, HybridSigningKey, HybridVerifyingKey,

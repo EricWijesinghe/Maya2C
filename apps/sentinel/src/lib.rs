@@ -11,7 +11,9 @@
 
 pub mod config;
 pub mod detect;
+pub mod heartbeat;
 pub mod incident;
+pub mod liveness;
 pub mod notify;
 pub mod obs;
 pub mod rpc;

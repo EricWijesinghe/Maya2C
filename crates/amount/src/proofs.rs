@@ -20,6 +20,13 @@
 //! the four rows adds its products exactly (`mul_row_*_adds_exactly`), so by
 //! induction `mul_wide` is the schoolbook product. Trusted: the compiler's
 //! 64 × 64 → 128-bit multiply, one line per product in `mul_row_into`.
+//!
+//! Decimal output is split the same way: `decimal_chunk_step_is_exact`
+//! proves `Display`'s 19-digit chunking at full width, and
+//! `display_round_trips_through_a_decimal_reader` checks the whole `Display`
+//! path against an independent reader for values below 10⁸. Trusted:
+//! `core::fmt`'s integer formatting. The crate has no decimal parser, so the
+//! reader lives here, in the proofs.
 
 use crate::wide::{REM_LIMBS, lt, shl1_or, sub};
 use crate::{Amount, Wide};
@@ -329,4 +336,158 @@ fn mul_row_2_adds_exactly() {
 #[kani::unwind(65)]
 fn mul_row_3_adds_exactly() {
     row_step(3);
+}
+
+/// Saturating add and subtract clamp exactly where the checked forms refuse,
+/// for every pair of 256-bit amounts: `MAX` above the top, zero below the
+/// bottom, the exact result otherwise.
+#[kani::proof]
+// 32: the `Amount` comparison is a 32-byte memcmp.
+#[kani::unwind(33)]
+fn saturating_add_and_sub_clamp_where_checked_refuses() {
+    let (a, b) = (any_amount(), any_amount());
+    assert!(a.saturating_add(b) == a.checked_add(b).unwrap_or(Amount::MAX));
+    assert!(a.saturating_sub(b) == a.checked_sub(b).unwrap_or(Amount::ZERO));
+}
+
+/// `==`, `partial_cmp` and `cmp` tell one story, for every pair of 256-bit
+/// amounts: `cmp` is `Equal` exactly when the limbs are equal, `partial_cmp`
+/// never disagrees with it, and swapping the operands reverses it.
+/// `order_matches_the_u128_model` proves `cmp` is the integer order; this
+/// proves the derived `PartialEq` and the hand-written `PartialOrd` agree.
+#[kani::proof]
+#[kani::unwind(33)]
+fn eq_partial_cmp_and_cmp_agree() {
+    let (a, b) = (any_amount(), any_amount());
+    let ord = a.cmp(&b);
+    assert!((ord == core::cmp::Ordering::Equal) == (a == b));
+    assert!(a.partial_cmp(&b) == Some(ord));
+    assert!(b.cmp(&a) == ord.reverse());
+}
+
+// Decimal output. `Display` cuts the amount into 19-digit chunks with
+// `div_rem_u64(10¹⁹)` and hands each chunk to `core::fmt` (`{}` for the
+// leading one, `{:019}` after it). Split the way multiplication is:
+// `decimal_chunk_step_is_exact` proves the cutting at full 256-bit width;
+// `core::fmt`'s own integer formatting is trusted, as the compiler's multiply
+// is above. `display_round_trips_through_a_decimal_reader` then checks the
+// whole `Display` path end to end at a small width.
+//
+// Superseded 2026-11-10: the same end-to-end harness over every `u64` was
+// still in CBMC's symbolic execution after 20 minutes (cargo-kani 0.67,
+// 24-thread desktop). `Display`'s chunk loop and its padded-write loop exit
+// on symbolic conditions, so CBMC unwinds every nested `core::fmt` loop to
+// the harness's global bound (25, set by the 19-character zero padding).
+
+/// One chunk step of `Display` is exact, for every 256-bit amount:
+/// `a = q·10¹⁹ + r` with `r < 10¹⁹` (so `{:019}` prints every chunk after
+/// the first in exactly 19 digits), `q` fits back in an `Amount`, and
+/// `q < a` whenever `a ≠ 0` (so the loop ends). Five steps suffice because
+/// `10⁹⁵ > 2²⁵⁶`, which is `DEC_CHUNKS`. No verdict in 20 minutes
+/// (2026-11-10); runs in kani-heavy.yml.
+#[kani::proof]
+// 8 wide limbs in `div_rem_u64`; the `Amount` comparison is a 32-byte memcmp.
+#[kani::unwind(33)]
+fn decimal_chunk_step_is_exact() {
+    let a = any_amount();
+    let (q, r) = Wide::from_amount(a).div_rem_u64(crate::DEC_CHUNK);
+    assert!(r < crate::DEC_CHUNK);
+    let q = q.to_amount();
+    assert!(q.is_some());
+    let q = q.unwrap_or(Amount::ZERO);
+    assert!(a.is_zero() || q < a);
+    assert!(
+        q.checked_mul(Amount::from(crate::DEC_CHUNK))
+            .and_then(|p| p.checked_add(Amount::from(r)))
+            == Some(a)
+    );
+}
+
+/// The same chunk step for every amount below 2⁶⁴, checked against native
+/// `u128` arithmetic instead of `checked_mul`.
+///
+/// Bound: 64 bits. `decimal_chunk_step_is_exact` above had no verdict in
+/// 20 minutes: it asks CBMC to show a 256-bit divider equal to a multiplier,
+/// the equivalence that also stalls the full-width multiply harnesses. Below
+/// 2⁶⁴ only one limb of `div_rem_u64` is symbolic, the multiplier is the
+/// constant 10¹⁹, and the step still takes both quotient values (0 below
+/// 10¹⁹, 1 from 10¹⁹ to 2⁶⁴), which is the leading-chunk / padded-chunk split
+/// `Display` makes for 20-digit values.
+#[kani::proof]
+#[kani::unwind(9)]
+fn decimal_chunk_step_is_exact_below_2_64() {
+    let x: u64 = kani::any();
+    let (q, r) = Wide::from_amount(Amount::from(x)).div_rem_u64(crate::DEC_CHUNK);
+    assert!(r < crate::DEC_CHUNK);
+    let q = q.to_amount().and_then(Amount::to_u64);
+    assert!(q.is_some());
+    let q = q.unwrap_or(u64::MAX);
+    assert!(u128::from(q) * u128::from(crate::DEC_CHUNK) + u128::from(r) == u128::from(x));
+}
+
+/// Room for the longest value the round trip below formats, with a margin,
+/// so an over-long output fails the round trip instead of being cut short.
+const DEC_BUF: usize = 8;
+
+/// A fixed-size `fmt::Write` sink: the crate is `no_std` and Kani has no
+/// allocator to give `to_string`.
+struct DecBuf {
+    bytes: [u8; DEC_BUF],
+    len: usize,
+}
+
+impl core::fmt::Write for DecBuf {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let end = self.len.checked_add(s.len()).ok_or(core::fmt::Error)?;
+        let dst = self.bytes.get_mut(self.len..end).ok_or(core::fmt::Error)?;
+        dst.copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+/// An independent decimal reader: ASCII digits only, no sign, no leading
+/// zero unless the whole string is `0`, and the value must fit a `u64`.
+/// Written without the crate's code, so the round trip cannot inherit a
+/// mistake from `Display`.
+fn parse_canonical_u64(digits: &[u8]) -> Option<u64> {
+    if digits.is_empty() || (digits.len() > 1 && digits[0] == b'0') {
+        return None;
+    }
+    let mut value: u64 = 0;
+    for &c in digits {
+        if !c.is_ascii_digit() {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(u64::from(c - b'0'))?;
+    }
+    Some(value)
+}
+
+/// `Display` writes the canonical base-10 digits of an amount, so reading
+/// them back gives the amount again, for every amount below 10⁸.
+///
+/// Bound: 8 digits, because the bound on the digits is the unwind bound.
+/// The reader's loop needs one iteration per digit, Kani's unwind bound is
+/// one number for every loop in the harness, and `Display`'s chunk and
+/// padding loops exit on symbolic conditions, so CBMC unrolls them, nested,
+/// to that same bound. Unwind 9 is the least the 8-limb `div_rem_u64` loop
+/// accepts, which leaves 8 digits for the reader. At 25 (every `u64`) the
+/// harness was still in symbolic execution after 20 minutes; at this bound
+/// it reaches the solver (7.3 M variables) but had no verdict in 20 minutes
+/// either (2026-11-10), so it runs in kani-heavy.yml. This covers the leading-chunk path
+/// end to end; the zero-padded chunks after it are covered by
+/// `decimal_chunk_step_is_exact` (each is below 10¹⁹) and by the unit tests
+/// on `10¹⁹`, `2⁶⁴` and `MAX` (`tests.rs`).
+#[kani::proof]
+#[kani::unwind(9)]
+fn display_round_trips_through_a_decimal_reader() {
+    let x: u64 = kani::any();
+    kani::assume(x < 100_000_000);
+    let mut buf = DecBuf {
+        bytes: [0; DEC_BUF],
+        len: 0,
+    };
+    assert!(core::fmt::write(&mut buf, format_args!("{}", Amount::from(x))).is_ok());
+    assert!(parse_canonical_u64(&buf.bytes[..buf.len]) == Some(x));
 }

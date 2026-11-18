@@ -127,13 +127,31 @@ impl Pending {
             .retain(|_, (entry, nonce)| *entry != side || raw.contains_key(&(side, *nonce)));
 
         let mut next = committed;
+        let mut regenesised = false;
         for ((_, nonce), bytes) in self.raw.range((side, committed)..=(side, u64::MAX)) {
-            // Best effort, as above.
-            let _ = chain.broadcast(bytes).await;
+            // Best effort, as above — except a re-genesis, below.
+            if let Err(WatcherError::GenesisChanged { .. }) = chain.broadcast(bytes).await {
+                regenesised = true;
+                break;
+            }
             next = nonce.saturating_add(1);
+        }
+        if regenesised {
+            self.forget(side);
+            next = committed;
         }
         self.next.insert(side, next);
         Ok(())
+    }
+
+    /// Drops everything pending on `side`. Called on a re-genesis: bytes
+    /// signed under the old genesis can never be mined on the new chain, and
+    /// kept, they would hold their purpose in flight forever and leave a nonce
+    /// gap in front of every later transaction.
+    fn forget(&mut self, side: Side) {
+        self.raw.retain(|(entry, _), _| *entry != side);
+        self.purposes.retain(|_, (entry, _)| *entry != side);
+        self.next.remove(&side);
     }
 
     /// Whether a transaction for `purpose` is still waiting to be mined.
@@ -196,6 +214,10 @@ impl Pending {
         self.raw.insert((side_key, nonce), raw.clone());
         self.purposes.insert(purpose, (side_key, nonce));
         self.next.insert(side_key, nonce.saturating_add(1));
-        chain.broadcast(&raw).await
+        let sent = chain.broadcast(&raw).await;
+        if let Err(WatcherError::GenesisChanged { .. }) = &sent {
+            self.forget(side_key);
+        }
+        sent
     }
 }

@@ -33,7 +33,7 @@ const SIGN_THREADS: usize = 16;
 const SUBMIT_THREADS: usize = 32;
 /// No new transfer visible on the replica for this long means it is stuck
 /// (`BENCH_STALL_SECS` overrides it, to see whether a stalled chain recovers).
-const STALL_SECS: u64 = 90;
+pub(crate) const STALL_SECS: u64 = 90;
 /// 32 bytes of 0x5a, hex.
 const RECIPIENT: &str = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
 
@@ -111,7 +111,7 @@ fn parallel<T: Send>(
 }
 
 /// A wallet per sender, kept outside the localnet dir (which setup clears).
-fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
+pub(crate) fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     parallel(n, SIGN_THREADS, &|i| {
         let key = dir.join(format!("s{i}.key"));
@@ -125,7 +125,7 @@ fn make_senders(dir: &Path, n: usize) -> Result<Vec<(PathBuf, String)>> {
 }
 
 /// Signs `txs` transfers per sender against node 0 (nonces `0..txs`).
-fn presign(senders: &[(PathBuf, String)], txs: usize) -> Result<Vec<Vec<String>>> {
+pub(crate) fn presign(senders: &[(PathBuf, String)], txs: usize) -> Result<Vec<Vec<String>>> {
     // Same wallet guard as devnet::send (ADR-036): no terminal, no pinned genesis.
     // Ask node 0 at the bench's port offset: devnet::genesis_id() asks the fixed devnet port.
     let request = json!({"jsonrpc": "2.0", "id": 1, "method": "get_chain_info", "params": []});
@@ -216,6 +216,40 @@ fn await_balance(expected: u64, started: Instant) -> (Duration, u64) {
     }
 }
 
+/// Refuses a debug build unless `allow_debug` (smoke runs only).
+pub(crate) fn refuse_debug(allow_debug: bool) -> Result<()> {
+    if devnet::bin("maya2c-node")
+        .to_string_lossy()
+        .contains("debug")
+        && !allow_debug
+    {
+        return Err(
+            "debug binaries measure the wrong thing: build with `cargo build --release \
+             -p maya2c-node -p l1-wallet` and set MAYA2C_BIN_DIR=target/release (or --allow-debug \
+             for a smoke run)"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// Localnet dirs with `addresses` funded at genesis, and the RPC rate limit
+/// lifted. Returns the genesis address.
+pub(crate) fn setup_funded(work: &Path, addresses: &[String]) -> Result<String> {
+    let genesis_address = localnet::setup_tweaked(work, &|g| {
+        if let Some(a) = g["allocations"].as_array_mut() {
+            a.extend(
+                addresses
+                    .iter()
+                    .map(|address| json!({ "address": address, "balance": SENDER_BALANCE })),
+            );
+        }
+    })?;
+    std::fs::write(work.join("node.toml"), "[rpc]\nrate_limit_per_second = 0\n")
+        .map_err(|e| format!("node.toml: {e}"))?;
+    Ok(genesis_address)
+}
+
 pub(crate) fn command_output(program: &str, args: &[&str]) -> String {
     Command::new(program)
         .args(args)
@@ -266,18 +300,7 @@ fn report(
 /// not come up, or a transfer that is never finalized.
 pub fn bench_tps(args: &[String]) -> Result<()> {
     let o = parse(args)?;
-    if devnet::bin("maya2c-node")
-        .to_string_lossy()
-        .contains("debug")
-        && !o.allow_debug
-    {
-        return Err(
-            "debug binaries measure the wrong thing: build with `cargo build --release \
-             -p maya2c-node -p l1-wallet` and set MAYA2C_BIN_DIR=target/release (or --allow-debug \
-             for a smoke run)"
-                .into(),
-        );
-    }
+    refuse_debug(o.allow_debug)?;
     devnet::build(&["maya2c-node", "l1-wallet"])?;
     localnet::use_port_offset(PORT_OFFSET);
     localnet::ports_free()?;
@@ -285,17 +308,7 @@ pub fn bench_tps(args: &[String]) -> Result<()> {
     let senders = make_senders(&root.join("bench-tps-keys"), o.senders)?;
     let work = root.join("bench-tps");
     let addresses: Vec<String> = senders.iter().map(|(_, a)| a.clone()).collect();
-    let genesis_address = localnet::setup_tweaked(&work, &|g| {
-        if let Some(a) = g["allocations"].as_array_mut() {
-            a.extend(
-                addresses
-                    .iter()
-                    .map(|address| json!({ "address": address, "balance": SENDER_BALANCE })),
-            );
-        }
-    })?;
-    std::fs::write(work.join("node.toml"), "[rpc]\nrate_limit_per_second = 0\n")
-        .map_err(|e| format!("node.toml: {e}"))?;
+    let genesis_address = setup_funded(&work, &addresses)?;
     let mut procs = Procs::default();
     for i in 0..VALIDATORS {
         procs.push(localnet::start(&work, i)?);

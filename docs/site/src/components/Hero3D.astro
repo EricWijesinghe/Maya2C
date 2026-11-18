@@ -21,10 +21,12 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
       <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</p>
       <h1>The ledger for the <span>post-quantum</span> century.</h1>
       <p class="lede">Every transaction carries two NIST post-quantum signatures. Every claim links to the test that proves it.</p>
-      <div class="cta">
-        <a class="btn primary" href="/experience/">Experience Maya2C</a>
-        <a class="btn" href="https://explorer.maya2c.dev/">Watch it finalize</a>
-      </div>
+      <!-- One door per audience: use it, build on it, run it. -->
+      <nav class="cta" aria-label="Start here">
+        <a class="btn primary" href="/experience/">Try it</a>
+        <a class="btn" href="/guides/quickstart/">Build on it</a>
+        <a class="btn" href="/guides/help-run/">Run a node</a>
+      </nav>
       <p class="hint">Drag to orbit. Tap the core, a validator or a block for its numbers.</p>
     </div>
     <dl class="tiles">
@@ -83,13 +85,14 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   status(); setInterval(status, 3000);
 
   // No simulated activity, ever: a dropped stream births nothing and says so.
-  let retry = 1000;
+  let retry = 1000, everLive = false;
   function stream() {
     const ws = new WebSocket("wss://explorer.maya2c.dev/ws/blocks");
-    ws.onopen = () => { live = true; retry = 1000; $("chip-state")!.textContent = "live"; stage.classList.add("live"); };
+    ws.onopen = () => { live = everLive = true; retry = 1000; $("chip-state")!.textContent = "live"; stage.classList.add("live"); };
     ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0); } catch { /* skip */ } };
     ws.onclose = () => {
-      live = false; stage.classList.remove("live"); $("chip-state")!.textContent = "reconnecting…";
+      // Never reached this visit: say offline, not an endless "reconnecting".
+      live = false; stage.classList.remove("live"); $("chip-state")!.textContent = everLive ? "reconnecting…" : "offline";
       setTimeout(stream, retry); retry = Math.min(retry * 2, 30000);
     };
     ws.onerror = () => ws.close();
@@ -177,7 +180,9 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   .cta { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
   .btn { font: 600 15px/1 var(--sans); padding: 16px 24px; border-radius: var(--r-pill); color: var(--text); text-decoration: none; background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(14px); transition: transform .45s var(--spring), box-shadow .45s var(--glide); }
   .btn:hover { transform: translateY(-2px) scale(1.03); color: var(--text); }
-  .btn.primary { background: linear-gradient(120deg, var(--cherenkov), var(--iris-a)); border-color: transparent; color: #fff; box-shadow: 0 14px 40px -12px rgba(31, 181, 194,.75); }
+  /* --accent-fill with --on-accent: white on the old teal gradient measured 2.4:1. */
+  .btn.primary { background: var(--accent-fill); border-color: transparent; color: var(--on-accent); box-shadow: 0 14px 40px -12px var(--halo); }
+  .btn.primary:hover { color: var(--on-accent); }
   .hint { margin: 16px 0 0; font: 400 12.5px/1.4 var(--mono); color: var(--muted); }
   .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
   .tile { flex: 1 1 150px; min-width: 0; padding: 16px 20px; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px); }

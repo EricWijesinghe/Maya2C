@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use maya_sentinel::config::{self, Command, Config, USAGE};
 use maya_sentinel::detect::Detector;
+use maya_sentinel::heartbeat;
 use maya_sentinel::incident::{Event, Incidents};
 use maya_sentinel::notify::{self, RateLimit};
 use maya_sentinel::obs::{self, Sample};
@@ -45,6 +46,11 @@ async fn run() -> Result<(), String> {
             return Ok(());
         }
         Command::Run(cfg) => cfg,
+        Command::CheckHeartbeat {
+            path,
+            max_age_secs,
+            dry_run,
+        } => return check_heartbeat(&path, max_age_secs, dry_run).await,
     };
     let topic = if cfg.dry_run {
         None
@@ -72,9 +78,48 @@ async fn run() -> Result<(), String> {
         for event in incidents.update(now, detector.evaluate(now, &samples)) {
             deliver(&cfg, &http, topic.as_deref(), &mut rate, now, &event).await;
         }
+        if let Some(path) = &cfg.heartbeat
+            && let Err(e) = std::fs::write(path, heartbeat::stamp(unix_now()))
+        {
+            // Not fatal: the checker pages on the stale stamp, which is the alarm.
+            eprintln!("maya2c-sentinel: cannot write {}: {e}", path.display());
+        }
         poll += 1;
         tokio::time::sleep(Duration::from_millis(cfg.poll_ms)).await;
     }
+}
+
+/// The dead-man check, run by a scheduler. Pages once per stale stamp: the
+/// stamp it paged on is kept in `<path>.alerted`. Returns an error (exit 2)
+/// whenever the sentinel is not alive, so the scheduler shows it too.
+async fn check_heartbeat(path: &Path, max_age_secs: u64, dry_run: bool) -> Result<(), String> {
+    // Topic first: a misconfigured checker must fail on every run, not only
+    // on the night it is needed.
+    let topic = if dry_run { None } else { Some(read_topic()?) };
+    let contents = std::fs::read_to_string(path).ok();
+    let Some(finding) = heartbeat::check(contents.as_deref(), unix_now(), max_age_secs) else {
+        return Ok(());
+    };
+    let stamp = contents.as_deref().map_or("", str::trim).to_owned();
+    let mut marker = path.as_os_str().to_owned();
+    marker.push(".alerted");
+    let marker = std::path::PathBuf::from(marker);
+    let msg = notify::render(&Event::Raised(finding));
+    let summary = format!("{} :: {}", msg.title, msg.body);
+    if std::fs::read_to_string(&marker).is_ok_and(|m| m.trim() == stamp) {
+        return Err(format!("{summary} (already paged)"));
+    }
+    match topic {
+        None => println!("[dry-run] P{} {summary}", msg.priority),
+        Some(t) => notify::send(&reqwest::Client::new(), notify::NTFY_BASE, &t, &msg).await?,
+    }
+    std::fs::write(&marker, &stamp).map_err(|e| {
+        format!(
+            "{summary}; paged, but cannot write {}: {e}",
+            marker.display()
+        )
+    })?;
+    Err(summary)
 }
 
 /// Reads and checks the topic. Refuses to run without one: silent alerts are

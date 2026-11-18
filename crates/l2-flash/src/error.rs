@@ -27,6 +27,10 @@ pub enum FlashError {
         actual: primitive_types::U256,
     },
 
+    /// A state named a different channel than the one it was offered to.
+    #[error("state belongs to a different channel")]
+    ChannelIdMismatch,
+
     /// A party tried to send more than its side holds.
     #[error("insufficient channel balance: need {required}, have {available}")]
     InsufficientBalance {

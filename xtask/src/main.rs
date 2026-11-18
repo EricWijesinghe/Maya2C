@@ -14,6 +14,7 @@
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
 mod attacknet;
+mod bench_finality;
 mod bench_gate;
 mod bench_report;
 mod bench_tps;
@@ -56,6 +57,7 @@ mod spec_coverage;
 mod starter_stickers;
 mod status;
 mod sweep;
+mod trust_facts;
 mod up;
 mod verify_release;
 
@@ -88,12 +90,14 @@ fn main() -> ExitCode {
         "pgo" => pgo::run(rest),
         "hub-bundle" => hub_bundle::run(rest),
         "bench-tps" => bench_tps::bench_tps(rest),
+        "bench-finality" => bench_finality::bench_finality(rest),
         "bft-devnet" => bft_devnet::run(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
         "ceremony-rehearsal" => ceremony_rehearsal::run(rest),
         "proving" => proving::proving(rest),
         "proof-ratchet" => proof_ratchet::run(rest),
+        "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
@@ -188,6 +192,9 @@ cargo xtask <command>
                         named gap for each one that needs chain data.
   proof-ratchet         Kani harnesses, conformance vectors, exploit replays and
                         fuzz targets may grow, never fall [--check | --update].
+  trust-facts           Run go-no-go, readiness, coverage and proof-ratchet into
+                        reports/trust-facts.{{md,json}}: evidence or GAP per line
+                        [--out <dir>].
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
@@ -218,6 +225,7 @@ cargo xtask <command>
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
   bench-tps [--senders N] [--txs N]  Finalized transfers/s on the 4-validator localnet
+  bench-finality [--txs N] [--rate R]  Submit-to-finalized latency p50/p90/p99/max, localnet
   bft-devnet [--workdir DIR] [--seconds N] [--transfers N] [--release]
                         Four validators and an observer as processes over
                         DAG-BFT on localhost: transfers, heights, agreement.

@@ -139,6 +139,9 @@ members = [
     # target wasm32 — so it composes the hybrid construction from the same two
     # primitives, and `tests/hybrid_parity_tests.rs` pins the two together.
     "sdks/sdk-wasm",
+    # Typed Rust client for the API gateway's REST /v1. Client-only: it links
+    # no consensus crate, so a SDK bug cannot reach state. Not published.
+    "sdks/rust",
     # Generates the LaTeX technical reference from module documentation.
     # Dependency-free: it reads Rust source and writes LaTeX, and neither needs
     # a crate.
