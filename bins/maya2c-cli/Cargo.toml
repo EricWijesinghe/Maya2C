@@ -37,6 +37,10 @@ wasmparser = { version = "0.258", default-features = false, features = ["std"] }
 # `maya2c custody-report`: a statement's canonical JSON and its digest.
 serde = { workspace = true, features = ["derive"] }
 sha2.workspace = true
+# Notary file hashes (ADR-094): BLAKE3, the digest the node already uses for its own ids.
+blake3.workspace = true
+rpassword = "7"
+zeroize.workspace = true
 
 [dev-dependencies]
 wat.workspace = true

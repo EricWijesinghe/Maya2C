@@ -2765,7 +2765,8 @@ paths = "`crates/api-gateway`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
+tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crates/api-gateway/tests/webhook_tests.rs", "crates/api-gateway/tests/event_stream_tests.rs", "crate:maya-api-gateway"]
+note = "Event subscriptions (P-44): /v1/subscribe WebSocket and /v1/webhooks with HMAC-SHA256-signed deliveries, SSRF refusal re-checked after DNS at every delivery, per-caller caps, retries with backoff and a dead-letter state. In-memory: subscriptions do not survive a restart; no history replay; no rollback events. The asset filter matches `native` only until the node's JSON names assets. Not externally reviewed."
 
 [[subsystem]]
 id = "multi-language-sdks"
@@ -3455,7 +3456,7 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "bins/maya2c-mcp/tests/debug_tools_tests.rs", "crate:maya2c-mcp"]
-note = "Master Prompt 24 §5, ADR-084. Read-only: 7 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending. v3 P6 (gap S6): read-only debugging tools replay_block (maya2c_cli::fork::replay), trace_transaction (maya2c_cli::record_spec), explain_refusal (parsed from crates/node/src/error.rs at build time) and compare_account (get_balance_at_height twice, through the allowlist), tested against an in-process dev chain served by the node RPC. Trace starts from empty contract storage."
+note = "Master Prompt 24 §5, ADR-084. Read-only: 7 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending. v3 P6 (gap S6): read-only debugging tools replay_block (maya2c_cli::fork::replay), trace_transaction (maya2c_cli::record_spec), explain_refusal (parsed from crates/node/src/error.rs at build time) and compare_account (get_balance_at_height twice, through the allowlist), tested against an in-process dev chain served by the node RPC. Trace starts from empty contract storage. Node replies are size- and deadline-capped (#593) for every tool; contract- and chain-written text comes back as untrusted_* fields, control characters removed and length capped."
 
 [[subsystem]]
 id = "interop-proof-routes"
@@ -3772,6 +3773,17 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "notary"
+name = "Notary: timestamp a file by its BLAKE3 hash, verify with a JSON receipt"
+domain = "Developer experience"
+paths = "`bins/maya2c-cli/src/notary.rs`, `docs/ecosystem/notary.md`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["bins/maya2c-cli/tests/notary_tests.rs", "bins/maya2c-cli/tests/notary_devnet_tests.rs"]
+note = "ADR-094. Class RESEARCH means no consensus path calls it, not that it is unreachable: `maya2c notary` is a CLI tool. Unit tests (11) plus a devnet e2e (`notary_devnet_tests.rs`): a one-validator dev node, the CLI's own setup (RegisterDid) and stamp, the stamp found in a block by verify, the receipt checked against that block's id, timestamp and transaction list, and one changed byte refused. Uses the existing AnchorAttestation payload (tag 34, schema notary-v1); no node change. Verify scans blocks (no txid lookup RPC), refuses a block whose body disagrees with the tx_root its id hashes or whose id is not the one named, refuses a non-contiguous batch, and checks the stamp's signature against the node's chain tag; finality trusts the node's checkpoint (signatures not verified yet). An early manual run that never saw the stamp land is unexplained and was not reproduced."
 
 [[subsystem]]
 id = "merchant-checkout"

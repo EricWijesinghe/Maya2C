@@ -5778,9 +5778,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.31"
+version = "1.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff20308ecabd635a2dc1dd5834a86c462cca20efba1d5d3ddab1f8aea3455cb2"
+checksum = "fee3f59f4321dab0c78d828942e7aa09d0bd8ad6e78a501977e6bf3d02938045"
 dependencies = [
  "cc",
  "pkg-config",
@@ -5935,22 +5935,29 @@ dependencies = [
  "async-trait",
  "axum",
  "clap 4.6.7",
+ "futures-util",
+ "getrandom 0.4.3",
  "governor",
  "hex",
+ "hmac 0.12.1",
  "http-body-util",
  "jsonrpsee",
  "maya-amount",
  "maya-web-security",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite 0.29.0",
  "tower",
  "tower-http",
  "tower_governor",
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "zeroize",
 ]
 
 [[package]]
@@ -6991,6 +6998,7 @@ name = "maya2c-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap 4.6.7",
  "custom-l1-node",
  "gimli",
@@ -7000,6 +7008,7 @@ dependencies = [
  "maya-address",
  "maya-vm",
  "primitive-types",
+ "rpassword",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -7007,6 +7016,7 @@ dependencies = [
  "tokio",
  "wasmparser 0.258.3",
  "wat",
+ "zeroize",
 ]
 
 [[package]]
@@ -12912,6 +12922,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
  "toml 0.9.12+spec-1.1.0",
 ]
 

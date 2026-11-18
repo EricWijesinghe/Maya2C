@@ -7,9 +7,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use custom_l1_node::consensus::Chain;
@@ -48,14 +50,19 @@ fn transfer(tag: &ChainTag, amount: u64, nonce: u64) -> Transaction {
     tx
 }
 
-/// Genesis, then block 1 (777 to Bob) and block 2 (100 more), served on RPC.
-fn devnet(dir: &Path) -> Devnet {
+/// The dev genesis: Alice funded, one BFT validator.
+fn dev_genesis() -> Value {
     let validator = validator_keys::signing_key_from_seed(&[1; 32]).unwrap();
-    let genesis = json!({
+    json!({
         "chain_id": "maya2c-dev", "timestamp": 1_000_000, "difficulty_bits": 0, "pow_limit_bits": 0,
         "allocations": [{"address": hex::encode(alice().address()), "balance": 1_000_000_000u64}],
         "bft": {"validators": [hex::encode(validator.verifying_key().to_bytes())], "anchor_timeout_ms": 500}
-    });
+    })
+}
+
+/// Genesis, then block 1 (777 to Bob) and block 2 (100 more), served on RPC.
+fn devnet(dir: &Path) -> Devnet {
+    let genesis = dev_genesis();
     let path = dir.join("genesis.json");
     std::fs::write(&path, genesis.to_string()).unwrap();
     let config = GenesisConfig::from_json(&genesis.to_string()).unwrap();
@@ -88,9 +95,13 @@ fn devnet(dir: &Path) -> Devnet {
 }
 
 fn session(net: &Devnet, calls: &[(&str, Value)]) -> Vec<(Value, bool)> {
+    session_at(&net.rpc.address.to_string(), &net.genesis, calls)
+}
+
+fn session_at(rpc: &str, genesis: &Path, calls: &[(&str, Value)]) -> Vec<(Value, bool)> {
     let mut child = Command::new(env!("CARGO_BIN_EXE_maya2c-mcp"))
-        .args(["--rpc", &net.rpc.address.to_string(), "--genesis"])
-        .arg(&net.genesis)
+        .args(["--rpc", rpc, "--genesis"])
+        .arg(genesis)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -206,18 +217,25 @@ fn trace_a_contract_call_transaction() {
         trace["outcome"].as_str().unwrap().starts_with("ok"),
         "{trace}"
     );
-    let steps = trace["steps"].as_array().unwrap();
+    let steps = trace["untrusted_steps"].as_array().unwrap();
     assert!(
         steps.iter().any(|s| s.as_str().unwrap().contains("write")),
         "{trace}"
     );
-    assert!(!trace["storage_after"].as_array().unwrap().is_empty());
+    assert!(
+        !trace["untrusted_storage_after"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    for raw in ["steps", "storage_after", "events"] {
+        assert!(trace.get(raw).is_none(), "unlabelled {raw}: {trace}");
+    }
     assert!(replies[1].1, "a transfer has no execution steps");
 }
 
 /// One JSON-RPC request straight to the devnet node, bypassing the MCP server.
 fn post(net: &Devnet, body: &Value) -> Value {
-    use std::io::Read;
     let body = body.to_string();
     let mut s = std::net::TcpStream::connect(net.rpc.address).unwrap();
     write!(
@@ -307,4 +325,125 @@ fn no_debugging_tool_reaches_a_write_method() {
     for write in ["send_raw_transaction", "submit_block"] {
         assert!(!src.contains(write), "debug_tools.rs names {write}");
     }
+}
+
+/// One byte over `MAX_RESPONSE_BYTES` in `src/node.rs` (the node's 32 MiB RPC
+/// response limit), plus slack so the cap trips mid-read.
+const OVERSIZED_REPLY: usize = 33 * 1024 * 1024;
+
+/// A node that answers every request with a reply larger than the cap, and
+/// counts the connections it receives.
+fn oversized_node() -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&hits);
+    std::thread::spawn(move || {
+        let body = vec![b'x'; OVERSIZED_REPLY];
+        for mut stream in listener.incoming().flatten() {
+            seen.fetch_add(1, Ordering::SeqCst);
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+            );
+            // The client stops reading at the cap; the failed write is expected.
+            let _ = stream.write_all(&body);
+        }
+    });
+    (addr, hits)
+}
+
+fn dev_genesis_file(dir: &Path) -> PathBuf {
+    let path = dir.join("genesis.json");
+    std::fs::write(&path, dev_genesis().to_string()).unwrap();
+    path
+}
+
+#[test]
+fn replay_refuses_an_oversized_node_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, hits) = oversized_node();
+    let replies = session_at(
+        &addr,
+        &dev_genesis_file(dir.path()),
+        &[("replay_block", json!({"height": 2}))],
+    );
+    let (out, err) = &replies[0];
+    assert!(err, "{out}");
+    assert!(out.as_str().unwrap().contains("size cap"), "{out}");
+    assert!(
+        hits.load(Ordering::SeqCst) >= 1,
+        "the replay asked the node"
+    );
+}
+
+#[test]
+fn compare_account_refuses_an_oversized_node_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, _) = oversized_node();
+    let replies = session_at(
+        &addr,
+        &dev_genesis_file(dir.path()),
+        &[(
+            "compare_account",
+            json!({"address": hex::encode(BOB), "from": 1, "to": 2}),
+        )],
+    );
+    let (out, err) = &replies[0];
+    assert!(err, "{out}");
+    assert!(out.as_str().unwrap().contains("size cap"), "{out}");
+}
+
+/// `trace_transaction` and `explain_refusal` never ask the node, so no node
+/// reply, oversized or not, can reach them: the oversized node sees nothing.
+#[test]
+fn trace_and_explain_never_read_a_node_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, hits) = oversized_node();
+    let input = hex::encode([&[0u8][..], &alice().address()[..]].concat());
+    let replies = session_at(
+        &addr,
+        &dev_genesis_file(dir.path()),
+        &[
+            (
+                "trace_transaction",
+                json!({"wasm": nft_game(), "input": input}),
+            ),
+            ("explain_refusal", json!({"kind": "InvalidNonce"})),
+        ],
+    );
+    assert!(!replies[0].1, "trace: {}", replies[0].0);
+    assert!(!replies[1].1, "explain: {}", replies[1].0);
+    assert_eq!(hits.load(Ordering::SeqCst), 0, "a node was contacted");
+}
+
+#[test]
+fn compare_account_refuses_an_over_long_address_before_any_fetch() {
+    let dir = tempfile::tempdir().unwrap();
+    let (addr, hits) = oversized_node();
+    let replies = session_at(
+        &addr,
+        &dev_genesis_file(dir.path()),
+        &[(
+            "compare_account",
+            json!({"address": "m".repeat(200), "from": 1, "to": 2}),
+        )],
+    );
+    assert!(replies[0].1, "{}", replies[0].0);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn replay_matches_a_0x_prefixed_upper_case_txid() {
+    let dir = tempfile::tempdir().unwrap();
+    let net = devnet(dir.path());
+    let txid = hex::encode(transfer(&net.tag, 100, 1).txid());
+    let wanted = format!("0x{}", txid.to_ascii_uppercase());
+    let replies = session(
+        &net,
+        &[("replay_block", json!({"height": 2, "txid": wanted}))],
+    );
+    assert!(!replies[0].1, "{}", replies[0].0);
 }
