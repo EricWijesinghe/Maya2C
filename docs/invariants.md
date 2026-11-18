@@ -287,29 +287,46 @@ phase that did it.
     the node binary's link graph: `bins/maya2c-node` and every path crate it
     reaches through normal, build and target-specific dependencies
     (`xtask/src/float_scope.rs`), so a crate the node starts to link is
-    scanned by default. It lexes every non-test source file there, macro
-    bodies included, and fails on an `f32`/`f64` ident, an ident with
-    `f32`/`f64` as a `_` segment (`as_f64`, `to_f32`), `Float`, or a float
-    literal. Six linked paths are excluded, each with a written reason
-    (`EXCLUDE`: the node's `rpc`, `network` and `metrics` modules, `archive`,
-    `iso20022`, `hal/ebpf-net`). One allowlist entry holds the
+    scanned by default. It lexes every non-test file under `src/` of those
+    crates, macro bodies included, and fails on a float primitive or SIMD
+    lane type (`f16`, `f32`, `f64`, `f128`, `bf16`, `f32x4` and the like),
+    raw (`r#f64`) or as a `_` segment of an ident (`as_f64`, `to_f32`), a
+    float trait or wrapper (`Float`, `FloatCore`, `Real`, `OrderedFloat`,
+    `NotNan`), a float literal (signed exponents and `f16`/`f128` suffixes
+    included), or a `use` that binds the name `test` and so could shadow the
+    `#[test]` the scanner trusts. A test-only field whose `<` may have been a
+    comparison is scanned past its first comma (fails closed). Excluded,
+    each with a written reason (`EXCLUDE`, ADR-148): six single files in the
+    node crate that hold floats today (`rpc/limit.rs`, `rpc/market.rs`,
+    `rpc/peers.rs`, `network/gossip_score.rs`, `network/peer_health.rs`,
+    `metrics/mod.rs`; a test pins that a node-crate entry is a file, and an
+    entry whose file holds no float fails as stale), and three crates off the
+    consensus path as a whole (`archive`, `iso20022`, `hal/ebpf-net`). Any
+    other file in the node's `rpc` and `network` modules, which also carry
+    block submission and sync, is scanned. One allowlist entry holds the
     finality-latency metric in `bins/maya2c-node/src/bft.rs`, and lists the
     exact tokens allowed, so any other float in that file still fails. The
     check also fails if a named consensus path stops being scanned
     (`MUST_SCAN`), and if an ML runtime (`tract-*`, `ort`, `onnxruntime`,
-    `candle-*`, `burn`, `tch`, `maya-neural-fee`, `maya-zkml-prover`) is
-    anywhere in the node's dependency closure, walked through `Cargo.lock`
+    `candle-*`, `burn`, `tch`, and the reserved names `maya-neural-fee` and
+    `maya-zkml-prover`, which no crate uses yet) is anywhere in the node's
+    dependency closure, walked through `Cargo.lock`
     (transitive, renamed and target-specific dependencies included). Runs in
     CI's `reality ledger` job. Pinned by `xtask/src/float_check.rs`
     (`the_consensus_crates_hold_no_float_and_no_model`,
     `a_float_type_or_literal_is_found_anywhere_in_code`,
+    `other_float_types_and_wrappers_are_found`,
+    `an_import_that_shadows_the_test_attribute_is_found`,
     `a_test_field_parameter_variant_or_arm_hides_only_itself`) and
     `xtask/src/float_scope.rs`
-    (`an_ml_runtime_two_hops_away_is_in_the_lock_closure`). Not covered: a
+    (`an_ml_runtime_two_hops_away_is_in_the_lock_closure`,
+    `a_node_crate_exclusion_is_one_file_not_a_module_dir`). Not covered: a
     float reached by type inference with no float token in the scanned file
     (`"0.5".parse()` into an inferred type, or an `f64` returned by a function
     in an excluded crate); `clippy::float_arithmetic` uses type information
-    and would catch these, and is not configured yet. An integer model,
+    and would catch these, and is not configured yet. Code outside `src/`
+    (a `build.rs`, a `[lib] path` elsewhere, an `include!` of an unscanned
+    file); none occurs in linked code today. An integer model,
     which a lexer cannot tell from other integer code; the activation rule
     above covers the one in the tree. Contract code: WASM guest float opcodes
     run in the consensus VM and are outside this invariant; they are made

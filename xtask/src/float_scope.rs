@@ -13,19 +13,34 @@ use std::path::{Component, Path, PathBuf};
 pub const NODE_BIN: &str = "bins/maya2c-node";
 
 /// Linked code that is not scanned: `(repo-relative dir or file, why no
-/// consensus rule depends on it)`. An entry needs a reviewer.
+/// consensus rule depends on it)`. An entry needs a reviewer. Inside the node
+/// crate an entry is one file, never a module directory: `rpc/` and
+/// `network/` also hold block submission and sync (`Chain::insert_block*`),
+/// so a float added to any other file there must fail.
 pub const EXCLUDE: &[(&str, &str)] = &[
     (
-        "crates/node/src/rpc",
-        "JSON-RPC server: per-IP rate limiting (`limit.rs`) and response formatting; a node answers queries with it and decides nothing a block contains",
+        "crates/node/src/rpc/limit.rs",
+        "per-IP token buckets refilled by elapsed seconds; they decide whether a request is answered, never what a block contains",
     ),
     (
-        "crates/node/src/network",
-        "libp2p transport: gossipsub peer scores and backoff are local to each node and never enter a block or the state root",
+        "crates/node/src/rpc/market.rs",
+        "listing-aggregator quotes (price, volume) an operator configures; the node only relays them",
     ),
     (
-        "crates/node/src/metrics",
-        "Prometheus gauges and histograms, read by operators only",
+        "crates/node/src/rpc/peers.rs",
+        "reports this node's local health score for a peer to the operator",
+    ),
+    (
+        "crates/node/src/network/gossip_score.rs",
+        "gossipsub peer-score parameters: local mesh management, never in a block or the state root",
+    ),
+    (
+        "crates/node/src/network/peer_health.rs",
+        "decayed per-peer health score that drives local quarantine of a peer, not block validity",
+    ),
+    (
+        "crates/node/src/metrics/mod.rs",
+        "Prometheus gauge and histogram buckets, read by operators only",
     ),
     (
         "crates/archive",
@@ -305,6 +320,16 @@ mod tests {
             got,
             BTreeSet::from(["a", "b", "ort", "serde"].map(str::to_owned))
         );
+    }
+
+    #[test]
+    fn a_node_crate_exclusion_is_one_file_not_a_module_dir() {
+        for (e, _) in EXCLUDE
+            .iter()
+            .filter(|(e, _)| e.starts_with("crates/node/"))
+        {
+            assert!(e.ends_with(".rs"), "{e} excludes a whole directory");
+        }
     }
 
     #[test]

@@ -6,19 +6,24 @@
 //! root is a fork. The rule used to live under invariant 20, which retired with
 //! `crates/zkml` (ADR-008) and left it as prose nobody checked.
 //!
-//! This lexes every non-test source file the node binary links (scope:
-//! [`crate::float_scope`]) and fails on a float token outside an [`ALLOW`]
-//! entry, macro bodies included (a `syn` visitor would skip those): an `f32`
-//! or `f64` ident, an ident with `f32`/`f64` as a `_` segment (`as_f64`,
-//! `to_f32`), `Float`, or a float literal. Comments and strings never reach the
-//! token stream. Items under `#[cfg(test)]` or `#[test]` are skipped, and so is
-//! a file declared by `#[cfg(test)] mod x;`. It also fails if an ML runtime
-//! ([`ML_CRATES`]) is anywhere in the node's dependency closure.
+//! This lexes every non-test file under `src/` of each crate the node binary
+//! links (scope: [`crate::float_scope`]) and fails on a float token outside an
+//! [`ALLOW`] entry, macro bodies included (a `syn` visitor would skip those):
+//! a float primitive or SIMD lane type (`f16`..`f128`, `bf16`, `f32x4`), raw
+//! (`r#f64`) or as a `_` segment (`as_f64`), a float trait or wrapper
+//! ([`FLOAT_NAMES`]), or a float literal. Comments and strings never reach the
+//! token stream. Items under `#[cfg(test)]` or `#[test]` are skipped, and so
+//! is a file declared by `#[cfg(test)] mod x;`; a `use` that binds the name
+//! `test` (and so could shadow `#[test]`) is itself a violation. It also fails
+//! if an ML runtime ([`ML_CRATES`]) is anywhere in the node's dependency
+//! closure.
 //!
 //! Not caught: a float reached by type inference with no float token in the
 //! scanned file (`"0.5".parse()` into an inferred type, a function from an
-//! unscanned crate that returns `f64`). `clippy::float_arithmetic` uses type
-//! information and closes that gap; it is not configured yet.
+//! unscanned crate that returns `f64`), and code outside `src/` (a `build.rs`,
+//! a `[lib] path` elsewhere, an `include!` of an unscanned file; none of these
+//! occurs in linked code today). `clippy::float_arithmetic` uses type
+//! information and closes the first gap; it is not configured yet.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -27,8 +32,9 @@ use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
 use crate::float_scope::{self, EXCLUDE, MUST_SCAN, under};
 
-/// Crates that run a model. `maya-neural-fee` and `maya-zkml-prover` are the
-/// names the neural fee gain and the zkML prover take outside the node (PR #542).
+/// Crates that run a model. `maya-neural-fee` and `maya-zkml-prover` do not
+/// exist yet: they are reserved for the neural fee gain moved out of the node
+/// (PR #542) and a future zkML prover, so they fail the day they are linked.
 const ML_CRATES: &[&str] = &[
     "tract-onnx",
     "tract-core",
@@ -102,6 +108,9 @@ fn scan(tokens: &[TokenTree], out: &mut Vec<String>) {
             i = skip_item(tokens, i + 2);
             continue;
         }
+        if use_binds_test(tokens, i) {
+            out.push("use binds `test`".to_owned());
+        }
         match &tokens[i] {
             TokenTree::Group(g) => scan(&g.stream().into_iter().collect::<Vec<_>>(), out),
             TokenTree::Ident(id) if names_a_float(&id.to_string()) => out.push(id.to_string()),
@@ -117,9 +126,61 @@ fn scan(tokens: &[TokenTree], out: &mut Vec<String>) {
     }
 }
 
-/// `f64`, `as_f64`, `to_f32`, `f64_bits`, or `num_traits::Float`.
+/// Float traits and wrappers (`num_traits`, `ordered-float`).
+const FLOAT_NAMES: &[&str] = &["Float", "FloatCore", "Real", "OrderedFloat", "NotNan"];
+
+/// Bit widths of the float primitives, `f16` and `f128` included.
+const FLOAT_WIDTHS: &[&str] = &["16", "32", "64", "128"];
+
+/// `f64`, `r#f64`, `as_f64`, `half::bf16`, `f32x4`, or a [`FLOAT_NAMES`] entry.
 fn names_a_float(id: &str) -> bool {
-    id == "Float" || id.split('_').any(|s| s == "f32" || s == "f64")
+    let id = id.strip_prefix("r#").unwrap_or(id);
+    FLOAT_NAMES.contains(&id) || id.split('_').any(is_float_segment)
+}
+
+/// `f16`..`f128`, `bf16`, or a SIMD lane type such as `f32x4`.
+fn is_float_segment(s: &str) -> bool {
+    if s == "bf16" {
+        return true;
+    }
+    let Some(rest) = s.strip_prefix('f') else {
+        return false;
+    };
+    let width = match rest.split_once('x') {
+        Some((w, lanes)) if !lanes.is_empty() && lanes.bytes().all(|b| b.is_ascii_digit()) => w,
+        Some(_) => return false,
+        None => rest,
+    };
+    FLOAT_WIDTHS.contains(&width)
+}
+
+/// A `use` item at `i` that binds the name `test` (`use m::test;`,
+/// `use m::{a, test};`, `use m::x as test;`). It would shadow the built-in
+/// `#[test]` this scanner trusts to mark test-only items.
+fn use_binds_test(tokens: &[TokenTree], i: usize) -> bool {
+    if ident_at(tokens, i).as_deref() != Some("use") {
+        return false;
+    }
+    let end = tokens[i..]
+        .iter()
+        .position(|t| is_punct(Some(t), ';'))
+        .map_or(tokens.len(), |p| i + p);
+    let mut flat = Vec::new();
+    flatten(&tokens[i + 1..end], &mut flat);
+    (0..flat.len()).any(|k| {
+        ident_at(&flat, k).as_deref() == Some("test")
+            && !is_punct(flat.get(k + 1), ':')
+            && ident_at(&flat, k + 1).as_deref() != Some("as")
+    })
+}
+
+fn flatten(tokens: &[TokenTree], out: &mut Vec<TokenTree>) {
+    for t in tokens {
+        match t {
+            TokenTree::Group(g) => flatten(&g.stream().into_iter().collect::<Vec<_>>(), out),
+            other => out.push(other.clone()),
+        }
+    }
 }
 
 fn punct(t: Option<&TokenTree>) -> Option<&proc_macro2::Punct> {
@@ -207,7 +268,9 @@ fn skip_item(tokens: &[TokenTree], start: usize) -> usize {
                 .is_some_and(|q| q.spacing() == Spacing::Joint && matches!(q.as_char(), '-' | '='));
         match p.as_char() {
             ';' => return j,
-            ',' if commas_end && angle == 0 => return j,
+            // Fail closed: if a `,` was passed inside `<`, that `<` may have
+            // been a comparison, so scanning resumes after the first `,`.
+            ',' if commas_end && angle == 0 => return first_comma.unwrap_or(j),
             ',' if commas_end => {
                 first_comma.get_or_insert(j);
             }
@@ -237,7 +300,10 @@ fn is_float_literal(text: &str) -> bool {
     if !text.starts_with(|c: char| c.is_ascii_digit()) || radix_prefixed {
         return false;
     }
-    if text.ends_with("f32") || text.ends_with("f64") {
+    if FLOAT_WIDTHS
+        .iter()
+        .any(|w| text.ends_with(&format!("f{w}")))
+    {
         return true;
     }
     // An integer suffix starts with `i` or `u`; no float body contains either.
@@ -349,6 +415,20 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             "{e}: excluded but not linked by the node (stale entry)"
         ));
     }
+    // A one-file exclusion is only justified while the file holds a float.
+    for f in excluded
+        .iter()
+        .filter(|f| EXCLUDE.iter().any(|(e, _)| e == f))
+    {
+        let src = std::fs::read_to_string(root.join(f)).map_err(|e| format!("{f}: {e}"))?;
+        if scan_file(&src)
+            .map_err(|e| format!("{f}: {e}"))?
+            .hits
+            .is_empty()
+        {
+            failures.push(format!("{f}: excluded but holds no float (stale entry)"));
+        }
+    }
     for m in unscanned(MUST_SCAN, &scanned_names) {
         failures.push(format!("{m}: consensus code no longer scanned"));
     }
@@ -405,6 +485,43 @@ mod tests {
         assert_eq!(hits("let v = vec![1.5, 2.0];"), ["1.5", "2.0"]);
         assert_eq!(hits("let r = ..1.5;"), ["1.5"]);
         assert_eq!(hits("let x = f64::from(3u32);"), ["f64"]);
+        assert_eq!(
+            hits("let a: f16 = b; let c: f128 = d; let e = 2f16 + 1f128;"),
+            ["f16", "f128", "2f16", "1f128"]
+        );
+        assert_eq!(hits("let x: r#f64 = y();"), ["r#f64"]);
+        assert_eq!(hits("let a = 1e-9 + 2.5E+3;"), ["1e-9", "2.5E+3"]);
+    }
+
+    #[test]
+    fn other_float_types_and_wrappers_are_found() {
+        assert_eq!(
+            hits("let x = half::f16::from_bits(0x3C00) * half::bf16::ONE;"),
+            ["f16", "bf16"]
+        );
+        assert_eq!(
+            hits("let v: f32x4 = w; let u = core::simd::f64x2::splat(z);"),
+            ["f32x4", "f64x2"]
+        );
+        assert_eq!(
+            hits("fn g<T: FloatCore + Real>(a: OrderedFloat<T>, b: NotNan<T>) {}"),
+            ["FloatCore", "Real", "OrderedFloat", "NotNan"]
+        );
+        assert_eq!(
+            hits("let a = f32x; let b = f64xa; let c = buf16; let d = Realm;"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_import_that_shadows_the_test_attribute_is_found() {
+        assert_eq!(hits("use m::pass as test;"), ["use binds `test`"]);
+        assert_eq!(hits("pub use m::{a, test};"), ["use binds `test`"]);
+        assert_eq!(hits("use m::test;"), ["use binds `test`"]);
+        assert_eq!(
+            hits("use crate::test::helpers; use m::test as t; use test_util::x;"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -454,9 +571,11 @@ mod tests {
     fn a_test_field_parameter_variant_or_arm_hides_only_itself() {
         assert_eq!(hits("struct S { #[cfg(test)] a: u8, b: f64 }"), ["f64"]);
         assert_eq!(hits("fn f(#[cfg(test)] x: u8, y: f32) {}"), ["f32"]);
+        // Fails closed: after a `,` inside `<..>` the rest is scanned, so a
+        // float in a test-only generic is reported (an ALLOW entry absorbs it).
         assert_eq!(
             hits("struct S { #[cfg(test)] pub a: HashMap<K, f32>, b: f64 }"),
-            ["f64"]
+            ["f32", "f64"]
         );
         assert_eq!(hits("enum E { #[cfg(test)] A(f32), B(f64) }"), ["f64"]);
         assert_eq!(
@@ -472,6 +591,11 @@ mod tests {
             ["0.5"]
         );
         assert_eq!(hits("let s = S { #[cfg(test)] a: 1.5, b: 2.5 };"), ["2.5"]);
+        // A `<` comparison in a test field must not hide the next field.
+        assert_eq!(
+            hits("let s = S { #[cfg(test)] a: x < y, b: 1.5 > w, c: 0 };"),
+            ["1.5"]
+        );
         assert_eq!(
             hits("fn f(#[cfg(test)] x: impl Fn(u8) -> u8, y: f32) {}"),
             ["f32"]

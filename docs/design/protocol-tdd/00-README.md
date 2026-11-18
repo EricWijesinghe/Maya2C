@@ -63,7 +63,7 @@ Design stance, in one line each:
 - **Degrade, never collapse:** eight halt levels, scoped to cells; the core ledger
   is never frozen and small transfers never stop.
 - **AI proposes, rules act:** ML detectors are advisory; only integer rules and
-  stake signatures change state (invariant 20, ADR-077 D1).
+  stake signatures change state (invariant 36, ADR-077 D1).
 - **Price-independent security:** caps and throttles are in units the chain can
   count without an oracle; a 95% price drop changes no on-chain rule
   ([05](05-economics-operations.md) §1).
