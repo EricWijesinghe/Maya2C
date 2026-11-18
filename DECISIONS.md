@@ -985,6 +985,24 @@ Choices made fixing the second review (Claude; the MCQ decision itself is Eric's
   layer's root folds every record each block (worst case 238.6 ms, test profile), and the boundary
   that releases every position at once took 797.9 ms on the test profile. Genesis with these as
   stated, or an incremental staking root first.
+
+### 2026-11-18 — ADR-062b review round 3 (PR #555, Eric 2026-11-17 pre-approval, re-freeze bundle 3)
+
+- **Tests only, no rule change:** the per-validator ceiling's count of unbonding entries is now pinned
+  on epochs long enough that the chain-wide ceiling cannot fire first
+  (`unbonding_entries_fill_one_validators_ceiling_and_bound_its_slash`), and the churn test asserts
+  the number of staking records the root folds. The new entry counters use checked arithmetic.
+- **Corrected:** STK-7 said positions exceed the ceiling "only by operators' own entries" without
+  bounding operators. Registration has no record ceiling, so that extra is registered validators ×
+  `unbonding_epochs`, and every boundary reads every validator record.
+- **Open for Eric, not accepted on his behalf:** (3) the validator count is limited only by
+  `min_self_bond` (1,000 coins locked per validator, refundable). Matching the 131,072-position
+  ceiling with exempt operator entries alone, at the devnet `unbonding_epochs` = 7, takes 18,725
+  validators, 18,725,000 coins locked. Options: keep it, a registration ceiling, or count operator
+  entries against the position ceiling (which would let a full chain refuse an operator's unbond).
+  Items (1) and (2) above stand: the dust lockout costs 16,384 coins locked for one validator and
+  131,072 for the chain at the 1-coin floor.
+
 ## 2026-11-13 — Per-block work is bounded by caps, not by how much state exists (Claude, re-freeze bundle)
 
 A sweep of the apply path after PR #500's governance index measured every end-of-block pass against attacker-created records (ADR-062 amendment 2026-11-13, `reports/sessions/2026-11-13-per-block-scan-bounds.md`). Three were fixed with caps that refuse a transaction, never a block, and no key layout change:

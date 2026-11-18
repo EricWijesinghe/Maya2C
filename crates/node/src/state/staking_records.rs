@@ -413,7 +413,7 @@ impl StakingRecord {
         for u in &unbonding {
             let v = aggregate(&mut stored, &u.validator)?;
             v.unbonding = v.unbonding.checked_add(u.amount).ok_or_else(overflow)?;
-            v.unbonding_entries += 1;
+            v.unbonding_entries = v.unbonding_entries.checked_add(1).ok_or_else(overflow)?;
             let key = (u.validator, u.release_epoch, u.owner);
             let mut amount = Vec::new();
             put_amount(&mut amount, u.amount);

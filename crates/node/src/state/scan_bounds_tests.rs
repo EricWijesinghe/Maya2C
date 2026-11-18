@@ -157,17 +157,19 @@ fn a_reveal_height_holds_at_most_its_cap() {
     };
     let mut overlay = Overlay::default();
 
-    db.stage_envelope(&mut overlay, &[1; 32], 0, &at(reveal), context)
-        .expect("the height's last slot");
-    let refused = db
-        .stage_envelope(&mut overlay, &[1; 32], 1, &at(reveal), context)
-        .expect_err("the height is full");
-    assert!(
-        matches!(refused, NodeError::SealedBlockLimit { .. }),
-        "{refused:?}"
-    );
-    db.stage_envelope(&mut overlay, &[1; 32], 2, &at(reveal + 1), context)
-        .expect("another height is unaffected");
+    // The height's last slot, the height full, another height unaffected.
+    // Each attempt's account nonce is its index.
+    let attempts = [(reveal, true), (reveal, false), (reveal + 1, true)];
+    for (index, (height, fits)) in attempts.into_iter().enumerate() {
+        let nonce = u64::try_from(index).expect("three attempts");
+        match db.stage_envelope(&mut overlay, &[1; 32], nonce, &at(height), context) {
+            Ok(()) => assert!(fits, "height {height} took an envelope past its cap"),
+            Err(refused) => assert!(
+                !fits && matches!(refused, NodeError::SealedBlockLimit { .. }),
+                "height {height}: {refused:?}"
+            ),
+        }
+    }
 }
 
 // -------------------------------------------------------------------- dex
