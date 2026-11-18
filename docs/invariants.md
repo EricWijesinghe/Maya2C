@@ -1,6 +1,6 @@
 # Critical Invariants
 
-Thirty live properties this tree must not lose (numbered 1-34; 20-23 are retired and keep their numbers), each with the reason it
+Thirty-one live properties this tree must not lose (numbered 1-36; 20-23 are retired and keep their numbers, 35 is held by a proposal), each with the reason it
 exists. They are numbered, the numbers are referenced from code comments and
 from `docs/adr/`, and **a number is never reused**: if an invariant is
 retired, its entry stays with the retirement recorded.
@@ -271,3 +271,65 @@ phase that did it.
     `crates/node/tests/council_pause_tests.rs`
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
     — ADR-082.
+36. **No float and no model output in a consensus rule.** A float is a rounding
+    mode: two validators on different CPUs, compilers or flags can round one
+    expression differently, and one ULP of disagreement in a state root is a
+    fork. A model's output is the same hazard one step removed, and a model
+    that decides a block, a payout or a parameter has moved a decision out of
+    the rules every node can re-derive. Job outputs may be stored as data; a
+    model may not decide anything. The integer fee model in
+    `crates/fee-market/src/model/` is compiled in and dormant:
+    `neural_activation_height` is `u64::MAX` in `crates/node/src/genesis.rs`.
+    Giving it a finite height is an amendment to this invariant, not a
+    parameter change. The rule lived under invariant 20, which retired with
+    `crates/zkml` (ADR-008) and left it as prose nobody checked (owner
+    decision, Eric 2026-11-14). `cargo xtask float-check` takes its scope from
+    the node binary's link graph: `bins/maya2c-node` and every path crate it
+    reaches through normal, build and target-specific dependencies
+    (`xtask/src/float_scope.rs`), so a crate the node starts to link is
+    scanned by default. It lexes every non-test file under `src/` of those
+    crates, macro bodies included, and fails on a float primitive or SIMD
+    lane type (`f16`, `f32`, `f64`, `f128`, `bf16`, `f32x4` and the like),
+    raw (`r#f64`) or as a `_` segment of an ident (`as_f64`, `to_f32`), a
+    float trait or wrapper (`Float`, `FloatCore`, `Real`, `OrderedFloat`,
+    `NotNan`), a float literal (signed exponents and `f16`/`f128` suffixes
+    included), or a `use` that binds the name `test` and so could shadow the
+    `#[test]` the scanner trusts. A test-only field whose `<` may have been a
+    comparison is scanned past its first comma (fails closed). Excluded,
+    each with a written reason (`EXCLUDE`, ADR-148): six single files in the
+    node crate that hold floats today (`rpc/limit.rs`, `rpc/market.rs`,
+    `rpc/peers.rs`, `network/gossip_score.rs`, `network/peer_health.rs`,
+    `metrics/mod.rs`; a test pins that a node-crate entry is a file, and an
+    entry whose file holds no float fails as stale), and three crates off the
+    consensus path as a whole (`archive`, `iso20022`, `hal/ebpf-net`). Any
+    other file in the node's `rpc` and `network` modules, which also carry
+    block submission and sync, is scanned. One allowlist entry holds the
+    finality-latency metric in `bins/maya2c-node/src/bft.rs`, and lists the
+    exact tokens allowed, so any other float in that file still fails. The
+    check also fails if a named consensus path stops being scanned
+    (`MUST_SCAN`), and if an ML runtime (`tract-*`, `ort`, `onnxruntime`,
+    `candle-*`, `burn`, `tch`, and the reserved names `maya-neural-fee` and
+    `maya-zkml-prover`, which no crate uses yet) is anywhere in the node's
+    dependency closure, walked through `Cargo.lock`
+    (transitive, renamed and target-specific dependencies included). Runs in
+    CI's `reality ledger` job. Pinned by `xtask/src/float_check.rs`
+    (`the_consensus_crates_hold_no_float_and_no_model`,
+    `a_float_type_or_literal_is_found_anywhere_in_code`,
+    `other_float_types_and_wrappers_are_found`,
+    `an_import_that_shadows_the_test_attribute_is_found`,
+    `a_test_field_parameter_variant_or_arm_hides_only_itself`) and
+    `xtask/src/float_scope.rs`
+    (`an_ml_runtime_two_hops_away_is_in_the_lock_closure`,
+    `a_node_crate_exclusion_is_one_file_not_a_module_dir`). Not covered: a
+    float reached by type inference with no float token in the scanned file
+    (`"0.5".parse()` into an inferred type, or an `f64` returned by a function
+    in an excluded crate); `clippy::float_arithmetic` uses type information
+    and would catch these, and is not configured yet. Code outside `src/`
+    (a `build.rs`, a `[lib] path` elsewhere, an `include!` of an unscanned
+    file); none occurs in linked code today. An integer model,
+    which a lexer cannot tell from other integer code; the activation rule
+    above covers the one in the tree. Contract code: WASM guest float opcodes
+    run in the consensus VM and are outside this invariant; they are made
+    deterministic by NaN canonicalization with SIMD and relaxed SIMD off
+    (`crates/vm/src/config.rs`). Number 35 is held by a proposal (account
+    authority, PR #447) and is not reused.

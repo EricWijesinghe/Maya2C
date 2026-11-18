@@ -28,7 +28,7 @@ This tree already has the pieces for containment:
 Build the Sentinel Recovery Network after mainnet, as specified in MIP-0001:
 
 1. **Sentinels are advisory.** Off-chain detectors, including ML, publish
-   signed alerts. Only deterministic integer rules (invariant 20) and stake
+   signed alerts. Only deterministic integer rules (invariant 36) and stake
    signatures change on-chain state.
 2. **Threat levels T1–T5.** Deterministic rules raise a cell to T3 at most. T4
    needs the council plus ⅓ stake (or ½ stake). T5 (network safe mode) needs ⅔

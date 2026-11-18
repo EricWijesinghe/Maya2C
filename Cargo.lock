@@ -12914,11 +12914,13 @@ dependencies = [
  "hex",
  "image",
  "maya-amount",
+ "proc-macro2",
  "regex",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
  "toml 0.9.12+spec-1.1.0",
 ]
 

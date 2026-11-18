@@ -150,3 +150,4 @@ The observation that would make this worth reopening.
 | [115](ADR-115-post-quantum-vrf.md) | Post-quantum beacon randomness: hash-chain scheme 2 mixed with ECVRF; lattice scheme 3 reserved behind a written research gate | Proposed |
 | [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |
 | [140](ADR-140-chat-expression-and-privacy.md) | Maya2C Chat expression, anonymity and deletion suite: new frames inside the encryption, gifts as clear-signed tips over the payment-request flow, pairwise identities, deletion as a request honest clients obey | Proposed |
+| [148](ADR-148-no-float-consensus-check.md) | Invariant 36 checked by a token lexer over the node's link graph: file-level exclusions, fail-closed float names, ML runtimes through `Cargo.lock` | Accepted |
