@@ -39,6 +39,9 @@ pub enum GuardError {
     KeyOutsideDataDir(PathBuf),
     /// The key file is readable or writable by someone other than its owner.
     KeyOpenToOthers(PathBuf),
+    /// Someone other than the user can add or remove files in a folder that
+    /// holds the key, so the key could be swapped after it is checked.
+    KeyFolderOpenToOthers(PathBuf),
     /// The key file belongs to another user. Only the Unix owner check builds it.
     #[cfg(unix)]
     KeyNotOwned(PathBuf),
@@ -88,6 +91,11 @@ impl fmt::Display for GuardError {
             Self::KeyOpenToOthers(path) => write!(
                 f,
                 "key file {} is readable or writable by accounts other than yours, SYSTEM and Administrators; remove those permissions",
+                path.display()
+            ),
+            Self::KeyFolderOpenToOthers(path) => write!(
+                f,
+                "other accounts can add or remove files in {}, which holds the key file; make the folder writable only by you",
                 path.display()
             ),
             #[cfg(unix)]
@@ -367,22 +375,70 @@ pub fn resolve_key_file(requested: &str, data: &Path) -> Result<PathBuf, GuardEr
 /// loosened or re-linked since then is refused at the next restart. A key not
 /// yet created passes; the miner creates it on first run.
 ///
+/// The folders holding the key are checked too, whether or not the key exists:
+/// the miner opens the key by path after this check, so anyone who could add
+/// or remove files in them could swap the key in between, or plant one before
+/// the miner's first run.
+///
 /// # Errors
 ///
-/// The key resolves outside `data`, cannot be read, or is open to other accounts.
+/// The key resolves outside `data`, cannot be read, or it or a folder holding
+/// it is open to other accounts.
 pub fn check_key_file(target: &Path, data: &Path) -> Result<(), GuardError> {
+    let data = data.canonicalize().map_err(io)?;
+    check_key_folders(target, &data)?;
     // Only a missing key passes; any other stat failure must not look like one.
     match fs::symlink_metadata(target) {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(io(e)),
     }
-    let data = data.canonicalize().map_err(io)?;
     let real = target.canonicalize().map_err(io)?;
     if !real.starts_with(&data) {
         return Err(GuardError::KeyOutsideDataDir(real));
     }
     check_key_permissions(&real)
+}
+
+/// Every folder from the key's own up to and including `data` (canonical).
+fn check_key_folders(target: &Path, data: &Path) -> Result<(), GuardError> {
+    let parent = target.parent().ok_or(GuardError::KeyNameMissing)?;
+    let mut dir = parent
+        .canonicalize()
+        .map_err(|_| GuardError::KeyFolderMissing(parent.to_path_buf()))?;
+    if !dir.starts_with(data) {
+        return Err(GuardError::KeyOutsideDataDir(target.to_path_buf()));
+    }
+    loop {
+        if folder_open_to_others(&dir)? {
+            return Err(GuardError::KeyFolderOpenToOthers(dir));
+        }
+        // `dir` starts with `data`, so popping reaches it before running out.
+        if dir == data || !dir.pop() {
+            return Ok(());
+        }
+    }
+}
+
+/// A folder another user owns, or that group or other may write into.
+#[cfg(unix)]
+fn folder_open_to_others(dir: &Path) -> Result<bool, GuardError> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = fs::metadata(dir).map_err(io)?;
+    Ok(meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & 0o022 != 0)
+}
+
+#[cfg(windows)]
+fn folder_open_to_others(dir: &Path) -> Result<bool, GuardError> {
+    crate::key_acl::others_can_write_into(dir).map_err(GuardError::Io)
+}
+
+/// Fails closed where neither mode bits nor a DACL can be read.
+#[cfg(not(any(unix, windows)))]
+fn folder_open_to_others(_dir: &Path) -> Result<bool, GuardError> {
+    Err(GuardError::Io(
+        "this platform cannot check key folder permissions".into(),
+    ))
 }
 
 /// Other users' access bits (group and other). Any set means someone else can
@@ -437,7 +493,34 @@ mod tests {
             std::env::temp_dir().join(format!("maya-hub-guard-{test}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create scratch folder");
+        // The temp folder may let every signed-in account write into it, and a
+        // key folder that does is refused; start each test from a private one.
+        #[cfg(windows)]
+        icacls(&dir, &["/inheritance:r", "/grant:r", &format!("*{}:(OI)(CI)F", my_sid())]);
         dir
+    }
+
+    #[cfg(windows)]
+    fn my_sid() -> String {
+        let out = std::process::Command::new("whoami")
+            .args(["/user", "/fo", "csv", "/nh"])
+            .output()
+            .expect("run whoami");
+        String::from_utf8_lossy(&out.stdout)
+            .split(',')
+            .map(|f| f.trim().trim_matches('"').to_owned())
+            .find(|f| f.starts_with("S-1-"))
+            .expect("whoami reports a SID")
+    }
+
+    #[cfg(windows)]
+    fn icacls(path: &Path, args: &[&str]) {
+        let status = std::process::Command::new("icacls")
+            .arg(path)
+            .args(args)
+            .status()
+            .expect("run icacls");
+        assert!(status.success(), "icacls {args:?} failed");
     }
 
     /// `base/install` holding a fake miner, and the sums that pin it.
@@ -683,6 +766,34 @@ mod tests {
         fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
         let err = check_key_file(&path, &data).unwrap_err();
         assert!(matches!(err, GuardError::KeyOpenToOthers(_)), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_folder_others_can_write_into_is_refused_even_before_the_key_exists() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = scratch("key-folder-open");
+        let data = base.join("data");
+        let sub = data.join("keys");
+        fs::create_dir_all(&sub).unwrap();
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o777)).unwrap();
+        let err = check_key_file(&sub.join("miner.key"), &data).unwrap_err();
+        assert!(matches!(err, GuardError::KeyFolderOpenToOthers(_)), "{err}");
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(check_key_file(&sub.join("miner.key"), &data).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_key_folder_others_can_write_into_is_refused_even_before_the_key_exists() {
+        let base = scratch("key-folder-open");
+        let data = base.join("data");
+        fs::create_dir_all(&data).unwrap();
+        assert!(check_key_file(&data.join("miner.key"), &data).is_ok());
+        // Authenticated Users may create files in the data folder.
+        icacls(&data, &["/grant", "*S-1-5-11:(WD)"]);
+        let err = check_key_file(&data.join("miner.key"), &data).unwrap_err();
+        assert!(matches!(err, GuardError::KeyFolderOpenToOthers(_)), "{err}");
     }
 
     #[test]

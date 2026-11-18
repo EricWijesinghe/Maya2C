@@ -40,6 +40,18 @@ const OTHERS_ACCESS_MASK: u32 = FILE_READ_DATA
     | GENERIC_READ
     | GENERIC_WRITE
     | GENERIC_ALL;
+/// On a folder, FILE_WRITE_DATA adds a file, FILE_APPEND_DATA adds a subfolder
+/// and FILE_DELETE_CHILD removes any entry: together, what swapping the key
+/// file needs. Listing the folder does not, so read bits are left out.
+const FILE_DELETE_CHILD: u32 = 0x40;
+const FOLDER_WRITE_MASK: u32 = FILE_WRITE_DATA
+    | FILE_APPEND_DATA
+    | FILE_DELETE_CHILD
+    | DELETE
+    | WRITE_DAC
+    | WRITE_OWNER
+    | GENERIC_WRITE
+    | GENERIC_ALL;
 const ACCESS_ALLOWED: u8 = 0x0;
 const ACCESS_DENIED: u8 = 0x1;
 const SYSTEM_SID: &str = "S-1-5-18";
@@ -54,6 +66,22 @@ const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 /// The token, the file's security descriptor or an ACE cannot be read. The
 /// caller treats that as a refusal.
 pub fn others_can_access(path: &Path) -> Result<bool, String> {
+    others_hold(path, OTHERS_ACCESS_MASK)
+}
+
+/// True when an account other than the current user, SYSTEM or Administrators
+/// can add, remove or rename entries in the folder `path`, or owns it: anyone
+/// who could swap the key file between the Hub's check and the miner's open.
+///
+/// # Errors
+///
+/// As [`others_can_access`].
+pub fn others_can_write_into(path: &Path) -> Result<bool, String> {
+    others_hold(path, FOLDER_WRITE_MASK)
+}
+
+/// Whether an untrusted account owns `path` or is granted any bit of `mask`.
+fn others_hold(path: &Path, mask: u32) -> Result<bool, String> {
     let me = current_user_sid()?;
     let wide: Vec<u16> = path
         .as_os_str()
@@ -96,15 +124,15 @@ pub fn others_can_access(path: &Path) -> Result<bool, String> {
         let mut ace = null_mut::<c_void>();
         // SAFETY: `index` is below AceCount, so the ACE exists and `ace` points into the DACL.
         unsafe { GetAce(dacl, index, &mut ace) }.map_err(|e| e.to_string())?;
-        if ace_opens_to_others(ace, &me)? {
+        if ace_opens_to_others(ace, &me, mask)? {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-/// One ACE: does it grant the read or write bits to an account outside the allow list?
-fn ace_opens_to_others(ace: *mut c_void, me: &str) -> Result<bool, String> {
+/// One ACE: does it grant any bit of `mask` to an account outside the allow list?
+fn ace_opens_to_others(ace: *mut c_void, me: &str, others_mask: u32) -> Result<bool, String> {
     // SAFETY: GetAce returned a pointer to a complete ACE, whose header comes first.
     let header = unsafe { &*ace.cast::<ACE_HEADER>() };
     if header.AceType == ACCESS_DENIED {
@@ -112,7 +140,7 @@ fn ace_opens_to_others(ace: *mut c_void, me: &str) -> Result<bool, String> {
     }
     // SAFETY: Mask follows the header in every allow-type ACE, so reading it is in bounds.
     let mask = unsafe { (*ace.cast::<ACCESS_ALLOWED_ACE>()).Mask };
-    if mask & OTHERS_ACCESS_MASK == 0 {
+    if mask & others_mask == 0 {
         return Ok(false);
     }
     if header.AceType != ACCESS_ALLOWED {
@@ -295,6 +323,47 @@ mod tests {
         );
         let open = others_can_access(&path);
         let _ = std::fs::remove_file(&path);
+        assert_eq!(open, Ok(true));
+    }
+
+    /// A folder in the temp folder whose DACL is set by icacls `args`.
+    fn folder_with_acl(test: &str, args: &[&str]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("maya-hub-acl-dir-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("create the folder");
+        let status = Command::new("icacls")
+            .arg(&path)
+            .args(args)
+            .status()
+            .expect("run icacls");
+        assert!(status.success(), "icacls {args:?} failed");
+        path
+    }
+
+    #[test]
+    fn a_folder_others_may_only_list_is_not_writable_by_them() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        let dir = folder_with_acl(
+            "list",
+            &["/inheritance:r", "/grant:r", &grant, "/grant", "*S-1-5-11:RX"],
+        );
+        let open = others_can_write_into(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(open, Ok(false));
+    }
+
+    #[test]
+    fn a_folder_others_may_add_files_to_is_refused() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        // (WD) on a folder is "create files": enough to plant a key after deleting one.
+        let dir = folder_with_acl(
+            "add",
+            &["/inheritance:r", "/grant:r", &grant, "/grant", "*S-1-5-11:(WD)"],
+        );
+        let open = others_can_write_into(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(open, Ok(true));
     }
 
