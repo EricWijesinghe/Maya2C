@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+pub mod stub_node;
+
 /// The W3C element reference key.
 const ELEMENT: &str = "element-6066-11e4-a52e-4f735466cecf";
 
@@ -194,12 +196,24 @@ impl Session {
         }
     }
 
-    /// Clicks.
+    /// Clicks, after scrolling the element to the middle of the window: the
+    /// driver's own scroll puts it at an edge, under the app's sticky header
+    /// or pinned Send bar, where a person would not click it either.
     ///
     /// # Errors
     ///
     /// The driver failed.
     pub fn click(&self, e: &Element) -> Result<(), DriverError> {
+        let mut reference = serde_json::Map::new();
+        reference.insert(ELEMENT.to_owned(), json!(e.0));
+        self.call(
+            reqwest::Method::POST,
+            "/execute/sync",
+            Some(json!({
+                "script": "arguments[0].scrollIntoView({block: 'center'}); return true",
+                "args": [reference],
+            })),
+        )?;
         self.call(
             reqwest::Method::POST,
             &format!("/element/{}/click", e.0),
@@ -280,6 +294,68 @@ impl Session {
         )
     }
 
+    /// Runs `script` asynchronously: it ends by calling `arguments[0]` with
+    /// its result, which is returned.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed, the script threw, or it did not call back in time.
+    pub fn execute_async(&self, script: &str) -> Result<Value, DriverError> {
+        self.call(
+            reqwest::Method::POST,
+            "/execute/async",
+            Some(json!({"script": script, "args": []})),
+        )
+    }
+
+    /// The element's accessible name as the browser's accessibility tree
+    /// computes it: what a screen reader announces, not what the DOM holds.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed.
+    pub fn label(&self, e: &Element) -> Result<String, DriverError> {
+        Ok(self
+            .call(
+                reqwest::Method::GET,
+                &format!("/element/{}/computedlabel", e.0),
+                None,
+            )?
+            .as_str()
+            .unwrap_or_default()
+            .to_owned())
+    }
+
+    /// An attribute's value, `None` when it is absent.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed.
+    pub fn attribute(&self, e: &Element, name: &str) -> Result<Option<String>, DriverError> {
+        Ok(self
+            .call(
+                reqwest::Method::GET,
+                &format!("/element/{}/attribute/{name}", e.0),
+                None,
+            )?
+            .as_str()
+            .map(str::to_owned))
+    }
+
+    /// Resizes the window, so a layout can be checked at a narrow width.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed or refused the size.
+    pub fn resize(&self, width: u32, height: u32) -> Result<(), DriverError> {
+        self.call(
+            reqwest::Method::POST,
+            "/window/rect",
+            Some(json!({"width": width, "height": height})),
+        )
+        .map(|_| ())
+    }
+
     /// Saves a PNG of the window to `path`: evidence of what a person sees,
     /// which no assertion on the DOM can give.
     ///
@@ -288,10 +364,20 @@ impl Session {
     /// The driver failed, its image was not base64, or the file could not
     /// be written.
     pub fn screenshot(&self, path: &std::path::Path) -> Result<(), DriverError> {
-        let encoded = self.call(reqwest::Method::GET, "/screenshot", None)?;
-        let png = decode_base64(encoded.as_str().unwrap_or_default())
+        let png = decode_base64(&self.screenshot_base64()?)
             .ok_or_else(|| failed("screenshot", &"the driver's image is not base64"))?;
         std::fs::write(path, png).map_err(|e| failed("screenshot", &e))
+    }
+
+    /// The window as a base64 PNG, as the driver sends it: for a check of
+    /// the painted pixels (decoded in the page), not of computed styles.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed.
+    pub fn screenshot_base64(&self) -> Result<String, DriverError> {
+        let encoded = self.call(reqwest::Method::GET, "/screenshot", None)?;
+        Ok(encoded.as_str().unwrap_or_default().to_string())
     }
 
     /// The page's current HTML, for a failure message.

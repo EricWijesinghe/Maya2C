@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Maya Wallet",
+  "productName": "Maya2C Wallet",
   "version": "0.1.1",
   "identifier": "com.maya2c.wallet",
   "plugins": {
@@ -20,10 +20,10 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Maya Wallet",
+        "title": "Maya2C Wallet",
         "width": 460,
         "height": 780,
-        "minWidth": 380,
+        "minWidth": 360,
         "minHeight": 620,
         "resizable": true,
         "center": true

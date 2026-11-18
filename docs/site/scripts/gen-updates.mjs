@@ -9,13 +9,33 @@
 // build goes on. An app that finds no manifest simply has no update.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const REPO = "EricWijesinghe/Maya2C";
 const OUT = new URL("../public/updates/", import.meta.url);
 
 // Release asset name prefix -> manifest name. Asset names have spaces
-// turned into dots by the release job ("Maya Wallet" -> "Maya.Wallet").
-const APPS = { "Maya.Wallet": "wallet", "Maya.Chat": "chat", "Maya2C.Hub": "hub" };
+// turned into dots by the release job ("Maya2C Wallet" -> "Maya2C.Wallet").
+// The wallet was "Maya Wallet" before its rename (L06); both prefixes map to
+// one manifest, so a release from either side of the rename still updates.
+export const APPS = {
+  "Maya2C.Wallet": "wallet",
+  "Maya.Wallet": "wallet",
+  "Maya.Chat": "chat",
+  "Maya2C.Hub": "hub",
+};
+
+/**
+ * The manifest an asset belongs to, or undefined for one no app ships. The
+ * prefix must end at "_" ("Maya2C.Wallet_0.1.1_x64-setup.exe") or "."
+ * ("Maya2C.Wallet.app.tar.gz", macOS bundles carry no version).
+ */
+export function appOf(assetName) {
+  const prefix = Object.keys(APPS).find(
+    (p) => assetName.startsWith(`${p}_`) || assetName.startsWith(`${p}.`),
+  );
+  return prefix && APPS[prefix];
+}
 
 // Which updater bundle serves which Tauri platform key.
 const PLATFORMS = [
@@ -45,10 +65,15 @@ async function bundles(release) {
   const out = {};
   for (const sig of release.assets.filter((a) => a.name.endsWith(".sig"))) {
     const bundle = byName.get(sig.name.slice(0, -".sig".length));
-    const app = Object.keys(APPS).find((p) => sig.name.startsWith(p));
+    const app = appOf(sig.name);
     const platform = PLATFORMS.find(([re]) => re.test(bundle?.name ?? ""))?.[1];
-    if (!bundle || !app || !platform) continue;
-    (out[APPS[app]] ??= {})[platform] = {
+    if (!bundle || !app || !platform) {
+      // Said, not silent: a renamed app whose prefix is missing above would
+      // otherwise lose its update manifest without a word.
+      console.warn(`updates: ${sig.name} matches no app or platform; skipped`);
+      continue;
+    }
+    (out[app] ??= {})[platform] = {
       url: bundle.browser_download_url,
       signature: await text(sig.browser_download_url),
     };
@@ -87,4 +112,7 @@ async function main() {
   }
 }
 
-main().catch((error) => console.warn(`updates: skipped (${error.message})`));
+// Run as a script, not when a test imports appOf.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((error) => console.warn(`updates: skipped (${error.message})`));
+}

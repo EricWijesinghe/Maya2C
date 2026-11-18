@@ -885,12 +885,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-amount"
+version = "0.1.0"
+
+[[package]]
 name = "maya-wallet-ui"
 version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
  "leptos",
+ "maya-amount",
  "primitive-types",
  "serde",
  "serde-wasm-bindgen",

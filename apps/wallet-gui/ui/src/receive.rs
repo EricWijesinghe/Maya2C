@@ -27,9 +27,15 @@ pub struct SentTransfer {
     pub recipient: String,
 }
 
-/// A button that copies `text` and says so for a moment.
+/// A button that copies `text` and says so for a moment. `compact` draws an
+/// icon with `label` as its accessible name, for a value shown truncated or
+/// in a summary row.
 #[component]
-fn CopyButton(#[prop(into)] text: Signal<String>, label: &'static str) -> impl IntoView {
+pub fn CopyButton(
+    #[prop(into)] text: Signal<String>,
+    label: &'static str,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
     let state = expect_context::<AppState>();
     let copied = RwSignal::new(false);
     let copy = move |_| {
@@ -43,11 +49,29 @@ fn CopyButton(#[prop(into)] text: Signal<String>, label: &'static str) -> impl I
             }
         });
     };
+    if compact {
+        return view! {
+            <button
+                type="button"
+                class=move || if copied.get() { "copy icon-button done" } else { "copy icon-button" }
+                aria-label=label
+                title=label
+                on:click=copy
+            >
+                <crate::widgets::Icon glyph=crate::widgets::Glyph::Copy/>
+            </button>
+            // Outside the button: a button's children are presentational, so a
+            // live region inside one is never announced.
+            <span class="sr-only" role="status">{move || if copied.get() { "Copied" } else { "" }}</span>
+        }
+        .into_any();
+    }
     view! {
         <button class=move || if copied.get() { "copy done" } else { "copy" } on:click=copy>
             {move || if copied.get() { "Copied" } else { label }}
         </button>
     }
+    .into_any()
 }
 
 /// The selected account's address and a QR code of its payment URI.

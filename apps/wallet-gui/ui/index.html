@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Maya Wallet</title>
+    <title>Maya2C Wallet</title>
+    <meta name="color-scheme" content="dark light" />
 
     <!-- Trunk copies this directory into `dist/` and fails the build if it is
          missing, which is what makes every reference below verified at build
@@ -16,7 +17,14 @@
     <link rel="shortcut icon" href="assets/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
     <link rel="manifest" href="assets/site.webmanifest" />
-    <meta name="theme-color" content="#ffffff" />
+    <!-- The browser chrome follows the theme: the two token --bg values, one
+         per OS preference (dark is the default when there is none). An
+         explicit choice in Settings rewrites both to the chosen theme's --bg
+         at run time (main.rs, apply_theme); data-system keeps the original
+         for "System". A theme-color line is the one place a literal is
+         allowed (cargo xtask design-tokens --literals). -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfc" data-system="#fbfbfc" />
+    <meta name="theme-color" media="not (prefers-color-scheme: light)" content="#08090b" data-system="#08090b" />
 
     <!-- Paths are relative, not root-absolute as the asset pack's
          `paste-in-head.html` writes them: Tauri serves the frontend from a

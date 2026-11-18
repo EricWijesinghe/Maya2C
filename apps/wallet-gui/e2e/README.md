@@ -1,6 +1,6 @@
 # Wallet end-to-end suite
 
-The Maya Wallet driven through its real UI: the release build of the Tauri
+The Maya2C Wallet driven through its real UI: the release build of the Tauri
 application, WebView2 through `tauri-driver` and `msedgedriver`, and a small
 W3C WebDriver client in Rust (`src/lib.rs`). No Node toolchain.
 

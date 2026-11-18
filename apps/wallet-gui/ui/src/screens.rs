@@ -1,10 +1,11 @@
-//! Wallet screens.
+//! Wallet screens. Send is in `send.rs`, Receive and Sent in `receive.rs`.
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::amount;
 use crate::bridge;
+use crate::widgets::{Glyph, Icon, Lattice, RevealToggle, SecretField, TestnetTag};
 use crate::{AppState, Screen};
 
 /// Shortens a hex string for display.
@@ -41,6 +42,23 @@ pub fn show_amount(base: &str) -> String {
     }
 }
 
+/// A display amount without its trailing zeros: `1,000.500000` → `1,000.5`,
+/// `2.000000` → `2`. Exact: only zeros after the point are dropped.
+pub fn trim_display(display: &str) -> String {
+    if !display.contains('.') {
+        return display.to_string();
+    }
+    display
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+/// [`show_amount`] without trailing zeros: what a hero figure shows.
+pub fn pretty_amount(base: &str) -> String {
+    trim_display(&show_amount(base))
+}
+
 /// A base-unit decimal string as a plain value an input field can hold.
 pub fn input_amount(base: &str) -> String {
     amount::parse_base_units(base).map_or_else(|_| String::new(), amount::format_input)
@@ -52,37 +70,48 @@ pub fn typed_amount(text: &str) -> Result<String, amount::AmountError> {
     amount::parse_display(text.trim()).map(|value| value.to_string())
 }
 
-/// A transfer the user reviewed: what the core showed, and the exact inputs it
-/// was computed from. Signing replays these, never the live form fields, so
-/// the reviewed transaction is the one `sign_transfer` is asked to sign.
-#[derive(Clone)]
-pub struct Review {
-    pub confirmation: bridge::Confirmation,
-    pub index: u32,
-    pub recipient: String,
-    pub amount: String,
-    pub fee: String,
-    pub nonce: u64,
-    pub terms: bridge::FeeTerms,
+/// An address in groups of four, so a person can compare it group by group.
+pub fn chunks(address: &str) -> Vec<String> {
+    address
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(4)
+        .map(|group| group.iter().collect())
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
 // setup
 // ---------------------------------------------------------------------------
 
-/// First run: create a wallet or recover an existing one.
+/// First run: a welcome with two choices, then create or recover.
 pub mod setup {
     use super::*;
 
-    /// Create-or-recover screen; `from_unlock` opens it on the phrase form.
+    /// Which part of setup is showing.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Step {
+        Welcome,
+        Create,
+        Recover,
+    }
+
+    /// Setup; `from_unlock` opens it on the recovery form.
     #[component]
     pub fn Setup(#[prop(optional)] from_unlock: bool) -> impl IntoView {
         let state = expect_context::<AppState>();
+        let step = RwSignal::new(if from_unlock {
+            Step::Recover
+        } else {
+            Step::Welcome
+        });
         let passphrase = RwSignal::new(String::new());
         let confirm = RwSignal::new(String::new());
         let phrase = RwSignal::new(String::new());
-        let recovering = RwSignal::new(from_unlock);
+        let phrase_shown = RwSignal::new(false);
         let busy = RwSignal::new(false);
+        let mismatch =
+            Signal::derive(move || !confirm.get().is_empty() && passphrase.get() != confirm.get());
 
         // Validated live, so a mistyped word is caught while it is still easy
         // to fix rather than after the wallet is created.
@@ -94,11 +123,16 @@ pub mod setup {
                 return;
             }
             spawn_local(async move {
-                phrase_ok.set(bridge::check_phrase(&candidate).await.unwrap_or(false));
+                let ok = bridge::check_phrase(&candidate).await.unwrap_or(false);
+                // Checks of earlier keystrokes can answer after the last one:
+                // only the answer for what is in the field now counts.
+                if phrase.get_untracked() == candidate {
+                    phrase_ok.set(ok);
+                }
             });
         });
 
-        let create = move |_| {
+        let create = move || {
             if passphrase.get() != confirm.get() {
                 state.fail("The passphrases do not match.");
                 return;
@@ -121,7 +155,7 @@ pub mod setup {
             });
         };
 
-        let recover = move |_| {
+        let recover = move || {
             if passphrase.get() != confirm.get() {
                 state.fail("The passphrases do not match.");
                 return;
@@ -141,94 +175,165 @@ pub mod setup {
             });
         };
 
-        view! {
-            <section class="card">
-                <h1>"Set up your wallet"</h1>
-                <p class="muted">
-                    "Your keys are encrypted with this passphrase and stored in your \
-                     operating system's keychain. They never leave this device."
-                </p>
+        let go = move |next: Step| {
+            state.clear();
+            step.set(next);
+        };
 
-                <label>"Passphrase"</label>
-                <input
-                    type="password"
-                    prop:value=move || passphrase.get()
-                    on:input=move |ev| passphrase.set(event_target_value(&ev))
-                />
-
-                <label>"Confirm passphrase"</label>
-                <input
-                    type="password"
-                    prop:value=move || confirm.get()
-                    on:input=move |ev| confirm.set(event_target_value(&ev))
-                />
-
-                <Show when=move || recovering.get()>
-                    <label>"Recovery phrase"</label>
-                    <textarea
-                        rows="4"
-                        placeholder="twenty four words, separated by spaces"
-                        prop:value=move || phrase.get()
-                        on:input=move |ev| phrase.set(event_target_value(&ev))
-                    ></textarea>
-                    <p class=move || if phrase_ok.get() { "hint ok" } else { "hint" }>
-                        {move || {
-                            let count = phrase.get().split_whitespace().count();
-                            if count == 0 {
-                                "Enter your recovery phrase.".to_string()
-                            } else if phrase_ok.get() {
-                                format!("{count} words · checksum valid")
-                            } else {
-                                format!("{count} words · not yet a valid phrase")
-                            }
-                        }}
+        let welcome = move || {
+            view! {
+                <section class="welcome enter">
+                    // The header names the app; the mark here is decoration
+                    // on a slowly turning lattice, after ML-DSA-65 (hd.rs),
+                    // the lattice-based scheme this wallet signs with. Still
+                    // under reduced motion.
+                    <div class="mark-stage" aria-hidden="true">
+                        <Lattice/>
+                        <span class="mark-tile">
+                            <img class="mark" src="assets/emblem.png" alt="" width="96" height="96"/>
+                        </span>
+                    </div>
+                    <h1>"Your keys stay on this device"</h1>
+                    <p class="lede">
+                        "Encrypted with a passphrase you choose and kept in this \
+                         device's keychain."
                     </p>
-                </Show>
+                    <TestnetTag/>
+                    <div class="choices">
+                        <button class="primary" on:click=move |_| go(Step::Create)>
+                            "Create a new wallet"
+                        </button>
+                        <button class="secondary" on:click=move |_| go(Step::Recover)>
+                            "I have a recovery phrase"
+                        </button>
+                    </div>
+                </section>
+            }
+        };
 
-                <div class="row">
-                    <Show
-                        when=move || !recovering.get()
-                        fallback=move || view! {
+        let form = move || {
+            let recovering = step.get() == Step::Recover;
+            view! {
+                <section class="card enter">
+                    <h1>{if recovering { "Recover a wallet" } else { "Create a wallet" }}</h1>
+                    <p class="muted">
+                        "The passphrase encrypts your keys on this device. It is not \
+                         sent anywhere, and nobody can reset it for you."
+                    </p>
+                    <TestnetTag/>
+
+                    <Show when=move || recovering>
+                        <div class="field">
+                            <label for="setup-phrase">"Recovery phrase"</label>
+                            <div class="secret">
+                                <textarea
+                                    id="setup-phrase"
+                                    rows="4"
+                                    class=move || if phrase_shown.get() { "mono" } else { "mono concealed" }
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    autocapitalize="off"
+                                    aria-describedby="setup-phrase-hint"
+                                    placeholder="twenty four words, separated by spaces"
+                                    prop:value=move || phrase.get()
+                                    on:input=move |ev| phrase.set(event_target_value(&ev))
+                                ></textarea>
+                                <RevealToggle what="recovery phrase".to_string() shown=phrase_shown/>
+                            </div>
+                            <p
+                                id="setup-phrase-hint"
+                                class=move || if phrase_ok.get() { "hint ok" } else { "hint" }
+                                aria-live="polite"
+                            >
+                                {move || {
+                                    let count = phrase.get().split_whitespace().count();
+                                    if count == 0 {
+                                        "Enter your recovery phrase.".to_string()
+                                    } else if phrase_ok.get() {
+                                        format!("{count} words \u{b7} checksum valid")
+                                    } else {
+                                        format!("{count} words \u{b7} not yet a valid phrase")
+                                    }
+                                }}
+                            </p>
+                        </div>
+                    </Show>
+
+                    <SecretField
+                        id="setup-pass"
+                        label="Passphrase"
+                        value=passphrase
+                        autocomplete="new-password"
+                        show_strength=true
+                    />
+                    <SecretField
+                        id="setup-confirm"
+                        label="Confirm passphrase"
+                        value=confirm
+                        autocomplete="new-password"
+                        invalid=mismatch
+                        on_enter=Callback::new(move |()| {
+                            if recovering { recover() } else { create() }
+                        })
+                    />
+                    <Show when=move || mismatch.get()>
+                        <p class="hint warning" role="status">"The passphrases do not match yet."</p>
+                    </Show>
+
+                    {if recovering {
+                        view! {
                             <button
-                                class="primary"
+                                class="primary wide"
                                 disabled=move || busy.get() || !phrase_ok.get()
-                                on:click=recover
+                                on:click=move |_| recover()
                             >
                                 "Recover wallet"
                             </button>
                         }
-                    >
-                        <button class="primary" disabled=move || busy.get() on:click=create>
-                            "Create new wallet"
-                        </button>
-                    </Show>
-                </div>
-
-                <button
-                    class="ghost wide"
-                    on:click=move |_| {
-                        state.clear();
-                        recovering.update(|value| *value = !*value);
-                    }
-                >
-                    {move || if recovering.get() {
-                        "Create a new wallet instead"
+                        .into_any()
                     } else {
-                        "I already have a recovery phrase"
-                    }}
-                </button>
-                <Show when=move || from_unlock>
-                    <button
-                        class="ghost wide"
-                        on:click=move |_| {
-                            state.clear();
-                            state.screen.set(Screen::Unlock);
+                        view! {
+                            <button
+                                class="primary wide"
+                                disabled=move || busy.get()
+                                on:click=move |_| create()
+                            >
+                                {move || if busy.get() { "Creating…" } else { "Create wallet" }}
+                            </button>
                         }
-                    >
-                        "Back to unlock"
-                    </button>
-                </Show>
-            </section>
+                        .into_any()
+                    }}
+                    {if from_unlock {
+                        view! {
+                            <button
+                                class="ghost wide"
+                                on:click=move |_| {
+                                    state.clear();
+                                    state.screen.set(Screen::Unlock);
+                                }
+                            >
+                                "Back to unlock"
+                            </button>
+                        }
+                        .into_any()
+                    } else {
+                        view! {
+                            <button class="ghost wide" on:click=move |_| go(Step::Welcome)>
+                                "Back"
+                            </button>
+                        }
+                        .into_any()
+                    }}
+                </section>
+            }
+        };
+
+        move || {
+            if step.get() == Step::Welcome {
+                welcome().into_any()
+            } else {
+                form().into_any()
+            }
         }
     }
 }
@@ -237,16 +342,74 @@ pub mod setup {
 // backup
 // ---------------------------------------------------------------------------
 
-/// One-time display of a new recovery phrase.
+/// One-time display of a new recovery phrase, then a check of three words.
 pub mod backup {
     use super::*;
 
-    /// Shows the phrase once and requires an explicit acknowledgement.
+    /// How many words the check asks for.
+    const CHECKED_WORDS: usize = 3;
+
+    /// `count` distinct word positions out of `total`, in ascending order.
+    /// Not secret, so `Math.random` is enough: the point is that the user
+    /// cannot know in advance which words will be asked.
+    fn pick(total: usize, count: usize) -> Vec<usize> {
+        let mut chosen: Vec<usize> = Vec::with_capacity(count);
+        while chosen.len() < count.min(total) {
+            // Truncation is the intent: a uniform index in 0..total.
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
+            let index = (js_sys::Math::random() * total as f64) as usize;
+            if index < total && !chosen.contains(&index) {
+                chosen.push(index);
+            }
+        }
+        chosen.sort_unstable();
+        chosen
+    }
+
+    /// The backup's two steps: a visible "Step n of 2" and the bars beside it.
+    #[component]
+    fn Steps(current: usize) -> impl IntoView {
+        const TOTAL: usize = 2;
+        let bars = (1..=TOTAL)
+            .map(|n| {
+                let done = n <= current;
+                view! { <span class:done=done></span> }
+            })
+            .collect::<Vec<_>>();
+        view! {
+            <p class="steps">
+                <span class="bars" aria-hidden="true">{bars}</span>
+                {format!("Step {current} of {TOTAL}")}
+            </p>
+        }
+    }
+
+    /// Shows the phrase once, asks for an acknowledgement, then for three of
+    /// its words before the wallet opens.
     #[component]
     pub fn Backup(phrase: String) -> impl IntoView {
         let state = expect_context::<AppState>();
         let acknowledged = RwSignal::new(false);
+        let checking = RwSignal::new(false);
         let words: Vec<String> = phrase.split_whitespace().map(str::to_string).collect();
+        let asked = pick(words.len(), CHECKED_WORDS);
+        let answers: Vec<RwSignal<String>> =
+            asked.iter().map(|_| RwSignal::new(String::new())).collect();
+
+        let expected: Vec<String> = asked.iter().map(|&i| words[i].clone()).collect();
+        let all_right = {
+            let answers = answers.clone();
+            Signal::derive(move || {
+                answers
+                    .iter()
+                    .zip(&expected)
+                    .all(|(answer, word)| answer.get().trim().eq_ignore_ascii_case(word))
+            })
+        };
 
         let numbered: Vec<_> = words
             .iter()
@@ -258,12 +421,47 @@ pub mod backup {
             })
             .collect();
 
-        view! {
-            <section class="card">
-                <h1>"Write this down"</h1>
+        let check_fields: Vec<_> = asked
+            .iter()
+            .zip(answers)
+            .map(|(&index, answer)| {
+                let id = format!("quiz-{}", index + 1);
+                let label = format!("Word {}", index + 1);
+                let word = words[index].clone();
+                // Each word confirms itself as it matches, so progress
+                // toward Open wallet is visible word by word.
+                let right = Signal::derive(move || answer.get().trim().eq_ignore_ascii_case(&word));
+                view! {
+                    <div class="field">
+                        <label for=id.clone()>{label}</label>
+                        <span class="quiz-row">
+                            <input
+                                id=id
+                                class="mono"
+                                class:right=move || right.get()
+                                autocomplete="off"
+                                spellcheck="false"
+                                autocapitalize="off"
+                                prop:value=move || answer.get()
+                                on:input=move |ev| answer.set(event_target_value(&ev))
+                            />
+                            <span class="match" class:on=move || right.get() aria-live="polite">
+                                {move || if right.get() { "\u{2713} Matches" } else { "" }}
+                            </span>
+                        </span>
+                    </div>
+                }
+            })
+            .collect();
+
+        let show_phrase = view! {
+            <section class="card enter">
+                <Steps current=1/>
+                <h1>"Write down your recovery phrase"</h1>
+                <TestnetTag/>
                 <p class="warn">
-                    "These twenty four words are the only way to recover this wallet. \
-                     They are shown once and cannot be displayed again."
+                    "These twenty four words recover this wallet. Keep them offline \
+                     and private. After you open the wallet, they cannot be shown again."
                 </p>
 
                 <ol class="phrase">{numbered}</ol>
@@ -280,14 +478,44 @@ pub mod backup {
                 <button
                     class="primary wide"
                     disabled=move || !acknowledged.get()
+                    on:click=move |_| checking.set(true)
+                >
+                    "Continue"
+                </button>
+            </section>
+        };
+
+        let check = view! {
+            <section class="card enter">
+                <Steps current=2/>
+                <h1>"Check your backup"</h1>
+                <TestnetTag/>
+                <p class="muted">
+                    "Type these three words from what you wrote down. The wallet \
+                     opens once all three match."
+                </p>
+                <div class="quiz">{check_fields}</div>
+                <button
+                    class="primary wide"
+                    disabled=move || !all_right.get()
                     on:click=move |_| {
                         state.inform("Wallet created.");
                         state.screen.set(Screen::Wallet);
                     }
                 >
-                    "Continue"
+                    "Open wallet"
+                </button>
+                <button class="ghost wide" on:click=move |_| checking.set(false)>
+                    "Show the words again"
                 </button>
             </section>
+        };
+
+        // Both halves stay mounted and one is hidden, so typed answers and
+        // the phrase survive a look back.
+        view! {
+            <div class:hidden=move || checking.get()>{show_phrase}</div>
+            <div class:hidden=move || !checking.get()>{check}</div>
         }
     }
 }
@@ -324,14 +552,14 @@ pub mod unlock {
         };
 
         view! {
-            <section class="card">
+            <section class="card enter">
                 <h1>"Unlock"</h1>
-                <label>"Passphrase"</label>
-                <input
-                    type="password"
-                    prop:value=move || passphrase.get()
-                    on:input=move |ev| passphrase.set(event_target_value(&ev))
-                    on:keydown=move |ev| { if ev.key() == "Enter" { submit(); } }
+                <SecretField
+                    id="unlock-pass"
+                    label="Passphrase"
+                    value=passphrase
+                    autocomplete="current-password"
+                    on_enter=Callback::new(move |()| submit())
                 />
                 <button
                     class="primary wide"
@@ -363,9 +591,11 @@ pub mod unlock {
 // wallet
 // ---------------------------------------------------------------------------
 
-/// The main wallet view: accounts, balance, history.
+/// The main wallet view: accounts, balance, history, settings.
 pub mod wallet {
     use super::*;
+    use crate::receive::CopyButton;
+    use crate::theme::{self, Theme};
 
     /// Wallet home.
     #[component]
@@ -381,10 +611,13 @@ pub mod wallet {
                 };
                 match bridge::fetch_account(&state.node_url.get_untracked(), &account.address).await
                 {
-                    Ok(info) => state.account_state.set(info),
-                    // A node being unreachable is an ordinary offline state,
-                    // not an error worth a red banner every few seconds.
-                    Err(error) => state.fail(format!("Could not reach the node: {error}")),
+                    Ok(info) => {
+                        state.account_state.set(info);
+                        state.node_error.set(None);
+                    }
+                    // An unreachable or paused node is an ordinary state: the
+                    // calm card, with the raw error under its Details.
+                    Err(error) => state.node_error.set(Some(error)),
                 }
                 if let Ok(history) = bridge::history().await {
                     state.history.set(history);
@@ -395,6 +628,13 @@ pub mod wallet {
         Effect::new(move |_| {
             let _ = state.selected.get();
             refresh();
+        });
+        // The header re-reads the network every few seconds; once it answers
+        // again, so does the balance, without the user pressing anything.
+        Effect::new(move |_| {
+            if state.network.get().is_some() && state.node_error.get_untracked().is_some() {
+                refresh();
+            }
         });
 
         // The account list is a selector, so without this the wallet could only
@@ -444,6 +684,7 @@ pub mod wallet {
                             } else {
                                 "account"
                             }
+                            aria-pressed=move || if state.selected.get() == index { "true" } else { "false" }
                             on:click=move |_| state.selected.set(index)
                         >
                             <span class="label">{format!("Account {index}")}</span>
@@ -461,8 +702,8 @@ pub mod wallet {
                     <div class="empty">
                         <p>"No activity yet."</p>
                         <p class="muted small">
-                            "Use Receive to get your address, or ask the faucet on \
-                             maya2c.dev for testnet coins."
+                            "Use Receive to get your address. When the public testnet \
+                             is running, its faucet on maya2c.dev sends test coins."
                         </p>
                     </div>
                 }
@@ -487,8 +728,8 @@ pub mod wallet {
                                 <span class="amount">
                                     {format!(
                                         "\u{2212}{} (+{} fee)",
-                                        show_amount(&entry.transfer.amount),
-                                        show_amount(&entry.transfer.fee),
+                                        pretty_amount(&entry.transfer.amount),
+                                        pretty_amount(&entry.transfer.fee),
                                     )}
                                 </span>
                             </div>
@@ -516,36 +757,98 @@ pub mod wallet {
             state.clear();
             state.screen.set(screen);
         };
+        // Never a made-up zero: until the node has answered, a skeleton;
+        // when it cannot, the words, never a figure.
+        let balance_known = move || !state.account_state.get().balance.is_empty();
+        let balance = move || {
+            if balance_known() {
+                view! {
+                    <span class="value lit">{pretty_amount(&state.account_state.get().balance)}</span>
+                    <span class="unit">{amount::TICKER}</span>
+                }
+                .into_any()
+            } else if state.node_error.get().is_some() {
+                view! { <span class="value unavailable">"Balance unavailable"</span> }.into_any()
+            } else {
+                view! {
+                    <span class="value skeleton shimmer" role="status">
+                        <span class="sr-only">"Reading the balance"</span>
+                    </span>
+                }
+                .into_any()
+            }
+        };
 
+        let theme_buttons = Theme::ALL
+            .into_iter()
+            .map(|choice| {
+                view! {
+                    <button
+                        type="button"
+                        aria-pressed=move || if state.theme.get() == choice { "true" } else { "false" }
+                        on:click=move |_| {
+                            theme::save(choice);
+                            state.theme.set(choice);
+                        }
+                    >
+                        {choice.label()}
+                    </button>
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // One column on a phone; from 1024 px the hero holds the left column
+        // and the lists the right, instead of a narrow strip in a wide window.
         view! {
+            <div class="home">
             <section class="hero-card enter">
                 <div class="hero-top">
                     <span class="label">{move || format!("Account {}", state.selected.get())}</span>
-                    <span class="mono faint">{move || short(&selected_address())}</span>
-                </div>
-                <div class="hero-balance">
-                    <span class="value">
-                        {move || show_amount(&state.account_state.get().balance)}
+                    <span class="address">
+                        <span class="mono faint">{move || short(&selected_address())}</span>
+                        <CopyButton
+                            text=Signal::derive(selected_address)
+                            label="Copy address"
+                            compact=true
+                        />
                     </span>
-                    <span class="unit">{amount::TICKER}</span>
                 </div>
-                <Show when=move || state.network.get().is_none_or(|n| n.is_test_network())>
-                    <span class="testnet-tag">"Testnet MAYA \u{b7} no value"</span>
+                <div class="hero-balance">{balance}</div>
+                // The one paused message on home: inside the hero, where the
+                // figure would be, with the raw error under Details. The
+                // header pill and Send say the rest without words.
+                <Show when=move || state.node_error.get().is_some()>
+                    <div class="hero-state paused" role="status" id="home-paused">
+                        <p>
+                            "The network is not answering; the public testnet may be \
+                             paused. Your keys stay on this device, and the balance \
+                             refreshes by itself when the node answers."
+                        </p>
+                        <details class="disclosure">
+                            <summary>"Details"</summary>
+                            <code class="mono">{move || state.node_error.get().unwrap_or_default()}</code>
+                        </details>
+                    </div>
                 </Show>
+                <TestnetTag/>
                 <div class="actions">
+                    // Dimmed while the node is away, not disabled: it still
+                    // opens, and the Send screen says why nothing can be priced.
                     <button
                         class="action"
+                        class:dim=move || state.node_error.get().is_some()
+                        aria-describedby=move || state.node_error.get().map(|_| "home-paused")
                         on:click=move |_| go(Screen::Send(bridge::PaymentRequest::default()))
                     >
-                        <span class="icon" aria-hidden="true">"\u{2197}"</span>
+                        <span class="icon"><Icon glyph=Glyph::Send/></span>
                         "Send"
                     </button>
                     <button class="action" on:click=move |_| go(Screen::Receive)>
-                        <span class="icon" aria-hidden="true">"\u{2199}"</span>
+                        <span class="icon"><Icon glyph=Glyph::Receive/></span>
                         "Receive"
                     </button>
                     <button class="action" on:click=move |_| go(Screen::Scan)>
-                        <span class="icon" aria-hidden="true">"\u{2b1a}"</span>
+                        <span class="icon"><Icon glyph=Glyph::Scan/></span>
                         "Scan"
                     </button>
                 </div>
@@ -569,19 +872,30 @@ pub mod wallet {
             </section>
 
             <details class="card settings">
-                <summary>"Network settings"</summary>
-                <label>"Node endpoint"</label>
-                <input
-                    class="mono"
-                    prop:value=move || state.node_url.get()
-                    on:input=move |ev| state.node_url.set(event_target_value(&ev))
-                />
-                <p class="hint">
+                <summary>"Settings"</summary>
+                <span class="field-label" id="theme-label">"Theme"</span>
+                <div class="segmented" role="group" aria-labelledby="theme-label">
+                    {theme_buttons}
+                </div>
+                <div class="field">
+                    <label for="node-url">"Node endpoint"</label>
+                    <input
+                        id="node-url"
+                        class="mono"
+                        autocomplete="off"
+                        spellcheck="false"
+                        aria-describedby="node-url-hint"
+                        prop:value=move || state.node_url.get()
+                        on:input=move |ev| state.node_url.set(event_target_value(&ev))
+                    />
+                </div>
+                <p class="hint" id="node-url-hint">
                     "The Maya2C public testnet by default. For your own node, use \
                      http://127.0.0.1:8545."
                 </p>
                 <button class="ghost wide" on:click=move |_| refresh()>"Refresh"</button>
             </details>
+            </div>
         }
     }
 }
@@ -647,7 +961,7 @@ pub mod scan {
         };
 
         view! {
-            <section class="card">
+            <section class="card enter">
                 <h1>"Scan a payment code"</h1>
                 <div class="viewfinder">
                     <video id=VIDEO_ID autoplay playsinline muted></video>
@@ -657,13 +971,18 @@ pub mod scan {
 
                 <button class="primary wide" on:click=capture>"Capture"</button>
 
-                <label>"Or paste an address"</label>
-                <input
-                    class="mono"
-                    placeholder="maya:… or a 64-character address"
-                    prop:value=move || manual.get()
-                    on:input=move |ev| manual.set(event_target_value(&ev))
-                />
+                <div class="field">
+                    <label for="scan-manual">"Or paste an address"</label>
+                    <input
+                        id="scan-manual"
+                        class="mono"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="maya:… or a 64-character address"
+                        prop:value=move || manual.get()
+                        on:input=move |ev| manual.set(event_target_value(&ev))
+                    />
+                </div>
                 <button class="secondary wide" on:click=use_manual>"Use this address"</button>
 
                 <button
@@ -681,307 +1000,21 @@ pub mod scan {
     }
 }
 
-// ---------------------------------------------------------------------------
-// send
-// ---------------------------------------------------------------------------
-
-/// Compose, confirm, sign, and broadcast a transfer.
-pub mod send {
+#[cfg(test)]
+mod tests {
     use super::*;
 
-    /// Send screen.
-    #[component]
-    pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
-        let state = expect_context::<AppState>();
+    #[test]
+    fn trimming_drops_only_zeros_after_the_point() {
+        assert_eq!(trim_display("1,000.500000"), "1,000.5");
+        assert_eq!(trim_display("2.000000"), "2");
+        assert_eq!(trim_display("1,000"), "1,000");
+        assert_eq!(trim_display("0.000000"), "0");
+    }
 
-        let recipient = RwSignal::new(request.recipient.clone());
-        // A payment request carries base units; the form edits whole coins.
-        let amount = RwSignal::new(
-            request
-                .amount
-                .as_deref()
-                .map(input_amount)
-                .unwrap_or_default(),
-        );
-        let fee = RwSignal::new(String::new());
-        let label = request.label.clone();
-        let preview = RwSignal::new(None::<Review>);
-        let signed = RwSignal::new(None::<bridge::SignedTransfer>);
-        let busy = RwSignal::new(false);
-        let fee_terms = RwSignal::new(bridge::FeeTerms::default());
-
-        // Priced by the node: on a fee-market chain a flat guess is refused as
-        // underpaid, and the fee must go to the collector the node names.
-        Effect::new(move |_| {
-            let node_url = state.node_url.get();
-            let index = state.selected.get();
-            let nonce = state.account_state.get().nonce;
-            spawn_local(async move {
-                match bridge::fee_options(&node_url, index, nonce).await {
-                    Ok(terms) => {
-                        // Standard, the second tier, is the default.
-                        if let Some(standard) = terms.options.get(1) {
-                            fee.set(input_amount(&standard.fee));
-                        }
-                        fee_terms.set(terms);
-                    }
-                    Err(error) => state.fail(format!("Could not read fees from the node: {error}")),
-                }
-            });
-        });
-
-        let build_preview = move |_| {
-            let Ok(amount_value) = typed_amount(&amount.get()) else {
-                state.fail(amount::decimal_places_message("Amount"));
-                return;
-            };
-            let Ok(fee_value) = typed_amount(&fee.get()) else {
-                state.fail(amount::decimal_places_message("Fee"));
-                return;
-            };
-            state.clear();
-            let index = state.selected.get();
-            let nonce = state.account_state.get().nonce;
-            let to = recipient.get();
-            // Captured now: signing replays these terms, so the chain and the
-            // collector the user reviewed cannot drift before the signature.
-            let terms = fee_terms.get_untracked();
-
-            spawn_local(async move {
-                let outcome =
-                    bridge::preview_transfer(index, &to, &amount_value, &fee_value, nonce, &terms)
-                        .await;
-                match outcome {
-                    Ok(confirmation) => preview.set(Some(Review {
-                        confirmation,
-                        index,
-                        recipient: to,
-                        amount: amount_value,
-                        fee: fee_value,
-                        nonce,
-                        terms,
-                    })),
-                    Err(error) => state.fail(error),
-                }
-            });
-        };
-
-        let sign = move |_| {
-            let Some(review) = preview.get() else {
-                return;
-            };
-            busy.set(true);
-            spawn_local(async move {
-                let outcome = bridge::sign_transfer(
-                    review.index,
-                    &review.recipient,
-                    &review.amount,
-                    &review.fee,
-                    review.nonce,
-                    &review.terms,
-                    &review.confirmation.signing_hash,
-                )
-                .await;
-                match outcome {
-                    Ok(transfer) => {
-                        signed.set(Some(transfer));
-                        state.inform("Signed. This transaction can be broadcast from any device.");
-                        if let Ok(history) = bridge::history().await {
-                            state.history.set(history);
-                        }
-                    }
-                    Err(error) => state.fail(error),
-                }
-                busy.set(false);
-            });
-        };
-
-        let send_now = move |_| {
-            let Some(transfer) = signed.get() else {
-                return;
-            };
-            busy.set(true);
-            spawn_local(async move {
-                let outcome =
-                    bridge::broadcast(&state.node_url.get_untracked(), &transfer.raw_hex).await;
-                match outcome {
-                    Ok(txid) => {
-                        let _ = bridge::record_outcome(&transfer.txid, true, None).await;
-                        if let Ok(history) = bridge::history().await {
-                            state.history.set(history);
-                        }
-                        state.clear();
-                        state.screen.set(Screen::Sent(crate::receive::SentTransfer {
-                            txid,
-                            amount: transfer.amount.clone(),
-                            recipient: transfer.recipient.clone(),
-                        }));
-                    }
-                    Err(error) => {
-                        let _ = bridge::record_outcome(&transfer.txid, false, Some(error.clone()))
-                            .await;
-                        state.fail(error);
-                    }
-                }
-                busy.set(false);
-            });
-        };
-
-        let fee_buttons = move || {
-            fee_terms
-                .get()
-                .options
-                .into_iter()
-                .map(|option| {
-                    let shown = input_amount(&option.fee);
-                    let on_click = shown.clone();
-                    let chip_value = show_amount(&option.fee);
-                    view! {
-                        <button
-                            class=move || if fee.get() == shown {
-                                "chip selected"
-                            } else {
-                                "chip"
-                            }
-                            on:click=move |_| fee.set(on_click.clone())
-                        >
-                            {option.label.clone()}
-                            <span class="chip-value">{chip_value}</span>
-                        </button>
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
-
-        view! {
-            <section class="card">
-                <h1>"Send"</h1>
-
-                <Show when={let label = label.clone(); move || label.is_some()}>
-                    <p class="hint">
-                        {
-                            let label = label.clone().unwrap_or_default();
-                            format!("Requested by \u{201c}{label}\u{201d} — this name is \
-                                     supplied by the payee and is not verified.")
-                        }
-                    </p>
-                </Show>
-
-                <label>"Recipient"</label>
-                <input
-                    class="mono"
-                    prop:value=move || recipient.get()
-                    on:input=move |ev| recipient.set(event_target_value(&ev))
-                />
-
-                <label>"Amount"</label>
-                <input
-                    type="number"
-                    min="0"
-                    prop:value=move || amount.get()
-                    on:input=move |ev| amount.set(event_target_value(&ev))
-                />
-
-                <label>"Network fee"</label>
-                <div class="chips">{fee_buttons}</div>
-                <input
-                    type="number"
-                    min="0"
-                    prop:value=move || fee.get()
-                    on:input=move |ev| fee.set(event_target_value(&ev))
-                />
-                <p class="hint">
-                    {move || if fee_terms.get().collector.is_some() {
-                        "The network burns the base fee; anything above it tips the                          validators. Below Economy, the node refuses the transfer."
-                    } else {
-                        "This network charges no fee. Any fee you set is burned."
-                    }}
-                </p>
-
-                <Show
-                    when=move || preview.get().is_some()
-                    fallback=move || view! {
-                        <button class="primary wide" on:click=build_preview>"Review"</button>
-                    }
-                >
-                    {move || {
-                        let review = preview.get().expect("checked");
-                        // Every line here is rendered from the core's confirmation;
-                        // nothing is summarised in this file.
-                        let c = review.confirmation;
-                        let is_signed = signed.get().is_some();
-                        let fee_exceeds = c.fee_exceeds_amount;
-                        view! {
-                            <div class="summary">
-                                <p class="description">{c.description}</p>
-                                <div><span>"To"</span><span class="mono">{c.recipient.unwrap_or_default()}</span></div>
-                                <div><span>"Amount"</span><span>{c.amount.unwrap_or_default()}</span></div>
-                                <div><span>"Fee"</span><span>{c.fee.unwrap_or_default()}</span></div>
-                                <div><span>"Chain"</span><span class="mono">{c.chain_id}</span></div>
-                                <div><span>"From"</span><span class="mono">{c.sender}</span></div>
-                                <div><span>"Nonce"</span><span>{c.nonce}</span></div>
-                                <div><span>"Signing hash"</span><span class="mono">{c.signing_hash}</span></div>
-                                {c.details
-                                    .into_iter()
-                                    .map(|(label, value)| view! {
-                                        <div><span>{label}</span><span class="mono">{value}</span></div>
-                                    })
-                                    .collect_view()}
-                            </div>
-                            // The collector itself is checked in the wallet core against
-                            // the chain's fixed address; the size of the fee is the user's
-                            // to judge, so an unusual one is called out before signing.
-                            <Show when=move || fee_exceeds>
-                                <p class="hint warning">
-                                    "The fee is larger than the amount you are sending.                                      Check it before signing."
-                                </p>
-                            </Show>
-
-                            <Show
-                                when=move || is_signed
-                                fallback=move || view! {
-                                    <button
-                                        class="primary wide"
-                                        disabled=move || busy.get()
-                                        on:click=sign
-                                    >
-                                        "Sign offline"
-                                    </button>
-                                }
-                            >
-                                <div class="raw">
-                                    <label>"Signed transaction"</label>
-                                    <textarea class="mono" rows="4" readonly>
-                                        {move || signed.get().map(|t| t.raw_hex).unwrap_or_default()}
-                                    </textarea>
-                                    <p class="hint">
-                                        "This hex is a complete transaction. It can be copied to \
-                                         an online device and broadcast there, so this machine \
-                                         never needs a network connection."
-                                    </p>
-                                </div>
-                                <button
-                                    class="primary wide"
-                                    disabled=move || busy.get()
-                                    on:click=send_now
-                                >
-                                    "Broadcast now"
-                                </button>
-                            </Show>
-                        }
-                    }}
-                </Show>
-
-                <button
-                    class="ghost wide"
-                    on:click=move |_| {
-                        state.clear();
-                        state.screen.set(Screen::Wallet);
-                    }
-                >
-                    "Back"
-                </button>
-            </section>
-        }
+    #[test]
+    fn an_address_splits_into_groups_of_four() {
+        assert_eq!(chunks("abcdefghij"), vec!["abcd", "efgh", "ij"]);
+        assert_eq!(chunks(&"a".repeat(64)).len(), 16);
     }
 }
