@@ -13,18 +13,24 @@ for Eric; the other two are engineering.
 - **G1 — a failing contract call is free and censors every call after it.**
   A failing plaintext call is never included (STF-8): no fee, no nonce bump,
   and the DAG-BFT driver keeps it pooled, so it is proposed again every block.
-  Its gas counts in selection (GAS-2), so one call naming the cap from one
-  funded sender leaves every contract call after it in the sub-DAG out, every
-  block. PR #549 limits selection to one failing trial per sender per block
-  (the same nonce re-signed with other inputs is not tried again) and counts
-  calls refused below their upfront price; neither closes it. A separate
-  budget for failed work was considered and not taken: a call is only known
-  to fail once it has run, so a bounded failure budget is the same lever and
-  an unbounded one is unbounded builder time. **Fix: include a failed contract
-  call with its fee and a nonce bump (STF-8 change, Eric's decision);** a
-  pool eviction of transactions that failed in a committed block helps but
-  does not close it (the sender re-signs). Pinned today by
-  `a_call_that_fails_while_the_block_is_built_still_spends_its_gas`.
+  Since ADR-142 amendment 3 failed work has its own builder count, so one
+  call naming the cap no longer leaves the calls after it out
+  (`a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies`). The
+  builder still stops trying contract work once applied and failed work reach
+  `2 × vm.max_block_gas + 1,536,000`: two failing calls at the cap, from two
+  funded senders, get there, every block, for nothing
+  (`failed_work_past_the_builder_budget_stops_contract_trials`). PR #549 also
+  limits selection to one failing trial per sender per block and counts calls
+  refused below their upfront price. Any finite budget leaves this lever,
+  because a call is only known to fail once it has run. **Fix: include a
+  failed contract call with its fee and a nonce bump (STF-8 change, Eric's
+  decision);** a pool eviction of transactions that failed in a committed
+  block helps but does not close it (the sender re-signs).
+- **G1b — producer time at the gas ceiling.** The two-cap builder budget puts
+  a producer's worst case at about 978 ms of priced work at the 300 M
+  `VM_GAS_CEILING` (816 ms at the 250 M default), at 1 ns/unit. Lower the
+  ceiling, or keep it and accept the margin: a governance-bound decision,
+  Eric's.
 - **G2 — the contracts layer of the state root is folded over all contract
   state every block** (ROOT-5, `state/commitments.rs` `merged_contracts`). No
   gas price bounds it: measured 533 ms at 400,000 entries (dev), reachable in

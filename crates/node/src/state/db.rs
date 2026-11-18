@@ -1196,6 +1196,12 @@ impl StateDB {
         // carry several, from different proposers, and each one tried would be
         // free contract work (PR #549 review). One failed trial per sender.
         let mut failed_senders = std::collections::BTreeSet::new();
+        // Contract gas of the trials that failed, kept apart from
+        // `overlay.vm_gas` (what applied calls are admitted against, GAS-2):
+        // a failed call is never in the block, so its work must bound the
+        // builder without taking room from the calls that apply (PR #549
+        // review). Builder-only; `builder_may_try` bounds the two together.
+        let mut failed_gas: u64 = 0;
         for tx in transactions {
             let len = transaction_wire_len(tx.to_bytes().len());
             // First-fit (ADR-072): one too big for the room left is passed over
@@ -1208,7 +1214,10 @@ impl StateDB {
                 tx.kind,
                 crate::core::TxKind::CallContract(_) | crate::core::TxKind::DeployContract(_)
             );
-            if contract && failed_senders.contains(&tx.sender()) {
+            if contract
+                && (failed_senders.contains(&tx.sender())
+                    || !self.builder_may_try(&overlay, failed_gas, &tx.kind)?)
+            {
                 continue;
             }
             let gas_before = overlay.vm_gas;
@@ -1221,11 +1230,10 @@ impl StateDB {
                 // A contract call or deployment writes the same, then stages
                 // its own writes only once it has succeeded, so it takes the
                 // same path. What a failed one leaves behind is the contract
-                // gas it spent (`Overlay::vm_gas`), and that is meant: every
-                // validator runs this selection on the same sub-DAG, so a
-                // failed call that cost nothing here let K of them cost K x
-                // the cap (PR #549 review). The block that results only ever
-                // spends less than the count kept here, so it validates.
+                // gas it spent (`Overlay::vm_gas`), moved to `failed_gas`
+                // below: every validator runs this selection on the same
+                // sub-DAG, so a failed call that cost nothing here let K of
+                // them cost K x the cap (PR #549 review).
                 self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)?
             } else {
                 let mut trial = overlay.clone();
@@ -1246,6 +1254,10 @@ impl StateDB {
                 // nonce (a replay of the sender's old transaction, which
                 // anyone can put in a sub-DAG) must not shut the sender out.
                 failed_senders.insert(tx.sender());
+                // Off the applied count, so the block's count is exactly what
+                // a validator of the kept transactions counts.
+                failed_gas = failed_gas.saturating_add(overlay.vm_gas - gas_before);
+                overlay.vm_gas = gas_before;
             }
         }
         Ok(kept)
