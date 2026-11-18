@@ -102,13 +102,20 @@ Pre-approved by Eric on 2026-11-17 into re-freeze bundle 3 (PR #596).
   a warning: a passphrase another local user can read protects nothing. The
   installers (`infra/testnet-vm/install.sh`, `scripts/join-testnet.sh`) already
   write 0600; the dev and harness writers (`maya2c-cli dev`, `xtask` localnet,
-  ceremony rehearsal, proving) now do too.
+  ceremony rehearsal, proving) and the release workflow's smoke test
+  (`.github/workflows/release-binaries.yml`, under `umask 077`) now do too.
+  Operators on macOS or Linux create the file with `umask 077` or `chmod 600`
+  on a filesystem that keeps Unix permissions; FAT, exFAT and NTFS removable
+  media cannot hold it (runbooks: `genesis-ceremony.md`,
+  `regenesis-checklist.md`, `node-in-a-box-linux.md`).
 - **Windows.** ACLs are not inspected; point 6 above still applies.
 - **Remote-signer keystores** (`keystore::create`) refuse a passphrase shorter
   than `MIN_PASSPHRASE_LEN` (12 bytes, as sealing already did), refuse to
   overwrite an existing file, and create the file 0600 on Unix.
   `keystore::open` caps the file at 64 KiB before parsing, applies the sealed
   format's KDF bounds, and refuses any non-hex character instead of panicking.
+  A write or sync failure during `create` removes the partial file, so a retry
+  is not refused as an existing keystore.
 - **Slashing-protection database.** Compaction opens the new file's append
   handle before the rename; import refuses an author at or above
   `MAX_AUTHORS`, as signing does.

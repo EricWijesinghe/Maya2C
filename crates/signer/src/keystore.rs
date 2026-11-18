@@ -111,8 +111,13 @@ fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), KeystoreError> {
         options.mode(0o600);
     }
     let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    if let Err(error) = written {
+        // A truncated keystore would make every later init refuse as "exists".
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(error.into());
+    }
     Ok(())
 }
 

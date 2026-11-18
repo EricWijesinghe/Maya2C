@@ -103,7 +103,8 @@ fn check_private(file: &std::fs::File) -> Result<(), KeystoreError> {
     if file.metadata()?.permissions().mode() & 0o077 != 0 {
         return Err(KeystoreError::Io(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
-            "passphrase file is readable by group or others; set mode 0600",
+            "passphrase file is readable by group or others; set mode 0600 \
+             (FAT, exFAT and NTFS volumes mounted on Unix cannot keep that mode)",
         )));
     }
     Ok(())

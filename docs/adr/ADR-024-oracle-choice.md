@@ -53,8 +53,28 @@ second key with different outputs. Keys and proofs this code generates are
 always canonical, so honest output is unchanged; only re-encoded inputs are
 refused. The response scalar was already required to be reduced.
 
+The registry also refuses such a key when it is installed, not only when a
+proof under it is verified: `OracleRegistry::new`, which genesis
+(`oracle.authorities`), a signed rotation and the stored-record decoder all go
+through, calls `VrfPublicKey::point()` for every authority. A key that is not a
+point, not its canonical encoding, or of small order is refused as
+`InvalidOracleRegistry`. Before this, such a key could enter committed state
+and that authority's beacon slots would always take the deterministic
+fallback. Every node refused it the same way, so this was never a fork; the
+refusal now comes earlier. A stored registry holding such a key would no longer
+decode, which matters only for state written before this change, and no
+value-bearing chain has an oracle registry yet.
+
+Secret wiping in the VRF is best-effort: the seed digest, the clamped scalar
+bytes, the nonce prefix, the nonce hash and the `Scalar`s `x` and `k` in
+`prove` are zeroized. Copies the compiler makes and the SHA-512 hasher's
+internal block buffer are not reached.
+
 Invariant 10 (suite octet `0x03`) and the RFC 9381 vectors are unchanged.
-Before genesis, no stored registry key or proof exists to check. Tests:
-`a_public_key_with_a_non_canonical_encoding_is_refused` and
-`a_proof_with_a_non_canonical_gamma_is_refused` in
-`crates/vrf/tests/encoding_tests.rs`.
+Tests: `a_public_key_with_a_non_canonical_encoding_is_refused`,
+`a_proof_with_a_non_canonical_gamma_is_refused` and
+`a_gamma_of_the_identity_with_the_sign_bit_set_is_refused` in
+`crates/vrf/tests/encoding_tests.rs`;
+`a_registry_refuses_a_vrf_key_no_proof_can_verify_under` and
+`a_rotation_to_a_vrf_key_no_proof_can_verify_under_is_refused` in
+`crates/node/tests/oracle_tests.rs`.

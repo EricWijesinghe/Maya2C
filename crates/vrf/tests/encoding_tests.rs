@@ -8,6 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use curve25519_dalek::edwards::CompressedEdwardsY;
 use maya_vrf::ecvrf::{PROOF_LEN, VrfProof, proof_to_hash, prove, verify};
 use maya_vrf::error::VrfError;
 use maya_vrf::keys::{VrfPublicKey, VrfSecretKey};
@@ -325,6 +326,8 @@ fn every_refusal_says_something_specific() {
 /// Byte strings that decompress to a point but are not its canonical encoding.
 /// p = 2^255 - 19 is `[0xED, 0xFF, .., 0xFF, 0x7F]`; for y in 2..19 the 255-bit
 /// value p + y still fits, so each is a distinct non-canonical encoding of y.
+/// Kept only where plain decompression accepts the bytes, so a refusal below
+/// can only come from the canonical check.
 fn non_canonical_encodings() -> Vec<[u8; 32]> {
     let mut out = Vec::new();
     for y in 2u8..19 {
@@ -335,6 +338,16 @@ fn non_canonical_encodings() -> Vec<[u8; 32]> {
             out.push(bytes);
         }
     }
+    // The identity (y = 1, x = 0) with the sign bit set: x = 0 has no negative.
+    let mut negative_zero = [0u8; 32];
+    negative_zero[0] = 0x01;
+    negative_zero[31] = 0x80;
+    out.push(negative_zero);
+    out.retain(|c| CompressedEdwardsY(*c).decompress().is_some());
+    assert!(
+        out.len() > 1,
+        "no candidate decompresses, so the tests below would prove nothing"
+    );
     out
 }
 
@@ -343,8 +356,8 @@ fn a_public_key_with_a_non_canonical_encoding_is_refused() {
     for candidate in non_canonical_encodings() {
         let public = VrfPublicKey::new(VrfScheme::Ed25519Sha512Tai, candidate);
         assert!(
-            public.point().is_err(),
-            "accepted non-canonical key {candidate:?}"
+            matches!(public.point(), Err(VrfError::InvalidPoint { .. })),
+            "non-canonical key {candidate:?} was not refused as an invalid point"
         );
     }
 }
@@ -363,4 +376,23 @@ fn a_proof_with_a_non_canonical_gamma_is_refused() {
             "accepted non-canonical gamma {candidate:?}"
         );
     }
+}
+
+#[test]
+fn a_gamma_of_the_identity_with_the_sign_bit_set_is_refused() {
+    let proof = prove(&key(), b"alpha").expect("prove");
+    let mut bytes = *proof.as_bytes();
+    bytes[..32].fill(0);
+    bytes[0] = 0x01;
+    bytes[31] = 0x80;
+    assert!(
+        CompressedEdwardsY(bytes[..32].try_into().unwrap())
+            .decompress()
+            .is_some(),
+        "plain decompression must accept this encoding for the test to mean anything"
+    );
+    assert!(matches!(
+        proof_to_hash(&VrfProof::from_bytes(bytes)),
+        Err(VrfError::InvalidPoint { what: "gamma" })
+    ));
 }

@@ -8,6 +8,7 @@ use maya_signer::keystore::{self, KeystoreError};
 use maya_signer::protection::{
     DbError, FORMAT, Interchange, Kind, Metadata, Refusal, Signed, SlashingDb, ValidatorData,
 };
+#[cfg(unix)]
 use maya_signer::sealed;
 use tempfile::TempDir;
 
@@ -128,7 +129,7 @@ fn import_refuses_an_author_outside_the_committee() {
     let dir = TempDir::new().unwrap();
     let mut db = SlashingDb::open(&dir.path().join("protection.db")).unwrap();
     let pubkey = [7u8; 32];
-    let hex_pubkey: String = pubkey.iter().map(|b| format!("{b:02x}")).collect();
+    let hex_pubkey = "07".repeat(32);
     let file = Interchange {
         metadata: Metadata {
             interchange_format_version: FORMAT.into(),

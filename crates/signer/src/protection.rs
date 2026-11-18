@@ -236,8 +236,9 @@ impl SlashingDb {
         }
         out.sync_all()?;
         drop(out);
-        // Opened before the rename: a handle on the old inode after the rename
-        // would keep appending to an unlinked file, losing later records.
+        // Opened before the rename, so a failed open leaves `self.file` on the
+        // still-linked old file. Reopening after the rename could fail and leave
+        // appends going to the replaced, unlinked file.
         let appender = OpenOptions::new().append(true).open(&tmp)?;
         std::fs::rename(&tmp, &self.path)?;
         self.file = appender;
