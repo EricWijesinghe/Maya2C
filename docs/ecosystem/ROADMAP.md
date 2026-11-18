@@ -55,17 +55,17 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 - `chat-pay` (M): Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3)
 - `chat-expression` (L): Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries
 - `explorer-v2` (M): Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending
-- `status-v2` (S): Public network status with a history of incidents and gate progress
+- `status-v2` (S): Public network status with a history of incidents and gate progress. Started 2026-11-10: the site's [Live network](https://maya2c.dev/network/) page draws validators, blocks and finality from the existing endpoints
 
 **C. Identity and trust**
 
-- `notary` (S): Timestamp and prove that a document existed (hash only, never the file)
+- `notary` (S): Timestamp and prove that a document existed (hash only, never the file). **Working** (ADR-094, `docs/ecosystem/notary.md`; devnet e2e `bins/maya2c-cli/tests/notary_devnet_tests.rs`; finality: checkpoint signatures unverified)
 
 **D. Builders and operators**
 
 - `sdks-1.0` (M): Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`)
 - `dev-portal` (M): Docs, tutorials, playground and contract templates
-- `public-api` (M): Indexer API (REST, later GraphQL) for wallets and dashboards
+- `public-api` (M): Indexer API (REST, later GraphQL) for wallets and dashboards. **Status:** event subscriptions built (P-44: WebSocket `/v1/subscribe`, signed webhooks; in-memory, see `docs/site/authored/api.md`)
 - `mcp-server` (S): AI assistants can read the chain and draft (never sign) transactions
 - `node-in-a-box` (M): One-click validator and node installer with health checks
 - `testnet-kit` (S): Faucet, local devnet and attack lab for developers
