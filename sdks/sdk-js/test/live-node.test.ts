@@ -35,14 +35,15 @@ describe.skipIf(!url)("live node through the gateway", () => {
   const client = new MayaClient(url ?? "");
   const sender = env.MAYA_SENDER ?? "";
   const recipient = env.MAYA_RECIPIENT ?? "";
-  const amount = Number(env.MAYA_AMOUNT);
+  // Balances are u256 decimal strings (ADR-046): compare as bigint, never as text.
+  const amount = BigInt(env.MAYA_AMOUNT ?? "0");
 
   it("submits a Rust-signed transfer and sees it finalized", async () => {
     await expect(client.health()).resolves.toEqual({ status: "ok" });
     const before = await client.getBalance(sender);
     const recipientBefore = await client.getBalance(recipient);
     const supply = await client.getSupply();
-    expect(before.balance).toBeGreaterThan(amount);
+    expect(BigInt(before.balance)).toBeGreaterThan(amount);
 
     const started = Date.now();
     const accepted = await client.sendRawTransaction(env.MAYA_RAW_TX ?? "");
@@ -50,10 +51,10 @@ describe.skipIf(!url)("live node through the gateway", () => {
 
     const after = await until(
       () => client.getBalance(recipient),
-      (b) => b.balance === recipientBefore.balance + amount,
+      (b) => BigInt(b.balance) === BigInt(recipientBefore.balance) + amount,
     );
     const elapsed = Date.now() - started;
-    expect(after.balance).toBe(recipientBefore.balance + amount);
+    expect(BigInt(after.balance)).toBe(BigInt(recipientBefore.balance) + amount);
     const senderAfter = await client.getBalance(sender);
     expect(senderAfter.nonce).toBe(before.nonce + 1);
     // Fees are burned or paid out, so supply can only fall, never rise.
