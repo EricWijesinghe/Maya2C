@@ -83,6 +83,33 @@ fn corpus() -> Vec<(&'static str, Vec<u8>)> {
             ),
         ),
         (
+            "storage read, hit and miss",
+            wasm(
+                r#"(module
+                  (import "env" "storage_write" (func $w (param i32 i32 i32 i32)))
+                  (import "env" "storage_read" (func $r (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 2)
+                  (data (i32.const 0) "key0value-0")
+                  (func (export "invoke") (param i32) (result i64)
+                    (drop (call $r (i32.const 0) (i32.const 4) (i32.const 64) (i32.const 64)))
+                    (call $w (i32.const 0) (i32.const 4) (i32.const 4) (i32.const 7))
+                    (drop (call $r (i32.const 0) (i32.const 4) (i32.const 64) (i32.const 64)))
+                    (drop (memory.grow (i32.const 1)))
+                    (i64.const 0)))"#,
+            ),
+        ),
+        (
+            "refused host call (oversized key)",
+            wasm(
+                r#"(module
+                  (import "env" "storage_read" (func $r (param i32 i32 i32 i32) (result i32)))
+                  (memory (export "memory") 1)
+                  (func (export "invoke") (param i32) (result i64)
+                    (drop (call $r (i32.const 0) (i32.const 200) (i32.const 0) (i32.const 0)))
+                    (i64.const 0)))"#,
+            ),
+        ),
+        (
             "infinite loop",
             wasm(
                 r#"(module (memory (export "memory") 1)
@@ -97,6 +124,9 @@ fn corpus() -> Vec<(&'static str, Vec<u8>)> {
 #[derive(Debug, PartialEq, Eq)]
 struct Observed {
     result: Result<(Vec<u8>, u64, usize), String>,
+    /// The gas the call used, failed calls included: since the PR #549
+    /// review a failed call spends what it ran, so that is consensus too.
+    gas_used: u64,
     storage: Vec<Option<Vec<u8>>>,
 }
 
@@ -119,7 +149,14 @@ fn observe(
                 .storage_get_for_test(&CONTRACT, &[b'k', b'e', b'y', d])
         })
         .collect();
-    (Observed { result, storage }, exec.state)
+    (
+        Observed {
+            result,
+            gas_used: exec.gas_used,
+            storage,
+        },
+        exec.state,
+    )
 }
 
 fn vms() -> Vec<(&'static str, Vm)> {
@@ -149,7 +186,7 @@ fn vms() -> Vec<(&'static str, Vm)> {
 fn every_corpus_module_costs_the_same_gas_in_every_tier() {
     let vms = vms();
     for (name, code) in corpus() {
-        for gas in [5_000u64, 50_000, 500_000, 10_000_000] {
+        for gas in [5_000u64, 50_000, 500_000, 1_000_000, 10_000_000] {
             let mut seen: Vec<(&str, Observed)> = Vec::new();
             for (tier, vm) in &vms {
                 // Twice per tier: the second call is a module-cache hit.
@@ -208,4 +245,45 @@ fn the_token_swap_contract_costs_the_same_gas_in_every_tier() {
         "token swap diverges between tiers"
     );
     assert!(per_tier[0].1.iter().all(Result::is_ok));
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note"
+)]
+fn a_warm_and_a_cold_compiled_call_cost_the_same_in_every_tier() {
+    // The node's path: compile once, then a cold call (the block's first) and
+    // warm ones, through `execute_compiled`.
+    let mut seen = Vec::new();
+    for (tier, vm) in vms() {
+        for (name, code) in corpus() {
+            let compiled = vm.compile(&code).expect("compiles");
+            for warm in [false, true] {
+                let exec = vm.execute_compiled(
+                    &compiled,
+                    warm,
+                    CONTRACT,
+                    &[],
+                    10_000_000,
+                    MemoryState::at_height(7),
+                );
+                let class = exec
+                    .outcome
+                    .map(|o| o.gas_used)
+                    .map_err(|e| format!("{:?}", core::mem::discriminant(&e)));
+                seen.push((tier, name, warm, class, exec.gas_used));
+            }
+        }
+    }
+    let half = seen.len() / 2;
+    for (cranelift, pulley) in seen[..half].iter().zip(&seen[half..]) {
+        assert_eq!(
+            (cranelift.1, cranelift.2, &cranelift.3, cranelift.4),
+            (pulley.1, pulley.2, &pulley.3, pulley.4),
+            "{} differs from {}",
+            pulley.0,
+            cranelift.0
+        );
+    }
 }

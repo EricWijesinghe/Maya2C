@@ -5,6 +5,43 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — genesis blockers from the ADR-142 review (PR #549, 2026-11-14)
+
+Open after PR #549 and blocking genesis. The first is an economics decision
+for Eric; the other two are engineering.
+
+- **G1 — a failing contract call is free and censors every call after it.**
+  A failing plaintext call is never included (STF-8): no fee, no nonce bump,
+  and the DAG-BFT driver keeps it pooled, so it is proposed again every block.
+  Its gas counts in selection (GAS-2), so one call naming the cap from one
+  funded sender leaves every contract call after it in the sub-DAG out, every
+  block. PR #549 limits selection to one failing trial per sender per block
+  (the same nonce re-signed with other inputs is not tried again) and counts
+  calls refused below their upfront price; neither closes it. A separate
+  budget for failed work was considered and not taken: a call is only known
+  to fail once it has run, so a bounded failure budget is the same lever and
+  an unbounded one is unbounded builder time. **Fix: include a failed contract
+  call with its fee and a nonce bump (STF-8 change, Eric's decision);** a
+  pool eviction of transactions that failed in a committed block helps but
+  does not close it (the sender re-signs). Pinned today by
+  `a_call_that_fails_while_the_block_is_built_still_spends_its_gas`.
+- **G2 — the contracts layer of the state root is folded over all contract
+  state every block** (ROOT-5, `state/commitments.rs` `merged_contracts`). No
+  gas price bounds it: measured 533 ms at 400,000 entries (dev), reachable in
+  about ten blocks of cheap writes. Fix: make the layer incremental as
+  ADR-062a did for accounts (PR #540), or a hard ceiling on contract state.
+- **G3 — end-of-block bisection re-runs contract work** up to ~9 selections
+  and 32 builds per anchor (`consensus/bft/builder.rs`, ~12 G gas, ~12 s).
+  Fix: cache staged results per prefix, or charge each probe's contract work
+  against a per-anchor budget.
+- Not blockers, recorded with them: envelopes do not state their inner
+  call's `gas_limit`, so reveals share `sealed_gas_budget` in envelope-key
+  order and a seal is accepted without a gas check (state it in the outer
+  envelope and reserve it at admission); a contract's cold price is
+  recomputed by a scan at every cold call (store it at deployment); and the
+  timing tests are `#[ignore]`d, so only the shape bounds guard compile time
+  in CI.
+
 ## P1 — frozen-node findings (CATALOG §M research, 2026-11-10)
 
 Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
