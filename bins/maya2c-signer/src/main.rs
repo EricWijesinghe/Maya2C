@@ -260,50 +260,6 @@ fn session(
     }
 }
 
-#[cfg(test)]
-mod admission_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use super::*;
-    use std::net::Ipv4Addr;
-
-    fn ip(last: u8) -> IpAddr {
-        IpAddr::V4(Ipv4Addr::new(10, 0, 0, last))
-    }
-
-    #[test]
-    fn one_address_cannot_take_more_than_its_share() {
-        let gate = Gate::default();
-        let _held: Vec<_> = (0..MAX_PER_PEER)
-            .map(|_| gate.admit(ip(1)).unwrap())
-            .collect();
-        assert!(gate.admit(ip(1)).is_none());
-        assert!(
-            gate.admit(ip(2)).is_some(),
-            "another address is still served"
-        );
-    }
-
-    #[test]
-    fn the_total_cap_refuses_new_addresses() {
-        let gate = Gate::default();
-        let _held: Vec<_> = (0..MAX_CONNECTIONS)
-            .map(|n| gate.admit(ip(u8::try_from(n).unwrap())).unwrap())
-            .collect();
-        assert!(gate.admit(ip(200)).is_none());
-    }
-
-    #[test]
-    fn a_released_connection_frees_its_share() {
-        let gate = Gate::default();
-        let mut held: Vec<_> = (0..MAX_PER_PEER)
-            .map(|_| gate.admit(ip(1)).unwrap())
-            .collect();
-        assert!(gate.admit(ip(1)).is_none());
-        held.pop();
-        assert!(gate.admit(ip(1)).is_some());
-    }
-}
-
 fn main() -> Result<(), String> {
     // Operators ask a deployed binary what it is before anything else.
     if std::env::args().nth(1).as_deref() == Some("--version") {
@@ -354,5 +310,49 @@ fn main() -> Result<(), String> {
             Ok(())
         }
         other => Err(format!("unknown command {other}")),
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    fn ip(last: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, last))
+    }
+
+    #[test]
+    fn one_address_cannot_take_more_than_its_share() {
+        let gate = Gate::default();
+        let _held: Vec<_> = (0..MAX_PER_PEER)
+            .map(|_| gate.admit(ip(1)).unwrap())
+            .collect();
+        assert!(gate.admit(ip(1)).is_none());
+        assert!(
+            gate.admit(ip(2)).is_some(),
+            "another address is still served"
+        );
+    }
+
+    #[test]
+    fn the_total_cap_refuses_new_addresses() {
+        let gate = Gate::default();
+        let _held: Vec<_> = (0..MAX_CONNECTIONS)
+            .map(|n| gate.admit(ip(u8::try_from(n).unwrap())).unwrap())
+            .collect();
+        assert!(gate.admit(ip(200)).is_none());
+    }
+
+    #[test]
+    fn a_released_connection_frees_its_share() {
+        let gate = Gate::default();
+        let mut held: Vec<_> = (0..MAX_PER_PEER)
+            .map(|_| gate.admit(ip(1)).unwrap())
+            .collect();
+        assert!(gate.admit(ip(1)).is_none());
+        held.pop();
+        assert!(gate.admit(ip(1)).is_some());
     }
 }
