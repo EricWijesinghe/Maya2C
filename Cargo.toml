@@ -159,6 +159,10 @@ members = [
     # Live watchdog (ADR-077 watcher): read-only, pages on-call by ntfy. A member
     # so its detectors are built and tested with the rest of the workspace.
     "apps/sentinel",
+    # Public invariant monitor and validator ledger (CATALOG W1): read-only,
+    # built only from what the public gateway serves; they reuse the sentinel.
+    "apps/invariant-monitor",
+    "apps/validator-ledger",
     # Merchant checkout (ADR-091): invoices and signed webhooks. A member so
     # its SSRF and matching rules are built with the workspace; it links no
     # node crate, only the address codec.
