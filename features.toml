@@ -2787,10 +2787,10 @@ domain = "Tooling and formal verification"
 paths = "`sdks/rust`, `sdks/go/address.go`, `sdks/go/wallet.go`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crate:maya2c-sdk", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
+status = "verified"
+tests = ["crate:maya2c-sdk", "sdks/rust/tests/gateway_contract_tests.rs", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
 gate = "Go and Python unit tests run in the `sdks` workflow (.github/workflows/sdks.yml): `go test ./...` in sdks/go and `python -m unittest discover -s tests` in sdks/python. The live-node tests skip there and run only in nightly.yml's devnet job."
-note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. Tests run against an in-process mock gateway, not a live node: no live run is recorded yet, so this is not `verified`. Not published (publish needs Eric's APPROVED)."
+note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. client_tests.rs runs against a hand-written HTTP server; gateway_contract_tests.rs runs against the real gateway router (`maya_api_gateway::app`) over loopback with a recorded node, so routes, field names and status codes are the gateway's own. Verified to the same bar as the gateway entry (axum-rest-graphql-gateway, a recorded node behind the real router); the live-node tests (sdks/go/live_node_test.go, sdks/python/tests/test_live_node.py) skip without a node and no live run is recorded. Not published (publish needs Eric's APPROVED)."
 
 [[subsystem]]
 id = "latex-technical-reference-generator"
@@ -3432,9 +3432,9 @@ domain = "Cryptography and key management"
 paths = "`crates/clear-sign`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crates/clear-sign/tests/phishing_set.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
-note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) and 5 ground to a contact's displayed first and last group (review fix H1: the check compares exactly those groups) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction."
+status = "verified"
+tests = ["crates/clear-sign/tests/phishing_set.rs", "crates/clear-sign/tests/red_team_tests.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
+note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) and 5 ground to a contact's displayed first and last group (review fix H1: the check compares exactly those groups) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction. red_team_tests.rs: claim and simulation compared as multisets (a repeated transfer was a set match before), drain summed per token over every transfer (ten 10% transfers drained unflagged before), saturating at 2^256."
 
 [[subsystem]]
 id = "contract-safety-runtime"
@@ -3604,8 +3604,8 @@ paths = "`crates/mesh-api`, `crates/node/src/state/balance_changes.rs`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["crate:maya-mesh-api", "crates/node/tests/consensus_tests.rs"]
-note = "Master Prompt 17. scripts/mesh_check.py runs mesh-cli check:data against a devnet. No Construction API: Mesh defines no post-quantum signature type."
+tests = ["crate:maya-mesh-api", "crates/mesh-api/tests/data_api_tests.rs", "crates/node/tests/consensus_tests.rs"]
+note = "Master Prompt 17. `cargo xtask mesh-check` runs mesh-cli check:data against a devnet. No Construction API: Mesh defines no post-quantum signature type. Not `verified`: until 2026-11-14 the service decoded balances as u64 JSON numbers while the node has sent 256-bit decimal strings since ADR-046, so every balance read failed against a real node, and it declared 0 decimals instead of 24 (ADR-068); both fixed, and data_api_tests.rs now runs the router over HTTP JSON-RPC in the node's exact wire shapes. No mesh-check run against a devnet is recorded since the fix."
 
 [[subsystem]]
 id = "maya2c-dev-cli"
@@ -3614,9 +3614,9 @@ domain = "Developer experience"
 paths = "`bins/maya2c-cli`, `crates/vm/src/trace.rs`, `editors/vscode`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/source_lines_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs", "crates/vm/tests/trace_site_tests.rs"]
-note = "Master Prompt 24. Debugger steps host calls, not source lines; fork/replay copy eagerly and do not verify DAG-BFT certificates per header."
+status = "verified"
+tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/debugger_red_team_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/source_lines_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs", "crates/vm/tests/trace_site_tests.rs"]
+note = "Master Prompt 24. Debugger steps host calls, not source lines; fork/replay copy eagerly and do not verify DAG-BFT certificates per header. debugger_red_team_tests.rs: the last step equals the real post-state, next/back/goto agree, no command moves the cursor out of the recording, out-of-gas and non-wasm modules are reported failures."
 
 [[subsystem]]
 id = "vault-accounts"
