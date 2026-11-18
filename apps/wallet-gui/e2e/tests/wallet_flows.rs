@@ -33,6 +33,9 @@ const PASSPHRASE: &str = "correct horse battery staple e2e";
 const WAIT: Duration = Duration::from_secs(60);
 /// How long an optional element (one the old UI lacks) is waited for.
 const BRIEF: Duration = Duration::from_secs(3);
+/// Drawn on every picture taken against the stub node.
+const STUB_CAPTION: &str =
+    "E2E STUB NODE (e2e/src/stub_node.rs): height and balance are fixture data, not a live network";
 
 fn env(name: &str) -> String {
     std::env::var(name)
@@ -163,33 +166,80 @@ fn force_theme(s: &Session, theme: &str) {
     .unwrap();
 }
 
-/// The window widths every screen is checked and pictured at: the narrowest
-/// window the app allows (`minWidth` in tauri.conf.json, a phone-sized
-/// column) and a wide desktop. The default 460 is put back afterwards.
-const WIDTHS: [u32; 2] = [380, 1440];
+/// The page widths (CSS px) every screen is checked at: phone first (360,
+/// the narrowest window the app allows, `minWidth` in tauri.conf.json), the
+/// common phones, a tablet, a laptop and a wide desktop.
+const WIDTHS: [u32; 6] = [360, 390, 430, 768, 1024, 1440];
+/// The widths every screen is pictured at: phone, tablet and desktop.
+const SHOT_WIDTHS: [u32; 3] = [360, 768, 1440];
 const DEFAULT_SIZE: (u32, u32) = (460, 780);
-const TALL: u32 = 900;
+/// A phone's height, so what is "below the fold" in a picture is what is
+/// below it on a phone.
+const TALL: u32 = 740;
 
+/// Sizes the window so the page itself is `width` CSS px wide: the window
+/// frame and the scrollbar are measured and added, so a check "at 360" is
+/// a check of a 360 px page.
 fn at_width(s: &Session, width: u32) {
-    s.resize(width, TALL).unwrap();
-    // Layout settles after the resize event; a read before it sees the old width.
-    std::thread::sleep(Duration::from_millis(400));
+    let mut outer = width;
+    for _ in 0..3 {
+        s.resize(outer, TALL).unwrap();
+        // Layout settles after the resize event; a read before it sees the old width.
+        std::thread::sleep(Duration::from_millis(400));
+        let inner = s
+            .execute("return document.documentElement.clientWidth")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        let inner = u32::try_from(inner).unwrap();
+        if inner == width {
+            return;
+        }
+        outer = (outer + width).saturating_sub(inner);
+    }
+    let inner = s
+        .execute("return document.documentElement.clientWidth")
+        .unwrap();
+    panic!("could not size the page to {width} px; it is {inner}");
 }
 
 fn restore_size(s: &Session) {
     s.resize(DEFAULT_SIZE.0, DEFAULT_SIZE.1).unwrap();
+    // As in `at_width`: a click before the relayout lands where the element
+    // was at the old size.
+    std::thread::sleep(Duration::from_millis(400));
 }
 
-/// Saves screenshots at each of [`WIDTHS`] in both themes when
+/// Saves screenshots at each of [`SHOT_WIDTHS`] in both themes when
 /// `MAYA_E2E_SHOTS` names a directory, then puts the dark theme back.
 fn shots(s: &Session, name: &str) {
+    shots_captioned(s, name, None);
+}
+
+/// [`shots`], with `caption` drawn across the top of each picture: the
+/// stub node's screens say so in the image itself, so no picture of a stub
+/// balance can pass for a live one.
+fn shots_captioned(s: &Session, name: &str, caption: Option<&str>) {
     let Some(dir) = std::env::var_os("MAYA_E2E_SHOTS") else {
         return;
     };
-    for width in WIDTHS {
+    if let Some(text) = caption {
+        s.execute(&format!(
+            "const c = document.createElement('div'); c.id = 'e2e-caption';\
+             c.textContent = {text:?};\
+             c.style.cssText = 'padding:5px 10px;font:600 12px/1.3 system-ui;text-align:center;\
+             color:Canvas;background:CanvasText';\
+             document.body.prepend(c); return true"
+        ))
+        .unwrap();
+    }
+    for width in SHOT_WIDTHS {
         at_width(s, width);
         for theme in ["dark", "light"] {
             force_theme(s, theme);
+            // From the top, so the caption (and the header) are in the
+            // picture whatever an earlier click scrolled to.
+            s.execute("window.scrollTo(0, 0); return true").unwrap();
             // Past the screens' entrance, so the picture is what a person sees
             // once it settles, not a frame of the fade.
             std::thread::sleep(Duration::from_millis(700));
@@ -197,6 +247,10 @@ fn shots(s: &Session, name: &str) {
             s.screenshot(&path).unwrap();
             println!("screenshot: {}", path.display());
         }
+    }
+    if caption.is_some() {
+        s.execute("document.getElementById('e2e-caption').remove(); return true")
+            .unwrap();
     }
     restore_size(s);
     force_theme(s, "dark");
@@ -211,6 +265,61 @@ fn assert_no_overflow(s: &Session, screen: &str) {
         assert_no_overflow_now(s, &format!("{screen} @{width}"));
     }
     restore_size(s);
+}
+
+/// The header at phone width: the Lock control is a 44 px target on the same
+/// centre line as the network pill.
+fn assert_header_aligned(s: &Session) {
+    at_width(s, WIDTHS[0]);
+    let found = s
+        .execute(
+            "const lock = document.querySelector('.titlebar .lock').getBoundingClientRect();\
+             const pill = document.querySelector('.titlebar .net-pill').getBoundingClientRect();\
+             return [lock.width, lock.height, (lock.top + lock.bottom) / 2 - (pill.top + pill.bottom) / 2]",
+        )
+        .unwrap();
+    let [w, h, offset] = [0, 1, 2].map(|i| found[i].as_f64().unwrap());
+    println!("header @360: Lock {w}x{h}, centre offset from the pill {offset}");
+    assert!(w >= 44.0 && h >= 44.0 && h <= 46.0, "Lock is {w}x{h}");
+    assert!(
+        offset.abs() <= 1.0,
+        "Lock is {offset} px off the pill's centre line"
+    );
+    restore_size(s);
+}
+
+/// The primary button paints the accent gradient's own colours: the start
+/// stop of its background is `--accent-grad-from`, not a paler mix.
+fn assert_primary_is_the_accent(s: &Session) {
+    let found = s
+        .execute(
+            "const b = document.querySelector('button.primary:not(:disabled)');\
+             const probe = document.createElement('i');\
+             probe.style.color = 'var(--accent-grad-from)'; document.body.append(probe);\
+             const from = getComputedStyle(probe).color; probe.remove();\
+             const cs = getComputedStyle(b);\
+             return [cs.backgroundImage, from, cs.opacity, cs.filter]",
+        )
+        .unwrap();
+    println!("primary: {found}");
+    let image = found[0].as_str().unwrap();
+    let from = found[1].as_str().unwrap();
+    assert!(
+        image.contains(from),
+        "the primary's gradient does not start at {from}: {image}"
+    );
+    assert_eq!(found[2], "1", "the primary is not dimmed");
+    // `none`, or the hover brightening (the pointer may rest on it): never
+    // a filter that dulls it.
+    let filter = found[3].as_str().unwrap();
+    let dulled = filter
+        .strip_prefix("brightness(")
+        .and_then(|f| f.strip_suffix(')'))
+        .is_some_and(|f| f.parse::<f64>().unwrap() < 1.0);
+    assert!(
+        filter == "none" || (filter.starts_with("brightness(") && !dulled),
+        "{filter}"
+    );
 }
 
 fn assert_no_overflow_now(s: &Session, screen: &str) {
@@ -379,20 +488,34 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     println!("strength for a 5-character passphrase: {hint}");
     s.replace_text(&pass, PASSPHRASE).unwrap();
     s.type_text(&confirm, PASSPHRASE).unwrap();
-    let toggle = s
-        .wait_for("button[aria-label='Show passphrase']", 1, WAIT)
-        .unwrap();
+    // A toggle button: one constant computed name, the state in aria-pressed.
+    let toggle = s.wait_for("button.reveal", 1, WAIT).unwrap();
+    assert_eq!(s.label(&toggle[0]).unwrap(), "Show passphrase");
     s.click(&toggle[0]).unwrap();
     assert_eq!(
         s.attribute(&pass, "type").unwrap().as_deref(),
         Some("text"),
         "Show reveals the passphrase"
     );
+    assert_eq!(
+        s.attribute(&toggle[0], "aria-pressed").unwrap().as_deref(),
+        Some("true")
+    );
+    assert_eq!(
+        s.label(&toggle[0]).unwrap(),
+        "Show passphrase",
+        "the name does not flip while pressed"
+    );
     s.click(&toggle[0]).unwrap();
     assert_eq!(
         s.attribute(&pass, "type").unwrap().as_deref(),
         Some("password")
     );
+    assert_eq!(
+        s.attribute(&toggle[0], "aria-pressed").unwrap().as_deref(),
+        Some("false")
+    );
+    assert_primary_is_the_accent(&s);
     assert_accessible(&s, "setup");
     assert_no_overflow(&s, "setup");
     shots(&s, "setup");
@@ -468,9 +591,16 @@ fn create_back_up_add_an_account_lock_and_unlock() {
             "paused card shown"
         }
     );
-    // What a user sees today with the public testnet paused.
+    // What a user sees today with the public testnet paused: never a figure
+    // the node did not give.
+    let balance = text_when(&s, ".hero-balance", 0, |t| !t.trim().is_empty());
+    println!("default node balance line: {balance:?}");
+    if !s.all(".state.paused").unwrap().is_empty() {
+        assert_eq!(balance.trim(), "Balance unavailable");
+    }
     assert_accessible(&s, "home (default node)");
     assert_no_overflow(&s, "home (default node)");
+    assert_header_aligned(&s);
     shots(&s, "home-default-node");
     s.click(&action(&s, "Receive")).unwrap();
     let address = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
@@ -546,7 +676,16 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     // phrase is checked, leaving an earlier handle stale (seen 1 run in 5).
     let deadline = Instant::now() + WAIT;
     while !s.enabled(&button(&s, "Recover wallet")).unwrap_or(false) {
-        assert!(Instant::now() < deadline, "the phrase never validated");
+        assert!(
+            Instant::now() < deadline,
+            "the phrase never validated: hint {:?}, {} words typed",
+            s.all("#setup-phrase-hint")
+                .unwrap()
+                .first()
+                .map(|h| s.text(h).unwrap_or_default()),
+            s.execute("return document.getElementById('setup-phrase').value.split(/\\s+/).filter(Boolean).length")
+                .unwrap()
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
     s.click(&button(&s, "Recover wallet")).unwrap();
@@ -571,8 +710,11 @@ fn editing_after_review_takes_the_review_away() {
     let (_keychain, _driver, s, _app) = launch("send");
     create_any(&s);
     use_node(&s, node.url());
+    // Wide enough that the pill shows the height (phone widths hide it).
+    at_width(&s, 1024);
     let pill = text_when(&s, ".net-pill.test", 0, |t| t.contains("4,242"));
     assert!(pill.contains("4,242"), "the stub node answered: {pill}");
+    restore_size(&s);
 
     // The lock first, so a build without it fails on the lock itself and
     // not on a layout or contrast check further down.
@@ -585,17 +727,35 @@ fn editing_after_review_takes_the_review_away() {
     let amount = input_after_label(&s, "Amount", WAIT).expect("an Amount field");
     s.type_text(&amount, "1").unwrap();
     review(&s);
-    let summary = text_when(&s, ".summary", 0, |t| t.contains("1"));
+    let hero = text_when(&s, ".summary .amount-hero .value", 0, |t| t.trim() == "1");
+    assert_eq!(
+        hero.trim(),
+        "1",
+        "the summary leads with the reviewed amount"
+    );
+    let summary = text_when(&s, ".summary", 0, |t| !t.is_empty());
     println!("reviewed: {}", summary.replace('\n', " | "));
 
-    // Locked: the amount is text now, not a field (new UI). Edit unlocks it.
-    if let Some(edit) = maybe_button(&s, "Edit") {
-        assert!(
-            input_after_label(&s, "Amount", Duration::ZERO).is_none(),
-            "the reviewed amount is read-only text, not an editable field"
-        );
-        s.click(&edit).unwrap();
-    }
+    // Locked: once reviewed, no field of the form is left to edit, and Edit
+    // is the way back. Both unconditional: a build without the lock fails
+    // here.
+    let edit = maybe_button(&s, "Edit").expect("an Edit button on the reviewed transfer");
+    let editable = s
+        .execute(
+            "return [...document.querySelectorAll('#send-recipient, #send-amount, #send-fee')]\
+             .map(e => e.id)",
+        )
+        .unwrap();
+    assert_eq!(
+        editable,
+        serde_json::json!([]),
+        "the reviewed values are read-only text, not fields"
+    );
+    assert!(
+        input_after_label(&s, "Amount", Duration::ZERO).is_none(),
+        "no Amount input under review"
+    );
+    s.click(&edit).unwrap();
     let amount = input_after_label(&s, "Amount", WAIT).expect("an Amount field to edit");
     s.replace_text(&amount, "2").unwrap();
     std::thread::sleep(Duration::from_millis(700));
@@ -620,24 +780,52 @@ fn editing_after_review_takes_the_review_away() {
 
     // Review again: the summary is of the new amount.
     review(&s);
-    let again = text_when(&s, ".summary", 0, |t| t.contains("2"));
-    assert!(again.contains("2"), "{again}");
+    let again = text_when(&s, ".summary .amount-hero .value", 0, |t| t.trim() == "2");
+    assert_eq!(again.trim(), "2", "the new review is of the new amount");
     let send = s
         .xpath("//button[normalize-space()='Send 2 MAYA']", WAIT)
         .expect("the last button names the amount");
     assert!(s.enabled(&send).unwrap());
     let warning = text_when(&s, ".irreversible", 0, |t| !t.is_empty());
     assert_eq!(warning.trim(), "This cannot be undone.");
+    // On a phone-sized window the Send button is on screen with the summary,
+    // not below the fold.
+    at_width(&s, WIDTHS[0]);
+    let fold = s
+        .execute(
+            "const b = document.querySelector('.send-final').getBoundingClientRect();\
+             return [b.top, b.bottom, window.innerHeight]",
+        )
+        .unwrap();
+    println!("send button @360x{TALL}: {fold}");
+    assert!(
+        fold[1].as_f64().unwrap() <= fold[2].as_f64().unwrap(),
+        "the Send button is below the fold at 360 px: {fold}"
+    );
+    restore_size(&s);
     assert_accessible(&s, "send review");
     assert_no_overflow(&s, "send review");
-    shots(&s, "send-review");
+    shots_captioned(&s, "send-review-stub", Some(STUB_CAPTION));
 
     // Home with a node that answers.
     s.click(&button(&s, "Back")).unwrap();
     text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
-    assert_accessible(&s, "account");
     assert_no_overflow(&s, "account");
-    shots(&s, "account");
+    shots_captioned(&s, "account-stub", Some(STUB_CAPTION));
+    // The Signed pill's bronze text on its tint, checked for contrast in
+    // both themes. Signing itself waits on a native OK/Cancel dialog that
+    // WebDriver cannot answer (and must not be bypassed), so the pill is a
+    // sample row appended to the history card, styled by the app's own CSS.
+    s.execute(
+        "const tx = document.createElement('div'); tx.className = 'tx'; tx.id = 'e2e-pill-sample';\
+         tx.innerHTML = '<div class=\"tx-head\"><span class=\"mono\">sample</span>\
+         <span class=\"pill signed\">Signed</span></div>';\
+         document.querySelector('.empty, .tx').after(tx); return true",
+    )
+    .unwrap();
+    assert_accessible(&s, "account (Signed pill sample)");
+    s.execute("document.getElementById('e2e-pill-sample').remove(); return true")
+        .unwrap();
 
     // Theme: the Settings control sets the root's theme and the browser
     // chrome colour follows it.

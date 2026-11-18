@@ -196,12 +196,24 @@ impl Session {
         }
     }
 
-    /// Clicks.
+    /// Clicks, after scrolling the element to the middle of the window: the
+    /// driver's own scroll puts it at an edge, under the app's sticky header
+    /// or pinned Send bar, where a person would not click it either.
     ///
     /// # Errors
     ///
     /// The driver failed.
     pub fn click(&self, e: &Element) -> Result<(), DriverError> {
+        let mut reference = serde_json::Map::new();
+        reference.insert(ELEMENT.to_owned(), json!(e.0));
+        self.call(
+            reqwest::Method::POST,
+            "/execute/sync",
+            Some(json!({
+                "script": "arguments[0].scrollIntoView({block: 'center'}); return true",
+                "args": [reference],
+            })),
+        )?;
         self.call(
             reqwest::Method::POST,
             &format!("/element/{}/click", e.0),
