@@ -32,7 +32,6 @@
 //! round; and a survivor dropping *during* unmasking, which here aborts the
 //! round. Both are stated rather than implied away.
 
-use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use maya_crypto_pq::kem::{
@@ -219,8 +218,8 @@ pub struct Participant {
     // live on this instance, not the round: a new participant built from the
     // same entropy has the same self-mask and fresh guards, so callers must
     // draw fresh entropy for every round.
-    shares_sent: Cell<bool>,
-    masked_sent: Cell<bool>,
+    shares_sent: bool,
+    masked_sent: bool,
 }
 
 impl Participant {
@@ -253,8 +252,8 @@ impl Participant {
             held_shares: BTreeMap::new(),
             own_share: None,
             answered: None,
-            shares_sent: Cell::new(false),
-            masked_sent: Cell::new(false),
+            shares_sent: false,
+            masked_sent: false,
         })
     }
 
@@ -328,7 +327,7 @@ impl Participant {
     ///
     /// [`Error::InvalidParameter`] if key agreement is incomplete.
     pub fn share_seed(&mut self) -> Result<Vec<ShareEnvelope>> {
-        if self.shares_sent.get() {
+        if self.shares_sent {
             return Err(Error::InvalidParameter(
                 "shares were already sent this round",
             ));
@@ -359,7 +358,7 @@ impl Participant {
                 sealed: masking::seal(key, self.config.round, self.index, holder, &plaintext)?,
             });
         }
-        self.shares_sent.set(true);
+        self.shares_sent = true;
         Ok(envelopes)
     }
 
@@ -395,8 +394,8 @@ impl Participant {
     ///
     /// [`Error::DimensionMismatch`] for the wrong length; [`Error::InvalidParameter`]
     /// if key agreement is incomplete.
-    pub fn masked_input(&self, update: &[i64]) -> Result<MaskedInput> {
-        if self.masked_sent.get() {
+    pub fn masked_input(&mut self, update: &[i64]) -> Result<MaskedInput> {
+        if self.masked_sent {
             return Err(Error::InvalidParameter(
                 "a masked input was already sent this round",
             ));
@@ -429,7 +428,7 @@ impl Participant {
             let mask = masking::expand(seed, values.len());
             masking::apply(&mut values, &mask, self.index < *peer);
         }
-        self.masked_sent.set(true);
+        self.masked_sent = true;
         Ok(MaskedInput {
             index: self.index,
             values,
@@ -663,7 +662,7 @@ mod single_use_tests {
 
     #[test]
     fn a_second_masked_input_is_refused() {
-        let (a, _b) = paired();
+        let (mut a, _b) = paired();
         a.masked_input(&[1, 2, 3, 4]).unwrap();
         assert!(a.masked_input(&[5, 6, 7, 8]).is_err());
     }

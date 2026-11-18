@@ -28,9 +28,20 @@ From this change a share is base-fee exempt only when it has **no inputs and
 no outputs**. One predicate, `state::fee_exec::is_free_share`, is used by the
 executor (`charge_fee`) and by the mempool (admission, sender accounting), so
 the two cannot drift. Any other share pays the base fee on its size like any
-other transaction (FEE-5). A share with an input and no output cannot pay,
-so the block that carries it is invalid (`FeeTooLow`) and the mempool refuses
-it before relaying.
+other transaction (FEE-5). When the chain charges fees, a share with an
+input and no output cannot pay, so the block that carries it is invalid
+(`FeeTooLow`) and the mempool refuses it before relaying. When fees are off
+(`committed_fees()` is `None`) nothing is charged and such a share is valid;
+in the mempool it then takes the general admission path rather than the cheap
+share checks, as a share with outputs already did.
+
+The exemption looks at inputs and outputs only. A fee-free share can still
+carry an authorization (`multisig`, up to `MAX_SIGNERS` = 16 hybrid keys and
+signatures, or a `suite_auth` signature), so its auth bytes are bounded by
+`MAX_SIGNERS`, the block byte cap (invariant 33) and the per-block share cap
+(`max_shares_per_block`), not by the base fee. Requiring `multisig.is_none()`
+for the exemption would be a further consensus rule; it is not part of this
+change.
 
 The base fee itself, its floor and its price are unchanged: this narrows who
 is exempt and moves no economic parameter.
@@ -50,10 +61,18 @@ already says a batch the pool cannot price is a no-op, never an error.
 - **Order book:** fills now take the governed protocol rate, as
   `docs/dex.md` ("Only the protocol's rate applies to a book trade, and only
   to the taker") already states; the code read the stored record, whose
-  protocol rate is always zero. When the pool cannot carry the governed rate,
-  the book rests for that block with no funds moved.
-- **Routes:** unchanged. A route that names such a pool is refused as a
-  transaction error, as before, so it is never included.
+  protocol rate is always zero. The book is priced on the protocol rate
+  alone (`FeeSchedule::new(0, protocol_bps)`), because the LP rate never
+  applies to a book trade: a pool whose LP rate plus the governed rate is past
+  the ceiling still matches its book and charges the governed rate. The book
+  rests only if the protocol rate alone is past the ceiling, which the
+  governed bound (at most 200 bps against a 500 bps ceiling) rules out; in
+  that case the block's expiry reaping for that book is deferred too, as it
+  already is when the block's fill budget is spent.
+- **Routes:** a leg through a pool that cannot carry the governed rate makes
+  the route a no-op, like a leg the curve cannot price: nothing is written and
+  the block is valid. Before this change it was a transaction error, so a
+  route in the mempool turned invalid as soon as governance raised the rate.
 - Only the fee-ceiling rejection maps to "cannot carry". A storage or decode
   error reading the parameter still fails the block: a node-local read failure
   must not change what a block does.
@@ -82,7 +101,9 @@ entropy per round remains a caller requirement and is now stated on
 
 ## Invariant analysis
 
-- **7** strengthened: the governed-rate case now refunds rather than erroring.
+- **7** strengthened: the governed-rate case now refunds a batch and makes a
+  route a no-op rather than erroring, and never pauses a book at a governed
+  rate inside its bounds.
 - **8, 25:** refunds and fills write through the overlay with existing
   prefixes (`credit_asset`, order records); no new prefix, so the undo journal
   and the state root cover them as before.
@@ -100,8 +121,13 @@ entropy per round remains a caller requirement and is now stated on
   Both land before genesis in the re-freeze, so no live chain is affected.
 - Spec: FEE-7 in `spec/04-fees.md`, reference `maya_spec_ref::fees::share_fee_exempt`,
   vectors in `spec/tests/fees.json`, replayed by `crates/node/tests/conformance.rs`
-  and `spec/verifier-ts/verify.ts`. The DEX rule has no spec section yet
-  (`docs/dex.md` is its description) and is pinned by `crates/node/tests/dex_tests.rs`.
+  and `spec/verifier-ts/verify.ts`: `share_exempt` cases replay the node's
+  predicate, and `share_fee` cases (with refused ones) replay the node's
+  `fee_exec::required_fee`, the requirement `charge_fee` enforces. The
+  block-invalid path through `charge_fee` itself is pinned by
+  `crates/node/tests/mining_rewards_tests.rs`. The DEX rule has no spec
+  section yet (`docs/dex.md` is its description, `spec/02-transactions.md`
+  lists the gap) and is pinned by `crates/node/tests/dex_tests.rs`.
 
 ## Alternatives considered
 

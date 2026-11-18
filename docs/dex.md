@@ -111,9 +111,9 @@ the counterparty is another trader.
 The rate is the governed `DexProtocolFeeBps`, read from the parameter table at
 the end of the block, for book fills as for batched swaps (invariant 17). A pool
 whose own LP rate plus the governed rate is over the fee ceiling cannot carry
-it: that block refunds the pool's batch and leaves its book resting, and the
-block itself is valid (invariant 7). A route through such a pool is refused as
-a transaction error. ADR-144.
+it for a swap: that block refunds the pool's batch, a route through it is a
+no-op, and the block itself is valid (invariant 7). The book is unaffected,
+because it is priced on the protocol rate alone and still matches. ADR-144.
 
 ### Dust
 

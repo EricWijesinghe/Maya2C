@@ -2039,7 +2039,7 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs", "crates/dex/tests/price_scale_tests.rs"]
-note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01). ADR-144: a governed protocol rate a pool cannot carry refunds its batch and rests its book instead of failing the block; book fills take the governed rate (dex_tests.rs a_governed_rate_*)."
+note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01). ADR-144: a governed protocol rate a pool cannot carry refunds its batch and makes a route through it a no-op instead of failing the block; book fills take the governed protocol rate and never the LP rate (dex_tests.rs a_governed_rate_*, a_route_through_a_pool_that_cannot_carry_the_governed_rate_is_a_no_op)."
 
 [[subsystem]]
 id = "governance-lifecycle-and-bounds"

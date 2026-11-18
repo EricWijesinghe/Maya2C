@@ -1382,13 +1382,14 @@ fn a_governed_rate_the_pool_cannot_carry_refunds_the_batch_without_failing_the_b
     assert_eq!(market.reserves(), reserves_before);
 }
 
-#[test]
-fn a_governed_rate_the_pool_cannot_carry_leaves_the_book_resting() {
-    let mut market = market_with_fee(generate_signing_key().expect("key"), 400);
-    govern_protocol_rate(&market, 200);
+/// What a bidder takes from one crossed pair of orders on a pool with LP rate
+/// `lp_fee_bps`, at governed protocol rate `rate`. The bidder starts with no
+/// native coin, so this is the base they received from the fill.
+fn bidder_receives(maker: &HybridSigningKey, lp_fee_bps: u32, rate: u64) -> u64 {
+    let mut market = market_with_fee(maker.clone(), lp_fee_bps);
+    govern_protocol_rate(&market, rate);
     let taker = generate_signing_key().expect("key");
     let taker_address = taker.address();
-
     market
         .apply(
             vec![TxKind::TransferAsset(AssetTransfer {
@@ -1399,11 +1400,7 @@ fn a_governed_rate_the_pool_cannot_carry_leaves_the_book_resting() {
             2,
         )
         .expect("fund");
-    let taker_native_before = market.native(&taker_address);
     let ask_nonce = market.nonce;
-
-    // The ask would cross the bid at the same block's end, if the book were
-    // matched. It must not be.
     let block = block_of(vec![
         signed(
             TxKind::PlaceOrder(OrderPlacement {
@@ -1431,20 +1428,21 @@ fn a_governed_rate_the_pool_cannot_carry_leaves_the_book_resting() {
     market
         .db()
         .apply_block(&block, BlockContext::at_height(3))
-        .expect("the block still applies");
+        .expect("the block applies");
+    market.native(&taker_address)
+}
 
-    // Nothing filled: the bidder received no base, and the ask still rests.
-    assert_eq!(market.native(&taker_address), taker_native_before);
-    assert!(
-        market
-            .db()
-            .get_order(&custom_l1_node::state::dex::derive_order_id(
-                &market.maker_address,
-                ask_nonce
-            ))
-            .expect("read")
-            .is_some()
-    );
+#[test]
+fn a_governed_rate_past_the_lp_ceiling_still_matches_the_book_at_the_protocol_rate() {
+    // LP 400 + governed 200 is past the 500 bps ceiling for a swap, but a
+    // book fill pays only the protocol rate, so the book must still match.
+    let maker = generate_signing_key().expect("key");
+    let untaxed = bidder_receives(&maker, 400, 0);
+    let taxed = bidder_receives(&maker, 400, 200);
+    assert!(taxed > 0, "the book did not match");
+    assert!(taxed < untaxed, "the governed rate was not charged");
+    // The LP rate never reaches a book trade.
+    assert_eq!(taxed, bidder_receives(&maker, LP_FEE_BPS, 200));
 }
 
 #[test]
@@ -1465,56 +1463,37 @@ fn a_nonzero_governed_rate_takes_its_cut_of_a_batched_swap() {
 
 #[test]
 fn a_nonzero_governed_rate_takes_its_cut_of_a_book_fill() {
-    let maker = generate_signing_key().expect("key");
-    let mut bidder_received = Vec::new();
-    for rate in [0_u64, 100] {
-        let mut market = market_with(maker.clone());
-        govern_protocol_rate(&market, rate);
-        let taker = generate_signing_key().expect("key");
-        let taker_address = taker.address();
-        market
-            .apply(
-                vec![TxKind::TransferAsset(AssetTransfer {
-                    asset: market.asset,
-                    recipient: taker_address,
-                    amount: primitive_types::U256::from(100_000),
-                })],
-                2,
-            )
-            .expect("fund");
-        let ask_nonce = market.nonce;
-        let block = block_of(vec![
-            signed(
-                TxKind::PlaceOrder(OrderPlacement {
-                    pair: market.pair,
-                    side: Side::Ask.tag(),
-                    price: maya_stateless_core::amount::to_u256(price(4)),
-                    amount: primitive_types::U256::from(1_000),
-                    expiry: 0,
-                }),
-                ask_nonce,
-                &market.maker,
-            ),
-            signed(
-                TxKind::PlaceOrder(OrderPlacement {
-                    pair: market.pair,
-                    side: Side::Bid.tag(),
-                    price: maya_stateless_core::amount::to_u256(price(5)),
-                    amount: primitive_types::U256::from(1_000),
-                    expiry: 0,
-                }),
-                0,
-                &taker,
-            ),
-        ]);
-        market
-            .db()
-            .apply_block(&block, BlockContext::at_height(3))
-            .expect("match");
-        bidder_received.push(market.native(&taker_address));
-    }
     // The bidder takes the fill net of the fee, and the rate adds to the fee.
-    assert!(bidder_received[1] < bidder_received[0]);
+    let maker = generate_signing_key().expect("key");
+    assert!(bidder_receives(&maker, LP_FEE_BPS, 100) < bidder_receives(&maker, LP_FEE_BPS, 0));
+}
+
+#[test]
+fn a_route_through_a_pool_that_cannot_carry_the_governed_rate_is_a_no_op() {
+    // As for a leg the curve cannot price: the route does not pay, nothing is
+    // written, and the block stays valid.
+    let mut market = market_with_fee(generate_signing_key().expect("key"), 400);
+    govern_protocol_rate(&market, 200);
+    let native_before = market.native(&market.maker_address);
+    let reserves_before = market.reserves();
+
+    market
+        .apply(
+            vec![TxKind::SwapRoute(SwapRoute {
+                legs: vec![RouteLeg {
+                    pair: market.pair,
+                    direction: Direction::BaseToQuote.tag(),
+                }],
+                amount_in: primitive_types::U256::from(1_000),
+                min_out: primitive_types::U256::from(1),
+                deadline: 0,
+            })],
+            2,
+        )
+        .expect("the block must still be valid");
+
+    assert_eq!(market.native(&market.maker_address), native_before);
+    assert_eq!(market.reserves(), reserves_before);
 }
 
 // ---------------------------------------------------------------------------

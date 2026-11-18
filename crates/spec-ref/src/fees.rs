@@ -74,3 +74,15 @@ pub fn admits(base_fee: u64, size_bytes: u64, max_fee: u64) -> bool {
 pub const fn share_fee_exempt(inputs: usize, outputs: usize) -> bool {
     inputs == 0 && outputs == 0
 }
+
+/// FEE-7: the base fee a share of `size_bytes` owes at `base_fee`. Zero for an
+/// exempt share; otherwise the FEE-5 amount. A share whose fee-collector
+/// outputs fall short of this makes its block invalid (`FeeTooLow`).
+#[must_use]
+pub fn share_fee_due(inputs: usize, outputs: usize, base_fee: u64, size_bytes: u64) -> u128 {
+    if share_fee_exempt(inputs, outputs) {
+        0
+    } else {
+        u128::from(base_fee) * u128::from(size_bytes)
+    }
+}

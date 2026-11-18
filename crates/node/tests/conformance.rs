@@ -281,6 +281,27 @@ fn encoding_vectors() {
     }
 }
 
+/// A mining share with `inputs` inputs and `outputs` one-unit outputs.
+fn share_tx(inputs: u64, outputs: u64) -> Transaction {
+    let inputs = (0..inputs)
+        .map(|index| custom_l1_node::core::transaction::TxInput {
+            prev_tx: [1; 32],
+            index: u32::try_from(index).expect("small"),
+        })
+        .collect();
+    let outputs = (0..outputs)
+        .map(|_| TxOutput {
+            amount: primitive_types::U256::one(),
+            recipient: [2; 32],
+        })
+        .collect();
+    let mut tx = Transaction::new(inputs, outputs, 0);
+    tx.kind = custom_l1_node::core::payload::TxKind::MiningShare(
+        custom_l1_node::core::mining_payload::MiningShare { epoch: 1, nonce: 0 },
+    );
+    tx
+}
+
 #[test]
 fn fee_vectors() {
     let doc = load("fees.json");
@@ -322,27 +343,31 @@ fn fee_vectors() {
             }
             "share_exempt" => {
                 // FEE-7, against the node's own predicate (executor and mempool).
-                let inputs = (0..n("inputs"))
-                    .map(|index| custom_l1_node::core::transaction::TxInput {
-                        prev_tx: [1; 32],
-                        index: u32::try_from(index).expect("small"),
-                    })
-                    .collect();
-                let outputs = (0..n("outputs"))
-                    .map(|_| TxOutput {
-                        amount: primitive_types::U256::one(),
-                        recipient: [2; 32],
-                    })
-                    .collect();
-                let mut tx = Transaction::new(inputs, outputs, 0);
-                tx.kind = custom_l1_node::core::payload::TxKind::MiningShare(
-                    custom_l1_node::core::mining_payload::MiningShare { epoch: 1, nonce: 0 },
-                );
+                let tx = share_tx(n("inputs"), n("outputs"));
                 assert_eq!(
                     custom_l1_node::state::fee_exec::is_free_share(&tx),
                     case["expect"]["exempt"].as_bool().expect("bool"),
                     "{id}"
                 );
+            }
+            "share_fee" => {
+                // FEE-7, against the requirement the executor's `charge_fee` enforces.
+                let tx = share_tx(n("inputs"), n("outputs"));
+                let record = custom_l1_node::state::fees::FeeRecord {
+                    base_fee: maya_dex::Amount::from_u64(n("base_fee")),
+                    min_base_fee: maya_dex::Amount::from_u64(0),
+                    target_block_bytes: 1,
+                    change_denominator: 8,
+                };
+                let size = usize::try_from(n("size_bytes")).expect("small");
+                let due = custom_l1_node::state::fee_exec::required_fee(&record, &tx, size);
+                assert_eq!(
+                    due.to_string(),
+                    case["expect"]["due"].as_str().unwrap(),
+                    "{id}"
+                );
+                let admitted = primitive_types::U256::from(n("offered")) >= due;
+                assert_eq!(admitted, case["expect"]["result"] == "ok", "{id}");
             }
             "admit" => {
                 let c = maya_fee_market::FeeConfig::TESTING;

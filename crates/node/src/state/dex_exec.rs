@@ -327,10 +327,7 @@ impl StateDB {
     /// errors, never folded into `None`: a node-local read failure must not
     /// change what the block does.
     fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<Option<PoolRecord>> {
-        let protocol_bps =
-            u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
-                .unwrap_or(u32::MAX);
-
+        let protocol_bps = self.protocol_bps(overlay)?;
         let Ok(fees) = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps) else {
             return Ok(None);
         };
@@ -341,6 +338,14 @@ impl StateDB {
             },
             ..*record
         }))
+    }
+
+    /// The governed protocol rate, `DexProtocolFeeBps`.
+    fn protocol_bps(&self, overlay: &Overlay) -> Result<u32> {
+        Ok(
+            u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
+                .unwrap_or(u32::MAX),
+        )
     }
 
     /// Reads a pool through the overlay, requiring that it exists.
@@ -738,8 +743,12 @@ impl StateDB {
                     *record
                 } else {
                     let stored = self.require_pool(overlay, &leg.pair)?;
-                    self.priced(overlay, &stored)?
-                        .ok_or_else(|| trade_error("pool pricing", DexError::FeeTooHigh))?
+                    // A pool that cannot carry the governed rate is a route
+                    // that does not pay, like an unpriceable leg: no write.
+                    let Some(priced) = self.priced(overlay, &stored)? else {
+                        return Ok(());
+                    };
+                    priced
                 };
 
             let input = input_asset(&record, direction);
@@ -1073,11 +1082,12 @@ impl StateDB {
             return Ok(());
         }
 
-        let stored = self.require_pool(overlay, pair)?;
-        // Fills take the governed protocol rate, as swaps do. A rate the pool
-        // cannot carry leaves the book resting for this block, with no funds
-        // moved, rather than halting the block.
-        let Some(pool) = self.priced(overlay, &stored)? else {
+        let pool = self.require_pool(overlay, pair)?;
+        // Fills take the governed protocol rate, as swaps do, and never the
+        // LP rate (docs/dex.md), so the book is priced on the protocol rate
+        // alone. Its governed bound keeps that under the ceiling; were it ever
+        // over, the book would rest for this block rather than halt it.
+        let Ok(book_fees) = FeeSchedule::new(0, self.protocol_bps(overlay)?) else {
             return Ok(());
         };
         let mut book = Book::new();
@@ -1100,8 +1110,8 @@ impl StateDB {
             height: context.height,
         };
 
-        let outcome = match_book(&book, pool.pool.fees, limits)
-            .map_err(|error| trade_error("matching", error))?;
+        let outcome =
+            match_book(&book, book_fees, limits).map_err(|error| trade_error("matching", error))?;
         overlay.fills = overlay.fills.saturating_add(outcome.fills.len());
 
         // Working copies. Escrow is decremented fill by fill, then whatever
