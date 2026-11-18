@@ -45,7 +45,13 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # build-time asset validation — `tests/server_tests.rs` checks the routes
 # instead.
 tower-http = { workspace = true, features = ["trace", "fs", "cors"] }
-maya-web-security = { path = "../../crates/web-security" }
+maya-web-security = { path = "../../crates/web-security", features = ["rate-limit"] }
+# Per-client limiter layer for /api/v1 (the limiter itself is in web-security).
+tower_governor.workspace = true
+# Response ETags for live data (ADR-092).
+sha2.workspace = true
+# OpenAPI document, generated from the v1 handlers (ADR-092).
+utoipa.workspace = true
 
 # Runtime queries, not the `query!` macros: those need a live DATABASE_URL at
 # build time (or committed offline metadata), which would make the crate
@@ -70,6 +76,8 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile.workspace = true
 tokio-tungstenite = "0.30"
 futures-util.workspace = true
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true
 
 [lints]
 workspace = true

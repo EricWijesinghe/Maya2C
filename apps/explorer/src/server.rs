@@ -21,6 +21,10 @@ use serde::Deserialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 use tower_http::services::{ServeDir, ServeFile};
 
+use maya_web_security::rate_limit::{self, RateLimit};
+
+use crate::api::node::{Limited, NoNode, NodeSource, RpcNode};
+use crate::api::{self, ApiState, LiveCache};
 use crate::error::{ExplorerError, Result};
 use crate::indexer::IndexEvent;
 use crate::model::{HashratePoint, NetworkStats, average_block_time, estimate_hashrate};
@@ -58,6 +62,12 @@ pub struct AppState {
     /// a mounted route over a missing directory would only make the failure
     /// harder to find.
     pub assets: Option<PathBuf>,
+    /// How `/api/v1` identifies a client for its rate limit (ADR-092).
+    ///
+    /// Behind a Cloudflare tunnel every request arrives from loopback, so the
+    /// socket address would put all visitors in one bucket: deployments behind
+    /// a proxy pass `CfConnectingIp` or `XForwardedForLast`.
+    pub api_client_ip: maya_web_security::rate_limit::ClientIp,
     /// Upgraded live-feed sockets open at once, across both feeds.
     ///
     /// A socket holds a task and a broadcast receiver until its peer goes
@@ -78,7 +88,8 @@ pub const MAX_LIVE_SOCKETS: usize = 256;
 pub const MAX_NODE_CALLS: usize = 16;
 
 impl AppState {
-    /// A state with the default concurrency limits.
+    /// A state with the default concurrency limits, and `/api/v1` keyed on the
+    /// TCP peer; a deployment behind a proxy sets `api_client_ip` after.
     #[must_use]
     pub fn new(
         store: Arc<dyn BlockStore>,
@@ -93,6 +104,7 @@ impl AppState {
             assets,
             live_sockets: Arc::new(Semaphore::new(MAX_LIVE_SOCKETS)),
             node_calls: Arc::new(Semaphore::new(MAX_NODE_CALLS)),
+            api_client_ip: maya_web_security::rate_limit::ClientIp::Socket,
         }
     }
 }
@@ -158,9 +170,37 @@ fn node_unavailable(error: &ExplorerError, sentence: &str) -> String {
     sentence.to_string()
 }
 
-/// Builds the router.
+/// Builds the router. Spawns nothing, so it can be built outside a runtime;
+/// [`serve`] runs the limiter's pruning.
 pub fn router(state: AppState) -> Router {
+    app(state).0
+}
+
+/// The router and the `/api/v1` limiter whose table [`serve`] prunes.
+///
+/// # Panics
+///
+/// Never in practice: the API's rate limit is a constant that
+/// [`api::default_rate_limit`] keeps valid.
+#[allow(clippy::expect_used)]
+fn app(state: AppState) -> (Router, rate_limit::Config) {
+    let api_state = ApiState {
+        store: Arc::clone(&state.store),
+        // Same slots as the legacy pages: one node budget for the explorer.
+        node: Arc::new(Limited::new(
+            node_for(state.node_rpc.as_deref()),
+            Arc::clone(&state.node_calls),
+        )),
+        live: Arc::new(LiveCache::default()),
+    };
+    let limit = RateLimit {
+        client_ip: state.api_client_ip,
+        ..api::default_rate_limit()
+    };
+    let (v1, limiter) = api::router(api_state, &limit).expect("default API rate limit is valid");
+
     let router = Router::new()
+        .merge(v1)
         .route("/", get(dashboard))
         .route("/blocks", get(blocks))
         .route("/blocks/{height}", get(block_detail))
@@ -199,8 +239,12 @@ pub fn router(state: AppState) -> Router {
     // there are no credentials, and it is how maya2c.dev shows the network live.
     // GET only. `MAYA2C_CORS_ALLOWED_ORIGINS` locks it to listed origins.
     let cors = maya_web_security::cors_from_env([axum::http::Method::GET]);
-    let router = router.merge(maya_web_security::security_txt()).layer(cors);
-    maya_web_security::secure(router, CONTENT_SECURITY_POLICY).with_state(state)
+    let router = router
+        .merge(maya_web_security::security_txt())
+        .layer(axum::middleware::from_fn(api::respond::legacy_api))
+        .layer(cors);
+    let router = maya_web_security::secure(router, CONTENT_SECURITY_POLICY).with_state(state);
+    (router, limiter)
 }
 
 /// The explorer's pages run their own inline `<script>` and `<style>` blocks
@@ -209,6 +253,19 @@ pub fn router(state: AppState) -> Router {
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
 style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; \
 object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/// The node the v1 API queries. Without a usable URL every live route answers
+/// `node_unavailable` and history keeps working.
+fn node_for(url: Option<&str>) -> Arc<dyn NodeSource> {
+    match url.map(RpcNode::connect) {
+        Some(Ok(node)) => Arc::new(node),
+        Some(Err(error)) => {
+            eprintln!("api: node endpoint unusable, live routes disabled: {error}");
+            Arc::new(NoNode)
+        }
+        None => Arc::new(NoNode),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // data assembly
@@ -696,10 +753,20 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
         .local_addr()
         .map_err(|e| ExplorerError::Server(format!("resolving local address: {e}")))?;
 
-    let app = router(state);
+    // Connect info gives the /api/v1 limiter the peer address: without it every
+    // request in socket mode, and every request missing the proxy header in
+    // cf/xff mode, has no client key and fails.
+    let (router, limiter) = app(state);
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    // Pruning lives in the server's task, so aborting the handle stops both.
     let handle = tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, app).await {
-            eprintln!("explorer server stopped: {error}");
+        tokio::select! {
+            result = axum::serve(listener, service) => {
+                if let Err(error) = result {
+                    eprintln!("explorer server stopped: {error}");
+                }
+            }
+            () = rate_limit::prune(limiter) => {}
         }
     });
 

@@ -271,10 +271,12 @@ async fn real_clients_behind_the_proxy_keep_separate_budgets() {
         "IPv6 key"
     );
     assert_eq!(
-        refused_of(&app, 2, PEER, |_| hop("2001:db8::2")).await,
+        refused_of(&app, 2, PEER, |_| hop("2001:db8:0:1::2")).await,
         0,
-        "other IPv6 key"
+        "IPv6 key in another /64"
     );
+    // The same /64 is one client: its budget is the one already spent.
+    assert_eq!(refused_of(&app, 1, PEER, |_| hop("2001:db8::2")).await, 1);
     assert_eq!(refused_of(&app, 1, PEER, |_| hop("2001:db8::1")).await, 1);
 }
 

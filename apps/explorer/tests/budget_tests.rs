@@ -30,6 +30,7 @@ fn tx(i: i64) -> IndexedTx {
         summary: String::new(),
         careful: false,
         explanation: String::new(),
+        outputs: Vec::new(),
     }
 }
 

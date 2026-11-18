@@ -6282,6 +6282,7 @@ dependencies = [
  "custom-l1-node",
  "futures-util",
  "hex",
+ "http-body-util",
  "jsonrpsee",
  "leptos",
  "maya-address",
@@ -6292,12 +6293,16 @@ dependencies = [
  "primitive-types",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.30.0",
+ "tower",
  "tower-http",
+ "tower_governor",
+ "utoipa",
 ]
 
 [[package]]
@@ -6943,10 +6948,13 @@ name = "maya-web-security"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "governor",
  "http-body-util",
+ "thiserror 2.0.21",
  "tokio",
  "tower",
  "tower-http",
+ "tower_governor",
  "tracing",
 ]
 
