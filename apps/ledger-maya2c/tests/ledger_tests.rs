@@ -26,7 +26,7 @@ use std::time::Duration;
 #[path = "fixtures/kinds.rs"]
 mod kinds;
 
-use app_maya2c::apdu::{CLA, INS_GET_PAGE, MAX_APDU_PAYLOAD, Pages};
+use app_maya2c::apdu::{CLA, INS_GET_PAGE, MAX_APDU_PAYLOAD, MAX_TX_BYTES, Pages};
 use app_maya2c::suite::{self, PUBLIC_KEY_LEN, SIGNATURE_LEN};
 use hmac::{Hmac, Mac};
 use sha2::Sha512;
@@ -294,19 +294,23 @@ fn transfer_for(public: &[u8; PUBLIC_KEY_LEN]) -> Vec<u8> {
     signing
 }
 
-/// Streams `path ‖ signing` as SIGN_TRANSACTION chunks; returns the last reply.
+/// Streams `path ‖ signing` as SIGN_TRANSACTION chunks; returns the last
+/// reply, or the first refused chunk's (a payload past `MAX_TX_BYTES` is
+/// refused mid-upload, before any review).
 fn sign_on_device(signing: &[u8]) -> (Vec<u8>, u16) {
     let chunks: Vec<&[u8]> = Pages::new(signing).collect();
     let (_, status) = exchange(&frame(INS_SIGN, 0x00, 0, &path(0, 0)));
     assert_eq!(status, 0x9000, "path chunk");
     for (i, chunk) in chunks.iter().enumerate().take(chunks.len() - 1) {
-        let (_, status) = exchange(&frame(
+        let (reply, status) = exchange(&frame(
             INS_SIGN,
             0x01,
             u8::try_from(i + 1).expect("idx"),
             chunk,
         ));
-        assert_eq!(status, 0x9000, "chunk {}", i + 1);
+        if status != 0x9000 {
+            return (reply, status);
+        }
     }
     let last = u8::try_from(chunks.len()).expect("idx");
     exchange(&frame(INS_SIGN, 0x02, last, chunks[chunks.len() - 1]))
@@ -380,8 +384,16 @@ fn every_fixture_shape_reaches_its_verdict_on_the_device() {
             let expected = suite::sign(&secret, &case.signing_bytes).expect("host");
             assert_eq!(signature, expected.to_vec(), "{}: device = host", case.name);
         } else {
+            // Bytes past the device's buffer are refused while they arrive
+            // (`TooLarge`, 0x6a84), before the review that gives the
+            // fixture's verdict ever runs: still no screen, nothing signed.
+            let expected = if path(0, 0).len() + case.signing_bytes.len() > MAX_TX_BYTES {
+                0x6A84
+            } else {
+                case.status
+            };
             let (reply, status) = refused_on_device(case.name, &case.signing_bytes);
-            assert_eq!(status, case.status, "{}", case.name);
+            assert_eq!(status, expected, "{}", case.name);
             assert!(reply.is_empty(), "{}: nothing signed", case.name);
         }
     }

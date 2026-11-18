@@ -15,6 +15,7 @@
 #[path = "fixtures/kinds.rs"]
 mod kinds;
 
+use app_maya2c::apdu::MAX_TX_BYTES;
 use app_maya2c::review::{self, ReviewError};
 use app_maya2c::suite::{self, PUBLIC_KEY_LEN};
 
@@ -39,6 +40,15 @@ fn every_fixture_shape_reaches_its_verdict() {
             Err(e) => e.status_word(),
         };
         assert_eq!(got, case.status, "{}", case.name);
+        // A shape the device shows must also fit its buffer (with the 21-byte
+        // path); a larger one is refused mid-upload, before this review.
+        if case.status == 0x9000 {
+            assert!(
+                case.signing_bytes.len() + 21 <= MAX_TX_BYTES,
+                "{}",
+                case.name
+            );
+        }
     }
 }
 
