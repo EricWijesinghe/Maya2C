@@ -25,6 +25,8 @@ use zeroize::Zeroizing;
 
 const USAGE: &str = "usage:
   maya-incident keygen --out KEYFILE
+      (Unix: created mode 0600. Windows: inherits the folder's ACL, so put it
+      in a folder only you can read.)
   maya-incident publish --dir DIR --key KEYFILE --id ID --title TEXT --body TEXT
       [--severity warning|critical] [--report https://...] [--started SECS] [--ended SECS]
   maya-incident verify --dir DIR [--operators FILE]";
@@ -85,9 +87,14 @@ fn operators_path(f: &BTreeMap<String, String>) -> Result<PathBuf, String> {
 /// Writes a new seed file (never overwrites one) and prints the public key.
 fn keygen(out: &Path) -> Result<String, String> {
     let (seed, op) = Operator::generate()?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    // The seed signs incidents /history accepts as genuine: owner-only from
+    // creation, not chmod afterwards (that leaves a readable window). Windows
+    // has no mode bits; the file inherits the directory's ACL.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let mut file = opts
         .open(out)
         .map_err(|e| format!("{}: {e}", out.display()))?;
     let seed_hex = Zeroizing::new(hex::encode(seed.as_ref()));
@@ -222,6 +229,17 @@ mod tests {
         let k = key.to_str().unwrap();
         run(&args(&["keygen", "--out", k])).unwrap();
         assert!(run(&args(&["keygen", "--out", k])).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keygen_writes_a_seed_only_its_owner_can_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join("op.key");
+        run(&args(&["keygen", "--out", key.to_str().unwrap()])).unwrap();
+        let mode = std::fs::metadata(&key).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "seed file mode {mode:o}");
     }
 
     #[test]
