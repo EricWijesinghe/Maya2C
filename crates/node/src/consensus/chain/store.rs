@@ -82,6 +82,9 @@ impl Chain {
             genesis: genesis_id,
             prune_horizon: meta.prune_horizon,
         };
+        // The root cache against a full rebuild (ADR-062a), before the first
+        // block is staged from it: a restart is where a bad cache is caught.
+        chain.state.verify_root_cache()?;
         chain.check_tip_state()?;
         chain.adopt_heaviest();
         Ok(chain)
