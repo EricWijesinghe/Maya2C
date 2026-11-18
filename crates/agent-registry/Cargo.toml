@@ -1,0 +1,41 @@
+[package]
+name = "maya-agent-registry"
+version.workspace = true
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Off-chain agent registry, signed agent cards, quotes and receipts for agent-to-agent payments (ADR-130, P-48)"
+
+# Off chain only. Nothing here is linked by the node, so no consensus rule
+# depends on it. Payments are ordinary transfers; the chain enforces the
+# limits (ADR-107). This crate checks that a quote is paid once and that a
+# receipt describes the transfer it names.
+[dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+# U256 for amounts: the same width the node uses for every balance (ADR-046).
+primitive-types.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+hex.workspace = true
+blake3.workspace = true
+# The derived agent seed is wiped after the key is built (Standing Order 5).
+zeroize.workspace = true
+thiserror.workspace = true
+# The HTTP registry. Loopback by default; see src/main.rs.
+axum.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[[bin]]
+name = "maya2c-agent-registry"
+path = "src/main.rs"
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true
+
+[lints]
+workspace = true
