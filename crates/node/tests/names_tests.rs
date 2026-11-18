@@ -122,7 +122,7 @@ fn update(label: &[u8], op: NameUpdate) -> TxKind {
 
 fn refusal(error: &NodeError) -> &'static str {
     match error {
-        NodeError::NameRefused { reason } => *reason,
+        NodeError::NameRefused { reason } => reason,
         other => panic!("expected NameRefused, got {other:?}"),
     }
 }
@@ -362,11 +362,17 @@ fn set_reverse_requires_the_name_to_target_the_sender() {
     )
     .expect("register pointing at someone else");
 
-    // `other` never pointed the name at itself, so it may not claim it.
-    let claim = signed(update(b"scam", NameUpdate::SetReverse), 0, &other);
+    // ADR-135 S-2: the owner controls "scam" but it resolves to `other`, so
+    // the owner's address may not reverse-resolve to it.
+    let claim = signed(update(b"scam", NameUpdate::SetReverse), 2, &owner);
     let err = apply(&f, vec![claim], V4 + MIN_COMMIT_AGE + 1).unwrap_err();
     assert!(refusal(&err).contains("does not target"), "{err}");
-    assert!(f.db.reverse_name(&other.address()).expect("read").is_none());
+    assert!(f.db.reverse_name(&owner.address()).expect("read").is_none());
+
+    // The address the name does target may claim it.
+    let claim = signed(update(b"scam", NameUpdate::SetReverse), 0, &other);
+    apply(&f, vec![claim], V4 + MIN_COMMIT_AGE + 1).expect("target claims reverse");
+    assert!(f.db.reverse_name(&other.address()).expect("read").is_some());
 }
 
 // M-7 (reverse record moves with the name)
@@ -497,9 +503,8 @@ fn refused_labels_dash_a_double_dash_two_chars_64_bytes_and_non_ascii() {
     ] {
         assert!(validate_label(bad).is_err(), "{bad:?} must be refused");
     }
-    let sixty_four = vec![b'a'; 64];
-    assert!(validate_label(&sixty_four).is_err());
-    assert!(validate_label(&vec![b'a'; 63]).is_ok());
+    assert!(validate_label(&[b'a'; 64]).is_err());
+    assert!(validate_label(&[b'a'; 63]).is_ok());
 }
 
 #[test]

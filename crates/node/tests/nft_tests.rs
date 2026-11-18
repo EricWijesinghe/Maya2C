@@ -118,7 +118,7 @@ fn item(f: &Fixture, collection: &[u8; 32], index: u64) -> Option<NftItem> {
 
 fn refusal(error: &NodeError) -> &'static str {
     match error {
-        NodeError::NftRefused { reason } => *reason,
+        NodeError::NftRefused { reason } => reason,
         other => panic!("expected NftRefused, got {other:?}"),
     }
 }
