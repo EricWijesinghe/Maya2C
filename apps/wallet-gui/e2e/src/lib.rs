@@ -364,10 +364,20 @@ impl Session {
     /// The driver failed, its image was not base64, or the file could not
     /// be written.
     pub fn screenshot(&self, path: &std::path::Path) -> Result<(), DriverError> {
-        let encoded = self.call(reqwest::Method::GET, "/screenshot", None)?;
-        let png = decode_base64(encoded.as_str().unwrap_or_default())
+        let png = decode_base64(&self.screenshot_base64()?)
             .ok_or_else(|| failed("screenshot", &"the driver's image is not base64"))?;
         std::fs::write(path, png).map_err(|e| failed("screenshot", &e))
+    }
+
+    /// The window as a base64 PNG, as the driver sends it: for a check of
+    /// the painted pixels (decoded in the page), not of computed styles.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed.
+    pub fn screenshot_base64(&self) -> Result<String, DriverError> {
+        let encoded = self.call(reqwest::Method::GET, "/screenshot", None)?;
+        Ok(encoded.as_str().unwrap_or_default().to_string())
     }
 
     /// The page's current HTML, for a failure message.

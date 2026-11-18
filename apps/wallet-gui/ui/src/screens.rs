@@ -5,7 +5,7 @@ use leptos::task::spawn_local;
 
 use crate::amount;
 use crate::bridge;
-use crate::widgets::{Glyph, Icon, Lattice, PausedCard, RevealToggle, SecretField, TestnetTag};
+use crate::widgets::{Glyph, Icon, Lattice, RevealToggle, SecretField, TestnetTag};
 use crate::{AppState, Screen};
 
 /// Shortens a hex string for display.
@@ -427,18 +427,28 @@ pub mod backup {
             .map(|(&index, answer)| {
                 let id = format!("quiz-{}", index + 1);
                 let label = format!("Word {}", index + 1);
+                let word = words[index].clone();
+                // Each word confirms itself as it matches, so progress
+                // toward Open wallet is visible word by word.
+                let right = Signal::derive(move || answer.get().trim().eq_ignore_ascii_case(&word));
                 view! {
                     <div class="field">
                         <label for=id.clone()>{label}</label>
-                        <input
-                            id=id
-                            class="mono"
-                            autocomplete="off"
-                            spellcheck="false"
-                            autocapitalize="off"
-                            prop:value=move || answer.get()
-                            on:input=move |ev| answer.set(event_target_value(&ev))
-                        />
+                        <span class="quiz-row">
+                            <input
+                                id=id
+                                class="mono"
+                                class:right=move || right.get()
+                                autocomplete="off"
+                                spellcheck="false"
+                                autocapitalize="off"
+                                prop:value=move || answer.get()
+                                on:input=move |ev| answer.set(event_target_value(&ev))
+                            />
+                            <span class="match" class:on=move || right.get() aria-live="polite">
+                                {move || if right.get() { "\u{2713} Matches" } else { "" }}
+                            </span>
+                        </span>
                     </div>
                 }
             })
@@ -450,8 +460,8 @@ pub mod backup {
                 <h1>"Write down your recovery phrase"</h1>
                 <TestnetTag/>
                 <p class="warn">
-                    "These twenty four words are the only way to recover this wallet. \
-                     They are shown once and cannot be displayed again."
+                    "These twenty four words recover this wallet. Keep them offline \
+                     and private. After you open the wallet, they cannot be shown again."
                 </p>
 
                 <ol class="phrase">{numbered}</ol>
@@ -753,7 +763,7 @@ pub mod wallet {
         let balance = move || {
             if balance_known() {
                 view! {
-                    <span class="value">{pretty_amount(&state.account_state.get().balance)}</span>
+                    <span class="value lit">{pretty_amount(&state.account_state.get().balance)}</span>
                     <span class="unit">{amount::TICKER}</span>
                 }
                 .into_any()
@@ -787,7 +797,10 @@ pub mod wallet {
             })
             .collect::<Vec<_>>();
 
+        // One column on a phone; from 1024 px the hero holds the left column
+        // and the lists the right, instead of a narrow strip in a wide window.
         view! {
+            <div class="home">
             <section class="hero-card enter">
                 <div class="hero-top">
                     <span class="label">{move || format!("Account {}", state.selected.get())}</span>
@@ -801,10 +814,30 @@ pub mod wallet {
                     </span>
                 </div>
                 <div class="hero-balance">{balance}</div>
+                // The one paused message on home: inside the hero, where the
+                // figure would be, with the raw error under Details. The
+                // header pill and Send say the rest without words.
+                <Show when=move || state.node_error.get().is_some()>
+                    <div class="hero-state paused" role="status" id="home-paused">
+                        <p>
+                            "The network is not answering; the public testnet may be \
+                             paused. Your keys stay on this device, and the balance \
+                             refreshes by itself when the node answers."
+                        </p>
+                        <details class="disclosure">
+                            <summary>"Details"</summary>
+                            <code class="mono">{move || state.node_error.get().unwrap_or_default()}</code>
+                        </details>
+                    </div>
+                </Show>
                 <TestnetTag/>
                 <div class="actions">
+                    // Dimmed while the node is away, not disabled: it still
+                    // opens, and the Send screen says why nothing can be priced.
                     <button
                         class="action"
+                        class:dim=move || state.node_error.get().is_some()
+                        aria-describedby=move || state.node_error.get().map(|_| "home-paused")
                         on:click=move |_| go(Screen::Send(bridge::PaymentRequest::default()))
                     >
                         <span class="icon"><Icon glyph=Glyph::Send/></span>
@@ -820,13 +853,6 @@ pub mod wallet {
                     </button>
                 </div>
             </section>
-
-            <PausedCard
-                title="The network is not answering"
-                body="The public testnet may be paused. Your keys stay on this device, \
-                      and the balance refreshes by itself when the node answers."
-                error=state.node_error
-            />
 
             <section class="card enter">
                 <h2>"Accounts"</h2>
@@ -869,6 +895,7 @@ pub mod wallet {
                 </p>
                 <button class="ghost wide" on:click=move |_| refresh()>"Refresh"</button>
             </details>
+            </div>
         }
     }
 }

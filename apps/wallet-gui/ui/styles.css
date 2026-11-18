@@ -22,56 +22,102 @@
   --edge: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 40%, var(--bronze)) 55%, var(--bronze));
 
   /* The wallet's surface roles, each a mix of token roles. Dark first (the
-     default with no OS preference); light below. Cards sit a full step
-     above the page and carry a faint teal, so they separate from it. */
-  --page: var(--bg);
-  --card: color-mix(in srgb, var(--surface-2) 96%, var(--accent));
-  --card-edge: color-mix(in srgb, var(--text) 11%, transparent);
-  --hero-fill: color-mix(in srgb, var(--surface-2) 90%, var(--accent));
-  /* The emblem's two metals as light behind the content: strong enough to
-     be seen below the header, and a third pool low on the page. */
-  --glow-teal: color-mix(in srgb, var(--accent) 30%, transparent);
-  --glow-bronze: color-mix(in srgb, var(--bronze) 22%, transparent);
-  --glow-low: color-mix(in srgb, var(--accent) 14%, transparent);
-  /* Value figures. --value is for display sizes only; --value-text for
-     value text at body size (Total, the Signed pill), at 4.5:1 or more. */
-  --value: var(--bronze);
+     default with no OS preference); light below.
+     shortcut: the dark page and cards are lifted off near-black here because
+     this branch's --bg is still #08090b; once #521's lifted palette (a
+     teal-ink --bg and surfaces) reaches this branch, --page becomes var(--bg)
+     and --card var(--surface-1), and these mixes go. */
+  --page: color-mix(in srgb, var(--bg) 88%, var(--accent));
+  --card: color-mix(in srgb, var(--surface-3) 88%, var(--accent));
+  --card-edge: color-mix(in srgb, var(--accent) 22%, transparent);
+  /* The hero carries the emblem's two metals: teal to bronze, strong enough
+     to read as colour. --label-on-tint is small secondary text on any tinted
+     fill (the hero, a selected row): 6.3:1 on the hero's brightest corner. */
+  --hero-fill: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 24%, var(--surface-2)),
+    color-mix(in srgb, var(--bronze) 20%, var(--surface-2)));
+  --hero-glow: color-mix(in srgb, var(--bronze) 16%, transparent);
+  --label-on-tint: color-mix(in srgb, var(--text-2) 60%, var(--text));
+  /* The review summary: calmer than the hero, so the figure leads. */
+  --summary-fill: color-mix(in srgb, var(--surface-2) 86%, var(--accent));
+  /* Light behind the content, kept to 20% so text on the page stays 4.5:1
+     where the glow is brightest; element glows (shadows) may be stronger. */
+  --page-glow-teal: color-mix(in srgb, var(--accent) 20%, transparent);
+  --page-glow-bronze: color-mix(in srgb, var(--bronze) 16%, transparent);
+  --glow-teal: color-mix(in srgb, var(--accent) 34%, transparent);
+  --glow-bronze: color-mix(in srgb, var(--bronze) 26%, transparent);
+  --glow-low: color-mix(in srgb, var(--accent) 12%, transparent);
+  /* Value figures. --value is for display sizes only (a warm, luminous
+     gold); --value-text for value text at body size (Total, the Signed
+     pill), at 4.5:1 or more. */
+  --value: color-mix(in srgb, var(--bronze) 60%, var(--text));
   --value-text: var(--bronze);
-  --value-glow: 0 0 28px color-mix(in srgb, var(--bronze) 35%, transparent);
+  --value-glow: 0 0 32px color-mix(in srgb, var(--bronze) 55%, transparent);
+  /* The primary action: the bright end of the teal ramp, dark ink on it. */
+  --primary-from: var(--accent-hover);
+  --primary-to: var(--accent-grad-to);
+  --primary-ink: var(--on-accent);
+  /* A text field's edge, 3:1 against its fill (WCAG 1.4.11): 3.7:1 dark,
+     4.5:1 light. Becomes #521's --border-control when that lands. */
+  --control-edge: var(--text-3);
+  --lattice-edge: 0.32;
   /* The mark is drawn for a dark ground: no tile needed here. */
   --mark-tile: transparent;
 }
 
-/* Light, by OS preference or by choice. Not an inversion: a teal-tinted
-   page, white cards, teal-tinted hero and summary, a gold value figure
-   (4.5:1 on the hero tint) and the mark on a dark tile, because the raster
+/* Light, by OS preference or by choice. Not an inversion: a warm white
+   page with one clear mint-and-gold light source, white cards, a hero
+   tinted teal to bronze, a deep teal primary with white ink, a gold value
+   figure and the mark on a dark tile ringed in teal, because the raster
    emblem's smoky edge is drawn for a dark ground. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --page: color-mix(in srgb, var(--bg) 95%, var(--accent));
+    --page: color-mix(in srgb, var(--bg) 97%, var(--bronze));
     --card: var(--surface-1);
-    --card-edge: color-mix(in srgb, var(--accent) 16%, var(--border));
-    --hero-fill: color-mix(in srgb, var(--surface-1) 95%, var(--accent));
-    --glow-teal: color-mix(in srgb, var(--accent) 22%, transparent);
-    --glow-bronze: color-mix(in srgb, var(--bronze) 18%, transparent);
-    --glow-low: color-mix(in srgb, var(--accent) 10%, transparent);
-    --value: color-mix(in srgb, var(--warn) 70%, var(--bronze));
+    --card-edge: color-mix(in srgb, var(--accent) 18%, var(--border));
+    --hero-fill: linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 16%, var(--surface-1)),
+      color-mix(in srgb, var(--bronze) 14%, var(--surface-1)));
+    --hero-glow: color-mix(in srgb, var(--warn) 12%, transparent);
+    --label-on-tint: var(--text-2);
+    --summary-fill: color-mix(in srgb, var(--surface-1) 94%, var(--accent));
+    --page-glow-teal: color-mix(in srgb, var(--accent-grad-from) 22%, transparent);
+    --page-glow-bronze: color-mix(in srgb, var(--warn) 14%, transparent);
+    --glow-teal: color-mix(in srgb, var(--accent-grad-from) 30%, transparent);
+    --glow-bronze: color-mix(in srgb, var(--warn) 18%, transparent);
+    --glow-low: transparent;
+    --value: color-mix(in srgb, color-mix(in srgb, var(--warn) 70%, var(--bronze)) 88%, var(--text));
     --value-text: color-mix(in srgb, var(--bronze) 80%, var(--text));
     --value-glow: none;
+    --primary-from: color-mix(in srgb, var(--accent) 50%, var(--accent-text));
+    --primary-to: var(--accent-text);
+    --primary-ink: var(--surface-1);
+    --lattice-edge: 0.6;
     --mark-tile: color-mix(in srgb, var(--text) 94%, var(--accent));
   }
 }
 [data-theme="light"] {
-  --page: color-mix(in srgb, var(--bg) 95%, var(--accent));
+  --page: color-mix(in srgb, var(--bg) 97%, var(--bronze));
   --card: var(--surface-1);
-  --card-edge: color-mix(in srgb, var(--accent) 16%, var(--border));
-  --hero-fill: color-mix(in srgb, var(--surface-1) 95%, var(--accent));
-  --glow-teal: color-mix(in srgb, var(--accent) 22%, transparent);
-  --glow-bronze: color-mix(in srgb, var(--bronze) 18%, transparent);
-  --glow-low: color-mix(in srgb, var(--accent) 10%, transparent);
-  --value: color-mix(in srgb, var(--warn) 70%, var(--bronze));
+  --card-edge: color-mix(in srgb, var(--accent) 18%, var(--border));
+  --hero-fill: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 16%, var(--surface-1)),
+    color-mix(in srgb, var(--bronze) 14%, var(--surface-1)));
+  --hero-glow: color-mix(in srgb, var(--warn) 12%, transparent);
+  --label-on-tint: var(--text-2);
+  --summary-fill: color-mix(in srgb, var(--surface-1) 94%, var(--accent));
+  --page-glow-teal: color-mix(in srgb, var(--accent-grad-from) 22%, transparent);
+  --page-glow-bronze: color-mix(in srgb, var(--warn) 14%, transparent);
+  --glow-teal: color-mix(in srgb, var(--accent-grad-from) 30%, transparent);
+  --glow-bronze: color-mix(in srgb, var(--warn) 18%, transparent);
+  --glow-low: transparent;
+  --value: color-mix(in srgb, color-mix(in srgb, var(--warn) 70%, var(--bronze)) 88%, var(--text));
   --value-text: color-mix(in srgb, var(--bronze) 80%, var(--text));
   --value-glow: none;
+  --primary-from: color-mix(in srgb, var(--accent) 50%, var(--accent-text));
+  --primary-to: var(--accent-text);
+  --primary-ink: var(--surface-1);
+  --lattice-edge: 0.6;
   --mark-tile: color-mix(in srgb, var(--text) 94%, var(--accent));
 }
 
@@ -88,12 +134,15 @@ html {
      never under it (WCAG 2.4.11). */
   scroll-padding-top: calc(56px + var(--space-4));
   background:
-    radial-gradient(48rem 30rem at 0% -8%, var(--glow-teal), transparent 68%),
-    radial-gradient(42rem 26rem at 100% 0%, var(--glow-bronze), transparent 64%),
+    radial-gradient(48rem 30rem at 0% -8%, var(--page-glow-teal), transparent 68%),
+    radial-gradient(42rem 26rem at 100% 0%, var(--page-glow-bronze), transparent 64%),
     radial-gradient(56rem 30rem at 50% 112%, var(--glow-low), transparent 70%),
     var(--page);
   background-attachment: fixed;
 }
+/* A phone has an overlay scrollbar; a desktop window this narrow should not
+   spend its width on a gutter. */
+@media (max-width: 479px) { html { scrollbar-width: none; } }
 body {
   margin: 0;
   min-height: 100vh;
@@ -162,6 +211,9 @@ body {
 .net-pill.impostor { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
 .net-pill.impostor .dot { background: var(--danger); }
 .net-height { color: var(--text); font-weight: 500; letter-spacing: 0.02em; }
+/* Each new block: the height drops in and glows once. It plays only when
+   the height changes (a memo in NetworkPill), so it means a block arrived. */
+.net-height .tick { display: inline-block; animation: tick 900ms var(--ease) both; }
 /* In a phone-width window (430 px phones included) the height goes first (the kind stays) and the
    header tightens, so the name is never cut to "Maya2C ...". */
 @media (max-width: 479px) {
@@ -182,6 +234,15 @@ body {
 /* Two growing spacers centre a short screen; on a long one they are 0. */
 .body.center::before, .body.center::after { content: ""; flex: 1 1 0; }
 @media (min-width: 640px) { :root { --gutter-app: var(--space-6); } }
+/* Home: one column on a phone; from 1024 px the hero holds the left column
+   (and stays in view) and the lists fill the right, instead of a narrow
+   strip in an empty window. */
+.home { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (min-width: 1024px) {
+  .body:has(.home) { max-width: calc(64rem + 2 * var(--gutter-app)); }
+  .home { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: var(--space-6); align-items: start; }
+  .home > .hero-card { grid-row: 1 / span 4; position: sticky; top: calc(56px + var(--space-4)); }
+}
 
 .glyph { display: block; flex: none; }
 
@@ -215,16 +276,24 @@ h2 {
 .hero-card {
   position: relative;
   border-radius: var(--r-lg);
-  padding: var(--space-5);
+  padding: var(--space-6) var(--space-5) var(--space-5);
   margin-bottom: var(--space-4);
+  /* The glow sits low and right, under the action tiles, never under text. */
   background:
-    radial-gradient(26rem 14rem at 0% 0%, var(--glow-teal), transparent 70%),
-    radial-gradient(22rem 14rem at 100% 100%, var(--glow-bronze), transparent 70%),
+    radial-gradient(22rem 14rem at 100% 100%, var(--hero-glow), transparent 70%),
     var(--hero-fill);
-  box-shadow: var(--elevation-floating), 0 0 48px -12px var(--glow-teal);
+  box-shadow: var(--elevation-floating), 0 0 64px -16px var(--glow-teal);
   isolation: isolate;
   min-width: 0;
 }
+.hero-card .hero-top .label, .hero-card .faint, .hero-card .unit,
+.hero-card .disclosure > summary, .hero-state { color: var(--label-on-tint); }
+.hero-card .disclosure > summary:hover { color: var(--text); }
+/* The paused state, folded into the hero where the figure would be. */
+.hero-state { font-size: var(--type-body-sm-size); margin: 0 0 var(--space-1); }
+.hero-state p { margin: 0; }
+.hero-state code { display: block; margin: 0 0 var(--space-3); overflow-wrap: anywhere;
+  -webkit-user-select: text; user-select: text; }
 /* A 1 px gradient border from a masked pseudo-element, so the fill stays a
    real surface rather than a gradient showing through. */
 .hero-card::before, .qr-frame::before, .summary::before {
@@ -236,6 +305,8 @@ h2 {
   mask-composite: exclude;
   opacity: 0.8;
 }
+/* The hero's edge is the full metal, not a hairline. */
+.hero-card::before { padding: 1.5px; opacity: 1; }
 .hero-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .hero-top .label, .eyebrow {
   font: 600 var(--type-label-size)/1.2 var(--font-sans);
@@ -261,9 +332,13 @@ h2 {
    while the first read is on its way. */
 .hero-balance .value.unavailable {
   font: 600 var(--type-title-3-size)/1.3 var(--font-display); letter-spacing: 0;
-  color: var(--text-2); text-shadow: none;
+  color: var(--label-on-tint); text-shadow: none;
 }
+/* The reserved height is for a figure arriving; words need none. */
+.hero-balance:has(.unavailable) { min-height: 0; }
 .hero-balance .value.skeleton { width: 9rem; height: 40px; border-radius: var(--r-md); }
+/* The balance arrives once, out of a blur, the way light settles on metal. */
+.hero-balance .value.lit { animation: lit 900ms var(--ease) both; }
 .unit { color: var(--text-2); font-size: 15px; font-weight: 500; }
 
 /* "Testnet, coins have no value": amber, on setup, backup and home. */
@@ -286,11 +361,15 @@ h2 {
 .action {
   display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
   min-height: 72px; padding: var(--space-3) var(--space-1);
-  background: var(--surface-2);
+  /* Glass tiles over the hero's colour. */
+  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
   border: 1px solid var(--border-strong);
   color: var(--text); border-radius: var(--r-lg);
   font-weight: 600;
 }
+/* Send while the node is away: still a button (it opens and explains), its
+   disc grey so it does not promise a transfer. */
+.action.dim .icon { background: var(--surface-3); color: var(--text-2); box-shadow: none; }
 .action .icon {
   display: grid; place-items: center;
   width: 36px; height: 36px; border-radius: 50%;
@@ -316,7 +395,7 @@ label, .field-label {
 input, textarea {
   width: 100%; min-height: var(--tap); padding: 10px 12px;
   background: var(--surface-2); color: var(--text);
-  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  border: 1px solid var(--control-edge); border-radius: var(--r-md);
   font: inherit; font-size: 16px; /* 16 px stops phones zooming on focus */
   transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
   -webkit-user-select: text; user-select: text;
@@ -324,7 +403,7 @@ input, textarea {
 }
 /* 6:1 on the input fill in both themes; --text-3 alone was 3.7:1 in dark. */
 input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--text-2) 70%, var(--text-3)); opacity: 1; }
-input:hover, textarea:hover { border-color: var(--text-3); }
+input:hover, textarea:hover { border-color: var(--text-2); }
 input:focus, textarea:focus { border-color: var(--accent); }
 input[aria-invalid="true"] { border-color: var(--danger); }
 textarea { resize: vertical; line-height: 1.5; }
@@ -371,15 +450,19 @@ button {
 button:active:not(:disabled) { transform: scale(0.98); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .primary {
-  background: linear-gradient(180deg, var(--accent-grad-from), var(--accent-grad-to));
-  color: var(--on-accent);
+  background: linear-gradient(180deg, var(--primary-from), var(--primary-to));
+  color: var(--primary-ink);
   box-shadow: inset 0 1px 0 var(--accent-highlight), 0 8px 24px -8px var(--accent);
 }
+/* A primary under its fields sits a group's gap below them, not on them. */
+.primary.wide:not(.send-final) { margin-top: var(--space-6); }
 .primary:hover:not(:disabled) { filter: brightness(1.06); }
-/* A disabled primary is a neutral surface, not a dimmed teal. */
+/* A disabled primary keeps the primary's shape and a trace of its colour,
+   so the screen's main action is still recognisable (and its words 5.6:1
+   dark, 5.9:1 light), but it is plainly not ready. */
 .primary:disabled {
-  opacity: 1; background: var(--surface-3); color: var(--text-2);
-  border-color: var(--border-strong); box-shadow: none;
+  opacity: 1; background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); color: var(--text-2);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: none;
 }
 .secondary { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); box-shadow: var(--shadow-inset); }
 .secondary:hover:not(:disabled) { background: var(--surface-3); }
@@ -492,7 +575,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   position: absolute; inset: 0; width: 100%; height: 100%;
   animation: turn 90s linear infinite;
 }
-.lattice .edges { fill: none; stroke: var(--accent); stroke-width: 0.8; opacity: 0.32; }
+.lattice .edges { fill: none; stroke: var(--accent); stroke-width: 0.8; opacity: var(--lattice-edge); }
 .lattice .dots circle { fill: var(--accent); opacity: 0.55; }
 /* A few points brighten in turn: motion that suggests a signature being
    checked against its lattice, slow enough to be calm. */
@@ -503,6 +586,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   position: relative; display: grid; place-items: center;
   width: 112px; height: 112px; border-radius: 28px;
   background: var(--mark-tile);
+  /* Ringed in teal, so in light the dark tile reads as the mark's setting. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 16px 40px -12px var(--glow-teal);
   animation: arrive var(--dur-3) var(--ease) both;
 }
 .welcome .mark {
@@ -545,6 +630,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .quiz { display: grid; gap: var(--space-1); }
 .quiz .field input.right { border-color: var(--success); }
+.quiz-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.quiz-row input { flex: 1; }
+/* Each word confirms itself as it matches: progress toward Open wallet. */
+.match { flex: none; min-width: 5.5rem; color: var(--success); font-size: var(--type-body-sm-size); font-weight: 600; }
+.match.on { animation: rise var(--dur-3) var(--ease); }
 
 /* ------------------------------------------------------------- accounts */
 
@@ -554,7 +644,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--surface-2); border: 1px solid var(--border);
   color: var(--text); font-weight: 500; text-align: left; min-width: 0;
 }
-.account .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--text-2); }
+.account .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--label-on-tint); }
 .account:hover { border-color: var(--border-strong); }
 .account.selected {
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
@@ -636,9 +726,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .summary {
   position: relative; isolation: isolate;
   margin-top: var(--space-3);
-  background:
-    radial-gradient(22rem 10rem at 0% 0%, var(--glow-teal), transparent 70%),
-    var(--hero-fill);
+  background: var(--summary-fill);
   border-radius: var(--r-lg);
   padding: var(--space-2) var(--space-4) var(--space-1);
   box-shadow: var(--elevation-floating);
@@ -648,6 +736,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .summary-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
 .summary-top .edit { margin-right: calc(-1 * var(--space-2)); padding: 0 var(--space-2); }
+/* The eyebrow and the network on one row, so the figure comes sooner. */
+.summary-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .net-badge {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 3px 10px; border-radius: var(--r-pill);
@@ -657,7 +747,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .net-badge.test { color: var(--warn); }
 .net-badge.main { color: var(--accent-text); }
 .net-badge.impostor { color: var(--danger); }
-.summary .net-badge { margin-top: 2px; }
 .amount-hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); min-width: 0; }
 .summary .description { color: var(--text-2); margin: 0 0 var(--space-2); font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
 .kv { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border); min-width: 0; }
@@ -665,6 +754,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .kv > span:last-child { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
 .kv.inline { grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--space-3); }
 .kv.inline > span:last-child { text-align: right; }
+/* Below 400 px the label goes above its value, so the value has the row. */
+@media (max-width: 399px) {
+  .kv.inline { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .kv.inline > span:last-child { text-align: left; }
+}
+/* A Fee or Total figure is short (six decimals at most) and one unit with
+   its ticker: it never breaks. The exact figure is under Details. */
+.figure.one-line { white-space: nowrap; }
 .kv.total > span:last-child { font-weight: 700; color: var(--value-text); }
 /* A figure keeps its ticker: the no-break space joins them, and a long
    fraction drops to the smaller mono size so 24 decimals fit a phone. */
@@ -673,8 +770,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* A full address in groups of four, so a person can compare it, and the
    same string on the copy button beside it. */
 .to { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
-.chunks { flex: 1; display: flex; flex-wrap: wrap; gap: 2px 8px; padding-top: 2px; min-width: 0;
-  font-family: var(--font-mono); font-size: 14px; color: var(--text); }
+/* Four groups a row on a phone, eight from 600 px: a 64-character address
+   is four or two even rows, with no group left alone on a line. */
+.chunks { flex: 1; display: grid; grid-template-columns: repeat(4, max-content); gap: 2px 10px;
+  padding-top: 2px; min-width: 0;
+  font-family: var(--font-mono); font-size: 13px; color: var(--text); }
+@media (min-width: 600px) { .chunks { grid-template-columns: repeat(8, max-content); } }
 .chunks span { white-space: nowrap; }
 .summary .disclosure { border-top: 1px solid var(--border); }
 .summary .disclosure .kv:first-of-type { border-top: 0; }
@@ -691,6 +792,22 @@ html:has(.send-bar) { scroll-padding-bottom: 140px; }
 @media (max-width: 379px) { .send-bar { margin-inline: calc(-1 * var(--space-4)); padding-inline: var(--space-4); } }
 .irreversible { text-align: center; color: var(--text-2); font-size: var(--type-body-sm-size); margin: var(--space-2) 0 0; }
 .send-final { margin-top: var(--space-1); min-height: 52px; font-size: 16px; }
+.sign-only { display: block; margin: var(--space-1) auto 0; font-size: var(--type-body-sm-size); }
+/* The two signatures being made: a lattice trace (teal dots) and a hash
+   chain (bronze squares) lighting in turn, while the step really runs. */
+.sig-trace { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--space-2);
+  margin: var(--space-2) 0 0; color: var(--accent-text); font-size: var(--type-body-sm-size); font-weight: 600; }
+.trace { display: inline-flex; gap: 3px; }
+.trace i { width: 6px; height: 6px; background: currentColor; opacity: 0.25; animation: trace 1.2s var(--ease) infinite; }
+.lattice-trace { color: var(--accent); }
+.lattice-trace i { border-radius: 50%; }
+.hash-trace { color: var(--bronze); }
+.hash-trace i { border-radius: 1px; }
+.trace i:nth-child(2) { animation-delay: 0.1s; }
+.trace i:nth-child(3) { animation-delay: 0.2s; }
+.trace i:nth-child(4) { animation-delay: 0.3s; }
+.trace i:nth-child(5) { animation-delay: 0.4s; }
+.trace i:nth-child(6) { animation-delay: 0.5s; }
 .raw { margin-top: var(--space-4); }
 
 /* A small icon button (copy beside a value): 44 px target, quiet look. */
@@ -792,6 +909,16 @@ input + .copy-row { margin-top: var(--space-2); }
   35% { opacity: 1; r: 3.4px; }
 }
 @keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes tick {
+  from { opacity: 0; transform: translateY(-5px); text-shadow: 0 0 12px var(--accent); }
+  40% { opacity: 1; transform: none; text-shadow: 0 0 12px var(--accent); }
+  to { text-shadow: none; }
+}
+@keyframes lit {
+  from { opacity: 0; filter: blur(6px); transform: translateY(6px); }
+  to { opacity: 1; filter: none; transform: none; }
+}
+@keyframes trace { 0%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
 
 /* Durations to 1 ms rather than `animation: none`, so `both` end states
    still apply (forged-light-2.md §2); loops stop. */

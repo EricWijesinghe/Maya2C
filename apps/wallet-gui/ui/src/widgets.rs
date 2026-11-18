@@ -106,10 +106,13 @@ pub fn Icon(glyph: Glyph) -> impl IntoView {
     }
 }
 
-/// The Show toggle of a secret field. One constant name ("Show passphrase")
-/// and `aria-pressed` for the state: the toggle-button pattern, so a screen
-/// reader hears "Show passphrase, toggle button, pressed" rather than a name
-/// that flips between two verbs. The eye is struck through while shown.
+/// The Show toggle of a secret field. Its name is "Show " and the field's
+/// label ("Show passphrase", "Show confirm passphrase", "Show recovery
+/// phrase"), so two toggles on one screen are told apart, and it never
+/// changes while pressed: `aria-pressed` carries the state (the toggle-button
+/// pattern), so a screen reader hears "Show passphrase, toggle button,
+/// pressed" rather than a name that flips between two verbs. The eye is
+/// struck through while shown.
 #[component]
 pub fn RevealToggle(
     /// What the button reveals, lower case ("passphrase").

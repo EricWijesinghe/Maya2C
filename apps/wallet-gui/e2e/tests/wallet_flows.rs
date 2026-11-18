@@ -68,6 +68,14 @@ fn driver(service: &str) -> Driver {
     let child = Command::new(env("TAURI_DRIVER"))
         .args(["--native-driver", &env("EDGE_DRIVER")])
         .env("MAYA_WALLET_KEYCHAIN_SERVICE", service)
+        // Screenshots in sRGB, the space the tokens are written in. Without
+        // this, WebView2 captures in the display's wide-gamut profile and the
+        // PNG (untagged, so read as sRGB) shows #3bc9b5 as about
+        // rgb(102,193,176): a pale mint that was never painted.
+        .env(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--force-color-profile=srgb",
+        )
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -131,14 +139,12 @@ fn field(s: &Session, name: &str) -> Element {
     }
 }
 
-/// The input right after the visible label `name`: the old Send form's shape
-/// as well as the new one, so the lock test can run against both.
-fn input_after_label(s: &Session, name: &str, wait: Duration) -> Option<Element> {
-    s.xpath(
-        &format!("//label[normalize-space()='{name}']/following-sibling::input[1]"),
-        wait,
-    )
-    .ok()
+/// Whether any input or textarea has the accessible name `name` right now.
+fn has_field(s: &Session, name: &str) -> bool {
+    s.all("input, textarea")
+        .unwrap()
+        .iter()
+        .any(|candidate| s.label(candidate).is_ok_and(|label| label.trim() == name))
 }
 
 /// The visible text of the `index`th match of `css`, once `ready` accepts
@@ -171,7 +177,7 @@ fn force_theme(s: &Session, theme: &str) {
 /// common phones, a tablet, a laptop and a wide desktop.
 const WIDTHS: [u32; 6] = [360, 390, 430, 768, 1024, 1440];
 /// The widths every screen is pictured at: phone, tablet and desktop.
-const SHOT_WIDTHS: [u32; 3] = [360, 768, 1440];
+const SHOT_WIDTHS: [u32; 2] = [360, 1440];
 const DEFAULT_SIZE: (u32, u32) = (460, 780);
 /// A phone's height, so what is "below the fold" in a picture is what is
 /// below it on a phone.
@@ -288,20 +294,80 @@ fn assert_header_aligned(s: &Session) {
     restore_size(s);
 }
 
-/// The primary button paints the accent gradient's own colours: the start
-/// stop of its background is `--accent-grad-from`, not a paler mix.
+/// The primary button paints its role's own colours, in both themes: the
+/// gradient starts at `--primary-from`, nothing dims or filters it, and the
+/// painted pixel (read back from a real screenshot, not from computed
+/// styles) is within a few levels of the gradient's colour at that point.
 fn assert_primary_is_the_accent(s: &Session) {
+    for theme in ["dark", "light"] {
+        force_theme(s, theme);
+        std::thread::sleep(Duration::from_millis(400));
+        assert_primary_styles(s, theme);
+        assert_primary_pixels(s, theme);
+    }
+    force_theme(s, "dark");
+}
+
+/// How far a painted channel may sit from the expected one: gradient
+/// dithering and the 1 px border's offset, not a colour shift (the profile
+/// error this guards against was 40+ levels in red).
+const PIXEL_TOLERANCE: i64 = 8;
+
+fn assert_primary_pixels(s: &Session, theme: &str) {
+    let geometry = s
+        .execute(
+            "const b = document.querySelector('button.primary:not(:disabled)');\
+             b.scrollIntoView({block: 'center'});\
+             const r = b.getBoundingClientRect();\
+             const rgb = (css) => { const c = document.createElement('canvas'); c.width = c.height = 1;\
+               const x = c.getContext('2d'); x.fillStyle = css; x.fillRect(0, 0, 1, 1);\
+               return [...x.getImageData(0, 0, 1, 1).data].slice(0, 3); };\
+             const probe = (v) => { const i = document.createElement('i'); i.style.color = 'var(' + v + ')';\
+               document.body.append(i); const c = getComputedStyle(i).color; i.remove(); return rgb(c); };\
+             const from = probe('--primary-from'), to = probe('--primary-to');\
+             return [Math.round((r.left + 6) * devicePixelRatio), Math.round((r.top + r.height / 2) * devicePixelRatio),\
+               from.map((f, k) => Math.round((f + to[k]) / 2))]",
+        )
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let png = s.screenshot_base64().unwrap();
+    let script = format!(
+        "const done = arguments[arguments.length - 1];\
+         const img = new Image(); img.src = 'data:image/png;base64,{png}';\
+         img.decode().then(() => {{ const c = document.createElement('canvas');\
+           c.width = img.width; c.height = img.height; const x = c.getContext('2d');\
+           x.drawImage(img, 0, 0); done([...x.getImageData({}, {}, 1, 1).data].slice(0, 3)); }})\
+         .catch(e => done(['decode failed: ' + e]));",
+        geometry[0], geometry[1]
+    );
+    let painted = s.execute_async(&script).unwrap();
+    println!(
+        "primary pixel {theme}: painted {painted}, expected {} (mid-gradient)",
+        geometry[2]
+    );
+    for k in 0..3 {
+        let got = painted[k].as_i64().expect("a decoded pixel");
+        let want = geometry[2][k].as_i64().unwrap();
+        assert!(
+            (got - want).abs() <= PIXEL_TOLERANCE,
+            "{theme}: the primary is painted {painted}, its role says {}",
+            geometry[2]
+        );
+    }
+}
+
+fn assert_primary_styles(s: &Session, theme: &str) {
     let found = s
         .execute(
             "const b = document.querySelector('button.primary:not(:disabled)');\
              const probe = document.createElement('i');\
-             probe.style.color = 'var(--accent-grad-from)'; document.body.append(probe);\
+             probe.style.color = 'var(--primary-from)'; document.body.append(probe);\
              const from = getComputedStyle(probe).color; probe.remove();\
              const cs = getComputedStyle(b);\
              return [cs.backgroundImage, from, cs.opacity, cs.filter]",
         )
         .unwrap();
-    println!("primary: {found}");
+    println!("primary {theme}: {found}");
     let image = found[0].as_str().unwrap();
     let from = found[1].as_str().unwrap();
     assert!(
@@ -488,9 +554,11 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     println!("strength for a 5-character passphrase: {hint}");
     s.replace_text(&pass, PASSPHRASE).unwrap();
     s.type_text(&confirm, PASSPHRASE).unwrap();
-    // A toggle button: one constant computed name, the state in aria-pressed.
-    let toggle = s.wait_for("button.reveal", 1, WAIT).unwrap();
+    // A toggle button per field, named "Show " and the field's label so two
+    // on one screen are told apart; the state is in aria-pressed.
+    let toggle = s.wait_for("button.reveal", 2, WAIT).unwrap();
     assert_eq!(s.label(&toggle[0]).unwrap(), "Show passphrase");
+    assert_eq!(s.label(&toggle[1]).unwrap(), "Show confirm passphrase");
     s.click(&toggle[0]).unwrap();
     assert_eq!(
         s.attribute(&pass, "type").unwrap().as_deref(),
@@ -585,7 +653,7 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     );
     println!(
         "default node: {}",
-        if s.all(".state.paused").unwrap().is_empty() {
+        if s.all(".hero-state.paused").unwrap().is_empty() {
             "answered"
         } else {
             "paused card shown"
@@ -595,8 +663,12 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     // the node did not give.
     let balance = text_when(&s, ".hero-balance", 0, |t| !t.trim().is_empty());
     println!("default node balance line: {balance:?}");
-    if !s.all(".state.paused").unwrap().is_empty() {
+    if !s.all(".hero-state.paused").unwrap().is_empty() {
         assert_eq!(balance.trim(), "Balance unavailable");
+        assert!(
+            s.all(".state.paused").unwrap().is_empty(),
+            "one paused message on home, in the hero: no second card"
+        );
     }
     assert_accessible(&s, "home (default node)");
     assert_no_overflow(&s, "home (default node)");
@@ -722,9 +794,10 @@ fn editing_after_review_takes_the_review_away() {
     let own = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
     s.click(&button(&s, "Back")).unwrap();
     s.click(&action(&s, "Send")).unwrap();
-    let recipient = input_after_label(&s, "Recipient", WAIT).expect("a Recipient field");
+    // Found by accessible name, as a screen reader finds them.
+    let recipient = field(&s, "Recipient");
     s.type_text(&recipient, own.trim()).unwrap();
-    let amount = input_after_label(&s, "Amount", WAIT).expect("an Amount field");
+    let amount = field(&s, "Amount");
     s.type_text(&amount, "1").unwrap();
     review(&s);
     let hero = text_when(&s, ".summary .amount-hero .value", 0, |t| t.trim() == "1");
@@ -751,12 +824,9 @@ fn editing_after_review_takes_the_review_away() {
         serde_json::json!([]),
         "the reviewed values are read-only text, not fields"
     );
-    assert!(
-        input_after_label(&s, "Amount", Duration::ZERO).is_none(),
-        "no Amount input under review"
-    );
+    assert!(!has_field(&s, "Amount"), "no Amount input under review");
     s.click(&edit).unwrap();
-    let amount = input_after_label(&s, "Amount", WAIT).expect("an Amount field to edit");
+    let amount = field(&s, "Amount");
     s.replace_text(&amount, "2").unwrap();
     std::thread::sleep(Duration::from_millis(700));
 
@@ -789,8 +859,21 @@ fn editing_after_review_takes_the_review_away() {
     let warning = text_when(&s, ".irreversible", 0, |t| !t.is_empty());
     assert_eq!(warning.trim(), "This cannot be undone.");
     // On a phone-sized window the Send button is on screen with the summary,
-    // not below the fold.
+    // not below the fold, and Fee and Total are each one line: a figure a
+    // person can check by eye, never a number broken across two lines.
     at_width(&s, WIDTHS[0]);
+    let rows = s
+        .execute(
+            "return [...document.querySelectorAll('.summary .kv.inline .figure')]\
+             .map(e => [e.textContent, e.getClientRects().length])",
+        )
+        .unwrap();
+    println!("fee and total @360: {rows}");
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "a Fee and a Total figure: {rows:?}");
+    for row in rows {
+        assert_eq!(row[1], 1, "a figure wraps at 360 px: {row}");
+    }
     let fold = s
         .execute(
             "const b = document.querySelector('.send-final').getBoundingClientRect();\
@@ -807,8 +890,14 @@ fn editing_after_review_takes_the_review_away() {
     assert_no_overflow(&s, "send review");
     shots_captioned(&s, "send-review-stub", Some(STUB_CAPTION));
 
-    // Home with a node that answers.
+    // The locked step has no Back: Edit is the way back, then the form's Back.
+    assert!(
+        maybe_button(&s, "Back").is_none(),
+        "Back on the locked step duplicates Edit"
+    );
+    s.click(&button(&s, "Edit")).unwrap();
     s.click(&button(&s, "Back")).unwrap();
+    // Home with a node that answers.
     text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
     assert_no_overflow(&s, "account");
     shots_captioned(&s, "account-stub", Some(STUB_CAPTION));

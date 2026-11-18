@@ -34,14 +34,12 @@ pub struct Review {
 }
 
 impl Review {
-    /// Amount plus fee, in base units, as a display string. `None` if the
-    /// sum would overflow 256 bits, which no real transfer reaches.
-    fn total(&self) -> Option<String> {
+    /// Amount plus fee, in base units. `None` if the sum would overflow 256
+    /// bits, which no real transfer reaches.
+    fn total(&self) -> Option<U256> {
         let amount = amount::parse_base_units(&self.amount).ok()?;
         let fee = amount::parse_base_units(&self.fee).ok()?;
-        amount
-            .checked_add(fee)
-            .map(|sum: U256| trim_display(&amount::format_display(sum)))
+        amount.checked_add(fee)
     }
 }
 
@@ -64,11 +62,58 @@ impl Generation {
     }
 }
 
+/// What the last step is doing, so the screen can show it happen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    Idle,
+    /// Making the two signatures (the native dialog is open first).
+    Signing,
+    /// Handing the signed transaction to the node.
+    Broadcasting,
+}
+
 /// A display amount as the summary shows it: trailing zeros dropped and the
 /// ticker joined by a no-break space, so a wrapped figure never leaves
 /// "MAYA" alone on a line.
 fn figure(display: &str) -> String {
     format!("{}\u{a0}{}", trim_display(display), amount::TICKER)
+}
+
+/// Said when a signature is thrown away because what it was made from changed
+/// on screen meanwhile (the account's nonce or the node's terms refreshed).
+const CHANGED_WHILE_SIGNING: &str =
+    "The transfer changed while it was being signed, so nothing was sent. Review it again.";
+
+/// Decimals a Fee or Total row shows. The exact figure is under Details.
+const SHOWN_DECIMALS: usize = 6;
+
+/// A fee or total as its summary row shows it: exact when it has at most
+/// [`SHOWN_DECIMALS`] decimals; otherwise rounded to them and marked "≈",
+/// and a non-zero value too small to show reads "< 0.000001". The row is a
+/// figure a person can check by eye; the marker says when it is not the exact
+/// one, and Details always holds the exact one.
+fn approx_figure(base: U256) -> String {
+    let unit = U256::exp10(amount::DECIMALS - SHOWN_DECIMALS);
+    if (base % unit).is_zero() {
+        return figure(&amount::format_display(base));
+    }
+    let rounded = base.checked_add(unit / 2).unwrap_or(base) / unit * unit;
+    if rounded.is_zero() {
+        return format!("<\u{a0}{}", figure(&amount::format_display(unit)));
+    }
+    format!("\u{2248}\u{a0}{}", figure(&amount::format_display(rounded)))
+}
+
+/// A display amount from the core ("1,000.5000…") as base units.
+fn display_value(display: &str) -> Option<U256> {
+    amount::parse_display(&display.replace(',', "")).ok()
+}
+
+/// A row's value: the [`approx_figure`] of `value`, or a dash when there is
+/// none, never a guessed figure. One line: the figure never wraps.
+fn approx_view(value: Option<U256>) -> impl IntoView + use<> {
+    let text = value.map_or_else(|| "\u{2014}".to_string(), approx_figure);
+    view! { <span class="figure one-line">{text}</span> }
 }
 
 /// Long fractions get the smaller mono style, so 24 decimals fit a phone.
@@ -150,6 +195,7 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
     let preview = RwSignal::new(None::<Review>);
     let signed = RwSignal::new(None::<bridge::SignedTransfer>);
     let busy = RwSignal::new(false);
+    let phase = RwSignal::new(Phase::Idle);
     let fee_terms = RwSignal::new(bridge::FeeTerms::default());
     let fee_error = RwSignal::new(None::<String>);
     let generation = StoredValue::new(Generation::default());
@@ -252,47 +298,70 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         };
         let ticket = generation.get_value();
         busy.set(true);
+        phase.set(Phase::Signing);
         spawn_local(async move {
             match sign_reviewed(&review).await {
                 Ok(transfer) => {
-                    // Shown only beside the review it was made from.
+                    // Shown, and announced, only beside the review it was
+                    // made from.
                     if generation.get_value().keep(ticket, ()).is_some() {
                         signed.set(Some(transfer));
+                        state.inform("Signed. This transaction can be broadcast from any device.");
+                    } else {
+                        state.fail(CHANGED_WHILE_SIGNING);
                     }
-                    state.inform("Signed. This transaction can be broadcast from any device.");
                     if let Ok(history) = bridge::history().await {
                         state.history.set(history);
                     }
                 }
                 Err(error) => state.fail(error),
             }
+            phase.set(Phase::Idle);
             busy.set(false);
         });
     };
 
     // The one primary action: sign what was reviewed (unless already signed)
-    // and broadcast it.
+    // and broadcast it. Both steps check the ticket, so nothing leaves for a
+    // review that is no longer on screen.
     let send_final = move |_| {
         let Some(review) = preview.get_untracked() else {
             return;
         };
+        let ticket = generation.get_value();
         busy.set(true);
         spawn_local(async move {
             let transfer = match signed.get_untracked() {
                 Some(transfer) => transfer,
-                None => match sign_reviewed(&review).await {
-                    Ok(transfer) => {
-                        signed.set(Some(transfer.clone()));
-                        transfer
+                None => {
+                    phase.set(Phase::Signing);
+                    match sign_reviewed(&review).await {
+                        Ok(transfer) if generation.get_value() == ticket => {
+                            signed.set(Some(transfer.clone()));
+                            transfer
+                        }
+                        Ok(_) => {
+                            state.fail(CHANGED_WHILE_SIGNING);
+                            phase.set(Phase::Idle);
+                            busy.set(false);
+                            return;
+                        }
+                        Err(error) => {
+                            state.fail(error);
+                            phase.set(Phase::Idle);
+                            busy.set(false);
+                            return;
+                        }
                     }
-                    Err(error) => {
-                        state.fail(error);
-                        busy.set(false);
-                        return;
-                    }
-                },
+                }
             };
-            broadcast(state, transfer).await;
+            if generation.get_value() == ticket {
+                phase.set(Phase::Broadcasting);
+                broadcast(state, transfer).await;
+            } else {
+                state.fail(CHANGED_WHILE_SIGNING);
+            }
+            phase.set(Phase::Idle);
             busy.set(false);
         });
     };
@@ -395,6 +464,7 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
         // only lays it out (and adds amount + fee for the Total).
         let total = review.total();
         let c = review.confirmation;
+        let fee_value = c.fee.as_deref().and_then(display_value);
         let shown_amount = trim_display(&c.amount.clone().unwrap_or_default());
         let fee_exceeds = c.fee_exceeds_amount;
         // One form of the recipient only: the core's checksummed hex, in
@@ -411,7 +481,10 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
             // with Edit the one way back to the fields.
             <section class="summary" aria-labelledby="review-title">
                 <div class="summary-top">
-                    <span class="eyebrow" id="review-title">"You are sending"</span>
+                    <span class="summary-kicker">
+                        <span class="eyebrow" id="review-title">"You are sending"</span>
+                        <NetBadge/>
+                    </span>
                     // Disabled while signing or broadcasting: an Edit then
                     // would let a signature of this review land after the
                     // form had moved on.
@@ -424,7 +497,6 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                         "Edit"
                     </button>
                 </div>
-                <NetBadge/>
                 <div class="amount-hero">
                     <span class="value">{shown_amount.clone()}</span>
                     <span class="unit">{amount::TICKER}</span>
@@ -438,18 +510,24 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                 </div>
                 <div class="kv inline">
                     <span>"Fee"</span>
-                    {figure_view(&c.fee.unwrap_or_default())}
+                    {approx_view(fee_value)}
                 </div>
                 <div class="kv inline total">
                     <span>"Total"</span>
-                    {match total {
-                        Some(t) => figure_view(&t).into_any(),
-                        None => view! { <span>"\u{2014}"</span> }.into_any(),
-                    }}
+                    {approx_view(total)}
                 </div>
                 <details class="disclosure">
                     <summary>"Details"</summary>
                     <p class="description">{c.description}</p>
+                    // The exact figures behind the rounded rows above.
+                    <div class="kv"><span>"Exact fee"</span>{figure_view(&c.fee.unwrap_or_default())}</div>
+                    <div class="kv">
+                        <span>"Exact total"</span>
+                        {match total {
+                            Some(t) => figure_view(&amount::format_display(t)).into_any(),
+                            None => view! { <span>"\u{2014}"</span> }.into_any(),
+                        }}
+                    </div>
                     <div class="kv"><span>"Nonce"</span><span>{c.nonce}</span></div>
                     <div class="kv"><span>"Signing hash"</span><span class="mono">{c.signing_hash}</span></div>
                     <div class="kv"><span>"Chain"</span><span class="mono">{c.chain_id}</span></div>
@@ -479,9 +557,9 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                         {move || signed.get().map(|t| t.raw_hex).unwrap_or_default()}
                     </textarea>
                     <p class="hint">
-                        "This hex is a complete transaction. It can be copied to an \
-                         online device and broadcast there, so this machine never \
-                         needs a network connection."
+                        "This hex is a complete signed transaction. Signing it made \
+                         no network call (the review above used the node), and it \
+                         can be copied to an online device and broadcast there."
                     </p>
                 </div>
             </Show>
@@ -489,6 +567,23 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
             // Pinned to the bottom of a short window, so the one action and
             // its warning are always on screen with the summary.
             <div class="send-bar">
+                // The two signatures every transfer carries, drawn while they
+                // are made: a lattice trace (ML-DSA-65) and a hash chain
+                // (SLH-DSA). Shown only while the step really runs.
+                <Show when=move || phase.get() != Phase::Idle>
+                    <p class="sig-trace" role="status">
+                        <span class="trace lattice-trace" aria-hidden="true">
+                            <i></i><i></i><i></i><i></i><i></i><i></i>
+                        </span>
+                        {move || match phase.get() {
+                            Phase::Broadcasting => "Handing it to the network\u{2026}",
+                            _ => "Signing: ML-DSA-65 and SLH-DSA\u{2026}",
+                        }}
+                        <span class="trace hash-trace" aria-hidden="true">
+                            <i></i><i></i><i></i><i></i><i></i><i></i>
+                        </span>
+                    </p>
+                </Show>
                 <p class="irreversible">"This cannot be undone."</p>
                 <button
                     class="primary wide send-final"
@@ -497,17 +592,17 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                 >
                     {final_label}
                 </button>
+                <Show when=move || !is_signed()>
+                    <button
+                        type="button"
+                        class="link sign-only"
+                        disabled=move || busy.get()
+                        on:click=sign_only
+                    >
+                        "Sign only, to broadcast elsewhere"
+                    </button>
+                </Show>
             </div>
-            <Show when=move || !is_signed()>
-                <button
-                    type="button"
-                    class="ghost wide"
-                    disabled=move || busy.get()
-                    on:click=sign_only
-                >
-                    "Sign only, to broadcast elsewhere"
-                </button>
-            </Show>
         }
     };
 
@@ -530,15 +625,18 @@ pub fn Send(request: bridge::PaymentRequest) -> impl IntoView {
                 None => form().into_any(),
             }}
 
-            <button
-                class="ghost wide"
-                on:click=move |_| {
-                    state.clear();
-                    state.screen.set(Screen::Wallet);
-                }
-            >
-                "Back"
-            </button>
+            // On the locked step Edit is the way back, so Back is the form's.
+            <Show when=move || preview.get().is_none()>
+                <button
+                    class="ghost wide"
+                    on:click=move |_| {
+                        state.clear();
+                        state.screen.set(Screen::Wallet);
+                    }
+                >
+                    "Back"
+                </button>
+            </Show>
         </section>
     }
 }
@@ -574,8 +672,9 @@ mod tests {
     fn the_total_is_amount_plus_fee_in_whole_coins() {
         let one = "1000000000000000000000000";
         let tenth = "100000000000000000000000";
-        assert_eq!(review(one, tenth).total().as_deref(), Some("1.1"));
-        assert_eq!(review(one, "0").total().as_deref(), Some("1"));
+        let shown = |r: Review| r.total().map(|t| trim_display(&amount::format_display(t)));
+        assert_eq!(shown(review(one, tenth)).as_deref(), Some("1.1"));
+        assert_eq!(shown(review(one, "0")).as_deref(), Some("1"));
         assert_eq!(
             review("x", "0").total(),
             None,
@@ -629,6 +728,29 @@ mod tests {
             figure(&amount::format_display(U256::from(10))),
             "0.00000000000000000000001\u{a0}MAYA",
             "10 base units at 24 decimals"
+        );
+    }
+
+    #[test]
+    fn a_row_figure_is_exact_or_says_it_is_not() {
+        let base = |s: &str| U256::from_dec_str(s).unwrap();
+        let row = |s: &str| approx_figure(base(s)).replace('\u{a0}', " ");
+        // Six decimals or fewer: exact, no marker.
+        assert_eq!(row("1100000000000000000000000"), "1.1 MAYA");
+        assert_eq!(row("1000000000000000000"), "0.000001 MAYA");
+        assert_eq!(row("0"), "0 MAYA");
+        // Too small to show at six decimals: a bound, never "0".
+        assert_eq!(row("10"), "< 0.000001 MAYA");
+        // More precision than the row shows: rounded and marked.
+        assert_eq!(row("2000000000000000000000010"), "\u{2248} 2 MAYA");
+        assert_eq!(row("1500000000000000000"), "\u{2248} 0.000002 MAYA");
+        assert_eq!(row("1400000000000000000"), "\u{2248} 0.000001 MAYA");
+        // Every row is short enough for one line at 360 px.
+        assert!(row("19687500123456789012345678901234").chars().count() <= 28);
+        // A fee the core shows as a display string reads back exactly.
+        assert_eq!(
+            display_value("1,000.000000000000000000000010"),
+            Some(base("1000000000000000000000000010"))
         );
     }
 

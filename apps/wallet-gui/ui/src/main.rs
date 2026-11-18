@@ -37,6 +37,8 @@ const NETWORK_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 /// Pending-link check. Polled, not evented: a wasm page cannot listen to a
 /// Tauri event without JS glue. One cheap IPC call a second, Wallet screen only.
 const PENDING_PAY_POLL: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long a success notice stays: long enough to read one line twice.
+const NOTICE_FOR: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// Which screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,10 +124,21 @@ impl AppState {
         self.error.set(Some(message.into()));
     }
 
-    /// Reports a success.
+    /// Reports a success. It goes by itself after [`NOTICE_FOR`] (an error
+    /// stays until dismissed), unless a newer notice has replaced it.
     pub fn inform(&self, message: impl Into<String>) {
+        let message = message.into();
         self.error.set(None);
-        self.notice.set(Some(message.into()));
+        self.notice.set(Some(message.clone()));
+        let notice = self.notice;
+        set_timeout(
+            move || {
+                if notice.get_untracked().as_deref() == Some(message.as_str()) {
+                    notice.set(None);
+                }
+            },
+            NOTICE_FOR,
+        );
     }
 
     /// Clears both banners.
@@ -260,31 +273,41 @@ fn App() -> impl IntoView {
 #[component]
 fn NetworkPill() -> impl IntoView {
     let state = expect_context::<AppState>();
+    // Memos, so the pill redraws only when what it shows changes: the poll
+    // sets the status every few seconds, but the height span is replaced
+    // (and its tick plays) only when a new block has arrived.
+    let look = Memo::new(move |_| {
+        state.network.get().map(|status| {
+            let name = status
+                .network
+                .clone()
+                .unwrap_or_else(|| "unnamed network".into());
+            let title = format!("{name} \u{b7} genesis {}", screens::short(&status.genesis));
+            let (class, kind) = if status.is_impostor() {
+                ("net-pill impostor", "NOT MAINNET")
+            } else if status.is_test_network() {
+                ("net-pill test", "TESTNET")
+            } else {
+                ("net-pill main", "MAINNET")
+            };
+            (class, kind, title)
+        })
+    });
+    let height = Memo::new(move |_| state.network.get().map(|status| status.height));
     view! {
-        {move || match state.network.get() {
-            Some(status) => {
-                let test = status.is_test_network();
-                let impostor = status.is_impostor();
-                let name = status.network.clone().unwrap_or_else(|| "unnamed network".into());
-                let title = format!("{name} \u{b7} genesis {}", screens::short(&status.genesis));
-                let (class, kind) = if impostor {
-                    ("net-pill impostor", "NOT MAINNET")
-                } else if test {
-                    ("net-pill test", "TESTNET")
-                } else {
-                    ("net-pill main", "MAINNET")
-                };
-                view! {
-                    <span class=class title=title>
-                        <span class="dot"></span>
-                        <span class="net-kind">{kind}</span>
-                        <span class="net-height">
-                            {format!("#{}", screens::group_digits(status.height))}
-                        </span>
+        {move || match look.get() {
+            Some((class, kind, title)) => view! {
+                <span class=class title=title>
+                    <span class="dot"></span>
+                    <span class="net-kind">{kind}</span>
+                    <span class="net-height">
+                        {move || height.get().map(|h| view! {
+                            <span class="tick">{format!("#{}", screens::group_digits(h))}</span>
+                        })}
                     </span>
-                }
-                .into_any()
+                </span>
             }
+            .into_any(),
             None => view! {
                 <span class="net-pill offline"><span class="dot"></span>"offline"</span>
             }
