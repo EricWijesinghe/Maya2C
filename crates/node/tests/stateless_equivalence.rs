@@ -396,6 +396,36 @@ fn a_transaction_witness_decides_a_block_of_that_transaction() {
     );
 }
 
+// A v13 frame debits a sponsor no output names (ADR-135 P-4); the witness a
+// wallet broadcasts beside it opens that account and the collector too.
+#[test]
+fn a_sponsored_transaction_witness_opens_the_sponsor_and_the_collector() {
+    use custom_l1_node::state::fees::FEE_COLLECTOR;
+    use maya_crypto_pq::suite::{MasterSeed, MlDsa87, SignatureSuite, SuiteId, suite_address};
+    use maya_stateless_core::Blake3;
+
+    let (alice, bob) = (key(1), key(2));
+    let sponsor = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([3; 32]));
+    let payer = suite_address(SuiteId::MlDsa87, &MlDsa87::public_key(&sponsor));
+    let node = Node::activated(&[alice.address(), payer]);
+    let mut tx = transfer(&alice, 0, &[(bob.address(), 9)]);
+    tx.sponsor_with::<MlDsa87>(
+        &sponsor,
+        U256::from(1_000_000u64),
+        100,
+        &common::test_chain(),
+    )
+    .expect("sponsor");
+
+    let witness = node.db.transaction_witness(&tx).expect("witness");
+    let opened = witness
+        .accounts
+        .verify(&Blake3, |_| true)
+        .expect("any digest");
+    assert!(opened.get(&payer).expect("sponsor opened").is_some());
+    opened.get(&FEE_COLLECTOR).expect("collector opened");
+}
+
 #[test]
 fn witness_layers_out_of_fold_order_are_refused() {
     let alice = key(1);

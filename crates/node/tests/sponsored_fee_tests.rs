@@ -537,16 +537,16 @@ fn a_v13_frame_inside_a_v13_frame_is_refused_at_decode() {
     );
 }
 
-/// A v7 frame from the hybrid-suite `key`, paying its own fee: what a
+/// A v7 frame from the suite-`S` `key`, paying its own fee: what a
 /// sponsor sends to configure its own account.
-fn own_paid(kind: TxKind, nonce: u64, key: &SponsorKey) -> Transaction {
+fn own_paid<S: SignatureSuite>(kind: TxKind, nonce: u64, key: &S::SigningKey) -> Transaction {
     let build = |fee: U256| {
         let mut tx = Transaction::with_kind(kind.clone(), nonce);
         tx.outputs = vec![TxOutput {
             amount: fee,
             recipient: FEE_COLLECTOR,
         }];
-        tx.sign_with_suite::<HybridMlDsa65SlhDsa128s>(key, &common::test_chain())
+        tx.sign_with_suite::<S>(key, &common::test_chain())
             .expect("sign");
         tx
     };
@@ -573,7 +573,7 @@ fn a_sponsor_vault_counts_the_fee_toward_its_window() {
     let first = sponsored(inner(&alice, 0, 1), &key, GENEROUS, V4 + 100);
     let one_fee = required(&first);
     // Room for one sponsored fee in the window, not two.
-    let configure = own_paid(vault(one_fee + one_fee / 2), 0, &key);
+    let configure = own_paid::<HybridMlDsa65SlhDsa128s>(vault(one_fee + one_fee / 2), 0, &key);
     apply(&f, vec![configure], V4).expect("the sponsor opts into a vault");
 
     apply(&f, vec![first], V4 + 1).expect("one fee fits the window");
@@ -666,6 +666,63 @@ fn the_mempool_keeps_one_sponsored_frame_per_inner() {
     );
     assert_eq!(pool.len(), 1);
     assert!(pool.contains(&by_a.txid()));
+}
+
+// Squatting (P-12 × P-10, V4-V1 review): a vault of limit 0 refuses every
+// sponsored fee at apply, so its frames never apply and never pay. Admitted,
+// the smaller one would displace an honest sponsorship of the same inner and
+// hold it out of every block until `valid_until`, for free.
+#[test]
+fn a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner() {
+    let alice = user(0x44);
+    let honest = sponsor_key(0x71);
+    let squatter = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([0x72; 32]));
+    let squat_payer = suite_address(SuiteId::MlDsa87, &MlDsa87::public_key(&squatter));
+    let dir = TempDir::new().expect("dir");
+    let (mut c, height) = live_chain(
+        &dir,
+        &[alice.address(), sponsor_address(&honest), squat_payer],
+    );
+    // `vault::validate` bounds the delay and the guardians, not the limit.
+    let configure = own_paid::<MlDsa87>(vault(U256::zero()), 0, &squatter);
+    let block = c
+        .candidate_block(1_000_001, vec![configure])
+        .expect("configure applies");
+    c.insert_block(block)
+        .expect("the squatter opts into a vault");
+    let admit_at = height + 1;
+
+    let by_honest = sponsored(inner(&alice, 0, 1), &honest, GENEROUS, admit_at + 100);
+    let mut squat = inner(&alice, 0, 1);
+    squat
+        .sponsor_with::<MlDsa87>(
+            &squatter,
+            U256::from(GENEROUS),
+            admit_at + 100,
+            &common::test_chain(),
+        )
+        .expect("sponsor");
+    assert_eq!(squat.inner_txid(), by_honest.inner_txid(), "one inner");
+    assert!(
+        squat.to_bytes().len() < by_honest.to_bytes().len(),
+        "the squat is the smaller frame, so P-12 would keep it"
+    );
+
+    let pool = Mempool::new(Arc::clone(c.state()));
+    assert!(pool.insert(by_honest.clone()).expect("honest admitted"));
+    let err = pool.insert(squat.clone()).unwrap_err();
+    assert!(matches!(err, NodeError::Vault(_)), "{err:?}");
+    assert_eq!(pool.len(), 1);
+    assert!(
+        pool.contains(&by_honest.txid()),
+        "the pooled honest frame is not displaced"
+    );
+
+    // Into an empty pool: the squat is refused, the honest frame admitted.
+    let fresh = Mempool::new(Arc::clone(c.state()));
+    let err = fresh.insert(squat).unwrap_err();
+    assert!(matches!(err, NodeError::Vault(_)), "{err:?}");
+    assert!(fresh.insert(by_honest).expect("honest admitted"));
 }
 
 /// A two-key vault for `owner`'s own sends, with an instant limit of

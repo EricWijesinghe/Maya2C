@@ -437,6 +437,17 @@ impl Mempool {
                 available,
             });
         }
+        // The sponsor's vault window, dry-run on a throwaway overlay: apply
+        // charges the debit to it (P-10), so a frame it would refuse never
+        // applies, costs its sponsor nothing, and as the smaller frame for its
+        // inner (P-12) would squat that inner. `revalidate` re-runs this, so a
+        // frame whose window fills later leaves the pool too.
+        self.state.charge_vault_window(
+            &mut crate::state::db::Overlay::default(),
+            &payer,
+            required,
+            height,
+        )?;
         // A sponsored share is paid for, but still only worth relaying if it
         // would pay its miner: the share rules apply would refuse it on.
         if let crate::core::TxKind::MiningShare(share) = &tx.kind

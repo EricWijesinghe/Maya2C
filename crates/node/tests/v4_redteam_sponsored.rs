@@ -8,7 +8,11 @@
 //! Classes tried (V4-V1 brief): value creation (none: a sponsorship moves
 //! the fee between two accounts, `sponsored_fee_tests` checks the total),
 //! fee bypass (here, M1, and P-5 there), replay (P-1 there), squatting (no
-//! namespace), unbounded per-block work (M3, open, and not specific to
+//! namespace, but an inner can be squatted in the pool: a limit-0 vault
+//! sponsor's smaller frame displacing an honest one, refused at admission,
+//! `a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner`
+//! there), X1 (open, no test: NOT VERIFIED), unbounded per-block work (M3,
+//! open, no test or benchmark: NOT VERIFIED, and not specific to
 //! sponsors: the block builder's filter (`StateDB::select_applicable_within`) copies the
 //! whole overlay for every frame that is not a plain transfer, so a block full
 //! of v4 forms (or sponsored transfers) costs every builder work quadratic in

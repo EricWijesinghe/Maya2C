@@ -51,9 +51,9 @@ pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// Until the v4 entry moves it, every v13 frame is refused on admission and on
 /// apply by the one check both call (`state::sponsor::require_active`).
 ///
-/// Not to be written while M1 (spec 02, "Open residuals": the sponsor does
-/// not sign the inner frame's approvals, so a relay can grow the frame it
-/// pays for) and M3 (the builder's overlay copy) are open.
+/// Not to be written while M3 (the builder's overlay copy) and X1 (a sponsor
+/// against ADR-086 Rule A / AA-9, cross-feature with #548) are open; spec 02,
+/// "Open residuals". M1 closed when SP-2 began signing `inner_len`.
 pub const SPONSORED_FEES_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// Prefix of every upgrade-schedule record. A committed layer

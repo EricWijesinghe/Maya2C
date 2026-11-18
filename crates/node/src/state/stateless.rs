@@ -246,9 +246,20 @@ pub(crate) fn sparse_accounts_root(
     })
 }
 
-/// Every account a transfer reads: its sender, then its recipients.
+/// Every account a transfer reads: its sender, then its recipients, then for
+/// a v13 frame the sponsor and the collector its fee moves to — accounts no
+/// output names (ADR-135 P-4). `check_eligible` still refuses a block holding
+/// a sponsored frame; this keeps the per-transaction witness complete.
 fn touched_by(tx: &Transaction) -> impl Iterator<Item = Address> + '_ {
-    core::iter::once(tx.sender()).chain(tx.outputs.iter().map(|output| output.recipient))
+    let sponsored = tx
+        .sponsor
+        .as_ref()
+        .map(|s| [s.address(), crate::state::fees::FEE_COLLECTOR])
+        .into_iter()
+        .flatten();
+    core::iter::once(tx.sender())
+        .chain(tx.outputs.iter().map(|output| output.recipient))
+        .chain(sponsored)
 }
 
 fn fold_layers(accounts_root: &[u8; HASH_LEN], layers: &[LayerDigest]) -> [u8; HASH_LEN] {
