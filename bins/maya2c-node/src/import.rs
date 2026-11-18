@@ -514,7 +514,11 @@ mod tests {
         let chain = chain(dir.path());
         let mut orphans = Orphans::default();
         let author = PeerId::random();
-        let big = orphan([7u8; 32], 0, MAX_BLOCK_BYTES as usize + 1024);
+        let big = orphan(
+            [7u8; 32],
+            0,
+            usize::try_from(MAX_BLOCK_BYTES).unwrap() + 1024,
+        );
         assert!(big.check_size().is_err(), "fixture is not over the cap");
 
         let report = import(&chain, big, Some(author), &mut orphans);
