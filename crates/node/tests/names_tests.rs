@@ -122,7 +122,7 @@ fn update(label: &[u8], op: NameUpdate) -> TxKind {
 
 fn refusal(error: &NodeError) -> &'static str {
     match error {
-        NodeError::NameRefused { reason } => *reason,
+        NodeError::NameRefused { reason } => reason,
         other => panic!("expected NameRefused, got {other:?}"),
     }
 }
@@ -357,12 +357,13 @@ fn set_reverse_requires_the_name_to_target_the_sender() {
     commit_at(&f, &owner, b"scam", 0, V4);
     apply(
         &f,
-        vec![signed(register(b"scam", 1, other.address()), 1, &owner)],
+        vec![signed(register(b"scam", 1, owner.address()), 1, &owner)],
         V4 + MIN_COMMIT_AGE,
     )
-    .expect("register pointing at someone else");
+    .expect("register pointing at the owner");
 
-    // `other` never pointed the name at itself, so it may not claim it.
+    // The name resolves to `owner`, not `other`, so `other` may not claim it
+    // as its reverse name (NM-6: SetReverse needs target == sender).
     let claim = signed(update(b"scam", NameUpdate::SetReverse), 0, &other);
     let err = apply(&f, vec![claim], V4 + MIN_COMMIT_AGE + 1).unwrap_err();
     assert!(refusal(&err).contains("does not target"), "{err}");
