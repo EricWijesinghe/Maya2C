@@ -1117,7 +1117,6 @@ name = "attacknet-controller"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "clap 4.6.7",
  "prometheus-client",
  "rand 0.8.8",
@@ -1125,6 +1124,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
@@ -1513,9 +1513,6 @@ name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
-dependencies = [
- "serde_core",
-]
 
 [[package]]
 name = "bitvec"
@@ -1884,10 +1881,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -6278,7 +6273,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
- "chrono",
  "custom-l1-node",
  "futures-util",
  "hex",
@@ -7672,6 +7666,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi 0.5.2",
+ "libc",
+]
+
+[[package]]
+name = "num_threads"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cabcc654086861f9e1bc5115258de62ef92c79b20f4615a1b0cc57c4e82027d4"
+dependencies = [
  "libc",
 ]
 
@@ -10562,7 +10565,6 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cfg-if",
- "chrono",
  "crc",
  "crossbeam-queue",
  "either",
@@ -10620,9 +10622,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx-core",
- "sqlx-mysql",
  "sqlx-postgres",
- "sqlx-sqlite",
  "syn 2.0.119",
  "tokio",
  "url",
@@ -10637,7 +10637,6 @@ dependencies = [
  "bitflags 2.13.1",
  "byteorder",
  "bytes",
- "chrono",
  "crc",
  "digest 0.11.3",
  "dotenvy",
@@ -10647,7 +10646,6 @@ dependencies = [
  "generic-array",
  "log",
  "percent-encoding",
- "serde",
  "sha1 0.11.0",
  "sha2 0.11.0",
  "sqlx-core",
@@ -10665,7 +10663,6 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.13.1",
  "byteorder",
- "chrono",
  "crc",
  "dotenvy",
  "etcetera",
@@ -10698,7 +10695,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488e99c397a62007e4229aec669a179816339afc6d2620ca6fa420dbee2e982c"
 dependencies = [
  "atoi",
- "chrono",
  "flume",
  "form_urlencoded",
  "futures-channel",
@@ -10709,7 +10705,6 @@ dependencies = [
  "libsqlite3-sys",
  "log",
  "percent-encoding",
- "serde",
  "sqlx-core",
  "thiserror 2.0.21",
  "tracing",
@@ -11040,7 +11035,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
+ "libc",
  "num-conv",
+ "num_threads",
  "powerfmt",
  "serde_core",
  "time-core",
@@ -12931,7 +12928,6 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "chrono",
  "hex",
  "image",
  "maya-amount",
@@ -12940,6 +12936,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
 ]
