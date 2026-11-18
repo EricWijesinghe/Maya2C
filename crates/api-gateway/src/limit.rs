@@ -27,6 +27,12 @@
 //! peer it is client-written, so the socket address is the key instead. A
 //! request that arrives without the header (a local health check) falls back
 //! to its socket address rather than failing.
+//!
+//! Loopback is not the same as "the proxy": in a header mode, any other
+//! process on this host, or anything that can make this host send a request
+//! to its own loopback, chooses its own key by writing the header. Use a
+//! header mode only on a host where the tunnel or proxy is the sole local
+//! client of the gateway port; otherwise run in [`ClientIp::Socket`] mode.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
