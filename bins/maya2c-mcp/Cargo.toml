@@ -15,8 +15,10 @@ primitive-types.workspace = true
 serde_json.workspace = true
 hex.workspace = true
 # The read-only debugging tools reuse `maya2c replay` and `maya2c debug`
-# through the CLI's library, rather than a second copy of either.
-maya2c-cli = { path = "../maya2c-cli" }
+# through the CLI's library, rather than a second copy of either. Without
+# its `cli` feature: no keystore (l1-wallet), no clap, no RPC client of the
+# CLI's own, and the node's `default-features = false` above stays in force.
+maya2c-cli = { path = "../maya2c-cli", default-features = false }
 # The replay's scratch copy: unpredictable, removed on drop.
 tempfile.workspace = true
 
