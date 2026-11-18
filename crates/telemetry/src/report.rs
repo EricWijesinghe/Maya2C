@@ -58,7 +58,17 @@ pub const REPORT_TTL_SECONDS: u64 = 300;
 #[derive(
     Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
+// Deserialize goes through `parse` so a JSON report cannot bypass the id rules.
+#[serde(try_from = "String")]
 pub struct ReporterId(String);
+
+impl TryFrom<String> for ReporterId {
+    type Error = ReportError;
+
+    fn try_from(input: String) -> Result<Self, Self::Error> {
+        Self::parse(&input)
+    }
+}
 
 impl ReporterId {
     /// Accepts an id of 1..=[`MAX_NAME_LEN`] characters from
@@ -284,6 +294,23 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_json_reporter_id_is_checked_like_a_parsed_one() {
+        // Deserialization must not be a way around `parse`: a long or
+        // out-of-charset id arriving as JSON is refused, not stored.
+        let long = "x".repeat(MAX_NAME_LEN + 1);
+        let long_json = format!(
+            r#"{{"kind":"miner","reporter":"{long}","hash_rate":1,"backend":"cpu","device":"d"}}"#
+        );
+        assert!(serde_json::from_str::<Report>(&long_json).is_err());
+
+        let spaced = r#"{"kind":"node","reporter":"rig 1","height":1,"peers":1,"propagation_ms":null,"client":"c"}"#;
+        assert!(serde_json::from_str::<Report>(spaced).is_err());
+
+        let good = r#"{"kind":"node","reporter":"rig-1","height":1,"peers":1,"propagation_ms":null,"client":"c"}"#;
+        assert!(serde_json::from_str::<Report>(good).is_ok());
     }
 
     #[test]

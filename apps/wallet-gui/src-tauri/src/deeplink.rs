@@ -31,10 +31,13 @@ pub enum Route {
     Open,
     /// Prefill the Send form. `recipient` is lowercase hex of the 32-byte id.
     /// `amount` is in base units (ADR-068), parsed from a whole-coin decimal.
+    /// `network` is the address's own prefix, kept so the request is refused
+    /// on the wrong chain (ADR-086 §7) like a pasted or scanned one.
     /// `chat` is the chat request it pays and its chain, from a link the
     /// chat made (`request` and `chain`, both or neither; ADR-088).
     Pay {
         recipient: String,
+        network: Network,
         amount: Option<U256>,
         chat: Option<ChatRequest>,
     },
@@ -114,7 +117,7 @@ fn parse_pay(query: &str) -> Result<Route, RouteError> {
         }
     }
     let to = to.ok_or(RouteError::Query)?;
-    let recipient = recipient_hex(to)?;
+    let (network, recipient) = recipient_hex(to)?;
     let amount = amount.map(parse_whole_coins).transpose()?;
     let chat = match (request, chain) {
         (None, None) => None,
@@ -126,6 +129,7 @@ fn parse_pay(query: &str) -> Result<Route, RouteError> {
     };
     Ok(Route::Pay {
         recipient,
+        network,
         amount,
         chat,
     })
@@ -179,11 +183,11 @@ fn already_paid<R: Runtime>(app: &AppHandle<R>, chat: &ChatRequest) -> bool {
     paid_list(app).map_or(true, |paid| paid.check(&id).is_err())
 }
 
-/// Checks a bech32m address and returns its 32-byte id as hex.
+/// Checks a bech32m address and returns its network and 32-byte id as hex.
 ///
-/// Any known network is accepted; the Send screen's preview names the chain,
-/// so a testnet id is still shown as one before anything is signed.
-fn recipient_hex(text: &str) -> Result<String, RouteError> {
+/// Any known network parses here; [`take_pending_pay`] refuses one that is
+/// not the connected chain's, before the Send form opens.
+fn recipient_hex(text: &str) -> Result<(Network, String), RouteError> {
     // Lowercase bech32m only: the charset check runs before the checksum.
     if !text
         .bytes()
@@ -191,8 +195,8 @@ fn recipient_hex(text: &str) -> Result<String, RouteError> {
     {
         return Err(RouteError::Address);
     }
-    let (_network, id) = decode_any(text).map_err(|_| RouteError::Address)?;
-    Ok(hex::encode(id))
+    let (network, id) = decode_any(text).map_err(|_| RouteError::Address)?;
+    Ok((network, hex::encode(id)))
 }
 
 /// A whole-coin decimal such as `1.5`, exact, in base units. Zero is refused.
@@ -219,6 +223,7 @@ pub fn handle<R: Runtime, U: std::fmt::Display>(app: &AppHandle<R>, urls: &[U]) 
             Ok(Route::Open) => {}
             Ok(Route::Pay {
                 recipient,
+                network,
                 amount,
                 chat,
             }) => {
@@ -228,9 +233,10 @@ pub fn handle<R: Runtime, U: std::fmt::Display>(app: &AppHandle<R>, urls: &[U]) 
                 }
                 let request = PaymentRequest {
                     recipient,
+                    network: Some(network.hrp().to_owned()),
                     amount,
-                    label: None,
                     chat,
+                    ..Default::default()
                 };
                 let pending: State<'_, PendingPay> = app.state();
                 *pending.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(request);
@@ -252,14 +258,25 @@ pub fn focus<R: Runtime>(app: &AppHandle<R>) {
 
 /// Returns and clears the pending pay request. Called by the UI only while
 /// the Wallet screen is showing, so a link never yanks the user off a
-/// signing flow.
+/// signing flow. A request for another network than `genesis` names is
+/// refused (and cleared) exactly as a pasted `maya:` URI would be.
+///
+/// # Errors
+///
+/// The refusal text from [`crate::commands::checked_request`].
 #[tauri::command]
-pub fn take_pending_pay(pending: State<'_, PendingPay>) -> Option<PaymentRequest> {
-    pending
+pub fn take_pending_pay(
+    pending: State<'_, PendingPay>,
+    genesis: Option<String>,
+) -> Result<Option<PaymentRequest>, String> {
+    let taken = pending
         .0
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .take()
+        .take();
+    taken
+        .map(|request| crate::commands::checked_request(request, genesis.as_deref()))
+        .transpose()
 }
 
 #[cfg(test)]
@@ -288,6 +305,7 @@ mod tests {
             parse(&url),
             Ok(Route::Pay {
                 recipient: hex::encode([7u8; 32]),
+                network: Network::Mainnet,
                 amount: Some(expected),
                 chat: None,
             })
@@ -301,6 +319,7 @@ mod tests {
             parse(&url),
             Ok(Route::Pay {
                 recipient: hex::encode([7u8; 32]),
+                network: Network::Testnet,
                 amount: None,
                 chat: None,
             })

@@ -512,3 +512,26 @@ input + .copy-row { margin-top: 0.5rem; }
     transition-duration: 1ms !important;
   }
 }
+
+/* Address book and the new-recipient read-back (ADR-086 §6.2, §7). */
+.contact {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+.contact-name { font-family: var(--font-display); font-weight: 600; }
+.contact .address, .recipient-check .readback {
+  display: block;
+  word-spacing: 0.35em;
+  overflow-wrap: anywhere;
+  margin: 0.4rem 0;
+}
+.recipient-check {
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  padding: 0.75rem;
+  margin: 0.6rem 0;
+}
+.recipient-check.new { border-color: var(--warn); }
+label.check { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--fg); }

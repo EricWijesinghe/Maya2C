@@ -37,9 +37,10 @@ pub mod ledger;
 pub mod limit;
 pub mod testing;
 
+use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use crate::limit::{Limiter, Refusal};
 use maya_address::{AddressError, Network};
@@ -62,7 +63,9 @@ pub enum FaucetError {
     ///
     /// Distinct from a rate limit: nothing the caller does makes this clear
     /// sooner, and telling them to "try a different address" would be wrong.
-    #[error("the faucet's daily budget is exhausted; it refills at midnight UTC")]
+    #[error(
+        "the faucet's daily budget is exhausted; it refills as grants from the last 24 hours age out"
+    )]
     BudgetExhausted,
 
     /// The address was not 32 hex-encoded bytes.
@@ -114,8 +117,11 @@ pub struct Faucet {
 #[derive(Debug)]
 struct State {
     limiter: Limiter,
-    spent_today: primitive_types::U256,
-    day_started: SystemTime,
+    /// Grants still inside the rolling window, oldest first. A fixed daily
+    /// reset would let a full budget be spent twice across the boundary.
+    grants: VecDeque<(SystemTime, primitive_types::U256)>,
+    /// The sum of `grants`.
+    spent_in_window: primitive_types::U256,
     /// `None` keeps everything in memory, as tests and the load test want.
     ledger: Option<ledger::Ledger>,
 }
@@ -133,7 +139,7 @@ impl Faucet {
         chain_id: impl Into<String>,
         dispense: primitive_types::U256,
         daily_cap: primitive_types::U256,
-        now: SystemTime,
+        _now: SystemTime,
     ) -> Result<Self, FaucetError> {
         let chain_id = chain_id.into();
         if VALUE_BEARING_CHAINS.contains(&chain_id.as_str()) {
@@ -150,8 +156,8 @@ impl Faucet {
             daily_cap,
             state: Mutex::new(State {
                 limiter: Limiter::new(),
-                spent_today: primitive_types::U256::zero(),
-                day_started: now,
+                grants: VecDeque::new(),
+                spent_in_window: primitive_types::U256::zero(),
                 ledger: None,
             }),
         })
@@ -171,13 +177,10 @@ impl Faucet {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for r in &replayed {
             state.limiter.record(r.ip, &r.address, r.at);
-            state.spent_today = state.spent_today.saturating_add(r.amount);
+            state.grants.push_back((r.at, r.amount));
+            state.spent_in_window = state.spent_in_window.saturating_add(r.amount);
         }
-        // The budget's day began with the oldest grant still inside it; later
-        // than that would under-count, earlier would reset too soon.
-        if let Some(first) = replayed.iter().map(|r| r.at).min() {
-            state.day_started = first;
-        }
+        expire(&mut state, now);
         state.ledger = Some(journal);
         Ok(Self {
             state: Mutex::new(state),
@@ -248,33 +251,32 @@ impl Faucet {
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        // Roll the budget over before reading it, so a request arriving after
-        // midnight sees a fresh day rather than yesterday's exhaustion.
-        if now
-            .duration_since(state.day_started)
-            .is_ok_and(|elapsed| elapsed >= Duration::from_secs(24 * 60 * 60))
-        {
-            state.spent_today = primitive_types::U256::zero();
-            state.day_started = now;
+        // Age out grants before reading the budget, so a request after a grant
+        // has left the window sees that grant's units back.
+        expire(&mut state, now);
+
+        // Decide every limit before writing any: a refused request, whether
+        // rate-limited or over budget, must consume nothing.
+        if let Some(refusal) = state.limiter.would_permit(ip, &address, now) {
+            return Err(FaucetError::RateLimited(refusal));
         }
-
-        state
-            .limiter
-            .check_and_commit(ip, &address, now)
-            .map_err(FaucetError::RateLimited)?;
-
-        let Some(spent) = state.spent_today.checked_add(self.dispense) else {
+        let Some(spent) = state.spent_in_window.checked_add(self.dispense) else {
             return Err(FaucetError::BudgetExhausted);
         };
         if spent > self.daily_cap {
             return Err(FaucetError::BudgetExhausted);
         }
+        state
+            .limiter
+            .check_and_commit(ip, &address, now)
+            .map_err(FaucetError::RateLimited)?;
         if let Some(journal) = state.ledger.as_mut() {
             journal
                 .record(now, ip, &address, self.dispense)
                 .map_err(FaucetError::Ledger)?;
         }
-        state.spent_today = spent;
+        state.grants.push_back((now, self.dispense));
+        state.spent_in_window = spent;
 
         Ok(Grant {
             amount: self.dispense,
@@ -283,14 +285,30 @@ impl Faucet {
         })
     }
 
-    /// Units already handed out today.
+    /// Units granted inside the rolling window, as of the most recent request.
     #[must_use]
     pub fn spent_today(&self) -> primitive_types::U256 {
         match self.state.lock() {
-            Ok(guard) => guard.spent_today,
-            Err(poisoned) => poisoned.into_inner().spent_today,
+            Ok(guard) => guard.spent_in_window,
+            Err(poisoned) => poisoned.into_inner().spent_in_window,
         }
     }
+}
+
+/// Returns to the budget the grants that have aged out of the window.
+///
+/// A grant counts for exactly [`limit::WINDOW`], matching the per-key limiter.
+/// A clock that went backwards keeps grants in place: the conservative reading.
+fn expire(state: &mut State, now: SystemTime) {
+    let mut freed = primitive_types::U256::zero();
+    state.grants.retain(|&(at, amount)| {
+        let aged_out = now.duration_since(at).is_ok_and(|age| age >= limit::WINDOW);
+        if aged_out {
+            freed = freed.saturating_add(amount);
+        }
+        !aged_out
+    });
+    state.spent_in_window = state.spent_in_window.saturating_sub(freed);
 }
 
 /// Parses a recipient as hex (64 characters, optional `0x`) or, when the chain
@@ -338,6 +356,7 @@ fn network_name(network: Network) -> &'static str {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use std::time::Duration;
 
     fn now() -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_767_225_600)
@@ -552,6 +571,58 @@ mod tests {
             "exactly one grant"
         );
     }
+
+    #[test]
+    fn the_budget_frees_up_grant_by_grant_not_at_a_fixed_reset() {
+        // Spent a second before a day has passed. A fixed daily reset would
+        // hand out a second full budget a second later.
+        let faucet = faucet();
+        let spent_at = now() + limit::WINDOW - Duration::from_secs(1);
+        for byte in 0..10u8 {
+            faucet
+                .request(ip(byte), &addr(byte), spent_at)
+                .expect("grant");
+        }
+
+        let error = faucet
+            .request(ip(200), &addr(200), spent_at + Duration::from_secs(1))
+            .expect_err("the grants are still inside the window");
+        assert!(matches!(error, FaucetError::BudgetExhausted));
+
+        faucet
+            .request(ip(200), &addr(200), spent_at + limit::WINDOW)
+            .expect("the grants have aged out");
+    }
+
+    #[test]
+    fn a_budget_refusal_consumes_no_rate_limit() {
+        // Over budget, the IP must stay usable: a refused request spends nothing.
+        let faucet = Faucet::new(
+            "maya-genesis-rc1",
+            primitive_types::U256::from(100),
+            primitive_types::U256::from(100),
+            now(),
+        )
+        .expect("faucet");
+        faucet
+            .request(ip(1), &addr(1), now())
+            .expect("the one grant");
+
+        let error = faucet
+            .request(ip(2), &addr(2), now())
+            .expect_err("the budget is spent");
+        assert!(matches!(error, FaucetError::BudgetExhausted));
+
+        let tracked = faucet.state.lock().expect("lock").limiter.tracked_ips();
+        assert_eq!(tracked, 1, "the refused IP was not recorded");
+    }
+
+    #[test]
+    fn the_budget_message_does_not_promise_midnight() {
+        let message = FaucetError::BudgetExhausted.to_string();
+        assert!(!message.contains("midnight"), "{message}");
+        assert!(message.contains("24 hours"), "{message}");
+    }
 }
 
 #[cfg(test)]
@@ -559,6 +630,7 @@ mod ledger_tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use std::net::Ipv4Addr;
+    use std::time::Duration;
 
     fn at(secs: u64) -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + secs)

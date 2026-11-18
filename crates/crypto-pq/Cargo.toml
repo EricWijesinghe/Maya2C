@@ -44,7 +44,7 @@ slh-dsa = { version = "=0.2.0-rc.5", features = ["zeroize"] }
 # last release predates FIPS 203 and whose shared-secret derivation, encodings
 # and key format the standard changed. It is not ML-KEM and must not be labelled
 # as such. Pure Rust, for the same static-musl reason as the rest of this crate.
-ml-kem = { version = "=0.3.3", features = ["getrandom", "zeroize"] }
+ml-kem = { version = "=0.3.4", features = ["getrandom", "zeroize"] }
 # HQC-192 (draft FIPS 207), the transport's second key encapsulation.
 #
 # RustCrypto, the same organisation as `ml-kem` above, and pure Rust for the
@@ -76,7 +76,7 @@ rand_core = { version = "0.10", default-features = false, optional = true }
 # Pinned exactly: pre-1.0 and in the consensus path, like `slh-dsa` above.
 # `default-features = false` drops `pkcs8`, which pulls a DER stack nothing here
 # reads.
-ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc", "zeroize"] }
+ml-dsa = { version = "=0.1.2", default-features = false, features = ["alloc", "zeroize"] }
 # Ed25519, devnet-only suite `0x01`. 3.0 because libp2p 0.57 already pulls it,
 # so this adds no second curve25519-dalek. `pkcs8` for the key format the brief
 # asks for; `verify_strict` is the only verification this crate exposes.

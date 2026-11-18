@@ -28,6 +28,43 @@ const BURST: f64 = 100.0;
 /// error for the assistant to report, not a hang.
 // shortcut: fixed 10 s, no retry; raise if a validator on a slow link needs it.
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+/// Largest node reply accepted, in bytes: the node's own RPC response limit
+/// (`RPC_RESPONSE_LIMIT`, crates/node/src/rpc/server.rs), so a full reply fits.
+const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Reads a reply until the node closes the connection. The deadline bounds the
+/// whole reply, not each read, so a server that trickles bytes cannot hold it open.
+fn read_capped(stream: &mut TcpStream, deadline: Instant, cap: usize) -> Result<Vec<u8>, String> {
+    let mut reply = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+            .ok_or("node reply timed out")?;
+        stream
+            .set_read_timeout(Some(left))
+            .map_err(|e| e.to_string())?;
+        match stream.read(&mut chunk) {
+            Ok(0) => return Ok(reply),
+            Ok(n) => {
+                if reply.len() + n > cap {
+                    return Err("node reply exceeds the size cap".into());
+                }
+                reply.extend_from_slice(&chunk[..n]);
+            }
+            // A timed-out read loops back to the deadline check above.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::Interrupted
+                        | std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
 
 /// A token bucket with an injectable clock, so the limit is testable.
 pub struct Limiter {
@@ -106,10 +143,12 @@ impl Node {
         stream
             .write_all(request.as_bytes())
             .map_err(|e| e.to_string())?;
-        let mut response = String::new();
-        stream
-            .read_to_string(&mut response)
-            .map_err(|e| e.to_string())?;
+        let reply_bytes = read_capped(
+            &mut stream,
+            Instant::now() + RPC_TIMEOUT,
+            MAX_RESPONSE_BYTES,
+        )?;
+        let response = String::from_utf8(reply_bytes).map_err(|e| e.to_string())?;
         let (_, json_part) = response
             .split_once("\r\n\r\n")
             .ok_or("malformed HTTP response")?;
@@ -160,5 +199,51 @@ mod tests {
                 .call("get_supply", &json!([]))
                 .is_err()
         );
+    }
+
+    /// A loopback connection whose server side runs `server` on accept.
+    fn pair(server: impl FnOnce(TcpStream) + Send + 'static) -> TcpStream {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            server(stream);
+        });
+        TcpStream::connect(addr).unwrap()
+    }
+
+    #[test]
+    fn a_reply_that_trickles_past_the_deadline_is_cut_off() {
+        let mut client = pair(|mut s| {
+            for _ in 0..200 {
+                if s.write_all(b"x").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let err = read_capped(&mut client, deadline, MAX_RESPONSE_BYTES).unwrap_err();
+        assert!(err.contains("timed out"), "{err}");
+    }
+
+    #[test]
+    fn a_reply_over_the_cap_is_refused() {
+        let mut client = pair(|mut s| {
+            let _ = s.write_all(&[b'x'; 4096]);
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let err = read_capped(&mut client, deadline, 1024).unwrap_err();
+        assert!(err.contains("size cap"), "{err}");
+    }
+
+    #[test]
+    fn a_reply_under_the_cap_is_read_whole() {
+        let mut client = pair(|mut s| {
+            let _ = s.write_all(b"hello");
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let body = read_capped(&mut client, deadline, 1024).unwrap();
+        assert_eq!(body, b"hello");
     }
 }

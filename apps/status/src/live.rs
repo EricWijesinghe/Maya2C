@@ -18,6 +18,11 @@ use crate::decentral::{self, Decentralization, StakeSet};
 pub const EVENT_LOG: usize = 60;
 /// Seconds of history kept for the sparklines.
 pub const HISTORY: usize = 600;
+/// Distinct peer ids remembered for the "seen since start" figure.
+///
+/// Peer ids are free to generate, so an unbounded set grows with churn alone.
+/// Past this the figure becomes a floor, flagged as `seen_capped`.
+pub const MAX_SEEN_PEERS: usize = 100_000;
 
 /// One connected peer, as a node's `get_peers` reports it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -166,6 +171,8 @@ pub struct LiveView {
     pub history: Vec<Sample>,
     /// Distinct peers seen since this service started.
     pub seen_total: usize,
+    /// Set when [`MAX_SEEN_PEERS`] was reached: `seen_total` is then a floor.
+    pub seen_capped: bool,
     /// Committee stake spread; `None` (MISSING) when it cannot be measured.
     pub decentralization: Option<Decentralization>,
     /// Set when every watched URL names one host: a plain sentence.
@@ -183,6 +190,7 @@ pub struct Live {
     /// Host of each watched node's URL, for the one-machine check.
     hosts: Vec<String>,
     first_seen: BTreeMap<String, u64>,
+    seen_capped: bool,
     present: BTreeSet<String>,
     up: BTreeMap<String, bool>,
     epoch: Option<u64>,
@@ -272,6 +280,7 @@ impl Live {
             events: self.events.iter().cloned().collect(),
             history: self.history.iter().copied().collect(),
             seen_total: self.first_seen.len(),
+            seen_capped: self.seen_capped,
             decentralization: latest_stakes(polls).and_then(decentral::measure),
             one_host: self.one_host_sentence(),
         };
@@ -286,6 +295,22 @@ impl Live {
         ))
     }
 
+    /// The first time `peer_id` was seen, recording it if it is new.
+    ///
+    /// Past [`MAX_SEEN_PEERS`] a new id is not remembered, so it reports `at_ms`
+    /// on each poll it is present and the public count stops growing.
+    fn note_seen(&mut self, peer_id: &str, at_ms: u64) -> u64 {
+        if let Some(first) = self.first_seen.get(peer_id) {
+            return *first;
+        }
+        if self.first_seen.len() >= MAX_SEEN_PEERS {
+            self.seen_capped = true;
+            return at_ms;
+        }
+        self.first_seen.insert(peer_id.to_string(), at_ms);
+        at_ms
+    }
+
     fn merge_peers(
         &mut self,
         at_ms: u64,
@@ -296,7 +321,7 @@ impl Live {
         for poll in polls {
             let Some(view) = &poll.view else { continue };
             for p in &view.peers {
-                let first_seen_ms = *self.first_seen.entry(p.peer_id.clone()).or_insert(at_ms);
+                let first_seen_ms = self.note_seen(&p.peer_id, at_ms);
                 let e = merged
                     .entry(p.peer_id.clone())
                     .or_insert_with(|| NetworkPeer {
@@ -492,6 +517,24 @@ mod tests {
         live.observe(3_000, &[poll("seed", "S", vec![], Some(0), 12)]);
         assert_eq!(live.view().events[0].kind, "left");
         assert_eq!(live.view().seen_total, 1);
+    }
+
+    #[test]
+    fn seen_peers_stop_being_remembered_at_the_cap() {
+        // Fresh peer keys are free, so the remembered set must stop at the cap
+        // and the public figure must say it is a floor.
+        let mut live = Live::new("t");
+        for i in 0..MAX_SEEN_PEERS {
+            live.first_seen.insert(format!("p{i}"), 1);
+        }
+        assert_eq!(live.note_seen("fresh-key", 9), 9);
+        assert_eq!(live.first_seen.len(), MAX_SEEN_PEERS);
+        assert!(live.seen_capped);
+        assert_eq!(
+            live.note_seen("p0", 99),
+            1,
+            "known peers keep their first sighting"
+        );
     }
 
     #[test]
