@@ -126,7 +126,14 @@ fn write_new_owner_only(path: &Path, seed: &[u8]) -> std::io::Result<()> {
         .create_new(true)
         .mode(0o600)
         .open(path)?;
-    write_or_remove(file, path, seed)
+    write_or_remove(file, path, seed)?;
+    // The directory entry too: without it a power cut can lose the new file,
+    // and the node would come back under a different peer id.
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::File::open(dir)?.sync_all()
 }
 
 /// Non-Unix: no mode bits to set, so only the no-overwrite guarantee applies.
