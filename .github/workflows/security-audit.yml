@@ -7,6 +7,7 @@ name: security-audit
 #   geiger  — unsafe accounting across the dependency graph
 #   vectors — the DAG proof of work against its frozen consensus vectors
 #   deny    — advisory and licence gate
+#   nested-lockfiles — every nested workspace's Cargo.lock matches its manifests
 #
 # They are separate jobs rather than steps because they fail for unrelated
 # reasons and a reviewer needs to see which one went red without reading a log.
@@ -388,6 +389,41 @@ jobs:
           command: check advisories
           manifest-path: ${{ matrix.manifest }}
           arguments: --config deny.tauri.toml
+
+  # ---------------------------------------------------------------------------
+  # Blocking. Every nested workspace keeps its own Cargo.lock, and nothing else
+  # builds them all with --locked, so a manifest edit left those locks stale
+  # without any job going red (fuzz/, offsec-sandbox/, hal/iot-firmware/, and
+  # earlier apps/chat-gui and apps/wallet-gui in #603 and #629). `cargo
+  # metadata --locked` resolves without compiling and fails if the lock would
+  # be rewritten. The root lock is checked by every --locked build already.
+  nested-lockfiles:
+    name: nested Cargo.lock up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Beats rust-toolchain.toml, so rustup does not also fetch miri, rust-src
+      # and three cross targets just to resolve dependencies.
+      RUSTUP_TOOLCHAIN: nightly-2026-07-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - name: cargo metadata --locked in each nested workspace
+        run: |
+          failed=""
+          for lock in $(git ls-files '*Cargo.lock' | grep -v '^Cargo.lock$'); do
+            dir=$(dirname "$lock")
+            if ! (cd "$dir" && cargo metadata --locked --format-version 1 > /dev/null); then
+              echo "::error file=$lock::$dir/Cargo.lock is stale; run 'cargo update --workspace' in $dir"
+              failed="$failed $dir"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "Stale nested lockfiles:$failed"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Report-only. `cargo vet` is set up in supply-chain/ but has not yet been
