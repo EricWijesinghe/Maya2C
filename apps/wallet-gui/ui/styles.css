@@ -24,7 +24,7 @@
   /* The wallet's surface roles, each a mix of token roles. Dark first (the
      default with no OS preference); light below.
      shortcut: the dark page and cards are lifted off near-black here because
-     this branch's --bg is still #08090b; once #521's lifted palette (a
+     this branch's --bg is still near-black; once PR 521's lifted palette (a
      teal-ink --bg and surfaces) reaches this branch, --page becomes var(--bg)
      and --card var(--surface-1), and these mixes go. */
   --page: color-mix(in srgb, var(--bg) 88%, var(--accent));
@@ -58,7 +58,7 @@
   --primary-to: var(--accent-grad-to);
   --primary-ink: var(--on-accent);
   /* A text field's edge, 3:1 against its fill (WCAG 1.4.11): 3.7:1 dark,
-     4.5:1 light. Becomes #521's --border-control when that lands. */
+     4.5:1 light. Becomes PR 521's --border-control when that lands. */
   --control-edge: var(--text-3);
   --lattice-edge: 0.32;
   /* The mark is drawn for a dark ground: no tile needed here. */
