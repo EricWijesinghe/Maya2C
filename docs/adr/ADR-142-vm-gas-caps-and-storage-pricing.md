@@ -489,3 +489,123 @@ without letting one honest call through that the shared counter refuses.
   stack, would close it; not done here.
 - Timing tests stay `#[ignore]`d (shared CI runners); the deterministic
   guards in CI are the shape bounds and their unit tests.
+
+## Amendment 3, 2026-11-18: failed work on its own count (Eric 2026-11-17 pre-approval, re-freeze bundle 3)
+
+Two HIGH findings left open on PR #549. No new ADR number
+(`adr-claims.txt`: 142c). This supersedes "Builder work, restated" in
+Amendment 2, and the producer figures in the first amendment's derivation.
+
+### Failed contract work no longer shares the applied calls' counter
+
+Amendment 2 kept one counter for failed and applied work in selection. A
+failing plaintext call is never included (STF-8), so it pays nothing and
+the DAG-BFT driver keeps it pooled: one call at `gas_limit = vm.max_block_gas`
+early in the sub-DAG used the whole contract budget every block, and every
+contract call after it was refused `BlockGasExhausted`.
+
+Amendment 2 turned down a separate failure budget, reasoning that one call
+at the cap fills it. That holds for a budget of one cap checked on its own.
+It does not hold for the rule taken here:
+
+- A failed trial's gas moves off `Overlay::vm_gas` (what applied calls are
+  admitted against, GAS-2) onto a count only the builder keeps
+  (`select_applicable_within`). The block validity rule is unchanged, and
+  the builder's applied count is exactly what a validator counts for the
+  block it builds.
+- A contract transaction is tried only while applied work, failed work and
+  the transaction's bound (a call's `gas_limit`, a deployment's cold price)
+  fit in `BUILDER_GAS_CAPS × vm.max_block_gas + BUILDER_GAS_SLACK` =
+  `2 × cap + 1,536,000`. The slack is the most memory a failed call reports
+  past its limit (GAS-7), so a failure at the cap never stops any call that
+  passes GAS-1 and GAS-2 after it.
+
+Builder worst case, stated: at most `2 × vm.max_block_gas + 3,072,000` of
+failed and applied contract work per selection (the last trial may pass the
+budget by its memory), against `vm.max_block_gas + 1,536,000` before. At
+the 1 ns/unit derivation a producer's worst case (selection, then the
+preview root of the block, including the sealed quarter) is about
+503 M + 312.5 M ≈ 816 ms at the 250 M default, and 603 M + 375 M ≈ 978 ms
+at the 300 M ceiling. The default holds; **the ceiling leaves about 22 ms
+of the 1 s block time for signatures, the state root and the commit.**
+Lowering `VM_GAS_CEILING` is a governance-bound change and is not made here:
+listed as open, for Eric.
+
+What it closes and what it does not:
+
+- Closed: one failing call, at any `gas_limit` up to the cap, no longer
+  crowds out contract calls that apply after it
+  (`a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies`).
+- Still open, G1: failed work past the budget stops further contract trials
+  for the rest of the selection. Two failing calls at the cap, from two
+  funded senders, get there (`failed_work_past_the_builder_budget_stops_contract_trials`).
+  Any finite budget has this lever, because a call is only known to fail
+  once it has run. Charging a failed call (include it with its fee and a
+  nonce bump, an STF-8 change) is economics: **needs Eric.**
+
+Tests that pinned the shared counter are restated against the builder's
+budget: each now puts failing work at the cap first, so the charge under
+test is what decides whether the honest call after it fits
+(`one_sender_gets_one_failed_contract_trial_per_block`,
+`a_call_below_its_upfront_price_still_counts_its_code_read_and_scan`,
+`a_failed_call_spends_the_gas_it_used_not_the_gas_it_named`,
+`a_deployment_that_fails_validation_still_spends_its_compile`).
+`building_a_block_of_failing_max_gas_calls_stays_inside_the_block_time` now
+fills two caps of failed work (eight calls reporting a quarter cap each).
+
+### The compile shapes at the arity bound, re-measured
+
+The finding: the "about 1 ns of native work per unit" claim had to be re-checked
+in release on the worst shapes the arity bound still allows, and either the
+prices hold it or the claim must give the real figures.
+
+Release build, wasmtime 48.0.8, rustc 1.99.0-nightly (da80ed070 2026-07-14),
+Intel Core Ultra 9 275HX (24 cores), 31 GB, Windows 11 Pro build 29708,
+shared with other agents' builds, 2026-11-19 (run 1 ended before 00:42 KST, runs 2 and 3 started at 00:42
+and 01:11), at d25ff726
+(runs 2 and 3 with the two attribution shapes added to the test, the VM
+unchanged). Command, through the build slot:
+`cargo test --release -p maya-vm --test gas_adversarial_calibration_tests --
+--ignored --nocapture --test-threads 1 shapes_at_the_limits`. Three runs,
+each the best of three compiles (`RUNS`). ns of compile per unit of the whole
+cold price:
+
+| Shape | Price | run 1 | run 2 | run 3 |
+|---|---|---|---|---|
+| 1 × 2,000 `block (type []->[16])` | 186.1 M | **1.231** | 0.771 | 0.768 |
+| 1 × 2,000 `block (result` 8 `)` (attribution) | 124.5 M | — | 0.731 | 0.725 |
+| 2,000 × (16 `i32.const`, 16 `drop`), no block (attribution) | 130.1 M | — | 0.094 | 0.098 |
+| ~1,760 empty exported functions | 229.9 M | 0.899 | 0.653 | 0.566 |
+| 3 × 2,000 `loop` (per-function cap) | 188.5 M | 0.857 | 0.763 | 0.522 |
+| 3 × 1,999 `br_if` carrying 8 | 191.4 M | 0.835 | 0.709 | 0.656 |
+| 3 × 1,000 `if (type [8]->[8])` | 205.8 M | 0.779 | 0.555 | 0.593 |
+| 3 × 2,000 `loop (param i32) (result i32)` | 182.9 M | 0.763 | 0.517 | 0.454 |
+| worst of the run | | 1.231 | 0.771 | 0.768 |
+
+Every other shape in the test was under 0.70 in every run. What this shows:
+
+- The prices are not changed. In runs 2 and 3 every shape is at or under
+  1 ns per unit, the worst 0.771. Run 1 put the same binary and the same
+  shape at 1.231. That is the machine's load, not a shape priced too low, so
+  a reprice would tune the constants to one loaded run (Standing Order 2).
+- The claim is corrected to what was measured: **at or under 1 ns per unit
+  on an unloaded run; up to 1.23 on a loaded one** (1.5 in Amendment 2's
+  runs). At 1.23 a cold compile at the 250 M cap takes ~308 ms, and the
+  producer worst case above (~816 ms at 1 ns) is ~1.0 s. The test's bound,
+  `MAX_NS_PER_FUEL` = 1.5, catches a shape priced several times too low. It
+  does not prove the 1 ns rule.
+- Attribution: the typed-results row's time is in the block results, not in
+  the values pushed and dropped inside each block (0.094 without the block).
+  Going from 8 to 16 results per block added ~26 µs per block (run 2) for
+  ~30,800 more fuel (8 × 2,500 arity plus 24 bytes at 450): ~0.85 ns per unit
+  at the margin, ~1.3 if only the arity charge is counted.
+- Not measured: aarch64, other x86-64 CPUs, Pulley, an unloaded machine
+  (none was available; every run shared the PC with other builds).
+
+Builder selection over two caps of failed work (eight out-of-gas calls,
+each reporting a quarter cap, 500 M gas in all), dev profile, same machine
+and commit: 56.9 ms
+(`cargo test -p custom-l1-node --test vm_gas_timing_tests -- --ignored
+--nocapture --test-threads 1 building_a_block_of_failing`). The loop is cheap
+guest compute (~0.11 ns per unit), so this shows the budget is enforced. The
+time bound comes from the gas bound times the slowest priced work.
