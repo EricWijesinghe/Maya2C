@@ -1,0 +1,1422 @@
+{
+ "cases": [
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "3f0101010101010101010101010101010101010101010101010101010101010101",
+   "id": "NM-enc-commit",
+   "rules": [
+    "NM-1"
+   ],
+   "size": "33",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "40036162630202020202020202020202020202020202020202020202020202020202020202030404040404040404040404040404040404040404040404040404040404040404",
+   "id": "NM-enc-register",
+   "rules": [
+    "NM-1",
+    "NM-2"
+   ],
+   "size": "70",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "410361626301",
+   "id": "NM-enc-renew",
+   "rules": [
+    "NM-1"
+   ],
+   "size": "6",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "420361626303",
+   "id": "NM-enc-update-reverse",
+   "rules": [
+    "NM-1"
+   ],
+   "size": "6",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "ok"
+   },
+   "hex": "4203616263040505050505050505050505050505050505050505050505050505050505050505",
+   "id": "NM-enc-update-transfer",
+   "rules": [
+    "NM-1"
+   ],
+   "size": "38",
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "4004612d2d630202020202020202020202020202020202020202020202020202020202020202030404040404040404040404040404040404040404040404040404040404040404",
+   "id": "NM-enc-register-double-dash",
+   "rules": [
+    "NM-2"
+   ],
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "result": "error"
+   },
+   "hex": "420361626302",
+   "id": "NM-enc-update-stealth-op-refused",
+   "rules": [
+    "NM-1"
+   ],
+   "type": "encoding"
+  },
+  {
+   "expect": {
+    "commitment": "1f4f79b28363f73e5546213a17f52e885a87e321b91caf4877ea26f469f8c517",
+    "result": "ok"
+   },
+   "id": "NM-cm-derivation",
+   "label": "alice",
+   "rules": [
+    "NM-3"
+   ],
+   "salt": "2222222222222222222222222222222222222222222222222222222222222222",
+   "sender": "1111111111111111111111111111111111111111111111111111111111111111",
+   "type": "commitment"
+  },
+  {
+   "expect": {
+    "commitment": "262548b67518905c3f9ef852669cfbd2be928f46621ad6581605151a925dcedf",
+    "result": "ok"
+   },
+   "id": "NM-cm-derivation-63",
+   "label": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "rules": [
+    "NM-3"
+   ],
+   "salt": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "sender": "0000000000000000000000000000000000000000000000000000000000000000",
+   "type": "commitment"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": "10",
+     "label": "alice"
+    },
+    "result": "ok"
+   },
+   "id": "NM-commit-row",
+   "rules": [
+    "NM-3"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "a commitment already exists",
+    "result": "error"
+   },
+   "id": "NM-commit-duplicate",
+   "rules": [
+    "NM-3"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "20",
+     "kind": "commit",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": "86411",
+     "label": "alice"
+    },
+    "result": "ok"
+   },
+   "id": "NM-commit-expired-replaced",
+   "rules": [
+    "NM-3"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "86411",
+     "kind": "commit",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "1000000000000000000000",
+    "commitment": {
+     "from": "k0",
+     "height": null,
+     "label": "alice"
+    },
+    "name": {
+     "expires_at": "31536070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-reg-at-min-age",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "too young to reveal",
+    "result": "error"
+   },
+   "id": "NM-reg-too-young",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "69",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": null,
+     "label": "alice"
+    },
+    "name": {
+     "expires_at": "31622410",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-reg-at-max-age",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "86410",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "the commitment has expired",
+    "result": "error"
+   },
+   "id": "NM-reg-too-old",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "86411",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "10000000000000000000000",
+    "commitment": {
+     "from": "k0",
+     "height": null,
+     "label": "alice"
+    },
+    "name": {
+     "expires_at": "315360070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-reg-periods-10",
+   "rules": [
+    "NM-4",
+    "NM-9"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "10",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "periods are 1 to 10",
+    "result": "error"
+   },
+   "id": "NM-reg-periods-11",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "11",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "periods are 1 to 10",
+    "result": "error"
+   },
+   "id": "NM-reg-periods-0",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "0",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "no commitment for this name by this sender",
+    "result": "error"
+   },
+   "id": "NM-reg-wrong-committer",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k1",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "the name is taken",
+    "result": "error"
+   },
+   "id": "NM-reg-taken",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k1",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k1",
+     "height": "71",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "the name is taken",
+    "result": "error"
+   },
+   "id": "NM-reg-in-grace",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k1",
+     "height": "39312010",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k1",
+     "height": "39312070",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "2000000000000000000000",
+    "name": {
+     "expires_at": "70848131",
+     "label": "alice",
+     "owner": "k1",
+     "target": "k1"
+    },
+    "result": "ok"
+   },
+   "id": "NM-reg-after-grace",
+   "rules": [
+    "NM-4"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k1",
+     "height": "39312071",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k1",
+     "height": "39312131",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "2000000000000000000000000",
+    "result": "ok"
+   },
+   "id": "NM-fee-3-bytes",
+   "rules": [
+    "NM-9"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "abc"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "abc",
+     "periods": "2",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "100000000000000000000000",
+    "result": "ok"
+   },
+   "id": "NM-fee-4-bytes",
+   "rules": [
+    "NM-9"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "abcd"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "abcd",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "2000000000000000000000",
+    "name": {
+     "expires_at": "63072070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-renew-by-stranger",
+   "rules": [
+    "NM-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k1",
+     "height": "100",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "11000000000000000000000",
+    "name": {
+     "expires_at": "315360071",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-renew-capped-at-ten-years",
+   "rules": [
+    "NM-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "10",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "71",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "already held for ten years",
+    "result": "error"
+   },
+   "id": "NM-renew-at-cap-refused",
+   "rules": [
+    "NM-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "10",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "name": {
+     "expires_at": "63072070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-renew-grace-owner",
+   "rules": [
+    "NM-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "31536071",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "only the owner may renew during grace",
+    "result": "error"
+   },
+   "id": "NM-renew-grace-stranger",
+   "rules": [
+    "NM-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k1",
+     "height": "31536071",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "lapsed past grace",
+    "result": "error"
+   },
+   "id": "NM-renew-after-grace",
+   "rules": [
+    "NM-5"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "39312071",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "name": {
+     "expires_at": "31536070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k1"
+    },
+    "result": "ok"
+   },
+   "id": "NM-set-target",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "71",
+     "kind": "set_target",
+     "label": "alice",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "result": "ok",
+    "reverse": {
+     "k0": null,
+     "k1": "alice"
+    }
+   },
+   "id": "NM-set-reverse-by-target",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k1"
+    },
+    {
+     "from": "k1",
+     "height": "71",
+     "kind": "set_reverse",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "does not target the sender",
+    "result": "error"
+   },
+   "id": "NM-set-reverse-not-target",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k1"
+    },
+    {
+     "from": "k0",
+     "height": "71",
+     "kind": "set_reverse",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "name": {
+     "expires_at": "31536070",
+     "label": "alice",
+     "owner": "k1",
+     "target": "k0"
+    },
+    "result": "ok",
+    "reverse": {
+     "k0": null
+    }
+   },
+   "id": "NM-transfer-clears-owner-reverse",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "71",
+     "kind": "set_reverse",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "72",
+     "kind": "transfer",
+     "label": "alice",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "name": {
+     "expires_at": "31536070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k1"
+    },
+    "result": "ok",
+    "reverse": {
+     "k0": null
+    }
+   },
+   "id": "NM-set-target-clears-old-reverse",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "71",
+     "kind": "set_reverse",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "72",
+     "kind": "set_target",
+     "label": "alice",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "the name has expired; renew it first",
+    "result": "error"
+   },
+   "id": "NM-update-expired",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k0",
+     "height": "31536071",
+     "kind": "set_target",
+     "label": "alice",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "only the owner may change the name",
+    "result": "error"
+   },
+   "id": "NM-update-non-owner",
+   "rules": [
+    "NM-6"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "from": "k1",
+     "height": "71",
+     "kind": "set_target",
+     "label": "alice",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "the label is reserved",
+    "result": "error"
+   },
+   "id": "NM-reserved-refused",
+   "rules": [
+    "NM-7"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "maya2c"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "maya2c",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "burned": "1000000000000000000000",
+    "name": {
+     "expires_at": "31536070",
+     "label": "maya2c",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-reserved-released",
+   "rules": [
+    "NM-7"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "maya2c"
+    },
+    {
+     "height": "11",
+     "kind": "release_reserved"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "maya2c",
+     "periods": "1",
+     "target": "k0"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "11",
+   "expect": {
+    "error": "names are not active",
+    "result": "error"
+   },
+   "id": "NM-before-activation",
+   "rules": [
+    "NM-8"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": "10",
+     "label": "alice"
+    },
+    "result": "ok"
+   },
+   "id": "NM-at-activation",
+   "rules": [
+    "NM-8"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": null,
+     "label": "alice"
+    },
+    "result": "ok"
+   },
+   "id": "NM-prune-at-expiry",
+   "rules": [
+    "NM-10"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "height": "86411",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "commitment": {
+     "from": "k0",
+     "height": "10",
+     "label": "alice"
+    },
+    "result": "ok"
+   },
+   "id": "NM-prune-not-before",
+   "rules": [
+    "NM-10"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "height": "86410",
+     "kind": "empty"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "is halted until block",
+    "result": "error"
+   },
+   "id": "NM-breaker-halts-commit",
+   "rules": [
+    "NM-11"
+   ],
+   "steps": [
+    {
+     "height": "10",
+     "kind": "breaker",
+     "until": "1000"
+    },
+    {
+     "from": "k0",
+     "height": "11",
+     "kind": "commit",
+     "label": "alice"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "error": "is halted until block",
+    "result": "error"
+   },
+   "id": "NM-breaker-halts-update",
+   "rules": [
+    "NM-11"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "height": "71",
+     "kind": "breaker",
+     "until": "1000"
+    },
+    {
+     "from": "k0",
+     "height": "72",
+     "kind": "set_target",
+     "label": "alice",
+     "to": "k1"
+    }
+   ],
+   "type": "apply"
+  },
+  {
+   "activation": "10",
+   "expect": {
+    "name": {
+     "expires_at": "63072070",
+     "label": "alice",
+     "owner": "k0",
+     "target": "k0"
+    },
+    "result": "ok"
+   },
+   "id": "NM-breaker-renew-lands",
+   "rules": [
+    "NM-11"
+   ],
+   "steps": [
+    {
+     "from": "k0",
+     "height": "10",
+     "kind": "commit",
+     "label": "alice"
+    },
+    {
+     "from": "k0",
+     "height": "70",
+     "kind": "register",
+     "label": "alice",
+     "periods": "1",
+     "target": "k0"
+    },
+    {
+     "height": "71",
+     "kind": "breaker",
+     "until": "1000"
+    },
+    {
+     "from": "k0",
+     "height": "72",
+     "kind": "renew",
+     "label": "alice",
+     "periods": "1"
+    }
+   ],
+   "type": "apply"
+  }
+ ]
+}

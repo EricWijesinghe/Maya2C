@@ -436,6 +436,22 @@ impl StateDB {
                     activation: context.asset_mint_activation,
                 });
             }
+            // Tags 12-15 (ADR-135 P-3) are unknown to a pre-v4 binary; the same
+            // refusal keeps both agreeing on every earlier block, and keeps the
+            // reserved-label hold at its default until names exist.
+            if matches!(
+                key,
+                ParameterKey::NameBaseFee3
+                    | ParameterKey::NameBaseFee4
+                    | ParameterKey::NameBaseFee5
+                    | ParameterKey::NameReservedLabels
+            ) && !context.names_active()
+            {
+                return Err(NodeError::NameInactive {
+                    height: context.height,
+                    activation: context.names_activation,
+                });
+            }
         }
 
         let proposal = Proposal::open(

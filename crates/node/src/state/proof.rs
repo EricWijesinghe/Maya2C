@@ -109,6 +109,13 @@ pub enum StateLayer {
     /// Outside the root until 2026-09-11. A snapshot that left a nullifier out
     /// would have produced a node that accepts the second spend of that note.
     Nullifiers,
+    /// Unique assets: collections and items under the `n:` prefix (ADR-135
+    /// P-2). A new tag; folded after `Vault` (see [`LAYER_ORDER`]), and absent
+    /// on a chain that never opens a collection, so it moves no existing root.
+    Nft,
+    /// Names with commit-reveal under `nm:` (ADR-135 P-3). Folded after `Nft`;
+    /// absent until a name is committed or registered.
+    Names,
 }
 
 /// Every layer, in fold order.
@@ -131,6 +138,8 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     // Swapping these two moves no root a genesis can seed: none seeds `sl:`.
     // New record layers go here, after `Vault`, in the ADR-135 allocation
     // order (#447's account authority, then NFT, names, scheduled payments).
+    StateLayer::Nft,
+    StateLayer::Names,
     StateLayer::Stateless,
     StateLayer::UpgradeSchedule,
     StateLayer::Shielded,
@@ -164,6 +173,8 @@ impl StateLayer {
             Self::Stateless => "maya stateless state root v1",
             Self::Vault => "maya vault state root v1",
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
+            Self::Nft => "maya nft state root v1",
+            Self::Names => "maya names state root v1",
         }
     }
 
@@ -188,6 +199,8 @@ impl StateLayer {
             Self::Staking => 15,
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
+            Self::Nft => 19,
+            Self::Names => 20,
         }
     }
 
@@ -212,6 +225,8 @@ impl StateLayer {
             15 => Some(Self::Staking),
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
+            19 => Some(Self::Nft),
+            20 => Some(Self::Names),
             _ => None,
         }
     }
@@ -246,6 +261,8 @@ impl StateLayer {
             Self::Staking => "staking",
             Self::Vault => "vault",
             Self::UpgradeSchedule => "upgrade-schedule",
+            Self::Nft => "nft",
+            Self::Names => "names",
         }
     }
 }

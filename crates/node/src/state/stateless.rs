@@ -14,7 +14,7 @@
 //! ## What a witness can decide
 //!
 //! A block whose transactions are all `TxKind::Transfer`, on a state with no
-//! `m:`, `o:` or `g:` records. That is not caution but the list of everything
+//! `m:`, `o:`, `g:` or `nm:` records. That is not caution but the list of everything
 //! `StateDB::stage_block` does besides staging transactions:
 //!
 //! | Pass | Reads | Inert when |
@@ -23,6 +23,7 @@
 //! | `settle_trading` | pairs this block's DEX transactions touched | no transaction is a DEX kind |
 //! | `settle_oracle` | the authority registry (`o:`) | the oracle layer is absent |
 //! | `settle_governance` | every proposal (`g:`) | the governance layer is absent |
+//! | `settle_names` | expired commitments (`nm:x:`, `nm:c:`) | the names layer is absent |
 //! | `check_anomalies` | pool records and the shielded pool the block wrote | no transaction is a DEX or shielded kind |
 //!
 //! Conservation holds by construction for transfers — a debit of exactly the
@@ -65,10 +66,14 @@ pub const SPARSE_ACCOUNTS_KEY: &[u8] = b"sl:accounts-sparse";
 
 /// Layers whose records an end-of-block pass may act on without a transaction
 /// naming them. See the module table.
-const PASS_LAYERS: [StateLayer; 3] = [
+const PASS_LAYERS: [StateLayer; 4] = [
     StateLayer::Sealed,
     StateLayer::Oracle,
     StateLayer::Governance,
+    // ADR-135 P-3: the commitment prune deletes `nm:` rows no transaction
+    // names, so a transfer-only block over them is unverifiable, never
+    // Invalid (V4-V1 red team).
+    StateLayer::Names,
 ];
 
 /// What a stateless node needs beside a block: the touched accounts, their

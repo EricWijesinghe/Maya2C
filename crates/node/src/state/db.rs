@@ -952,6 +952,9 @@ impl StateDB {
         // After governance and before the invariants: the epoch boundary moves
         // bonds, rewards and slashes, which the conservation check must see.
         self.settle_staking(&mut overlay, &block.header, context)?;
+        // After every transaction, so a reveal in this block deletes its own
+        // commitment first; bounded per block (ADR-135 P-3, M-11). Moves no value.
+        self.settle_names(&mut overlay, context)?;
 
         // Last, over the finished overlay. Running it earlier would check
         // a half-built block: the trading pass moves reserves and the

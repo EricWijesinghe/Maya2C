@@ -103,7 +103,7 @@ can check is the one after it.
 ## What a witness can decide
 
 Only a block whose transactions are all `TxKind::Transfer`, on a parent state
-with no sealed, oracle or governance layer. This is the list of everything
+with no sealed, oracle, governance or names layer. This is the list of everything
 `stage_block` does besides staging transactions, and when each is inert:
 
 | Pass | Reads | Inert when |
@@ -112,6 +112,7 @@ with no sealed, oracle or governance layer. This is the list of everything
 | `settle_trading` | pairs the block's DEX transactions touched | no DEX transaction |
 | `settle_oracle` | the authority registry (`o:`) | the oracle layer is absent |
 | `settle_governance` | every proposal (`g:`) | the governance layer is absent |
+| `settle_names` | expired commitments (`nm:x:`, `nm:c:`) | the names layer is absent |
 | `check_anomalies` | pool records and the shielded pool the block wrote | no DEX or shielded transaction |
 
 Transfers conserve by construction and map to no breaker module (invariant 28).
