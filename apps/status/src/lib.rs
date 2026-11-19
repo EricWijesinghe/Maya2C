@@ -136,7 +136,13 @@ impl Timeline {
         let since_last_block = now.saturating_sub(last_block);
         let halted_now = since_last_block > self.threshold;
         let elapsed = now.saturating_sub(genesis).max(1);
-        let past: u64 = self.halts.iter().map(Halt::seconds).sum();
+        // Saturating: a proposer clock that jumps back and forth can make the
+        // gaps sum past u64, and `down` is capped at `elapsed` below anyway.
+        let past = self
+            .halts
+            .iter()
+            .map(Halt::seconds)
+            .fold(0u64, u64::saturating_add);
         let ongoing = if halted_now { since_last_block } else { 0 };
         let down = past.saturating_add(ongoing).min(elapsed);
         #[allow(clippy::cast_precision_loss)]
