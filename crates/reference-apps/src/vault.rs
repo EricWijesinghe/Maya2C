@@ -16,7 +16,7 @@
 
 use maya_amount::Amount;
 use maya_crypto_pq::kem::EncapsulationKey;
-use maya_privacy::{Envelope, seal};
+use maya_privacy::{Envelope, PrivacyError, seal};
 use maya_quantum_harbor::{Exposure, bitcoin_exposure, explain};
 use maya_smart_account::account::AccountError;
 use maya_smart_account::op::Action;
@@ -64,12 +64,23 @@ pub fn configure(
     registry.apply(&policy, height, Amount::from_u64(0))
 }
 
+/// Why a withdrawal was refused. Either way nothing moved.
+#[derive(Debug, PartialEq, Eq)]
+pub enum WithdrawError {
+    /// The registry refused the transfer.
+    Account(AccountError),
+    /// The memo could not be sealed for the auditor.
+    Seal(PrivacyError),
+}
+
 /// Withdraws, sealing `memo` for the auditor. A large withdrawal is held
 /// pending; the returned envelope is what the chain would store beside it.
 ///
 /// # Errors
 ///
-/// [`AccountError`] if the registry refuses the transfer.
+/// [`WithdrawError::Seal`] before anything is signed if the memo cannot be
+/// sealed, so no transfer goes out without its auditor record;
+/// [`WithdrawError::Account`] if the registry refuses the transfer.
 pub fn withdraw(
     registry: &mut Registry,
     owner: &mut Wallet,
@@ -78,13 +89,14 @@ pub fn withdraw(
     memo: &[u8],
     auditor: &EncapsulationKey,
     height: u64,
-) -> Result<Envelope, AccountError> {
+) -> Result<Envelope, WithdrawError> {
+    let envelope = seal(memo, auditor).map_err(WithdrawError::Seal)?;
     let op = owner.signed(Action::Transfer { to, amount });
     if let Err(e) = registry.apply(&op, height, Amount::from_u64(0)) {
         owner.refused();
-        return Err(e);
+        return Err(WithdrawError::Account(e));
     }
-    Ok(seal(memo, auditor))
+    Ok(envelope)
 }
 
 /// The onboarding check for a Bitcoin output about to be moved in: its
