@@ -11,7 +11,7 @@ what the chain does about each change. Master Prompt 15 §6.
 
 | Use | Primitive | Standard | Where |
 |---|---|---|---|
-| Transaction signature, lattice half | ML-DSA-65 | FIPS 204 (final, Aug 2024) | `crates/fips204`, `crates/crypto-pq` |
+| Transaction signature, lattice half | ML-DSA-65 | FIPS 204 (final, Aug 2024) | `fips204` crate via `crates/node/src/crypto/keys.rs`; `ml-dsa` crate in `crates/crypto-pq` |
 | Transaction signature, hash-based half | SLH-DSA-SHA2-128s | FIPS 205 (final, Aug 2024) | `crates/crypto-pq` |
 | P2P key agreement | ML-KEM-768 inside Noise XX (X25519) | FIPS 203 (final, Aug 2024) | `crates/node/src/network/pq/` |
 | Second KEM (optional) | HQC | selected by NIST in 2025; standard in draft | node feature `hqc` (RESEARCH gate) |
@@ -82,3 +82,20 @@ this is a rehearsed procedure, RESEARCH.
 
 Block ids (`CON-2`) move the same way: a header past E is identified under the
 new hash, and the bridge block is identified under both.
+
+## 5. Domain separation rule for signing keys
+
+The hybrid suite signs with an empty FIPS 204 context string, byte-compatible
+with the node's original hybrid (invariant 30), so the context string does not
+separate one use of a key from another. The message bytes do:
+
+- Every signed message starts with a domain prefix unique to its purpose, and
+  the prefixes are prefix-free with respect to each other
+  (`Transaction::signing_bytes` is the model: distinct domains, and both public
+  keys inside the signed bytes).
+- A key is used under one suite only. A wallet or app never signs with an
+  account's lattice key under a different suite id, and a new message format
+  (chat, wallet messages, attestations) gets its own domain prefix, not a raw
+  payload.
+- Adding a non-empty context string to suite `0x30` would change its bytes and
+  break invariant 30; it needs an ADR and a new suite id, not an edit.
