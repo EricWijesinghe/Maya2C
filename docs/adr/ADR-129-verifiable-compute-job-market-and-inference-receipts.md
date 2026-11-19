@@ -59,7 +59,8 @@ receipt's contents. Models, weights and runtimes stay off every node.**
   creation (`checked_sub`), released by a verdict and by nothing else.
 - `cj:a:` ‖ `job_id` ‖ `worker` → `Assignment { bond: U256, claimed_at:
   u64 }`. A worker self-assigns by posting the job class's bond (a
-  governed value under invariant 17, read from state).
+  governed value under invariant 17, read from state). **Superseded by
+  the 2026-11-19 amendment below:** slots are drawn, not self-chosen.
 - `cj:c:` ‖ `job_id` ‖ `worker` → `output_commitment(32)`, written by
   `ClaimCompute`.
 - `cj:v:` ‖ `job_id` → `Verdict { commitment(32), agreed: u8, height }`,
@@ -134,6 +135,73 @@ never trigger a payment. This is the line between "verified" and
   a proposal through governance with an activation height; a verdict
   here releases escrow and changes nothing else.
 
+### Amendment 2026-11-19: drawn assignment, commit-reveal, no-reveal forfeit
+
+The agreement rule above only means something if the `k` workers are
+independent and each one ran the job. Two properties of the design as
+first written do not give that, and both must change before any code:
+
+- **Self-assignment.** If a worker picks its own slots, one party
+  holding `⌈2k/3⌉` bonds under different addresses decides the verdict
+  alone, and its bonds come back because it is the majority. Raising `k`
+  does not help when the slots are chosen by the party.
+- **Cleartext claims.** `ClaimCompute { job, output_commitment }` is
+  public in the mempool and in blocks before the deadline, so a worker
+  can submit a commitment it did not compute.
+
+The rule therefore becomes:
+
+1. **Eligibility.** An opt-in record with at least the class's governed
+   bond (invariant 17). Each eligible worker has a **weight**: its
+   bonded amount, and, once the share-lane redesign gives shares a
+   per-miner ticket count (an open genesis-format decision), its ticket
+   weight as well. Weight is never "one per address"; splitting a bond
+   across addresses gains nothing.
+2. **Draw.** For a job created in DAG epoch `e` (ADR-044), slots are drawn
+   when epoch `e+1` closes, or at the later epoch the job names:
+   `r_s = blake3_derive("maya2c compute assign v1", anchor ‖ job_id ‖ s)`
+   for each slot `s < k`; the worker whose cumulative weight interval
+   holds `r_s mod W` takes the slot. Workers are walked in key order
+   (invariant 24, no `HashMap`), drawn without replacement, integer
+   arithmetic only. `cj:a:` records are written by the draw, never by the
+   worker.
+3. **Commit.** Until `commit_deadline`, each drawn worker submits
+   `ClaimCompute { job, commit }` with
+   `commit = blake3_derive("maya2c compute commit v1", job_id ‖ worker ‖ output_commitment ‖ salt)`.
+   The commit is stored under a sixth record, `cj:k:` ‖ `job_id` ‖
+   `worker` → `commit(32)`. It binds the worker and a 32-byte secret
+   salt, so copying one is useless. The payload stays 64 bytes
+   (invariant 33).
+4. **Reveal.** Between `commit_deadline` and `reveal_deadline` (the old
+   `deadline`), a new `TxKind::RevealCompute { job, output_commitment,
+   salt }` (96 bytes) opens the commit; the chain recomputes it and
+   writes `cj:c:` only on a match. A copied value revealed after the
+   commit window closed has no commit to open.
+5. **No-reveal forfeit.** A drawn worker who committed and does not
+   reveal by `reveal_deadline` forfeits a governed fraction of its bond
+   to the treasury. Without it, "commit, then reveal only if the others
+   agree" is a free option.
+6. **Settle.** The `⌈2k/3⌉` rule above, over revealed commitments only.
+
+**Size of `k`.** With drawn slots, a party holding a fraction `f` of
+eligible weight decides a `k = 5` job (needs 4) with probability about
+`5f⁴(1−f) + f⁵`: 0.0067 at `f = 0.2`, 0.044 at `f = 0.33` (large
+eligible set; drawing without replacement makes it slightly lower). For
+`k = 3` (needs 2) it is about 0.104 at `f = 0.2`. `k = 3` is therefore a
+floor for cheap classes only; a class's minimum `k` is a governed value,
+and high-value classes start at 5.
+
+**Anchor influence (known, bounded, not removed).** ADR-044 records that
+the proposer of an epoch's boundary block learns the next anchor first.
+Once the anchor seeds the draw, that proposer can try alternative
+orderings of one block to move the draw. The bound: only that one
+proposer, only one block's reordering, and only for jobs whose draw uses
+that anchor. A requester of a high-value job can require the draw to
+hash the anchors of two consecutive epochs together, so steering it
+needs both boundary proposers, and governance can raise the class's `k`. A consensus randomness beacon
+would remove this; ADR-115's beacon sits under the optional oracle,
+which is absent by default (invariant 11), so it is not relied on here.
+
 ## Alternatives considered
 
 - **Add a `kind` byte to `WorkClaim`.** A wire change to a frozen kind
@@ -154,8 +222,9 @@ never trigger a payment. This is the line between "verified" and
 
 ## Consequences
 
-- Five records, one kind, one settle pass, one breaker module. No
-  change to `WorkClaim` or the reward lane.
+- Six records (`cj:k:` from the amendment), two kinds (`ClaimCompute`, and `RevealCompute` from the
+  2026-11-19 amendment), one draw and one settle pass, one breaker
+  module. No change to `WorkClaim` or the reward lane.
 - Escrow and bonds are 256-bit amounts with `checked_*` arithmetic and
   no 512-bit intermediate (`price / agreeing` is a U256 division).
 - The chain can pay for deterministic jobs; non-deterministic inference
@@ -176,7 +245,7 @@ never trigger a payment. This is the line between "verified" and
 - **25**: `cj:` layer, undo covered.
 - **28**: `Module::Compute`; a tripped breaker admits no job and settles
   none (escrows wait, nothing is lost).
-- **33**: `ClaimCompute` is 64 bytes of payload.
+- **33**: `ClaimCompute` is 64 bytes of payload, `RevealCompute` 96.
 
 ## Activation
 
@@ -206,8 +275,18 @@ Red tests, `crates/node/tests/compute_jobs_tests.rs` and
 - `a_tripped_compute_breaker_admits_no_job`
 - `a_reorg_restores_escrow_assignments_and_verdicts`
 - `exploit_replays::k_colluding_workers_still_need_two_thirds_and_lose_bonds_when_caught`
-  — stated as what it is: collusion among `⌈2k/3⌉` bonded workers pays;
-  the defence is the requester's choice of `k` and the bond level.
+  — stated as what it is: collusion among `⌈2k/3⌉` drawn workers pays;
+  the defence is the drawn assignment, the class's minimum `k` and the
+  bond level.
+- Amendment 2026-11-19:
+  - `a_worker_cannot_write_its_own_assignment`
+  - `splitting_a_bond_across_addresses_does_not_raise_draw_weight`
+  - `the_draw_is_identical_on_two_nodes_and_uses_no_hashmap_order`
+  - `a_copied_commit_from_another_worker_never_opens`
+  - `a_reveal_that_does_not_match_its_commit_is_refused`
+  - `a_reveal_without_a_commit_is_refused`
+  - `a_drawn_worker_who_does_not_reveal_forfeits_the_governed_fraction`
+  - `settle_counts_only_revealed_commitments`
 
 Spec: a compute section with vectors CJ-1..CJ-4; `cargo xtask
 spec-coverage` lists them. Determinism evidence per runtime manifest
@@ -221,3 +300,7 @@ a class is enabled (ADR-079 R2's check).
    or burns them.
 3. Whether a protocol fee is taken from escrow on settlement (today
    none; the requester pays the price, workers receive all of it).
+4. The no-reveal forfeit fraction and the minimum `k` per class
+   (amendment 2026-11-19; both governed values, defaults to seed).
+5. Whether share tickets join bond in the draw weight; that waits on
+   the share-format decision for genesis.
