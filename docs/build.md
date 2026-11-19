@@ -104,6 +104,19 @@ needs. It reads as a profile or a linker bug and is neither.
 finish before starting another; `cargo clean` if it is already wedged. See
 `reports/02-layout.md` §1.
 
+## Production build
+
+```bash
+cargo build --release -p maya2c-node --no-default-features --features production
+```
+
+`--no-default-features` is required, not optional. `maya2c-node`'s default
+feature forwards `custom-l1-node/default`, which is `["hqc"]` (the HQC transport KEM, `network::pq::dual`), and `hqc`
+forwards to `maya-build-guard/research`; the build guard makes `production`
+together with `research` a compile error. So `--features production` alone
+fails at the guard. `cargo xtask release-check`, `scripts/repro_build.sh` and
+the ceremony rehearsal all pass `--no-default-features`.
+
 ## Reproducible release builds (ADR-054)
 
 The Linux node in a release is built by `scripts/repro_build.sh <target>`, which maps the checkout and `CARGO_HOME` to fixed paths. To check a release yourself on Ubuntu 24.04 with the toolchain from `rust-toolchain.toml` and `clang mold` installed:

@@ -29,8 +29,9 @@ in the same target directory: the different feature sets wedge it
 (`required to be available in rlib format`). Run `cargo xtask disk` before a
 long build — a full disk reports as `os error 112`, not "out of space".
 
-A mainnet binary is built with `--features production`; `cargo xtask
-release-check` verifies that build.
+A mainnet binary is built with `--no-default-features --features production`
+(see `docs/build.md`, "Production build"); `cargo xtask release-check`
+verifies that build.
 
 ## 3. Run a node locally
 
