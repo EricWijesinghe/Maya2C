@@ -334,7 +334,8 @@ pub fn has_checksum(address: &str) -> bool {
     if !cleaned.bytes().all(|b| b.is_ascii_hexdigit()) {
         return true;
     }
-    cleaned.bytes().any(|b| b.is_ascii_lowercase()) && cleaned.bytes().any(|b| b.is_ascii_uppercase())
+    cleaned.bytes().any(|b| b.is_ascii_lowercase())
+        && cleaned.bytes().any(|b| b.is_ascii_uppercase())
 }
 
 /// Decodes a `[u8; 32]` address.
