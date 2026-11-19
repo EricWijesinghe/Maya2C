@@ -219,7 +219,8 @@ impl Wallet {
         ctx: &maya_clear_sign::Context,
     ) -> Result<Confirmation> {
         let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
-        let shown = confirmation_with(&tx, terms.chain, ctx);
+        let mut shown = confirmation_with(&tx, terms.chain, ctx);
+        shown.recipient_unchecked = !crate::payment::has_checksum(recipient);
         self.reviewed = Some(shown.signing_hash.clone());
         Ok(shown)
     }

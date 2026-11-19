@@ -69,6 +69,11 @@ pub struct Confirmation {
     pub fee: Option<String>,
     /// Transfers only: the fee is larger than the amount. Raised as a warning.
     pub fee_exceeds_amount: bool,
+    /// The recipient was typed as hex with no checksum (all one case), so a
+    /// typo would not have been caught. Raised as a warning; compare the
+    /// Bech32m form shown with the one the payee published.
+    #[serde(default)]
+    pub recipient_unchecked: bool,
     /// `maya_clear_sign::review` of the transaction's effects, most severe first.
     pub warnings: Vec<String>,
 }
@@ -124,6 +129,7 @@ pub fn confirmation_with(tx: &Transaction, chain: &ChainTag, ctx: &Context) -> C
         amount,
         fee,
         fee_exceeds_amount,
+        recipient_unchecked: false,
         // The wallet built the transaction, so the claim is its own simulation:
         // no app is asking. A dApp's claim enters here once one can.
         warnings: review(&effects, &effects, ctx)
@@ -252,6 +258,9 @@ pub fn checksummed(address: &[u8; 32]) -> String {
         .collect()
 }
 
+/// Shown when the recipient was typed as hex with no checksum.
+pub const UNCHECKED_RECIPIENT: &str = "Warning: the recipient was entered as hex with no checksum,      so a typo cannot be detected. Check the 'To' address against the payee's Bech32m address.";
+
 /// The text a native approval dialog shows, built from the confirmation the
 /// core computed. The webview never supplies these words, so it cannot change
 /// what the signer reads. Warnings come first, most severe first.
@@ -264,6 +273,9 @@ pub fn approval_message(shown: &Confirmation) -> String {
         .collect();
     if shown.fee_exceeds_amount {
         lines.push("Warning: the fee is larger than the amount.".to_string());
+    }
+    if shown.recipient_unchecked {
+        lines.push(UNCHECKED_RECIPIENT.to_string());
     }
     lines.push(shown.description.clone());
     if let Some(to) = &shown.recipient {

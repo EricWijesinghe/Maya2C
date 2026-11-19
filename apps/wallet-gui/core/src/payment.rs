@@ -325,6 +325,18 @@ pub fn normalize_address(address: &str) -> Result<String> {
     Ok(hex::encode(array))
 }
 
+/// Whether `address` (already accepted by [`normalize_address`]) carries a
+/// checksum: Bech32m, or mixed-case hex. All-lower or all-upper hex does not.
+#[must_use]
+pub fn has_checksum(address: &str) -> bool {
+    let compact: String = address.split_whitespace().collect();
+    let cleaned = compact.trim_start_matches("0x");
+    if !cleaned.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return true;
+    }
+    cleaned.bytes().any(|b| b.is_ascii_lowercase()) && cleaned.bytes().any(|b| b.is_ascii_uppercase())
+}
+
 /// Decodes a `[u8; 32]` address.
 ///
 /// # Errors
