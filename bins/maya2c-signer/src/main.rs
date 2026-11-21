@@ -92,8 +92,9 @@ fn flag<'a>(f: &'a BTreeMap<String, String>, k: &str) -> Result<&'a str, String>
 }
 
 fn passphrase(f: &BTreeMap<String, String>) -> Result<Zeroizing<Vec<u8>>, String> {
-    let mut bytes =
-        Zeroizing::new(std::fs::read(flag(f, "passphrase-file")?).map_err(|e| e.to_string())?);
+    // The shared reader refuses a file group or others can read (Unix), as the node does.
+    let path = std::path::Path::new(flag(f, "passphrase-file")?);
+    let mut bytes = maya_signer::sealed::read_passphrase_file(path).map_err(|e| e.to_string())?;
     while bytes.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
         bytes.pop();
     }

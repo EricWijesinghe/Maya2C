@@ -125,7 +125,7 @@ fn setup(work: &Path, root: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(&council).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&keys).map_err(|e| e.to_string())?;
     let pass = work.join("council-pass");
-    std::fs::write(&pass, PASSWORD).map_err(|e| e.to_string())?;
+    devnet::write_private(&pass, PASSWORD)?;
     for label in ["c1", "c2", "c3"] {
         devnet::output(
             Command::new(devnet::bin("genesis-ceremony"))

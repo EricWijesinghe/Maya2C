@@ -92,8 +92,9 @@ jobs:
           "$dir/maya2c-node${{ matrix.exe }}" --help | head -1
           "$dir/l1-wallet${{ matrix.exe }}" --version
           "$dir/maya2c${{ matrix.exe }}" --version
-          # A production build writes sealed keys only (ADR-049).
-          head -c 32 /dev/urandom | base64 > "$RUNNER_TEMP/v.pass"
+          # A production build writes sealed keys only (ADR-049). Owner-only:
+          # the node refuses a passphrase file group or others can read.
+          (umask 077; head -c 32 /dev/urandom | base64 > "$RUNNER_TEMP/v.pass")
           "$dir/maya2c-node${{ matrix.exe }}" --validator-passphrase-file "$RUNNER_TEMP/v.pass" \
             --generate-validator-key "$RUNNER_TEMP/v.key" | wc -c
 

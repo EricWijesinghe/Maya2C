@@ -239,6 +239,12 @@ mod tests {
     fn pass_file(dir: &Path, text: &str) -> PathBuf {
         let path = dir.join("pass");
         std::fs::write(&path, text).unwrap();
+        // The node refuses a passphrase file readable by other users.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         path
     }
 

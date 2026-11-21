@@ -909,3 +909,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-18 — Signer passphrase files, keystores and VRF encodings hardened (Claude, Eric 2026-11-17 pre-approval)
+
+Eric 2026-11-17 pre-approval put PR #596 into re-freeze bundle 3.
+
+- **Passphrase files are refused when group or others can read them (Unix), as a hard error, not a warning.** Every reader uses `sealed::read_passphrase_file`, now including the `maya2c-signer` CLI. Windows ACLs are not inspected yet. ADR-049 amendment.
+- **Remote-signer keystores:** 12-byte passphrase floor on create (the existing sealed-key floor), no overwrite, 0600 on Unix; 64 KiB and KDF bounds on open. ADR-049 amendment.
+- **VRF keys and gamma are accepted only in canonical encoding** (spec CRY-5, ADR-024 amendment). It changes which bytes verify, not which values honest code produces.
+- **The oracle registry refuses an unusable VRF key when it is installed** (genesis or a signed rotation), not only when a proof under it is verified (CRY-5, ADR-024 amendment, Eric 2026-11-17 pre-approval). It changes which rotations are valid; no value-bearing chain has an oracle registry, so no stored state is affected.
+- **The release smoke test writes its passphrase file under `umask 077`**, and the runbooks say passphrase files on Unix must be 0600 on a filesystem that keeps permissions.
+- **Not decided here:** replay protection and downgrade policy in the crypto-agility migration engine (an `Account` layout change), and an operator-confirmed floor on slashing-database import. Both stay open.

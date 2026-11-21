@@ -35,11 +35,22 @@ struct Setup {
     dir: TempDir,
 }
 
+/// Writes a passphrase file owner-only on Unix: the signer refuses one that
+/// group or others can read.
+fn write_private(path: &Path, text: &str) {
+    std::fs::write(path, text).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
 impl Setup {
     fn new() -> Self {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("pass"), format!("{PASSPHRASE}\n")).unwrap();
-        std::fs::write(dir.path().join("wrong"), "not the passphrase\n").unwrap();
+        write_private(&dir.path().join("pass"), &format!("{PASSPHRASE}\n"));
+        write_private(&dir.path().join("wrong"), "not the passphrase\n");
         let s = Self { dir };
         for ks in ["validator.ks", "identity.ks"] {
             let out = run(&[
@@ -193,6 +204,29 @@ fn a_wrong_passphrase_opens_nothing_and_echoes_nothing() {
     );
     // The keystore file is unchanged and still opens with the right one.
     assert!(keystore::open(&s.p("validator.ks"), PASSPHRASE.as_bytes()).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn init_refuses_a_passphrase_file_others_can_read() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new().unwrap();
+    let pass = dir.path().join("pass");
+    std::fs::write(&pass, format!("{PASSPHRASE}\n")).unwrap();
+    std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let ks = dir.path().join("validator.ks");
+    let out = run(&[
+        "init",
+        "--keystore",
+        path(&ks),
+        "--passphrase-file",
+        path(&pass),
+    ]);
+    not_a_panic(&out);
+    assert!(
+        !ks.exists(),
+        "a keystore was created from a shared passphrase file"
+    );
 }
 
 #[test]

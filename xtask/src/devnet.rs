@@ -28,6 +28,19 @@ const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 /// Result alias: every failure here is a message for the operator.
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Writes a passphrase file owner-only on Unix: the node and signer refuse a
+/// passphrase file that another local user can read.
+pub fn write_private(path: &Path, text: &str) -> Result<()> {
+    std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// Kills its children on drop, so a failed check leaves nothing running.
 #[derive(Default)]
 pub struct Procs(Vec<Child>);

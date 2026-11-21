@@ -75,8 +75,8 @@ impl OracleRegistry {
     /// # Errors
     ///
     /// Returns [`NodeError::InvalidOracleRegistry`] if the set is too small or
-    /// too large, holds a duplicate address, or carries a threshold that is not
-    /// a strict majority.
+    /// too large, holds a duplicate address or a VRF key no proof can verify
+    /// under, or carries a threshold that is not a strict majority.
     pub fn new(mut authorities: Vec<OracleAuthority>, quorum: u8, epoch: u64) -> Result<Self> {
         if authorities.len() < MIN_AUTHORITIES {
             return Err(NodeError::InvalidOracleRegistry {
@@ -103,6 +103,19 @@ impl OracleRegistry {
             return Err(NodeError::InvalidOracleRegistry {
                 reason: "duplicate authority address".to_string(),
             });
+        }
+
+        // A key no proof can verify under (not a point, not its canonical
+        // encoding, or small order: spec CRY-5) would leave that authority's
+        // beacon slots always on the fallback. Refused here, so genesis and
+        // rotation cannot install one.
+        for authority in &authorities {
+            authority
+                .vrf_key
+                .point()
+                .map_err(|error| NodeError::InvalidOracleRegistry {
+                    reason: format!("authority VRF key: {error}"),
+                })?;
         }
 
         // A quorum that is not a strict majority admits two disjoint quorums,
