@@ -144,25 +144,3 @@ fn the_reference_implementation_mirrors_the_ceiling() {
         "spec-ref drifted"
     );
 }
-
-#[test]
-fn the_z3_model_mirrors_the_ceiling() {
-    let line = repo_file("formal/z3/fee_market.py")
-        .lines()
-        .find(|l| l.starts_with("MAX_BASE_FEE_PER_BYTE ="))
-        .map(str::to_owned)
-        .expect("the Z3 model declares MAX_BASE_FEE_PER_BYTE");
-    let value = number(
-        line.split('=')
-            .nth(1)
-            .expect("an assignment")
-            .split('#')
-            .next()
-            .unwrap(),
-    );
-    assert_eq!(
-        value,
-        MAX_BASE_FEE_PER_BYTE.to_u128().unwrap(),
-        "Z3 model drifted"
-    );
-}

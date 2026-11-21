@@ -49,13 +49,9 @@ skip() { printf '| %s | SKIPPED | %s |\n' "$1" "$2"; }
     else
         skip lean "lean not installed"
     fi
-    if python3 -c 'import z3' 2>/dev/null; then
-        run z3 python3 formal/z3/fee_market.py
-    else
-        skip z3 "z3-solver not installed"
-    fi
     if command -v cargo-kani >/dev/null; then
         run kani cargo kani -p maya-ledger-math
+        run kani-fee cargo kani -p maya-fee-market
     else
         skip kani "cargo-kani not installed"
     fi
@@ -85,7 +81,7 @@ skip() { printf '| %s | SKIPPED | %s |\n' "$1" "$2"; }
     echo "4. HQC decapsulation is not constant-time (dudect |t| 47.5); HQC stays off by default (ADR-009)."
     echo "5. Threshold Raccoon's dealerless keygen is this project's own construction, not peer reviewed (ADR-014)."
     echo "6. No external security audit, no public testnet, no measured SLO."
-    echo "7. Lean/Z3 proofs are over hand-written models; only the fee split is tied to the Rust by differential vectors."
+    echo "7. The Lean proofs are over hand-written models; only the fee split is tied to the Rust by differential vectors. The Kani fee harnesses run the Rust itself."
 } > "$OUT"
 echo "wrote $OUT"
 grep -c "| PASS |" "$OUT" | xargs echo "PASS:"
