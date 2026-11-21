@@ -63,7 +63,7 @@ Node flags these runners use (see `maya2c-node --help`): `--genesis`,
 ## 4. Test
 
 ```bash
-cargo test -p custom-l1-node --test <file>   # one integration test binary
+cargo test -p custom-l1-node --test bft_node_tests   # one integration test binary (crates/node/tests/<name>.rs)
 cargo test -p custom-l1-node --lib           # the node's unit tests
 cargo test -p maya-dag-bft                   # the BFT engine
 ```
