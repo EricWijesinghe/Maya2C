@@ -111,8 +111,9 @@ cannot take that prefix.
   rollback, restart and generation rebuild) is run on both `MemoryStore` and
   `PostgresStore`, so the fake the API tests use and the SQL cannot drift. The
   server comes from `MAYA_EXPLORER_TEST_PG`; CI's nextest job and the
-  nightly coverage job are configured to provide a `postgres:17-alpine`
-  service (the local run, against PostgreSQL 16, is in the PR). Without the
+  nightly coverage job provide a `postgres:17-alpine` service (the nextest
+  log on d43222df shows all six PASS; local runs against PostgreSQL 16 are
+  in the PR). Without the
   variable those tests print SKIPPED locally and fail under `CI`, so a job
   that lost its server cannot pass having checked no SQL. `sqlx` was already
   in the crate, and its 0.9 `query()` accepts only `'static` SQL, so a value
