@@ -77,7 +77,10 @@ against both a quantum attacker and a bug in young ML-KEM code.
   signal: a proof-of-personhood stamp (`crates/personhood`), or
   contacts-only mailboxes. Each is its own later decision. *(Revised
   2026-09-28 after the security review: the first draft promised
-  per-sender quotas, which this design cannot enforce.)*
+  per-sender quotas, which this design cannot enforce.)* *(Revised
+  2026-11-21: a full relay evicts from its largest mailbox, fetch
+  challenges are stateless and the fetch signature names the relay;
+  [ADR-149](ADR-149-chat-relay-storage-under-flood.md).)*
 - **Forged messages are cheap to refuse.** A forged `Chat` message can make
   a receiver derive up to `MAX_SKIP` (1,000) chain keys before its tag
   fails. That costs microseconds, and delivering the forgery through a
