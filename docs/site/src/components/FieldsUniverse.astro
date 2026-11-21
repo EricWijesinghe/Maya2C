@@ -151,7 +151,7 @@ const parts = `${fields.reduce((n, f) => n + f.parts.length, 0)}`;
     font: 600 .74rem/1.2 var(--sans); white-space: nowrap; padding: .2rem .5rem; border-radius: var(--r-pill);
     background: var(--well); border: 1px solid var(--glass-edge);
   }
-  .orb[aria-current="true"] .dot { transform: scale(1.18); box-shadow: 0 0 0 3px var(--text), 0 0 18px var(--halo); }
+  .orb[aria-current="true"] .dot { transform: scale(1.18); box-shadow: 0 0 0 3px var(--text), 0 0 18px var(--halo, transparent); }
   .orb:hover .dot { transform: scale(1.1); }
   .orb:focus-visible { outline: 3px solid var(--cherenkov-hi); outline-offset: 4px; }
 

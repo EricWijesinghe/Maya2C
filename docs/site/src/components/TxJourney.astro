@@ -121,7 +121,7 @@ const steps = [
   .txj-track { display: none; position: relative; justify-content: space-between; align-items: center; margin: 4px 6px 18px; }
   .js .txj-track { display: flex; }
   .txj-rail { position: absolute; left: 20px; right: 20px; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 3px; background: var(--glass-edge); }
-  .txj-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: var(--brand-line); border-radius: 3px; transition: transform .6s var(--glide); }
+  .txj-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, var(--accent), var(--accent-hover) 60%, var(--bronze-display)); border-radius: 3px; transition: transform .6s var(--glide); }
   .txj-node { position: relative; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 600 14px var(--sans); color: var(--muted); background: var(--deep); border: 1.5px solid var(--glass-edge); transition: background .4s, color .4s, border-color .4s; }
   .txj-node.on { color: var(--on-accent); background: var(--accent-fill); border-color: transparent; }
   .txj-controls { display: none; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }

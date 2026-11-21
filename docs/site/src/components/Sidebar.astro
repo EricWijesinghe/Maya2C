@@ -1,0 +1,19 @@
+---
+// Starlight's sidebar with the site menu on top below 50rem. On a docs page
+// the phone has one menu button, Starlight's; it opens this pane, so the main
+// entries, "Get started", GitHub and the theme come first and the page tree
+// follows. Starlight's mobile footer (GitHub and theme at the very bottom of a
+// long tree) is not rendered: its two controls are in the menu block.
+import SidebarPersister from "@astrojs/starlight/components/SidebarPersister.astro";
+import SidebarSublist from "@astrojs/starlight/components/SidebarSublist.astro";
+import MenuPanel from "./MenuPanel.astro";
+
+const { sidebar } = Astro.locals.starlightRoute;
+---
+
+<div class="site-menu md:sl-hidden"><MenuPanel name="sidebar" /></div>
+<SidebarPersister><SidebarSublist sublist={sidebar} /></SidebarPersister>
+
+<style>
+  .site-menu { padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+</style>

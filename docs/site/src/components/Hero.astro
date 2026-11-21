@@ -8,6 +8,13 @@
 // line for each REAL finalized block from the explorer's WebSocket; nothing is
 // simulated. While the testnet is paused (data/network-state.ts) the socket is
 // never opened, so the grid stays still and the chip says why.
+//
+// The focal graphic is the emblem in a forged medallion (L02 critique: a paused
+// network left the first screen as text on dots). It is a sized WebP from
+// astro:assets, lazy and low priority so the headline stays the LCP element,
+// and its two orbits stand still under prefers-reduced-motion.
+import { Image } from "astro:assets";
+import emblem from "../assets/emblem.png";
 import { testnet } from "../data/network-state";
 ---
 
@@ -19,10 +26,15 @@ import { testnet } from "../data/network-state";
     <canvas class="pulses"></canvas>
   </div>
   <div class="inner">
+    <div class="medal" aria-hidden="true">
+      <span class="orbit"></span>
+      <span class="orbit orbit--bronze"></span>
+      <Image src={emblem} widths={[168, 336]} sizes="(max-width: 30rem) 112px, 168px" format="webp" quality={80} alt="" loading="lazy" decoding="async" fetchpriority="low" class="emblem" />
+    </div>
     <p class="chip">
       <span class="dot" aria-hidden="true"></span>
       {testnet.paused ? (
-        <span>Testnet paused since {testnet.since} · last block {testnet.last.height.toLocaleString("en-US")} · <a href={testnet.report}>why</a></span>
+        <span class="l1">Testnet paused since {testnet.since}</span><span class="l2"><span class="sep" aria-hidden="true"> · </span>last block {testnet.last.height.toLocaleString("en-US")} · <a href={testnet.report}>why</a></span>
       ) : (
         <span>maya-testnet-1 · <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
       )}
@@ -30,8 +42,18 @@ import { testnet } from "../data/network-state";
     <h1 id="hero-title">Post-quantum <span class="nw">layer-1</span>, built in Rust.</h1>
     <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by <span class="nw">DAG-BFT</span>. Open source, and every number on this page links to its source.</p>
     <div class="cta">
-      <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
-      <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+      {/* Paused: a "Start mining" door under a "paused" chip reads as a live network. */}
+      {testnet.paused ? (
+        <>
+          <a class="ui-btn ui-btn--primary" href="/guides/quickstart/">Get started</a>
+          <a class="ui-btn ui-btn--secondary" href="/guides/start-mining/">How mining works</a>
+        </>
+      ) : (
+        <>
+          <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
+          <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+        </>
+      )}
     </div>
   </div>
 </section>
@@ -126,9 +148,21 @@ import { testnet } from "../data/network-state";
   :global([data-theme="light"]) .glow { opacity: .8; }
 
   .inner { max-width: 48rem; margin: 0 auto; text-align: center; }
+  /* The medallion: the emblem on a night disc in both themes (its smoke edge
+     printed grey on paper), ringed by a teal and a bronze orbit. */
+  .medal { position: relative; width: clamp(112px, 24vw, 168px); aspect-ratio: 1; margin: 0 auto var(--space-6); display: grid; place-items: center; }
+  .medal::before { content: ""; position: absolute; inset: 8%; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 30%, var(--disc)), var(--disc)); box-shadow: var(--shadow-md); }
+  .medal { --disc: var(--bg); }
+  :global([data-theme="light"]) .medal { --disc: var(--text); }
+  :global([data-theme="dark"]) .medal::before { box-shadow: var(--shadow-md), 0 0 40px -8px var(--halo, transparent); }
+  .emblem { position: relative; width: 84%; height: auto; border-radius: 50%; }
+  .orbit { position: absolute; inset: 0; border-radius: 50%; border: 2px dashed color-mix(in srgb, var(--accent) 65%, transparent); animation: orbit 18s linear infinite; }
+  .orbit--bronze { inset: 4%; border: 1.5px dotted var(--bronze-display); animation-duration: 26s; animation-direction: reverse; }
+  @keyframes orbit { to { transform: rotate(360deg); } }
   .chip { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-1); font: var(--type-mono-weight) var(--type-body-sm-size)/1.4 var(--font-mono); color: var(--text-2); }
   .chip b { font-weight: var(--weight-medium); color: var(--text); }
   .chip a { color: var(--accent-text); }
+  .chip .l1, .chip .l2 { white-space: nowrap; }
   .dot { flex: none; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--warn); }
   .hero.live .dot { background: var(--success); }
   h1 { margin: var(--space-6) 0 var(--space-4); font: var(--type-display-1-weight) clamp(var(--type-display-1-size-phone), 5.4vw, 64px)/1.08 var(--type-display-1-font); letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
@@ -138,6 +172,12 @@ import { testnet } from "../data/network-state";
   .cta .ui-btn { height: 40px; padding: 0 var(--space-5); text-decoration: none; }
   .cta .ui-btn--primary { color: var(--on-accent); }
   .cta .ui-btn--secondary { color: var(--text); }
-  @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
-  @media (max-width: 640px) { .hero { padding-block: var(--space-16) var(--space-12); } .chip { text-align: left; } }
+  @media (prefers-reduced-motion: reduce) { .glow, .orbit { animation: none; } }
+  @media (max-width: 640px) { .hero { padding-block: var(--space-12) var(--space-12); } .chip { text-align: left; } }
+  /* Phones: the paused chip is two whole lines on a card, the dot beside the first. */
+  @media (max-width: 30rem) {
+    .chip:has(.l2) { display: inline-grid; grid-template-columns: auto auto; column-gap: var(--space-2); align-items: center; border-radius: var(--r-lg); padding: var(--space-2) var(--space-3); }
+    .chip .l2 { grid-column: 2; }
+    .chip .sep { display: none; }
+  }
 </style>
