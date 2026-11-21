@@ -3,8 +3,8 @@
 use crate::AccountId;
 use maya_amount::Amount;
 
-/// Blocks in one policy "day" (2 s blocks).
-pub const BLOCKS_PER_DAY: u64 = 43_200;
+/// Blocks in one policy "day": one block a second (docs/block-time.md).
+pub const BLOCKS_PER_DAY: u64 = 86_400;
 
 /// An account's spending policy. The default is "no limits": a normal
 /// account stays instant and final; limits are opt-in.

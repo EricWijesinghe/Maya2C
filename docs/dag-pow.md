@@ -10,10 +10,10 @@ bandwidth rather than by arithmetic.
 |---|---|
 | Dataset | 4 GiB, fixed size, contents rotate every epoch |
 | Cache | 64 MiB, what a validating node holds |
-| Epoch | 30,000 blocks — 5.21 days at a 15-second target |
+| Epoch | 450,000 blocks: 5.21 days at one block a second (docs/block-time.md) |
 | Lookups per hash | 64 pages of 128 bytes |
 | Hash | BLAKE3 throughout |
-| Activation | Height 30,000, the start of epoch 1 |
+| Activation | Height 450,000, the start of epoch 1 |
 
 ## What this does and does not claim
 

@@ -5,6 +5,61 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — genesis blockers from the ADR-142 review (PR #549, 2026-11-14)
+
+Open after PR #549 and blocking genesis. The first is an economics decision
+for Eric; the other two are engineering.
+
+- **G1 — a failing contract call is free and censors every call after it.**
+  A failing plaintext call is never included (STF-8): no fee, no nonce bump,
+  and the DAG-BFT driver keeps it pooled, so it is proposed again every block.
+  Since ADR-142 amendment 3 failed work has its own builder count, so one
+  call naming the cap no longer leaves the calls after it out
+  (`a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies`). The
+  builder still stops trying contract work once applied and failed work reach
+  `2 × vm.max_block_gas + 1,536,000`: two failing calls at the cap, from two
+  funded senders, get there, every block, for nothing
+  (`failed_work_past_the_builder_budget_stops_contract_trials`). PR #549 also
+  limits selection to one failing trial per sender per block and counts calls
+  refused below their upfront price. Any finite budget leaves this lever,
+  because a call is only known to fail once it has run. **Fix: include a
+  failed contract call with its fee and a nonce bump (STF-8 change, Eric's
+  decision);** a pool eviction of transactions that failed in a committed
+  block helps but does not close it (the sender re-signs).
+- **G4 — the stack-overflow boundary depends on the ISA and the build (re-freeze review R-6).**
+  One recursion shape completes to depth 10,915 in a release build and 10,901
+  in a dev build of the same source, same x86-64 machine (ADR-142 amendment 4);
+  aarch64 frames differ again. A contract recursing to between two nodes'
+  limits succeeds on one and fails on the other, and the state roots split.
+  No vector can pin the boundary itself (it fails across profiles); a 5,000-deep
+  vector pins gas short of it, replayed on aarch64 by `vm-gas-aarch64`.
+  Fix options: a deterministic call-depth bound (instrument function entry and
+  exit with a counter: a module rewriter, which is a new VM dependency or a
+  hand-written one), or consensus execution on a fixed-frame tier (Pulley,
+  every price re-calibrated). **Decision for Eric before any aarch64 validator
+  joins:** build one, or launch x86-64-only and say so.
+- **G1b — producer time at the gas ceiling.** The two-cap builder budget puts
+  a producer's worst case at about 978 ms of priced work at the 300 M
+  `VM_GAS_CEILING` (816 ms at the 250 M default), at 1 ns/unit. Lower the
+  ceiling, or keep it and accept the margin: a governance-bound decision,
+  Eric's.
+- **G2 — the contracts layer of the state root is folded over all contract
+  state every block** (ROOT-5, `state/commitments.rs` `merged_contracts`). No
+  gas price bounds it: measured 533 ms at 400,000 entries (dev), reachable in
+  about ten blocks of cheap writes. Fix: make the layer incremental as
+  ADR-062a did for accounts (PR #540), or a hard ceiling on contract state.
+- **G3 — end-of-block bisection re-runs contract work** up to ~9 selections
+  and 32 builds per anchor (`consensus/bft/builder.rs`, ~12 G gas, ~12 s).
+  Fix: cache staged results per prefix, or charge each probe's contract work
+  against a per-anchor budget.
+- Not blockers, recorded with them: envelopes do not state their inner
+  call's `gas_limit`, so reveals share `sealed_gas_budget` in envelope-key
+  order and a seal is accepted without a gas check (state it in the outer
+  envelope and reserve it at admission); a contract's cold price is
+  recomputed by a scan at every cold call (store it at deployment); and the
+  timing tests are `#[ignore]`d, so only the shape bounds guard compile time
+  in CI.
+
 ## P1 — frozen-node findings (CATALOG §M research, 2026-11-10)
 
 Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
@@ -37,6 +92,21 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
 - **Light-client schedule source.** `LightClient::verify_block` takes the suite
   schedule from its caller. Verify it against a state proof of the `up:` records
   so a light client does not trust its caller for it (ADR-082).
+- **Pending validity parameters over RPC** (PR #575 review, after the freeze).
+  A passed change to a validity key waits 30 days in `g:pending:<tag>`, but
+  the parameter RPC reads only `g:params`, so off-chain parties see it only by
+  reading raw state. Add a read-only view: pending value plus activation height
+  per validity key (seven point reads). No consensus impact.
+- **End-to-end activation test for a DEX ceiling** (PR #575 review). The
+  CON-17 tests check the timing through the parameter table. Add one block-level
+  test that lowers `DexMaxOrdersPerBook` and places order N+1 at activation − 1
+  (accepted) and at activation (refused), so the `stage_block` order (readers
+  before `settle_governance` and `activate_parameters`) is pinned by a test,
+  not by a comment.
+- **Derive the duration pins from the round interval** once PR #500's
+  `CANONICAL_ROUND_INTERVAL_MS` is on master: the DAG epoch, work half-life,
+  policy day and rotation tests should compute their expected block counts
+  from it (e.g. 86,400,000 ms / (2 × 500)), so a block-rate change turns them red.
 
 ## P5 — 256-bit headroom (DECISIONS 2026-11-01, after launch, at an activation height)
 

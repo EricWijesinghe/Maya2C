@@ -58,18 +58,16 @@ fn matmul(n: u32) -> Vec<u8> {
     wat::parse_str(&wat).expect("wat")
 }
 
+/// The fuel the guest burned, without the call's upfront price (ADR-142),
+/// which depends on the module's length rather than on the arithmetic.
 fn gas_for(n: u32) -> u64 {
     let vm = Vm::new().expect("vm");
-    vm.execute(
-        &matmul(n),
-        [0; 32],
-        &[],
-        u64::MAX / 2,
-        MemoryState::at_height(1),
-    )
-    .outcome
-    .expect("matmul runs")
-    .gas_used
+    let code = matmul(n);
+    vm.execute(&code, [0; 32], &[], u64::MAX / 2, MemoryState::at_height(1))
+        .outcome
+        .expect("matmul runs")
+        .gas_used
+        - maya_vm::gas::cold_call_fuel(&code).expect("shape")
 }
 
 #[test]
