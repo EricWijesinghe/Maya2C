@@ -1,0 +1,57 @@
+# Weekly dev-log draft, built only from pull requests merged into master.
+#
+# `cargo xtask devlog week` lists every PR merged in the last seven days,
+# grouped by the conventional-commit type in its title, each linking to the PR.
+# This job writes that draft to the run summary and an artifact. It posts
+# nothing and commits nothing: the maintainer reads it, edits if needed, and
+# posts it to Discussions himself, so no line of the public record is
+# generated activity.
+name: devlog
+
+on:
+  schedule:
+    # Mondays 00:23 UTC, off the top of the hour.
+    - cron: "23 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "First merge date to include (YYYY-MM-DD); empty = seven days ago"
+        required: false
+  # A change to this job runs it, so it is proven before it is relied on.
+  pull_request:
+    paths: [".github/workflows/devlog.yml", "xtask/src/devlog.rs"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # .cargo/config.toml links through clang + mold on Linux.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: xtask
+      - name: Draft the dev log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          if [ -n "$SINCE" ]; then
+            cargo xtask devlog week --since "$SINCE" > devlog.md
+          else
+            cargo xtask devlog week > devlog.md
+          fi
+          cat devlog.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: devlog
+          path: devlog.md

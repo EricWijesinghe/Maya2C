@@ -24,6 +24,7 @@ mod ceremony_rehearsal;
 mod check_brand_refs;
 mod claims_check;
 mod coverage;
+mod devlog;
 mod devnet;
 mod disk;
 mod eco_metrics;
@@ -58,6 +59,7 @@ mod sdk_e2e;
 mod site_integrity;
 mod slo_check;
 mod spec_coverage;
+mod stamp;
 mod starter_stickers;
 mod status;
 mod sweep;
@@ -128,6 +130,7 @@ fn main() -> ExitCode {
         "starter-stickers" => starter_stickers::run(rest),
         "brand-assets" => brand_assets::run(rest),
         "og-card" => og_card::run(rest),
+        "devlog" => devlog::run(rest),
         "kheavyhash" => kheavyhash::run(rest),
         "help" | "--help" | "-h" => {
             usage();
@@ -172,6 +175,9 @@ cargo xtask <command>
   brand-assets [--check]
                         Copy the logo pack favicons and wordmarks into each app.
   og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
+  devlog changelog | week [--since DATE] | roadmap [--check]
+                        CHANGELOG.md and a dev-log post body from merged PRs (via gh);
+                        docs/ecosystem/ROADMAP.md from the catalog's waves.
   kheavyhash [--fetch]  Regenerate the kHeavyHash reference module and fixture from upstream.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a

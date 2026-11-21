@@ -328,7 +328,7 @@ pub fn bench_finality(args: &[String]) -> Result<()> {
     drop(procs);
     let first_refusal = attempts.iter().find_map(|a| a.txid.as_ref().err().cloned());
     let summary = summarize(&outcomes(&attempts, &observed));
-    let stamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string();
+    let stamp = crate::stamp::file_stamp(crate::stamp::local_now());
     let (json, text) = report(&o, &summary, first_refusal.as_deref(), &stamp);
     println!("{text}");
     let dir = devnet::root().join("reports").join("bench");

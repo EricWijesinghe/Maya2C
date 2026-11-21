@@ -46,9 +46,10 @@ phase that did it.
    corruption — it is two plausible numbers that go on quoting a price. The same
    applies to the oracle's `o:` records.
 9. **Oracle freshness is measured in block height, never in timestamps.**
-   `chain.rs` reads `header.timestamp` only for difficulty retargeting; there is
-   no future-drift bound and no median-time-past, so a miner may write any
-   `u64`. A timestamp-based freshness check would read as safety and provide
+   On the PoW path `chain.rs` requires `header.timestamp` to exceed the
+   median-time-past (ADR-063); fixed-target DAG-BFT skips that check. There is
+   no future-drift bound in consensus, so a miner may write a timestamp far
+   ahead. A timestamp-based freshness check would read as safety and provide
    none. See `docs/oracle.md`.
 10. **The VRF suite octet is `0x03`.** `0x04` is `…-SHA512-ELL2`, the same curve
     and hash under a different hash-to-curve map. Using it produces proofs that
