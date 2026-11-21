@@ -17,12 +17,13 @@ use rocksdb::WriteBatch;
 use tempfile::TempDir;
 
 use super::{
-    Change, MARKER, NODES_END, ROOT_CACHE_PREFIX, RootCacheStats, UNCHECKED, Walk, marker,
-    node_key, root_after, touches_accounts,
+    Change, MARKER, MARKER_LEN, NODES_END, ROOT_CACHE_PREFIX, RootCacheStats, UNCHECKED, Walk,
+    marker, node_key, root_after, touches_accounts,
 };
 use crate::state::account::{Account, Address};
 use crate::state::commitments::{LOCAL_ONLY_PREFIXES, is_committed};
 use crate::state::db::{Overlay, RootSource, StateDB};
+use crate::state::merkle::HASH_LEN;
 use crate::state::stateless::SPARSE_ACCOUNTS_KEY;
 
 fn sparse_db(dir: &TempDir) -> StateDB {
@@ -676,16 +677,12 @@ fn a_preview_checks_the_cache_once_at_each_confirm_height() {
     UNCHECKED.with(|unchecked| unchecked.set(false));
 }
 
-/// PR #549 review R-4 on the accounts cache: an import at a confirm height
-/// checks it as a preview does, so a node that never builds blocks refuses a
-/// block declaring a root only its damaged cache gives.
 #[test]
 fn a_follower_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root() {
-    use super::{CONFIRM_EVERY, MARKER_LEN};
+    use super::CONFIRM_EVERY;
     use crate::core::{Block, BlockHeader};
     use crate::error::NodeError;
     use crate::state::context::BlockContext;
-    use crate::state::merkle::HASH_LEN;
 
     let dir = TempDir::new().expect("tempdir");
     let db = sparse_db(&dir);
@@ -711,15 +708,14 @@ fn a_follower_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root
         difficulty_target: [0xFF; 32],
         tx_root: [0; 32],
     };
-    // Off a confirm height, so asking does not use up the import's confirm.
+    let empty = Block::new(header([0; 32]), Vec::new());
+    // Above a confirm height, so the preview does not check the cache itself.
     let wrong = db
-        .preview_root(
-            &Block::new(header([0; 32]), Vec::new()),
-            BlockContext::at_height(CONFIRM_EVERY + 1),
-        )
+        .preview_root(&empty, BlockContext::at_height(CONFIRM_EVERY + 1))
         .expect("preview");
+    let declared = Block::new(header(wrong), Vec::new());
     let applied = db.apply_journaled_with(
-        &Block::new(header(wrong), Vec::new()),
+        &declared,
         &[0x43; 32],
         BlockContext::at_height(CONFIRM_EVERY),
         |_| (),

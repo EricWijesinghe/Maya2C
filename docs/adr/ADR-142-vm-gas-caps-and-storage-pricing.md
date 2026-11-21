@@ -801,7 +801,9 @@ R-2/R-5/R-6/R-10 amendment, which took the next number in this file first.
   `a_node_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root`
   (contracts) and
   `a_follower_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root`
-  (accounts, the review's patch test). Red run: with the import path back on
+  (accounts, the review's patch test; #540 landed the same fix for the
+  accounts cache as 502840e9, and the merge keeps #540's copy of that test
+  and this branch's `source_at` for both paths). Red run: with the import path back on
   `RootSource::Cache`, both failed with the block accepted
   (`Ok([134, 1, 163, ...])` and `Ok([57, 42, 53, ...])`).
 - `check_declared_root` now asks the full rebuild whenever the computed root
