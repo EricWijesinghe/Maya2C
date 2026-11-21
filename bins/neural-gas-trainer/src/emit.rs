@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use maya_fee_market::Model;
+use maya_neural_fee::Model;
 
 use crate::evaluate::Metrics;
 use crate::{EPOCHS, EVALUATION_SEED, TRAINING_BLOCKS, TRAINING_SEED, TrainingRun};

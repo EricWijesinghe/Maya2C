@@ -13,7 +13,7 @@ use maya_neural_gas_trainer::{EVALUATION_BLOCKS, EVALUATION_SEED, emit, train};
 
 fn weights_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/fee-market/src/model/weights_v1.rs")
+        .join("../../crates/neural-fee/src/model/weights_v1.rs")
 }
 
 fn main() -> ExitCode {
