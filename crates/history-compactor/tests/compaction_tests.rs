@@ -4,8 +4,8 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use maya_history_compactor::{
-    ArchiveMmr, BlockLeaf, Compactor, DecodeError, InclusionProof, VerifyError, tx_proof, tx_root,
-    verify_transaction,
+    ArchiveMmr, BlockLeaf, Commitment, Compactor, DecodeError, InclusionProof, VerifyError,
+    tx_proof, tx_root, verify_transaction,
 };
 
 fn block_txs(height: u64) -> Vec<Vec<u8>> {
@@ -142,5 +142,153 @@ fn the_decoder_refuses_malformed_bytes_without_panicking() {
         let len = (x % 600) as usize;
         let bytes: Vec<u8> = (0..len).map(|i| (x >> (i % 56)) as u8).collect();
         let _ = InclusionProof::decode(&bytes);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// red team: the right hashes in the wrong shape, and hostile sizes
+// ---------------------------------------------------------------------------
+
+fn small_archive(blocks: u64) -> (ArchiveMmr, Vec<BlockLeaf>) {
+    let mut archive = ArchiveMmr::new();
+    let leaves: Vec<BlockLeaf> = (0..blocks).map(|h| leaf_for(h, &block_txs(h))).collect();
+    for leaf in &leaves {
+        archive.append(leaf);
+    }
+    (archive, leaves)
+}
+
+#[test]
+fn a_proof_moved_to_another_index_or_leaf_count_is_refused() {
+    // 11 = 8 + 2 + 1: three peaks, so a leaf in every tree is exercised.
+    let (archive, leaves) = small_archive(11);
+    let c = archive.commitment();
+    let wrong_count = Commitment {
+        leaves: 12,
+        root: c.root,
+    };
+    for i in 0..11 {
+        let leaf = &leaves[i as usize];
+        let proof = archive.prove(i).expect("held");
+        assert!(proof.verify(&c, leaf), "leaf {i}");
+        for j in (0..11).filter(|&j| j != i) {
+            let moved = InclusionProof {
+                leaf_index: j,
+                ..proof.clone()
+            };
+            assert!(!moved.verify(&c, leaf), "leaf {i} claimed at {j}");
+        }
+        let recounted = InclusionProof {
+            leaves: 12,
+            ..proof.clone()
+        };
+        assert!(!recounted.verify(&c, leaf), "leaf {i} under 12 leaves");
+        assert!(
+            !proof.verify(&wrong_count, leaf),
+            "the count is bound into the root"
+        );
+    }
+}
+
+#[test]
+fn a_sibling_or_peak_added_dropped_or_reordered_is_refused() {
+    let (archive, leaves) = small_archive(11);
+    let c = archive.commitment();
+    // Leaf 5 sits in the 8-tree: three siblings, and the 2- and 1-tree peaks.
+    let proof = archive.prove(5).expect("held");
+    assert_eq!((proof.siblings.len(), proof.other_peaks.len()), (3, 2));
+    let leaf = &leaves[5];
+
+    let mut extra = proof.clone();
+    extra.siblings.push([7; 32]);
+    assert!(!extra.verify(&c, leaf), "an extra sibling");
+    let mut short = proof.clone();
+    short.siblings.pop();
+    assert!(!short.verify(&c, leaf), "a missing sibling");
+    let mut swapped = proof.clone();
+    swapped.siblings.swap(0, 1);
+    assert!(!swapped.verify(&c, leaf), "siblings out of order");
+    let mut reversed = proof.clone();
+    reversed.other_peaks.reverse();
+    assert!(!reversed.verify(&c, leaf), "peaks out of order");
+    let mut more = proof.clone();
+    more.other_peaks.push([7; 32]);
+    assert!(!more.verify(&c, leaf), "an extra peak");
+    let mut fewer = proof;
+    fewer.other_peaks.pop();
+    assert!(!fewer.verify(&c, leaf), "a missing peak");
+}
+
+#[test]
+fn the_same_blocks_in_another_order_give_another_commitment() {
+    let (archive, leaves) = small_archive(8);
+    let mut swapped = leaves.clone();
+    swapped.swap(2, 3);
+    let mut reordered = ArchiveMmr::new();
+    for leaf in &swapped {
+        reordered.append(leaf);
+    }
+    assert_eq!(reordered.len(), archive.len());
+    assert_ne!(reordered.commitment(), archive.commitment());
+    // Block 2's proof from the reordered history does not place it in the real one.
+    let proof = reordered.prove(3).expect("held");
+    assert!(proof.verify(&reordered.commitment(), &leaves[2]));
+    assert!(!proof.verify(&archive.commitment(), &leaves[2]));
+}
+
+#[test]
+fn an_empty_history_commits_the_same_everywhere_and_proves_nothing() {
+    let pruned = Compactor::new();
+    let archive = ArchiveMmr::new();
+    assert!(pruned.is_empty() && archive.is_empty());
+    assert_eq!(pruned.commitment(), archive.commitment());
+    assert!(archive.prove(0).is_none());
+}
+
+#[test]
+fn a_transaction_from_another_block_is_refused_under_this_block() {
+    let (pruned, archive) = chain();
+    let commitment = pruned.commitment();
+    let (a, b) = (100, 101);
+    let (txs_a, txs_b) = (block_txs(a), block_txs(b));
+    assert!(txs_a.len() > 1, "index 1 must exist for the move below");
+    let leaf_a = leaf_for(a, &txs_a);
+    let block_proof = archive.prove(a).expect("held");
+    // A real transaction with a real proof, but of block b.
+    let proof_b = tx_proof(&txs_b, 0).expect("in range");
+    assert_eq!(
+        verify_transaction(&commitment, &leaf_a, &block_proof, &txs_b[0], &proof_b),
+        Err(VerifyError::TxNotInBlock)
+    );
+    // A real transaction of block a, its proof claiming another index.
+    let mut moved = tx_proof(&txs_a, 0).expect("in range");
+    moved.index = 1;
+    assert_eq!(
+        verify_transaction(&commitment, &leaf_a, &block_proof, &txs_a[0], &moved),
+        Err(VerifyError::TxNotInBlock)
+    );
+}
+
+#[test]
+fn a_hostile_proof_at_the_largest_leaf_count_is_refused_without_overflow() {
+    // u64::MAX leaves is 64 peaks, the largest shape the wire admits. The
+    // shape arithmetic must not overflow: a debug build would panic.
+    let c = Commitment {
+        leaves: u64::MAX,
+        root: [9; 32],
+    };
+    let leaf = leaf_for(0, &block_txs(0));
+    for leaf_index in [0, 1 << 62, u64::MAX - 1] {
+        for siblings in [0usize, 1, 63] {
+            let proof = InclusionProof {
+                leaf_index,
+                leaves: u64::MAX,
+                siblings: vec![[1; 32]; siblings],
+                other_peaks: vec![[2; 32]; 63],
+            };
+            assert!(!proof.verify(&c, &leaf));
+            let wire = InclusionProof::decode(&proof.encode()).expect("within bounds");
+            assert_eq!(wire, proof);
+        }
     }
 }
