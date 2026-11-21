@@ -782,6 +782,13 @@ fee. Closing R-3 needs a gas price: a fee that grows with `gas_limit` or
 `gas_used`, which is a fee-market design (who sets the price, a governed
 parameter and its bounds, refunds or none under GAS-6), not built here.
 
+**Under GAS-9 (amendment 6, merged in after this draft).** Selection keeps
+an included failure like any other transaction, so the four `builder_select`
+vectors amendment 6 wrote for left-out failures are re-stated here: in each,
+the failing call at the cap is kept and every contract call after it is
+passed over (`kept ["0"]`, `PassedOver`). That is R-3 as a vector: one call
+at the cap, failing, takes the whole block's contract gas for its byte fee.
+
 **Variant not built.** Included failed work could count against a budget of
 its own (one cap), so a paying failing call never takes room from calls that
 apply. It doubles a validator's worst case (2.25 × cap) and still leaves R-3.
