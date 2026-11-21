@@ -130,7 +130,11 @@ invariant 25), so a snapshot-restored or pruned node builds its own
    is a build over every account, so the header carries the full rebuild's root and the commit
    replaces the cache (`a_damaged_cache_is_caught_at_a_confirm_height_before_a_header_carries_it`,
    `a_preview_checks_the_cache_once_at_each_confirm_height`). Cost: about one rebuild per 256
-   heights.
+   heights. A node that applies blocks without previewing them (a follower, an RPC node, a
+   validator in catch-up) runs the same check on the apply path at those heights: otherwise a
+   wrong cache root equal to a block's declared root was accepted with no full check, and the node
+   forked off silently (independent AI review R-4, 2026-11-21;
+   `a_follower_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root`).
 4. Debug builds compare every planned root with the full rebuild. Unit tests (`cfg(test)`) panic
    on a difference, so a cache bug fails them; any other debug build (a debug testnet node, the
    integration tests) counts a repair and plans a build over every account, as a release node
