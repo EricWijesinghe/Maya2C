@@ -1,0 +1,26 @@
+[package]
+name = "maya2c-audit"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Recomputes Maya2C supply and mining-reserve emission from public RPC and the genesis file, without node code"
+
+# Deliberately no dependency on the node. An auditor that links the code it audits
+# inherits that code's bugs. Arithmetic is `maya-amount` and `maya-ledger-math`;
+# the emission schedule comes from `maya-spec-ref`, written from spec/09-mining.md.
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+hex.workspace = true
+maya-amount = { path = "../../crates/amount" }
+maya-ledger-math = { path = "../../crates/ledger-math" }
+maya-spec-ref = { path = "../../crates/spec-ref" }
+# Blocking client with rustls, as in `bins/eo-fetch`: no OpenSSL on the audit host.
+reqwest = { workspace = true, features = ["blocking", "json", "rustls-tls-native-roots"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
