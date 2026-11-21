@@ -218,8 +218,8 @@ pub(crate) enum RootSource {
     /// The root cache when it is valid.
     Cache,
     /// The root cache, after checking it node by node against a full
-    /// rebuild: a preview at a height `root_cache::Counters::confirm_due`
-    /// picks.
+    /// rebuild: a preview, or an import that did not take a kept preview, at
+    /// a height `root_cache::Counters::confirm_due` picks.
     Confirmed,
 }
 
@@ -1689,12 +1689,7 @@ impl StateDB {
         // The root this node puts in its own header: nothing it does later
         // refutes it, so the cache is checked here every `CONFIRM_EVERY`
         // heights (ADR-062a).
-        let source = if self.root_cache.confirm_due(context.height) {
-            RootSource::Confirmed
-        } else {
-            RootSource::Cache
-        };
-        let root = self.root_into(&mut overlay, source)?;
+        let root = self.root_into(&mut overlay, self.source_at(context.height))?;
         drop(staging);
         self.preview.keep(block, context, generation, overlay, root);
         Ok(root)
@@ -1992,11 +1987,25 @@ impl StateDB {
             kept
         } else {
             let mut overlay = self.stage_block(block, context)?;
-            let root = self.root_with_overlay(&mut overlay)?;
+            // A node that only imports never previews, so it confirms here
+            // too: otherwise a wrong cached root that a block also declares
+            // is accepted (PR #549 review R-4; the contracts cache is live
+            // from genesis).
+            let root = self.root_into(&mut overlay, self.source_at(context.height))?;
             (overlay, root)
         };
         let new_root =
             self.check_declared_root(&mut overlay, computed, &block.header.state_root)?;
         Ok((overlay, new_root))
+    }
+
+    /// [`RootSource::Confirmed`] once per `CONFIRM_EVERY` heights, whether the
+    /// block is previewed or only imported, else [`RootSource::Cache`].
+    fn source_at(&self, height: u64) -> RootSource {
+        if self.root_cache.confirm_due(height) {
+            RootSource::Confirmed
+        } else {
+            RootSource::Cache
+        }
     }
 }
