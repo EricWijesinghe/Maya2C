@@ -1,0 +1,54 @@
+//! Throwaway measurement harness (Lane 0, report only). Not for merge.
+//! (c) hashimoto_light cost per call at mainnet cache parameters, and the
+//! encoded size of one signed paid share (a `TxKind::MiningShare` transaction).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_precision_loss)]
+use custom_l1_node::core::mining_payload::MiningShare;
+use custom_l1_node::core::payload::TxKind;
+use custom_l1_node::core::transaction::{ChainTag, Transaction};
+use custom_l1_node::crypto::dag::cache::Cache;
+use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
+use custom_l1_node::crypto::dag::Params;
+use custom_l1_node::crypto::hybrid::signing_key_from_seed;
+use std::time::Instant;
+
+const CALLS_PER_BATCH: u64 = 200;
+const BATCHES: usize = 5;
+
+fn main() {
+    let params = Params::MAINNET;
+    println!(
+        "limits_dag_share: mainnet params cache_bytes={} (realised {}) dataset_bytes={} (realised {}) epoch_length={}",
+        params.cache_bytes,
+        params.realised_cache_bytes(),
+        params.dataset_bytes,
+        params.realised_dataset_bytes(),
+        params.epoch_length
+    );
+    let t = Instant::now();
+    let cache = Cache::generate(0, params).unwrap();
+    println!("cache generate (epoch 0) ms={:.1}", t.elapsed().as_secs_f64() * 1e3);
+    let header = [0x42u8; 32];
+    let mut per_call_us = Vec::new();
+    let mut sink = 0u8;
+    for _ in 0..BATCHES {
+        let t = Instant::now();
+        for nonce in 0..CALLS_PER_BATCH {
+            sink ^= hashimoto_light(&cache, &header, nonce).result[0];
+        }
+        per_call_us.push(t.elapsed().as_secs_f64() * 1e6 / CALLS_PER_BATCH as f64);
+    }
+    per_call_us.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    println!(
+        "hashimoto_light per call us_median={:.1} batches_us={:?} calls_per_batch={CALLS_PER_BATCH} batches={BATCHES} (sink={sink})",
+        per_call_us[BATCHES / 2],
+        per_call_us.iter().map(|x| (x * 10.0).round() / 10.0).collect::<Vec<_>>()
+    );
+
+    let key = signing_key_from_seed(&[0x51; 32]).unwrap();
+    let chain = ChainTag::from_genesis([0x11; 32]);
+    let mut tx = Transaction::new(vec![], vec![], 0);
+    tx.kind = TxKind::MiningShare(MiningShare { epoch: 0, nonce: 0 });
+    tx.sign(&key, &chain).unwrap();
+    let bytes = tx.to_bytes();
+    println!("signed paid share (TxKind::MiningShare, hybrid signature) encoded_bytes={}", bytes.len());
+}

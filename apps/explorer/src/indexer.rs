@@ -171,6 +171,7 @@ pub struct Indexer<S: BlockStore + ?Sized> {
     store: Arc<S>,
     events: broadcast::Sender<IndexEvent>,
     poll_interval: Duration,
+    network: maya_address::Network,
 }
 
 impl<S: BlockStore + ?Sized> Indexer<S> {
@@ -183,7 +184,16 @@ impl<S: BlockStore + ?Sized> Indexer<S> {
             store,
             events,
             poll_interval: POLL_INTERVAL,
+            // An unregistered chain is a development one, as in the wallet.
+            network: maya_address::Network::Devnet,
         }
+    }
+
+    /// The network whose Bech32m text the explanations write recipients in.
+    #[must_use]
+    pub fn with_network(mut self, network: maya_address::Network) -> Self {
+        self.network = network;
+        self
     }
 
     /// Overrides the poll interval. Tests use a short one.
@@ -208,7 +218,7 @@ impl<S: BlockStore + ?Sized> Indexer<S> {
     /// Indexes one block, publishing it to subscribers.
     async fn index(&self, block: &BlockInfo) -> Result<IndexedBlock> {
         let indexed = IndexedBlock::from_rpc(block);
-        let transactions = IndexedTx::from_block(block);
+        let transactions = IndexedTx::from_block(block, self.network);
 
         self.store.put_block(&indexed, &transactions).await?;
 

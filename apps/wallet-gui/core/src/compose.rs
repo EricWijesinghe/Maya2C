@@ -39,15 +39,7 @@
 //! return value, not a doc comment, because a doc comment cannot be rendered
 //! in a confirmation dialog.
 
-#[cfg(test)]
-use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::dex_payload::SwapRequest;
-#[cfg(test)]
-use custom_l1_node::core::payload::TxKind;
-#[cfg(test)]
-use custom_l1_node::core::transaction::Transaction;
-#[cfg(test)]
-use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use primitive_types::U256;
 
 use crate::error::{Result, WalletError};
@@ -242,33 +234,6 @@ impl SwapOutcome {
     }
 }
 
-/// Composes an AMM swap.
-///
-/// # Errors
-///
-/// [`WalletError::AmountOverflow`] for a zero input — a swap of nothing would
-/// occupy a nonce and move nothing, which is a mistake rather than a strategy.
-///
-/// A slippage bound is **not** validated here and cannot fail: `min_out` above
-/// what the pool can pay is a skipped swap, not a rejected transaction.
-#[cfg(test)]
-// Test-only: signs without the confirm-hash binding that `Wallet::sign` enforces.
-fn compose_swap(
-    key: &HybridSigningKey,
-    request: SwapRequest,
-    nonce: u64,
-    chain: &ChainTag,
-) -> Result<Transaction> {
-    if request.amount_in == primitive_types::U256::from(0) {
-        return Err(WalletError::AmountOverflow);
-    }
-
-    let mut tx = Transaction::with_kind(TxKind::Swap(request), nonce);
-    tx.sign(key, chain)
-        .map_err(|e| WalletError::Signing(e.to_string()))?;
-    Ok(tx)
-}
-
 /// Composes shielded transactions, subject to the circuit's trust state.
 #[derive(Debug)]
 pub struct ShieldedComposer {
@@ -334,8 +299,6 @@ impl ShieldedComposer {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-
-    const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon                           abandon abandon abandon about";
 
     fn bound_error(min_out: MinOut) -> bool {
         matches!(min_out.resolve(), Err(WalletError::SwapBound(_)))
@@ -425,25 +388,6 @@ mod tests {
         assert_eq!(request.deadline, 9);
         assert!(matches!(
             swap_request(pair, 0, U256::zero(), min_out, 9),
-            Err(WalletError::AmountOverflow)
-        ));
-    }
-
-    #[test]
-    fn a_zero_input_swap_is_refused_before_anything_is_signed() {
-        let seed = crate::hd::seed_from_mnemonic(PHRASE, "").unwrap();
-        let path = crate::hd::DerivationPath::account(0, 0);
-        let key = crate::hd::signing_key_at(seed.as_ref(), &path).unwrap();
-        let request = SwapRequest {
-            pair: [2; 32],
-            direction: 0,
-            amount_in: primitive_types::U256::zero(),
-            min_out: primitive_types::U256::one(),
-            deadline: 50,
-        };
-        let chain = ChainTag::from_genesis([1; 32]);
-        assert!(matches!(
-            compose_swap(&key, request, 0, &chain),
             Err(WalletError::AmountOverflow)
         ));
     }

@@ -1765,7 +1765,7 @@ domain = "Named separately by the foundation brief"
 paths = "`crates/node/benches/`, `crates/vm/benches/`, `crates/htlc-lattice/benches/`, `crates/crypto-pq/benches/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo bench --workspace --no-run"
 note = "14 criterion targets. benches/crypto.rs covers every signature suite, every KEM and the hashes, and exports reports/crypto-bench.{csv,md} from criterion's own estimates (MAYA_CRYPTO_REPORT=1); the figures are read in reports/02-crypto.md. Standing Order 2: a number in a brief is a target, and benches/algo_comparison.rs states in its own output what it could not measure rather than leaving a silent gap."
@@ -1777,7 +1777,7 @@ domain = "Named separately by the foundation brief"
 paths = "`CLAUDE.md`, `PROGRESS.md`, `docs/adr/`, `docs/invariants.md`, `features.toml`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo xtask coverage --verify-targets"
 note = "Project memory. The machine-checkable half is this file and the xtask gate; the prose half is CLAUDE.md, the ADR log and docs/invariants.md."
@@ -1799,9 +1799,9 @@ domain = "Cryptography and key management"
 paths = "`crates/node/src/network/pq`, `crates/crypto-pq/src/kem_suite`"
 tier = "core"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crates/node/tests/pq_transport_tests.rs", "crates/node/tests/dualkem_negotiation_tests.rs"]
-note = "ADR-051 option 1. /maya/mlkem1024/1.0.0 offered first, /maya/mlkem/1.0.0 kept so 768-only peers connect. MlKem1024Policy::Required is not yet wired to operator configuration. Not externally reviewed; no benchmark claim made."
+note = "ADR-051 option 1. /maya/mlkem1024/1.0.0 offered first, /maya/mlkem/1.0.0 kept so 768-only peers connect. P2 red team 2026-11-17: each policy's offer list is pinned exactly (a stripped or reordered list is the downgrade surface), and Required refuses a level-3 peer in both directions, each behind a positive control. MlKem1024Policy::Required is not yet wired to operator configuration. Not externally reviewed; no benchmark claim made."
 
 [[subsystem]]
 id = "ml-dsa-65-fips-204"
@@ -2191,7 +2191,7 @@ domain = "Kernel, networking and transport"
 paths = "`crates/light-client/src/finality.rs`, `crates/light-client/src/record.rs`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
+status = "verified"
 tests = ["crates/light-client/tests/finality_tests.rs"]
 
 [[subsystem]]
@@ -2557,7 +2557,7 @@ domain = "Security and macro engines"
 paths = "`deny.toml`, `cargo audit`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo deny check && cargo audit"
 
@@ -2747,6 +2747,17 @@ tests = ["crate:maya-wallet-core"]
 note = "ADR-083 decision 4 (2026-11-10, feat/hub-launch): `maya2c-wallet://` registered via tauri-plugin-deep-link 2.6.3 (tauri.conf.json plugins.deep-link.desktop.schemes) with single-instance 2.5.5 (deep-link feature). Strict parser in apps/wallet-gui/src-tauri/src/deeplink.rs, unit tests in that file: `open`, and `pay?to=<maya1…>&amount=<decimal>` that only prefills Send; the UI polls take_pending_pay on the Wallet screen only. Nothing is signed or sent from a link. Not verified: installed-build registration (NSIS/MSI, .desktop) and a live link. See docs/app-link-schemes.md."
 
 [[subsystem]]
+id = "android-wallet"
+name = "Android wallet (P-10 skeleton)"
+domain = "Tooling and formal verification"
+paths = "`apps/wallet-gui/src-tauri/gen/android`, `apps/wallet-gui/ANDROID.md`, `apps/wallet-gui/ui/tests/overflow.mjs`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["apps/wallet-gui/ui/tests/overflow.mjs"]
+note = "P-10 (feat/p10-android-wallet). The desktop wallet's Tauri 2 Android project (gen/android: allowBackup off, FLAG_SECURE, optional camera), single-instance gated to desktop, and a Playwright check that no element of any screen passes the left or right edge at 360 and 390 px (text clipped inside its own box is not checked). Stub because key storage does not work on Android yet: keyring 4's v1 API has no Android store, so wallet creation fails closed (vault.rs `entry`, no plain-file fallback); the Android Keystore store and its threat model are a written TODO in ANDROID.md. No mining code. `cargo check --target aarch64-linux-android` of src-tauri passes (2026-11-17, NDK 30); no APK has been built or run on a device; signing a release needs an upload key Eric holds."
+
+[[subsystem]]
 id = "leptos-block-explorer-and-dashboard"
 name = "Leptos block explorer and dashboard"
 domain = "Tooling and formal verification"
@@ -2765,7 +2776,8 @@ paths = "`crates/api-gateway`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
+tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crates/api-gateway/tests/webhook_tests.rs", "crates/api-gateway/tests/event_stream_tests.rs", "crate:maya-api-gateway"]
+note = "Event subscriptions (P-44): /v1/subscribe WebSocket and /v1/webhooks with HMAC-SHA256-signed deliveries, SSRF refusal re-checked after DNS at every delivery, per-caller caps, retries with backoff and a dead-letter state. In-memory: subscriptions do not survive a restart; no history replay; no rollback events. The asset filter matches `native` only until the node's JSON names assets. Not externally reviewed."
 
 [[subsystem]]
 id = "multi-language-sdks"
@@ -2786,10 +2798,10 @@ domain = "Tooling and formal verification"
 paths = "`sdks/rust`, `sdks/go/address.go`, `sdks/go/wallet.go`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crate:maya2c-sdk", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
+status = "verified"
+tests = ["crate:maya2c-sdk", "sdks/rust/tests/gateway_contract_tests.rs", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
 gate = "Go and Python unit tests run in the `sdks` workflow (.github/workflows/sdks.yml): `go test ./...` in sdks/go and `python -m unittest discover -s tests` in sdks/python. The live-node tests skip there and run only in nightly.yml's devnet job."
-note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. Tests run against an in-process mock gateway, not a live node: no live run is recorded yet, so this is not `verified`. Not published (publish needs Eric's APPROVED)."
+note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. client_tests.rs runs against a hand-written HTTP server; gateway_contract_tests.rs runs against the real gateway router (`maya_api_gateway::app`) over loopback with a recorded node, so routes, field names and status codes are the gateway's own. Verified to the same bar as the gateway entry (axum-rest-graphql-gateway, a recorded node behind the real router); the live-node tests (sdks/go/live_node_test.go, sdks/python/tests/test_live_node.py) skip without a node and no live run is recorded. Not published (publish needs Eric's APPROVED)."
 
 [[subsystem]]
 id = "latex-technical-reference-generator"
@@ -2821,6 +2833,17 @@ class = "REAL"
 status = "working"
 tests = ["crate:maya-status"]
 note = "Uptime and every halt derived from the chain's own block timestamps (get_headers, 2,000 per call), so anyone can recompute it. Serves status.maya2c.dev and /api/status; optional push alert on a halt (--ntfy). Live on maya-testnet-1 since 2026-10-04."
+
+[[subsystem]]
+id = "status-incident-history"
+name = "Incident history, gate progress and SLO view"
+domain = "Tooling and formal verification"
+paths = "`apps/status/src/incident_store.rs`, `apps/status/src/incidents.rs`, `apps/status/src/gates.rs`, `apps/status/src/slo.rs`, `apps/status/src/operator.rs`, `apps/status/src/bin/maya-incident.rs`, `apps/status/src/history.html`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-status"]
+note = "Append-only incident log (one hash-chained JSON line per record). Halts drafted automatically from the chain's Timeline; only a record signed by a listed ML-DSA-65 operator key is published. Tamper and signature checks are unit-tested. Gate states are recorded from docs/mainnet-v1-plan.md, not computed. Finality p50/p99 read from maya_finality_latency_seconds on the node; MISSING when not measured. Served at /history (not yet deployed)."
 
 [[subsystem]]
 id = "lean-4-mathematical-proof-engine"
@@ -2878,6 +2901,18 @@ gate = "ci.yml chat-gui (windows) and chat-gui (linux): cargo test --locked --li
 note = "ADR-031. ADR-083 decision 4 (feat/hub-launch, 2026-11-10): `maya2c-chat://open` registered via tauri-plugin-deep-link 2.6.3 and single-instance 2.5.5 in apps/chat-gui; the only route is `open` (strict parser and tests in apps/chat-gui/src-tauri/src/deeplink.rs). Installed-build registration not yet run; see docs/app-link-schemes.md. #285: a failed send no longer rewinds an established ratchet (the advanced chain is saved; the receiver skips up to MAX_SKIP 1000), pinned by apps/chat/tests/send_failure_tests.rs. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. ADR-074: sender outbox (sealed envelopes kept until a signed receipt, backoff retry, 1,000-entry bound, no eviction), delivery receipts signed by the recipient's ML-DSA-65 key and batched per pass with an opt-out, envelope v2 canonical byte strings with v1 kept readable, Request::Version negotiation. Transport stays on the v1-shaped encoding (cbor4ii). Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key. Each sent message shows its outbox state (sending, waiting for receipt, delivered, expired; Dismiss for expired) through read-only `deliveries` and `dismiss_delivery`, mapped and tested in apps/chat-gui/src-tauri/src/delivery.rs; `Client::standing` in apps/chat/src/client.rs."
 
 [[subsystem]]
+id = "chat-pay"
+name = "Maya Chat payments: signed request, wallet hand-off, on-chain settlement (ADR-088)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/pay/mod.rs`, `apps/chat/src/pay/binding.rs`, `apps/wallet-gui/core/src/chat_pay.rs`, `apps/chat/src/pay/ledger.rs`, `apps/chat/src/pay/chain.rs`, `apps/chat/src/pay_link.rs`, `apps/chat/src/client/payments.rs`, `apps/chat/tests/pay_tests.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-chat", "apps/chat/tests/pay_tests.rs"]
+gate = "cargo test -p maya-chat (125 tests: 49 lib, 5 cli, 1 bot_e2e, 7 envelope_wire, 5 net_e2e, 14 outbox, 15 pay, 9 relay, 3 send_failure, 17 session; all pass, 2026-11-13)"
+note = "ADR-088. Payee-signed request (chain tag, receiving account, amount, memo, expiry, nonce) and payer-signed receipt (chain tag signed) inside the chat session. Settlement needs chain evidence from pay::chain::find_final (get_chain_info genesis, get_checkpoint finality, get_block_by_height) and Ledger::settle checks payer, tx id, sender, height above issue, finality, amount to pay_to, tx not reused. Payer ledger refuses double pay; pay inbox and ledger persist; per-contact caps. HttpRpc not run against a live node; checkpoint signatures not verified by chat. Amendment 1 (H2): requests and receipts carry a wallet-signed binding (hybrid ML-DSA-65+SLH-DSA key of the account; chain, chat id, expiry <= 90 d; newest per chat id kept, revocation frame); pay_to and the settling sender are bound wallet accounts, never chat addresses. Wallet core signs bindings (chat_pay) and keeps a paid list; wallet pay route takes request+chain. Desktop Pay card and a wallet binding screen are not built. Unaudited."
+
+[[subsystem]]
 id = "chat-stickers"
 name = "Maya Chat stickers and sticker packs (Lottie/TGS, WebM, WebP, PNG, GIF, SVG; picker, emoji suggestions, pack maker, pack sharing)"
 domain = "Supplement (not in architecture-vision.md)"
@@ -2890,13 +2925,123 @@ gate = "cargo test --lib in apps/chat-gui/src-tauri (a Tauri app outside the wor
 note = "A sticker is a file named by its BLAKE3 hash, framed inside the end-to-end encryption (MAGIC, header, file; at most 120 KB, which seals to 247,427 B worst case under the relay's 256 KiB), re-hashed and type-sniffed on receipt, cached encrypted under a seed-derived key. Packs: id = BLAKE3 of title and item ids; 'Add pack' asks the sender, whose app answers once per peer and pack, only for packs it made or installed. Starter pack 'Orbi': 12 original animated SVGs (cargo xtask starter-stickers). Lottie through vendored lottie-web 5.13.0 light build (no eval). Same RESEARCH status as maya-chat: unaudited."
 
 [[subsystem]]
+id = "chat-reactions-replies"
+name = "Maya2C Chat reactions, replies and edits"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 1. No code. New Content frame variants inside the encryption, naming the envelope id receipts already carry; threads and polls wait for groups (ADR-085)."
+
+[[subsystem]]
+id = "chat-disappearing-messages"
+name = "Maya2C Chat disappearing messages and view-once"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 5, build PR 2. No code. Per-chat timer enforced by honest clients; the UI states that a modified client, a screenshot or a camera can keep a copy."
+
+[[subsystem]]
+id = "chat-custom-emoji"
+name = "Maya2C Chat custom emoji packs and per-format sticker caps"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat-gui/src-tauri/src/stickers.rs` (planned change)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 3. No code. Extends the built chat-stickers pipeline; animated stickers themselves are already built there."
+
+[[subsystem]]
+id = "chat-profile-themes"
+name = "Maya2C Chat profile cards, animated frames, themes and wallpapers"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 4. No code. A profile card is sent per contact inside the session; there is no directory."
+
+[[subsystem]]
+id = "chat-stories"
+name = "Maya2C Chat stories with audience lists"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 5. No code. Sealed once, key fanned out over 1:1 sessions, expiry enforced by clients and the envelope TTL; single-envelope size until the ADR-085 blob store exists."
+
+[[subsystem]]
+id = "chat-delete-for-everyone"
+name = "Maya2C Chat delete-for-everyone, per-chat key erasure and best-effort screenshot protection"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 5, build PR 6. No code. A deletion request honest clients obey, not a guarantee; screenshot protection is OS flags only and labelled best effort."
+
+[[subsystem]]
+id = "chat-pairwise-identities"
+name = "Maya2C Chat pairwise identities and incognito profile"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat/src/identity.rs`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 4, build PR 7. No code. Per-contact ML-DSA-65 identity derived from the seed, unlinkable by key to the wallet address; a relay can still link mailboxes by IP and timing because no mix or onion layer is built."
+
+[[subsystem]]
+id = "chat-gifts"
+name = "Maya2C Chat gifts (peer-to-peer MAYA tips with an animation)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 3, build PR 8. No code. Only over the payment-request flow of PR #441; the wallet clear-signs; no new token, no fee beyond the network fee, no platform cut, no in-app balance. Any cut or cash-out is the owner's decision with legal advice. Collectibles wait for ADR-104."
+
+[[subsystem]]
+id = "chat-safety-pack"
+name = "Maya2C Chat safety pack (block, mute, message requests, safety numbers, app lock, panic wipe, user-side reporting)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 6, build PR 9. No code. Spam filtering and reporting run on the device; nothing scans content. Message franking is an open question."
+
+[[subsystem]]
+id = "chat-presence-status"
+name = "Maya2C Chat opt-in read receipts, typing indicator, presence and status"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`, `apps/chat-gui` (planned)"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-140 section 2, build PR 10. No code. Off by default and reciprocal; typing is never deposited at a relay; no relay holds a presence table."
+
+[[subsystem]]
 id = "mining-rewards-lane"
 name = "Mining rewards lane (DAG-PoW shares paid from a genesis reserve)"
 domain = "Consensus and execution"
 paths = "`crates/node/src/state/mining.rs`, `crates/node/src/state/mining_exec.rs`, `bins/maya2c-gpu-miner/src/share.rs`"
 tier = "core"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
 note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
 
@@ -2952,7 +3097,7 @@ domain = "Supplement (not in architecture-vision.md)"
 paths = "`crates/node/benches/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo bench --workspace --no-run"
 note = "13 criterion targets. Numbers are measured and reported, never asserted against a target fixed in advance."
@@ -2964,7 +3109,7 @@ domain = "Supplement (not in architecture-vision.md)"
 paths = "`CLAUDE.md`, `PROGRESS.md`, `docs/adr/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo xtask coverage"
 note = "The machine-readable half is this file; the prose half is CLAUDE.md and the ADR log."
@@ -2987,7 +3132,7 @@ domain = "Supplement (not in architecture-vision.md)"
 paths = "`xtask/`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = []
 gate = "cargo xtask coverage && cargo xtask disk"
 note = "`cargo xtask disk` and `cargo xtask coverage`."
@@ -3036,7 +3181,18 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-entropy", "hal/entropy/tests/drbg_cavp_tests.rs"]
-note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No wallet or node caller yet."
+note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No node caller; wallet key generation calls it through entropy-keygen-health."
+
+[[subsystem]]
+id = "entropy-keygen-health"
+name = "Entropy health monitoring in key generation (SP 800-90B start-up and continuous tests)"
+domain = "Cryptography and key management"
+paths = "`hal/entropy/src/keygen.rs`, `hal/entropy/src/health.rs`, `apps/wallet-gui/core/src/hd.rs`, `bins/l1-wallet/src/main.rs`"
+tier = "extended"
+class = "REAL"
+status = "stub"
+tests = ["crate:maya-entropy", "crate:maya-wallet-core"]
+note = "ADR-137 HW-5 (O-9 A). KeygenEntropy runs a 4,096-sample start-up test and the RCT/APT on every key byte, cutoffs in integer math at alpha = 2^-20; failure is a typed error, latched, output zeroed, no fallback. Wired into the wallet core's mnemonic and l1-wallet generate. Not wired: crates/node key commands (frozen binary, post-genesis follow-up), chat identity keys; the Hub generates no keys. Stub: CI-first, not compiled locally."
 
 [[subsystem]]
 id = "transparent-stark-plonky3"
@@ -3045,7 +3201,7 @@ domain = "Cryptography and key management"
 paths = "`crates/zk-stark`"
 tier = "core"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/gadget_tests.rs", "crates/zk-stark/tests/statement_tests.rs", "crates/zk-stark/tests/pqc_zk_tests.rs"]
 note = "ADR-008. REAL since the node's shielded pool verifies through it. Every constraint has a consistent-lie negative; the suite also passes in release, where only the verifier can refuse. pqc_zk_tests gates the dependency graph: no Groth16, BN254, BLS12-381 or halo2."
 
@@ -3246,7 +3402,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
-note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed."
+note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed. Held at working (P2 red team, 2026-11-14): `maya2c-signer export`/`import` carry vertex and vote history only; the block-attestation database (ADR-038) has no interchange entries, so moving a key to a new signer machine drops its once-per-height record. The fix touches crates/signer, which the node links, so it waits for the post-genesis branch."
 
 [[subsystem]]
 id = "sealed-validator-keys"
@@ -3256,8 +3412,8 @@ paths = "`crates/signer/src/sealed.rs`, `bins/maya2c-node/src/validator_key.rs`,
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
-note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
+tests = ["crates/signer/tests/sealed_tests.rs", "crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
+note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. P2 red team 2026-11-14 (tests re-run 2026-11-17): sealed_tests.rs fails closed on a relabelled kind, format/KDF swap, nonce tamper, ciphertext transplant, truncation and non-file input; dropping kind from the AAD turns it red. The production refusal tests (validator_key.rs, cfg(feature = \"production\")) are not in any CI test job; CI builds that feature only in release-binaries.yml, so the entry is held at working until a CI test job runs `--features production`. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
 
 [[subsystem]]
 id = "dos-guard"
@@ -3266,9 +3422,9 @@ domain = "Kernel, networking and transport"
 paths = "`crates/dos-guard`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs"]
-note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack."
+status = "verified"
+tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs", "crates/dos-guard/tests/edges.rs"]
+note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack, so verified means the crate does what it says, not that the node is defended (class stays RESEARCH). P2 red team 2026-11-14 (tests re-run 2026-11-17) found and fixed two levers in the defences themselves: a full inbound table recorded every refused subnet (unbounded memory under IPv6 rotation), and a same-nonce replacement could grow a transaction 100x for a 10% fee bump. The diversity table has no release path for closed connections yet."
 
 [[subsystem]]
 id = "exchange-deposit-watcher"
@@ -3278,7 +3434,7 @@ paths = "`crates/deposit-watcher`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/deposit-watcher/tests/deposits.rs"]
+tests = ["crates/deposit-watcher/tests/deposits.rs", "crates/deposit-watcher/tests/amounts.rs"]
 note = "Master Prompt 17 §1. 100,090 deposits across 40 SIGKILLs: ledger equals ground truth. Reads a BlockSource trait; a node-RPC source is not written."
 
 [[subsystem]]
@@ -3310,9 +3466,9 @@ domain = "Cryptography and key management"
 paths = "`crates/clear-sign`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crates/clear-sign/tests/phishing_set.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
-note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) and 5 ground to a contact's displayed first and last group (review fix H1: the check compares exactly those groups) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction."
+status = "verified"
+tests = ["crates/clear-sign/tests/phishing_set.rs", "crates/clear-sign/tests/red_team_tests.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
+note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged, plus 20 Bech32m look-alikes (same first 6 payload + last 6 characters, built from the Bech32 generator) and 5 ground to a contact's displayed first and last group (review fix H1: the check compares exactly those groups) all flagged; false alarms measured on 10,000 unrelated recipients (phishing_set.rs the_bech32m_look_alike_false_alarm_rate_is_measured). Drain check within 256 bits (the_drain_check_holds_at_the_90_percent_boundary_within_256_bits). Called by the desktop wallet's confirm screen since ADR-086 P0 (confirm_tests.rs the_confirm_screen_shows_review_warnings_most_severe_first); the wallet simulates no contract calls, so claim and simulation are both the wallet's own reading of the transaction. red_team_tests.rs: claim and simulation compared as multisets (a repeated transfer was a set match before), drain summed per token over every transfer (ten 10% transfers drained unflagged before), saturating at 2^256."
 
 [[subsystem]]
 id = "contract-safety-runtime"
@@ -3333,8 +3489,8 @@ paths = "`bins/maya2c-mcp`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "crate:maya2c-mcp"]
-note = "Master Prompt 24 §5, ADR-084. Read-only: 6 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending."
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "bins/maya2c-mcp/tests/debug_tools_tests.rs", "crate:maya2c-mcp"]
+note = "Master Prompt 24 §5, ADR-084. Read-only: 8 fixed node methods (READ_METHODS in bins/maya2c-mcp/src/node.rs) behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending. v3 P6 (gap S6): read-only debugging tools replay_block (maya2c_cli::fork::replay), trace_transaction (maya2c_cli::record_spec), explain_refusal (parsed from crates/node/src/error.rs at build time) and compare_account (get_balance_at_height twice, through the allowlist), tested against an in-process dev chain served by the node RPC. Trace starts from empty contract storage. Node replies are size- and deadline-capped (#593) for every tool; contract- and chain-written text comes back as untrusted_* fields, control characters removed and length capped. maya2c-cli is linked with default-features = false: no keystore, clap or CLI RPC client (ADR-084 consequences)."
 
 [[subsystem]]
 id = "interop-proof-routes"
@@ -3482,8 +3638,8 @@ paths = "`crates/mesh-api`, `crates/node/src/state/balance_changes.rs`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["crate:maya-mesh-api", "crates/node/tests/consensus_tests.rs"]
-note = "Master Prompt 17. scripts/mesh_check.py runs mesh-cli check:data against a devnet. No Construction API: Mesh defines no post-quantum signature type."
+tests = ["crate:maya-mesh-api", "crates/mesh-api/tests/data_api_tests.rs", "crates/node/tests/consensus_tests.rs"]
+note = "Master Prompt 17. `cargo xtask mesh-check` runs mesh-cli check:data against a devnet. No Construction API: Mesh defines no post-quantum signature type. Not `verified`: until 2026-11-14 the service decoded balances as u64 JSON numbers while the node has sent 256-bit decimal strings since ADR-046, so every balance read failed against a real node, and it declared 0 decimals instead of 24 (ADR-068); both fixed, and data_api_tests.rs now runs the router over HTTP JSON-RPC in the node's exact wire shapes. No mesh-check run against a devnet is recorded since the fix."
 
 [[subsystem]]
 id = "maya2c-dev-cli"
@@ -3492,9 +3648,9 @@ domain = "Developer experience"
 paths = "`bins/maya2c-cli`, `crates/vm/src/trace.rs`, `editors/vscode`"
 tier = "extended"
 class = "REAL"
-status = "working"
-tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/source_lines_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs", "crates/vm/tests/trace_site_tests.rs"]
-note = "Master Prompt 24. Debugger steps host calls, not source lines; fork/replay copy eagerly and do not verify DAG-BFT certificates per header."
+status = "verified"
+tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/debugger_red_team_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/source_lines_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs", "crates/vm/tests/trace_site_tests.rs"]
+note = "Master Prompt 24. Debugger steps host calls, not source lines; fork/replay copy eagerly and do not verify DAG-BFT certificates per header. debugger_red_team_tests.rs: the last step equals the real post-state, next/back/goto agree, no command moves the cursor out of the recording, out-of-gas and non-wasm modules are reported failures."
 
 [[subsystem]]
 id = "vault-accounts"
@@ -3573,7 +3729,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crate:maya-address", "crates/node/tests/rpc_tests.rs"]
-note = "ADR-081. RPC accepts hex or Bech32m and returns address_text. Converted (PR #379): faucet (accepts and echoes text on its network; default chain maya-testnet-1), hub payout (snapshot address_text), wallet core (payment.rs accepts Bech32m). Still hex only: wallet GUI and CLI output, explorer, pool, chat, Go SDK, genesis docs. maya-mainnet is registered in Network::for_chain_id (2026-11-08), so mainnet has a text form."
+note = "ADR-081. RPC accepts hex or Bech32m and returns address_text. Converted (PR #379): faucet (accepts and echoes text on its network; default chain maya-testnet-1), hub payout (snapshot address_text), wallet core (payment.rs accepts Bech32m). 2026-11-10: pool miner login (`parse_user_identity`) and explorer account lookup accept text on their network; site faucet form and testnet docs show `tmaya1`. sdk-ffi gains address_text(chain_id) (additive). Still hex only: wallet GUI confirm and Receive screens (need the network name threaded through), chat (no network in identity), Go SDK port, genesis decode (post-genesis). maya-mainnet is registered in Network::for_chain_id (2026-11-08), so mainnet has a text form."
 
 [[subsystem]]
 id = "chain-sentinel"
@@ -3587,6 +3743,61 @@ tests = ["crate:maya-sentinel"]
 note = "ADR-077 live layer; runbook docs/runbooks/sentinel.md. Read-only: getter RPC calls, never signs or submits. Detects halt, fork, supply mismatch and split, supply fall (warning), peer floor, unreachable node, stranding, and (ADR-101 phase 1) sentinel blind, finality lag (get_checkpoint), per-validator liveness (get_bft_status, watched nodes only), plus a dead-man heartbeat file checked by --check-heartbeat. Stranding reads get_mempool_info size (before ADR-101 it read a pending field the node never served); a node that does not serve it is logged as idle, not silently skipped. Netfault (#453) cases are modelled RPC replays in tests/fault_scenarios.rs, not relay runs. The #454 supply-audit detector is not built (#454 unmerged). Equivocation is not detected: no RPC exposes evidence. The ntfy topic comes from MAYA2C_SENTINEL_NTFY_TOPIC and has no default."
 
 [[subsystem]]
+id = "public-invariant-monitor"
+name = "Public invariant monitor (third-party checks over public RPC)"
+domain = "Operations"
+paths = "`apps/invariant-monitor`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-invariant-monitor"]
+note = "CATALOG W1. Reuses apps/sentinel's transport, detectors (halt, fork, supply adds up, supply split, supply fell) and incident layer, and adds checks a public gateway allows: height never goes backwards per source, newest checkpoint never goes backwards, finality never reverts (two block ids at one attested height, or a source serving a block other than its checkpoint), finalized block within MAX_BLOCK_BYTES (invariant 33). Not checked from outside: checkpoint signatures (committee keys not public), quorum weight, the invariant guard (28), peers and stranding (get_peers and get_mempool_info are not on the gateway allowlist). Revert window is the newest 4,096 attested heights seen, in memory. Not yet run against the live testnet."
+
+[[subsystem]]
+id = "validator-ledger"
+name = "Public validator ledger (checkpoint signers per epoch)"
+domain = "Operations"
+paths = "`apps/validator-ledger`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-validator-ledger"]
+note = "CATALOG W1, R0 part only. Built from get_bft_status and get_checkpoint [epoch], both public: per epoch, which committee indices signed the final checkpoint, and for the current epoch which did not. Every output carries a MISSING list instead of estimates: stake (get_validators not public; no epoch-frozen weights RPC), identity per index (keys not public, signatures counted not verified), rounds per validator (get_certificates not public), uptime, equivocation evidence, epochs the endpoint no longer holds. CLI only (text and --json); the page is not built. Not yet run against the live testnet."
+
+[[subsystem]]
+id = "release-log-anchor"
+name = "Release log anchor (signed SHA256SUMS statement, on-chain anchor check)"
+domain = "Operations"
+paths = "`apps/trust-log/src/release.rs`, `apps/trust-log/src/anchor.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust release sign|verify`: ML-DSA-87 statement over SHA-256(SHA256SUMS) and the tag; verify warns and exits 1, never installs. Anchor = an existing AnchorAttestation tx (schema maya2c/release/<tag>); this tool prints the fields and checks a landed anchor via get_block_by_height, it does not submit one (no notary tool yet). Not wired into the ADR-075 update checker (bins/maya2c-node is frozen). Trusts the RPC endpoint's block."
+
+[[subsystem]]
+id = "signed-incidents"
+name = "Signed, hash-chained incident log"
+domain = "Operations"
+paths = "`apps/trust-log/src/incident.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust incident append|verify`: one ML-DSA-87 signed JSON record per incident, each naming seq and the previous digest; edits, removals and reorders fail verify. Truncating the newest records is caught only against an anchored head (schema maya2c/incidents/v1/<seq>, one per head) or --min-seq, which this tool checks but does not submit. Replay lines default to `maya2c replay` per height. Not yet fed by apps/sentinel."
+
+[[subsystem]]
+id = "foundation-canary"
+name = "Foundation canary (block-bound signed statement, lapse check)"
+domain = "Operations"
+paths = "`apps/trust-log/src/canary.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-trust-log"]
+note = "CATALOG §J. `maya2c-trust canary sign|check`: ML-DSA-87 statement naming the tip block id (cannot be signed before that block exists); check exits 1 when the id is not the chain's or the canary is older than --max-age-blocks. Statement wording is the operator's (legal review pending, no default text). No automatic alert yet: public-invariant-monitor is not built; run check from cron or a monitor."
+
+[[subsystem]]
 id = "testnet-kit"
 name = "Testnet kit: local devnet, explorer, faucet and attack lab (`cargo xtask kit`)"
 domain = "Developer and operator tooling"
@@ -3598,6 +3809,17 @@ tests = ["xtask/src/kit.rs", "xtask/src/up.rs", "xtask/src/attacknet.rs"]
 note = "catalog testnet-kit. Unit tests cover status probing, the attack argument list, the port guard and the scenario table. `kit up` and `kit attack` have not yet been run end to end in this tree; attacknet itself is the existing verified run."
 
 [[subsystem]]
+id = "netfault-relay"
+name = "Netfault relay: partition, latency, jitter, loss and bandwidth between validators (`cargo xtask netfault`, `attacknet --netfault`)"
+domain = "Developer and operator tooling"
+paths = "`xtask/src/netfault.rs`, `xtask/src/localnet.rs` (route option), `xtask/src/attacknet.rs` (`--netfault`)"
+tier = "extended"
+class = "SIM"
+status = "stub"
+tests = ["xtask/src/netfault.rs", "xtask/src/attacknet.rs", "xtask/src/localnet.rs"]
+note = "ADR-097. Test-only tooling; SIM because the faults are applied by a relay in the harness, not by the network. Unit tests run in CI without a node: seeded determinism, jitter bound, loss stall, bandwidth arithmetic, partition sides, and in-process relay tests over real sockets. Status stays stub until `cargo xtask netfault` runs the partition, latency and loss scenarios with real output in reports/netfault/. The node is not touched; validators run without --allow-private-peers so no direct link is learned, and the partition scenario checks get_peers for leaks."
+
+[[subsystem]]
 id = "node-in-a-box"
 name = "Node in a box: host checks, node config, key permissions and service text (`cargo xtask node`)"
 domain = "Developer and operator tooling"
@@ -3607,6 +3829,28 @@ class = "REAL"
 status = "stub"
 tests = ["xtask/src/node_box/mod.rs", "xtask/src/node_box/checks.rs", "xtask/src/node_box/acl.rs", "xtask/src/node_box/config.rs", "xtask/src/node_box/service.rs"]
 note = "catalog node-in-a-box. Setup and doctor are built and unit-tested with fake facts, a real bound port and temp directories. Not run end to end on a machine. Installs no service; the service text is printed for the operator. Docs: docs/ecosystem/node-in-a-box-windows.md and -linux.md. Disk and RAM floors are operator policy, not measurements."
+
+[[subsystem]]
+id = "notary"
+name = "Notary: timestamp a file by its BLAKE3 hash, verify with a JSON receipt"
+domain = "Developer experience"
+paths = "`bins/maya2c-cli/src/notary.rs`, `docs/ecosystem/notary.md`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["bins/maya2c-cli/tests/notary_tests.rs", "bins/maya2c-cli/tests/notary_devnet_tests.rs"]
+note = "ADR-094. Class RESEARCH means no consensus path calls it, not that it is unreachable: `maya2c notary` is a CLI tool. Unit tests (11) plus a devnet e2e (`notary_devnet_tests.rs`): a one-validator dev node, the CLI's own setup (RegisterDid) and stamp, the stamp found in a block by verify, the receipt checked against that block's id, timestamp and transaction list, and one changed byte refused. Uses the existing AnchorAttestation payload (tag 34, schema notary-v1); no node change. Verify scans blocks (no txid lookup RPC), refuses a block whose body disagrees with the tx_root its id hashes or whose id is not the one named, refuses a non-contiguous batch, and checks the stamp's signature against the node's chain tag; finality trusts the node's checkpoint (signatures not verified yet). An early manual run that never saw the stamp land is unexplained and was not reproduced."
+
+[[subsystem]]
+id = "merchant-checkout"
+name = "Merchant checkout (invoices, payment links, signed webhooks)"
+domain = "Finance"
+paths = "`apps/checkout`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-checkout", "apps/checkout/tests/payment_matching.rs", "apps/checkout/tests/webhook_tests.rs", "apps/checkout/tests/ssrf_tests.rs", "apps/checkout/tests/engine_tests.rs", "apps/checkout/tests/http_tests.rs"]
+note = "ADR-091. Detached service: reads the chain over public RPC, never links the node. Payment link is maya: payment request v2 (ADR-086): Bech32m recipient, order id as id=. Binding is a per-invoice deposit address from a merchant-loaded pool of public addresses (no keys held), never reused, even after expiry; only an exact amount to that address settles that invoice; every other payment is an unmatched record naming its invoice and a reason (capped at 1,000, paged), never cross-applied. Settlement only at DAG-BFT finality: payment block at or below get_checkpoint, checkpoint id matched to the scanned chain; no checkpoint confirms nothing. Reorgs roll back detected payments to pending with no webhook. Reads limited per client address and globally. Delivered-then-reorged invoices flagged at /v1/alerts. Webhooks HMAC-SHA256 with timestamp and nonce, stable event_id, HTTPS only with pinned, public-only destinations. Shortcuts: checkpoint signatures not verified (node trusted), no split-payment summing, deliveries sequential, no assign endpoint for unmatched payments. Security review PR #418 findings C1 and H1 re-fixed 2026-11-13. Not externally audited."
 
 [[subsystem]]
 id = "xtask-attacknet"

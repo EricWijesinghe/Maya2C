@@ -13,20 +13,32 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use sha2::{Digest, Sha256};
 
 const MINER: &str = "maya2c-gpu-miner";
+// --locked: the release miner is built from the reviewed Cargo.lock, never a re-resolved one.
+const MINER_BUILD_ARGS: &[&str] = &[
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    MINER,
+    "--features",
+    "gpu",
+];
+// Fails when Cargo.lock would change; prints the metadata, which is not wanted here.
+const LOCK_CHECK_ARGS: &[&str] = &["metadata", "--locked", "--format-version", "1"];
 
 pub fn run(_args: &[String]) -> Result<(), String> {
     let root = crate::workspace_root();
     let exe = std::env::consts::EXE_SUFFIX;
     status(
         Command::new("cargo")
-            .args(["build", "--release", "-p", MINER, "--features", "gpu"])
+            .args(MINER_BUILD_ARGS)
             .current_dir(&root),
-        "cargo build --release -p maya2c-gpu-miner --features gpu",
+        "cargo build --release --locked -p maya2c-gpu-miner --features gpu",
     )?;
 
     let hub = root.join("apps/hub/src-tauri");
@@ -50,6 +62,17 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     // one the Hub is the unsigned build that never offers an update. With one,
     // --no-sign keeps the signing key out of this build: the update bundles are
     // signed afterwards by the release workflow's updater-sign job.
+    // `cargo tauri build` takes no --locked here, so the lock is checked first.
+    let mut lock_check = Command::new("cargo");
+    lock_check
+        .args(LOCK_CHECK_ARGS)
+        .current_dir(&hub)
+        .stdout(Stdio::null());
+    status(
+        &mut lock_check,
+        "cargo metadata --locked (Hub Cargo.lock is current)",
+    )?;
+
     let mut build = Command::new("cargo");
     build.env("MAYA2C_MINER_SHA256SUMS", &sums);
     build.args(["tauri", "build", "--config", "tauri.release.conf.json"]);
@@ -119,5 +142,22 @@ fn report(bundle: &Path) {
                 println!("{:>12} bytes  {}", size, file.path().display());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_miner_is_built_from_the_locked_resolution() {
+        assert!(MINER_BUILD_ARGS.contains(&"--locked"));
+        assert!(MINER_BUILD_ARGS.contains(&MINER));
+    }
+
+    #[test]
+    fn hub_lockfile_is_checked_before_the_tauri_build() {
+        assert_eq!(LOCK_CHECK_ARGS[0], "metadata");
+        assert!(LOCK_CHECK_ARGS.contains(&"--locked"));
     }
 }

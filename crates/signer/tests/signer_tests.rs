@@ -461,3 +461,80 @@ fn a_signer_without_an_attestation_database_refuses_attestations() {
         "votes still sign"
     );
 }
+
+// Red team (P2 verification): moving history between machines.
+
+#[test]
+fn importing_a_conflicting_history_closes_the_slot_to_both_digests() {
+    // Two machines each signed a different vertex for one slot (the double
+    // sign already happened elsewhere). After the union neither may be
+    // signed again, not even the one this machine signed itself: which of the
+    // two the network saw is unknowable here.
+    let (dir_a, dir_b) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let (mut a, mut b) = (service(&dir_a), service(&dir_b));
+    assert!(signed(&a.handle(&req(Kind::Vote, 30, 2, b"A"))));
+    assert!(signed(&b.handle(&req(Kind::Vote, 30, 2, b"B"))));
+    let pk = a.public_key().to_vec();
+    assert_eq!(a.db_mut().import(&b.db().export(&pk), &pk).unwrap(), 1);
+    assert!(!signed(&a.handle(&req(Kind::Vote, 30, 2, b"B"))));
+    assert!(!signed(&a.handle(&req(Kind::Vote, 30, 2, b"A"))));
+    // The poisoned slot is the only one closed.
+    assert!(signed(&a.handle(&req(Kind::Vote, 30, 3, b"A"))));
+}
+
+#[test]
+fn an_imported_proposal_history_carries_its_watermark() {
+    let (dir_a, dir_b) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let (mut a, mut b) = (service(&dir_a), service(&dir_b));
+    assert!(signed(&a.handle(&req(Kind::Vertex, 40, 0, b"old machine"))));
+    let pk = a.public_key().to_vec();
+    b.db_mut().import(&a.db().export(&pk), &pk).unwrap();
+    // A different slot, below the round the key already proposed in.
+    assert!(!signed(&b.handle(&req(
+        Kind::Vertex,
+        39,
+        1,
+        b"new machine"
+    ))));
+    assert!(signed(&b.handle(&req(Kind::Vertex, 41, 0, b"new machine"))));
+    // And it survives a restart of the importing signer.
+    drop(b);
+    let mut b = service(&dir_b);
+    assert!(!signed(&b.handle(&req(
+        Kind::Vertex,
+        40,
+        0,
+        b"new machine"
+    ))));
+}
+
+#[test]
+fn a_bad_interchange_file_imports_nothing() {
+    use maya_signer::protection::FORMAT;
+    let dir = TempDir::new().unwrap();
+    let mut s = service(&dir);
+    assert!(signed(&s.handle(&req(Kind::Vertex, 7, 0, b"v"))));
+    let pk = s.public_key().to_vec();
+    let good = s.db().export(&pk);
+
+    let mut wrong_version = good.clone();
+    wrong_version.metadata.interchange_format_version = "5".into();
+    let mut bad_root = good.clone();
+    bad_root.data[0].signed_vertices[0].signing_root = "zz".repeat(32);
+    let mut bad_round = good.clone();
+    bad_round.data[0].signed_vertices[0].round = "-1".into();
+
+    let dir2 = TempDir::new().unwrap();
+    let mut fresh = service(&dir2);
+    for (what, file) in [
+        ("version", &wrong_version),
+        ("root", &bad_root),
+        ("round", &bad_round),
+    ] {
+        assert!(fresh.db_mut().import(file, &pk).is_err(), "{what}");
+    }
+    assert_eq!(good.metadata.interchange_format_version, FORMAT);
+    // Another key's history is not this key's: nothing is taken from it.
+    assert_eq!(fresh.db_mut().import(&good, b"another key").unwrap(), 0);
+    assert!(signed(&fresh.handle(&req(Kind::Vertex, 7, 0, b"other"))));
+}

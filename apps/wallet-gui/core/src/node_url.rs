@@ -20,6 +20,11 @@ pub fn check_node_url(url: &str) -> Result<()> {
     if is_metadata_host(&host) {
         return Err(refuse("it is a cloud metadata address"));
     }
+    // Resolvers read a bare decimal or hex number as an address, so
+    // `2852039166` can reach the metadata endpoint without matching the check above.
+    if is_numeric_alias(&host) {
+        return Err(refuse("numeric addresses must be written in dotted form"));
+    }
     match scheme.as_str() {
         "https" => Ok(()),
         "http" if is_local_host(&host) => Ok(()),
@@ -68,6 +73,20 @@ fn is_metadata_host(host: &str) -> bool {
         Ok(IpAddr::V6(ip)) => ip == V6 || ip.to_ipv4_mapped() == Some(V4),
         Err(_) => false,
     }
+}
+
+/// A host that is not a dotted IP literal but whose last label is a decimal or
+/// `0x` hex number. DNS names never end that way, so these are address forms.
+fn is_numeric_alias(host: &str) -> bool {
+    if host.parse::<IpAddr>().is_ok() {
+        return false;
+    }
+    let last = host.rsplit('.').next().unwrap_or(host);
+    let decimal = !last.is_empty() && last.bytes().all(|b| b.is_ascii_digit());
+    let hex = last
+        .strip_prefix("0x")
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit()));
+    decimal || hex
 }
 
 /// Loopback, RFC 1918 private, link-local, or IPv6 unique-local and link-local.
@@ -154,5 +173,13 @@ mod tests {
         assert!(check_node_url("http://[fd00:ec2::254]/").is_err());
         assert!(check_node_url("http://[::ffff:169.254.169.254]/").is_err());
         assert!(check_node_url("http://169.254.10.1:8545").is_ok());
+    }
+
+    #[test]
+    fn numeric_forms_of_the_metadata_address_are_refused() {
+        assert!(check_node_url("https://2852039166/").is_err());
+        assert!(check_node_url("https://0xa9fea9fe/").is_err());
+        assert!(check_node_url("https://169.254.43518/").is_err());
+        assert!(check_node_url("https://8.8.8.8:443").is_ok());
     }
 }

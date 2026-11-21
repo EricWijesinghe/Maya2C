@@ -847,7 +847,7 @@ sinks:
 
     /// Generate daily report
     pub async fn generate_report(&self, date: Option<String>) -> Result<()> {
-        let date = date.unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+        let date = date.unwrap_or_else(|| crate::evidence::utc_date(crate::evidence::unix_now()));
 
         let runs_dir = PathBuf::from(&self.config.paths.runs_dir).join(&date);
         if !runs_dir.exists() {

@@ -540,3 +540,34 @@ fn a_signed_batch_survives_a_restart_byte_for_byte() {
     assert_eq!(recovered[0].signed_tx, signed);
     assert_eq!(recovered[0].nonce, 42);
 }
+
+#[test]
+fn concurrent_block_credits_never_lose_an_update() {
+    // Concurrent block credits to one miner must both land. The balance
+    // read-modify-write is serialised by a lock; the share counters have their own.
+    let dir = TempDir::new().expect("temp dir");
+    let ledger = std::sync::Arc::new(RocksLedger::open(dir.path()).unwrap());
+
+    let threads: Vec<_> = (0..8u64)
+        .map(|thread| {
+            let ledger = std::sync::Arc::clone(&ledger);
+            std::thread::spawn(move || {
+                for n in 0..50u64 {
+                    let id = format!("b{thread}-{n}");
+                    let block = found_block(&id, thread * 1000 + n, 0, 1);
+                    ledger.record_block(&block, &[entry(ALICE, 1)]).unwrap();
+                }
+            })
+        })
+        .collect();
+
+    for thread in threads {
+        thread.join().expect("a writer panicked");
+    }
+
+    assert_eq!(
+        ledger.balance(&ALICE).unwrap().immature,
+        primitive_types::U256::from(8 * 50u64),
+        "a concurrent credit was overwritten by another"
+    );
+}
