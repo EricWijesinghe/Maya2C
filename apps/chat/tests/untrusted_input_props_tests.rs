@@ -5,6 +5,8 @@
 //! dev-dependencies stay as they are; every case is reproducible.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// The generator truncates on purpose: low bits of a random word are random bytes.
+#![allow(clippy::cast_possible_truncation)]
 
 use maya_chat::receipt::{self, MAX_IDS};
 use maya_chat::relay::Envelope;
@@ -46,7 +48,9 @@ fn envelope_decode_refuses_hostile_length_headers() {
         &[0x7B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], // text, 2^64-1
         &[0x9B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], // array, 2^64-1
         &[0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], // map, 2^64-1
-        &[0xBA, 0xFF, 0xFF, 0xFF, 0xFF, 0x67, b'v', b'e', b'r', b's', b'i', b'o', b'n'],
+        &[
+            0xBA, 0xFF, 0xFF, 0xFF, 0xFF, 0x67, b'v', b'e', b'r', b's', b'i', b'o', b'n',
+        ],
         &[0x9F; 4096], // nested indefinite arrays
         &[0x81; 4096], // nested definite arrays
         &[0xC6; 4096], // nested tags

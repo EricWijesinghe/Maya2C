@@ -40,7 +40,8 @@ fn a_signature_for_one_relay_is_refused_by_another() {
         relay_b.fetch(bob.address(), bob.public_key(), &for_a, NOW),
         Err(ChatError::BadSignature)
     );
-    // Bob's mail is still at B for Bob.
+    // Bob's mail is still at B for Bob, with a signature naming B.
+    let nonce = relay_b.challenge(bob.address(), NOW).unwrap();
     let for_b = bob
         .sign(&fetch_bytes(relay_b.id(), &bob.address(), &nonce))
         .unwrap();
