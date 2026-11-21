@@ -27,6 +27,9 @@ hex.workspace = true
 maya-signer = { path = "../../crates/signer" }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }
 serde_json.workspace = true
+# The update notice's manifest fetch (ADR-075). The workspace pin is the one the
+# apps use; rustls with the OS roots, so no bundled CA list to go stale.
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
 
 # The Windows power guard (`power_guard`): the AC sleep timers and the
 # keep-awake request. Same 0.61 already in Cargo.lock through the tokio and

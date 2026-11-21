@@ -220,6 +220,9 @@ struct Args {
     allow_private_peers: bool,
     /// Start a validator on a power plan that may sleep the PC (Windows).
     allow_sleep: bool,
+    /// Ask the site for a newer node release at startup (ADR-075). Off unless
+    /// asked: a validator on a private network makes no outbound request.
+    check_updates: bool,
     /// DAG-BFT: never propose a validator registration bonding less than
     /// this (ADR-039 option 3). Node policy, not consensus; 0 is off.
     min_register_bond: u64,
@@ -292,6 +295,7 @@ impl Default for Args {
             catch_up_from: Vec::new(),
             allow_private_peers: false,
             allow_sleep: false,
+            check_updates: false,
             min_register_bond: 0,
             validator_key: None,
             validator_passphrase_file: None,
@@ -355,6 +359,7 @@ fn print_usage() {
          on a recent chain. Only for a key that signed nothing this epoch: otherwise it can sign\n                           \
          a round twice, which is equivocation and is slashed\n  \
          --allow-sleep        Windows: start a validator even if the AC power plan can sleep the PC\n  \
+         --check-updates      Ask maya2c.dev once at startup whether a newer node is published (notice only)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \
@@ -445,6 +450,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
             "--allow-sleep" => args.allow_sleep = true,
+            "--check-updates" => args.check_updates = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
             "--remote-signer" => args.remote_signer = Some(value()?.parse()?),
@@ -798,6 +804,19 @@ async fn mining_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, threads: usi
     }
 }
 
+/// Prints one line when a newer node is published. A failed check is printed
+/// and dropped: it must never stop a node from starting.
+async fn report_update_notice() {
+    let current = env!("CARGO_PKG_VERSION");
+    match update_notice::check(current, update_notice::MANIFEST_URL).await {
+        Ok(Some(version)) => println!(
+            "update available: maya2c-node {version} (running {current}); install by hand after reading the release notes"
+        ),
+        Ok(None) => {}
+        Err(error) => println!("update check skipped: {error}"),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Operators ask a deployed binary what it is before anything else.
@@ -806,6 +825,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let mut args = parse_args()?;
+    if args.check_updates {
+        // Spawned, not awaited: a slow or dead manifest host never delays startup.
+        tokio::spawn(report_update_notice());
+    }
 
     // The file first, then the flags over it. A flag beats the file so an
     // operator can override one setting for one run without editing state that

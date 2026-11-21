@@ -7108,6 +7108,7 @@ dependencies = [
  "maya-signer",
  "maya-zk-stark",
  "primitive-types",
+ "reqwest",
  "serde_json",
  "tempfile",
  "tokio",

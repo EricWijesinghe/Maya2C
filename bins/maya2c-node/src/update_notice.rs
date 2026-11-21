@@ -1,11 +1,17 @@
-//! The "update available" decision for the node (ADR-075, notify only).
+//! The "update available" notice for the node (ADR-075, notify only).
 //!
-//! Pure: it reads a manifest that has already been fetched and compares
-//! versions. Nothing here downloads or installs anything, and the fetch itself
-//! is not written yet (ADR-075, "Shipped in this change").
+//! [`newer_than`] is pure: it compares versions in a manifest already in hand.
+//! [`fetch_manifest`] is the one I/O step, bounded by a timeout and a size cap.
+//! Nothing here downloads or installs anything.
 
-// shortcut: no caller until the fetch step lands, then drop this allow (ADR-075).
-#![allow(dead_code)]
+use std::time::Duration;
+
+/// The site's manifest for the node (ADR-075, decision 2).
+pub const MANIFEST_URL: &str = "https://maya2c.dev/updates/maya2c-node.json";
+/// The longest a startup check may take before it gives up.
+pub const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+/// The largest manifest read. The real one is a few hundred bytes.
+const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 
 /// Why a manifest did not give a decision.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +20,8 @@ pub enum NoticeError {
     Malformed(String),
     /// A version is not dotted numbers such as `0.1.123`.
     BadVersion(String),
+    /// The manifest could not be fetched (network, status, timeout, size).
+    Fetch(String),
 }
 
 impl std::fmt::Display for NoticeError {
@@ -21,8 +29,48 @@ impl std::fmt::Display for NoticeError {
         match self {
             Self::Malformed(reason) => write!(f, "update manifest is malformed: {reason}"),
             Self::BadVersion(text) => write!(f, "not a dotted version: {text:?}"),
+            Self::Fetch(reason) => write!(f, "update manifest not fetched: {reason}"),
         }
     }
+}
+
+/// Fetches the manifest text. Only called when the operator passed
+/// `--check-updates`; the tests never reach it.
+///
+/// # Errors
+///
+/// [`NoticeError::Fetch`] on any transport, status, timeout or size failure.
+// shortcut: the body is read whole before the size check, so a hostile host can
+// still make us buffer it; stream with a cap if the manifest host ever changes.
+pub async fn fetch_manifest(url: &str, timeout: Duration) -> Result<String, NoticeError> {
+    let fetch_error = |e: reqwest::Error| NoticeError::Fetch(e.to_string());
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(fetch_error)?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(fetch_error)?;
+    let bytes = response.bytes().await.map_err(fetch_error)?;
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err(NoticeError::Fetch(format!(
+            "larger than {MAX_MANIFEST_BYTES} bytes"
+        )));
+    }
+    String::from_utf8(bytes.to_vec()).map_err(|e| NoticeError::Malformed(e.to_string()))
+}
+
+/// Fetches the manifest at `url` and returns the newer version, if any.
+///
+/// # Errors
+///
+/// Any [`NoticeError`] from [`fetch_manifest`] or [`newer_than`].
+pub async fn check(current: &str, url: &str) -> Result<Option<String>, NoticeError> {
+    let manifest = fetch_manifest(url, FETCH_TIMEOUT).await?;
+    newer_than(current, &manifest)
 }
 
 /// Dotted numbers as a vector, so `0.1.10` compares above `0.1.9`.
