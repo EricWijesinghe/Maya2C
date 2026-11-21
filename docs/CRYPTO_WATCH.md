@@ -19,23 +19,24 @@ what the chain does about each change. Master Prompt 15 §6.
 | Suite registry (dark) | Ed25519, ML-DSA-44/87, SLH-DSA variants | FIPS 186-5 / 204 / 205 | `crates/crypto-pq/src/suite/` |
 
 **What the P2P post-quantum layer gives, and what it does not.** The ML-KEM
-exchange runs inside a finished Noise XX session and mixes a post-quantum
-secret into the transport keys. That protects gossip and sync traffic
+exchange runs inside a finished Noise XX session, and its keys seal a second
+ChaCha20-Poly1305 layer on top of Noise (`pq/stream.rs`). That protects gossip and sync traffic
 recorded today against decryption by a future quantum computer
 (harvest-now-decrypt-later). It is not a post-quantum authenticated key
 exchange:
 
 - Peer authentication is classical: the libp2p identity is an Ed25519 key,
-  and Noise XX authenticates it with X25519. A quantum adversary able to break
+  bound to the Noise XX session's X25519 static key. A quantum adversary able to break
   those in real time could impersonate a peer. Blocks and transactions are
   still verified by their own post-quantum signatures, so impersonating a peer
   does not forge chain data.
 - The ML-KEM transcript binds the protocol version, the encapsulation key and
   the ciphertext. It is not bound to the Noise handshake hash.
 - With `--mlkem1024 preferred` (the default) a node still offers ML-KEM-768.
-  Negotiation runs inside Noise, so a third party cannot force the weaker set;
-  choosing it is up to the peer itself. `required` offers ML-KEM-1024 and
-  nothing else.
+  Negotiation runs inside Noise, so a recording adversary cannot force the
+  weaker set; that needs an active attacker who breaks or impersonates the
+  Noise session while it is live (`pq/mod.rs`). `required` offers ML-KEM-1024
+  and nothing else.
 - Session keys are rotated by closing connections once their rotation epoch
   has passed (`pq/rotation.rs`), which bounds how much traffic one leaked key
   exposes.
@@ -111,11 +112,10 @@ The hybrid suite signs with an empty FIPS 204 context string, byte-compatible
 with the node's original hybrid (invariant 30), so the context string does not
 separate one use of a key from another. The message bytes do:
 
-- Every signed message starts with a domain prefix unique to its purpose, and
-  the prefixes are prefix-free with respect to each other
-  (`Transaction::signing_bytes` is the model: distinct domains, and both public
-  keys inside the signed bytes).
-- A key is used under one suite only. A wallet or app never signs with an
+- Every signed message must start with a domain prefix unique to its purpose,
+  and no prefix may be a prefix of another (`Transaction::signing_bytes` is the
+  model: `TX_DOMAIN ‖ chain_tag ‖ body`, with both public keys inside the body).
+- A key is used under one suite only. A wallet or app must never sign with an
   account's lattice key under a different suite id, and a new message format
   (chat, wallet messages, attestations) gets its own domain prefix, not a raw
   payload.

@@ -35,27 +35,27 @@ verifies that build.
 
 ## 3. Run a node locally
 
-The quickest end-to-end check is the local DAG-BFT testnet script. It
-generates validator keys, a funded wallet and a genesis, starts four
-validators and one observer on loopback, sends transfers and checks that all
-nodes agree:
+The quickest end-to-end check is the local DAG-BFT devnet. It starts four
+validators and one observer as real `maya2c-node` processes on localhost,
+sends transfers over JSON-RPC, and prints what it measured as JSON: each
+node's height over time (blocks per second), the time from `send` to the
+transfer being visible on every node, and whether every node agrees on the
+block id at the common height. It exits non-zero when a check fails:
 
 ```bash
-scripts/bft_testnet_check.sh                       # builds, then runs
-SKIP_BUILD=1 BIN_DIR=target/debug scripts/bft_testnet_check.sh
-VALIDATORS=7 TARGET_HEIGHT=30 scripts/bft_testnet_check.sh
+cargo xtask bft-devnet                 # dev profile
+cargo xtask bft-devnet --release --seconds 60 --transfers 20
 ```
 
-It exits non-zero on the first failed check (a node exits, a height stalls,
-two nodes serve different blocks at one height, balances differ, a validator
-has no quorum checkpoint, or two blocks are checkpointed at one height). Logs
-are in `target/bft-testnet-check/*/node.log`.
+Five processes on one machine measure that the binary runs end to end, not
+the chain's ceiling. Related runners: `cargo xtask localnet` (four validators
+over libp2p, one killed and caught up; `--remote-signer` puts the keys in
+`maya2c-signer`), `cargo xtask up` / `down` (validators, API gateway, chat
+relay and a funded devnet wallet, left running), and
+`scripts/local_cluster.sh` (N nodes from a genesis minted by the ceremony
+tool). `cargo xtask help` lists the rest.
 
-`cargo xtask bft-devnet` runs the same topology from Rust and also measures
-blocks per second and transfer latency. `scripts/local_cluster.sh` brings up a
-cluster from a genesis-ceremony genesis.
-
-Node flags used by both (see `maya2c-node --help`): `--genesis`,
+Node flags these runners use (see `maya2c-node --help`): `--genesis`,
 `--data-dir`, `--rpc-addr`, `--p2p-port`, `--bootnode
 /ip4/…/tcp/…/p2p/<peer id>`, `--validator-key`, `--allow-private-peers`
 (loopback testing only), `--generate-validator-key <path>`.
@@ -73,8 +73,8 @@ Where tests live:
 | Path | What |
 |---|---|
 | `crates/node/tests/` | integration tests per subject: `consensus_tests`, `bft_node_tests` (4 validators in memory), `network_tests`, `malleability_tests`, `exploit_replays`, … |
-| `crates/node/tests/adversarial_suite_tests.rs` | invalid blocks, bad signatures, double spends, reorgs, malformed network messages |
-| `crates/dag-bft/tests/` | engine schedules, forged votes, restarts (property tests) |
+| `crates/node/tests/attack_simulation_tests.rs`, `byzantine_guard_tests.rs` | conflicting spends, low-work branches, difficulty clamps, sybil floods, peer scoring and quarantine |
+| `crates/dag-bft/tests/` | adversarial schedules and property tests (proptest), forged votes and certificates, restarts from the safety log |
 | `spec/` + `cargo xtask spec-coverage` | conformance vectors for consensus rules |
 | `fuzz/` | cargo-fuzz targets (separate workspace) |
 | `formal/` | Kani, Lean, Z3 proofs |

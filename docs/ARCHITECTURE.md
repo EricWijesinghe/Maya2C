@@ -12,8 +12,8 @@ step.
 Maya2C is a single-binary L1 node (`bins/maya2c-node`) built on one large
 library crate (`crates/node`, package `custom-l1-node`). Ordering and finality
 come from **DAG-BFT** (Narwhal-style certified DAG with the Bullshark commit
-rule, `crates/dag-bft`) run by a staked validator committee with **ML-DSA-87**
-validator keys (ADR-015, ADR-027). Every node derives each block itself from
+rule, `crates/dag-bft`; ADR-015, ADR-027) run by a staked validator committee
+with **ML-DSA-87** validator keys (ADR-051). Every node derives each block itself from
 committed certificates; blocks are never trusted from a peer. User
 transactions are signed with a **hybrid ML-DSA-65 + SLH-DSA-SHA2-128s**
 signature bound to the chain's genesis (ADR-036). Proof of work does not order
@@ -27,13 +27,13 @@ anything: miners earn through a separate **DAG-PoW mining rewards lane**
 | `crates/node` (`custom-l1-node`) | everything consensus-shaped: blocks, transactions, state, the BFT driver, P2P, RPC |
 | `crates/dag-bft` (`maya-dag-bft`) | the sans-IO DAG-BFT engine: `Validator`, `Committer`, `Certificate`, `Vertex` |
 | `crates/crypto-pq` | post-quantum signature suites and the suite registry (invariants 2, 29, 30) |
-| `crates/signer` | remote signer service and the sealed key format (ADR-033) |
+| `crates/signer` | remote signer service with its own slashing protection (ADR-033), and the sealed key format `maya_signer::sealed` (ADR-049) |
 | `crates/ledger-math`, `crates/amount` | checked 256-bit arithmetic (ADR-046: amounts are U256) |
 | `crates/fee-market`, `crates/staking`, `crates/governance`, `crates/dex`, `crates/vm`, `crates/vrf` | state-machine subsystems linked into execution |
 | `bins/maya2c-node` | the daemon: wiring, the BFT loop, block import, pruning, key files |
 
-The crates in the second half of the table are kept dependency-light so Kani
-can check them (invariants 1, 6, 12).
+`ledger-math` and `dex` are kept free of C/C++ and heavy dependencies so Kani
+can check them (invariants 1 and 6); `governance` carries invariant 12.
 
 ## Process layout (`bins/maya2c-node`)
 
@@ -49,7 +49,7 @@ can check them (invariants 1, 6, 12).
 ## Life of a transaction
 
 1. **Wire.** `crates/node/src/core/transaction.rs` — `Transaction` with
-   outputs, nonce, a `TxKind` payload, and one authorisation: hybrid
+   inputs, outputs, nonce, a `TxKind` payload, and one authorisation: hybrid
    signature (v5/v6), suite-tagged (`SuiteAuth`, v7) or m-of-n multisig
    (`MultisigAuth`, v8). The signed bytes include a `ChainTag` derived from
    the genesis id, so a signature is valid on one chain only (ADR-036).
@@ -59,10 +59,13 @@ can check them (invariants 1, 6, 12).
    nonce against current state before pooling. Gossip validation runs in
    `network/node/guard.rs`; peers that send invalid data are scored and
    quarantined by `network/peer_health.rs`.
-3. **Batching.** A validator's BFT driver takes pooled transactions into the
-   batch of its next DAG vertex (`consensus/bft/driver.rs`).
-4. **Ordering.** The engine (`crates/dag-bft/src/validator.rs`) gathers
-   `2f + 1` votes per vertex into a certificate, and the committer
+3. **Batching.** The daemon's BFT loop (`bins/maya2c-node/src/bft.rs`) hands
+   each validator its share of pooled transactions, and the driver
+   (`BftDriver::submit`, `consensus/bft/driver.rs`) puts them in the batch of
+   its next DAG vertex.
+4. **Ordering.** The engine (`crates/dag-bft/src/validator.rs`) gathers a
+   quorum of `n − f` votes (`W − f` stake on a weighted committee,
+   `Committee::quorum`, ADR-039) per vertex into a certificate, and the committer
    (`commit.rs`) commits an anchor plus its causal history as a `SubDag`.
 5. **Block.** `consensus/bft/builder.rs` turns one committed sub-DAG into
    exactly one block. Every node runs it on the same sub-DAG and parent
@@ -76,14 +79,17 @@ can check them (invariants 1, 6, 12).
 
 ## State
 
-`crates/node/src/state/` — `StateDB` on RocksDB (`db.rs`), a Merkle state
-root (`merkle.rs`), the block store (`blocks.rs`) in the same database. Each
-subsystem keeps its records under its own key prefix, every prefix committed
-by the state root (invariant 25): accounts, staking (`k:`), mining
-(`k:mine`, `k:mseen:`), DEX, identity, RWA, IoT anchors, threat intelligence,
-vaults (invariant 32), council and upgrade schedule (invariant 34). Each has
-an `*_exec.rs` with its transition rules. `preview.rs` computes a block's
-root before it is applied (what a builder declares). Consensus code uses no
+`crates/node/src/state/` — `StateDB` on RocksDB (`db.rs`), a binary Merkle
+tree over the account set (`merkle.rs`), the block store (`blocks.rs`) in the
+same database. Each subsystem keeps its records under its own key prefix,
+every prefix committed by the state root (invariant 25): accounts, staking,
+fees and mining under `k:` (`k:cmt:`, `k:fee`, `k:mine`, `k:mseen:`), DEX,
+identity, RWA, IoT anchors, threat intelligence, vaults (`q:`, invariant 32),
+council and upgrade schedule (invariant 34). Most subsystems have an
+`*_exec.rs` with their transition rules (`staking_exec.rs`, `dex_exec.rs`,
+`mining_exec.rs`, …). `preview.rs` keeps the overlay and root a builder staged
+for its own block, so applying that block does not stage it again; the root is
+still compared on every apply. Consensus code uses no
 floats, no wall-clock and no `HashMap` iteration order (Standing Order 4).
 
 ## Finality and catch-up
@@ -91,8 +97,9 @@ floats, no wall-clock and no `HashMap` iteration order (Standing Order 4).
 - **Attestations** (`consensus/bft/attest.rs`, ADR-038): each validator signs
   every block it built; `n − f` signatures (or `W − f` stake on a
   stake-weighted chain, ADR-040) make a **checkpoint**. The `Collector`
-  reports a validator that attests two blocks at one height as equivocation
-  evidence (`evidence.rs`).
+  flags a validator that attests two blocks at one height; a validator that
+  signs two proposals for one slot is kept as equivocation evidence on disk
+  (`evidence.rs`).
 - **Catch-up**: a node more than the engine's 50-round window behind imports
   blocks up to a checkpoint and re-executes each (`catchup.rs`), or replays
   the epoch's certificates from a peer (`certsync.rs`, ADR-052). The serving
@@ -100,17 +107,20 @@ floats, no wall-clock and no `HashMap` iteration order (Standing Order 4).
   the state.
 - **Safety across restarts**: `store.rs` fsyncs each own proposal and vote, so
   a restarted validator cannot sign twice for one slot.
-- **Remote signing**: `remote.rs` sends digests to `maya2c-signer` in another
-  process, so the node never holds the validator key (ADR-033).
+- **Remote signing**: `remote.rs` sends the slot and vertex digest to
+  `maya2c-signer` in another process, so a node configured for it never holds
+  the validator key (ADR-033).
 
 ## Networking
 
 `crates/node/src/network/` — libp2p with gossipsub (blocks, transactions,
-BFT frames, attestations; topics in `topics.rs`), Kademlia discovery, Noise
-plus an ML-KEM layer for transport keys (`pq/`), request/response block
-sync (`sync.rs`), and peer scoring and quarantine (`gossip_score.rs`,
-`peer_health.rs`). Every connection's Noise prologue binds the genesis, so
-nodes of different chains refuse each other at the handshake. BFT frames are
+and BFT frames with attestations on the BFT topic; topics in `topics.rs`),
+Kademlia discovery, Noise plus a second ML-KEM-keyed encryption layer
+(`pq/`, see [CRYPTO_WATCH.md](CRYPTO_WATCH.md) for what it covers),
+request/response block sync (`sync.rs`), and peer scoring and quarantine (`gossip_score.rs`,
+`peer_health.rs`). Every connection's Noise prologue binds the chain tag
+(`network_prologue`, `network/node/build.rs`), so nodes of different chains
+refuse each other at the handshake. BFT frames are
 encoded by `consensus/bft/wire.rs`: one canonical encoding per message,
 length prefixes bounded against the bytes actually present.
 
@@ -136,9 +146,10 @@ see `features.toml` for its status.
 ## RPC and gateways
 
 `crates/node/src/rpc/` serves JSON-RPC (method table in `rpc/mod.rs`) with a
-per-client rate limiter. `crates/api-gateway` sits in front for public REST,
-GraphQL and event streams with its own limits. Apps (`apps/explorer`,
-`apps/wallet-gui`, `apps/hub`, …) talk to nodes only through these.
+per-peer rate limiter (`rpc/limit.rs`). `crates/api-gateway` sits in front for public REST,
+GraphQL and event streams with a default-deny allowlist and its own limits.
+Apps (`apps/explorer`, `apps/wallet-gui`, `apps/hub`, …) talk to nodes through
+these.
 
 ## Where to read further
 

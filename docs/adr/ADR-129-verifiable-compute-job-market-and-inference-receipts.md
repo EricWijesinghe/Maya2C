@@ -161,8 +161,9 @@ The rule therefore becomes:
    when epoch `e+1` closes, or at the later epoch the job names:
    `r_s = blake3_derive("maya2c compute assign v1", anchor ‖ job_id ‖ s)`
    for each slot `s < k`; the worker whose cumulative weight interval
-   holds `r_s mod W` takes the slot. Workers are walked in key order
-   (invariant 24, no `HashMap`), drawn without replacement, integer
+   holds `r_s mod W` takes the slot. Workers are walked in key order (every
+   node must draw the same slots for invariant 24's state root to agree, so
+   no `HashMap` iteration order), drawn without replacement, integer
    arithmetic only. `cj:a:` records are written by the draw, never by the
    worker.
 3. **Commit.** Until `commit_deadline`, each drawn worker submits

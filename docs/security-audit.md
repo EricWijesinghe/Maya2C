@@ -243,10 +243,10 @@ audit side effect.
 The tools above check code against itself. None of them checks a design. Every
 cryptographic *primitive* on a consensus path comes from a library (BLAKE3,
 SHA-2/3, `fips204`, `slh-dsa`, `ml-kem`, `x-wing`, `chacha20poly1305`,
-`argon2`, Plonky3). The *constructions* below put those primitives together in
-code written here, and each is marked **external review pending**: read and
-tested in-house, not reviewed by anyone independent. The owner's directive is
-no third party before mainnet, so this list is what an auditor gets first.
+`argon2`, `curve25519-dalek`, Plonky3). The *constructions* below put those
+primitives together in code written here, and each is marked **external review
+pending**: read and tested in-house, not reviewed by anyone independent. This
+list is what an independent reviewer gets first.
 
 | Construction | Where |
 |---|---|
@@ -258,6 +258,8 @@ no third party before mainnet, so this list is what an auditor gets first.
 | DAG proof of work and the Argon2id header proof of work (one pass, `t = 1`) | `crates/node/src/crypto/dag/`, `crates/node/src/crypto/argon_blake.rs` |
 | Shielded-pool notes, nullifiers and the joinsplit AIR; Poseidon2 truncated-permutation compression | `crates/zk-stark/src/pool/`, `crates/zk-stark/src/hash.rs` — gated by `CIRCUIT_IS_AUDITED` |
 | Pedersen verifiable secret sharing over Ristretto | `crates/custody-mpc` |
+| ECVRF-EDWARDS25519-SHA512-TAI (RFC 9381; checked against the RFC's vectors) | `crates/vrf/src/ecvrf.rs` |
+| Sealed-mempool threshold ElGamal KEM over ristretto255, Shamir shares and Chaum–Pedersen share proofs (classical, see [sealed-mempool.md](sealed-mempool.md)) | `crates/mev/src/` |
 
 The shielded pool's hashing has a stated margin, not a Category 5 one:
 commitments, nullifiers and Merkle nodes rest on `P(l ‖ r)[..8]`, an 8-element

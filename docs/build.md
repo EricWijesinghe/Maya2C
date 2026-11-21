@@ -111,11 +111,13 @@ cargo build --release -p maya2c-node --no-default-features --features production
 ```
 
 `--no-default-features` is required, not optional. `maya2c-node`'s default
-feature forwards `custom-l1-node/default`, which is `["hqc"]` (the HQC transport KEM, `network::pq::dual`), and `hqc`
-forwards to `maya-build-guard/research`; the build guard makes `production`
+feature forwards `custom-l1-node/default`, which is `["hqc"]` (the HQC
+transport KEM, `network::pq::dual`). `hqc` enables `maya-crypto-pq/hqc`, which
+enables `maya-build-guard/research`, and the build guard makes `production`
 together with `research` a compile error. So `--features production` alone
 fails at the guard. `cargo xtask release-check`, `scripts/repro_build.sh` and
-the ceremony rehearsal all pass `--no-default-features`.
+the ceremony rehearsal (`xtask/src/ceremony_rehearsal.rs`) all pass
+`--no-default-features`.
 
 ## Reproducible release builds (ADR-054)
 
