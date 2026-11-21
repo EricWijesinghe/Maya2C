@@ -41,12 +41,10 @@ The four halving eras issue 19,687,500 coins (ADR-068); the tail then pays forev
 protocol cap. `MAX_SUPPLY` is the width of a balance, so changing it is a hard fork once a
 value-bearing chain checks it.
 
-**Neural gain.** A second, independently switched rule scales the base fee's
-step by a gain from a compiled-in integer network. The gain is one-sided — it
-may only speed a rise or slow a fall — so the fee is never below what the linear
-rule would set, whatever features a producer writes.
-`neural_activation_height` is `u64::MAX` in both shipped configurations, so
-`apply_block_fees` charges exactly what it did before — see
+**No neural gain.** A second rule that scaled the step by a gain from an
+integer network sat here at activation `u64::MAX` until 2026-11-14. It moved
+to `crates/neural-fee`, which the node does not link (ADR-029 amendment), so
+the linear step is the only base-fee rule in the binary — see
 [neural-gas.md](neural-gas.md).
 
 ## The bounds no configuration may escape

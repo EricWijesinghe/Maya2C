@@ -276,7 +276,6 @@ impl FeesGenesis {
             change_denominator: self.change_denominator,
             treasury_bps: 0,
             initial_base_fee: to_amount(self.initial_base_fee),
-            neural_activation_height: u64::MAX,
         };
         config
             .validate()

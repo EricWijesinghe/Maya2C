@@ -7,7 +7,7 @@ They moved with the crate they measure:
 
 | Where | What |
 |---|---|
-| `crates/node/benches/` | 10 targets: `algo_comparison`, `argon_blake`, `dag`, `dex_matching`, `ebpf_bench`, `gas_predictor`, `hybrid_footprint`, `hybrid_signing`, `mlkem_handshake`, `oracle` |
+| `crates/node/benches/` | 9 targets: `algo_comparison`, `argon_blake`, `dag`, `dex_matching`, `ebpf_bench`, `hybrid_footprint`, `hybrid_signing`, `mlkem_handshake`, `oracle` (`gas_predictor` deleted 2026-11-14 with the neural fee model) |
 | `crates/vm/benches/` | `module_cache` |
 | `crates/htlc-lattice/benches/` | `verify` |
 | `crates/zkml-prover/benches/` | `verify` |
