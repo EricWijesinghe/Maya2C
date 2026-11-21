@@ -41,7 +41,14 @@ maya-contract-safety = { path = "../contract-safety" }
 # anyway before mainnet genesis so the launch build carries no open advisory.
 # 48.0.8 -> 48.0.10 (2026-11-21, RUSTSEC-2026-0566..0573 fixed in 48.0.9;
 # 48.0.10 adds a Windows-only wasmtime-wasi path fix this crate does not link).
-# Neither release note touches fuel, Cranelift codegen or Pulley.
+# Source diff of the registry crates (48.0.8 -> 48.0.10): 48.0.9 changes
+# wasmtime-internal-cranelift's GC-object field address computation
+# (bounds_checks.rs, func_environ/gc.rs); linear-memory accesses pass `None`
+# for the new backwards offset and emit identical IR. It also caps non-moving
+# memory growth at memory_reservation (unreachable: MAX_MEMORY_PAGES=256,
+# 16 MiB). cranelift-codegen, cranelift-frontend and pulley-interpreter sources
+# are byte-identical between 0.135.8/48.0.8 and 0.135.10/48.0.10; no line
+# mentioning fuel changed in any wasmtime crate.
 # `tests/gas_golden_tests.rs`, recorded on 48.0.8, passes unchanged on 48.0.10:
 # same gas, same out-of-gas boundary, same output for every vector. Rides the
 # mainnet genesis, which is a fresh chain.
