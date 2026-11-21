@@ -43,6 +43,12 @@ for Eric; the other two are engineering.
   (positional tree; a sparse layer would change ROOT-5). **Open, for Eric:**
   growth is unbounded and unpriced (per-block cap, total ceiling or per-byte
   state price): the `[needs-eric]` draft, ADR-142 amendment 4.
+  **Proposed bound (draft, needs Eric), ADR-142 amendment 4:** CSTATE-1 caps
+  distinct contract entries a block writes and CSTATE-2 caps total counted
+  contract state, both governed (tags 19, 20) under compiled ceilings. The
+  default fills in 2 blocks of the smallest writes and the compiled ceiling in
+  4, for byte fees, so without a per-byte state price it turns unbounded growth into
+  frozen growth, not paid growth.
 - **G3 — end-of-block bisection re-runs contract work** up to ~9 selections
   and 32 builds per anchor (`consensus/bft/builder.rs`, ~12 G gas, ~12 s).
   Fix: cache staged results per prefix, or charge each probe's contract work
