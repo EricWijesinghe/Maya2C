@@ -54,6 +54,7 @@ const FOLDER_WRITE_MASK: u32 = FILE_WRITE_DATA
     | GENERIC_ALL;
 const ACCESS_ALLOWED: u8 = 0x0;
 const ACCESS_DENIED: u8 = 0x1;
+const INHERIT_ONLY_ACE: u8 = 0x8;
 const SYSTEM_SID: &str = "S-1-5-18";
 const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 
@@ -135,7 +136,11 @@ fn others_hold(path: &Path, mask: u32) -> Result<bool, String> {
 fn ace_opens_to_others(ace: *mut c_void, me: &str, others_mask: u32) -> Result<bool, String> {
     // SAFETY: GetAce returned a pointer to a complete ACE, whose header comes first.
     let header = unsafe { &*ace.cast::<ACE_HEADER>() };
-    if header.AceType == ACCESS_DENIED {
+    // An inherit-only ACE (e.g. `CREATOR OWNER:(OI)(CI)(IO)(F)`, the default under
+    // a data-drive root) grants nothing on this object, only on children created
+    // later, which get their own check: child folders are walked, and the key
+    // file is checked and written with its inherited entries replaced.
+    if header.AceType == ACCESS_DENIED || header.AceFlags & INHERIT_ONLY_ACE != 0 {
         return Ok(false);
     }
     // SAFETY: Mask follows the header in every allow-type ACE, so reading it is in bounds.
@@ -373,6 +378,45 @@ mod tests {
                 &grant,
                 "/grant",
                 "*S-1-5-11:(WD)",
+            ],
+        );
+        let open = others_can_write_into(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(open, Ok(true));
+    }
+
+    #[test]
+    fn an_inherit_only_creator_owner_entry_does_not_open_the_folder() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        let dir = folder_with_acl(
+            "creator-owner",
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-3-0:(OI)(CI)(IO)F",
+            ],
+        );
+        let open = others_can_write_into(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(open, Ok(false));
+    }
+
+    #[test]
+    fn an_entry_that_applies_to_the_folder_and_its_children_still_counts() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        // Same inheritance flags without (IO): it grants on the folder too.
+        let dir = folder_with_acl(
+            "inherit-and-apply",
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-5-11:(OI)(CI)F",
             ],
         );
         let open = others_can_write_into(&dir);

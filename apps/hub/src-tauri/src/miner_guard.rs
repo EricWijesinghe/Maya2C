@@ -350,8 +350,7 @@ pub fn check_miner(requested: &str, install: &Path, sums: &str) -> Result<Pinned
 pub fn resolve_key_file(requested: &str, data: &Path) -> Result<PathBuf, GuardError> {
     let req = Path::new(requested.trim());
     let name = file_name_of(req).ok_or(GuardError::KeyNameMissing)?;
-    fs::create_dir_all(data).map_err(io)?;
-    let data = data.canonicalize().map_err(io)?;
+    let data = private_data_dir(data)?;
     let full = if req.is_absolute() {
         req.to_path_buf()
     } else {
@@ -368,6 +367,37 @@ pub fn resolve_key_file(requested: &str, data: &Path) -> Result<PathBuf, GuardEr
     let target = parent.join(name);
     check_key_file(&target, &data)?;
     Ok(target)
+}
+
+/// The Hub's data folder, created owner-only if missing, as a canonical path.
+/// On Unix the mode is set explicitly rather than left to the umask: under
+/// umask 002 (common on desktop Linux) a default folder is 0775, and
+/// [`check_key_folders`] would refuse the Hub's own folder. A folder this user
+/// already owns that group or other may write into (made by an older Hub, or by
+/// the webview before the first start) loses those write bits. One owned by
+/// someone else is left alone, and the folder check refuses it.
+fn private_data_dir(data: &Path) -> Result<PathBuf, GuardError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(data)
+            .map_err(io)?;
+        let data = data.canonicalize().map_err(io)?;
+        let meta = fs::metadata(&data).map_err(io)?;
+        let mode = meta.mode() & 0o7777;
+        if meta.uid() == rustix::process::getuid().as_raw() && mode & 0o022 != 0 {
+            fs::set_permissions(&data, fs::Permissions::from_mode(mode & !0o022)).map_err(io)?;
+        }
+        Ok(data)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(data).map_err(io)?;
+        data.canonicalize().map_err(io)
+    }
 }
 
 /// Checks an existing payout key: it must resolve inside `data` and pass the
@@ -783,11 +813,37 @@ mod tests {
         let data = base.join("data");
         let sub = data.join("keys");
         fs::create_dir_all(&sub).unwrap();
+        // Set explicitly, so the result does not depend on the runner's umask.
+        fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&data, fs::Permissions::from_mode(0o777)).unwrap();
         let err = check_key_file(&sub.join("miner.key"), &data).unwrap_err();
         assert!(matches!(err, GuardError::KeyFolderOpenToOthers(_)), "{err}");
         fs::set_permissions(&data, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(check_key_file(&sub.join("miner.key"), &data).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_data_folder_is_created_owner_only_whatever_the_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = scratch("key-data-new").join("data");
+        let path = resolve_key_file("miner.key", &data).expect("fresh install accepted");
+        assert_eq!(path, data.canonicalize().unwrap().join("miner.key"));
+        let mode = fs::metadata(&data).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_group_writable_data_folder_of_this_user_is_tightened_not_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = scratch("key-data-0775").join("data");
+        fs::create_dir_all(&data).unwrap();
+        // What create_dir_all gives under umask 002.
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o775)).unwrap();
+        resolve_key_file("miner.key", &data).expect("the Hub's own folder is accepted");
+        let mode = fs::metadata(&data).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
     }
 
     #[cfg(windows)]
