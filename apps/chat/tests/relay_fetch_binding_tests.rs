@@ -37,7 +37,7 @@ fn a_signature_for_one_relay_is_refused_by_another() {
         .sign(&fetch_bytes(b"relay-a", &bob.address(), &nonce))
         .unwrap();
     assert_eq!(
-        relay_b.fetch(bob.address(), bob.public_key(), &for_a, NOW),
+        relay_b.fetch(bob.address(), &nonce, bob.public_key(), &for_a, NOW),
         Err(ChatError::BadSignature)
     );
     // Bob's mail is still at B for Bob, with a signature naming B.
@@ -47,7 +47,7 @@ fn a_signature_for_one_relay_is_refused_by_another() {
         .unwrap();
     assert_eq!(
         relay_b
-            .fetch(bob.address(), bob.public_key(), &for_b, NOW)
+            .fetch(bob.address(), &nonce, bob.public_key(), &for_b, NOW)
             .unwrap()
             .len(),
         1

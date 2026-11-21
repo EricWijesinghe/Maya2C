@@ -4,7 +4,7 @@
 
 use maya_chat::ChatError;
 use maya_chat::identity::{Identity, PrekeyBundle};
-use maya_chat::relay::{Envelope, MAX_CHALLENGES, Payload, Relay, fetch_bytes};
+use maya_chat::relay::{Envelope, MAX_ENVELOPES, MAX_FETCHED_IDS, Payload, Relay, fetch_bytes};
 use maya_chat::session::Message;
 
 const NOW: u64 = 1_800_000_000;
@@ -23,6 +23,20 @@ fn envelope(to: [u8; 32], n: u64, len: usize, expires_at: u64) -> Envelope {
         stamp: 0,
         version: 1,
     }
+}
+
+/// The largest encoded size of a 1,000-byte envelope to any of `who`: the
+/// address is part of the encoding, and its length varies with its bytes.
+fn slot(who: &[&Identity]) -> usize {
+    who.iter()
+        .map(|w| {
+            envelope(w.address(), 0, 1_000, NOW + DAY)
+                .encode()
+                .unwrap()
+                .len()
+        })
+        .max()
+        .unwrap()
 }
 
 /// A bundle signed correctly but carrying `prekey` instead of a real one.
@@ -60,48 +74,130 @@ fn an_oversized_prekey_is_refused_even_when_signed() {
         .unwrap();
 }
 
+fn fetch(relay: &mut Relay, who: &Identity, nonce: &[u8; 32], now: u64) -> Vec<Envelope> {
+    let sig = who
+        .sign(&fetch_bytes(relay.id(), &who.address(), nonce))
+        .unwrap();
+    relay
+        .fetch(who.address(), nonce, who.public_key(), &sig, now)
+        .unwrap()
+}
+
+fn fetch_now(relay: &mut Relay, who: &Identity, now: u64) -> Vec<Envelope> {
+    let nonce = relay.challenge(who.address(), now).unwrap();
+    fetch(relay, who, &nonce, now)
+}
+
+fn numbers(envelopes: &[Envelope]) -> Vec<u64> {
+    envelopes
+        .iter()
+        .map(|e| match &e.payload {
+            Payload::Chat(m) | Payload::Open { first: m, .. } => m.n,
+        })
+        .collect()
+}
+
 #[test]
-fn a_full_challenge_table_does_not_lock_the_owner_out() {
+fn a_challenge_flood_does_not_push_out_the_owners_pending_one() {
     let bob = Identity::from_seed([2; 32]);
     let mut relay = Relay::new(0);
     relay
         .deposit(envelope(bob.address(), 0, 1, NOW + DAY), NOW)
         .unwrap();
-    for i in 0..MAX_CHALLENGES {
-        let mut stranger = [0xEE; 32];
-        stranger[..8].copy_from_slice(&(i as u64).to_le_bytes());
-        relay.challenge(stranger, NOW).unwrap();
-    }
     let nonce = relay.challenge(bob.address(), NOW).unwrap();
-    let sig = bob
-        .sign(&fetch_bytes(relay.id(), &bob.address(), &nonce))
-        .unwrap();
-    let got = relay
-        .fetch(bob.address(), bob.public_key(), &sig, NOW)
-        .unwrap();
-    assert_eq!(got.len(), 1);
+    for i in 0..100_000u64 {
+        let mut stranger = [0xEE; 32];
+        stranger[..8].copy_from_slice(&i.to_le_bytes());
+        relay.challenge(stranger, NOW + 1).unwrap();
+    }
+    assert_eq!(fetch(&mut relay, &bob, &nonce, NOW + 2).len(), 1);
 }
 
 #[test]
-fn reissuing_a_challenge_in_a_full_table_evicts_nobody() {
-    let first = Identity::from_seed([3; 32]);
+fn a_full_relay_takes_mail_for_a_smaller_mailbox_from_the_largest() {
     let bob = Identity::from_seed([2; 32]);
-    let mut relay = Relay::new(0);
-    relay.challenge(first.address(), NOW).unwrap();
-    for i in 1..MAX_CHALLENGES - 1 {
-        let mut stranger = [0xEE; 32];
-        stranger[..8].copy_from_slice(&(i as u64).to_le_bytes());
-        relay.challenge(stranger, NOW + 1).unwrap();
+    let mallory = Identity::from_seed([9; 32]);
+    let size = slot(&[&bob, &mallory]);
+    let mut relay = Relay::new(0).with_capacity(3 * size);
+    for n in 0..3 {
+        relay
+            .deposit(envelope(mallory.address(), n, 1_000, NOW + DAY), NOW)
+            .unwrap();
     }
-    relay.challenge(bob.address(), NOW + 1).unwrap();
-    // The table is full; Bob asking again must not push out the oldest.
-    relay.challenge(bob.address(), NOW + 2).unwrap();
-    let wrong = first.sign(b"not the challenge").unwrap();
+    relay
+        .deposit(envelope(bob.address(), 0, 1_000, NOW + DAY), NOW)
+        .unwrap();
+    assert!(relay.stored_bytes() <= 3 * size);
+    assert_eq!(numbers(&fetch_now(&mut relay, &bob, NOW)), [0]);
+    // The flood's oldest gave way.
+    assert_eq!(numbers(&fetch_now(&mut relay, &mallory, NOW)), [1, 2]);
+}
+
+#[test]
+fn a_flooder_cannot_push_out_a_mailbox_no_larger_than_its_own() {
+    let bob = Identity::from_seed([2; 32]);
+    let mallory = Identity::from_seed([9; 32]);
+    let size = slot(&[&bob, &mallory]);
+    let mut relay = Relay::new(0).with_capacity(2 * size);
+    relay
+        .deposit(envelope(bob.address(), 0, 1_000, NOW + DAY), NOW)
+        .unwrap();
+    relay
+        .deposit(envelope(mallory.address(), 0, 1_000, NOW + DAY), NOW)
+        .unwrap();
     assert_eq!(
-        relay.fetch(first.address(), first.public_key(), &wrong, NOW + 2),
-        Err(ChatError::BadSignature),
-        "the oldest challenge must still be held"
+        relay.deposit(envelope(mallory.address(), 1, 1_000, NOW + DAY), NOW),
+        Err(ChatError::Refused("relay full"))
     );
+    // A fresh address is no larger than Bob's mailbox either.
+    assert_eq!(
+        relay.deposit(envelope([0xEE; 32], 0, 1_000, NOW + DAY), NOW),
+        Err(ChatError::Refused("relay full"))
+    );
+    assert_eq!(numbers(&fetch_now(&mut relay, &bob, NOW)), [0]);
+}
+
+#[test]
+fn an_evicted_envelope_is_stored_again_when_resent() {
+    let bob = Identity::from_seed([2; 32]);
+    let mallory = Identity::from_seed([9; 32]);
+    let first = envelope(mallory.address(), 0, 1_000, NOW + DAY);
+    let size = slot(&[&bob, &mallory]);
+    let mut relay = Relay::new(0).with_capacity(2 * size);
+    relay.deposit(first.clone(), NOW).unwrap();
+    relay
+        .deposit(envelope(mallory.address(), 1, 1_000, NOW + DAY), NOW)
+        .unwrap();
+    relay
+        .deposit(envelope(bob.address(), 0, 1_000, NOW + DAY), NOW)
+        .unwrap();
+    fetch_now(&mut relay, &bob, NOW);
+    // The outbox resends what drew no receipt; it must not be taken as a
+    // duplicate of the envelope that was evicted.
+    relay.deposit(first, NOW).unwrap();
+    assert_eq!(numbers(&fetch_now(&mut relay, &mallory, NOW)), [1, 0]);
+}
+
+#[test]
+fn fetched_ids_are_remembered_only_up_to_the_cap() {
+    let rounds = MAX_FETCHED_IDS / MAX_ENVELOPES + 2;
+    let mut relay = Relay::new(0);
+    let mut last = None;
+    for round in 0..rounds {
+        let who = Identity::from_seed([u8::try_from(round % 256).unwrap(); 32]);
+        // Later rounds expire later, so the cap forgets the earliest.
+        let expires_at = NOW + DAY + round as u64;
+        for n in 0..MAX_ENVELOPES as u64 {
+            let e = envelope(who.address(), n, 1, expires_at);
+            last = Some(e.clone());
+            relay.deposit(e, NOW).unwrap();
+        }
+        assert_eq!(fetch_now(&mut relay, &who, NOW).len(), MAX_ENVELOPES);
+    }
+    assert!(relay.remembered_ids() <= MAX_FETCHED_IDS);
+    // The newest fetched id is still remembered: its resend stores nothing.
+    relay.deposit(last.unwrap(), NOW).unwrap();
+    assert_eq!(relay.stored_bytes(), 0);
 }
 
 #[test]

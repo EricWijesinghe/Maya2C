@@ -160,6 +160,7 @@ pub async fn collect(
     };
     let request = Request::Fetch {
         address,
+        nonce,
         identity_key: me.public_key().to_vec(),
         signature: me.sign(&fetch_bytes(&relay_id, &address, &nonce))?,
     };

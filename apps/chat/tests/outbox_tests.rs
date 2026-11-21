@@ -49,7 +49,13 @@ fn collect(relay: &mut Relay, who: &mut Client, now: u64) -> Vec<Frame> {
         .sign(&fetch_bytes(relay.id(), &address, &nonce))
         .unwrap();
     let envelopes = relay
-        .fetch(address, who.identity().public_key(), &signature, now)
+        .fetch(
+            address,
+            &nonce,
+            who.identity().public_key(),
+            &signature,
+            now,
+        )
         .unwrap();
     let frames = envelopes
         .iter()
