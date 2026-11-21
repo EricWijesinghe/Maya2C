@@ -9,8 +9,12 @@ use std::sync::Arc;
 
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::{Block, ChainTag};
+use custom_l1_node::crypto::validator_keys as keys;
 use custom_l1_node::error::NodeError;
-use custom_l1_node::state::StateDB;
+use custom_l1_node::genesis::{Allocation, BftGenesis, FeesGenesis, GenesisConfig};
+use custom_l1_node::state::{Address, StateDB};
+use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade};
+use primitive_types::U256;
 
 /// The tag a test signs with before it opens any chain.
 const UNOPENED: ChainTag = ChainTag::from_genesis([42; 32]);
@@ -78,4 +82,64 @@ pub fn tag_of(chain: &Chain) -> ChainTag {
 #[must_use]
 pub fn tag_from_block(block: &Block) -> ChainTag {
     ChainTag::from_genesis(block.header.id())
+}
+
+/// A chain whose genesis runs the fee market at `base_fee` per byte and
+/// schedules sponsored fees (feature bit 44) from height 1, with `funded`
+/// holding `funds` each. Returns the chain and the height its mempool admits
+/// at. Shared by the sponsored-fee tests and their red team.
+pub fn sponsored_chain(
+    dir: &tempfile::TempDir,
+    funded: &[Address],
+    funds: U256,
+    base_fee: U256,
+) -> (Chain, u64) {
+    let validator = keys::signing_key_from_seed(&[1; 32]).expect("validator");
+    let config = GenesisConfig {
+        chain_id: "sponsored-fees".to_string(),
+        timestamp: 1_000_000,
+        difficulty_bits: 0,
+        pow_limit_bits: 0,
+        allocations: funded
+            .iter()
+            .map(|a| Allocation {
+                address: hex::encode(a),
+                balance: funds,
+            })
+            .collect(),
+        oracle: None,
+        sealed: None,
+        treasury: None,
+        protocol_upgrades: vec![ProtocolUpgrade {
+            version: 2,
+            activation_height: 1,
+            features: FeatureSet(FeatureSet::SPONSORED_FEES),
+        }],
+        suite_deprecations: Vec::new(),
+        security_council: None,
+        shielded_activation_height: None,
+        bft: Some(BftGenesis {
+            validators: vec![hex::encode(validator.verifying_key().to_bytes())],
+            anchor_timeout_ms: 1_000,
+            batch_size: 100,
+            round_interval_ms: 500,
+            mining: None,
+            staking: None,
+            fees: Some(FeesGenesis {
+                initial_base_fee: base_fee,
+                min_base_fee: base_fee,
+                target_block_bytes: 1_000_000,
+                change_denominator: 8,
+            }),
+        }),
+    };
+    let state = Arc::new(StateDB::open(dir.path()).expect("open"));
+    config.seed_state(&state).expect("seed");
+    let chain = open_chain(
+        state,
+        config.genesis_block().expect("genesis"),
+        ChainConfig::without_pow_verification(),
+    )
+    .expect("chain");
+    (chain, 1)
 }

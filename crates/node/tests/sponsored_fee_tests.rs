@@ -12,21 +12,18 @@
 
 use std::sync::Arc;
 
-use custom_l1_node::consensus::chain::{Chain, ChainConfig};
+use custom_l1_node::consensus::chain::Chain;
 use custom_l1_node::core::sponsor_tx::{MAX_SPONSOR_WINDOW, MAX_SPONSORED_PENDING_PER_SPONSOR};
 use custom_l1_node::core::transaction::{ChainTag, TxOutput};
 use custom_l1_node::core::vault_payload::{VaultAction, VaultConfig};
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
-use custom_l1_node::crypto::validator_keys as keys;
 use custom_l1_node::error::NodeError;
-use custom_l1_node::genesis::{Allocation, BftGenesis, FeesGenesis, GenesisConfig};
 use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
 use custom_l1_node::state::shielded::FEE_SINK;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
-use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade};
 use maya_crypto_pq::suite::{
     HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa87, SignatureSuite, SuiteId, suite_address,
 };
@@ -669,9 +666,9 @@ fn the_mempool_keeps_one_sponsored_frame_per_inner() {
 }
 
 // Squatting (P-12 × P-10, V4-V1 review): a vault of limit 0 refuses every
-// sponsored fee at apply, so its frames never apply and never pay. Admitted,
-// the smaller one would displace an honest sponsorship of the same inner and
-// hold it out of every block until `valid_until`, for free.
+// sponsored fee at apply, so its frames never apply and never pay. Admitted
+// first, it would hold the inner's one pool slot until `valid_until`, for
+// free. The other squat variants are in `v4_redteam_sponsored.rs`.
 #[test]
 fn a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner() {
     let alice = user(0x44);
@@ -705,13 +702,17 @@ fn a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner() {
     assert_eq!(squat.inner_txid(), by_honest.inner_txid(), "one inner");
     assert!(
         squat.to_bytes().len() < by_honest.to_bytes().len(),
-        "the squat is the smaller frame, so P-12 would keep it"
+        "the squat is the smaller frame, which the old P-12 rule kept"
     );
 
     let pool = Mempool::new(Arc::clone(c.state()));
     assert!(pool.insert(by_honest.clone()).expect("honest admitted"));
-    let err = pool.insert(squat.clone()).unwrap_err();
-    assert!(matches!(err, NodeError::Vault(_)), "{err:?}");
+    assert!(
+        !pool
+            .insert(squat.clone())
+            .expect("a second sponsorship is no error"),
+        "the first sponsorship seen keeps the inner"
+    );
     assert_eq!(pool.len(), 1);
     assert!(
         pool.contains(&by_honest.txid()),
@@ -876,54 +877,7 @@ fn a_node_with_accept_sponsored_off_refuses_v13_frames() {
 /// height 1, with `funded` holding [`FUNDS`]. Returns the chain and the
 /// height its mempool admits at.
 fn live_chain(dir: &TempDir, funded: &[Address]) -> (Chain, u64) {
-    let validator = keys::signing_key_from_seed(&[1; 32]).expect("validator");
-    let config = GenesisConfig {
-        chain_id: "sponsored-fees".to_string(),
-        timestamp: 1_000_000,
-        difficulty_bits: 0,
-        pow_limit_bits: 0,
-        allocations: funded
-            .iter()
-            .map(|a| Allocation {
-                address: hex::encode(a),
-                balance: U256::from(FUNDS),
-            })
-            .collect(),
-        oracle: None,
-        sealed: None,
-        treasury: None,
-        protocol_upgrades: vec![ProtocolUpgrade {
-            version: 2,
-            activation_height: 1,
-            features: FeatureSet(FeatureSet::SPONSORED_FEES),
-        }],
-        suite_deprecations: Vec::new(),
-        security_council: None,
-        shielded_activation_height: None,
-        bft: Some(BftGenesis {
-            validators: vec![hex::encode(validator.verifying_key().to_bytes())],
-            anchor_timeout_ms: 1_000,
-            batch_size: 100,
-            round_interval_ms: 500,
-            mining: None,
-            staking: None,
-            fees: Some(FeesGenesis {
-                initial_base_fee: U256::from(BASE_FEE),
-                min_base_fee: U256::from(BASE_FEE),
-                target_block_bytes: 1_000_000,
-                change_denominator: 8,
-            }),
-        }),
-    };
-    let state = Arc::new(StateDB::open(dir.path()).expect("open"));
-    config.seed_state(&state).expect("seed");
-    let chain = common::open_chain(
-        state,
-        config.genesis_block().expect("genesis"),
-        ChainConfig::without_pow_verification(),
-    )
-    .expect("chain");
-    (chain, 1)
+    common::sponsored_chain(dir, funded, U256::from(FUNDS), U256::from(BASE_FEE))
 }
 
 // 6 (P-6)

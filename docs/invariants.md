@@ -231,8 +231,18 @@ phase that did it.
     is a constant — the genesis schedule under mainnet rules — so neither a
     governance vote nor a node's config can change which signatures a block's
     validity rests on. `SUITE_ENVELOPE_ACTIVATION_HEIGHT` is 0 (ADR-013).
-    Pinned by `crates/node/tests/suite_parity_tests.rs` and
-    `crates/node/tests/suite_envelope_live_tests.rs` — ADR-007, ADR-013.
+    Sponsored (v13) frames, dark until feature bit 44 (ADR-135 P-4), follow
+    the same rule: `verify` refuses every one, `verify_at` checks both the
+    inner and the sponsor signature and the sponsor suite's admissibility at
+    that height, and the verified cache re-judges that suite on every hit, so
+    a sunset reaches warm- and cold-cache nodes alike. The activation height
+    is `state::sponsor::require_active`, shared by admission and apply.
+    Pinned by `crates/node/tests/suite_parity_tests.rs`,
+    `crates/node/tests/suite_envelope_live_tests.rs`, and for v13
+    `sponsored_fee_tests.rs` `a_v13_frame_is_refused_by_verify_and_before_activation_by_verify_at`
+    and `v4_redteam_sponsored.rs`
+    `a_cached_v13_frame_is_refused_once_its_sponsor_suite_sunsets` — ADR-007,
+    ADR-013, ADR-135.
 32. **A vault account moves at most its `limit` per window of `delay_blocks`
     without a delayed, guardian-cancellable request, and by no door but a
     plain transfer or a vault action.** Outputs to the fee collector count

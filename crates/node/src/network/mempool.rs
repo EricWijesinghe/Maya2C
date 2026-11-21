@@ -272,18 +272,38 @@ impl Mempool {
         })
     }
 
-    /// Whether a sponsored frame for the same inner as `tx`, no larger than
-    /// `size` bytes, is already pooled (threat model P-12).
-    fn holds_smaller_sponsorship(&self, tx: &Transaction, size: usize) -> bool {
-        if tx.sponsor.is_none() {
-            return false;
-        }
-        let Some(pooled) = self.lock_inners().get(&tx.inner_txid()).copied() else {
-            return false;
+    /// Whether a sponsored frame for the same inner as `tx` is already pooled
+    /// (threat model P-12). The first one seen is kept, whatever its size:
+    /// a "smaller frame replaces" rule let any sponsor on a smaller suite
+    /// displace an honest frame and then make sure its own never applied
+    /// (V4-V1 review: an expiring `valid_until`, a sponsor that spends to
+    /// zero, a vault window that fits one fee of many).
+    fn holds_sponsorship(&self, tx: &Transaction) -> bool {
+        tx.sponsor.is_some() && self.lock_inners().contains_key(&tx.inner_txid())
+    }
+
+    /// Refuses a sponsored `tx` when its sponsor's vault window cannot take
+    /// the `max_fee`s it already has pooled plus this frame's `fee`, dry-run
+    /// on a throwaway overlay. Without it, a vault with room for one fee
+    /// passed the per-frame dry-run for each of 64 frames and 63 failed at
+    /// apply. Insert only: on revalidation the frame is in its own tally.
+    /// shortcut: read outside the write lock, so two racing inserts can both
+    /// pass; the 64-frame cap still bounds them. Upgrade if that matters.
+    fn check_sponsor_window(&self, tx: &Transaction, fee: U256) -> Result<()> {
+        let Some(sponsorship) = &tx.sponsor else {
+            return Ok(());
         };
-        self.lock_fees()
-            .get(&pooled)
-            .is_some_and(|ranked| ranked.size <= size)
+        let payer = sponsorship.address();
+        let pending = self
+            .lock_sponsors()
+            .get(&payer)
+            .map_or(U256::zero(), |p| p.outputs);
+        self.state.charge_vault_window(
+            &mut crate::state::db::Overlay::default(),
+            &payer,
+            pending.saturating_add(fee),
+            self.admission_height()?,
+        )
     }
 
     /// What must leave a pool holding `len` entries and `bytes` for one more
@@ -439,9 +459,9 @@ impl Mempool {
         }
         // The sponsor's vault window, dry-run on a throwaway overlay: apply
         // charges the debit to it (P-10), so a frame it would refuse never
-        // applies, costs its sponsor nothing, and as the smaller frame for its
-        // inner (P-12) would squat that inner. `revalidate` re-runs this, so a
-        // frame whose window fills later leaves the pool too.
+        // applies, costs its sponsor nothing, and would hold its inner's one
+        // pool slot (P-12) for free. `revalidate` re-runs this, so a frame
+        // whose window fills later leaves the pool too.
         self.state.charge_vault_window(
             &mut crate::state::db::Overlay::default(),
             &payer,
@@ -663,7 +683,7 @@ impl Mempool {
         }
         let ranked = self.ranking_of(&tx, size)?;
         let fee = ranked.fee;
-        if self.holds_smaller_sponsorship(&tx, size) {
+        if self.holds_sponsorship(&tx) {
             return Ok(false);
         }
         self.victims(
@@ -677,32 +697,19 @@ impl Mempool {
 
         // Validation performs RocksDB reads; deliberately outside any lock.
         self.validate(&tx)?;
+        self.check_sponsor_window(&tx, fee)?;
 
         let mut pool = self.write_pool();
-        if pool.contains_key(&hash) || self.holds_smaller_sponsorship(&tx, size) {
+        // One sponsored frame per inner (P-12), first seen kept: re-checked
+        // here because another insert may have pooled one since.
+        if pool.contains_key(&hash) || self.holds_sponsorship(&tx) {
             return Ok(false);
         }
         self.check_sender_room(&tx, balance)?;
         self.check_sponsor_room(&tx, sponsor_balance)?;
-        // One sponsored frame per inner (P-12): a smaller outer frame for the
-        // same inner replaces the pooled one, so the sponsor that asks less
-        // of the block is the one kept. Removed only after every check that
-        // can refuse the newcomer, the eviction plan included, so a refused
-        // newcomer never costs the pooled frame its place. The plan counts
-        // the old frame as still pooled: conservative, never over capacity.
-        // Read into a local first: `forget` takes the inners lock itself.
-        let replaced = match &tx.sponsor {
-            Some(_) => self.lock_inners().get(&tx.inner_txid()).copied(),
-            None => None,
-        };
         // Every mutation holds the write lock, so this read cannot race an add.
         let bytes = self.pooled_bytes.load(Ordering::Relaxed);
         let victims = self.victims(pool.len(), bytes, fee, size)?;
-        if let Some(old_hash) = replaced
-            && let Some(old) = pool.remove(&old_hash)
-        {
-            self.forget(&old_hash, &old);
-        }
         for victim in victims {
             if let Some(old) = pool.remove(&victim) {
                 self.forget(&victim, &old);

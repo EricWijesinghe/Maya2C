@@ -163,6 +163,26 @@ band; move an item to PROGRESS.md when it starts.
   `crates/node/tests/dex_tests.rs` (#308). No user path sends a swap at
   launch: `compose_swap` has no GUI or Tauri caller.
 
+## P4 — v4 activation blockers (post-genesis, ADR-135, V4-V1)
+
+No v4 activation height is written until these close. Sponsored fees
+(#501) carry their own V4-V1 slice: spec 02 SP-1..SP-6, `spec/tests/sponsored.json`,
+`crates/node/tests/v4_redteam_sponsored.rs`; M1 and the P-12 squat closed,
+M3 closed for sponsored transfers.
+
+- [ ] **M3 for the other v4 forms.** Token mint policy (#487), NFTs and
+  names (#493), scheduled payments (#502) and smart-account actions (#548)
+  still copy the whole overlay per frame
+  in `StateDB::select_applicable_within`. Each needs the
+  `examples/builder_copy_cost.rs` measurement and, if quadratic, the
+  in-place staging sponsored transfers got.
+- [ ] **V4-V1 slice per sibling PR.** #487, #493, #502 and #548 each need a
+  spec section, vectors through `cargo xtask spec-coverage --strict` and a
+  red-team file; not checked from #501.
+- [ ] **X1, sponsor around account authority** (#501 with #548): on the
+  postgen/v4 integration, refuse a sponsor with a `ka:a:` record or a
+  `ka:w:` row, one test each (spec 02 residuals).
+
 ## P5 — differentiators
 
 - [ ] **Omega design (Eric 2026-11-02)**: [MIP-0002](docs/mip/MIP-0002-omega-durable-advantage.md), decisions O1–O4 approved in [ADR-078](docs/adr/ADR-078-omega-durable-advantage.md). Ω1 test ratchet can start now (CI only); Ω2–Ω5 after mainnet (moat indicators, controller framework, vote-activated upgrades, seeded evolution in `econ`).

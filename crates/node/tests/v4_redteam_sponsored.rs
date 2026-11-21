@@ -1,34 +1,49 @@
 //! Red team for sponsored fees (ADR-135 P-4, bit 44, wire v13; V4-V1).
-//! Each test is one attack attempt against real block execution, named for
-//! the attack, asserting the refusal and that the sponsor paid nothing it
-//! did not sign for. The threat-model replays (P-1..P-12) and the drain
-//! tests are in `sponsored_fee_tests.rs`; this file is a relay that edits
-//! the outer frame after the sponsor signed it, and M1 tried two ways.
+//! Each test is one attack attempt against real block execution or the
+//! real mempool, named for the attack, asserting the refusal and that the
+//! sponsor paid nothing it did not sign for. This file is the entry point
+//! for the V4-V1 classes; the threat-model replays (P-1..P-13) and the drain
+//! tests are in `sponsored_fee_tests.rs`.
 //!
-//! Classes tried (V4-V1 brief): value creation (none: a sponsorship moves
-//! the fee between two accounts, `sponsored_fee_tests` checks the total),
-//! fee bypass (here, M1, and P-5 there), replay (P-1 there), squatting (no
-//! namespace, but an inner can be squatted in the pool: a limit-0 vault
-//! sponsor's smaller frame displacing an honest one, refused at admission,
-//! `a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner`
-//! there), X1 (open, no test: NOT VERIFIED), unbounded per-block work (M3:
-//! the block builder's filter (`StateDB::select_applicable_within`) copied
-//! the whole overlay for every sponsored transfer, quadratic in the state a
-//! block touches. Measured by `examples/builder_copy_cost.rs`, fixed by
-//! staging sponsored transfers in place, pinned by `the_builder_undoes_*` in
-//! `sponsored_fee_tests.rs`. Still open for every other v4 form, which keeps
-//! the full copy: BACKLOG, v4 activation blockers.)
+//! Classes tried (V4-V1 brief):
+//! - value creation: `a_block_of_sponsored_frames_creates_no_value` (a
+//!   sponsorship moves the fee between two accounts and burns it).
+//! - fee bypass: a relay editing the outer frame, a swapped sponsor key,
+//!   M1 (padding, quorum swap); P-5 in `sponsored_fee_tests.rs`.
+//! - replay: a sponsorship moved to a re-signed inner at the same nonce;
+//!   a cached frame after its sponsor suite's sunset; P-1 and P-12 there.
+//! - squatting: no namespace, but an inner's one pool slot can be squatted.
+//!   `a_smaller_sponsorship_that_will_not_apply_cannot_displace_an_honest_frame`
+//!   (first seen kept; a vault cannot pool more than its window takes) and
+//!   the limit-0 vault test there. Residual: a race in which an attacker's
+//!   frame reaches a node before the honest one (spec 02, Open residuals).
+//! - unbounded per-block work: validity side,
+//!   `a_full_block_of_sponsored_frames_asks_no_more_verifications_per_byte_than_plain_frames`
+//!   (the byte cap bounds signature checks); builder side, M3, staged in
+//!   place for sponsored transfers, pinned by `the_builder_undoes_*` there
+//!   and measured by `examples/builder_copy_cost.rs`. M3 is still open for
+//!   every other v4 form (BACKLOG, v4 activation blockers).
+//! - X1 (sponsor around account authority, with #548): open, no test on
+//!   this branch, a blocker for the postgen/v4 integration. NOT VERIFIED.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::sync::Arc;
+
+use custom_l1_node::consensus::chain::Chain;
 use custom_l1_node::core::multisig_tx::{MultisigAuth, multisig_address};
 use custom_l1_node::core::transaction::TxOutput;
-use custom_l1_node::core::{Block, BlockHeader, Transaction};
+use custom_l1_node::core::vault_payload::{VaultAction, VaultConfig};
+use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
-use custom_l1_node::state::fees::{FEE_KEY, FeeRecord};
+use custom_l1_node::network::mempool::Mempool;
+use custom_l1_node::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord, MAX_BLOCK_BYTES};
+use custom_l1_node::state::shielded::FEE_SINK;
+use custom_l1_node::state::verified::VerifiedCache;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use maya_crypto_pq::agility::{MIN_EMERGENCY_WINDOW, Network, SuitePolicy};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
 use maya_crypto_pq::suite::{
     HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa65, MlDsa87, SignatureSuite, SuiteId, suite_address,
@@ -284,4 +299,237 @@ fn m1_padding_and_a_swapped_mixed_suite_quorum_are_both_refused() {
     // Control: the frame the sponsor saw applies and costs what it saw.
     apply(&n, vec![seen.clone()], V4).expect("the frame the sponsor signed");
     assert_eq!(balance(&n, &payer), U256::from(FUNDS) - required(&seen));
+}
+
+// ---- Mempool, value, per-block work, sunset (V4-V1 review) --------------
+
+type Ml87Key = <MlDsa87 as SignatureSuite>::SigningKey;
+
+fn live_chain(dir: &TempDir, funded: &[Address]) -> (Chain, u64) {
+    common::sponsored_chain(dir, funded, U256::from(FUNDS), U256::from(BASE_FEE))
+}
+
+fn ml87(seed: u8) -> (Ml87Key, Address) {
+    let key = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([seed; 32]));
+    let address = suite_address(SuiteId::MlDsa87, &MlDsa87::public_key(&key));
+    (key, address)
+}
+
+/// `tx` sponsored by the ML-DSA-87 `key`: a smaller outer frame than the
+/// hybrid sponsorship [`sponsored`] makes.
+fn sponsored_87(mut tx: Transaction, key: &Ml87Key, valid_until: u64) -> Transaction {
+    tx.sponsor_with::<MlDsa87>(
+        key,
+        U256::from(GENEROUS),
+        valid_until,
+        &common::test_chain(),
+    )
+    .unwrap();
+    tx
+}
+
+/// A v7 frame from `key`, paying its own fee, that gives its account a vault
+/// with an instant limit of `limit` per window.
+fn vault_87(key: &Ml87Key, limit: U256) -> Transaction {
+    let build = |fee: U256| {
+        let config = VaultConfig {
+            delay_blocks: 100,
+            limit,
+            guardians: vec![[0x99; 32]],
+        };
+        let kind = TxKind::Vault(Box::new(VaultAction::Configure(config)));
+        let mut tx = Transaction::with_kind(kind, 0);
+        tx.outputs = vec![TxOutput {
+            amount: fee,
+            recipient: FEE_COLLECTOR,
+        }];
+        tx.sign_with_suite::<MlDsa87>(key, &common::test_chain())
+            .unwrap();
+        tx
+    };
+    // A fee's value does not change the frame's size.
+    build(required(&build(U256::zero())))
+}
+
+// Squatting through the old P-12 rule ("the smaller outer frame replaces"):
+// a sponsor on a smaller suite displaces an honest hybrid sponsorship, then
+// makes sure its own frame never applies. Two of the three variants the
+// review named: (a) `valid_until` = the admission height, so it expires if
+// the next block leaves it out; (c) a vault window with room for one fee,
+// which the per-frame dry-run passed for each of 64 frames. (b), a sponsor
+// that spends to zero after displacing, needs the displacement this refuses.
+#[test]
+fn a_smaller_sponsorship_that_will_not_apply_cannot_displace_an_honest_frame() {
+    let (alice, bob) = (user(0xA0), user(0xA1));
+    let honest = sponsor_key(0xA2);
+    let (expiring, expiring_payer) = ml87(0xA3);
+    let (vaulted, vaulted_payer) = ml87(0xA4);
+    let dir = TempDir::new().unwrap();
+    let (mut c, height) = live_chain(
+        &dir,
+        &[
+            alice.address(),
+            bob.address(),
+            sponsor_address(&honest),
+            expiring_payer,
+            vaulted_payer,
+        ],
+    );
+    // Signed only once the chain is open: `test_chain` is its genesis.
+    let one_fee = required(&sponsored_87(inner(&alice, 0, 1), &vaulted, height + 100));
+    let block = c
+        .candidate_block(1_000_001, vec![vault_87(&vaulted, one_fee)])
+        .unwrap();
+    c.insert_block(block).expect("the vault sponsor configures");
+    let admit_at = height + 1;
+
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let by_honest = sponsored(inner(&alice, 0, 1), &honest, GENEROUS);
+    assert!(pool.insert(by_honest.clone()).expect("honest admitted"));
+    let squats = [
+        sponsored_87(inner(&alice, 0, 1), &expiring, admit_at),
+        sponsored_87(inner(&alice, 0, 1), &vaulted, admit_at + 100),
+    ];
+    for squat in squats {
+        assert_eq!(squat.inner_txid(), by_honest.inner_txid(), "one inner");
+        assert!(squat.to_bytes().len() < by_honest.to_bytes().len());
+        assert!(
+            !pool
+                .insert(squat)
+                .expect("a second sponsorship is no error"),
+            "the first sponsorship seen keeps the inner"
+        );
+    }
+    assert_eq!(pool.len(), 1);
+    assert!(pool.contains(&by_honest.txid()), "the honest frame stays");
+
+    // (c) cannot fill a pool either: the window must take every pooled
+    // max_fee of this sponsor plus this frame's fee.
+    let fresh = Mempool::new(Arc::clone(c.state()));
+    let first = sponsored_87(inner(&alice, 0, 1), &vaulted, admit_at + 100);
+    assert!(fresh.insert(first).expect("one fee fits the window"));
+    let second = sponsored_87(inner(&bob, 0, 1), &vaulted, admit_at + 100);
+    let err = fresh.insert(second).unwrap_err();
+    assert!(matches!(err, NodeError::Vault(_)), "{err:?}");
+    assert_eq!(fresh.len(), 1);
+}
+
+// Value creation: a block of sponsored frames from two senders, one
+// sponsor. Every unit is accounted for: the transfers reach the payee, the
+// fees leave the sponsor and burn (P-11), nothing else moves.
+#[test]
+fn a_block_of_sponsored_frames_creates_no_value() {
+    let (alice, bob) = (user(0xA5), user(0xA6));
+    let key = sponsor_key(0xA7);
+    let payer = sponsor_address(&key);
+    let n = net(&[alice.address(), bob.address(), payer]);
+    let everyone = [
+        alice.address(),
+        bob.address(),
+        payer,
+        PAYEE,
+        FEE_COLLECTOR,
+        FEE_SINK,
+    ];
+    let total = |n: &Net| everyone.iter().fold(U256::zero(), |s, a| s + balance(n, a));
+    let before = total(&n);
+
+    let frames = vec![
+        sponsored(inner(&alice, 0, 5), &key, GENEROUS),
+        sponsored(inner(&bob, 0, 7), &key, GENEROUS),
+        sponsored(inner(&alice, 1, 9), &key, GENEROUS),
+    ];
+    let owed = frames.iter().fold(U256::zero(), |s, t| s + required(t));
+    apply(&n, frames, V4).expect("all three apply");
+    assert_eq!(total(&n), before, "no value created or destroyed");
+    assert_eq!(balance(&n, &payer), U256::from(FUNDS) - owed);
+    assert_eq!(balance(&n, &FEE_SINK), owed, "the fees burn");
+    assert_eq!(balance(&n, &PAYEE), U256::from(21u64));
+}
+
+/// FIPS 204 ML-DSA-65 signature bytes: the smallest signature the consensus
+/// suite policy admits (ML-DSA-87 4,627, SLH-DSA-128s 7,856; Ed25519 refused).
+const ML_DSA_65_SIGNATURE_LEN: usize = 3_309;
+
+// Unbounded per-block work, validity side: a block full of sponsored frames,
+// each asking for two signature checks. Each check is carried by at least
+// one signature's bytes, so a block of MAX_BLOCK_BYTES asks for at most
+// MAX_BLOCK_BYTES / 3,309 checks whether or not its frames are sponsored
+// (5 MiB / 3,309 = 1,584). Measured 2026-11-22: the smallest sponsored
+// frame is 10,612 B (988 checks per 5 MiB block), the smallest plain one
+// 5,297 B (989 checks). A count bound, not a time bound: an SLH-DSA check
+// costs more than an ML-DSA one, sponsored or not. The cap is a governance
+// parameter (5 MiB at genesis); the bound scales with it.
+#[test]
+fn a_full_block_of_sponsored_frames_asks_no_more_verifications_per_byte_than_plain_frames() {
+    let user_key = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0xA8; 32]));
+    let sponsor = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0xA9; 32]));
+    // The smallest frames: an empty ML-DSA-65 inner, an ML-DSA-65 sponsor.
+    let mut plain = Transaction::new(vec![], vec![], 0);
+    plain
+        .sign_with_suite::<MlDsa65>(&user_key, &common::test_chain())
+        .unwrap();
+    let mut frame = plain.clone();
+    frame
+        .sponsor_with::<MlDsa65>(
+            &sponsor,
+            U256::from(GENEROUS),
+            V4 + 100,
+            &common::test_chain(),
+        )
+        .unwrap();
+    let (plain_len, frame_len) = (plain.to_bytes().len(), frame.to_bytes().len());
+    assert!(
+        frame_len >= 2 * ML_DSA_65_SIGNATURE_LEN,
+        "both signatures ride in the frame: {frame_len} bytes"
+    );
+
+    let cap = usize::try_from(MAX_BLOCK_BYTES).unwrap();
+    let ceiling = cap / ML_DSA_65_SIGNATURE_LEN;
+    let sponsored_checks = 2 * (cap / frame_len);
+    let plain_checks = cap / plain_len;
+    assert!(
+        sponsored_checks <= ceiling,
+        "{sponsored_checks} > {ceiling}"
+    );
+    assert!(plain_checks <= ceiling, "{plain_checks} > {ceiling}");
+    assert!(
+        sponsored_checks <= plain_checks,
+        "sponsoring raises per-block checks: {sponsored_checks} > {plain_checks}"
+    );
+    println!(
+        "block cap {cap} B: sponsored frame {frame_len} B -> {sponsored_checks} checks; \
+         plain frame {plain_len} B -> {plain_checks} checks; ceiling {ceiling}"
+    );
+}
+
+// Replay across a sunset: a v13 frame verified, and cached, while its
+// sponsor suite may still sign, then offered again after the sunset. A
+// warm-cache node that answered from the cache would accept what a
+// cold-cache node refuses: a state-root split. Both must refuse.
+#[test]
+fn a_cached_v13_frame_is_refused_once_its_sponsor_suite_sunsets() {
+    let alice = user(0xAA);
+    let (sponsor, _) = ml87(0xAB);
+    let frame = sponsored_87(inner(&alice, 0, 1), &sponsor, u64::MAX);
+    // Deprecated at 0 with the emergency window: signs before it, not after.
+    let sunset_at = MIN_EMERGENCY_WINDOW;
+    let policy = SuitePolicy::genesis(Network::Mainnet)
+        .with_default(SuiteId::MlDsa65)
+        .and_then(|p| p.with_deprecation(SuiteId::MlDsa87, 0, MIN_EMERGENCY_WINDOW, true))
+        .unwrap();
+    let refused = |r: Result<(), NodeError>| {
+        assert!(
+            matches!(&r, Err(NodeError::SignatureSuite(m)) if m.contains("MlDsa87")),
+            "{r:?}"
+        );
+    };
+
+    let cache = VerifiedCache::default();
+    cache
+        .verify(&frame, sunset_at - 1, &policy, &common::test_chain())
+        .expect("inside the window");
+    assert_eq!(cache.len(), 1, "cached");
+    refused(cache.verify(&frame, sunset_at, &policy, &common::test_chain()));
+    refused(frame.verify_at(sunset_at, &policy, &common::test_chain()));
 }
