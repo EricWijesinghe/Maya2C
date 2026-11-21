@@ -917,6 +917,7 @@ tree -i maya-neural-fee` on `custom-l1-node` and `maya2c-node` (not in either
 graph), a `Cargo.lock` walk in `fee_market_tests`, and the fee-market,
 neural-fee, trainer and node fee test runs recorded in the ADR-029 amendment.
 The trainer's weight-drift check fails, as it already did at `3735252d`.
+
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.

@@ -65,7 +65,8 @@ would touch it writes any code, not afterwards.
    for zkML where re-execution is ~10⁴× cheaper. Reconciled as a bounded,
    integer, compiled-in gain on the dark `fee-market` rule —
    [neural-gas.md](neural-gas.md). A later EIP-1559 enforcement prompt
-   (domain 7) extends it; it does not start over.
+   (domain 7) extends it; it does not start over. Moved out of the node and
+   `fee-market` 2026-11-14 (ADR-029 amendment); it now lives in `crates/neural-fee`.
 6. **Stateless execution with lattice vector commitments, taken out of order.**
    Built 2026-09-14 while the trajectory stood at Prompt 48. Its brief asked for
    lattice polynomial commitments with sub-kilobyte witnesses, and for
