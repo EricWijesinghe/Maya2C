@@ -1,14 +1,17 @@
 ---
 // "Where does this number come from?": a small focusable mark with the source
 // in a tooltip. The text is in the DOM, so screen readers and search see it too.
-interface Props { text: string; href?: string }
-const { text, href } = Astro.props;
+// `icon`: a round info glyph with a 44 px hit area instead of the word, for
+// tiles where a dotted monospace label read like debug output.
+interface Props { text: string; href?: string; icon?: boolean }
+const { text, href, icon = false } = Astro.props;
+const glyph = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8h.01";
 ---
 
-<span class="src-tip">
+<span class:list={["src-tip", { "src-tip--icon": icon }]}>
   {href
-    ? <a class="src-tip__mark" href={href} aria-label={`Source: ${text}`}>source</a>
-    : <span class="src-tip__mark" tabindex="0" aria-label={`Source: ${text}`}>source</span>}
+    ? <a class="src-tip__mark" href={href} aria-label={`Source: ${text}`}>{icon ? <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={glyph} /></svg> : "source"}</a>
+    : <span class="src-tip__mark" tabindex="0" aria-label={`Source: ${text}`}>{icon ? <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={glyph} /></svg> : "source"}</span>}
   <span class="src-tip__body" role="tooltip">{text}</span>
 </span>
 
@@ -16,6 +19,10 @@ const { text, href } = Astro.props;
   .src-tip { position: relative; display: inline-flex; }
   .src-tip__mark { display: inline-flex; align-items: center; min-height: 24px; font: 500 12px/1 var(--mono); letter-spacing: .04em; color: var(--text-2); text-decoration: none; border-bottom: 1px dotted currentColor; cursor: help; padding: 2px 0; }
   .src-tip__mark:hover, .src-tip__mark:focus-visible { color: var(--accent-text); }
+  /* Icon: a 44 px target drawn at 20 px; the negative margin keeps the height of the text row it sits in. */
+  .src-tip--icon .src-tip__mark { justify-content: center; min-width: 44px; min-height: 44px; margin: -12px -10px; padding: 0; border: 0; border-radius: var(--r-pill); color: var(--text); }
+  .src-tip--icon svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .src-tip--icon .src-tip__mark:hover, .src-tip--icon .src-tip__mark:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); }
   .src-tip__body { position: absolute; z-index: 20; bottom: calc(100% + 6px); left: 0; width: max-content; max-width: min(16rem, 70vw); padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border-strong); box-shadow: var(--shadow-md); font: 400 12px/1.4 var(--sans); color: var(--text-2); display: none; pointer-events: none; }
   /* display, not opacity: a hidden tooltip must not widen the page on a phone. */
   .src-tip:hover .src-tip__body, .src-tip:focus-within .src-tip__body { display: block; }

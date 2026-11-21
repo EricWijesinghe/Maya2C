@@ -56,12 +56,15 @@ if (path === "/guides/faq/") {
 // A card per main page (scripts/gen-og.mjs, committed); otherwise one 1200x630 card per section, in that section's motif.
 const slug = parts.join("/");
 const pageCard = ogPages.find((p) => p.slug === slug);
-const CARDS: Record<string, string> = { guides: "guides", reference: "reference", experience: "experience", support: "support" };
+const CARDS: Record<string, string> = { guides: "guides", reference: "reference", support: "support" };
 const sectionCard = parts[0] && CARDS[parts[0]] ? `${site}/og/${CARDS[parts[0]]}.png` : `${site}/og-card.png`;
 const card = pageCard ? `${site}/og/pages/${slug.replace(/\//g, "-")}.png` : sectionCard;
 const cardAlt = pageCard
   ? `${pageCard.title}: Maya2C link preview`
   : parts[0] && CARDS[parts[0]] ? `${title}: ${CARDS[parts[0]]} card for Maya2C` : "Maya2C: post-quantum layer-1 blockchain";
+// A page that sets its own og:title in frontmatter `head` (the home page) gets the same text on X-style cards.
+const ogTitle = route.entry.data.head?.find((h) => h.tag === "meta" && h.attrs?.property === "og:title")?.attrs?.content;
+const shareTitle = typeof ogTitle === "string" ? ogTitle : title;
 const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }) : null;
 ---
 
@@ -73,7 +76,7 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
 <meta property="og:image:alt" content={cardAlt} />
 <meta name="twitter:image" content={card} />
 {/* Starlight sets twitter:card but not the text, so a shared link showed no title or summary on X-style cards. */}
-<meta name="twitter:title" content={title} />
+<meta name="twitter:title" content={shareTitle} />
 {description && <meta name="twitter:description" content={description} />}
 <link rel="preload" href={interLatin} as="font" type="font/woff2" crossorigin />
 {/* The home hero fetches these at once; opening the connections early saves a round trip. Not while paused: nothing is fetched then. */}

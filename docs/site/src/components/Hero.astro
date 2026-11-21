@@ -1,143 +1,263 @@
 ---
-// The homepage hero (U3, 2026-11-13): one headline, one line, two doors. It
-// replaced the three.js committee scene and its leaning coin, which read as a
-// toy next to the developer-tool look (ADR-136).
+// The homepage hero (L03, 2026-11-14): the benefit in checkable words, one
+// line under it, two honest doors and the trust row; the emblem in a committee
+// orbit beside it. Acronyms live in the transaction graphic below, not in the
+// headline.
 //
-// Background: a CSS dot grid and two slow gradient glows (transform only, so
-// the compositor moves them and nothing repaints). A pulse runs along a grid
-// line for each REAL finalized block from the explorer's WebSocket; nothing is
-// simulated. While the testnet is paused (data/network-state.ts) the socket is
-// never opened, so the grid stays still and the chip says why.
+// Colour: the whole band is a teal-to-ink wash (the og-card treatment), with
+// the aurora glowing behind the orbit rather than in a corner. Light theme
+// gets its own warm paper wash; the emblem sits on a deep teal disc in both,
+// because the emblem artwork carries a dark smoke edge.
+//
+// Motion: once, on load, the committee seats light one by one and the ring
+// closes; the aurora eases into place (transform and opacity only). The seats
+// are an illustration, not validators, and the caption says so. While the
+// testnet is paused, a comet then replays the finished run from the stop
+// report: one 2 s lap per 24 h of it (about 15 s in all), then it fades out
+// so the seven seats rest symmetric (a resting comet read as an eighth seat).
+// It is pausable (WCAG 2.2.2), never loops, and nothing runs under reduced motion. While the testnet runs, a pulse crosses
+// the dot grid for each REAL finalized block (hero-pulses.ts, loaded only
+// then). While it is paused (data/network-state.ts) no socket opens, no canvas
+// script loads, and the chip states the finished run in bronze: a fact, not a
+// warning.
+import { Picture } from "astro:assets";
+import emblem from "../assets/emblem.png";
+import TrustStrip from "./TrustStrip.astro";
 import { testnet } from "../data/network-state";
+import { heroCtas, runLaps } from "../data/home";
+
+const { primary, secondary } = heroCtas(testnet.paused);
+const halts = testnet.last.halts;
+const ended = testnet.last.to;
+const runDays = `${parseInt(testnet.last.run, 10)}-day`;
+const laps = runLaps(testnet.last.startUnix, testnet.last.endUnix);
+const haltWord = halts === 1 ? "halt" : "halts";
+// Seven seats, the committee size the mainnet plan names; drawn, not read from a network.
+const N_SEATS = 7;
+const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
+  const a = (i / N_SEATS) * Math.PI * 2 - Math.PI / 2;
+  return { x: 200 + 150 * Math.cos(a), y: 200 + 150 * Math.sin(a), bronze: i % 2 === 1, i };
+});
 ---
 
 <section class="hero not-content" aria-labelledby="hero-title" data-paused={testnet.paused ? "" : undefined}>
   <div class="bg" aria-hidden="true">
-    <div class="glow glow-a"></div>
-    <div class="glow glow-b"></div>
     <div class="dots"></div>
-    <canvas class="pulses"></canvas>
+    {!testnet.paused && <canvas class="pulses"></canvas>}
   </div>
   <div class="inner">
-    <p class="chip">
-      <span class="dot" aria-hidden="true"></span>
-      {testnet.paused ? (
-        <span>Testnet paused since {testnet.since} · last block {testnet.last.height.toLocaleString("en-US")} · <a href={testnet.report}>why</a></span>
-      ) : (
-        <span>maya-testnet-1 · <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
-      )}
-    </p>
-    <h1 id="hero-title">Post-quantum <span class="nw">layer-1</span>, built in Rust.</h1>
-    <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by <span class="nw">DAG-BFT</span>. Open source, and every number on this page links to its source.</p>
-    <div class="cta">
-      <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
-      <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+    <div class="copy">
+      <p class="chip">
+        <span class="dot" aria-hidden="true"></span>
+        {testnet.paused ? (
+          /* Phones: two lines in a rounded box, "Pre-mainnet" then the short fact; no separator ever ends a line. */
+          <span class="chip-t"><span class="c1">Pre-mainnet</span> <span class="c2"><span class="wide">testnet run ended {ended}</span><span class="narrow">{runDays} run complete</span> · <span class="nw">{halts} {haltWord} · <a href={testnet.report}>report</a></span></span></span>
+        ) : (
+          <span>Pre-mainnet · maya-testnet-1 <b data-hero-state>connecting…</b><span data-hero-tip hidden> · block <b data-hero-height>—</b></span></span>
+        )}
+      </p>
+      <h1 id="hero-title">Two post-quantum signatures on every transaction.</h1>
+      <p class="sub"><b>A forger has to break both.</b> Maya2C is a <span class="nw">layer-1</span> blockchain, written in Rust and open source.</p>
+      <div class="cta">
+        <a class="ui-btn ui-btn--primary" href={primary.href}>{primary.label}</a>
+        <a class="ui-btn ui-btn--secondary" href={secondary.href}>{secondary.label}</a>
+      </div>
     </div>
+    <figure class="art-wrap">
+    <div class="art" aria-hidden="true">
+      <div class="aurora aurora-teal"></div>
+      <svg viewBox="0 0 400 400" class="orbit">
+        <defs>
+          <linearGradient id="hero-ring" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" class="stop-teal" />
+            <stop offset="1" class="stop-bronze" />
+          </linearGradient>
+          <radialGradient id="hero-seat" cx=".5" cy=".42" r=".6">
+            <stop offset="0" class="seat-in" />
+            <stop offset="1" class="seat-out" />
+          </radialGradient>
+        </defs>
+        <circle cx="200" cy="200" r="190" class="ring ring-far" />
+        {SEATS.map((s) => <line x1="200" y1="200" x2={s.x} y2={s.y} class="spoke" style={`--i:${s.i}`} />)}
+        <circle cx="200" cy="200" r="150" class="ring ring-main" pathLength="100" />
+        <circle cx="200" cy="200" r="104" class="ring ring-near" />
+        <circle cx="200" cy="200" r="98" class="seat-disc" />
+        {SEATS.map((s) => (
+          <g class={s.bronze ? "seat seat-bronze" : "seat"} style={`--i:${s.i}`}>
+            <circle cx={s.x} cy={s.y} r="16" class="seat-halo" />
+            <circle cx={s.x} cy={s.y} r="7" class="seat-dot" />
+          </g>
+        ))}
+        {testnet.paused && (
+          <g class="lap" style={`--laps:${laps}`} data-rp-lap>
+            <path class="trail" d="M103.6 85.1 A150 150 0 0 1 200 50" />
+            <circle cx="200" cy="50" r="13" class="blk-halo" />
+            <circle cx="200" cy="50" r="6" class="blk" />
+          </g>
+        )}
+      </svg>
+      <Picture src={emblem} formats={["avif", "webp"]} widths={[180, 360]} sizes="(min-width: 960px) 168px, 28vw" width={180} height={180} alt="" class="emblem" loading="eager" />
+    </div>
+    {testnet.paused && (
+      <figcaption class="replay">
+        <span class="rp-still">The {runDays} run, <span class="nw">{halts} {haltWord}.</span> Illustration.</span>
+        <span class="rp-on">Replay of the {runDays} run, <span class="nw">{halts} {haltWord}.</span> Illustration.</span>
+        <span class="rp-day" aria-hidden="true" data-rp-day></span>
+        <button type="button" class="rp-btn" data-rp-toggle>Pause replay</button>
+      </figcaption>
+    )}
+    </figure>
+    <div class="trust-row"><TrustStrip /></div>
   </div>
 </section>
 
 <script>
-  import { onBlocks, fmt } from "../scripts/live";
-  import { whenIdle } from "../scripts/idle";
-
+  // Paused: nothing to show, so the canvas module is never fetched.
   const hero = document.querySelector<HTMLElement>(".hero");
-  // Paused on purpose: no socket, no pulses (the chip already says so).
-  if (hero && !hero.hasAttribute("data-paused")) {
-    const canvas = hero.querySelector<HTMLCanvasElement>(".pulses")!;
-    const ctx = canvas.getContext("2d");
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const GRID = 24; // px, matches .dots background-size
-    const LIFE_MS = 1600;
-    const pulses: { y: number; x0: number; dir: number; t0: number }[] = [];
-    let running = false;
-
-    const size = () => {
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      canvas.width = canvas.clientWidth * dpr;
-      canvas.height = canvas.clientHeight * dpr;
-      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-    const frame = (now: number) => {
-      if (!ctx) return;
-      const w = canvas.clientWidth;
-      ctx.clearRect(0, 0, w, canvas.clientHeight);
-      const color = getComputedStyle(hero).getPropertyValue("--accent").trim() || "#3bc9b5";
-      for (let i = pulses.length - 1; i >= 0; i--) {
-        const p = pulses[i], k = (now - p.t0) / LIFE_MS;
-        if (k >= 1) { pulses.splice(i, 1); continue; }
-        const head = p.x0 + p.dir * k * w * 0.6, tail = head - p.dir * 96;
-        const g = ctx.createLinearGradient(tail, 0, head, 0);
-        g.addColorStop(0, "transparent");
-        g.addColorStop(1, color);
-        ctx.globalAlpha = Math.sin(Math.PI * k) * 0.9;
-        ctx.strokeStyle = g;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(tail, p.y); ctx.lineTo(head, p.y); ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-      if (pulses.length) requestAnimationFrame(frame); else running = false;
-    };
-    // One pulse per real block, along a random grid row.
-    const pulse = () => {
-      if (still || !ctx || document.hidden) return;
-      const rows = Math.max(1, Math.floor(canvas.clientHeight / GRID));
-      const dir = Math.random() < 0.5 ? 1 : -1;
-      pulses.push({ y: (1 + Math.floor(Math.random() * (rows - 1))) * GRID + 0.5, x0: dir > 0 ? 0 : canvas.clientWidth, dir, t0: performance.now() });
-      if (!running) { running = true; requestAnimationFrame(frame); }
-    };
-
-    const stateEl = hero.querySelector("[data-hero-state]")!;
-    const tipEl = hero.querySelector<HTMLElement>("[data-hero-tip]")!;
-    const heightEl = hero.querySelector("[data-hero-height]")!;
-    let seen = 0;
-    whenIdle(() => {
-      size();
-      new ResizeObserver(size).observe(canvas);
-      onBlocks((b) => {
-        if (b.height <= seen) return;
-        seen = b.height;
-        heightEl.textContent = fmt(b.height);
-        tipEl.hidden = false;
-        pulse();
-      }, (live) => {
-        stateEl.textContent = live ? "live" : "reconnecting…";
-        hero.classList.toggle("live", live);
+  if (hero && !hero.hasAttribute("data-paused")) import("./hero-pulses").then((m) => m.mountPulses(hero));
+  // The one-shot seat walk only when motion is welcome; otherwise every seat is simply lit.
+  if (hero && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    hero.classList.add("armed");
+    // The replay: one lap per 24 h of the finished run; the day counter follows the laps.
+    const lap = hero.querySelector<SVGGElement>("[data-rp-lap]");
+    const day = hero.querySelector<HTMLElement>("[data-rp-day]");
+    const btn = hero.querySelector<HTMLButtonElement>("[data-rp-toggle]");
+    let n = 1;
+    if (lap && day && btn) {
+      lap.addEventListener("animationstart", () => { day.textContent = `day ${n}`; });
+      lap.addEventListener("animationiteration", () => { day.textContent = `day ${++n}`; });
+      // Fade the comet out where it stopped (a script animation outranks the CSS fill), so no eighth seat remains.
+      lap.addEventListener("animationend", () => { day.textContent = "run complete"; btn.hidden = true; lap.animate({ opacity: [1, 0] }, { duration: 600, easing: "ease-out", fill: "forwards" }); });
+      btn.addEventListener("click", () => {
+        const paused = hero.classList.toggle("rp-paused");
+        btn.textContent = paused ? "Play replay" : "Pause replay";
       });
-    });
+    }
   }
 </script>
 
 <style>
-  /* Full-bleed band; the copy sits in the page column. */
-  .hero { position: relative; isolation: isolate; width: 100vw; margin: 0 0 0 calc(50% - 50vw); padding: var(--space-24) var(--gutter) var(--space-20); overflow: hidden; border-bottom: 1px solid var(--border); }
+  /* Full-bleed band; the copy sits in the same column as the page below. */
+  .hero {
+    --ink: var(--bg);
+    --wash-1: color-mix(in srgb, var(--accent) 30%, var(--ink));
+    --wash-2: color-mix(in srgb, var(--accent) 12%, var(--ink));
+    position: relative; isolation: isolate; width: 100vw; margin: 0 0 0 calc(50% - 50vw);
+    padding: var(--space-6) var(--sl-content-pad-x, var(--gutter)) var(--space-8);
+    overflow: hidden;
+    --hero-bg:
+      radial-gradient(90% 70% at 100% 0%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+      radial-gradient(70% 60% at 0% 100%, color-mix(in srgb, var(--bronze) 16%, transparent), transparent 70%),
+      linear-gradient(165deg, var(--wash-1) 0%, var(--wash-2) 55%, transparent 100%);
+  }
+  /* The page below keeps a perceptible tint, so the hero does not end in a flat black slab; each section adds its own band (maya.css .home-band). */
+  /* Never below a visibly teal ink, top to foot; bronze stays an accent on teal, never a wash over near-black (it read brown-black). */
+  :global(body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, var(--bg)) 0, color-mix(in srgb, var(--accent) 13%, var(--bg)) 70rem, color-mix(in srgb, var(--accent) 10%, var(--bg)) 100%); }
+  /* Light: a mint paper wash under the whole page, not neutral grey-white; sections add their own mint bands. */
+  :global([data-theme="light"] body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, var(--surface-1)) 0, color-mix(in srgb, var(--accent) 4%, var(--surface-1)) 50rem, color-mix(in srgb, var(--accent) 5%, var(--surface-1)) 100%); }
+  :global([data-theme="light"]) .hero {
+    --ink: var(--text);
+    --hero-bg:
+      radial-gradient(45% 55% at 100% 100%, color-mix(in srgb, var(--bronze) 22%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--accent) 26%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent) 10%, var(--surface-1)) 50%, var(--surface-1) 100%);
+  }
   .bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+  /* The wash fades into the page tint instead of ending on a hard edge. */
+  .bg::before { content: ""; position: absolute; inset: 0; background: var(--hero-bg); -webkit-mask-image: linear-gradient(180deg, black 80%, transparent); mask-image: linear-gradient(180deg, black 80%, transparent); }
   .dots, .pulses { position: absolute; inset: 0; width: 100%; height: 100%; }
   .dots {
-    background-image: radial-gradient(circle at 1px 1px, var(--border-strong) 1px, transparent 0);
+    background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 30%, transparent) 1px, transparent 0);
     background-size: 24px 24px;
-    -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 40%, #000 30%, transparent 75%);
-    mask-image: radial-gradient(ellipse 70% 80% at 50% 40%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 80% at 70% 40%, black 20%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 80% at 70% 40%, black 20%, transparent 75%);
   }
-  .glow { position: absolute; width: 56rem; height: 36rem; border-radius: 50%; opacity: .5; will-change: transform; }
-  .glow-a { top: -18rem; left: 50%; margin-left: -40rem; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent); animation: drift-a 26s var(--ease) infinite alternate; }
-  .glow-b { top: -10rem; left: 50%; margin-left: -12rem; background: radial-gradient(closest-side, color-mix(in srgb, var(--steel) 18%, transparent), transparent); animation: drift-b 32s var(--ease) infinite alternate; }
-  @keyframes drift-a { to { transform: translate3d(8rem, 3rem, 0); } }
-  @keyframes drift-b { to { transform: translate3d(-10rem, 4rem, 0); } }
-  :global([data-theme="light"]) .glow { opacity: .8; }
 
-  .inner { max-width: 48rem; margin: 0 auto; text-align: center; }
-  .chip { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-1); font: var(--type-mono-weight) var(--type-body-sm-size)/1.4 var(--font-mono); color: var(--text-2); }
-  .chip b { font-weight: var(--weight-medium); color: var(--text); }
-  .chip a { color: var(--accent-text); }
-  .dot { flex: none; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--warn); }
-  .hero.live .dot { background: var(--success); }
-  h1 { margin: var(--space-6) 0 var(--space-4); font: var(--type-display-1-weight) clamp(var(--type-display-1-size-phone), 5.4vw, 64px)/1.08 var(--type-display-1-font); letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
+  .inner { max-width: var(--sl-content-width, var(--content-max)); margin: 0 auto; display: grid; gap: var(--space-6); align-items: center; }
+  .copy { min-width: 0; }
+  .hero .chip { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--bronze) 50%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--bronze) 14%, var(--surface-1)); font-size: var(--type-body-size); line-height: 1.4; color: var(--text); }
+  .chip b { font-weight: var(--weight-semibold); }
+  /* Phones: a two-line rounded box, never a pill wrapped to three lines with a dangling separator. */
+  .chip-t { display: grid; }
+  .c1 { font-weight: var(--weight-semibold); }
+  .wide { display: none; }
+  @media (max-width: 639.98px) { .hero .chip { align-items: flex-start; border-radius: var(--r-md); font-size: var(--type-body-sm-size); } .hero .chip .dot { margin-top: .45em; } }
+  @media (min-width: 640px) { .chip-t { display: inline; } .c1::after { content: " ·"; } .wide { display: inline; } .narrow { display: none; } }
+  .chip a { color: var(--text); font-weight: var(--weight-semibold); text-decoration-color: var(--bronze); text-underline-offset: 3px; }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--bronze); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bronze) 25%, transparent); }
+  .hero.live .dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
+  h1 { margin: var(--space-5) 0 var(--space-4); max-width: 18ch; font: 700 clamp(2rem, 1.25rem + 3.4vw, 3.5rem)/1.1 var(--type-display-1-font); letter-spacing: -0.02em; color: var(--text); text-wrap: balance; }
   .nw { white-space: nowrap; }
-  .sub { margin: 0 auto; max-width: 40rem; font-size: var(--type-body-lg-size); line-height: var(--line-body); color: var(--text-2); text-wrap: pretty; }
-  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); margin-top: var(--space-8); }
-  .cta .ui-btn { height: 40px; padding: 0 var(--space-5); text-decoration: none; }
-  .cta .ui-btn--primary { color: var(--on-accent); }
+  /* Full text colour: --text-2 sampled 2.7-4.3:1 over the aurora (review 4); the bold beat carries the weight step instead. */
+  .hero .sub { margin: 0; max-width: 36rem; font-size: clamp(18px, 16px + .5vw, 20px); line-height: 1.5; color: var(--text); text-wrap: pretty; }
+  .sub b { font-weight: var(--weight-semibold); color: var(--text); }
+  .cta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-6); }
+  /* Full-width thumbs on a phone, side by side once there is room. */
+  .cta .ui-btn { flex: 1 1 13rem; min-height: 48px; padding: 0 var(--space-6); font-size: var(--type-body-lg-size); text-decoration: none; }
+  .cta .ui-btn--primary { color: var(--on-accent); box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--accent) 80%, transparent); }
+  /* Light: the closing band's treatment (white on the deep text teal), so the same action looks the same twice. */
+  :global([data-theme="light"]) .cta .ui-btn--primary { background: var(--accent-text); border-color: var(--accent-text); color: var(--surface-1); }
   .cta .ui-btn--secondary { color: var(--text); }
-  @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
-  @media (max-width: 640px) { .hero { padding-block: var(--space-16) var(--space-12); } .chip { text-align: left; } }
+  .trust-row { min-width: 0; }
+
+  /* The orbit: on a phone it follows the buttons, so chip, headline and the primary button fit a 360x640 screen, and its top
+     slice shows on that first screen; at least 70vw wide, sized from the column so it never pushes the page wider. */
+  .art-wrap { margin: 0; min-width: 0; display: grid; justify-items: center; gap: var(--space-3); }
+  .art { position: relative; width: min(76vw, 22rem); aspect-ratio: 1; }
+  .orbit { position: relative; width: 100%; height: 100%; overflow: visible; }
+  .aurora { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
+  /* Teal only: a bronze aurora over near-black read as a brown patch (review 4). Eased stops, so no disc edge shows on paper. */
+  .aurora-teal { inset: -30%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 50%, transparent), color-mix(in srgb, var(--accent) 20%, transparent) 45%, color-mix(in srgb, var(--accent) 6%, transparent) 75%, transparent); }
+  :global([data-theme="light"]) .aurora-teal { opacity: .5; }
+  .stop-teal { stop-color: var(--accent); }
+  .stop-bronze { stop-color: var(--bronze); }
+  .seat-in { stop-color: color-mix(in srgb, var(--accent) 34%, var(--ink)); }
+  .seat-out { stop-color: color-mix(in srgb, var(--accent) 10%, var(--ink)); }
+  .seat-disc { fill: url(#hero-seat); stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1.5; }
+  .ring { fill: none; }
+  .ring-main { stroke: url(#hero-ring); stroke-width: 3; }
+  .ring-far { stroke: color-mix(in srgb, var(--accent) 28%, transparent); stroke-width: 1; stroke-dasharray: 2 8; }
+  .ring-near { stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1; }
+  .spoke { stroke: color-mix(in srgb, var(--accent) 30%, transparent); stroke-width: 1; }
+  .seat-halo { fill: color-mix(in srgb, var(--accent) 24%, transparent); }
+  .seat-dot { fill: var(--accent); }
+  .seat-bronze .seat-halo { fill: color-mix(in srgb, var(--bronze) 28%, transparent); }
+  .seat-bronze .seat-dot { fill: var(--bronze); }
+  /* The replay comet: one lap per 24 h of the finished run, then it rests where the run stopped. */
+  .lap { opacity: 0; transform-box: view-box; transform-origin: 200px 200px; }
+  .trail { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; opacity: .45; }
+  .blk { fill: var(--accent); }
+  .blk-halo { fill: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .armed .lap { animation: lap 2s linear calc(.35s + 7 * .18s + .5s) var(--laps) both; }
+  .rp-paused .lap { animation-play-state: paused; }
+  @keyframes lap { from { opacity: 1; transform: rotate(0deg); } to { opacity: 1; transform: rotate(360deg); } }
+  .replay { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-1) var(--space-3); max-width: 26rem; margin: 0; font-size: var(--type-body-sm-size); line-height: 1.45; text-align: center; color: color-mix(in srgb, var(--text) 55%, var(--text-2)); }
+  .rp-on, .rp-day, .rp-btn { display: none; }
+  .armed .rp-on { display: inline; }
+  .armed .rp-still { display: none; }
+  .armed .rp-day:not(:empty) { display: inline-block; padding: 0 var(--space-2); border-radius: var(--r-pill); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); }
+  .armed .rp-btn:not([hidden]) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--space-4); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: var(--r-pill); background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; }
+  .rp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .art :global(.emblem) { position: absolute; top: 50%; left: 50%; width: 37.5%; height: auto; transform: translate(-50%, -50%); border-radius: 50%;
+    /* A teal frame seats the dark-edged emblem in the orbit instead of leaving it a pasted disc on pale paper. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent), 0 0 0 9px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 48px color-mix(in srgb, var(--accent) 55%, transparent); }
+
+  /* One-shot motion, armed by the script only when motion is welcome. */
+  .armed .aurora { animation: settle 1.6s var(--ease) both; }
+  .armed .seat { animation: seat-in .5s var(--ease) both; animation-delay: calc(.35s + var(--i) * .18s); }
+  .armed .spoke { animation: fade-in .5s var(--ease) both; animation-delay: calc(.35s + var(--i) * .18s); }
+  .armed .ring-main { stroke-dasharray: 100; animation: close-ring 1.4s var(--ease) .3s both; }
+  @keyframes settle { from { opacity: 0; transform: translate3d(1.5rem, -1rem, 0) scale(.9); } to { opacity: 1; transform: none; } }
+  @keyframes seat-in { from { opacity: .15; } to { opacity: 1; } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes close-ring { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+
+  @media (min-width: 640px) { .cta .ui-btn { flex: 0 0 auto; } }
+  @media (min-width: 960px) {
+    .hero { padding-block: var(--space-16) var(--space-12); }
+    .inner { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: var(--space-8); }
+    /* The art fills the second column: about 28 rem at 1440, no dead zone between copy and orbit. */
+    .art { width: min(100%, 28rem); }
+    .trust-row { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .armed .aurora, .armed .seat, .armed .spoke, .armed .ring-main, .armed .lap { animation: none; } }
 </style>
