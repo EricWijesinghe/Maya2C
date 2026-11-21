@@ -5,7 +5,11 @@
 //   - with prefers-reduced-motion, no animation is running anywhere on /, light and dark;
 //   - axe-core finds 0 WCAG 2.2 A/AA violations, light and dark;
 //   - on a 360x640 and a 390x700 phone screen the hero's primary button is
-//     fully visible without scrolling (that is also the first-screen shot);
+//     fully visible without scrolling, and so is a slice of the orbit (that is
+//     also the first-screen shot);
+//   - pixel-sampled text contrast at 360 and 1440 px on the gradient-backed
+//     text axe cannot resolve (CONTRAST_TARGETS), light and dark;
+//   - the transaction row's SVG text renders at 14 px or more at 1024 px;
 //   - screenshots at 360, 390 and 1440 px in both themes, when --shots <dir>:
 //     the first screen at scroll 0, and the full page with the sticky header
 //     put back in the flow (a full-page capture otherwise paints it mid-page).
@@ -26,6 +30,52 @@ const SHOT_WIDTHS = [360, 390, 1440];
 const THEMES = ["dark", "light"];
 // Real phone viewports (after browser chrome): the primary button must be on the first screen.
 const PHONE_SCREENS = [[360, 640], [390, 700]];
+
+const MIN_SVG_TEXT_PX = 14;
+const MIN_ART_SLICE_PX = 96;
+// Text whose background is a gradient, which axe cannot resolve (it reports those as incomplete, not passed).
+const CONTRAST_TARGETS = [".hero h1", ".hero .sub", ".hero .chip", ".replay", ".tile .val", ".tile .lbl", ".tile .note", ".home-lede", ".trust a", ".home-close .home-h2", ".home-close .close-line", ".home-close .close-link"];
+
+const lin = (c) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+// Pixel-sampled contrast: the element is shot with its text made transparent, and the text colour is
+// compared with every background pixel behind it. The 5th percentile is reported, so one stray dot of a
+// pattern does not decide it, while a gradient's weak end does.
+async function contrast(page) {
+  const sharp = (await import("sharp")).default;
+  const out = [];
+  for (const sel of CONTRAST_TARGETS) {
+    const loc = page.locator(sel);
+    const n = await loc.count();
+    for (let i = 0; i < n; i++) {
+      const el = loc.nth(i);
+      if (!(await el.isVisible())) continue;
+      const info = await el.evaluate((node) => {
+        const cs = getComputedStyle(node);
+        const c = document.createElement("canvas").getContext("2d");
+        c.fillStyle = cs.color; c.fillRect(0, 0, 1, 1);
+        const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
+        node.dataset.ctHide = "";
+        return { rgb: [r, g, b], size: parseFloat(cs.fontSize), weight: parseInt(cs.fontWeight, 10) };
+      });
+      const tag = await page.addStyleTag({ content: "[data-ct-hide], [data-ct-hide] * { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; }" });
+      const png = await el.screenshot({ animations: "disabled" });
+      await tag.evaluate((t) => t.remove());
+      await el.evaluate((node) => delete node.dataset.ctHide);
+      const { data, info: meta } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const rs = [];
+      for (let p = 0; p < meta.width * meta.height; p += 3) rs.push(ratio(info.rgb, [data[p * 3], data[p * 3 + 1], data[p * 3 + 2]]));
+      rs.sort((a, b) => a - b);
+      const large = info.size >= 24 || (info.size >= 18.66 && info.weight >= 700);
+      const need = large ? 3 : 4.5;
+      const r = rs[Math.floor(rs.length * 0.05)] ?? 0;
+      out.push({ sel, i, ratio: r, need, ok: r >= need });
+    }
+  }
+  return out;
+}
 
 const mod = process.env.PLAYWRIGHT_MODULE ? pathToFileURL(join(process.env.PLAYWRIGHT_MODULE, "index.mjs")).href : "playwright";
 const { chromium } = await import(mod);
@@ -100,6 +150,23 @@ for (const theme of THEMES) {
       for (const x of v) console.log(`  ${x.id} (${x.impact}): ${x.nodes.length} nodes, e.g. ${x.nodes[0]?.target.join(" ")}`);
       if (v.length) fails.push(`axe ${theme} ${width}px`);
     }
+    if (width === 360 || width === 1440) {
+      for (const r of await contrast(page)) {
+        console.log(`contrast ${theme} ${width}px ${r.sel}#${r.i}: ${r.ratio.toFixed(2)}:1 (need ${r.need}) ${r.ok ? "ok" : "FAIL"}`);
+        if (!r.ok) fails.push(`contrast ${r.sel} ${theme} ${width}px`);
+      }
+    }
+    // SVG text scales with its viewBox: the row graphic's step lines must stay readable where the row first appears.
+    if (width === 1024) {
+      const px = await page.evaluate(() => {
+        const svg = document.querySelector(".txp .row");
+        const l = svg?.querySelector(".l");
+        return svg && l ? parseFloat(getComputedStyle(l).fontSize) * svg.getBoundingClientRect().width / svg.viewBox.baseVal.width : 0;
+      });
+      const ok = px >= MIN_SVG_TEXT_PX;
+      console.log(`svg text ${theme} 1024px: transaction row lines render at ${px.toFixed(1)} px ${ok ? "ok" : "FAIL"}`);
+      if (!ok) fails.push(`transaction row text ${px.toFixed(1)} px at 1024 ${theme}`);
+    }
     await ctx.close();
   }
 }
@@ -112,6 +179,11 @@ for (const theme of THEMES) {
     const ok = bottom <= height;
     console.log(`first screen ${theme} ${width}x${height}: primary button bottom ${Math.round(bottom)} ${ok ? "ok" : "FAIL"}`);
     if (!ok) fails.push(`primary button below the first screen at ${width}x${height} ${theme}`);
+    // ...and a real slice of the orbit, so the first screen is not a text wall.
+    const artTop = await page.evaluate(() => document.querySelector(".hero .art")?.getBoundingClientRect().top ?? Infinity);
+    const slice = Math.round(height - artTop);
+    console.log(`first screen ${theme} ${width}x${height}: ${slice} px of the orbit visible ${slice >= MIN_ART_SLICE_PX ? "ok" : "FAIL"}`);
+    if (slice < MIN_ART_SLICE_PX) fails.push(`orbit not on the first screen at ${width}x${height} ${theme}`);
     if (shots) {
       const first = join(shots, `home-${theme}-${width}-first-screen.png`);
       await page.screenshot({ path: first, animations: "disabled" });

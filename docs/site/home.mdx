@@ -38,16 +38,17 @@ import FearsFaq from "../../components/FearsFaq.astro";
 
 <HomeTimeline />
 
-<section class="home-code" aria-labelledby="code-title">
+<section class="home-code home-band band-code" aria-labelledby="code-title">
 <h2 id="code-title" class="home-h2">Read the chain in a few lines</h2>
-<p class="home-lede">Each snippet talks to a chain on your own machine: the <a href="/guides/quickstart/">local devnet</a> serves JSON-RPC on 127.0.0.1:8545, and the gateway in front of it listens on 127.0.0.1:8080. Signing happens client-side; the gateway holds no keys. <a href="/reference/sdk/">SDK reference</a></p>
-
-<p class="home-note">No SDK is on a package registry yet, so each tab builds from source. Long lines scroll inside the code box.</p>
+<p class="home-lede">Each snippet talks to a <a href="/guides/quickstart/">local devnet</a> on your machine; signing stays client-side. <a href="/reference/sdk/">SDK reference</a></p>
 
 {/* Short lines so most fit a 360 px phone; the address is a spec test vector
-    (spec/address-vectors.json) on its own line, and scrolls inside the box
-    rather than wrapping mid-token. Each tab says "from source" in its code
-    frame's title: in the tab labels, the three no longer fit a phone's row. */}
+    (spec/address-vectors.json) on its own line. A line too long for the box
+    scrolls inside it, with a fade at the edge as the hint (maya.css), and the
+    copy button copies the whole snippet. Each frame title says "from source":
+    no SDK is on a package registry yet. */}
+
+<div class="code-panel">
 
 <Tabs>
 <TabItem label="Rust">
@@ -94,9 +95,11 @@ txid = wallet.transfer(to, 1_000)
 
 </TabItem>
 </Tabs>
+
+</div>
 </section>
 
-<section class="home-faq" aria-labelledby="faq-title">
+<section class="home-faq home-band band-faq" aria-labelledby="faq-title">
 <h2 id="faq-title" class="home-h2">Before you start</h2>
 
 <FearsFaq />
@@ -104,9 +107,16 @@ txid = wallet.transfer(to, 1_000)
 <p class="home-lede">More answers: <a href="/guides/faq/">FAQ</a>. Uptime and every halt: <a href="/health/">status</a>. Build and CI: <a href="/stats/#developers">developer transparency</a>.</p>
 </section>
 
-{/* The page ends on a closing band, not a footnote: the three doors again, compact. The legal line lives in the footer. */}
+{/* The page ends on one confident teal panel: a single primary action, the
+    other two doors as text links (they were the same three cards again). The
+    legal line lives in the footer. */}
 
-<section class="not-content home-close home-band band-close" aria-labelledby="close-title" data-home-end="">
+<section class="not-content home-close" aria-labelledby="close-title" data-home-end="">
 <h2 id="close-title" class="home-h2">Start where you are</h2>
-<HomeDoors label="Where to start, again" compact />
+<p class="close-line">See both post-quantum checks run in your browser, step by step.</p>
+<div class="close-cta">
+<a class="ui-btn close-primary" href="/learn/signatures-live/">Watch a signature check</a>
+<a class="close-link" href="/reference/sdk/">Build on it: SDKs</a>
+<a class="close-link" href="/guides/validators/">Run a node: validator guide</a>
+</div>
 </section>

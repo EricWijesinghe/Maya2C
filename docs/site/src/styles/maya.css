@@ -147,17 +147,40 @@ a {
 .home-band::before { content: ""; position: absolute; z-index: -1; top: calc(-1 * var(--space-10)); bottom: calc(-1 * var(--space-10)); left: 50%; width: 100vw; transform: translateX(-50%); background: var(--band); pointer-events: none; }
 .band-proof { --band: radial-gradient(closest-side at 22% 50%, color-mix(in srgb, var(--accent) 20%, transparent), transparent), radial-gradient(closest-side at 85% 60%, color-mix(in srgb, var(--bronze) 15%, transparent), transparent); }
 .band-txp { --band: radial-gradient(closest-side at 50% 55%, color-mix(in srgb, var(--accent) 24%, transparent), transparent); }
-.band-tl { --band: radial-gradient(closest-side at 40% 55%, color-mix(in srgb, var(--bronze) 22%, transparent), transparent); }
-.band-close { --band: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 14%, transparent) 35%, color-mix(in srgb, var(--bronze) 12%, transparent) 70%, transparent); }
-.home-close { padding-bottom: var(--space-4); }
+/* Bronze lights the timeline as a glow on teal, never as a wash over near-black (review 3: the page foot read brown-black). */
+.band-tl { --band: radial-gradient(closest-side at 40% 55%, color-mix(in srgb, var(--accent) 16%, transparent), transparent), radial-gradient(closest-side at 70% 50%, color-mix(in srgb, var(--bronze) 12%, transparent), transparent); }
+/* Code and FAQ carry colour too, so no home section drops to a flat near-black. */
+.band-code { --band: radial-gradient(closest-side at 50% 55%, color-mix(in srgb, var(--accent) 22%, transparent), transparent); }
+.band-faq { --band: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 11%, transparent) 18%, color-mix(in srgb, var(--accent) 11%, transparent) 82%, transparent); }
+/* Light: crisp mint bands on the paper wash instead of blurred halos (bronze on paper read as beige smudges); alternate sections stay paper. */
+[data-theme="light"] .band-proof, [data-theme="light"] .band-tl, [data-theme="light"] .band-faq { --band: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 9%, var(--surface-1)) var(--space-8), color-mix(in srgb, var(--accent) 9%, var(--surface-1)) calc(100% - var(--space-8)), transparent); }
+[data-theme="light"] .band-txp, [data-theme="light"] .band-code { --band: none; }
 .home-code .home-h2 { margin-bottom: var(--space-3) !important; }
-.home-code starlight-tabs { margin-top: var(--space-4); }
-.home-note { margin: 0 !important; font-size: var(--type-body-sm-size); color: var(--text-2); }
+/* The code panel: a raised, teal-lit surface with a gradient border, the tabs inside it. */
+.code-panel { margin-top: var(--space-4); padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid transparent; border-radius: var(--r-lg); background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 10%, var(--surface-2)), var(--surface-2) 60%) padding-box, linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--bronze) 70%, transparent) 55%, color-mix(in srgb, var(--accent) 30%, transparent)) border-box; box-shadow: 0 30px 60px -34px color-mix(in srgb, var(--accent) 70%, transparent); }
+[data-theme="light"] .code-panel { background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 8%, var(--surface-1)), var(--surface-1) 60%) padding-box, linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 25%, transparent)) border-box; box-shadow: 0 24px 48px -32px color-mix(in srgb, var(--accent) 55%, transparent); }
+.code-panel starlight-tabs { margin: 0; }
+@media (max-width: 479.98px) { .code-panel { margin-inline: calc(-1 * var(--space-2)); padding-inline: var(--space-2); } }
 /* Each tab label stays on one line; code reads at 13 px on a phone, 14 px from 768 px, and a long line scrolls inside its box rather than wrapping mid-token. */
 .home-code starlight-tabs [role="tab"] { white-space: nowrap; }/* The inline-code rule (.sl-markdown-content code, .875em) also shrinks block code to 11.4 px; undo it here. */
 .home-code .expressive-code pre > code { font-size: 13px !important; }
+/* Phones: the right edge fades, the hint that a long line scrolls (no instruction in the copy). */
+@media (max-width: 767.98px) { .home-code .expressive-code pre { -webkit-mask-image: linear-gradient(90deg, black calc(100% - 2rem), transparent); mask-image: linear-gradient(90deg, black calc(100% - 2rem), transparent); } }
 @media (min-width: 768px) { .home-code .expressive-code pre > code { font-size: 14px !important; } }
 .home-faq .home-lede { margin-top: var(--space-4) !important; }
+/* The close: one confident full-bleed teal panel, a single primary action and two text links; one section step to the footer. */
+/* Dark: ink on bright teal. Light: white on the deeper text teal, since ink on #0e8f80 sampled 4.1:1. */
+.home-close { --close-bg: var(--accent); --close-ink: var(--on-accent); position: relative; isolation: isolate; margin-top: var(--space-20); padding: var(--space-12) 0; color: var(--close-ink); }
+[data-theme="light"] .home-close { --close-bg: var(--accent-text); --close-ink: var(--surface-1); }
+.home-close::before { content: ""; position: absolute; z-index: -1; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: radial-gradient(60% 120% at 85% 0%, color-mix(in srgb, var(--bronze) 30%, transparent), transparent 70%), linear-gradient(120deg, var(--close-bg), color-mix(in srgb, var(--close-bg) 90%, var(--close-ink))); }
+.home-close .home-h2 { margin: 0 0 var(--space-3) !important; color: var(--close-ink); }
+.home-close .close-line { margin: 0 0 var(--space-6); max-width: 48ch; font-size: clamp(17px, 16px + .3vw, 18px); line-height: 1.5; color: var(--close-ink); }
+.close-cta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); }
+.home-close .close-primary { min-height: 48px; padding: 0 var(--space-6); border-radius: var(--r-pill); background: var(--close-ink); color: var(--close-bg); font-weight: var(--weight-semibold); text-decoration: none; }
+.home-close .close-primary:hover { background: color-mix(in srgb, var(--close-ink) 85%, var(--close-bg)); }
+.home-close .close-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--close-ink); font-weight: var(--weight-semibold); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.home-close :focus-visible { outline: 2px solid var(--close-ink); outline-offset: 3px; }
+@media (max-width: 639.98px) { .home-close .close-primary { flex: 1 1 100%; justify-content: center; } }
 
 /* Homepage: the hero starts right under the nav. Starlight's title panel is
    kept for screen readers but takes no space, and the hero's panel loses its

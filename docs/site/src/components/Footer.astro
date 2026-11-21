@@ -7,6 +7,8 @@ import Default from "@astrojs/starlight/components/Footer.astro";
 import SourceTip from "./SourceTip.astro";
 import { testnet } from "../data/network-state";
 import progress from "../../public/progress.json";
+// The same formatter as the home tile: one figure, printed one way.
+import { formatFinality } from "../data/home";
 
 const finality = (progress as { finality?: { p50_ms: number } | null }).finality;
 
@@ -22,7 +24,7 @@ const year = new Date().getFullYear();
     <p class="maya-footer__title">{testnet.paused ? "Network, last reading" : "Network, live"} <SourceTip text="Height: explorer /api/stats. Finality: the newest committed bench (one machine, not a network figure). Peers: status.maya2c.dev /api/live." href="/stats/" /></p>
     <dl>
       <div><dt>Height</dt><dd data-fp-height>{testnet.paused ? `${testnet.last.height.toLocaleString("en-US")} (${testnet.since})` : "—"}</dd></div>
-      <div><dt>Finality p50</dt><dd>{finality ? `${(finality.p50_ms / 1000).toFixed(2)} s` : "—"}</dd></div>
+      <div><dt>Finality p50</dt><dd>{finality ? formatFinality(finality.p50_ms) : "—"}</dd></div>
       {testnet.paused
         ? <div><dt>Network</dt><dd>paused</dd></div>
         : <div><dt>Peers online</dt><dd data-fp-peers>—</dd></div>}

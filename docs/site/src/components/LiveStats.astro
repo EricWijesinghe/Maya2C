@@ -10,7 +10,7 @@ import SourceTip from "./SourceTip.astro";
 import health from "../../public/health.json";
 import progress from "../../public/progress.json";
 import { testnet } from "../data/network-state";
-import { uptimePercent, runSpans, finalityScaleSeconds } from "../data/home";
+import { uptimePercent, runSpans, finalityScaleSeconds, formatFinality } from "../data/home";
 
 const p = progress as { gates?: { met: number; total: number } | null; finality?: { p50_ms: number; validators: number } | null };
 const gates = p.gates ?? null;
@@ -32,8 +32,9 @@ const scale = finality ? finalityScaleSeconds(finality.p50_ms) : 0;
 const seg = gates ? 100 / gates.total : 0;
 ---
 
-<section class="not-content proof home-band band-proof" aria-label="Proof numbers" data-proof data-paused={paused ? "" : undefined}>
-  <p class="claims">Claims link to their source.</p>
+<section class="not-content proof home-band band-proof" aria-labelledby="proof-title" data-proof data-paused={paused ? "" : undefined}>
+  <h2 id="proof-title" class="home-h2">The numbers, with their sources</h2>
+  <p class="home-lede">Claims link to their source: each tile names where its figure comes from.</p>
   <ul class="tiles">
     <li class="tile tone-teal">
       <p class="lbl">{paused ? <>Uptime, <span class="nw">{run.run}</span> run</> : "Uptime since genesis"}</p>
@@ -49,10 +50,10 @@ const seg = gates ? 100 / gates.total : 0;
       </div>
       <p class="note">
         {paused ? <span>{run.halts} {run.halts === 1 ? "halt" : "halts"}, ended <span class="nw">{run.to}</span></span> : <>block <span data-live="height">unavailable without JavaScript</span></>}
-        <SourceTip text={paused ? `status.maya2c.dev /api/status before the stop, in the stop report; ${haltRule}` : `status.maya2c.dev /api/status and the explorer /api/stats; ${haltRule}`} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} />
+        <SourceTip icon text={paused ? `status.maya2c.dev /api/status before the stop, in the stop report; ${haltRule}` : `status.maya2c.dev /api/status and the explorer /api/stats; ${haltRule}`} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} />
       </p>
       {/* The stop report's own caveat, beside the figure it qualifies: the run never needed a multi-validator quorum. */}
-      {paused && <p class="caveat"><a href={testnet.report}>One validator held {run.topStakePct}% of stake and finalized alone</a></p>}
+      {paused && <p class="caveat"><span class="info" aria-hidden="true">i</span><a href={testnet.report}>One validator held {run.topStakePct}% of stake and finalized alone</a></p>}
     </li>
 
     <li class="tile tone-bronze">
@@ -65,28 +66,28 @@ const seg = gates ? 100 / gates.total : 0;
           ))}
         </svg>
       )}
-      <p class="note">launch gates in the mainnet plan <SourceTip text="The mainnet launch plan, read into public/progress.json at build" href="/reference/mainnet-v1-plan/" /></p>
+      <p class="note">launch gates in the mainnet plan <SourceTip icon text="The mainnet launch plan, read into public/progress.json at build" href="/reference/mainnet-v1-plan/" /></p>
     </li>
 
     <li class="tile tone-steel">
       <p class="lbl">Verified subsystems</p>
       <p class="val">{verified} / {total}</p>
       <div class="gfx"><div class="meter" role="img" aria-label={`${verified} of ${total} subsystems verified`}><span style={`width:${total ? (verified / total) * 100 : 0}%`} /></div></div>
-      <p class="note">each names a test CI runs <SourceTip text="features.toml, status = verified, counted at build by scripts/gen-health.mjs" href="/health/" /></p>
+      <p class="note">each names a test CI runs <SourceTip icon text="features.toml, status = verified, counted at build by scripts/gen-health.mjs" href="/health/" /></p>
     </li>
 
     <li class="tile tone-teal">
       <p class="lbl">Finality p50</p>
-      <p class="val">{finality ? `${finality.p50_ms.toLocaleString("en-US")} ms` : "MISSING"}</p>
+      <p class="val">{finality ? formatFinality(finality.p50_ms) : "MISSING"}</p>
       {finality && (
-        <div class="scale gfx" role="img" aria-label={`Marker at ${finality.p50_ms.toLocaleString("en-US")} ms on a scale from 0 to ${scale} s`}>
+        <div class="scale gfx" role="img" aria-label={`Marker at ${formatFinality(finality.p50_ms)} on a scale from 0 to ${scale} s`}>
           <span class="track" />
           <span class="mark" style={`left:${(finality.p50_ms / (scale * 1000)) * 100}%`} />
           <span class="end end-0" aria-hidden="true">0</span>
           <span class="end end-1" aria-hidden="true">{scale} s</span>
         </div>
       )}
-      <p class="note">{finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed"} <SourceTip text={finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed"} href="/stats/#finality" /></p>
+      <p class="note">{finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed"} <SourceTip icon text={finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed"} href="/stats/#finality" /></p>
     </li>
   </ul>
 </section>
@@ -124,8 +125,7 @@ const seg = gates ? 100 / gates.total : 0;
 </script>
 
 <style>
-  .proof { margin: var(--space-10) 0 0; }
-  .claims { margin: 0 0 var(--space-3); font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+  .proof { margin: 0; }
   /* Phone: one tile per row, the value at display size with its graphic beside it. */
   .tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .tile {
@@ -142,17 +142,27 @@ const seg = gates ? 100 / gates.total : 0;
     overflow: hidden;
   }
   .tile::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 25%, transparent)); }
+  /* Light: a crisp white panel with a thin tone wash; a blurred bronze glow on paper read as a beige smudge. */
+  :global([data-theme="light"]) .tile { background: linear-gradient(170deg, color-mix(in srgb, var(--tone) 7%, var(--surface-1)), var(--surface-1) 70%); box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent), 0 12px 28px -20px color-mix(in srgb, var(--accent) 45%, transparent); }
+  :global([data-theme="light"]) .tile::before { height: 4px; background: var(--tone); }
+  /* Light: unmet gates in pale teal, not beige; bronze stays the stroke of the met ones. */
+  :global([data-theme="light"]) .arc:not(.on) { stroke: color-mix(in srgb, var(--accent) 16%, transparent); }
   .tone-bronze { --tone: var(--bronze); }
   .tone-steel { --tone: color-mix(in srgb, var(--steel) 55%, var(--accent)); }
   .tile p { margin: 0; }
-  .lbl { grid-area: lbl; font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
+  /* Labels mixed toward --text: plain --text-2 sampled 3.9:1 on the tone glow. */
+  .tile .lbl { grid-area: lbl; font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: color-mix(in srgb, var(--text) 80%, var(--text-2)); }
   /* .tile .val: outranks the content rule .sl-markdown-content :is(p, li), which greys every p. */
   .tile .val { grid-area: val; font: 700 clamp(2.25rem, 1.75rem + 2vw, 3rem)/1 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--tone); }
   .tile .val:not([data-live]) { white-space: nowrap; }
+  /* Light: teal values in the darker teal text tone, 3:1 or better for large text on the tinted tile (check-home-browser samples it). */
+  :global([data-theme="light"]) .tile.tone-teal .val { color: var(--accent-text); }
   .tile .val.stale { white-space: normal; font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
   .gfx { grid-area: gfx; min-width: 0; }
   .note { grid-area: note; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
-  .caveat { grid-area: caveat; padding-top: var(--space-2); border-top: 1px solid color-mix(in srgb, var(--bronze) 30%, transparent); font-size: var(--type-body-sm-size); line-height: 1.4; }
+  /* The run's caveat as a footnote row with an info mark; the subgrid keeps that row in every tile, so the notes align. */
+  .caveat { grid-area: caveat; display: flex; gap: var(--space-2); align-items: baseline; padding-top: var(--space-2); border-top: 1px solid color-mix(in srgb, var(--tone) 30%, transparent); font-size: var(--type-body-sm-size); line-height: 1.4; }
+  .info { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: var(--r-pill); border: 1.5px solid var(--tone); font: 700 11px/1 var(--font-sans); color: var(--text); transform: translateY(3px); }
   .caveat a { color: var(--text); text-decoration-color: var(--bronze); text-underline-offset: 3px; }
   .nw { white-space: nowrap; }
 
@@ -160,25 +170,27 @@ const seg = gates ? 100 / gates.total : 0;
   .days { display: flex; gap: 4px; height: 44px; align-items: end; }
   .day { min-width: 0; height: 100%; border-radius: 4px; background: linear-gradient(180deg, var(--tone), color-mix(in srgb, var(--tone) 45%, transparent)); box-shadow: 0 0 12px -4px var(--tone); }
   /* Verified, and uptime while live: a meter. */
-  .meter { height: 12px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--tone) 18%, transparent); overflow: hidden; }
+  /* Bars, ring and scale at the same visual weight: no thin line beside chunky graphics. */
+  .meter { height: 44px; border-radius: var(--r-md); background: color-mix(in srgb, var(--tone) 18%, transparent); overflow: hidden; }
   .meter span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 65%, transparent), var(--tone)); box-shadow: 0 0 14px var(--tone); }
   /* Gates: one arc per gate. */
   .ring { justify-self: end; width: 72px; height: 72px; transform: rotate(-90deg); }
   .arc { fill: none; stroke: color-mix(in srgb, var(--tone) 22%, transparent); stroke-width: 7; }
   .arc.on { stroke: var(--tone); }
   /* Finality: a marker on a short scale, 0 to the next whole second. */
-  .scale { position: relative; height: 38px; }
-  .track { position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: var(--r-pill); background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 15%, transparent)); }
-  .scale .mark { position: absolute; top: 1px; width: 20px; height: 20px; margin-left: -10px; border-radius: var(--r-pill); background: var(--tone); box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone) 25%, transparent), 0 0 18px var(--tone); }
-  .end { position: absolute; top: 22px; font: 500 12px/1.3 var(--font-mono, monospace); color: var(--text-2); }
+  .scale { position: relative; height: 52px; }
+  .track { position: absolute; left: 0; right: 0; top: 10px; height: 14px; border-radius: var(--r-pill); background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 15%, transparent)); }
+  .scale .mark { position: absolute; top: 1px; width: 32px; height: 32px; margin-left: -16px; border-radius: var(--r-pill); background: var(--tone); box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone) 25%, transparent), 0 0 18px var(--tone); }
+  .end { position: absolute; top: 36px; font: 500 12px/1.3 var(--font-mono, monospace); color: var(--text-2); }
   .end-0 { left: 0; }
   .end-1 { right: 0; }
 
   /* Two columns and up: stacked tiles of equal height, the graphic on its own row so every tile carries the same weight. */
   @media (min-width: 520px) {
     .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .tile { grid-template-columns: minmax(0, 1fr); grid-template-areas: "lbl" "val" "gfx" "note" "caveat"; grid-template-rows: auto auto 1fr auto auto; align-items: start; }
-    .gfx { align-self: center; }
+    /* Subgrid: label, value, graphic, note and footnote rows line up across every tile in a row. */
+    .tile { grid-row: span 5; grid-template-columns: minmax(0, 1fr); grid-template-areas: "lbl" "val" "gfx" "note" "caveat"; grid-template-rows: subgrid; row-gap: var(--space-3); align-items: start; }
+    .gfx { align-self: center; min-height: 72px; display: grid; align-content: center; }
     .ring { justify-self: start; }
   }
   @media (min-width: 960px) {

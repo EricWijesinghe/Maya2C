@@ -1,19 +1,17 @@
 ---
-// The slim trust row under the hero buttons: what a reviewer checks first.
-// Gates and proof counts are the numbers this build read into
-// public/progress.json (gates from docs/mainnet-v1-plan.md, proofs from
-// proof-ratchet.txt, which CI refuses to let fall: ADR-078 O3). A count the
-// build could not read says MISSING; it is never hidden or guessed. The audit
-// state stays visible in every network state.
+// The slim trust row under the hero buttons: what a reviewer checks first,
+// and only facts the proof tiles below do not show (gates live there).
+// Proof counts are the numbers this build read into public/progress.json
+// (from proof-ratchet.txt, which CI refuses to let fall: ADR-078 O3). A count
+// the build could not read says MISSING; it is never hidden or guessed. The
+// audit state stays visible in every network state.
 import progress from "../../public/progress.json";
 
 const repo = "https://github.com/EricWijesinghe/Maya2C";
-const p = progress as { gates?: { met: number; total: number }; proofs?: Record<string, number> | null };
+const p = progress as { proofs?: Record<string, number> | null };
 const n = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : "MISSING");
-const gates = p.gates ? `${p.gates.met} / ${p.gates.total}` : "MISSING";
 const proofs = p.proofs ?? {};
 const items = [
-  { value: gates, label: "mainnet gates met", href: "/reference/mainnet-v1-plan/" },
   { value: n(proofs.kani_harnesses), label: "Kani proofs", href: `${repo}/blob/master/proof-ratchet.txt` },
   { value: n(proofs.conformance_vectors), label: "conformance vectors", href: `${repo}/blob/master/proof-ratchet.txt` },
   { value: "Apache-2.0", label: "open source", href: repo },
@@ -28,8 +26,8 @@ const items = [
 </ul>
 
 <style>
-  /* Phone: the audit pill on its own row, then a two-column grid. From 960 px: one line. */
-  .trust { list-style: none; margin: var(--space-6) 0 0; padding: var(--space-4) 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1) var(--space-4); align-items: center; }
+  /* Phone: the audit pill on its own row, then the three facts side by side. From 960 px: one line. */
+  .trust { list-style: none; margin: var(--space-5) 0 0; padding: var(--space-3) 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--space-3); align-items: start; }
   .trust li { margin: 0; min-width: 0; }
   .audit-item { grid-column: 1 / -1; }
   .trust a { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0; font-size: var(--type-body-sm-size); color: var(--text-2); text-decoration: none; transition: color var(--dur-1) var(--ease); }

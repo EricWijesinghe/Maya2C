@@ -15,7 +15,7 @@ const faq = [
 <div class="not-content ff">
   {faq.map((f) => (
     <details class="ff-item">
-      <summary><span class="q">{f.q}</span><span class="topic">{f.topic}</span></summary>
+      <summary><span class={`topic topic-${f.topic === "Mining" ? "bronze" : f.topic === "Wallet" ? "teal" : "steel"}`}>{f.topic}</span><span class="q">{f.q}</span></summary>
       <p>{f.a} <a href={f.href}>Read more</a></p>
     </details>
   ))}
@@ -23,16 +23,19 @@ const faq = [
 
 <style>
   /* One bordered list, hairline between rows; the marker turns, nothing bounces. */
-  .ff { margin: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
+  .ff { margin: 0; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: var(--r-lg); background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 8%, var(--surface-1)), var(--surface-1) 70%); overflow: hidden; box-shadow: 0 24px 48px -34px color-mix(in srgb, var(--accent) 60%, transparent); }
   .ff-item + .ff-item { border-top: 1px solid var(--border); }
-  .ff-item summary { display: flex; align-items: center; gap: var(--space-3); min-height: 52px; padding: var(--space-3) var(--space-5); cursor: pointer; list-style: none; font: var(--weight-medium) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); transition: background-color var(--dur-1) var(--ease); }
+  /* Phone: the category chip above the question; from 481 px, beside it. */
+  .ff-item summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: 52px; padding: var(--space-3) var(--space-5); cursor: pointer; list-style: none; font: var(--weight-medium) var(--type-body-lg-size)/1.4 var(--font-sans); color: var(--text); transition: background-color var(--dur-1) var(--ease); }
   .ff-item summary::-webkit-details-marker { display: none; }
-  .q { flex: 1; min-width: 0; }
-  .topic { flex: none; font: var(--weight-medium) var(--type-label-size)/1 var(--font-sans); letter-spacing: .04em; color: var(--text-2); }
+  .q { flex: 1 1 14rem; min-width: 0; }
+  /* Category chips in the section tones: mining bronze, wallet teal, audit and post-quantum steel. */
+  .topic { --tone: var(--accent); flex: none; padding: var(--space-1) var(--space-2); border-radius: var(--r-pill); border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent); background: color-mix(in srgb, var(--tone) 18%, transparent); font: var(--weight-semibold) var(--type-label-size)/1 var(--font-sans); letter-spacing: .04em; color: var(--text); }
+  .topic-bronze { --tone: var(--bronze); }
+  .topic-steel { --tone: color-mix(in srgb, var(--steel) 55%, var(--accent)); }
   .ff-item summary::after { content: ""; flex: none; width: 8px; height: 8px; border-right: 1.5px solid var(--text-2); border-bottom: 1.5px solid var(--text-2); transform: rotate(45deg); transition: transform var(--dur-2) var(--ease); }
   .ff-item[open] summary::after { transform: rotate(225deg); }
   .ff-item summary:hover { background: var(--surface-2); }
   .ff-item p { margin: 0; padding: 0 var(--space-5) var(--space-5); max-width: 72ch; color: var(--text-2); font-size: var(--type-body-size); line-height: 1.6; }
   .ff-item a { color: var(--accent-text); }
-  @media (max-width: 480px) { .topic { display: none; } }
 </style>

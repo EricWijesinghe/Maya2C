@@ -47,6 +47,16 @@ export function runSpans(startUnix: number, endUnix: number): number[] {
   return spans;
 }
 
+/** Finality p50 as every page prints it, so one figure never reads two ways (1,545 ms, not also 1.54 s). */
+export function formatFinality(p50Ms: number): string {
+  return `${p50Ms.toLocaleString("en-US")} ms`;
+}
+
+/** Laps of the hero replay: one per 24 h of the run, the last one partial (7 d 15 h 42 min is 7.65). */
+export function runLaps(startUnix: number, endUnix: number): number {
+  return Math.round(((endUnix - startUnix) / DAY_SECONDS) * 100) / 100;
+}
+
 /** The finality scale ends at the next whole second above the figure, so the marker never sits on the edge. */
 export function finalityScaleSeconds(p50Ms: number): number {
   return Math.max(1, Math.floor(p50Ms / 1000) + 1);

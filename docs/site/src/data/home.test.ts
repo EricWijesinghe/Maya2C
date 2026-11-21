@@ -1,7 +1,7 @@
 // Run: node --test src/data/home.test.ts (from docs/site)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { heroCtas, uptimePercent, unreachableLabel, FAILS_BEFORE_UNREACHABLE, runSpans, finalityScaleSeconds } from "./home.ts";
+import { heroCtas, uptimePercent, unreachableLabel, FAILS_BEFORE_UNREACHABLE, runSpans, finalityScaleSeconds, formatFinality, runLaps } from "./home.ts";
 import { testnet } from "./network-state.ts";
 
 test("the uptime strip has one bar per 24 h of the run, the last one partial", () => {
@@ -46,4 +46,14 @@ test("an unreachable tile keeps its last value and dates it", () => {
     "unreachable, last known 1,234 2026-11-14 09:05 UTC",
   );
   assert.equal(FAILS_BEFORE_UNREACHABLE, 2);
+});
+
+test("finality prints one way everywhere", () => {
+  assert.equal(formatFinality(1545), "1,545 ms");
+  assert.equal(formatFinality(40), "40 ms");
+});
+
+test("the hero replay laps once per 24 h of the run, the last lap partial", () => {
+  assert.equal(runLaps(testnet.last.startUnix, testnet.last.endUnix), 7.65);
+  assert.equal(runLaps(0, 86_400 * 2), 2);
 });
