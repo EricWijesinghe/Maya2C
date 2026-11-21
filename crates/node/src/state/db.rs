@@ -282,7 +282,12 @@ pub(crate) fn nullifier_key_bytes(nullifier: &[u8; HASH_LEN]) -> Vec<u8> {
 /// different pair that hashes the same — the concatenation `ab‖c` and `a‖bc`
 /// are one string otherwise, and two different states would share a root.
 pub(crate) fn record_leaf(entry: (&Vec<u8>, &Vec<u8>)) -> [u8; HASH_LEN] {
-    let (key, value) = entry;
+    record_leaf_bytes(entry.0, entry.1)
+}
+
+/// [`record_leaf`] over borrowed bytes, for leaves hashed from a database
+/// iterator or a write batch without copying the pair first.
+pub(crate) fn record_leaf_bytes(key: &[u8], value: &[u8]) -> [u8; HASH_LEN] {
     let mut hasher = blake3::Hasher::new_derive_key("maya aux record leaf v1");
     hasher.update(&(key.len() as u64).to_le_bytes());
     hasher.update(key);
@@ -321,6 +326,8 @@ pub struct StateDB {
     pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
     /// What the sparse root cache did since open (ADR-062a).
     root_cache: root_cache::Counters,
+    /// The contracts layer's leaves between blocks (`state::contracts_root`).
+    pub(crate) contracts_root: crate::state::contracts_root::ContractsRoot,
 }
 
 impl StateDB {
@@ -384,6 +391,7 @@ impl StateDB {
             chain_tag: OnceLock::new(),
             mining_dag: OnceLock::new(),
             root_cache: root_cache::Counters::default(),
+            contracts_root: crate::state::contracts_root::ContractsRoot::default(),
         })
     }
 
@@ -503,6 +511,35 @@ impl StateDB {
             root_cache::stage_invalidate(&mut batch);
         }
         self.db.write(batch).map_err(storage_err)
+    }
+
+    /// Folds `f` over every pair under `prefix`, in key order, copying none
+    /// of them: [`StateDB::scan_prefix`] without its O(bytes) allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn fold_prefix<T>(
+        &self,
+        prefix: &[u8],
+        init: T,
+        mut f: impl FnMut(T, &[u8], &[u8]) -> T,
+    ) -> Result<T> {
+        let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
+        let mut acc = init;
+        for item in self.db.iterator(mode) {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            acc = f(acc, &key, &value);
+        }
+        Ok(acc)
+    }
+
+    /// The committed write generation (`state::preview`).
+    pub(crate) fn write_generation(&self) -> u64 {
+        self.preview.generation()
     }
 
     /// Every key/value pair under `prefix`, in key order.
@@ -673,7 +710,7 @@ impl StateDB {
         // here. A prover and a verifier that each kept their own copy of five
         // string literals would drift, and the drift would look like tampering.
         let mut root = accounts_root;
-        for digest in self.state_layers(overlay)? {
+        for digest in self.state_layers_from(overlay, source)? {
             root = digest.layer.fold(&root, &digest.root);
         }
 
@@ -797,9 +834,7 @@ impl StateDB {
         let plan = root_cache::rebuild(&self.db, generation, &self.root_cache)?;
         let mut batch = WriteBatch::default();
         root_cache::stage(&mut batch, &plan);
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.land(batch, writing, generation)?;
         Ok(false)
     }
 
@@ -809,8 +844,16 @@ impl StateDB {
         self.root_cache.stats()
     }
 
+    /// What the contracts root cache has done since this database opened
+    /// (`state::contracts_root`).
+    #[cfg(test)]
+    pub(crate) fn contracts_root_stats(&self) -> crate::state::contracts_root::ContractsRootStats {
+        self.contracts_root.stats()
+    }
+
     /// Compares the root a block declares with the one staging computed. When
-    /// they differ and the accounts root came from the cache, the full rebuild
+    /// they differ and the accounts root (the sparse cache) or the contracts
+    /// layer (`state::contracts_root`) came from a cache, the full rebuild
     /// decides: if it matches the declaration, the cache was wrong, so it is
     /// withdrawn and the block accepted on the rebuild's root. A wrong cache
     /// then costs one rebuild, not a validator that refuses every honest block
@@ -834,22 +877,27 @@ impl StateDB {
         if computed == *declared {
             return Ok(computed);
         }
-        if overlay
+        // The contracts layer of every non-full root came from its cache
+        // (`state::contracts_root`), so the full rebuild is asked whenever the
+        // roots differ, not only after a walked plan: one more full root to
+        // refuse a block, which is what every block cost before either cache.
+        let walked = overlay
             .root_plan
             .as_ref()
-            .is_some_and(root_cache::Plan::walked)
-        {
-            let (full, _) = self.root_from(overlay, RootSource::Full)?;
-            if full == *declared {
+            .is_some_and(root_cache::Plan::walked);
+        let (full, _) = self.root_from(overlay, RootSource::Full)?;
+        if full == *declared {
+            let contracts = self.contracts_cache_refuted(overlay)?;
+            if walked {
                 self.root_cache
                     .note_repair("gave a root that the full rebuild and the block refute");
                 let mut batch = WriteBatch::default();
                 root_cache::stage_invalidate(&mut batch);
-                let writing = self.preview.begin_write();
-                let written = self.db.write(batch).map_err(storage_err);
-                drop(writing);
-                written?;
+                let (writing, generation) = self.preview.begin_write_from();
+                self.land(batch, writing, generation)?;
                 overlay.root_plan = None;
+            }
+            if walked || contracts {
                 return Ok(full);
             }
         }
@@ -923,6 +971,16 @@ impl StateDB {
     /// before trading existed — and it is why a proof carries a *list* rather
     /// than a fixed five digests.
     pub(crate) fn state_layers(&self, overlay: &Overlay) -> Result<Vec<LayerDigest>> {
+        self.state_layers_from(overlay, RootSource::Cache)
+    }
+
+    /// [`StateDB::state_layers`], with the contracts layer from `source`
+    /// (`state::contracts_root`): every source gives the same digests.
+    pub(crate) fn state_layers_from(
+        &self,
+        overlay: &Overlay,
+        source: RootSource,
+    ) -> Result<Vec<LayerDigest>> {
         let mut layers = Vec::new();
 
         // Escrowed value that no commitment covers is value a light client
@@ -981,7 +1039,7 @@ impl StateDB {
         // Last, after every layer a pre-existing chain could hold, so adding
         // them moved no root that had already been committed. See
         // `state::commitments` for why they were missing.
-        layers.extend(self.contracts_layer(overlay)?);
+        layers.extend(self.contracts_layer(overlay, source)?);
         layers.extend(self.nullifiers_layer(overlay)?);
 
         Ok(layers)
@@ -1294,9 +1352,7 @@ impl StateDB {
         let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
         self.stage_commit(&mut batch, &overlay, generation)?;
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.land(batch, writing, generation)?;
 
         Ok(new_root)
     }
@@ -1711,9 +1767,7 @@ impl StateDB {
             balance_changes::encode(&moved),
         );
         extra(&mut batch);
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written
+        self.land(batch, writing, generation)
     }
 
     /// `(reused, recomputed)`: checked applies that took the block's kept
@@ -1742,8 +1796,29 @@ impl StateDB {
         if root_cache::touches_accounts(&batch) {
             root_cache::stage_invalidate(&mut batch);
         }
-        let writing = self.preview.begin_write();
+        let (writing, generation) = self.preview.begin_write_from();
+        self.land(batch, writing, generation)
+    }
+
+    /// Writes `batch`, a committed write under `writing` (taken from
+    /// `generation`), and moves the contracts root cache past it by the
+    /// batch's own contract writes (`state::contracts_root`), before the
+    /// guard's second bump lets the next write start.
+    fn land(
+        &self,
+        batch: WriteBatch,
+        writing: crate::state::preview::WriteGuard<'_>,
+        generation: u64,
+    ) -> Result<()> {
+        let changes = crate::state::contracts_root::changes(&batch);
         let written = self.db.write(batch).map_err(storage_err);
+        if written.is_ok() {
+            self.contracts_root.follow(
+                generation,
+                crate::state::preview::landed(generation),
+                changes,
+            );
+        }
         drop(writing);
         written
     }
@@ -1844,9 +1919,7 @@ impl StateDB {
         batch.delete(&key);
         batch.delete(balance_changes::balance_changes_key(block_id));
         extra(&mut batch);
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.land(batch, writing, generation)?;
 
         Ok(())
     }
@@ -1900,9 +1973,7 @@ impl StateDB {
         let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
         self.stage_commit(&mut batch, &overlay, generation)?;
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.land(batch, writing, generation)?;
 
         Ok(new_root)
     }
