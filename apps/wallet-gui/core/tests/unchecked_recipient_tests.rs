@@ -50,3 +50,23 @@ fn checksummed_forms_are_not_flagged_and_sign_the_same_bytes() {
         assert_eq!(shown.signing_hash, plain.signing_hash, "{text}");
     }
 }
+
+#[test]
+fn a_parsed_request_keeps_the_checksum_it_arrived_with() {
+    use maya_wallet_core::payment::PaymentRequest;
+    let network = maya_wallet_core::networks::address_network(&hex::encode(CHAIN.as_bytes()));
+    // What a scanned QR or a pasted URI hands the Send form.
+    for text in [
+        format!(
+            "maya:{}?amount=5",
+            maya_address::encode(network, &RECIPIENT)
+        ),
+        format!("maya:{}", checksummed(&RECIPIENT)),
+    ] {
+        let request = PaymentRequest::parse(&text).unwrap();
+        assert!(!shown_for(&request.recipient).recipient_unchecked, "{text}");
+    }
+    // A one-case hex request never had a checksum, so the warning stays true.
+    let request = PaymentRequest::parse(&format!("maya:{}", hex::encode(RECIPIENT))).unwrap();
+    assert!(shown_for(&request.recipient).recipient_unchecked);
+}

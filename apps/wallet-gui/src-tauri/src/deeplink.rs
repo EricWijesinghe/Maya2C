@@ -11,6 +11,7 @@ use crate::sign_checks::{Opened, hex32};
 use maya_address::{Network, decode_any};
 use maya_wallet_core::amount::parse_display;
 use maya_wallet_core::chat_pay::PaidRequests;
+use maya_wallet_core::confirm::checksummed;
 use maya_wallet_core::payment::{ChatRequest, PaymentRequest};
 use primitive_types::U256;
 use tauri::{AppHandle, Manager, Runtime, State};
@@ -196,7 +197,8 @@ fn already_paid<R: Runtime>(app: &AppHandle<R>, chat: &ChatRequest) -> bool {
     paid_list(app).map_or(true, |paid| paid.check(&id).is_err())
 }
 
-/// Checks a bech32m address and returns its network and 32-byte id as hex.
+/// Checks a bech32m address and returns its network and 32-byte id as
+/// checksummed hex, so the confirm screen does not call it unchecked.
 ///
 /// Any known network parses here; [`take_pending_pay`] refuses one that is
 /// not the connected chain's, before the Send form opens.
@@ -209,7 +211,7 @@ fn recipient_hex(text: &str) -> Result<(Network, String), RouteError> {
         return Err(RouteError::Address);
     }
     let (network, id) = decode_any(text).map_err(|_| RouteError::Address)?;
-    Ok((network, hex::encode(id)))
+    Ok((network, checksummed(&id)))
 }
 
 /// A whole-coin decimal such as `1.5`, exact, in base units. Zero is refused.
@@ -366,7 +368,7 @@ mod tests {
         assert_eq!(
             parse(&url),
             Ok(Route::Pay {
-                recipient: hex::encode([7u8; 32]),
+                recipient: checksummed(&[7u8; 32]),
                 network: Network::Mainnet,
                 amount: Some(expected),
                 chat: None,
@@ -380,12 +382,25 @@ mod tests {
         assert_eq!(
             parse(&url),
             Ok(Route::Pay {
-                recipient: hex::encode([7u8; 32]),
+                recipient: checksummed(&[7u8; 32]),
                 network: Network::Testnet,
                 amount: None,
                 chat: None,
             })
         );
+    }
+
+    #[test]
+    fn a_pay_link_recipient_carries_its_checksum() {
+        let url = pay(&maya_address::encode(Network::Testnet, &[0xAB; 32]));
+        let Ok(Route::Pay { recipient, .. }) = parse(&url) else {
+            panic!("refused: {url}");
+        };
+        assert!(
+            maya_wallet_core::payment::has_checksum(&recipient),
+            "{recipient}"
+        );
+        assert_eq!(hex32(&recipient), Some([0xAB; 32]));
     }
 
     /// The link `maya-chat`'s `pay_link::pay_uri` writes.

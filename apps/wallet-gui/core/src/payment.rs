@@ -57,7 +57,8 @@ fn claimed_text(value: &str, max: usize, what: &str) -> Result<String> {
 /// `maya:<bech32m>?amount=<base units>&label=&message=&exp=<unix s>&id=`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PaymentRequest {
-    /// Hex-encoded recipient address.
+    /// Hex-encoded recipient address: checksummed (mixed case) when the
+    /// input carried a checksum, lowercase when it did not.
     pub recipient: String,
     /// The address prefix the request was written for (`maya`, `tmaya`,
     /// `dmaya`); `None` for a hex address, which names no network.
@@ -126,7 +127,14 @@ impl PaymentRequest {
             None => (body, None),
         };
 
-        let recipient = normalize_address(address)?;
+        let normalized = normalize_address(address)?;
+        // Keep the checksum the sender gave (Bech32m or mixed case), so the
+        // confirm screen warns only about a recipient that never had one.
+        let recipient = if has_checksum(address) {
+            checksummed(&decode_address(&normalized)?)
+        } else {
+            normalized
+        };
         let compact: String = address.split_whitespace().collect();
         let network = maya_address::decode_any(&compact)
             .ok()
