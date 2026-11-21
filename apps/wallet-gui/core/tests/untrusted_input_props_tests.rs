@@ -37,9 +37,33 @@ impl Rng {
 
 /// Fragments that steer random strings into the URI grammar's edges.
 const URI_PARTS: &[&str] = &[
-    "maya:", "?", "&", "=", "amount", "label", "message", "exp", "id", "%", "%2", "%zz", "%00",
-    "%FF", "%C3%A9", "0", "1", "18446744073709551616", "-1", "1e9", " ", "\u{202e}", "\u{0}",
-    "maya1", "tmaya1", "0x", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "maya:",
+    "?",
+    "&",
+    "=",
+    "amount",
+    "label",
+    "message",
+    "exp",
+    "id",
+    "%",
+    "%2",
+    "%zz",
+    "%00",
+    "%FF",
+    "%C3%A9",
+    "0",
+    "1",
+    "18446744073709551616",
+    "-1",
+    "1e9",
+    " ",
+    "\u{202e}",
+    "\u{0}",
+    "maya1",
+    "tmaya1",
+    "0x",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "115792089237316195423570985008687907853269984665640564039457584007913129639936",
 ];
 
@@ -74,7 +98,10 @@ fn payment_uri_duplicate_key_is_always_refused() {
     let address = "ab".repeat(32);
     for key in ["amount", "label", "message", "exp", "id", "unknown"] {
         let uri = format!("maya:{address}?{key}=1&{key}=2");
-        assert!(PaymentRequest::parse(&uri).is_err(), "duplicate {key} accepted");
+        assert!(
+            PaymentRequest::parse(&uri).is_err(),
+            "duplicate {key} accepted"
+        );
     }
 }
 
@@ -92,8 +119,22 @@ fn payment_uri_amount_round_trips_any_u64() {
 #[test]
 fn derivation_path_parse_never_panics_and_display_round_trips() {
     const PARTS: &[&str] = &[
-        "m", "/", "'", "h", "0", "1", "44", "2147483647", "2147483648", "4294967295",
-        "4294967296", "-", "+1", " ", "//", "x",
+        "m",
+        "/",
+        "'",
+        "h",
+        "0",
+        "1",
+        "44",
+        "2147483647",
+        "2147483648",
+        "4294967295",
+        "4294967296",
+        "-",
+        "+1",
+        " ",
+        "//",
+        "x",
     ];
     let mut rng = Rng(0xD1B5_4A32_D192_ED03);
     for _ in 0..CASES {

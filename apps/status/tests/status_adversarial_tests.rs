@@ -107,7 +107,11 @@ fn a_truncated_listing_is_missing() {
     let set = StakeSet {
         epoch: 3,
         committee: 4,
-        validators: vec![seat(true, "10", "0"), seat(true, "10", "0"), seat(true, "10", "0")],
+        validators: vec![
+            seat(true, "10", "0"),
+            seat(true, "10", "0"),
+            seat(true, "10", "0"),
+        ],
     };
     assert_eq!(measure(&set), None);
 }

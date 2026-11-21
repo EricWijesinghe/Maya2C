@@ -36,7 +36,10 @@ fn a_mixed_case_bech32m_address_is_refused() {
     let text = encode_address(Network::Mainnet, &ID);
     let sep = text.rfind('1').unwrap();
     let mut mixed = text.clone();
-    mixed.replace_range(sep + 1..sep + 2, &text[sep + 1..sep + 2].to_ascii_uppercase());
+    mixed.replace_range(
+        sep + 1..sep + 2,
+        &text[sep + 1..sep + 2].to_ascii_uppercase(),
+    );
     assert_ne!(mixed, text);
     assert!(invalid(to_hex(&mixed)));
 }
