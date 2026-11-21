@@ -12,9 +12,12 @@
 //! applies it (`preview_root`, then `apply_block_journaled`, invariant 24), and
 //! compares every block id and state root with committed golden values. The
 //! fresh apply a catching-up node runs disagrees at a mining epoch boundary;
-//! an ignored test below pins that finding until the node is fixed. Each header carries a sealed `(epoch, round)`
-//! nonce with skipped anchor slots, as DAG-BFT blocks do, so the per-block
-//! participation count and both epoch payouts run on real input.
+//! an ignored test below pins that finding until the node is fixed
+//! (BACKLOG.md F3), so the fresh-apply path is NOT covered yet. Each header
+//! carries a sealed `(epoch, round)` nonce with skipped anchor slots, as
+//! DAG-BFT blocks do, so the per-block participation count and both epoch
+//! payouts run. The heights skip from 5 to 485 and 1444 on purpose (see
+//! [`scenario`]), so that participation is synthetic.
 //!
 //! What it does not cover: the context is `BlockContext::at_height`, not
 //! `Chain::context_at` (the same value for this genesis, which schedules no
@@ -113,7 +116,8 @@ fn validator(i: u8) -> keys::SigningKey {
 }
 
 /// A DAG-BFT genesis with stake-weighted staking, the fee market and mining
-/// rewards: the shape mainnet launches with (ADR-029, ADR-040, ADR-044).
+/// rewards, the subsystems mainnet launches with (ADR-029, ADR-040, ADR-044),
+/// at test sizes (4 validators, 4-block epochs), not the mainnet genesis.
 fn genesis() -> GenesisConfig {
     let operator = hex::encode(alice().address());
     let mut allocations: Vec<Allocation> = [alice(), bob(), carol()]
@@ -269,6 +273,12 @@ const WRITER_WAT: &str = r#"(module
 
 /// The transactions of each block, by height. Empty blocks close the vote
 /// and execute the proposal; their heights come from the proposal record.
+///
+/// The heights are not contiguous on purpose: 1-5, then 485 and 1444, with
+/// nothing sealed between. No real chain reaches this state, and the epoch
+/// boundaries from 8 to 1440 never run, so epoch 1's participation (3 of
+/// ~1,440 slots authored, hence the jail) is synthetic. That is enough for
+/// determinism, which only needs the same input to give the same root.
 fn scenario(chain: &ChainTag) -> Vec<(u64, Vec<Transaction>)> {
     let (a, b, c) = (alice(), bob(), carol());
     let asset = derive_asset_id(&a.address(), 1, &GOLD);
@@ -575,20 +585,41 @@ fn committed_blocks() -> Vec<(u64, Block)> {
 /// anchors the next epoch to `header.id()`, which covers `state_root`, so the
 /// derive path stages it with the zero-root header's id and a fresh apply
 /// with the sealed header's id. The two roots differ (found 2026-11-14 by
-/// this file; a node change, reported for the re-freeze, not fixed here).
+/// this file; a node change, reported for the re-freeze, not fixed here:
+/// BACKLOG.md F3).
+///
+/// Every block is applied fresh on a new database, with no `preview_root`
+/// call, and each root is compared with `expected.txt`, so once the anchor is
+/// fixed and this is un-ignored, CI checks the fresh path on every OS too.
 #[test]
-#[ignore = "fails until the mining anchor stops depending on the header's own state root"]
+#[ignore = "fails until the mining anchor stops depending on the header's own state root (BACKLOG F3)"]
 fn a_fresh_apply_reproduces_the_derived_root_at_a_mining_boundary() {
     let (_dir, db, _, _) = seeded();
-    for (height, block) in committed_blocks() {
-        if height < EPOCH_BLOCKS {
-            derive(&db, &block, height);
-            continue;
-        }
-        db.apply_block_journaled(&block, &block.header.id(), BlockContext::at_height(height))
+    let expected = read("expected.txt");
+    let roots: Vec<&str> = expected
+        .lines()
+        .skip(1)
+        .map(|l| l.split_whitespace().nth(2).unwrap())
+        .collect();
+    let blocks = committed_blocks();
+    assert_eq!(blocks.len(), roots.len(), "a block per expected line");
+    for ((height, block), golden) in blocks.iter().zip(&roots) {
+        let root = db
+            .apply_block_journaled(block, &block.header.id(), BlockContext::at_height(*height))
             .unwrap_or_else(|e| panic!("height {height}, fresh apply: {e}"));
-        return;
+        assert_eq!(hex::encode(root), *golden, "height {height}: fresh root");
     }
+    assert_committed_root(&db, roots.last().unwrap());
+}
+
+/// The root re-read from the committed database, not the one the last apply
+/// returned (that is the cached preview), equals the last golden root.
+fn assert_committed_root(db: &StateDB, golden: &str) {
+    assert_eq!(
+        hex::encode(db.state_root().unwrap()),
+        golden,
+        "committed state root after the last block"
+    );
 }
 
 /// Rebuilds the chain in code: ML-DSA and SLH-DSA signing here are
@@ -689,6 +720,16 @@ fn the_committed_chain_reproduces_its_golden_ids_and_roots() {
     }
     assert!(blocks.next().is_none(), "more blocks than expected roots");
     assert_eq!(applied, 7, "five scenario blocks plus close and execute");
+    let last = read("expected.txt");
+    assert_committed_root(
+        &db,
+        last.lines()
+            .last()
+            .unwrap()
+            .split_whitespace()
+            .nth(2)
+            .unwrap(),
+    );
     assert_eq!(
         db.parameters()
             .unwrap()

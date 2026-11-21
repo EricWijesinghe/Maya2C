@@ -27,6 +27,27 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   reads "Propose changing 0 parameters…". The no-wildcard match does not catch a
   new field inside an existing variant. Outside-node option: render the upgrade
   section in the wallet/CLI from the decoded payload until `describe.rs` can change.
+- **F3 — a fresh apply of a mining epoch-boundary block computes another root
+  (consensus; blocks genesis; found 2026-11-14 by PR #538; issue #642).**
+  `settle_mining` (`crates/node/src/state/mining_exec.rs:215`) sets the next
+  epoch's `anchor: header.id()`, and the id covers `state_root`. A deriving
+  validator stages the block with `state_root: [0; 32]`
+  (`Chain::candidate_block_sealed`, `crates/node/src/consensus/chain.rs:900`) and its apply
+  reuses that preview (`crates/node/src/state/preview.rs`, keyed with the root
+  zeroed), so it commits the zero-root header's id. A node that applies the
+  sealed block fresh (a syncing full node, `maya2c replay`, a stale or missed
+  preview) hashes the real header: `StateRootMismatch` at every mining epoch
+  boundary (height 4 in `crates/node/tests/golden_root_tests.rs`), so a syncing
+  node halts at the first one. Pinned by the ignored
+  `a_fresh_apply_reproduces_the_derived_root_at_a_mining_boundary`. Fix for
+  the re-freeze (refreeze-bundle-2): anchor to `prev_hash` or to the id with
+  `state_root` zeroed, plus spec change, conformance vectors, ADR-044
+  amendment; then re-bless the goldens and un-ignore that test.
+  **Decision for Eric** (consensus change).
+  - Owner action, same PR: add `golden roots (windows-latest)` to the master
+    ruleset's required checks and to `merge-queue.sh`'s REQ pattern before the
+    re-freeze PRs (#500, #506, #520, #522, refreeze-bundle-2) land, since each
+    of them moves the roots and could re-bless on Linux with Windows red.
 
 ## P5 — ADR-082 follow-ups (genesis upgrade levers, 2026-11-07)
 

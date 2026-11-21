@@ -379,24 +379,25 @@ jobs:
   # only, so a platform-dependent root would surface first as a chain split.
   # crates/node/tests/golden_root_tests.rs replays committed blocks against
   # committed roots; Linux runs it inside the `test` job above (`-p
-  # custom-l1-node`), and this matrix runs the same test, against the same
-  # files, on Windows and on Apple silicon (aarch64: another CPU, libc and
-  # C++ toolchain under RocksDB). Ubuntu is not repeated here because CI
-  # runners are the bottleneck.
+  # custom-l1-node`), and this job runs the same test, against the same
+  # files, on Windows. macos-14 was dropped (2026-11-21): on the only run it
+  # had (43490569203) it never got a runner and was cancelled with no steps,
+  # and the brief asked for macOS only "if cheap". Ubuntu is not repeated
+  # here because CI runners are the bottleneck.
   # ---------------------------------------------------------------------
   golden-roots:
     name: golden roots (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.state == 'true'
     runs-on: ${{ matrix.os }}
-    # 150, as for `test`: a cold Windows or macOS build of the node and its
-    # RocksDB tree has no measured time yet, and a job cancelled at its limit
-    # keeps no log. NOT a required check yet (DECISIONS.md 2026-11-14).
+    # 150, as for `test`: the one cold Windows run took 24 min (run
+    # 43490569203), and a job cancelled at its limit keeps no log. NOT a
+    # required check yet (DECISIONS.md 2026-11-14; owner action in BACKLOG.md).
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
