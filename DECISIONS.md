@@ -949,6 +949,12 @@ Raised with Eric, not decided here: one gas-filling call per block crowds out ot
 - **R-10: text fixed to the code.** GAS-2 now bounds a block at `vm.max_block_gas` plaintext plus `sealed_gas_budget` revealed (1.25 × the cap); the bound comment states 3.25 × for a producer.
 - **GAS-5 with #575.** #549 now carries #575; tags 17 and 18 are validity rules, so a passed gas-cap change binds only after `MIN_UPGRADE_LEAD_BLOCKS`, range-checked again at promotion. Pinned by a governance test that votes `vm.max_block_gas` down through the lead.
 
+## 2026-11-22 — ADR-142 amendment 7: x86-64-v2 code generation, and one node's engine faults are not failed calls (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+- **ISA level measured, then pinned.** Float rounding runs at 0.52–0.67 ns per unit of gas under every Cranelift configuration (host-inferred, bare baseline, x86-64-v2), four to five times the `i64.div_u` loop the block-time derivation cited; the worst, 0.674 on the baseline, is about 211 ms at GAS-2's 1.25 × bound, inside 1 s, so nothing is repriced. The engine compiles at x86-64-v2 on x86-64 (popcnt 3x faster than the baseline, no float libcalls into each binary's C runtime) and refuses a CPU without it at start-up. Gas unchanged. One `unsafe` call (`cranelift_flag_enable`) with a SAFETY comment; needs a reviewer.
+- **Local engine faults by type, not "not a trap".** An `io::Error` or wasmtime `OutOfMemory` becomes `VmError::LocalFault`, mapped to `NodeError::Storage`, so selection stops and apply refuses instead of recording a failed call (#647) or leaving the transaction out on one node (GAS-9). The review's "anything not a `Trap`" rule was rejected: a declared table fails instantiation with a plain error on every node, and would have stopped block building everywhere.
+- **Recorded, not changed:** every module with a table fails every call (the limiter refuses tables); alike on every node, a contract-ABI question.
+
 ## 2026-11-22 — ADR-142 amendment 6: deployment scans counted, block selection is consensus (GAS-9), the stack boundary belongs to the binary (Eric 2026-11-17 pre-approval, re-freeze bundle)
 
 - **Deployments are scanned only when the scan counts.** Refused on `deploy_fuel(len)` before the scan; any refusal after the scan counts `deploy_fuel(len)`, as a cold call does; block selection bounds a deployment by what the block has left, not by a scan. Four red-then-green tests.

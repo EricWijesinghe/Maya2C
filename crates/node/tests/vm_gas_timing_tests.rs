@@ -407,9 +407,27 @@ fn blocks_of_cold_compiles_validate_inside_the_block_time() {
 #[test]
 #[ignore = "timing: run with --ignored --nocapture and record the figures in ADR-142"]
 fn a_block_of_guest_compute_validates_inside_the_block_time() {
+    let body = "(drop (i64.div_u (i64.const -1) (i64.extend_i32_u (i32.add (local.get $i) (i32.const 3)))))";
+    guest_compute_block("guest compute (i64.div_u)", body);
+}
+
+/// Review of ADR-142 amendment 6: float rounding and popcnt, the operators
+/// whose lowering depends on the ISA level (`maya_vm::config::ISA_FLAGS`).
+/// Each result goes back through memory, so the compiler cannot drop it.
+#[test]
+#[ignore = "timing: run with --ignored --nocapture and record the figures in ADR-142"]
+fn a_block_of_float_rounding_and_popcnt_validates_inside_the_block_time() {
+    let nearest = "(f64.store (i32.const 8) (f64.nearest (f64.add (f64.load (i32.const 8)) (f64.const 1.25))))";
+    guest_compute_block("guest compute (f64.nearest)", nearest);
+    let popcnt = "(i64.store (i32.const 8) (i64.add (i64.load (i32.const 8)) \
+                  (i64.popcnt (i64.xor (i64.load (i32.const 8)) (i64.extend_i32_u (local.get $i))))))";
+    guest_compute_block("guest compute (i64.popcnt)", popcnt);
+}
+
+/// One call at the block cap running `body` in a loop, timed.
+fn guest_compute_block(label: &str, body: &str) {
     let fixture = fixture(1);
     let limit = block_cap();
-    let body = "(drop (i64.div_u (i64.const -1) (i64.extend_i32_u (i32.add (local.get $i) (i32.const 3)))))";
     let make = |n| looping("", "", body, n);
     let n = iterations_within(limit, make, || MemoryState::at_height(2), 0);
     let contract = deploy_one(&fixture.db, &fixture.keys[0], &make(n));
@@ -422,14 +440,8 @@ fn a_block_of_guest_compute_validates_inside_the_block_time() {
         1,
         &fixture.keys[0],
     );
-    let ms = time_block(
-        "guest compute (i64.div_u)",
-        &fixture.db,
-        &block_of(vec![tx]),
-        2,
-        limit,
-    );
-    assert_inside("guest compute", ms);
+    let ms = time_block(label, &fixture.db, &block_of(vec![tx]), 2, limit);
+    assert_inside(label, ms);
 }
 
 // ---------------------------------------------------------------------------

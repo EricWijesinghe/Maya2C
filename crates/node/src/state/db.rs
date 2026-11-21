@@ -443,18 +443,20 @@ impl StateDB {
     ///
     /// # Errors
     ///
-    /// [`NodeError::Vm`] if the deterministic engine cannot be built.
+    /// [`NodeError::Storage`] if the deterministic engine cannot be built:
+    /// a fault of this node, never a verdict on a transaction, so GAS-8
+    /// cannot include a call as failed because one node's engine did not start.
     pub(crate) fn vm(&self) -> Result<&maya_vm::Vm> {
         if let Some(vm) = self.vm.get() {
             return Ok(vm);
         }
-        let vm = maya_vm::Vm::new().map_err(|e| NodeError::Vm(e.to_string()))?;
+        let vm = maya_vm::Vm::new().map_err(|e| NodeError::Storage(format!("contract VM: {e}")))?;
         // A racing thread may have set one first; either is the same
         // configuration, and every caller from here on uses the one stored.
         let _ = self.vm.set(vm);
         self.vm
             .get()
-            .ok_or_else(|| NodeError::Vm("the contract VM was not stored".into()))
+            .ok_or_else(|| NodeError::Storage("the contract VM was not stored".into()))
     }
 
     pub(crate) fn raw_put(&self, key: &[u8], value: &[u8]) -> Result<()> {

@@ -398,3 +398,23 @@ fn the_builder_bounds_a_deployment_by_what_the_block_has_left_without_its_scan()
         assert!(!db.builder_may_try(&overlay, edge + 1, kind).unwrap());
     }
 }
+
+#[test]
+fn a_fault_of_this_nodes_engine_is_storage_not_a_failed_call() {
+    // #647 review: a node short of memory must refuse the block (Storage,
+    // which `select_applicable_within` and `stage_transfer_or_undo` pass
+    // up), never record the call as failed while healthy nodes apply it.
+    let local = vm_failure(&maya_vm::VmError::LocalFault("commit refused".into()));
+    assert!(matches!(local, NodeError::Storage(_)), "got {local:?}");
+    for verdict in [
+        maya_vm::VmError::Trap("unreachable".into()),
+        maya_vm::VmError::OutOfGas { limit: 1 },
+        maya_vm::VmError::InvalidModule("bad".into()),
+    ] {
+        let mapped = vm_failure(&verdict);
+        assert!(
+            matches!(mapped, NodeError::Vm(_)),
+            "{verdict:?}: {mapped:?}"
+        );
+    }
+}

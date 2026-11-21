@@ -885,3 +885,128 @@ deterministic call-depth bound by instrumenting function entry and exits
 (prior art: parity's `wasm-instrument` stack limiter, which Substrate's
 contracts pallet applied to every module), or consensus on the Pulley tier
 with every price re-calibrated.
+
+## Amendment 7, 2026-11-22: the review of amendment 6 and of draft #647 (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+Three findings, read as claims and checked against the code and wasmtime
+48.0.8's source first. None of this is an external audit.
+
+### The ISA level: measured, then pinned at x86-64-v2
+
+The claim: naming the target left Cranelift on the triple's bare baseline,
+where x86-64 has no SSE4.1 (float `floor`/`ceil`/`nearest`/`trunc` become
+libcalls) and no POPCNT (a bit-twiddling sequence); gas is one fuel per
+operator either way, so a block of those could cost more wall time per unit
+of gas than the calibration measured, and nothing had timed it. Confirmed in
+the source (cranelift-codegen-meta 0.135.8 `isa/x86.rs`, defaults `false`),
+and measured.
+
+Measured on 2026-11-22, Intel Core Ultra 9 275HX, Windows 11 Pro, release,
+`cargo test --release -p maya-vm --lib config:: -- --include-ignored
+--nocapture --test-threads 1`
+(`measure_float_rounding_and_popcnt_against_the_calibrated_compute`: 20 M
+iterations of a loop whose result feeds back, so nothing is dropped; best of
+three; ns per unit of fuel):
+
+| Operator | host-inferred (the old calibration) | named baseline (amendment 6) | x86-64-v2 (this amendment) |
+|---|---|---|---|
+| `i64.div_u` (the calibrated compute) | 0.128 | 0.128 | 0.127 |
+| `f64.floor` | 0.563 | 0.406 | 0.519 |
+| `f64.ceil` | 0.550 | 0.411 | 0.526 |
+| `f64.nearest` | 0.550 | 0.674 | 0.518 |
+| `f64.trunc` | 0.549 | 0.632 | 0.516 |
+| `f32.floor` | 0.553 | 0.421 | 0.525 |
+| `f32.nearest` | 0.555 | 0.511 | 0.517 |
+| `i64.popcnt` | 0.066 | 0.219 | 0.066 |
+| `i32.popcnt` | 0.073 | 0.198 | 0.074 |
+| `i64.clz` | 0.065 | 0.103 | 0.103 |
+| `i64.ctz` | 0.066 | 0.089 | 0.088 |
+
+What it shows. Float rounding in a dependent chain is about 0.52–0.67 ns
+per unit under every configuration, including the host-inferred one the
+earlier calibration ran under: four to five times the `i64.div_u` loop the
+block-time derivation cites, so that derivation's guest-compute figure was
+never the worst guest compute, before or after amendment 6. The worst here,
+0.674 ns per unit on the baseline, is about 169 ms of guest compute for a
+block's 250 M gas of plaintext contract work and about 211 ms at GAS-2's
+1.25 × bound: inside the 1 s block time, so no operator is repriced. The baseline is the worst
+configuration for `nearest`, `trunc` and `popcnt` (3x on popcnt), and its
+libcalls go through the host's C runtime, a different one in each published
+binary. So the level is pinned, keeping CPU independence:
+`maya_vm::config::ISA_FLAGS` turns on `has_sse3`, `has_ssse3`, `has_sse41`,
+`has_sse42`, `has_popcnt` and `has_cmpxchg16b` (the x86-64-v2 set) on
+x86-64, none elsewhere (aarch64's baseline rounds and counts bits natively;
+measured on x86-64 only). They are in the module-cache digest.
+`checked_engine` compiles the empty module when an engine is built, so
+wasmtime's host check (`check_compatible_with_native_host`) refuses a CPU
+without the level at start-up instead of at the first contract call. The
+flags are set through `Config::cranelift_flag_enable`, an `unsafe` call: the
+`SAFETY` comment says why it holds (wasmtime checks the host has every flag
+before it compiles or loads code), and it needs a reviewer as any `unsafe`
+outside the exempt crates does. The Pulley tier names its own target and no
+native flags.
+
+Pinned by `the_engine_compiles_at_the_x86_64_v2_level_not_the_bare_baseline`
+(red with `ISA_FLAGS` empty: the two engines precompiled one module to
+identical bytes) and `an_engine_refuses_a_cpu_without_its_isa_level`
+(flags past the level stand in for a CPU without it: the engine builds
+exactly when the CPU has them). A whole-block figure is
+`a_block_of_float_rounding_and_popcnt_validates_inside_the_block_time` in
+`vm_gas_timing_tests`, run at x86-64-v2 on the same machine (dev profile,
+`cargo test -p custom-l1-node --test vm_gas_timing_tests -- --include-ignored
+--nocapture --test-threads 1 guest_compute float_rounding`): one call at the
+250 M cap applied in 142.3 ms for `f64.nearest` through memory (0.569 ns
+per unit), 22.0 ms for `i64.popcnt` (0.088) and 40.4 ms for the calibrated
+`i64.div_u` (0.162). The baseline was not run at block level.
+
+### Faults of one node's engine are not failed calls
+
+The claims: a contract call or deployment failing because the engine could
+not get memory (an instance's mapping, its linear memory, compiled code)
+reached the node as `NodeError::Vm`, the same as a trap, so (a) draft #647,
+which includes a failed call with its fee, would record it as failed on the
+node short of memory and apply it on the healthy ones, and (b) block
+selection, which is consensus under DAG-BFT (GAS-9), would leave the
+transaction out on that node alone. Confirmed: `classify` turned every
+error that was not out-of-fuel into `VmError::Trap`, `Module::new` failures
+became `InvalidModule`, and the limiter's default `memory_grow_failed`
+turned an operating-system refusal during `memory.grow` into wasm's `-1`,
+which the contract itself could act on.
+
+The suggested rule, "anything that does not downcast to `wasmtime::Trap` is
+local", was checked and **not** taken: wasmtime refuses some modules at
+instantiation with a plain error every node produces alike. A declared
+table is one: the limiter refuses every table, its initial size included
+(`table_growing` returns `false`; wasmtime then bails with "table minimum
+size ... exceeds table limits"), so any module with a table fails every
+call. Under the suggested rule that call would read as local on every node,
+and selection, which passes a local fault up, would stop building blocks on
+every validator while it was pooled.
+
+Changed instead: the rule is positive, by type. `maya_vm::error::is_local_fault`
+is an `io::Error` (how wasmtime's memory and code mappings report the
+operating system's refusal, on Windows and Unix alike) or wasmtime's
+`OutOfMemory`, anywhere in the error chain. Such an error is
+`VmError::LocalFault` from `classify` (instantiation and execution) and
+from `VmError::from_compile` (`Module::new`, through the cache and at
+deployment), and the limiter's `memory_grow_failed` passes it up instead of
+returning `-1`; growth past a module's own maximum stays `-1`. The node maps
+`LocalFault` to `NodeError::Storage` (`vm_exec::vm_failure`), which block
+selection and `stage_transfer_or_undo` already pass up and which refuses the
+block on apply; the engine failing to start is `Storage` too (carried from
+#647). Spec: GAS-9 and two Gaps entries.
+
+Pinned by five `maya-vm` tests in `runtime_local_fault_tests.rs`, four of
+them red before the change (memory refused at instantiation and while
+running became `Trap`; the limiter swallowed the refusal; a compile refusal
+became `InvalidModule`), one guarding the other side (a trap, growth past
+the module maximum and a declared table stay the call's), and the node's
+`a_fault_of_this_nodes_engine_is_storage_not_a_failed_call`. The fault is
+injected through the store's resource limiter, the hook wasmtime calls for
+every linear memory, with the error type a refused mapping has. Not done: a
+node-level test with the engine's memory refused, since `StateDB` holds its
+own engine with no hook; and a local failure wasmtime reports as neither type
+is still taken as the call's (recorded in the spec's Gaps).
+
+The table refusal is pre-existing, alike on every node, and not changed here:
+whether contracts may use `call_indirect` is a contract-ABI question.

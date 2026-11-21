@@ -131,6 +131,18 @@ fn admit_deployable(needed: u64, block_cap: u64) -> Result<()> {
     Ok(())
 }
 
+/// A VM failure as the node sees it. A fault of this node's engine (the
+/// operating system refused memory) is `Storage`, as a database fault is: it
+/// says nothing about the transaction, so the block is refused here and the
+/// selection passes it up, rather than this node recording a failure the
+/// healthy validators do not (#647 review). Everything else is the call's.
+pub(crate) fn vm_failure(error: &maya_vm::VmError) -> NodeError {
+    match error {
+        maya_vm::VmError::LocalFault(_) => NodeError::Storage(error.to_string()),
+        _ => NodeError::Vm(error.to_string()),
+    }
+}
+
 fn admit_block_gas(needed: u64, block_cap: u64, block_used: u64) -> Result<()> {
     let remaining = block_cap.saturating_sub(block_used);
     if needed > remaining {
@@ -233,7 +245,7 @@ impl StateDB {
         // discover.
         self.vm()?
             .validate(&deploy.code)
-            .map_err(|e| NodeError::Vm(e.to_string()))?;
+            .map_err(|e| vm_failure(&e))?;
 
         overlay.code.insert(contract, deploy.code.clone());
         Ok(contract)
@@ -438,7 +450,7 @@ impl StateDB {
                 Err(error) => {
                     // The compile ran; it is what the upfront price is for.
                     overlay.vm_gas = overlay.vm_gas.saturating_add(upfront);
-                    return Err(NodeError::Vm(error.to_string()));
+                    return Err(vm_failure(&error));
                 }
             },
         };
@@ -469,7 +481,7 @@ impl StateDB {
                 // the budget for free (PR #549 review). A plaintext transaction
                 // that fails fails its block, so only the builder sees this.
                 overlay.vm_gas = overlay.vm_gas.saturating_add(execution.gas_used);
-                return Err(NodeError::Vm(error.to_string()));
+                return Err(vm_failure(&error));
             }
         };
 

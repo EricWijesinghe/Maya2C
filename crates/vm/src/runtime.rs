@@ -190,6 +190,17 @@ impl<S: HostState + Send + 'static> wasmtime::ResourceLimiter for CallContext<S>
         Ok(true)
     }
 
+    fn memory_grow_failed(&mut self, error: wasmtime::Error) -> wasmtime::Result<()> {
+        // Growth past the module's own maximum fails alike on every node and
+        // is wasm's -1. The operating system refusing pages the call was
+        // entitled to is this node's fault: an error, so the call stops as
+        // `VmError::LocalFault`, rather than a -1 the contract could act on.
+        if crate::error::is_local_fault(&error) {
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn table_growing(
         &mut self,
         _current: usize,
@@ -426,8 +437,7 @@ impl Vm {
                 limit: usize::try_from(gas::MAX_COLD_CALL_FUEL).unwrap_or(usize::MAX),
             });
         }
-        let module =
-            Module::new(&self.engine, wasm).map_err(|e| VmError::InvalidModule(e.to_string()))?;
+        let module = Module::new(&self.engine, wasm).map_err(|e| VmError::from_compile(&e))?;
 
         // Names only. The linker checks the *types* at instantiation, and it
         // has to: a signature mismatch is a different failure with a different
@@ -803,8 +813,12 @@ pub(crate) fn execution<S>(
     }
 }
 
-/// Maps a wasmtime error onto a VM error, separating gas exhaustion from faults.
+/// Maps a wasmtime error onto a VM error, separating gas exhaustion from
+/// guest faults, and both from a fault of this node's engine.
 fn classify(error: &wasmtime::Error, gas_limit: u64) -> VmError {
+    if crate::error::is_local_fault(error) {
+        return VmError::LocalFault(format!("{error:#}"));
+    }
     if let Some(trap) = error.downcast_ref::<wasmtime::Trap>()
         && *trap == wasmtime::Trap::OutOfFuel
     {
@@ -1269,3 +1283,7 @@ fn register_host_functions<S: HostState + Send + 'static>(
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "runtime_local_fault_tests.rs"]
+mod local_fault_tests;
