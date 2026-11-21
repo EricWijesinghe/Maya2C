@@ -909,3 +909,11 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-22 — Mempool keeps only entries that can execute; signature-path pins and verify order (Claude, re-freeze, independent AI audit CT-01, CT-04, CT-06, CT-14, CT-16)
+
+- **No nonce gaps in the pool (CT-01):** a nonce is admitted only when every nonce from the account's up to it is already pooled. After a BFT round, the entries it ordered but did not execute are re-validated once (`Mempool::prune_invalid`, run after the included entries left the pool) and dropped if they can never execute. Before, such an entry was proposed, fee-free, every round. Cost: out-of-order gossip arrivals are refused at this node until the gap fills.
+- **One share, one pool entry (CT-04):** a mining share is pooled once per `(epoch, work nonce)` per miner; the same work under other transaction nonces is refused. Shares now count toward the 64-per-sender cap and get the same gap rule as transfers, since the executor runs them at exact nonces.
+- **`fips204` pinned `=0.4.6` (CT-06):** like the other signature-path crates. `verify_differential_tests.rs` pins that `fips204` (node) and `ml-dsa` (suite 0x30) give the same verdict on corrupted signatures, keys and messages. `docs/CRYPTO_WATCH.md` §5-6 record the domain-separation rule (CT-16) and every pinned signature-path crate, including the `slh-dsa` release candidate.
+- **Suite 0x30 verify stops at the first failing half (CT-14):** lattice first, the node hybrid's order. Acceptance is unchanged (both halves required); every input is public, so the early exit reveals nothing secret.
+- Admission and verification cost only: no block validity rule, wire byte or state byte changes, so no spec rule or ADR.

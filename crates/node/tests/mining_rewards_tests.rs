@@ -459,3 +459,47 @@ fn a_tail_needs_a_reserve_that_pays_it_until_the_last_height() {
     let state = Arc::new(StateDB::open(funded.path()).unwrap());
     config.seed_state(&state).unwrap();
 }
+
+/// One share's work signed under many transaction nonces is still one share:
+/// only the first copy can ever be paid, so only the first may be pooled.
+/// Before, every copy was admitted fee-free and outside the per-sender cap.
+#[test]
+fn one_shares_work_under_many_tx_nonces_is_pooled_once() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 2);
+
+    assert!(pool.insert(share(1, good[0], 0)).unwrap());
+    for tx_nonce in 1..4 {
+        let err = pool.insert(share(1, good[0], tx_nonce)).unwrap_err();
+        assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    }
+    // Different work under the next nonce is a different share.
+    assert!(pool.insert(share(1, good[1], 1)).unwrap());
+    assert_eq!(pool.len(), 2);
+}
+
+/// A share is executed at its exact nonce like any transaction, so one that
+/// leaves a gap can never run and would only be re-proposed fee-free.
+#[test]
+fn a_share_whose_nonce_leaves_a_gap_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 2);
+
+    let err = pool.insert(share(1, good[0], 1)).unwrap_err();
+    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    let far = custom_l1_node::network::mempool::MAX_NONCE_AHEAD + 1;
+    let err = pool.insert(share(1, good[0], far)).unwrap_err();
+    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+
+    assert!(pool.insert(share(1, good[0], 0)).unwrap());
+    assert!(
+        pool.insert(share(1, good[1], 1)).unwrap(),
+        "the gap is filled"
+    );
+}

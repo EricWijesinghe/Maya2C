@@ -12,9 +12,11 @@
 //! key and signature unchanged. `crates/node/tests/suite_parity_tests.rs` pins
 //! that against the node's `fips204` implementation.
 //!
-//! **Both halves are always checked.** No early return after the first
-//! failure, so the time taken does not tell a forger which half they got
-//! wrong.
+//! **Both halves must verify; the check stops at the first failure.** The
+//! lattice half runs first, as in the node's `HybridVerifyingKey::verify`,
+//! so a signature with a bad lattice half costs one verification on either
+//! path, not two. Stopping early leaks nothing: the key, message and
+//! signature are all public.
 
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
@@ -99,14 +101,12 @@ impl SignatureSuite for HybridMlDsa65SlhDsa128s {
         let (lattice_pk, hash_pk) = public_key.split_at(ML_DSA_65_PUBLIC_KEY_LEN);
         let (lattice_sig, hash_sig) = signature.split_at(ML_DSA_65_SIGNATURE_LEN);
 
-        let lattice_ok =
-            lattice::verify_with::<ml_dsa::MlDsa65>(lattice_pk, message, b"", lattice_sig);
-        let hash_ok =
-            super::slh_dsa::verify_with::<slh_dsa::Sha2_128s>(hash_pk, message, b"", hash_sig);
-
-        // `&`, not `&&`: both halves have already run, and this keeps it so
-        // if someone later inlines the calls into the condition.
-        if lattice_ok & hash_ok {
+        // `&&`: the hash half runs only when the lattice half passed, the
+        // order the node's own hybrid uses. The verdict is unchanged; only
+        // the cost of a signature with a bad lattice half falls.
+        if lattice::verify_with::<ml_dsa::MlDsa65>(lattice_pk, message, b"", lattice_sig)
+            && super::slh_dsa::verify_with::<slh_dsa::Sha2_128s>(hash_pk, message, b"", hash_sig)
+        {
             Ok(())
         } else {
             Err(SuiteError::Verification(Self::ID))
