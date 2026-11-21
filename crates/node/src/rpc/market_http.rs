@@ -41,14 +41,16 @@ use primitive_types::U256;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 
 use crate::consensus::chain::Chain;
 use crate::rpc::market::{self, MarketFeed, SupplyReport};
@@ -58,6 +60,14 @@ const PLAIN: &str = "text/plain; charset=utf-8";
 
 /// Content type for the structured endpoints.
 const JSON: &str = "application/json; charset=utf-8";
+
+/// Connections served at once. Past it a new socket is closed unanswered,
+/// because an idle socket otherwise holds a task and a file descriptor.
+const MAX_MARKET_CONNECTIONS: usize = 256;
+
+/// Longest a client may take to send its request head. Hyper only enforces it
+/// when a timer is set, so the timer is set alongside it.
+const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A running market server.
 #[derive(Debug)]
@@ -155,6 +165,7 @@ pub async fn serve(address: SocketAddr, state: Arc<MarketState>) -> std::io::Res
     let listener = TcpListener::bind(address).await?;
     let bound = listener.local_addr()?;
 
+    let connections = Arc::new(Semaphore::new(MAX_MARKET_CONNECTIONS));
     tokio::spawn(async move {
         loop {
             let (stream, _peer) = match listener.accept().await {
@@ -167,14 +178,23 @@ pub async fn serve(address: SocketAddr, state: Arc<MarketState>) -> std::io::Res
                 }
             };
 
+            // Over the cap the socket is dropped here, not queued.
+            let Ok(permit) = Arc::clone(&connections).try_acquire_owned() else {
+                continue;
+            };
+
             let state = Arc::clone(&state);
             tokio::spawn(async move {
+                // Held until this connection ends, so the cap counts live sockets.
+                let _permit = permit;
                 let service = service_fn(move |request| {
                     let state = Arc::clone(&state);
                     async move { route(&request, &state) }
                 });
 
                 if let Err(error) = http1::Builder::new()
+                    .timer(TokioTimer::new())
+                    .header_read_timeout(HEADER_READ_TIMEOUT)
                     .serve_connection(TokioIo::new(stream), service)
                     .await
                 {
@@ -405,6 +425,67 @@ mod tests {
     /// The body of a response, i.e. everything after the header terminator.
     fn body(response: &str) -> &str {
         response.split_once("\r\n\r\n").map_or("", |(_, rest)| rest)
+    }
+
+    #[tokio::test]
+    async fn a_connection_beyond_the_cap_is_refused_not_served() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (server, _dir) = start(MarketFeed::empty()).await;
+        // shortcut: assumes the 256 local connects finish well inside
+        // HEADER_READ_TIMEOUT (10 s); a runner slower than that frees permits
+        // early and fails this spuriously. Inject the timeout if that is seen.
+        let mut idle = Vec::with_capacity(MAX_MARKET_CONNECTIONS);
+        for _ in 0..MAX_MARKET_CONNECTIONS {
+            idle.push(
+                tokio::net::TcpStream::connect(server.address)
+                    .await
+                    .expect("connect"),
+            );
+        }
+
+        // The server may reset the socket, so the read result is not asserted.
+        let mut stream = tokio::net::TcpStream::connect(server.address)
+            .await
+            .expect("connect");
+        let _ = stream
+            .write_all(
+                b"GET /api/v1/total_supply HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await;
+        let mut response = Vec::new();
+        let _ = stream.read_to_end(&mut response).await;
+        assert!(
+            !response.starts_with(b"HTTP/1.1 200"),
+            "a connection past the cap was served"
+        );
+        drop(idle);
+    }
+
+    #[tokio::test]
+    async fn an_unfinished_request_head_is_closed_after_the_header_timeout() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (server, _dir) = start(MarketFeed::empty()).await;
+        let mut stream = tokio::net::TcpStream::connect(server.address)
+            .await
+            .expect("connect");
+        stream
+            .write_all(b"GET /api/v1/total_supply HTTP/1.1\r\n")
+            .await
+            .expect("write");
+
+        // Without the timeout the server waits for the rest of the head forever.
+        let mut response = Vec::new();
+        let closed = tokio::time::timeout(
+            HEADER_READ_TIMEOUT + Duration::from_secs(5),
+            stream.read_to_end(&mut response),
+        )
+        .await;
+        assert!(
+            closed.is_ok(),
+            "an unfinished request head held the socket open"
+        );
     }
 
     #[tokio::test]

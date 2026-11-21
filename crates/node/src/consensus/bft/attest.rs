@@ -363,7 +363,8 @@ impl Collector {
     /// # Errors
     ///
     /// As [`Attestation::verify`]: a bad attestation is refused, never
-    /// counted.
+    /// counted. A repeat of the block already counted for its slot returns
+    /// [`Collected::Ignored`] without being verified again (ADR-147).
     pub fn add(
         &mut self,
         attestation: Attestation,
@@ -378,12 +379,14 @@ impl Collector {
         {
             return Ok(Collected::Ignored);
         }
-        attestation.verify(chain, committee)?;
         let slot = (attestation.epoch, attestation.height, attestation.validator);
+        // A repeat of the block already counted is dropped before the ML-DSA
+        // check, so replayed frames cost no signature verification.
+        if self.seen.get(&slot) == Some(&attestation.block) {
+            return Ok(Collected::Ignored);
+        }
+        attestation.verify(chain, committee)?;
         if let Some(first) = self.seen.get(&slot) {
-            if *first == attestation.block {
-                return Ok(Collected::Ignored);
-            }
             let earlier = Attestation {
                 block: *first,
                 signature: self.pending[&(slot.0, slot.1, *first)][&slot.2].clone(),
@@ -574,6 +577,26 @@ mod tests {
             collector.pending.len(),
             1,
             "height 1 can no longer complete"
+        );
+    }
+
+    #[test]
+    fn a_replay_of_a_counted_attestation_is_ignored_before_verification() {
+        let (signing, committee) = keys(4);
+        let mut collector = Collector::default();
+        let counted = attest(&signing, 1, 4, 1);
+        assert_eq!(
+            collector
+                .add(counted.clone(), &CHAIN, &committee, None)
+                .unwrap(),
+            Collected::Counted
+        );
+        let mut replay = counted;
+        replay.signature[0] ^= 1;
+        assert_eq!(
+            collector.add(replay, &CHAIN, &committee, None).unwrap(),
+            Collected::Ignored,
+            "a repeat of a counted block must not reach signature verification"
         );
     }
 
