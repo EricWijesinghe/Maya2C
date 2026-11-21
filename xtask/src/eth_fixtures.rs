@@ -253,7 +253,7 @@ fn write(rel: &str, doc: &Value) -> Result<(), String> {
 }
 
 fn fetched_utc() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+    crate::stamp::rfc3339_utc(crate::stamp::utc_now())
 }
 
 fn fetching(args: &[String]) -> bool {

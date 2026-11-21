@@ -190,6 +190,7 @@ fn a_uri_round_trips() {
         message: Some("May, flat 3".to_string()),
         expires_at: Some(1_800_000_000),
         id: Some("inv-42".to_string()),
+        chat: None,
     };
     let uri = original
         .to_uri(maya_address::Network::Testnet)
