@@ -59,11 +59,10 @@ ignore = [
     # signatures, never a secret scalar. Fix needs crypto-bigint >=0.7.6, which elliptic-curve 0.13
     # cannot take. Revisit when k256/elliptic-curve 0.14 is stable; no Maya2C signing uses k256.
     { id = "RUSTSEC-2026-0387", reason = "k256 used for public-signature recovery only; no secret scalar reaches crypto-bigint; fix needs elliptic-curve 0.14" },
-    # `chrono` is unmaintained (not a vulnerability) and has no successor release.
-    # It is direct in tooling and off-chain services only (xtask, attacknet-controller,
-    # maya-explorer) and transitive through sqlx; nothing on the node's consensus path
-    # links it. Revisit by moving those three to `time` (sqlx has a `time` feature).
-    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; tooling/explorer only, no consensus path; migrate to `time`" },
+    # RUSTSEC-2026-0543 (chrono unmaintained) needs no ignore: xtask, attacknet-controller
+    # and the explorer moved to `time`. Cargo.lock still lists chrono under serde_with's
+    # optional `chrono_0_4` feature, which nothing here enables, so the advisory is not
+    # encountered; if something enables it, this check fails, which is the point.
 ]
 # `unmaintained` is a real signal but not a vulnerability, and it fires on
 # transitive crates nobody here can act on. Surfaced, not fatal.

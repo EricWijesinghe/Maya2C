@@ -89,7 +89,7 @@ fn height_arg(args: &Value) -> Result<u64, String> {
 }
 
 /// 64 hex characters, with an optional `0x`, as 32 bytes.
-fn hex32(text: &str, what: &str) -> Result<[u8; 32], String> {
+pub(crate) fn hex32(text: &str, what: &str) -> Result<[u8; 32], String> {
     let digits = text.strip_prefix("0x").unwrap_or(text);
     if digits.len() != ID_HEX_LEN || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("{what} must be {ID_HEX_LEN} hex characters"));
@@ -101,7 +101,7 @@ fn hex32(text: &str, what: &str) -> Result<[u8; 32], String> {
 }
 
 /// An account from `maya1...` text or 64 hex characters.
-fn account(text: &str, what: &str) -> Result<[u8; 32], String> {
+pub(crate) fn account(text: &str, what: &str) -> Result<[u8; 32], String> {
     if text.len() > MAX_ADDRESS_TEXT {
         return Err(format!(
             "{what} is longer than {MAX_ADDRESS_TEXT} characters"
@@ -222,7 +222,7 @@ fn get_block(node: &mut Node, args: &Value) -> Result<Value, String> {
 
 /// Chain-written text shown as data: control characters removed, length capped,
 /// so a line break or a long payload cannot pose as instructions.
-fn chain_text(text: &str) -> String {
+pub(crate) fn chain_text(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_control())
         .take(MAX_CHAIN_TEXT_CHARS)
@@ -421,7 +421,7 @@ fn review_intent(args: &Value) -> Result<Value, String> {
     ))
 }
 
-fn explain(kind: &str) -> Result<Value, String> {
+pub(crate) fn explain(kind: &str) -> Result<Value, String> {
     let (text, rule) = match kind {
         "InvalidNonce" => (
             "The transaction's nonce is not the sender's next nonce: it was already used (a replay) or one is missing before it. Resend with the nonce `get_balance` reports.",
