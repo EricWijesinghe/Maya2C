@@ -37,3 +37,7 @@
 
 # Served byte-for-byte; joiners check its SHA-256, so no line-ending conversion.
 docs/site/public/testnet/genesis.json -text
+
+# Signed block bytes, one hex line per block: a diff of them says nothing a
+# reviewer can read. Review golden_chain/expected.txt instead.
+crates/node/tests/fixtures/golden_chain/blocks.hex -diff
