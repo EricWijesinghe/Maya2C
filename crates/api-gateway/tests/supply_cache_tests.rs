@@ -45,9 +45,52 @@ async fn supply_is_fetched_once_per_window() {
     for task in concurrent {
         assert_eq!(task.await.unwrap().circulating, "1");
     }
-    assert_eq!(calls.load(Ordering::SeqCst), 1, "eight callers, one node call");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "eight callers, one node call"
+    );
 
     tokio::time::sleep(SUPPLY_TTL + std::time::Duration::from_millis(100)).await;
     assert_eq!(client.get_supply().await.unwrap().circulating, "2");
-    assert_eq!(calls.load(Ordering::SeqCst), 2, "a stale answer is refetched");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "a stale answer is refetched"
+    );
+}
+
+/// A JSON-RPC endpoint that accepts calls and never answers.
+async fn hung_node() -> String {
+    let app = Router::new().route("/", post(|| std::future::pending::<String>()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    url
+}
+
+#[tokio::test]
+async fn a_caller_queued_behind_a_hung_supply_call_gives_up_within_node_timeout() {
+    use maya_api_gateway::node::NODE_TIMEOUT;
+    use std::time::{Duration, Instant};
+
+    let client = Arc::new(RpcNodeClient::connect(&hung_node().await).unwrap());
+    let first = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move { client.get_supply().await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let started = Instant::now();
+    assert!(
+        client.get_supply().await.is_err(),
+        "a hung node yields an error"
+    );
+    let waited = started.elapsed();
+    assert!(first.await.unwrap().is_err());
+    // Unbounded, the queued caller sits out the first call and then makes
+    // its own: two timeouts instead of one.
+    assert!(
+        waited < NODE_TIMEOUT + NODE_TIMEOUT / 2,
+        "queued caller waited {waited:?}, past one NODE_TIMEOUT"
+    );
 }

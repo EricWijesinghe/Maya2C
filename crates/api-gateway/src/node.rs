@@ -228,15 +228,24 @@ impl NodeClient for RpcNodeClient {
     }
 
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
-        let mut cached = self.supply.lock().await;
-        if let Some((at, supply)) = cached.as_ref()
-            && at.elapsed() < SUPPLY_TTL
-        {
-            return Ok(supply.clone());
-        }
-        let supply: Supply = self.call("get_supply", rpc_params![]).await?;
-        *cached = Some((Instant::now(), supply.clone()));
-        Ok(supply)
+        // One deadline covers the wait and the call: behind a hung call, a
+        // queued caller would otherwise sit out the earlier caller's
+        // NODE_TIMEOUT and then its own. Dropping the future on timeout
+        // releases the lock and caches nothing.
+        let fetch = async {
+            let mut cached = self.supply.lock().await;
+            if let Some((at, supply)) = cached.as_ref()
+                && at.elapsed() < SUPPLY_TTL
+            {
+                return Ok(supply.clone());
+            }
+            let supply: Supply = self.call("get_supply", rpc_params![]).await?;
+            *cached = Some((Instant::now(), supply.clone()));
+            Ok(supply)
+        };
+        tokio::time::timeout(NODE_TIMEOUT, fetch)
+            .await
+            .map_err(|_| GatewayError::Upstream("get_supply: node call timed out".to_string()))?
     }
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {

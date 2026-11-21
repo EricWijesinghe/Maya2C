@@ -111,8 +111,9 @@ pub fn bucket_key(address: IpAddr) -> IpAddr {
     }
 }
 
-/// The client's address as the limiter keys it, for anything else that must
-/// count per client the same way (the event subscription caps).
+/// The client's address as the limiter sees it, before [`bucket_key`], for
+/// anything else that must count per client the same way (the event
+/// subscription caps).
 #[must_use]
 pub fn client_address(
     mode: ClientIp,
