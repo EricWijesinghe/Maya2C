@@ -378,6 +378,12 @@ impl StateDB {
         let warm = overlay.vm_modules.get(&call.contract).cloned();
         let upfront = match &warm {
             Some(compiled) => compiled.call_fuel(true),
+            // The cold price is the length price plus the shape's, so below
+            // the length price the call is refused whatever the shape is and
+            // the scan is not run; the refusal below counts the same (09 R-5).
+            None if call.gas_limit < gas::deploy_fuel(code.len()) => {
+                gas::deploy_fuel(code.len())
+            }
             // The module's shape as well as its length: stored code passed
             // the same scan at deployment, so this does not fail.
             None => gas::cold_call_fuel(&code).map_err(|e| NodeError::Vm(e.to_string()))?,
