@@ -15,8 +15,11 @@ pub const LABEL: &str = "GPU-reported, not wall-measured, unverified";
 pub const SOURCE: &str = "nvidia-smi power.draw";
 /// Longest gap between two power readings that is still integrated. The
 /// supervisor reads every 3 s; a longer gap (a failed read, a thermal hold,
-/// a stopped process, a clock jump) is left out, and so are the shares
-/// accepted inside it, so joules and shares always cover the same time.
+/// a stopped process) is left out, and so are the shares accepted inside
+/// it, so joules and shares always cover the same time. Timestamps come
+/// from a monotonic clock (lib.rs `supervise`), so a wall-clock step never
+/// reaches the meter. The same bound is the freshness limit on the miner's
+/// last event (miner.rs `metered_watts`).
 pub const MAX_GAP_MS: u64 = 10_000;
 /// Highest board power taken as a reading. Above it the number is garbage
 /// (a corrupt `nvidia-smi` line), and summing two such readings could
@@ -66,8 +69,9 @@ impl Default for Energy {
 
 impl Energy {
     /// Folds one reading in. `watts` is `None` when the driver gave no
-    /// number or the worker was not on work (no process, or the miner's last
-    /// event was `idle` or `error`), which ends the metered stretch instead
+    /// number, the card is not the one the miner opened, or the worker was
+    /// not on work (no process, a silent miner, or the miner's last event was
+    /// `idle` or `error`), which ends the metered stretch instead
     /// of guessing across it. A reading that is not finite, negative or
     /// above [`MAX_WATTS`] counts as none. `accepted` is the worker's running
     /// count of accepted shares.
@@ -178,6 +182,12 @@ mod tests {
             (9_000, Some(f64::INFINITY), 2),
         ]);
         assert_eq!((e.joules, e.shares), (0.0, 0));
+    }
+
+    #[test]
+    fn a_negative_reading_next_to_a_good_one_is_no_reading() {
+        let e = run(&[(0, Some(200.0), 0), (3_000, Some(-5.0), 1)]);
+        assert_eq!((e.joules, e.shares, e.metered_ms), (0.0, 0, 0));
     }
 
     #[test]

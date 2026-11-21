@@ -33,13 +33,22 @@ the honest measurement, but it costs money (option B) and is not done.
      last event was `idle` or `error` rather than `work` or `hashrate`);
    - the process ended or was relaunched between the two readings (a crash,
      a stall kill, a stop or a thermal hold breaks the stretch at once);
-   - the readings are more than `MAX_GAP_MS` (10 s) apart, or the clock
-     stepped back.
+   - nvidia-smi's card at the worker's index is not the adapter the miner's
+     `start` event named (case- and padding-insensitive name match). The
+     miner's `--device N` is a wgpu adapter index over every backend,
+     integrated GPUs included; nvidia-smi numbers NVIDIA cards only. The two
+     are assumed to agree only when the names do, and between two cards of
+     the same model the index order is assumed outright;
+   - the miner's last event is older than `MAX_GAP_MS` (a hung kernel or a
+     driver reset sends no hash rate);
+   - the readings are more than `MAX_GAP_MS` (10 s) apart, or out of order.
 5. **Label.** Every figure carries "GPU-reported, not wall-measured,
    unverified" and its source, in the UI and in the `miner_state` report
    (`workers[].energy`).
 6. **Timestamp.** The interval is stamped after `nvidia-smi` returns, so a
-   slow read does not shift the interval or the supervisor's own clock.
+   slow read does not shift the interval or the supervisor's own clock, and
+   on a monotonic clock (`Instant` from when the supervisor starts), so a
+   wall-clock step cannot stretch an interval.
 
 ## Non-goals
 
@@ -54,8 +63,12 @@ the honest measurement, but it costs money (option B) and is not done.
 ## Consequences
 
 - Idle time, downtime and gaps lower `metered_ms` instead of inflating the
-  joules, so a figure always covers time the card was hashing. `metered_ms`
+  joules, so a figure covers time the miner was on work and reporting. `metered_ms`
   and `shares` say how much evidence a figure rests on.
+- On a machine where wgpu's adapter list and nvidia-smi's disagree, no
+  figure is shown rather than another card's. The thermal stop reads
+  temperatures by the same nvidia-smi index and has no such check; that is a
+  separate bug from before this ADR.
 - The sensor's accuracy against a wall meter is unknown. It excludes the CPU,
   power-supply losses and the rest of the machine, and includes anything else
   the card is drawing for.

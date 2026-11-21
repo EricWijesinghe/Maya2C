@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::energy::Energy;
+use crate::energy::{self, Energy};
 use crate::miner_guard::{self, PINNED_SUMS, PinnedMiner};
 use crate::pools;
 use crate::watchdog::{self, AfterExit, Supervisor, Thermal};
@@ -109,6 +109,11 @@ pub struct MinerState {
     /// meter charges watts only then, so an idle wait is never in a figure.
     #[serde(skip)]
     in_work: bool,
+    /// The adapter name in the miner's `start` event. The meter gives watts
+    /// only when nvidia-smi names the same card at the worker's index, since
+    /// the miner numbers wgpu adapters and the Hub reads nvidia-smi's list.
+    #[serde(skip)]
+    adapter: Option<String>,
 }
 
 /// What an alert is about. The notifier rate-limits on this, and toasts only
@@ -229,6 +234,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
         "start" => {
             state.address = event["address"].as_str().map(str::to_string);
             state.mode = event["mode"].as_str().map(str::to_string);
+            state.adapter = event["device"].as_str().map(str::to_string);
             state.status = "connected".into();
         }
         "work" => {
@@ -280,6 +286,17 @@ fn read_lines(stream: impl std::io::Read + Send + 'static, state: Arc<Mutex<Mine
 
 fn lock_state(state: &Mutex<MinerState>) -> std::sync::MutexGuard<'_, MinerState> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A new process: nothing it says is known yet, so it is not on work and its
+/// adapter is unnamed until its own `start` event.
+fn on_launch(st: &mut MinerState, now: u64) {
+    st.running = true;
+    st.hashing = false;
+    st.in_work = false;
+    st.adapter = None;
+    st.last_event_ms = now;
+    st.status = "starting".into();
 }
 
 fn break_energy(st: &mut MinerState) {
@@ -341,14 +358,7 @@ impl Worker {
         if let Some(err) = child.stderr.take() {
             read_lines(err, Arc::clone(&self.state));
         }
-        {
-            let mut st = lock_state(&self.state);
-            st.running = true;
-            st.hashing = false;
-            st.in_work = false;
-            st.last_event_ms = now;
-            st.status = "starting".into();
-        }
+        on_launch(&mut lock_state(&self.state), now);
         // The pinned miner (Windows: locked install file; Unix: private copy)
         // lives as long as the child, so what runs is what was hashed.
         self.child = Some(Running {
@@ -591,19 +601,18 @@ impl Miner {
         raised
     }
 
-    /// Feeds one round of GPU power readings, `(index, W)`, to each GPU
-    /// worker's energy meter (see [`metered_watts`] for which get a reading).
-    pub fn meter(&self, now: u64, powers: &[(u32, f64)]) {
+    /// Feeds one round of GPU power readings, `(index, name, W)`, to each
+    /// GPU worker's energy meter (see [`metered_watts`] for which get one).
+    /// `wall_ms` is the clock the event stamps use, for the freshness check;
+    /// `mono_ms` is monotonic and is what the meter integrates over, so a
+    /// clock step never stretches an interval.
+    pub fn meter(&self, wall_ms: u64, mono_ms: u64, powers: &[(u32, &str, f64)]) {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         for worker in inner.workers.values() {
-            let Some(index) = worker.plan.device else {
-                continue;
-            };
-            let mut st = lock_state(&worker.state);
-            let watts = metered_watts(worker.child.is_some(), st.in_work, index, powers);
-            let accepted = st.accepted;
-            if let Some(energy) = st.energy.as_mut() {
-                energy.sample(now, watts, accepted);
+            if let Some(index) = worker.plan.device {
+                let mut st = lock_state(&worker.state);
+                let running = worker.child.is_some();
+                meter_one(&mut st, running, index, (wall_ms, mono_ms), powers);
             }
         }
     }
@@ -634,13 +643,49 @@ impl Miner {
     }
 }
 
-/// The watts a GPU worker's meter is given: its own card's reading, and only
-/// while its process runs and is on work. Anything else is `None`, which ends
-/// the metered stretch, so idle or downtime watts never reach a figure.
-fn metered_watts(running: bool, in_work: bool, device: u32, powers: &[(u32, f64)]) -> Option<f64> {
-    (running && in_work)
-        .then(|| powers.iter().find(|(d, _)| *d == device).map(|(_, w)| *w))
-        .flatten()
+/// One worker's meter step; `(wall_ms, mono_ms)` as in [`Miner::meter`].
+fn meter_one(
+    st: &mut MinerState,
+    running: bool,
+    device: u32,
+    (wall_ms, mono_ms): (u64, u64),
+    powers: &[(u32, &str, f64)],
+) {
+    let watts = metered_watts(st, running, wall_ms, device, powers);
+    let accepted = st.accepted;
+    if let Some(energy) = st.energy.as_mut() {
+        energy.sample(mono_ms, watts, accepted);
+    }
+}
+
+/// The watts a GPU worker's meter is given: the reading at its device index,
+/// only when nvidia-smi names that card as the adapter the miner opened, and
+/// only while its process runs, is on work and has spoken within
+/// `MAX_GAP_MS` (the miner sends a hash rate every 2 s, so a hung kernel or a
+/// driver reset stops the meter before the stall kill does). Anything else
+/// is `None`, which ends the metered stretch.
+fn metered_watts(
+    st: &MinerState,
+    running: bool,
+    wall_ms: u64,
+    device: u32,
+    powers: &[(u32, &str, f64)],
+) -> Option<f64> {
+    let live =
+        running && st.in_work && wall_ms.saturating_sub(st.last_event_ms) <= energy::MAX_GAP_MS;
+    let adapter = st.adapter.as_deref()?;
+    let &(_, _, watts) = powers
+        .iter()
+        .find(|(d, name, _)| *d == device && same_card(adapter, name))?;
+    live.then_some(watts)
+}
+
+/// The miner's wgpu adapter name against nvidia-smi's name for one card.
+/// shortcut: two cards of the same model still match each other, so between
+/// them the index order is assumed; upgrade to a PCI bus id match if the
+/// miner ever reports one.
+fn same_card(adapter: &str, smi_name: &str) -> bool {
+    adapter.trim().eq_ignore_ascii_case(smi_name.trim())
 }
 
 /// An amount from the miner's event stream: a decimal string (the node's
@@ -797,8 +842,8 @@ mod tests {
             inner.workers.insert("gpu0".into(), gpu);
         }
         // No process: these readings must not be charged to the shares.
-        miner.meter(0, &[(0, 200.0)]);
-        miner.meter(3_000, &[(0, 200.0)]);
+        miner.meter(0, 0, &[(0, "RTX A", 200.0)]);
+        miner.meter(3_000, 3_000, &[(0, "RTX A", 200.0)]);
         let report = miner.report();
         let cpu = report.workers.iter().find(|w| w.device == "cpu").unwrap();
         let gpu = report.workers.iter().find(|w| w.device == "gpu0").unwrap();
@@ -807,22 +852,94 @@ mod tests {
         assert_eq!((e.joules, e.shares, e.joules_per_share), (0.0, 0, None));
     }
 
+    /// A worker whose miner said `start` on `adapter` and `work` at 0 ms.
+    fn on_work(adapter: &str) -> MinerState {
+        let mut s = MinerState {
+            energy: Some(Energy::default()),
+            ..MinerState::default()
+        };
+        let start = serde_json::json!({"event": "start", "mode": "gpu", "device": adapter});
+        ingest(&mut s, &start.to_string(), 0);
+        ingest(
+            &mut s,
+            r#"{"event":"work","epoch":1,"share_reward":"1"}"#,
+            0,
+        );
+        s
+    }
+
+    const POWERS: [(u32, &str, f64); 2] = [(0, "RTX A", 200.0), (1, "RTX B", 90.0)];
+
     #[test]
     fn only_a_running_worker_on_work_is_given_its_own_cards_watts() {
-        let powers = [(0, 200.0), (1, 90.0)];
-        assert_eq!(metered_watts(true, true, 1, &powers), Some(90.0));
-        assert_eq!(metered_watts(true, true, 0, &powers), Some(200.0));
+        let a = on_work("RTX A");
+        let b = on_work("RTX B");
+        assert_eq!(metered_watts(&b, true, 0, 1, &POWERS), Some(90.0));
+        assert_eq!(metered_watts(&a, true, 0, 0, &POWERS), Some(200.0));
         assert_eq!(
-            metered_watts(true, true, 2, &powers),
+            metered_watts(&a, true, 0, 2, &POWERS),
             None,
             "no reading for this card"
         );
-        assert_eq!(metered_watts(false, true, 0, &powers), None, "no process");
+        assert_eq!(metered_watts(&a, false, 0, 0, &POWERS), None, "no process");
+        let mut idle = on_work("RTX A");
+        ingest(&mut idle, r#"{"event":"idle","reason":"budget spent"}"#, 0);
         assert_eq!(
-            metered_watts(true, false, 0, &powers),
+            metered_watts(&idle, true, 0, 0, &POWERS),
             None,
             "running but idle"
         );
+    }
+
+    #[test]
+    fn another_cards_watts_are_never_charged_to_this_worker() {
+        // wgpu index 0 is an integrated GPU; nvidia-smi index 0 is the dGPU.
+        let igpu = on_work("Intel(R) UHD Graphics 770");
+        assert_eq!(metered_watts(&igpu, true, 0, 0, &POWERS), None);
+        // No `start` event yet: the adapter is unknown, so no figure.
+        let mut unnamed = on_work("RTX A");
+        unnamed.adapter = None;
+        assert_eq!(metered_watts(&unnamed, true, 0, 0, &POWERS), None);
+        // The same card named with different case or padding still matches.
+        let padded = on_work(" rtx a ");
+        assert_eq!(metered_watts(&padded, true, 0, 0, &POWERS), Some(200.0));
+    }
+
+    #[test]
+    fn a_silent_miner_is_not_metered_past_max_gap() {
+        let s = on_work("RTX A");
+        let at_limit = energy::MAX_GAP_MS;
+        assert_eq!(metered_watts(&s, true, at_limit, 0, &POWERS), Some(200.0));
+        assert_eq!(
+            metered_watts(&s, true, at_limit + 1, 0, &POWERS),
+            None,
+            "a hung kernel sends no hash rate; its watts are not charged"
+        );
+    }
+
+    #[test]
+    fn a_running_worker_on_work_is_metered_on_the_monotonic_clock() {
+        let mut s = on_work("RTX A");
+        // Wall clock jumps 7 s forward inside a 3 s interval: the meter
+        // integrates the monotonic 3 s, not 10 s.
+        meter_one(&mut s, true, 0, (0, 0), &POWERS);
+        s.last_event_ms = 10_000;
+        s.accepted = 1;
+        meter_one(&mut s, true, 0, (10_000, 3_000), &POWERS);
+        let e = s.energy.as_ref().expect("metered");
+        assert_eq!((e.joules, e.shares, e.metered_ms), (600.0, 1, 3_000));
+        assert_eq!(e.joules_per_share, Some(600.0));
+    }
+
+    #[test]
+    fn a_launch_takes_the_worker_off_work_and_forgets_the_adapter() {
+        let mut s = on_work("RTX A");
+        assert!(s.in_work);
+        on_launch(&mut s, 5);
+        assert!(!s.in_work, "a relaunch is not on work until it says so");
+        assert_eq!(s.adapter, None);
+        assert_eq!((s.running, s.last_event_ms), (true, 5));
+        assert_eq!(metered_watts(&s, true, 5, 0, &POWERS), None);
     }
 
     #[test]

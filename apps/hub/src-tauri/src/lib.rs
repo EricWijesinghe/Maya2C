@@ -18,7 +18,7 @@ mod watchdog;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::Manager;
@@ -156,6 +156,7 @@ fn miner_state(state: tauri::State<'_, Miner>) -> MinerReport {
 /// `nvidia-smi`. A tick without a reading never stops or restarts a GPU.
 fn supervise(app: tauri::AppHandle) {
     let mut tick: u64 = 0;
+    let epoch = Instant::now();
     loop {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
@@ -164,8 +165,11 @@ fn supervise(app: tauri::AppHandle) {
             let report = gpu::read();
             // The same reading feeds the energy meter, so watts and shares
             // are sampled together every third second. Stamped after the
-            // read returns, so a slow nvidia-smi does not shift the interval.
-            miner.meter(miner::now_ms(), &gpu::powers(&report));
+            // read returns, so a slow nvidia-smi does not shift the interval;
+            // intervals are measured on `epoch`, so a clock step cannot
+            // stretch one.
+            let mono = u64::try_from(epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+            miner.meter(miner::now_ms(), mono, &gpu::powers(&report));
             gpu::temperatures(&report)
         } else {
             Vec::new()

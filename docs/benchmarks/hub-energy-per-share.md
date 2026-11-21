@@ -1,7 +1,7 @@
 # Hub: joules per accepted share
 
-The Hub shows, for each GPU it mines on, the energy the card reported per
-share the node accepted. Every figure carries the label
+The Hub shows, for each GPU worker whose card it can identify (below), the
+energy the card reported per share the node accepted. Every figure carries the label
 **"GPU-reported, not wall-measured, unverified"**, in the UI and in the
 `miner_state` report (`workers[].energy`). Eric chose this metric on
 2026-11-14 (founder audit question 29, option A); the decision and its
@@ -31,11 +31,21 @@ An interval is left out, with the shares found inside it, when:
   epoch budget spent) or `error` (RPC down) rather than `work` or `hashrate`;
 - the process ended or was relaunched between the two readings, however soon
   the next reading came (a crash inside the restart backoff included);
-- two readings are more than 10 s apart (`MAX_GAP_MS`, which also covers a
-  clock step).
+- the card nvidia-smi lists at the worker's index is not the adapter the
+  miner said it opened: the miner's `start` event names its wgpu adapter, and
+  the Hub gives the watts only when nvidia-smi's name at the same index is the
+  same (ignoring case and padding). wgpu numbers every adapter on every
+  backend, integrated GPUs included, so on a machine with more than one
+  adapter the two lists often differ, and then no figure is shown;
+- the miner has sent nothing for 10 s (`MAX_GAP_MS`): it reports a hash rate
+  every 2 s, so a hung kernel or a driver reset stops the meter before the
+  60 s stall kill does;
+- two readings are more than 10 s apart (`MAX_GAP_MS`). Intervals are timed
+  on a monotonic clock, so a wall-clock step (NTP, Windows time sync) never
+  stretches one.
 
-Joules and shares therefore always cover the same time, time the card was
-hashing. `metered_ms` says how much time that is.
+Joules and shares therefore always cover the same time: time the miner was on
+work and reporting. `metered_ms` says how much time that is.
 
 ## How to read it
 
@@ -50,6 +60,10 @@ hashing. `metered_ms` says how much time that is.
   estimates, and nothing here supports an efficiency claim. A share is not a
   transaction or a block.
 - **NVIDIA only.** AMD and Intel report no power to the Hub yet.
+- **The index is assumed between identical cards.** The name check catches a
+  different card at the same index, not two cards of the same model listed in
+  a different order by wgpu and by nvidia-smi. On a rig of identical cards,
+  read a per-card figure as "one of these cards".
 - Energy has **no consensus role**. The figure never leaves the Hub except in
   its own status report, and it never touches a payout.
 

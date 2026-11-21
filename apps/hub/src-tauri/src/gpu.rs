@@ -78,14 +78,16 @@ pub fn temperatures(report: &GpuReport) -> Vec<(u32, f64)> {
         .collect()
 }
 
-/// Each adapter's reported board power as `(index, W)`, for the energy meter.
-/// An adapter with no reading is left out, which ends its metered stretch.
+/// Each adapter's reported board power as `(index, name, W)`, for the energy
+/// meter. The name lets the meter check that nvidia-smi's index is the card
+/// the miner opened. An adapter with no reading is left out, which ends its
+/// metered stretch.
 #[must_use]
-pub fn powers(report: &GpuReport) -> Vec<(u32, f64)> {
+pub fn powers(report: &GpuReport) -> Vec<(u32, &str, f64)> {
     report
         .devices
         .iter()
-        .filter_map(|g| Some((g.index, g.power_w?)))
+        .filter_map(|g| Some((g.index, g.name.as_str(), g.power_w?)))
         .collect()
 }
 
@@ -150,7 +152,7 @@ mod tests {
             note: None,
         };
         assert_eq!(temperatures(&report), [(0, 61.0)]);
-        assert_eq!(powers(&report), [(0, 182.4), (1, 90.1)]);
+        assert_eq!(powers(&report), [(0, "RTX A", 182.4), (1, "RTX B", 90.1)]);
     }
 
     #[test]
