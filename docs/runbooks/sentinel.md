@@ -106,7 +106,7 @@ Two nodes report different block ids at the same height. The push names both ids
 
 ### Supply does not add up (`supply-mismatch:<node>`, Critical)
 
-`circulating + burned` differs from `total` on one node. This is a
+`circulating + burned + reserve` differs from `total` on one node. This is a
 conservation failure.
 
 - **Check:** the node's `get_supply` output, and whether it was just restarted
