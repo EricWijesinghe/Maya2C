@@ -44,8 +44,9 @@ are specified only by the node's code and `crates/dag-bft`, and have no rule
 IDs yet.
 
 Attestation collection is node-local, not a validity rule: a node counts one
-attestation per `(epoch, height, validator)`, refuses one that does not verify
-against the epoch's committee, and ignores a repeat naming the block already
+attestation per `(epoch, height, validator)`, refuses one of another epoch than
+its collector's and one that does not verify against the epoch's committee, and
+ignores a repeat naming the block already
 counted without verifying it again (ADR-147). No rule IDs, no vectors. Node:
 `crates/node/src/consensus/bft/attest.rs`.
 

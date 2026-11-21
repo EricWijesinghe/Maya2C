@@ -75,12 +75,19 @@ permissions before being tightened.
    enter the `seen` table, so nothing unverified is ever counted. Both driver
    call sites act only on `Equivocation`, so no penalty path changes. Test:
    `a_replay_of_a_counted_attestation_is_ignored_before_verification`.
-6. **The double-sign guard needs the safety log itself.** An `epoch-*`
-   directory counts only if it contains `safety.log`. `SafetyStore::open` creates
-   that file with the directory, so an honest validator always has it. A
-   validator whose log was removed now refuses to start without
-   `--i-know-this-validator-never-signed`. Test:
-   `safety_guard::tests::only_an_epoch_directory_counts_as_a_safety_log`.
+6. **The double-sign guard needs the current epoch's safety log itself.** Only
+   `epoch-N/safety.log` counts, where `N` is the epoch the driver will run (the
+   committed staking epoch, else the genesis setup's, as `BftDriver::open`
+   chooses it). `SafetyStore::open` creates that file with the directory, so an
+   honest validator always has it. Another epoch's log does not count: the
+   previous epoch's directory is kept after a new one starts, so it survives the
+   loss of the current one, and it says nothing about the current epoch's rounds
+   (amended 2026-11-21 after the independent AI review's CON-04). A validator
+   whose current log was removed refuses to start without
+   `--i-know-this-validator-never-signed`; so does one stopped at an epoch
+   boundary before its driver opened the new epoch, which has signed nothing in
+   it and may pass the flag. Test:
+   `safety_guard::tests::only_the_current_epochs_safety_log_counts`.
 7. **The node key file is created owner-only and never overwritten.** Mode 0600
    is set at `open` (Unix), `create_new` refuses an existing file, a failed write
    removes the partial file, the file is synced (`sync_all`) before the node
@@ -88,6 +95,13 @@ permissions before being tightened.
    it is read at start. Tests:
    `a_new_key_file_is_never_overwritten`, `a_new_key_file_is_owner_only_from_creation`
    (Unix), `a_failed_seed_write_leaves_no_partial_key_file`.
+8. **An attestation collector is bound to its epoch.** The driver's collector
+   (and the closing epoch's, which keeps it) refuses an attestation of another
+   epoch before verifying or counting it. The driver already routes attestations
+   by epoch; the binding keeps the rule in the collector, because the same keys at
+   the same indices verify in two epochs (review CON-23, 2026-11-21). An unbound
+   `Collector::default()` behaves as before. Test:
+   `a_bound_collector_refuses_a_valid_attestation_of_another_epoch`.
 
 ## Consequences
 
@@ -119,8 +133,6 @@ permissions before being tightened.
   This is node-local and does not touch consensus or the JSON-RPC server; the
   previous behaviour let idle sockets hold tasks and file descriptors without
   limit for the whole process. A per-IP share is left open.
-- The safety guard still checks every epoch directory, not only the current
-  epoch's; scoping it needs the epoch passed in and is left open.
 - Windows has no mode bits; owner-only ACLs for the key file stay with ADR-049.
 - Invariant review (`docs/invariants.md`, 1-34): none is touched. No item
   writes state, reads a clock in a validity rule, or changes what a block,
