@@ -55,9 +55,18 @@ struct FakeNode {
     /// `get_balance` calls running now, and the most seen at once.
     in_flight: AtomicUsize,
     peak: AtomicUsize,
+    /// `get_chain_info` and `get_checkpoint` hang this long, as a blackholed
+    /// node does, rather than refusing at once.
+    stall: Option<Duration>,
 }
 
 impl FakeNode {
+    async fn stall(&self) {
+        if let Some(wait) = self.stall {
+            tokio::time::sleep(wait).await;
+        }
+    }
+
     fn answer(&self) -> Result<()> {
         if self.down.load(Ordering::SeqCst) {
             Err(ExplorerError::NodeRpc("connection refused".to_string()))
@@ -70,6 +79,7 @@ impl FakeNode {
 #[async_trait]
 impl NodeSource for FakeNode {
     async fn chain(&self) -> Result<ChainInfo> {
+        self.stall().await;
         self.answer()?;
         if self.chain_down.load(Ordering::SeqCst) {
             return Err(ExplorerError::NodeRpc("timed out".to_string()));
@@ -82,6 +92,7 @@ impl NodeSource for FakeNode {
     }
 
     async fn checkpoint(&self) -> Result<Option<CheckpointInfo>> {
+        self.stall().await;
         self.answer()?;
         Ok(self.finalized.map(|height| CheckpointInfo {
             epoch: 1,
@@ -761,6 +772,46 @@ async fn node_down_blocks_live_routes_and_leaves_history_working() {
     assert!(status.body["tip_height"].is_null());
     assert_eq!(status.body["indexed_height"], 3);
     assert!(!status.headers.contains_key("x-tip-height"));
+}
+
+#[tokio::test]
+async fn a_hanging_node_does_not_queue_history_requests() {
+    // Each stalled call outlasts the whole test budget, so a fix that only
+    // shortened the wait per caller, not the queue, still fails.
+    let node = Arc::new(FakeNode {
+        finalized: Some(3),
+        stall: Some(Duration::from_secs(30)),
+        ..FakeNode::default()
+    });
+    let app = build_app(seeded(5).await, node);
+    let started = std::time::Instant::now();
+    let mut tasks = Vec::new();
+    for n in 0..20 {
+        let app = app.clone();
+        let uri = if n % 2 == 0 {
+            "/api/v1/blocks".to_string()
+        } else {
+            format!("/api/v1/blocks/{}", 1 + n % 5)
+        };
+        tasks.push(tokio::spawn(async move { get(&app, &uri).await.status }));
+    }
+    // Twice the 500 ms bound on optional node lookups (api::OPTIONAL_NODE_WAIT).
+    let budget = Duration::from_secs(1);
+    let all = tokio::time::timeout(budget * 4, async {
+        let mut statuses = Vec::new();
+        for task in tasks {
+            statuses.push(task.await.unwrap());
+        }
+        statuses
+    })
+    .await
+    .expect("history requests queued behind a hanging node");
+    assert!(
+        all.iter().all(|status| *status == StatusCode::OK),
+        "{all:?}"
+    );
+    let took = started.elapsed();
+    assert!(took < budget, "20 history requests took {took:?}");
 }
 
 #[tokio::test]

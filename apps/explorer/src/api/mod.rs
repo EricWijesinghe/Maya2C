@@ -17,6 +17,7 @@ pub mod problem;
 pub mod query;
 pub mod respond;
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +35,7 @@ use crate::api::cache::TtlCache;
 use crate::api::node::{Mempool, NodeSource};
 use crate::api::problem::{Code, problem_response};
 use crate::api::respond::Freshness;
+use crate::error::ExplorerError;
 use crate::store::BlockStore;
 
 /// How long live node answers are reused. Short: a wallet should see a new
@@ -90,9 +92,8 @@ pub struct LiveCache {
     pub mempool: TtlCache<Mempool>,
     /// The node's block id, keyed by height (see [`freshness`]).
     pub canonical: TtlCache<String>,
-    /// The `/status` body: its counts are full scans of the store, whose
-    /// pool the indexer writes through.
-    pub status: TtlCache<dto::Status>,
+    /// The `/status` body: its counts are full scans of the store.
+    pub status: TtlCache<dto::Status, problem::ApiError>,
 }
 
 /// What every v1 handler needs.
@@ -185,10 +186,25 @@ pub const RATELIMIT_REMAINING: HeaderName = HeaderName::from_static("ratelimit-r
 /// Seconds until the window resets.
 pub const RATELIMIT_RESET: HeaderName = HeaderName::from_static("ratelimit-reset");
 
+/// How long a lookup the response can do without (tip, network, finality,
+/// the canonical check) waits for the node. A node that hangs then costs a
+/// history request this much, once per [`cache::FAILURE_TTL`], instead of
+/// [`node::NODE_TIMEOUT`] per caller queued on the same cache slot.
+pub const OPTIONAL_NODE_WAIT: Duration = Duration::from_millis(500);
+
+/// `call`, or a node error once [`OPTIONAL_NODE_WAIT`] passes.
+async fn optional<T>(
+    call: impl Future<Output = Result<T, ExplorerError>>,
+) -> Result<T, ExplorerError> {
+    tokio::time::timeout(OPTIONAL_NODE_WAIT, call)
+        .await
+        .unwrap_or_else(|_| Err(ExplorerError::NodeRpc("no answer in time".to_string())))
+}
+
 /// The chain's identity and the node's tip, if it answers. Never an error:
 /// history must keep working while the node is down.
 pub async fn chain_meta(state: &ApiState) -> Option<ChainInfo> {
-    let fetch = || async { state.node.chain().await };
+    let fetch = || optional(state.node.chain());
     state
         .live
         .chain
@@ -218,7 +234,7 @@ pub async fn freshness(state: &ApiState, height: i64, block_id: &str) -> Freshne
     let Ok(at) = u64::try_from(height) else {
         return Freshness::Short;
     };
-    let fetch = || async { state.node.block_id(at).await };
+    let fetch = || optional(state.node.block_id(at));
     match state
         .live
         .canonical
@@ -232,7 +248,7 @@ pub async fn freshness(state: &ApiState, height: i64, block_id: &str) -> Freshne
 
 /// The finalized height, if the chain has a finality checkpoint.
 pub async fn finalized_height(state: &ApiState) -> Option<u64> {
-    let fetch = || async { state.node.checkpoint().await };
+    let fetch = || optional(state.node.checkpoint());
     state
         .live
         .checkpoint

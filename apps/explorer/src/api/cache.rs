@@ -3,7 +3,8 @@
 //! The node's live answers are cheap for one caller and expensive under load:
 //! `get_supply` scans every account. When many requests miss at once, the
 //! first one fetches and the rest wait on its result rather than each asking
-//! the node again.
+//! the node again. A failure is reused too, briefly: behind a node that hangs,
+//! callers queued on one fetch would otherwise each wait out a fetch of their own.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -12,28 +13,35 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
+use crate::error::ExplorerError;
+
 /// Hard cap on cached keys. A stream of distinct addresses cannot grow the
 /// table past it; a key that arrives while the table is full and nothing has
 /// expired is fetched without being cached.
 pub const MAX_SLOTS: usize = 1024;
 
-/// One key's value and when it was fetched. Its own lock is the single-flight
-/// gate: holders of the lock are the only ones fetching that key.
-type Slot<V> = Arc<Mutex<Option<(Instant, V)>>>;
+/// How long a failed fetch is answered from the cache: callers that queued
+/// behind it, or arrive this soon after it, get its error without asking again.
+/// Never longer than the key's own TTL.
+pub const FAILURE_TTL: Duration = Duration::from_secs(1);
 
-struct Table<V> {
-    slots: HashMap<String, Slot<V>>,
+/// One key's last outcome and when it was fetched. Its own lock is the
+/// single-flight gate: holders of the lock are the only ones fetching that key.
+type Slot<V, E> = Arc<Mutex<Option<(Instant, Result<V, E>)>>>;
+
+struct Table<V, E> {
+    slots: HashMap<String, Slot<V, E>>,
     /// When a full table was last swept. A sweep is O(n) under the table
     /// lock, so a full table is swept at most once per TTL, not per new key.
     swept: Option<Instant>,
 }
 
 /// A cache of `V` by string key, each entry valid for a fixed time.
-pub struct TtlCache<V> {
-    table: Mutex<Table<V>>,
+pub struct TtlCache<V, E = ExplorerError> {
+    table: Mutex<Table<V, E>>,
 }
 
-impl<V: Clone + Send> Default for TtlCache<V> {
+impl<V: Clone + Send, E: Clone + Send> Default for TtlCache<V, E> {
     fn default() -> Self {
         Self {
             table: Mutex::new(Table {
@@ -53,16 +61,17 @@ pub enum Source {
     Miss,
 }
 
-impl<V: Clone + Send> TtlCache<V> {
+impl<V: Clone + Send, E: Clone + Send> TtlCache<V, E> {
     /// Returns the cached value for `key` if it is younger than `ttl`,
     /// otherwise runs `fetch` once for all concurrent callers.
     ///
-    /// Errors are not cached: the next caller retries the node.
+    /// An error is reused for [`FAILURE_TTL`] (or `ttl`, if shorter); after
+    /// that the next caller retries.
     ///
     /// # Errors
     ///
-    /// Whatever `fetch` returns.
-    pub async fn get_or_fetch<E, F, Fut>(
+    /// Whatever `fetch` returns, or returned under [`FAILURE_TTL`] ago.
+    pub async fn get_or_fetch<F, Fut>(
         &self,
         key: &str,
         ttl: Duration,
@@ -74,20 +83,24 @@ impl<V: Clone + Send> TtlCache<V> {
     {
         let slot = self.slot(key, ttl).await;
         let mut entry = slot.lock().await;
-        if let Some((at, value)) = entry.as_ref()
-            && at.elapsed() < ttl
-        {
-            return Ok((value.clone(), Source::Hit));
+        match entry.as_ref() {
+            Some((at, Ok(value))) if at.elapsed() < ttl => {
+                return Ok((value.clone(), Source::Hit));
+            }
+            Some((at, Err(error))) if at.elapsed() < ttl.min(FAILURE_TTL) => {
+                return Err(error.clone());
+            }
+            _ => {}
         }
-        let value = fetch().await?;
-        *entry = Some((Instant::now(), value.clone()));
-        Ok((value, Source::Miss))
+        let outcome = fetch().await;
+        *entry = Some((Instant::now(), outcome.clone()));
+        outcome.map(|value| (value, Source::Miss))
     }
 
     /// The slot for `key`, created if absent. A full table is swept of expired
     /// slots (never one being fetched right now); if it is still full, the
     /// caller gets a private slot that is not cached.
-    async fn slot(&self, key: &str, ttl: Duration) -> Slot<V> {
+    async fn slot(&self, key: &str, ttl: Duration) -> Slot<V, E> {
         let mut table = self.table.lock().await;
         if let Some(slot) = table.slots.get(key) {
             return Arc::clone(slot);
@@ -122,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn fresh_value_is_served_without_a_fetch() {
-        let cache = TtlCache::<u32>::default();
+        let cache = TtlCache::<u32, ()>::default();
         let calls = AtomicUsize::new(0);
         for _ in 0..3 {
             let fetch = || async {
@@ -139,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_misses_share_one_fetch() {
-        let cache = Arc::new(TtlCache::<u32>::default());
+        let cache = Arc::new(TtlCache::<u32, ()>::default());
         let calls = Arc::new(AtomicUsize::new(0));
         let mut tasks = Vec::new();
         for _ in 0..50 {
@@ -162,16 +175,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn errors_are_not_cached() {
-        let cache = TtlCache::<u32>::default();
+    async fn waiters_behind_a_failing_fetch_share_its_error() {
+        let cache = Arc::new(TtlCache::<u32, &str>::default());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for _ in 0..20 {
+            let (cache, calls) = (Arc::clone(&cache), Arc::clone(&calls));
+            tasks.push(tokio::spawn(async move {
+                let fetch = || async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Err::<u32, _>("timed out")
+                };
+                cache
+                    .get_or_fetch("chain", Duration::from_secs(60), fetch)
+                    .await
+            }));
+        }
+        for task in tasks {
+            assert_eq!(task.await.unwrap(), Err("timed out"));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failure_is_retried_once_its_window_passes() {
+        let cache = TtlCache::<u32, &str>::default();
         let failed = cache
-            .get_or_fetch("k", Duration::from_secs(60), || async {
-                Err::<u32, _>("down")
-            })
+            .get_or_fetch("k", Duration::ZERO, || async { Err::<u32, _>("down") })
             .await;
-        assert!(failed.is_err());
+        assert_eq!(failed, Err("down"));
+        // A zero TTL caps the failure window at zero too, so this fetches.
         let (value, source) = cache
-            .get_or_fetch("k", Duration::from_secs(60), || async { Ok::<_, &str>(3) })
+            .get_or_fetch("k", Duration::ZERO, || async { Ok::<_, &str>(3) })
             .await
             .unwrap();
         assert_eq!((value, source), (3, Source::Miss));
@@ -179,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_full_table_stops_growing_and_still_answers() {
-        let cache = TtlCache::<usize>::default();
+        let cache = TtlCache::<usize, ()>::default();
         let long = Duration::from_secs(60);
         for n in 0..MAX_SLOTS + 50 {
             let (value, _) = cache
@@ -206,7 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn expired_value_is_refetched() {
-        let cache = TtlCache::<u32>::default();
+        let cache = TtlCache::<u32, ()>::default();
         cache
             .get_or_fetch("k", Duration::ZERO, || async { Ok::<_, ()>(1) })
             .await
