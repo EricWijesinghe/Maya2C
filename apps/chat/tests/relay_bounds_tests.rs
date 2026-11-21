@@ -4,7 +4,7 @@
 
 use maya_chat::ChatError;
 use maya_chat::identity::{Identity, PrekeyBundle};
-use maya_chat::relay::{Envelope, Payload, Relay};
+use maya_chat::relay::{Envelope, MAX_CHALLENGES, Payload, Relay, fetch_bytes};
 use maya_chat::session::Message;
 
 const NOW: u64 = 1_800_000_000;
@@ -58,6 +58,28 @@ fn an_oversized_prekey_is_refused_even_when_signed() {
     relay
         .publish(bundle_with_prekey(&bob, real, NOW + DAY), NOW)
         .unwrap();
+}
+
+#[test]
+fn a_full_challenge_table_does_not_lock_the_owner_out() {
+    let bob = Identity::from_seed([2; 32]);
+    let mut relay = Relay::new(0);
+    relay
+        .deposit(envelope(bob.address(), 0, 1, NOW + DAY), NOW)
+        .unwrap();
+    for i in 0..MAX_CHALLENGES {
+        let mut stranger = [0xEE; 32];
+        stranger[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        relay.challenge(stranger, NOW).unwrap();
+    }
+    let nonce = relay.challenge(bob.address(), NOW).unwrap();
+    let sig = bob
+        .sign(&fetch_bytes(relay.id(), &bob.address(), &nonce))
+        .unwrap();
+    let got = relay
+        .fetch(bob.address(), bob.public_key(), &sig, NOW)
+        .unwrap();
+    assert_eq!(got.len(), 1);
 }
 
 #[test]

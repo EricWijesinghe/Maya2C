@@ -382,11 +382,19 @@ impl Relay {
         }
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce).map_err(|_| ChatError::Entropy)?;
-        if self.challenges.len() >= MAX_CHALLENGES {
+        if !self.challenges.contains_key(&address) && self.challenges.len() >= MAX_CHALLENGES {
             self.challenges
                 .retain(|_, (_, issued)| now.saturating_sub(*issued) <= CHALLENGE_TTL);
-            if self.challenges.len() >= MAX_CHALLENGES {
-                return Err(ChatError::Refused("too many outstanding challenges"));
+            // Challenges are free to ask for, so a full table must not lock
+            // owners out: the oldest outstanding one gives way instead.
+            if self.challenges.len() >= MAX_CHALLENGES
+                && let Some(oldest) = self
+                    .challenges
+                    .iter()
+                    .min_by_key(|(_, (_, issued))| *issued)
+                    .map(|(address, _)| *address)
+            {
+                self.challenges.remove(&oldest);
             }
         }
         self.challenges.insert(address, (nonce, now));
