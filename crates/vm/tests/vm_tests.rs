@@ -54,7 +54,7 @@ fn the_wasmtime_version_pin_has_not_drifted() {
     let actual = env!("CARGO_PKG_VERSION_MAJOR");
     let _ = actual;
     assert_eq!(
-        WASMTIME_VERSION, "48.0.7",
+        WASMTIME_VERSION, "48.0.10",
         "the recorded wasmtime version changed; verify the gas schedule"
     );
 }
@@ -654,6 +654,43 @@ fn a_memory64_module_is_rejected() {
         r#"(module
             (memory (export "memory") i64 1)
             (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+    );
+}
+
+// GHSA-rc4p-x33f-vpr2 (fixed in wasmtime 48.0.9): in a build without the `gc`
+// cargo feature, which this is, the GC proposal stays on, and a runtime check
+// against a non-final (`sub`) function type by `call_indirect`, `ref.test`,
+// `ref.cast` or `br_on_cast` reached an unimplemented builtin that ended the
+// host process. The next two pin why no contract reaches that check here, on
+// 48.0.8 as on 48.0.10: the VM refuses every table, and the cast instructions
+// need a reference value that cannot be made with reference types off.
+
+#[test]
+fn a_call_indirect_against_a_non_final_type_is_refused_before_it_runs() {
+    let vm = Vm::new().expect("vm");
+    let module = wasm(
+        r#"(module
+            (type $t (sub (func (result i64))))
+            (table 1 funcref)
+            (elem (i32.const 0) $f)
+            (func $f (type $t) (i64.const 0))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (call_indirect (type $t) (i32.const 0))))"#,
+    );
+    let exec = vm.execute(&module, CONTRACT, &[], 1_000_000, MemoryState::default());
+    assert!(exec.outcome.is_err(), "a module with a table must not run");
+}
+
+#[test]
+fn a_ref_test_module_is_rejected() {
+    assert_rejected(
+        r#"(module
+            (type $t (sub (func)))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (drop (ref.test (ref $t) (ref.null func)))
+              (i64.const 0)))"#,
     );
 }
 

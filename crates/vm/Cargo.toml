@@ -39,6 +39,12 @@ maya-contract-safety = { path = "../contract-safety" }
 # 48.0.7 -> 48.0.8 (2026-10-31, RUSTSEC-2026-0422/0423/0424): all three sit in
 # gc / component-model, both disabled below, so not reachable here; bumped
 # anyway before mainnet genesis so the launch build carries no open advisory.
+# 48.0.8 -> 48.0.10 (2026-11-21, RUSTSEC-2026-0566..0573 fixed in 48.0.9;
+# 48.0.10 adds a Windows-only wasmtime-wasi path fix this crate does not link).
+# Neither release note touches fuel, Cranelift codegen or Pulley.
+# `tests/gas_golden_tests.rs`, recorded on 48.0.8, passes unchanged on 48.0.10:
+# same gas, same out-of-gas boundary, same output for every vector. Rides the
+# mainnet genesis, which is a fresh chain.
 #
 # default-features = false drops gc, component-model, threads, and
 # stack-switching, each of which is a determinism or attack-surface liability
@@ -46,7 +52,7 @@ maya-contract-safety = { path = "../contract-safety" }
 # The module cache key. Already in the tree through `archive`, `identity`
 # and `rwa`; the cache needs a digest, not anything algebraic.
 blake3 = "1"
-wasmtime = { version = "=48.0.8", default-features = false, features = [
+wasmtime = { version = "=48.0.10", default-features = false, features = [
     "cranelift",
     # The Pulley interpreter tier (`src/tier.rs`). Without it wasmtime can
     # compile *to* Pulley but refuses to run the bytecode on a native host.
