@@ -503,3 +503,51 @@ fn a_share_whose_nonce_leaves_a_gap_is_refused() {
         "the gap is filled"
     );
 }
+
+/// A pooled share's work was hashed at admission and cannot go bad, so the
+/// per-round prune on the BFT consensus task must not hash it again: a pool
+/// of shares past the block's share cap would otherwise cost every validator
+/// ~2 ms per share every round (review of #653).
+#[test]
+fn pruning_dropped_shares_does_not_hash_their_work_again() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 3);
+    let txs: Vec<Transaction> = (0u64..)
+        .zip(&good)
+        .map(|(tx_nonce, &work)| share(1, work, tx_nonce))
+        .collect();
+    for tx in &txs {
+        assert!(pool.insert(tx.clone()).unwrap());
+    }
+
+    let before = c.state().share_proofs();
+    let ids: Vec<_> = txs.iter().map(Transaction::txid).collect();
+    assert_eq!(pool.prune_invalid(&ids), 0, "every share can still pay");
+    assert_eq!(c.state().share_proofs(), before, "the prune re-hashed work");
+    assert_eq!(pool.len(), 3);
+}
+
+/// The cheap share rules still prune: once the epoch closes, a pooled share
+/// for it can never pay, and it goes without its work being hashed.
+#[test]
+fn a_dropped_share_from_a_closed_epoch_is_pruned_without_hashing() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let work = find_shares(&c, 1, 0, 1)[0];
+    let tx = share(1, work, 0);
+    assert!(pool.insert(tx.clone()).unwrap());
+    for h in H1..=2 * EPOCH_BLOCKS {
+        mine(&mut c, h, Vec::new()).unwrap();
+    }
+    assert_eq!(c.state().committed_mining().unwrap().unwrap().epoch, 2);
+
+    let before = c.state().share_proofs();
+    assert_eq!(pool.prune_invalid(&[tx.txid()]), 1);
+    assert_eq!(c.state().share_proofs(), before);
+    assert!(pool.is_empty());
+}

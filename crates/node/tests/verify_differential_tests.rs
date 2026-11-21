@@ -2,7 +2,7 @@
 //! honest signatures.
 //!
 //! The node checks the lattice half of a hybrid signature with `fips204`; suite
-//! `0x30` checks the same bytes with RustCrypto `ml-dsa`. `suite_parity_tests`
+//! `0x30` checks the same bytes with `RustCrypto` `ml-dsa`. `suite_parity_tests`
 //! pins that both *sign* identically. This file pins the other direction: for
 //! corrupted signatures, corrupted keys and altered messages, both verifiers
 //! must return the same verdict. A disagreement here is a disagreement between

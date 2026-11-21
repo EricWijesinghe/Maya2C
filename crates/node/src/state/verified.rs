@@ -28,6 +28,7 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use maya_crypto_pq::agility::SuitePolicy;
 
@@ -41,6 +42,9 @@ pub const CAPACITY: usize = 131_072;
 #[derive(Debug, Default)]
 pub struct VerifiedCache {
     inner: Mutex<Inner>,
+    /// Full verifications run (misses plus every v8 frame): a diagnostic for
+    /// tests that a path does not re-verify, never read by consensus.
+    verifications: AtomicU64,
 }
 
 #[derive(Debug, Default)]
@@ -67,6 +71,7 @@ impl VerifiedCache {
         chain: &ChainTag,
     ) -> Result<()> {
         if tx.multisig.is_some() {
+            self.verifications.fetch_add(1, Ordering::Relaxed);
             return tx.verify_at(height, policy, chain);
         }
         if let Some(auth) = &tx.suite_auth {
@@ -80,9 +85,16 @@ impl VerifiedCache {
         if self.contains(&key) {
             return Ok(());
         }
+        self.verifications.fetch_add(1, Ordering::Relaxed);
         tx.verify_at(height, policy, chain)?;
         self.insert(key);
         Ok(())
+    }
+
+    /// Full verifications run since this cache was created.
+    #[must_use]
+    pub fn verifications(&self) -> u64 {
+        self.verifications.load(Ordering::Relaxed)
     }
 
     /// Entries held.

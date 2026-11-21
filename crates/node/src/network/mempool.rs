@@ -327,6 +327,56 @@ impl Mempool {
         {
             return self.validate_share(tx, share);
         }
+        let sender_address = self.check_against_state(tx)?;
+
+        // Then the signature, with the same rule block execution applies, at
+        // the first height this transaction could execute at, under the policy
+        // governance has chosen:
+        //
+        // - Suite-tagged (v7) and multisig (v8) frames are judged here at all.
+        //   `verify` has no height, so it refuses them, and a mempool using it
+        //   would drop every one before the executor ever saw it.
+        // - The height is the tip's successor, the earliest block this
+        //   transaction can be included in. Admission is advisory:
+        //   `stage_transaction` re-checks at the block's real height.
+        // - The policy comes from the governance table, which is what makes
+        //   `ParameterKey::DefaultSignatureSuite` a parameter the node reads
+        //   rather than a number in a struct. It chooses what wallets should
+        //   sign with; it does not decide what verifies. Refusing to relay a
+        //   suite that blocks still accept would strand valid transactions
+        //   without changing any block's validity, so the admissibility test
+        //   here is the one consensus applies.
+        let height = self.admission_height()?;
+        let sunsets = self.state.effective_schedule()?.sunsets;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
+        self.state.verify_cached(tx, height, &policy)?;
+
+        // Evidence is stateless to check, so garbage never reaches a block
+        // template — the executor checks it again regardless. Chain tag is required
+        // for signature verification (ADR-036).
+        if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
+            // Admission only: the executor re-checks under the committed schedule
+            // (ADR-082), and a mempool refusal is advisory.
+            crate::state::threat_exec::verify_evidence(
+                attestation,
+                height,
+                self.state.get_chain_tag()?,
+                &sunsets,
+            )?;
+        }
+        crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
+
+        self.check_breaker(&tx.kind)
+    }
+
+    /// The checks of [`Mempool::validate`] that read committed state, short of
+    /// the signature: the base fee, an empty sender, a stale nonce or a gap, an
+    /// unaffordable spend, a vault's policy. Returns the sender.
+    ///
+    /// A signature verified at admission cannot go bad later, so these are
+    /// what can turn a pooled entry stale; [`Mempool::prune_invalid`] runs
+    /// only these.
+    fn check_against_state(&self, tx: &Transaction) -> Result<Address> {
         if let Some(fees) = self.state.committed_fees()? {
             let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
             let offered = tx
@@ -378,45 +428,7 @@ impl Mempool {
             &sender_address,
             self.admission_height()?,
         )?;
-
-        // Then the signature, with the same rule block execution applies, at
-        // the first height this transaction could execute at, under the policy
-        // governance has chosen:
-        //
-        // - Suite-tagged (v7) and multisig (v8) frames are judged here at all.
-        //   `verify` has no height, so it refuses them, and a mempool using it
-        //   would drop every one before the executor ever saw it.
-        // - The height is the tip's successor, the earliest block this
-        //   transaction can be included in. Admission is advisory:
-        //   `stage_transaction` re-checks at the block's real height.
-        // - The policy comes from the governance table, which is what makes
-        //   `ParameterKey::DefaultSignatureSuite` a parameter the node reads
-        //   rather than a number in a struct. It chooses what wallets should
-        //   sign with; it does not decide what verifies. Refusing to relay a
-        //   suite that blocks still accept would strand valid transactions
-        //   without changing any block's validity, so the admissibility test
-        //   here is the one consensus applies.
-        let height = self.admission_height()?;
-        let sunsets = self.state.effective_schedule()?.sunsets;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
-        self.state.verify_cached(tx, height, &policy)?;
-
-        // Evidence is stateless to check, so garbage never reaches a block
-        // template — the executor checks it again regardless. Chain tag is required
-        // for signature verification (ADR-036).
-        if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
-            // Admission only: the executor re-checks under the committed schedule
-            // (ADR-082), and a mempool refusal is advisory.
-            crate::state::threat_exec::verify_evidence(
-                attestation,
-                height,
-                self.state.get_chain_tag()?,
-                &sunsets,
-            )?;
-        }
-        crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
-
-        self.check_breaker(&tx.kind)
+        Ok(sender_address)
     }
 
     /// Admission for a fee-free mining share (ADR-044). Cheapest first: a
@@ -429,6 +441,19 @@ impl Mempool {
         tx: &Transaction,
         share: &crate::core::mining_payload::MiningShare,
     ) -> Result<()> {
+        let miner = self.check_share_nonce(tx)?;
+        self.state.check_mining_share(&miner, share)?;
+        let height = self.admission_height()?;
+        let sunsets = self.state.effective_schedule()?.sunsets;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
+        self.state.verify_cached(tx, height, &policy)?;
+        self.check_breaker(&tx.kind)
+    }
+
+    /// A share's nonce rules: not stale, and, since a share runs at its exact
+    /// nonce like any transaction, the same window and gap rules (CT-04).
+    /// Returns the miner.
+    fn check_share_nonce(&self, tx: &Transaction) -> Result<Address> {
         let miner = tx.sender();
         let account = self.state.get_account(&miner)?;
         if tx.nonce < account.nonce {
@@ -438,14 +463,31 @@ impl Mempool {
                 actual: tx.nonce,
             });
         }
-        // A share runs at its exact nonce like any transaction, so the same
-        // window and gap rules apply (CT-04).
         self.check_no_gap(&miner, account.nonce, tx.nonce)?;
-        self.state.check_mining_share(&miner, share)?;
-        let height = self.admission_height()?;
-        let sunsets = self.state.effective_schedule()?.sunsets;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
-        self.state.verify_cached(tx, height, &policy)?;
+        Ok(miner)
+    }
+
+    /// Whether a pooled entry can still execute, judged by the rules committed
+    /// state can change: [`Mempool::check_against_state`], or for a share its
+    /// nonce and share rules without the proof of work, then the circuit
+    /// breaker. No signature is verified and no work is hashed: both were
+    /// checked at admission and are fixed by the entry's bytes, and this runs
+    /// on the BFT consensus task every round, where re-verifying a pool of v8
+    /// frames or re-hashing shares past the block's share cap would stall it.
+    ///
+    /// shortcut: a v7 or v8 entry whose suite governance sunsets while it is
+    /// pooled is not caught here; the executor drops it and it stays until
+    /// evicted. Upgrade if sunsets become frequent: re-check suite
+    /// admissibility, which is cheap.
+    fn still_executable(&self, tx: &Transaction) -> Result<()> {
+        if let crate::core::TxKind::MiningShare(share) = &tx.kind
+            && tx.outputs.is_empty()
+        {
+            let miner = self.check_share_nonce(tx)?;
+            self.state.check_mining_share_state(&miner, share)?;
+        } else {
+            self.check_against_state(tx)?;
+        }
         self.check_breaker(&tx.kind)
     }
 
@@ -659,10 +701,23 @@ impl Mempool {
         }
     }
 
-    /// Re-validates only `hashes`, the entries a committed round ordered but
+    /// A committed round's bookkeeping: removes `included`, then prunes the
+    /// `dropped` entries that can never execute. The order matters: the gap
+    /// check must see the nonces the round committed. Returns how many dropped
+    /// entries were pruned.
+    pub fn settle_round(&self, included: &[TxHash], dropped: &[TxHash]) -> usize {
+        self.remove_all(included);
+        self.prune_invalid(dropped)
+    }
+
+    /// Re-checks only `hashes`, the entries a committed round ordered but
     /// did not execute, and removes those that can never execute: a stale
     /// nonce, a run whose head is gone, a spent share, a balance that no
     /// longer covers them. Returns how many were removed.
+    ///
+    /// Cost: point reads of committed state per entry, no signature and no
+    /// proof of work ([`Mempool::still_executable`]), so it can run on the
+    /// consensus task with a full pool.
     ///
     /// Call it after the round's included entries were removed. Entries are
     /// taken in nonce order per sender and removed one at a time, so removing
@@ -676,7 +731,7 @@ impl Mempool {
         dropped.sort_unstable_by_key(|(sender, nonce, hash, _)| (*sender, *nonce, *hash));
         let mut removed = 0;
         for (_, _, hash, tx) in dropped {
-            if self.validate(&tx).is_err() {
+            if self.still_executable(&tx).is_err() {
                 removed += self.remove_all(&[hash]);
             }
         }

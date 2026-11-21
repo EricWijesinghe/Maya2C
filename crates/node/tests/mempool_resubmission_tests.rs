@@ -124,3 +124,97 @@ fn a_dropped_entry_that_can_still_run_is_kept() {
     assert_eq!(pool.prune_invalid(&[second.txid()]), 0);
     assert!(pool.contains(&second.txid()));
 }
+
+/// A 2-of-2 ML-DSA-87 multisig (v8) spend at `nonce`. v8 frames are never
+/// served from the verified-signature cache, so every check re-verifies them.
+fn multisig_pay(nonce: u64) -> (Transaction, [u8; 32]) {
+    use custom_l1_node::core::multisig_tx::{MultisigAuth, multisig_address};
+    use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
+    use maya_crypto_pq::suite::{MasterSeed, MlDsa87, SignatureSuite};
+
+    let keys: Vec<_> = (1..=2u8)
+        .map(|i| MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([i; 32])))
+        .collect();
+    let listed = keys
+        .iter()
+        .map(|k| PolicyKey {
+            suite: MlDsa87::ID,
+            public_key: MlDsa87::public_key(k),
+        })
+        .collect();
+    let policy = MultisigPolicy::new(2, listed).unwrap();
+    let output = TxOutput {
+        amount: U256::from(1),
+        recipient: [7; 32],
+    };
+    let mut tx = Transaction::new(vec![], vec![output], nonce);
+    tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy.clone())));
+    let message = tx.signing_bytes(&common::test_chain());
+    let approvals = (0..2u8)
+        .map(|i| Approval {
+            index: i,
+            signature: MlDsa87::sign(&keys[usize::from(i)], &message).unwrap(),
+        })
+        .collect();
+    tx.multisig = Some(Box::new(
+        MultisigAuth::new(policy.clone(), approvals).unwrap(),
+    ));
+    (tx, multisig_address(&policy))
+}
+
+/// The prune runs on the BFT consensus task every round. A signature verified
+/// at admission cannot go bad, so re-verifying dropped v8 frames there (up to
+/// sixteen SLH-DSA approvals each) would only stall rounds (review of #653).
+#[test]
+fn pruning_dropped_entries_does_not_verify_signatures_again() {
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    common::bind(&state);
+    let (tx, account) = multisig_pay(0);
+    let funds = Account {
+        balance: U256::from(1_000),
+        nonce: 0,
+    };
+    state.put_account(&account, &funds).unwrap();
+    let pool = Mempool::new(Arc::clone(&state));
+    assert!(pool.insert(tx.clone()).unwrap());
+
+    let before = state.signature_verifications();
+    assert_eq!(pool.prune_invalid(&[tx.txid()]), 0, "it can still run");
+    assert_eq!(
+        state.signature_verifications(),
+        before,
+        "the prune re-verified a signature"
+    );
+    assert!(pool.contains(&tx.txid()));
+}
+
+/// The round's bookkeeping in one call, so its order is tested where the BFT
+/// loop uses it: the included entries leave first, then a dropped entry whose
+/// run lost its head goes too (CT-01).
+#[test]
+fn settling_a_round_removes_included_then_prunes_dropped() {
+    let dir = TempDir::new().unwrap();
+    let state = funded(&dir);
+    let pool = Mempool::new(Arc::clone(&state));
+    let (spent, stale, next) = (pay(0, 1), pay(0, 2), pay(1, 1));
+    for tx in [&spent, &stale, &next] {
+        assert!(pool.insert(tx.clone()).unwrap());
+    }
+    // `spent` executed: the account's nonce moved past `stale`.
+    let sender = signing_key_from_seed(&SEED).unwrap().address();
+    let committed = Account {
+        balance: U256::from(989),
+        nonce: 1,
+    };
+    state.put_account(&sender, &committed).unwrap();
+
+    let pruned = pool.settle_round(&[spent.txid()], &[stale.txid(), next.txid()]);
+    assert_eq!(pruned, 1);
+    assert!(!pool.contains(&spent.txid()), "included entries leave");
+    assert!(
+        !pool.contains(&stale.txid()),
+        "a stale dropped entry is pruned"
+    );
+    assert!(pool.contains(&next.txid()), "nonce 1 still executes");
+}
