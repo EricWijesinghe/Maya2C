@@ -663,27 +663,61 @@ fn a_block_of_fresh_linear_memory_validates_inside_the_block_time() {
     assert_inside("fresh linear memory", ms);
 }
 
+/// Times an empty block on top of `entries` committed contract storage
+/// entries of `value_len` bytes each: the fold, and nothing else.
+fn time_fold(entries: u32, value_len: usize) -> (f64, u64) {
+    let fixture = fixture(1);
+    let value = vec![1u8; value_len];
+    for i in 0..entries {
+        let mut key = b"cstate:".to_vec();
+        key.extend_from_slice(&[9u8; 32]);
+        key.extend_from_slice(&i.to_le_bytes());
+        fixture.db.raw_put_for_test(&key, &value).unwrap();
+    }
+    let size = fixture.db.contract_state_size_scan().unwrap();
+    // The median of three, on the same state: the first apply also warms the
+    // block cache.
+    let mut runs: Vec<f64> = (0..3)
+        .map(|_| {
+            let started = Instant::now();
+            fixture.db.state_root().unwrap();
+            started.elapsed().as_secs_f64() * 1e3
+        })
+        .collect();
+    runs.sort_by(f64::total_cmp);
+    (runs[1], size)
+}
+
 #[test]
 #[ignore = "timing: run with --ignored --nocapture and record the figures in ADR-142"]
 fn the_contracts_root_fold_grows_with_total_contract_state() {
     // Not a gas price: the contracts layer of the state root folds every
-    // contract key every block (ROOT-5, ADR-142 "open"). Measured so the
-    // open item carries a number: an empty block on top of N committed
-    // contract entries, which is the fold and nothing else.
-    for entries in [0u32, 100_000, 400_000] {
-        let fixture = fixture(1);
-        for i in 0..entries {
-            let mut key = b"cstate:".to_vec();
-            key.extend_from_slice(&[9u8; 32]);
-            key.extend_from_slice(&i.to_le_bytes());
-            fixture.db.raw_put_for_test(&key, &[1]).unwrap();
+    // contract key every block (ROOT-5). Before ADR-142 amendment 4 nothing
+    // bounded the entries; now CSTATE-2 bounds their counted size. Printed:
+    // the fold over small entries (per-entry cost), over 4 KiB values
+    // (per-byte cost), and at the default and the ceiling of
+    // `vm.max_contract_state_bytes`.
+    use custom_l1_node::state::contract_bound::{ENTRY_OVERHEAD_BYTES, entry_size};
+    for (entries, value_len) in [(0u32, 1usize), (100_000, 1), (400_000, 1), (25_000, 4_096)] {
+        let (ms, size) = time_fold(entries, value_len);
+        eprintln!(
+            "TIMING contracts root fold, {entries:>7} entries of {value_len:>5} B  {ms:>9.1} ms  counted {size:>11} B"
+        );
+    }
+    let small = entry_size(7 + 32 + 4, 1);
+    for key in [ParameterKey::VmMaxContractStateBytes] {
+        let bounds = key.bounds();
+        for (label, bytes) in [
+            ("default", bounds.default.saturating_to_u64()),
+            ("ceiling", bounds.max.saturating_to_u64()),
+        ] {
+            let entries = u32::try_from(bytes / small).unwrap();
+            let (ms, size) = time_fold(entries, 1);
+            eprintln!(
+                "TIMING contracts root fold at the {label} ({bytes} B, overhead {ENTRY_OVERHEAD_BYTES}): {entries:>7} small entries  {ms:>9.1} ms  counted {size:>11} B"
+            );
+            assert!(size <= bytes);
+            assert_inside("contracts root fold at the ceiling", ms);
         }
-        let started = Instant::now();
-        fixture
-            .db
-            .apply_block(&block_of(Vec::new()), BlockContext::at_height(1))
-            .unwrap();
-        let ms = started.elapsed().as_secs_f64() * 1e3;
-        eprintln!("TIMING contracts root fold, {entries:>7} entries {ms:>9.1} ms");
     }
 }

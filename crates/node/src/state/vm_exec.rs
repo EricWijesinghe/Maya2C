@@ -222,6 +222,8 @@ impl StateDB {
             .validate(&deploy.code)
             .map_err(|e| NodeError::Vm(e.to_string()))?;
 
+        // CSTATE-1, CSTATE-2: the code is a contract entry like any slot.
+        self.admit_contract_code(overlay, &contract, &deploy.code)?;
         overlay.code.insert(contract, deploy.code.clone());
         Ok(contract)
     }
@@ -446,11 +448,14 @@ impl StateDB {
         // call completed within its gas, which `admit_call_gas` bounded by what
         // the block had left.
         overlay.vm_gas = overlay.vm_gas.saturating_add(outcome.gas_used);
-        overlay.vm_modules.insert(call.contract, compiled);
         // Events are not kept (the node stores no receipts yet). The host's
         // handles on the shared maps go with it, so these write in place
         // unless a clone of the overlay is still alive.
         let (writes, reads) = execution.state.into_writes_and_reads();
+        // CSTATE-1, CSTATE-2, before anything is staged. A refused call keeps
+        // its gas spent, as a failed one does, and warms nothing.
+        self.admit_contract_storage(overlay, &call.contract, &writes)?;
+        overlay.vm_modules.insert(call.contract, compiled);
         let staged = std::sync::Arc::make_mut(&mut overlay.contract_storage);
         for (key, value) in writes {
             staged.insert((call.contract, key), value);
