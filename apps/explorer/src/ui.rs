@@ -411,9 +411,21 @@ fn kind_label(tx: &IndexedTx) -> String {
 /// A single block with its transactions.
 #[must_use]
 pub fn block_page(block: IndexedBlock, transactions: Vec<IndexedTx>) -> String {
+    let explained = crate::explain::explain_block(&block, &transactions);
+    // Rows indexed before the clear-sign explanation existed have none to show.
+    let lines: Vec<String> = transactions
+        .iter()
+        .filter(|t| !t.explanation.is_empty())
+        .map(|t| t.explanation.clone())
+        .collect();
     render(view! {
         <Shell title=format!("Block {}", block.height)>
             <h1>{format!("Block {}", block.height)}</h1>
+            <section class="panel explain">
+                <h2>"Explain this block"</h2>
+                <p class="plain">{explained}</p>
+                <ol class="plain">{lines.into_iter().map(|l| view! { <li>{l}</li> }).collect::<Vec<_>>()}</ol>
+            </section>
             <section class="panel">
                 <dl class="detail">
                     <dt>"Id"</dt><dd class="mono">{block.id.clone()}</dd>
@@ -437,6 +449,7 @@ pub fn transaction_page(transaction: Option<IndexedTx>, query: String) -> String
     let body = match transaction {
         Some(tx) => view! {
             <p class="plain">{crate::plain::describe(&tx)}</p>
+            <p class="plain explain">{tx.explanation.clone()}</p>
             <details class="panel">
                 <summary>"Technical view"</summary>
                 <dl class="detail">

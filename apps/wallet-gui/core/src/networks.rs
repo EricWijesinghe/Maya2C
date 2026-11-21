@@ -40,6 +40,28 @@ pub fn display_name(genesis_hex: &str) -> &'static str {
     }
 }
 
+/// The address prefix (ADR-081) for a chain, decided by the genesis id alone.
+/// An unpinned chain gets the development prefix `dmaya`, never `maya`: an
+/// address shown for an unknown chain must not read as a mainnet address.
+#[must_use]
+pub fn address_network(genesis_hex: &str) -> maya_address::Network {
+    match display_name(genesis_hex) {
+        "Maya2C mainnet" => maya_address::Network::Mainnet,
+        "Maya2C testnet" => maya_address::Network::Testnet,
+        _ => maya_address::Network::Devnet,
+    }
+}
+
+/// What a prefix means, for the line that names it on the confirm screen.
+#[must_use]
+pub fn prefix_name(network: maya_address::Network) -> &'static str {
+    match network {
+        maya_address::Network::Mainnet => "mainnet",
+        maya_address::Network::Testnet => "testnet",
+        maya_address::Network::Devnet => "development or unknown chain",
+    }
+}
+
 /// What a node is, as far as the wallet is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]

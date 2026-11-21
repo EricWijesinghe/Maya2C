@@ -24,6 +24,7 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 | What could go wrong? | `RISKS.md`, `THREAT_MODEL.md` |
 | Is it ready to launch? | `LAUNCH.md` (gates), `READINESS.md` (generated), `docs/mainnet-readiness.md` |
 | How is the wire/state defined? | `spec/` |
+| How long is a block, in seconds? | `docs/block-time.md` (measured; every "days" count converts there) |
 | How do I build / run? | `docs/build.md`, `docs/environment.md`, `docs/runbooks/` |
 
 ## Source code
@@ -72,6 +73,7 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 | `docs/runbooks/` | includes `attacknet-lab-guide.md` |
 | `docs/site/` | the documentation website (Astro; `node_modules/` and `dist/` are ignored) |
 | `docs/brand/`, `logo-assets/`, `design/` | brand rules, assets, design tokens |
+| `docs/diagrams/` | architecture, transaction, trust-boundary, ecosystem and roadmap diagrams: SVG + Mermaid ([index](diagrams/README.md)) |
 | `reports/` | numbered topic reports `00`–`32`, plus `sessions/`, `executive/`, `sweeps/`, `attacknet/`, `incidents/` — evidence, append-only |
 | `attic/` | deliberately empty; its README records why |
 
