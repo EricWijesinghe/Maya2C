@@ -11,11 +11,15 @@
 //! Each member names its own suite. This wallet's key is the hybrid `0x30`;
 //! a policy may also list an ML-DSA-65 `0x10` (Ledger) or SLH-DSA key. A
 //! classical suite is refused by [`MultisigPolicy::new`]. Only a `0x30` key
-//! can approve today: the Ledger app refuses v8 bytes and nothing imports an
-//! approval signed elsewhere. So [`MultisigAccount::new`] refuses a threshold
-//! above the number of `0x30` members, which would lock the funds; other
-//! suites can only be spare members. The per-family approval floor proposed
-//! in ADR-117 is not built (ADR-117 is not written on `master`).
+//! is counted as an approver: the Ledger app refuses v8 bytes and no flow in
+//! this wallet makes any other approval. So [`MultisigAccount::new`] refuses a
+//! threshold above the number of `0x30` members, which would lock the funds;
+//! other suites are spare members. An outside approval can still arrive inside
+//! a member's proposal ([`Proposal::from_hex`], then [`Proposal::merge`]): one
+//! no longer than a hybrid signature (an ML-DSA-65 `0x10`) is accepted, a
+//! longer one is refused because the fee was not priced for it (ADR-145 rule
+//! 6). The per-family approval floor proposed in ADR-117 is not built
+//! (ADR-117 is not written on `master`).
 //!
 //! # Fees
 //!
@@ -86,8 +90,9 @@ impl MemberKey {
     }
 }
 
-/// The one suite whose members can approve today: this wallet's hybrid key.
-/// The Ledger app refuses v8 bytes and nothing imports an outside approval.
+/// The one suite counted as an approver: this wallet's hybrid key. The Ledger
+/// app refuses v8 bytes and no in-wallet flow makes another suite's approval;
+/// one that arrives in a member's proposal is capped at this suite's length.
 const APPROVER_SUITE: SuiteId = SuiteId::HybridMlDsa65SlhDsa128s;
 
 /// Bytes of BLAKE3 a member's fingerprint shows: 128 bits, so a coordinator
@@ -175,12 +180,12 @@ impl MultisigAccount {
 
     /// `policy` as an account, if a quorum of hybrid `0x30` keys can spend it.
     ///
-    /// Only a hybrid key can approve today: the Ledger app refuses v8 bytes
-    /// and there is no way to import an approval signed elsewhere. An account
-    /// needing any other approval would take funds it can never spend. Relax
-    /// this when a Ledger v8 review and an "add external approval" command
-    /// exist (the `multisig-v8-spend` Ledger fixture case flips with the
-    /// first). ADR-145.
+    /// Only a hybrid key is counted as an approver: the Ledger app refuses v8
+    /// bytes and no in-wallet flow makes another suite's approval. An account
+    /// needing any other approval would take funds no in-wallet flow can
+    /// spend. Relax this when a Ledger v8 review and an "add external
+    /// approval" command exist (the `multisig-v8-spend` Ledger fixture case
+    /// flips with the first). ADR-145.
     fn spendable(policy: MultisigPolicy) -> Result<Self> {
         let threshold = policy.threshold();
         let approvers = policy
@@ -435,9 +440,9 @@ impl Proposal {
 
     /// Bytes this spend occupies once `m` members approve, counting the
     /// longest signatures among the members that can approve today (the
-    /// hybrid `0x30` keys [`MultisigAccount::new`] counts). A spare member of
-    /// another suite never signs, so its signature length is not counted;
-    /// relax this filter together with that rule (ADR-145).
+    /// hybrid `0x30` keys [`MultisigAccount::new`] counts). A spare member's
+    /// approval is only accepted when it is no longer than a hybrid one (see
+    /// `check`), so this stays an upper bound; relax both together (ADR-145).
     ///
     /// # Errors
     ///
@@ -597,7 +602,10 @@ impl Proposal {
             .expect("a proposal is always a multisig transaction")
     }
 
-    /// `approval` verifies under the policy key it names.
+    /// `approval` verifies under the policy key it names, and is no longer
+    /// than the hybrid signature [`Proposal::finished_size`] priced: a longer
+    /// one would leave the fee short and the node would refuse the finished
+    /// spend as `FeeTooLow` after members had approved (ADR-145 rule 6).
     fn check(&self, approval: &Approval, message: &[u8]) -> Result<()> {
         let key = self
             .auth()
@@ -607,6 +615,17 @@ impl Proposal {
             .ok_or_else(|| {
                 WalletError::Multisig(format!("member {} is not in the policy", approval.index))
             })?;
+        let (len, priced) = (
+            key.suite.info().signature_len,
+            APPROVER_SUITE.info().signature_len,
+        );
+        if len > priced {
+            return Err(WalletError::Multisig(format!(
+                "member {}'s suite signs {len} bytes, more than the {priced} the fee was priced \
+                 for; the spend would be refused as underpaid, so this approval is not accepted",
+                approval.index
+            )));
+        }
         suite::verify(key.suite, &key.public_key, message, &approval.signature).map_err(|e| {
             WalletError::Multisig(format!(
                 "member {}'s approval does not verify: {e}",

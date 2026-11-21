@@ -27,9 +27,14 @@ Two facts constrain the design:
 - The Ledger app's review reads only the v7 transfer domain and refuses v8
   multisig bytes as not a transaction (`0x6a90`, pinned as the
   `multisig-v8-spend` case in `apps/ledger-maya2c/tests/fixtures/suite-0x10-kinds.txt`).
-- The wallet has no command that imports an approval signed by another tool.
+- No in-wallet flow produces a non-hybrid approval: there is no Ledger v8
+  review and no "add external approval" command.
 
-So today only a hybrid `0x30` key held by this wallet can approve.
+So today only a hybrid `0x30` key held by this wallet is *counted* as an
+approver. That does not stop other approvals arriving: a proposal read from
+another member (`Proposal::from_hex`, then `merge` or `with_approval`) can
+carry an approval any tool made, such as an ML-DSA-65 `0x10` one signed on a
+host. Rule 6 says which of those are accepted.
 
 ## Decision
 
@@ -77,7 +82,17 @@ So today only a hybrid `0x30` key held by this wallet can approve.
 6. **The fee is priced for the finished v8 frame** (policy plus the `m`
    longest signatures among the members rule 3 lets approve; a spare member
    that cannot approve never adds a signature) and refused when under `base_fee x size` at the
-   current base fee. That check cannot see base-fee rises while approvals are
+   current base fee. So that the price is an upper bound on what is finished,
+   every import path (`from_hex`, `with_approval`, and `merge` through it)
+   refuses an approval from a member whose suite signs longer than the hybrid
+   signature the price counted. An ML-DSA-65 `0x10` approval (3,309 bytes) is
+   accepted; an SLH-DSA-SHAKE-256f `0x21` one (49,856 bytes) is refused, since
+   it would leave about 38.7 KB of a 2-of-{0x30, 0x30, 0x21} spend unpaid and
+   the node would refuse it as `FeeTooLow` after members had approved
+   (`an_approval_longer_than_the_priced_signature_is_refused`). Pricing from
+   the approvals actually carried was not chosen: the fee is fixed in the
+   signed bytes before anyone approves, so a longer approval arriving later
+   could only be refused anyway. That check cannot see base-fee rises while approvals are
    collected, so the screen pre-fills the Standard tier (twice the current
    minimum) and says a fee at the minimum may be refused at broadcast.
 
@@ -86,7 +101,9 @@ So today only a hybrid `0x30` key held by this wallet can approve.
 - Relaxing rule 3 needs two things: a Ledger v8 multisig review (shown and
   clear-signed; the `multisig-v8-spend` fixture verdict flips) and an "add
   external approval" command. Until then a Ledger key cannot be a required
-  approver. The fee estimate's approver filter (rule 6) relaxes with it.
+  approver. The fee estimate's approver filter and the signature-length cap
+  (rule 6) relax with it: once a longer suite can be a required approver, the
+  price must count its signature.
 - A proposal of any other kind (contract call, staking, vault) from a shared
   account is not supported in the wallet. Adding one means a full confirm
   screen for that kind first.

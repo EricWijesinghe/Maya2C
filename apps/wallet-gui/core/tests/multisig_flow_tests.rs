@@ -20,7 +20,7 @@ use custom_l1_node::state::fees::FEE_COLLECTOR;
 use maya_clear_sign::Context;
 use maya_crypto_pq::agility::{Network, SuitePolicy};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy};
-use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
+use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SlhDsaShake256f, SuiteId};
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::multisig::{MemberKey, MultisigAccount, Proposal, ProposalStatus};
 use maya_wallet_core::payment::FEE_SINK;
@@ -631,6 +631,66 @@ fn a_spare_member_with_a_longer_signature_does_not_inflate_the_fee() {
     let done = approve_at(&mut w, 1, &one, U256::one()).expect("1");
     let raw = done.finish(&CHAIN).expect("finish").raw_hex;
     assert_eq!(u64::try_from(raw.len() / 2).expect("len"), size);
+}
+
+#[test]
+fn an_approval_longer_than_the_priced_signature_is_refused() {
+    // 2 of {0x30, 0x30, 0x21}, priced at spend_size for two hybrid signatures.
+    // The 0x21 member signs with an outside tool: its 49,856-byte signature
+    // would leave ~38.7 KB unpaid, so the node would refuse the spend as
+    // FeeTooLow after a member had approved. Refused on every import path.
+    let mut w = wallet();
+    let cold = SlhDsaShake256f::signing_key_from_seed(&MasterSeed::from_bytes([0x21; 32]));
+    let members = [
+        w.member_key(0).expect("0"),
+        w.member_key(1).expect("1"),
+        MemberKey {
+            suite: SuiteId::SlhDsaShake256f.to_byte(),
+            public_key: hex::encode(SlhDsaShake256f::public_key(&cold)),
+        },
+    ];
+    let account = MultisigAccount::new(2, &members).expect("2-of-3");
+    let size = account.spend_size().expect("size");
+    let collector = hex::encode(FEE_COLLECTOR);
+    let terms = SignTerms {
+        fee: U256::from(size),
+        fee_to: Some(&collector),
+        nonce: 4,
+        chain: &CHAIN,
+        allow_high_fee: false,
+    };
+    let draft = w
+        .propose_multisig(
+            0,
+            &account,
+            RECIPIENT,
+            U256::from(1_000_000),
+            &terms,
+            U256::one(),
+        )
+        .expect("priced proposal");
+    let one = approve_at(&mut w, 0, &draft, U256::one()).expect("0");
+    let outside = Approval {
+        index: 2,
+        signature: SlhDsaShake256f::sign(&cold, &one.signing_bytes(&CHAIN)).expect("sign"),
+    };
+    assert!(matches!(
+        one.with_approval(outside.clone(), &CHAIN),
+        Err(WalletError::Multisig(_))
+    ));
+    let carried = reshaped(&one, |tx| {
+        let auth = tx.multisig.as_deref().expect("v8");
+        let mut approvals = auth.approvals().to_vec();
+        approvals.push(outside);
+        tx.multisig = Some(Box::new(
+            MultisigAuth::new(auth.policy().clone(), approvals).expect("shape"),
+        ));
+    });
+    assert!(refused(&carried), "from_hex must refuse it too");
+    // merge goes through with_approval, so the hybrid member can still finish.
+    let done = approve_at(&mut w, 1, &one, U256::one()).expect("1");
+    let raw = done.finish(&CHAIN).expect("finish").raw_hex;
+    assert!(u64::try_from(raw.len() / 2).expect("len") <= size);
 }
 
 #[test]
