@@ -18,6 +18,8 @@
 //! Position within the block stops existing as a variable. An attacker who
 //! front-runs is in the same batch as the victim and receives the same price
 //! they engineered; the sandwich costs them the fee and returns nothing.
+//! This covers plain swaps. Routes execute in place and are not batched
+//! (docs/dex.md).
 //!
 //! The price is found by netting first. Buyers and sellers in the same batch
 //! cross against each other, and only the imbalance reaches the curve. The
@@ -399,11 +401,10 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
         fees: pool.fees,
     };
 
-    // The batch must leave the providers no worse off than the equivalent net
-    // trade would have. `curve_pool` is that trade's result; comparing against
-    // it rather than against `k` alone is the stronger statement, and it is the
-    // one that catches a mispriced batch — a batch that lowered `k` and a batch
-    // that merely gave away the pool's fee both fail here.
+    // The batch must not lower the pool's `k`. The bound is the smaller of the
+    // net trade's `k` (`curve_pool`) and the pool's own `k`: the net trade's
+    // alone would refuse rounding-only batches. So this refuses a batch that
+    // lowers `k`, but a batch that only gives away the pool's fee passes it.
     if settled.k() < curve_pool.k().min(pool.k()) {
         return Err(DexError::InvariantViolation);
     }

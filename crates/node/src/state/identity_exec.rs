@@ -15,11 +15,10 @@
 //!
 //! ## Rotation is the interesting one
 //!
-//! The transaction is signed by the key the document currently names — by
-//! construction, since the address is BLAKE3 over that key pair. So the *old*
-//! key authorises the new one, which is exactly what rotation has to mean. The
-//! epoch must advance by exactly one, which is what stops a replayed rotation
-//! reinstalling a key.
+//! Rotation is authorised by the sender's address key, not by the document's
+//! verification key: `RegisterDid` records a document key without a proof that
+//! the registrant holds it, so the two can differ. The epoch must advance by
+//! exactly one, which is what stops a replayed rotation reinstalling a key.
 //!
 //! A revoked subject cannot rotate. Otherwise revocation would be a state a
 //! subject could leave, and "revoked" would mean "revoked for now".

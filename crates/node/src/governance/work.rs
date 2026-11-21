@@ -78,9 +78,11 @@ impl WorkRecord {
     /// worth at `last_height` and every reader derives the rest.
     #[must_use]
     pub const fn value_at(&self, height: u64) -> u128 {
-        // A height below the record's own means a reorg is in flight. Reporting
-        // the undecayed value is the conservative reading: it is what the
-        // credit was worth at a height the chain has actually seen.
+        // A height below the record's own means a reorg is in flight. The
+        // undecayed credit is returned: the largest value this record yields at
+        // any height, not a conservative one. Reads below `last_height` apply
+        // no decay, so a caller that must not see the larger value has to
+        // refuse the read.
         let elapsed = match height.checked_sub(self.last_height) {
             Some(elapsed) => elapsed,
             None => return self.credit,

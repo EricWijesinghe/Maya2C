@@ -321,20 +321,31 @@ impl StateDB {
     /// zero protocol rate. The chain's cut is read here, at execution, so a
     /// governance decision reaches every pool rather than only the ones
     /// created after it.
-    fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<PoolRecord> {
-        let protocol_bps =
-            u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
-                .unwrap_or(u32::MAX);
-
-        let fees = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps)
-            .map_err(|error| trade_error("pool pricing", error))?;
-        Ok(PoolRecord {
+    ///
+    /// `Ok(None)` means only that the pool cannot carry the governed rate (the
+    /// fee ceiling rejects the sum). Storage and decode errors are returned as
+    /// errors, never folded into `None`: a node-local read failure must not
+    /// change what the block does.
+    fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<Option<PoolRecord>> {
+        let protocol_bps = self.protocol_bps(overlay)?;
+        let Ok(fees) = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps) else {
+            return Ok(None);
+        };
+        Ok(Some(PoolRecord {
             pool: Pool {
                 fees,
                 ..record.pool
             },
             ..*record
-        })
+        }))
+    }
+
+    /// The governed protocol rate, `DexProtocolFeeBps`.
+    fn protocol_bps(&self, overlay: &Overlay) -> Result<u32> {
+        Ok(
+            u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
+                .unwrap_or(u32::MAX),
+        )
     }
 
     /// Reads a pool through the overlay, requiring that it exists.
@@ -732,7 +743,12 @@ impl StateDB {
                     *record
                 } else {
                     let stored = self.require_pool(overlay, &leg.pair)?;
-                    self.priced(overlay, &stored)?
+                    // A pool that cannot carry the governed rate is a route
+                    // that does not pay, like an unpriceable leg: no write.
+                    let Some(priced) = self.priced(overlay, &stored)? else {
+                        return Ok(());
+                    };
+                    priced
                 };
 
             let input = input_asset(&record, direction);
@@ -973,6 +989,20 @@ impl StateDB {
         Ok(())
     }
 
+    /// Returns every intent's input to its trader.
+    fn refund_batch(
+        &self,
+        overlay: &mut Overlay,
+        record: &PoolRecord,
+        intents: &[SwapIntent],
+    ) -> Result<()> {
+        for intent in intents {
+            let asset = input_asset(record, intent.direction);
+            self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
+        }
+        Ok(())
+    }
+
     /// Clears one pool's swaps at a single price.
     fn settle_batch(&self, overlay: &mut Overlay, pair: &PairId) -> Result<()> {
         let Some(intents) = overlay.swaps.remove(pair) else {
@@ -985,8 +1015,13 @@ impl StateDB {
         let mut record = self.require_pool(overlay, pair)?;
 
         // Priced with the chain's current protocol rate, which the stored
-        // record deliberately does not carry.
-        let priced = self.priced(overlay, &record)?;
+        // record deliberately does not carry. A governed rate the pool cannot
+        // carry refunds the batch: halting the block would let one pool's
+        // fee schedule stop every transaction in the chain. Storage errors
+        // are not that case and still fail the block.
+        let Some(priced) = self.priced(overlay, &record)? else {
+            return self.refund_batch(overlay, &record, &intents);
+        };
         // A batch that would leave the pool with no usable price is refused the
         // same way: the pair would otherwise refund every later batch for good.
         let cleared = clear_batch(&priced.pool, &intents)
@@ -998,13 +1033,7 @@ impl StateDB {
             // liquidity, most likely by a withdrawal in the same block. Every
             // trader gets their input back. Refusing the block instead would
             // let a withdrawal invalidate everybody else's transactions.
-            None => {
-                for intent in &intents {
-                    let asset = input_asset(&record, intent.direction);
-                    self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
-                }
-                return Ok(());
-            }
+            None => return self.refund_batch(overlay, &record, &intents),
         };
 
         for trade in &outcome.cleared {
@@ -1054,6 +1083,13 @@ impl StateDB {
         }
 
         let pool = self.require_pool(overlay, pair)?;
+        // Fills take the governed protocol rate, as swaps do, and never the
+        // LP rate (docs/dex.md), so the book is priced on the protocol rate
+        // alone. Its governed bound keeps that under the ceiling; were it ever
+        // over, the book would rest for this block rather than halt it.
+        let Ok(book_fees) = FeeSchedule::new(0, self.protocol_bps(overlay)?) else {
+            return Ok(());
+        };
         let mut book = Book::new();
         for record in records.values() {
             book.insert(record.order)
@@ -1074,8 +1110,8 @@ impl StateDB {
             height: context.height,
         };
 
-        let outcome = match_book(&book, pool.pool.fees, limits)
-            .map_err(|error| trade_error("matching", error))?;
+        let outcome =
+            match_book(&book, book_fees, limits).map_err(|error| trade_error("matching", error))?;
         overlay.fills = overlay.fills.saturating_add(outcome.fills.len());
 
         // Working copies. Escrow is decremented fill by fill, then whatever

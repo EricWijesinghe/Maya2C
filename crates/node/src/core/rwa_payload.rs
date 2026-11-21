@@ -66,8 +66,9 @@ pub struct SettleDvp {
 
 /// Record that the sender cleared an asset's rule.
 ///
-/// The disclosure proof rides here and is verified once; the transfer path then
-/// reads the cached record rather than pairing again.
+/// No disclosure proof is carried yet: the payload names the asset only, and
+/// the record is written without a proof check. The transfer path reads the
+/// record; nothing in this payload verifies the claim it records.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecordEligibility {
     /// Which asset.

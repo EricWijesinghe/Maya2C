@@ -20,10 +20,7 @@
 //! one is competing on speed and accepts that ordering matters. A plain swap is
 //! the ordinary user's, and they are the ones being protected.
 //!
-//! It does not reopen the sandwich, because routes run *before* the block's
-//! batches. A miner can put a trade in front of a victim's batch, but there is
-//! no place left in the same block to unwind it, and a front-run that cannot be
-//! unwound is just a position.
+//! Routes are not batched and carry no batch protection; see docs/dex.md.
 
 use maya_dex::types::PairId;
 
