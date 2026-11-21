@@ -393,7 +393,11 @@ impl ParameterKey {
             | Self::VmDefaultGasLimit
             // ADR-142's caps refuse a call or a block outright (GAS-1, GAS-2).
             | Self::VmMaxTxGas
-            | Self::VmMaxBlockGas => true,
+            | Self::VmMaxBlockGas
+            // The proposed contract-state bounds refuse a block (CSTATE-1,
+            // CSTATE-2; ADR-142 amendment 6).
+            | Self::VmMaxBlockContractWrites
+            | Self::VmMaxContractStateBytes => true,
             // A rate and a deposit change what a valid transaction pays, not
             // whether it is valid. The default suite chooses what wallets
             // sign with; it does not decide what verifies (invariant 31).
@@ -556,7 +560,7 @@ mod tests {
             .filter(|key| key.is_validity_rule())
             .map(|key| key.tag())
             .collect();
-        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18]);
+        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18, 19, 20]);
         assert_eq!(
             VALIDITY_RULE_LEAD_BLOCKS,
             crate::limits::MIN_UPGRADE_LEAD_BLOCKS
