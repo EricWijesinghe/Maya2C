@@ -546,7 +546,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_new_key_file_has_no_inherited_access_on_windows() {
-        let dir = std::env::temp_dir().join(format!("maya-miner-acl-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("maya-miner-seed-acl-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("miner.key");
         load_or_create_seed(&path).unwrap();
