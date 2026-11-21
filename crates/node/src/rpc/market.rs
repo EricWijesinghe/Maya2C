@@ -77,17 +77,124 @@ pub struct SupplyReport {
     pub burned: U256,
 }
 
+/// Scans run outside the chain lock before one runs under it.
+const LOCK_FREE_SCANS: usize = 2;
+
 /// Computes supply from committed state.
+///
+/// The account walk runs outside the chain lock: block apply and DAG-BFT
+/// commit take that mutex, and holding it for a walk over every account
+/// stalled them for as long as the walk took. A block applied mid-walk would
+/// mix two tips, so the tip is read again afterwards and a moved tip retries.
+/// After [`LOCK_FREE_SCANS`] tries the walk runs under the lock, so a busy
+/// chain gets a slower answer, never a torn one.
 ///
 /// # Errors
 ///
 /// Propagates storage failures from the account scan.
 pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
-    let chain = chain
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let state = chain.state();
+    supply_at(chain).map(|cached| cached.report)
+}
 
+/// [`supply`], with the tip it describes.
+fn supply_at(chain: &Arc<Mutex<Chain>>) -> Result<Cached> {
+    for _ in 0..LOCK_FREE_SCANS {
+        let (state, height, tip) = {
+            let chain = lock(chain);
+            (Arc::clone(chain.state()), chain.height(), chain.tip())
+        };
+        let report = supply_of(&state)?;
+        let chain = lock(chain);
+        if chain.height() == height && chain.tip() == tip {
+            return Ok(Cached {
+                height,
+                tip,
+                report,
+            });
+        }
+    }
+    let chain = lock(chain);
+    Ok(Cached {
+        height: chain.height(),
+        tip: chain.tip(),
+        report: supply_of(chain.state())?,
+    })
+}
+
+fn lock(chain: &Mutex<Chain>) -> std::sync::MutexGuard<'_, Chain> {
+    chain
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A supply report and the tip it was computed at.
+#[derive(Clone, Copy, Debug)]
+struct Cached {
+    height: u64,
+    tip: [u8; 32],
+    report: SupplyReport,
+}
+
+/// The supply report for the newest tip asked about, computed once per tip.
+///
+/// Supply walks every account, the most expensive read the node offers, and
+/// it cannot change while the tip stands still, so caching on the tip trades
+/// no freshness. Single-flight: a caller that arrives while a walk runs waits
+/// for it and takes its result, so N requests after a block cost one walk,
+/// not N. Every public surface (`get_supply`, the market endpoints) reads
+/// through one of these.
+#[derive(Debug, Default)]
+pub struct SupplyCache {
+    last: Mutex<Option<Cached>>,
+    scan: Mutex<()>,
+}
+
+impl SupplyCache {
+    /// The supply at the current tip, from the cache when it is current.
+    ///
+    /// # Errors
+    ///
+    /// Propagates storage failures from the account scan.
+    pub fn get(&self, chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
+        let (height, tip) = {
+            let chain = lock(chain);
+            (chain.height(), chain.tip())
+        };
+        if let Some(report) = self.hit(height, tip) {
+            return Ok(report);
+        }
+        let _scan = self
+            .scan
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Whoever held the scan before us may have just stored this tip.
+        if let Some(report) = self.hit(height, tip) {
+            return Ok(report);
+        }
+        let fresh = supply_at(chain)?;
+        let mut last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Never move the cache back to an older tip.
+        if last.is_none_or(|old| old.height <= fresh.height) {
+            *last = Some(fresh);
+        }
+        Ok(fresh.report)
+    }
+
+    fn hit(&self, height: u64, tip: [u8; 32]) -> Option<SupplyReport> {
+        let last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        last.filter(|old| old.height > height || (old.height == height && old.tip == tip))
+            .map(|old| old.report)
+    }
+}
+
+/// Supply from `state`, read without any lock.
+fn supply_of(state: &crate::state::StateDB) -> Result<SupplyReport> {
     let mut transparent = U256::zero();
     let mut burned = U256::zero();
 

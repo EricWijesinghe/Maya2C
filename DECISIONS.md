@@ -909,3 +909,11 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-22 — Node-local P2P and RPC bounds from the AI audit (Claude, under Eric's 2026-11-17 pre-approval)
+
+- Recorded in [ADR-151](docs/adr/ADR-151-node-local-p2p-rpc-bounds.md). Each item was checked against the code first; the source is an AI review (2026-11-19), not an external audit.
+- No validity rule, state root, gas figure or consensus message changes; no conformance vector changes.
+- Bootnodes at public or DNS addresses must pin a peer id, or the node is started with `--allow-unpinned-bootnodes`. The k8s manifest and the operator pass the flag (their pod keys are generated at first start). The public join script already pins.
+- Explicit gossipsub peers on every transport (audit P2P-01) are left as they are; changing them changes how validators reach each other, so that is a separate draft for Eric.
+- The block-sync byte budgets, the RPC refund keying fix and the market server's remaining limits go on #589's branch (ADR-147), because they sit on the lines #589 changes.

@@ -189,6 +189,17 @@ pub fn fetch(
     committee: &[VerifyingKey],
     weights: Option<&[u64]>,
 ) -> Result<Vec<Block>> {
+    fetch_capped(from, source, committee, weights, MAX_ATTESTED_GAP_BYTES)
+}
+
+/// [`fetch`], refusing the gap once its blocks pass `max_bytes`.
+fn fetch_capped(
+    from: Position,
+    source: &impl CheckpointSource,
+    committee: &[VerifyingKey],
+    weights: Option<&[u64]>,
+    max_bytes: u64,
+) -> Result<Vec<Block>> {
     let Some(newest) = source.checkpoint()? else {
         return Ok(Vec::new());
     };
@@ -226,7 +237,7 @@ pub fn fetch(
         checkpoint.block,
         source,
         "attested",
-        None,
+        Some(max_bytes),
     )
 }
 
@@ -288,7 +299,7 @@ fn fetch_linked(
                         .fetch_add(bytes, std::sync::atomic::Ordering::SeqCst)
                         .saturating_add(bytes);
                     if total > limit {
-                        return Err(gap_bytes_error(total, limit));
+                        return Err(gap_bytes_error(total, limit, what));
                     }
                 }
                 Ok(got)
@@ -395,6 +406,17 @@ pub const MAX_LINKED_GAP: u64 = 50_000;
 /// per-request byte limit set from the peer's advertised size.
 pub const MAX_LINKED_GAP_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Most encoded bytes ordinary catch-up may receive before the blocks reach
+/// the attested checkpoint. Why: those blocks are held, and checked against
+/// the checkpoint, only once the whole gap has arrived, so without a cap a
+/// source could make the node buffer blocks that hash-link to each other but
+/// never reach it. 1 GiB holds a full epoch of 3,600 blocks averaging up to
+/// about 290 KiB; a node further behind than that, by bytes, restores from a
+/// snapshot (`--bootstrap-from`). Node policy, not a consensus rule. The peak
+/// is above the cap by the responses in flight, as for
+/// [`MAX_LINKED_GAP_BYTES`].
+pub const MAX_ATTESTED_GAP_BYTES: u64 = 1024 * 1024 * 1024;
+
 /// Refuses a stale node's link across more than [`MAX_LINKED_GAP`] blocks.
 ///
 /// # Errors
@@ -411,9 +433,9 @@ pub fn check_gap(from_height: u64, trusted_height: u64) -> Result<()> {
 }
 
 /// The byte-cap refusal, once the running total passes `limit`.
-fn gap_bytes_error(total: u64, limit: u64) -> NodeError {
+fn gap_bytes_error(total: u64, limit: u64, what: &str) -> NodeError {
     NodeError::Decode(format!(
-        "catch-up: the blocks below the trusted block exceed {limit} bytes ({total} received so far). Choose a trusted block closer to this node's tip, or, if this node was offline longer than the window allows, restore from a snapshot with --bootstrap-from"
+        "catch-up: the blocks below the {what} block exceed {limit} bytes ({total} received so far). Catch up from a closer point (a trusted block nearer this node's tip), or, if this node was offline longer than the window allows, restore from a snapshot with --bootstrap-from"
     ))
 }
 
@@ -970,6 +992,19 @@ mod tests {
         let got = fetch(at_ten(&source), &source, &committee, None).unwrap();
         assert_eq!(got.len(), 50);
         assert_eq!(got.last().map(|b| b.header.id()), Some(id));
+    }
+
+    #[test]
+    fn ordinary_catch_up_refuses_a_gap_over_its_byte_cap() {
+        // Why: the attested path holds the whole gap before it can compare the
+        // last block with the checkpoint, so it is byte-capped like the
+        // trusted path rather than unbounded.
+        let (source, committee) = chained(40, true);
+        let err = fetch_capped(at_ten(&source), &source, &committee, None, 1).unwrap_err();
+        assert!(err.to_string().contains("bytes"), "{err}");
+        assert!(err.to_string().contains("attested"), "{err}");
+        let got = fetch(at_ten(&source), &source, &committee, None).unwrap();
+        assert_eq!(got.len(), 30);
     }
 
     #[test]

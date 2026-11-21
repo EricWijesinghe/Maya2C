@@ -367,33 +367,72 @@ async fn catch_up_once(
 /// which needs checkpoints that only builders can sign. Following when one
 /// block behind is what stranded restarted validators: with more than f of
 /// them following, the builders alone never reached a checkpoint quorum
-/// (attacknet soak, 2026-10-05). Any failure answers "no", the safe
-/// direction.
-async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64) -> bool {
+/// (attacknet soak, 2026-10-05). `None` when the source cannot be reached
+/// (it abstains); any other failure answers "no", the safe direction.
+async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64) -> Option<bool> {
     use custom_l1_node::consensus::bft::builder::unseal;
     use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
-    let Ok(source) = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()) else {
-        return false;
-    };
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()).ok()?;
     tokio::task::spawn_blocking(move || {
-        let Ok(theirs) = source.tip_height() else {
-            return false;
-        };
+        let theirs = source.tip_height().ok()?;
         if height == 0 || theirs < height {
-            return height == 0 && theirs == 0;
+            return Some(height == 0 && theirs == 0);
         }
         let ancestor = source.block(height).is_ok_and(|b| b.header.id() == tip);
         let Ok(peer_tip) = source.block(theirs) else {
-            return false;
+            return Some(false);
         };
         let (our_epoch, our_round) = unseal(nonce);
         let (their_epoch, their_round) = unseal(peer_tip.header.nonce);
-        ancestor
-            && their_epoch == our_epoch
-            && their_round.saturating_sub(our_round) < maya_dag_bft::GC_DEPTH / 2
+        Some(
+            ancestor
+                && their_epoch == our_epoch
+                && their_round.saturating_sub(our_round) < maya_dag_bft::GC_DEPTH / 2,
+        )
     })
     .await
-    .unwrap_or(false)
+    .unwrap_or(Some(false))
+}
+
+/// [`within_engine_window`] asked of every `--catch-up-from` source at once.
+/// The tip each source reports is its own unchecked claim, so the node
+/// resumes building only when every source that answers agrees, and at
+/// least one does: a source that lies can then only send the node to follow
+/// attested blocks, the direction that is safe, never make it build while it
+/// is far behind.
+async fn within_engine_window_of_all(
+    urls: &[String],
+    height: u64,
+    tip: [u8; 32],
+    nonce: u64,
+) -> bool {
+    let mut probes = tokio::task::JoinSet::new();
+    for url in urls {
+        let url = url.clone();
+        probes.spawn(async move {
+            // Three requests per probe, each bounded like the tip probe.
+            tokio::time::timeout(
+                PROBE_TIMEOUT * 3,
+                within_engine_window(&url, height, tip, nonce),
+            )
+            .await
+            .ok()
+            .flatten()
+        });
+    }
+    all_answering_agree(probes.join_all().await)
+}
+
+/// True when no answer is "no" and at least one is "yes"; `None` abstains.
+fn all_answering_agree(answers: impl IntoIterator<Item = Option<bool>>) -> bool {
+    let mut any = false;
+    for answer in answers.into_iter().flatten() {
+        if !answer {
+            return false;
+        }
+        any = true;
+    }
+    any
 }
 
 /// How long one source may take to answer the tip probe. A refused
@@ -460,7 +499,7 @@ pub(super) async fn catch_up_from_any(
     // its tip: try the rest before calling it caught up (pre-audit S-029).
     let mut first_answered = None;
     for url in ranked {
-        match catch_up(&url, chain, driver, anchor).await {
+        match catch_up(&url, urls, chain, driver, anchor).await {
             Ok(imported) if imported > 0 => return Ok(Some(url)),
             Ok(_) => {
                 first_answered.get_or_insert(url);
@@ -530,7 +569,7 @@ pub(super) async fn sync_certificates(
                 let nonce = c.get(&c.tip()).map_or(0, |b| b.header.nonce);
                 (c.height(), c.tip(), nonce)
             };
-            if within_engine_window(url, height, tip, nonce).await {
+            if within_engine_window_of_all(urls, height, tip, nonce).await {
                 return Ok((url.clone(), synced.driver, synced.step));
             }
             last_error = format!("{url}: still outside the engine's window after a replay");
@@ -542,8 +581,10 @@ pub(super) async fn sync_certificates(
 /// Startup catch-up for a node that was down longer than the engine's
 /// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
 /// the driver into an attested follower so it votes and proposes again.
+/// `urls` are every `--catch-up-from` source, asked whether to resume building.
 pub(super) async fn catch_up(
     url: &str,
+    urls: &[String],
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
     anchor: Anchor,
@@ -578,7 +619,7 @@ pub(super) async fn catch_up(
     // gap itself; see `within_engine_window`. Blocks just imported change
     // nothing here: the engine would have derived the same ones, and skips
     // anchors already built.
-    if within_engine_window(url, height, tip, nonce).await {
+    if within_engine_window_of_all(urls, height, tip, nonce).await {
         println!(
             "catch-up:    imported {imported}; within the engine's window of {url}; resuming as a full validator"
         );
@@ -1168,9 +1209,23 @@ pub(super) async fn bft_loop(
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use super::{Feed, PROBE_TIMEOUT, proposer_of, rank_catch_up_sources};
+    use super::{Feed, PROBE_TIMEOUT, all_answering_agree, proposer_of, rank_catch_up_sources};
     use custom_l1_node::core::staking_payload::StakingAction;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn one_source_cannot_make_a_node_resume_building_alone() {
+        // A "yes" from the source that served the import is not enough when
+        // another source that answers says "no": the node follows instead.
+        assert!(!all_answering_agree([Some(true), Some(false)]));
+        assert!(!all_answering_agree([Some(false), None]));
+        // Unreachable sources abstain rather than veto, so one dead source
+        // does not strand a node that is in fact inside the window.
+        assert!(all_answering_agree([Some(true), None]));
+        // Nobody answered: nothing says the node is inside the window.
+        assert!(!all_answering_agree([None, None]));
+        assert!(!all_answering_agree(std::iter::empty()));
+    }
 
     #[test]
     fn one_senders_transactions_always_have_one_proposer() {

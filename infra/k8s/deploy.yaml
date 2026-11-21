@@ -263,6 +263,9 @@ spec:
             - --p2p-port=30333
             - --dual-kem=$(DUAL_KEM)
             - --bootnode=/dns4/maya-genesis-node-0.maya-genesis-node.maya2c.svc.cluster.local/tcp/30333
+            # Pod keys are generated at first start, so the peer id cannot be
+            # pinned here; cluster DNS is the trust anchor (bootnode_policy).
+            - --allow-unpinned-bootnodes
           env:
             - name: DUAL_KEM
               valueFrom:

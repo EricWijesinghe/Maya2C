@@ -116,6 +116,61 @@ impl EpochClock {
     pub fn is_stale(&self, established: u64) -> bool {
         self.current() > established
     }
+
+    /// Where a session opened at `now` starts.
+    #[must_use]
+    pub fn session_start(&self, now: Instant) -> SessionStart {
+        SessionStart {
+            epoch: self.current(),
+            at: now,
+        }
+    }
+
+    /// The sessions to close on this sweep: stale, at least `min_age` old,
+    /// oldest first, at most [`MAX_ROTATIONS_PER_SWEEP`] of them.
+    ///
+    /// Staleness alone would close every connection the moment the epoch
+    /// moves, and a syncing node crosses many epochs in minutes: the whole
+    /// mesh would reconnect at once, again and again. The age floor keeps a
+    /// fresh session alive through that, and the per-sweep cap spreads an
+    /// epoch's rotations over several sweeps instead of one burst.
+    #[must_use]
+    pub fn due<K: Copy>(
+        &self,
+        sessions: impl IntoIterator<Item = (K, SessionStart)>,
+        min_age: Duration,
+        now: Instant,
+    ) -> Vec<K> {
+        let current = self.current();
+        let mut due: Vec<(Instant, K)> = sessions
+            .into_iter()
+            .filter(|(_, s)| current > s.epoch && now.saturating_duration_since(s.at) >= min_age)
+            .map(|(key, s)| (s.at, key))
+            .collect();
+        due.sort_by_key(|(at, _)| *at);
+        due.into_iter()
+            .take(MAX_ROTATIONS_PER_SWEEP)
+            .map(|(_, key)| key)
+            .collect()
+    }
+}
+
+/// Sweeps a session must outlive before it may be rotated. At the node's
+/// 30 s sweep that is five minutes: invisible against a four-hour epoch, and
+/// enough that a syncing node does not cut its links on every sweep.
+pub const MIN_SESSION_AGE_SWEEPS: u32 = 10;
+
+/// Sessions closed in one sweep at most. At a 30 s sweep, a full mesh of 256
+/// connections rotates in about half an hour rather than all at once.
+pub const MAX_ROTATIONS_PER_SWEEP: usize = 4;
+
+/// When a session's keys were derived: the rotation epoch, and the instant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SessionStart {
+    /// The epoch the session opened in.
+    pub epoch: u64,
+    /// When it opened.
+    pub at: Instant,
 }
 
 #[cfg(test)]
@@ -183,5 +238,44 @@ mod tests {
         let elapsed = ROTATION_FALLBACK.as_secs();
         assert_eq!(elapsed / ROTATION_FALLBACK.as_secs(), 1);
         assert_eq!((elapsed * 3) / ROTATION_FALLBACK.as_secs(), 3);
+    }
+
+    #[test]
+    fn a_stale_session_waits_for_its_minimum_age() {
+        let clock = EpochClock::new();
+        let opened = Instant::now();
+        let min_age = Duration::from_secs(300);
+        let session = clock.session_start(opened);
+        assert_eq!(session.epoch, 0);
+
+        // Still in its epoch: never due, however old.
+        assert!(
+            clock
+                .due([(1u8, session)], min_age, opened + min_age * 10)
+                .is_empty()
+        );
+
+        // A syncing node jumps epochs a minute later: not due yet.
+        clock.set_height(ROTATION_INTERVAL_BLOCKS * 7);
+        let a_minute = opened + Duration::from_secs(60);
+        assert!(clock.due([(1u8, session)], min_age, a_minute).is_empty());
+        assert_eq!(
+            clock.due([(1u8, session)], min_age, opened + min_age),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn a_sweep_closes_the_oldest_few_stale_sessions() {
+        let clock = EpochClock::new();
+        let base = Instant::now();
+        let sessions: Vec<(usize, SessionStart)> = (0..MAX_ROTATIONS_PER_SWEEP * 3)
+            .rev()
+            .map(|i| (i, clock.session_start(base + Duration::from_secs(i as u64))))
+            .collect();
+        clock.set_height(ROTATION_INTERVAL_BLOCKS);
+        let later = base + Duration::from_secs(10_000);
+        let due = clock.due(sessions, Duration::ZERO, later);
+        assert_eq!(due, (0..MAX_ROTATIONS_PER_SWEEP).collect::<Vec<_>>());
     }
 }
