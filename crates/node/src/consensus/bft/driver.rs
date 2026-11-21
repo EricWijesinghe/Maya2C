@@ -859,11 +859,13 @@ impl BftDriver {
     }
 
     /// The staking epoch the chain has moved to, if it is not this driver's.
+    /// Reads only the meta record: this runs on every tick and every inserted
+    /// block, and `committed_staking` would load every validator record.
     fn next_epoch(&self, chain: &Chain) -> Result<Option<u64>> {
         Ok(chain
             .state()
-            .committed_staking()?
-            .map(|r| r.staking.epoch)
+            .committed_meta()?
+            .map(|m| m.epoch)
             .filter(|e| *e != self.epoch))
     }
 
