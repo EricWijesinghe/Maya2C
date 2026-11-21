@@ -279,10 +279,15 @@ phase that did it.
     that decides a block, a payout or a parameter has moved a decision out of
     the rules every node can re-derive. Job outputs may be stored as data; a
     model may not decide anything. The integer fee model in
-    `crates/fee-market/src/model/` is compiled in and dormant:
-    `neural_activation_height` is `u64::MAX` in `crates/node/src/genesis.rs`.
-    Giving it a finite height is an amendment to this invariant, not a
-    parameter change. The rule lived under invariant 20, which retired with
+    `crates/fee-market/src/model/` is compiled in and dormant because the
+    node never calls it: `crates/node/src/state/fees.rs` computes the base
+    fee with the linear `next_base_fee`, and no file outside fee-market
+    names its neural path (`apply_block_fees*`, `resolve_base_fee`,
+    `is_neural_active`, `next_base_fee_by_rule`, `FeeRule`, `MODEL_V1`;
+    checked by float-check). The `FeeConfig` in `crates/node/src/genesis.rs`
+    sets `neural_activation_height` to `u64::MAX` but is only validated, not
+    stored. Calling that path from the node is an amendment to this
+    invariant, not a parameter change. The rule lived under invariant 20, which retired with
     `crates/zkml` (ADR-008) and left it as prose nobody checked (owner
     decision, Eric 2026-11-14). `cargo xtask float-check` takes its scope from
     the node binary's link graph: `bins/maya2c-node` and every path crate it
@@ -294,22 +299,28 @@ phase that did it.
     raw (`r#f64`) or as a `_` segment of an ident (`as_f64`, `to_f32`), a
     float trait or wrapper (`Float`, `FloatCore`, `Real`, `OrderedFloat`,
     `NotNan`), a float literal (signed exponents and `f16`/`f128` suffixes
-    included), or a `use` that binds the name `test` and so could shadow the
-    `#[test]` the scanner trusts. A test-only field whose `<` may have been a
+    included), or a `use` that could shadow the `#[test]` the scanner trusts:
+    one that binds the name `test`, or a glob from outside `std`, `core`,
+    `alloc`, `crate`, `super` and `self`. A file counts as a test only when
+    every `mod` declaring it is under `#[cfg(test)]`. A test-only field whose `<` may have been a
     comparison is scanned past its first comma (fails closed). Excluded,
     each with a written reason (`EXCLUDE`, ADR-148): six single files in the
     node crate that hold floats today (`rpc/limit.rs`, `rpc/market.rs`,
     `rpc/peers.rs`, `network/gossip_score.rs`, `network/peer_health.rs`,
-    `metrics/mod.rs`; a test pins that a node-crate entry is a file, and an
-    entry whose file holds no float fails as stale), and three crates off the
-    consensus path as a whole (`archive`, `iso20022`, `hal/ebpf-net`). Any
+    `metrics/mod.rs`; a test pins that a node-crate entry is a file), and two
+    crates as a whole (`archive`, `hal/ebpf-net`). Any entry, file or
+    directory, under which no file holds a float fails as stale. That these
+    exclusions are off the consensus path is a review judgement, written in
+    each reason; no test pins it. Any
     other file in the node's `rpc` and `network` modules, which also carry
     block submission and sync, is scanned. One allowlist entry holds the
     finality-latency metric in `bins/maya2c-node/src/bft.rs`, and lists the
     exact tokens allowed, so any other float in that file still fails. The
     check also fails if a named consensus path stops being scanned
-    (`MUST_SCAN`), and if an ML runtime (`tract-*`, `ort`, `onnxruntime`,
-    `candle-*`, `burn`, `tch`, and the reserved names `maya-neural-fee` and
+    (`MUST_SCAN`), and if an ML runtime (`ort`, `onnxruntime`, `burn`, `tch`,
+    `torch-sys`, `tensorflow`, `rten`, `wonnx`, every `tract-*`, `candle-*`,
+    `burn-*`, `ort-*`, `onnxruntime-*`, `tensorflow-*`, `rten-*` and
+    `wonnx-*` crate, and the reserved names `maya-neural-fee` and
     `maya-zkml-prover`, which no crate uses yet) is anywhere in the node's
     dependency closure, walked through `Cargo.lock`
     (transitive, renamed and target-specific dependencies included). Runs in
@@ -318,7 +329,11 @@ phase that did it.
     `a_float_type_or_literal_is_found_anywhere_in_code`,
     `other_float_types_and_wrappers_are_found`,
     `an_import_that_shadows_the_test_attribute_is_found`,
-    `a_test_field_parameter_variant_or_arm_hides_only_itself`) and
+    `a_glob_import_of_an_outside_crate_is_found`,
+    `a_test_field_parameter_variant_or_arm_hides_only_itself`,
+    `a_module_also_declared_outside_cfg_test_is_scanned`,
+    `an_ml_runtime_is_matched_by_its_family_not_only_its_facade`,
+    `every_kind_of_violation_in_a_tree_is_reported`) and
     `xtask/src/float_scope.rs`
     (`an_ml_runtime_two_hops_away_is_in_the_lock_closure`,
     `a_node_crate_exclusion_is_one_file_not_a_module_dir`). Not covered: a
@@ -327,9 +342,12 @@ phase that did it.
     in an excluded crate); `clippy::float_arithmetic` uses type information
     and would catch these, and is not configured yet. Code outside `src/`
     (a `build.rs`, a `[lib] path` elsewhere, an `include!` of an unscanned
-    file); none occurs in linked code today. An integer model,
-    which a lexer cannot tell from other integer code; the activation rule
-    above covers the one in the tree. Contract code: WASM guest float opcodes
+    file), or a `#[macro_use] extern crate` exporting a `test` macro; none
+    occurs in linked code today. The model half is enforced only by the
+    ML-crate denylist and the fee-market entry-point check: an integer model
+    elsewhere, which a lexer cannot tell from other integer code, or a model
+    run off-node whose output is stored and later read by a rule, is not
+    detected. Contract code: WASM guest float opcodes
     run in the consensus VM and are outside this invariant; they are made
     deterministic by NaN canonicalization with SIMD and relaxed SIMD off
     (`crates/vm/src/config.rs`). Number 35 is held by a proposal (account

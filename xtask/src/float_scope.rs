@@ -47,10 +47,6 @@ pub const EXCLUDE: &[(&str, &str)] = &[
         "copies finalized blocks to disk or IPFS after the fact; progress and timing figures only",
     ),
     (
-        "crates/iso20022",
-        "translates payments into ISO 20022 messages for off-chain systems; it writes no state",
-    ),
-    (
         "hal/ebpf-net",
         "XDP packet filter in front of the p2p port; it drops packets and validates nothing",
     ),

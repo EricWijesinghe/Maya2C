@@ -13,19 +13,21 @@
 //! (`r#f64`) or as a `_` segment (`as_f64`), a float trait or wrapper
 //! ([`FLOAT_NAMES`]), or a float literal. Comments and strings never reach the
 //! token stream. Items under `#[cfg(test)]` or `#[test]` are skipped, and so
-//! is a file declared by `#[cfg(test)] mod x;`; a `use` that binds the name
-//! `test` (and so could shadow `#[test]`) is itself a violation. It also fails
-//! if an ML runtime ([`ML_CRATES`]) is anywhere in the node's dependency
-//! closure.
+//! is a file whose every `mod x;` declaration is under `#[cfg(test)]`; a `use`
+//! that binds the name `test` or globs in an outside crate (either could
+//! shadow `#[test]`) is itself a violation. It also fails if an ML runtime
+//! ([`ML_CRATES`], [`ML_FAMILIES`]) is anywhere in the node's dependency
+//! closure, or if a file outside fee-market names that crate's neural rule
+//! ([`MODEL_ENTRY`]).
 //!
 //! Not caught: a float reached by type inference with no float token in the
 //! scanned file (`"0.5".parse()` into an inferred type, a function from an
-//! unscanned crate that returns `f64`), and code outside `src/` (a `build.rs`,
-//! a `[lib] path` elsewhere, an `include!` of an unscanned file; none of these
-//! occurs in linked code today). `clippy::float_arithmetic` uses type
-//! information and closes the first gap; it is not configured yet.
+//! unscanned crate that returns `f64`), code outside `src/` (a `build.rs`,
+//! a `[lib] path` elsewhere, an `include!` of an unscanned file), and a
+//! `#[macro_use] extern crate` exporting a `test` macro; none of these occurs
+//! in linked code today. `clippy::float_arithmetic` uses type information and
+//! closes the first gap; it is not configured yet.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
@@ -36,17 +38,51 @@ use crate::float_scope::{self, EXCLUDE, MUST_SCAN, under};
 /// exist yet: they are reserved for the neural fee gain moved out of the node
 /// (PR #542) and a future zkML prover, so they fail the day they are linked.
 const ML_CRATES: &[&str] = &[
-    "tract-onnx",
-    "tract-core",
     "ort",
     "onnxruntime",
-    "candle-core",
-    "candle-nn",
     "burn",
     "tch",
+    "torch-sys",
+    "tensorflow",
+    "rten",
+    "wonnx",
     "maya-neural-fee",
     "maya-zkml-prover",
 ];
+
+/// Families matched by prefix: a sub-crate (`burn-ndarray`, `ort-sys`) runs a
+/// model without its facade, which it does not depend on.
+const ML_FAMILIES: &[&str] = &[
+    "tract-",
+    "candle-",
+    "burn-",
+    "ort-",
+    "onnxruntime-",
+    "tensorflow-",
+    "rten-",
+    "wonnx-",
+];
+
+fn is_ml_runtime(name: &str) -> bool {
+    ML_CRATES.contains(&name) || ML_FAMILIES.iter().any(|p| name.starts_with(p))
+}
+
+/// fee-market's ways into its neural rule (`is_neural_active` gates it inside
+/// `resolve_base_fee`, which `apply_block_fees*` call). The node computes its
+/// base fee with the linear `next_base_fee` only, so its neural model is
+/// dormant because nothing outside fee-market names any of these.
+const MODEL_ENTRY: &[&str] = &[
+    "apply_block_fees",
+    "apply_block_fees_with_features",
+    "resolve_base_fee",
+    "is_neural_active",
+    "next_base_fee_by_rule",
+    "FeeRule",
+    "MODEL_V1",
+];
+
+/// The crate that defines [`MODEL_ENTRY`].
+const MODEL_HOME: &str = "crates/fee-market";
 
 /// `(repo-relative file, the exact float tokens it may hold, why none of them
 /// reaches a consensus rule)`. Any other float in the file still fails. An
@@ -85,39 +121,61 @@ pub struct FileScan {
     pub hits: Vec<String>,
     /// `x` for each top-level `#[cfg(test)] mod x;`: files that are tests.
     pub test_mods: Vec<String>,
+    /// [`MODEL_ENTRY`] names the file mentions.
+    pub model_refs: Vec<String>,
 }
 
 /// Every float token in `src` outside test items, and its test modules.
 pub fn scan_file(src: &str) -> Result<FileScan, String> {
     let stream: TokenStream = src.parse().map_err(|e| format!("does not lex: {e:?}"))?;
     let tokens: Vec<TokenTree> = stream.into_iter().collect();
-    let mut out = FileScan::default();
-    for i in 0..tokens.len() {
-        if is_test_attr(&tokens, i) {
-            out.test_mods.extend(out_of_line_mod(&tokens, i + 2));
-        }
-    }
-    scan(&tokens, &mut out.hits);
+    let mut out = FileScan {
+        test_mods: test_only_mods(&tokens),
+        ..FileScan::default()
+    };
+    scan(&tokens, &mut out);
     Ok(out)
 }
 
-fn scan(tokens: &[TokenTree], out: &mut Vec<String>) {
+/// `x` for each top-level `mod x;` whose every declaration in the file is
+/// under `#[cfg(test)]`: a `#[cfg(not(test))] mod x;` beside it ships `x`.
+fn test_only_mods(tokens: &[TokenTree]) -> Vec<String> {
+    let test: Vec<String> = (0..tokens.len())
+        .filter(|&i| is_test_attr(tokens, i))
+        .filter_map(|i| out_of_line_mod(tokens, i + 2))
+        .collect();
+    let all: Vec<String> = (0..tokens.len())
+        .filter_map(|i| mod_decl(tokens, i))
+        .collect();
+    let count = |v: &[String], m: &str| v.iter().filter(|x| *x == m).count();
+    test.iter()
+        .filter(|m| count(&test, m) == count(&all, m))
+        .cloned()
+        .collect()
+}
+
+fn scan(tokens: &[TokenTree], out: &mut FileScan) {
     let mut i = 0;
     while i < tokens.len() {
         if is_test_attr(tokens, i) {
             i = skip_item(tokens, i + 2);
             continue;
         }
-        if use_binds_test(tokens, i) {
-            out.push("use binds `test`".to_owned());
+        if let Some(why) = use_shadow(tokens, i) {
+            out.hits.push(why.to_owned());
         }
         match &tokens[i] {
             TokenTree::Group(g) => scan(&g.stream().into_iter().collect::<Vec<_>>(), out),
-            TokenTree::Ident(id) if names_a_float(&id.to_string()) => out.push(id.to_string()),
+            TokenTree::Ident(id) if names_a_float(&id.to_string()) => {
+                out.hits.push(id.to_string());
+            }
+            TokenTree::Ident(id) if MODEL_ENTRY.contains(&id.to_string().as_str()) => {
+                out.model_refs.push(id.to_string());
+            }
             TokenTree::Literal(lit) if !is_tuple_index(tokens, i) => {
                 let text = lit.to_string();
                 if is_float_literal(&text) {
-                    out.push(text);
+                    out.hits.push(text);
                 }
             }
             _ => {}
@@ -154,12 +212,17 @@ fn is_float_segment(s: &str) -> bool {
     FLOAT_WIDTHS.contains(&width)
 }
 
-/// A `use` item at `i` that binds the name `test` (`use m::test;`,
-/// `use m::{a, test};`, `use m::x as test;`). It would shadow the built-in
-/// `#[test]` this scanner trusts to mark test-only items.
-fn use_binds_test(tokens: &[TokenTree], i: usize) -> bool {
+/// Paths a glob may import from: none of them can bring in an attribute
+/// macro named `test` without a `use` this check also reads.
+const GLOB_ROOTS: &[&str] = &["std", "core", "alloc", "crate", "super", "self"];
+
+/// Why the `use` item at `i` could shadow the built-in `#[test]` this scanner
+/// trusts to mark test-only items: it binds the name `test` (`use m::test;`,
+/// `use m::{a, test};`, `use m::x as test;`), or globs in an outside crate
+/// (`use m::*;`), which may export an attribute macro of that name.
+fn use_shadow(tokens: &[TokenTree], i: usize) -> Option<&'static str> {
     if ident_at(tokens, i).as_deref() != Some("use") {
-        return false;
+        return None;
     }
     let end = tokens[i..]
         .iter()
@@ -167,11 +230,23 @@ fn use_binds_test(tokens: &[TokenTree], i: usize) -> bool {
         .map_or(tokens.len(), |p| i + p);
     let mut flat = Vec::new();
     flatten(&tokens[i + 1..end], &mut flat);
-    (0..flat.len()).any(|k| {
+    let binds = (0..flat.len()).any(|k| {
         ident_at(&flat, k).as_deref() == Some("test")
             && !is_punct(flat.get(k + 1), ':')
             && ident_at(&flat, k + 1).as_deref() != Some("as")
-    })
+    });
+    if binds {
+        return Some("use binds `test`");
+    }
+    // The root is the first token after a leading `::` or a macro's `$`
+    // (`$crate`); a `{..}` group root is reported (fails closed).
+    let root = tokens[i + 1..end]
+        .iter()
+        .find(|t| !is_punct(Some(t), ':') && !is_punct(Some(t), '$'));
+    let root_ok =
+        matches!(root, Some(TokenTree::Ident(id)) if GLOB_ROOTS.contains(&id.to_string().as_str()));
+    let glob = flat.iter().any(|t| is_punct(Some(t), '*'));
+    (glob && !root_ok).then_some("glob `use` of an outside crate")
 }
 
 fn flatten(tokens: &[TokenTree], out: &mut Vec<TokenTree>) {
@@ -230,9 +305,13 @@ fn ident_at(tokens: &[TokenTree], j: usize) -> Option<String> {
     }
 }
 
-/// `x` when the item at `j` is `mod x;`.
+/// `x` when the item at `j`, after its attributes, is `mod x;`.
 fn out_of_line_mod(tokens: &[TokenTree], j: usize) -> Option<String> {
-    let k = after_attrs(tokens, j);
+    mod_decl(tokens, after_attrs(tokens, j))
+}
+
+/// `x` when the tokens at `k` are `mod x;`.
+fn mod_decl(tokens: &[TokenTree], k: usize) -> Option<String> {
     if ident_at(tokens, k)? == "mod" && is_punct(tokens.get(k + 2), ';') {
         ident_at(tokens, k + 1)
     } else {
@@ -267,7 +346,7 @@ fn skip_item(tokens: &[TokenTree], start: usize) -> usize {
             && punct(tokens.get(j - 2))
                 .is_some_and(|q| q.spacing() == Spacing::Joint && matches!(q.as_char(), '-' | '='));
         match p.as_char() {
-            ';' => return j,
+            ';' => return first_comma.unwrap_or(j),
             // Fail closed: if a `,` was passed inside `<`, that `<` may have
             // been a comparison, so scanning resumes after the first `,`.
             ',' if commas_end && angle == 0 => return first_comma.unwrap_or(j),
@@ -335,7 +414,8 @@ fn rust_files(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
 fn is_test_file(path: &str, decls: &[(String, Vec<String>)]) -> bool {
     decls.iter().any(|(file, mods)| {
         let base = match file.rsplit_once('/') {
-            Some((dir, "mod.rs" | "lib.rs" | "main.rs")) => dir,
+            Some((dir, "mod.rs")) => dir,
+            Some((dir, "lib.rs" | "main.rs")) if is_crate_root_dir(dir) => dir,
             _ => file.trim_end_matches(".rs"),
         };
         mods.iter().any(|m| {
@@ -343,6 +423,12 @@ fn is_test_file(path: &str, decls: &[(String, Vec<String>)]) -> bool {
             path == format!("{p}.rs") || under(path, &p)
         })
     })
+}
+
+/// `src` or `src/bin/<name>`: where a `lib.rs`/`main.rs` is a crate root.
+fn is_crate_root_dir(dir: &str) -> bool {
+    let parent = dir.rsplit_once('/').map_or("", |(p, _)| p);
+    dir == "src" || dir.ends_with("/src") || parent == "src/bin" || parent.ends_with("/src/bin")
 }
 
 /// [`MUST_SCAN`] entries no scanned file falls under.
@@ -360,98 +446,24 @@ fn rel(root: &Path, p: &Path) -> String {
         .replace('\\', "/")
 }
 
+/// `(file, its scan)`, one per lexed source file.
+type Scans = Vec<(String, FileScan)>;
+
+/// What `float-check` enforces, as data so a fixture tree can bring its own.
+struct Rules<'a> {
+    allow: &'a [(&'a str, &'a [&'a str], &'a str)],
+    exclude: &'a [(&'a str, &'a str)],
+    must_scan: &'a [&'a str],
+}
+
 pub fn run(_args: &[String]) -> Result<(), String> {
-    let root = crate::workspace_root();
-    let linked = float_scope::linked(&root)?;
-    let mut paths = Vec::new();
-    for d in &linked.dirs {
-        rust_files(&root.join(d).join("src"), &mut paths)?;
-    }
-    let mut all: Vec<String> = paths.iter().map(|p| rel(&root, p)).collect();
-    all.sort();
-    let (excluded, lexed): (Vec<String>, Vec<String>) = all
-        .into_iter()
-        .partition(|f| EXCLUDE.iter().any(|(e, _)| under(f, e)));
-    let mut scans = Vec::new();
-    for f in &lexed {
-        let src = std::fs::read_to_string(root.join(f)).map_err(|e| format!("{f}: {e}"))?;
-        scans.push((f.clone(), scan_file(&src).map_err(|e| format!("{f}: {e}"))?));
-    }
-    let decls: Vec<(String, Vec<String>)> = scans
-        .iter()
-        .filter(|(_, s)| !s.test_mods.is_empty())
-        .map(|(f, s)| (f.clone(), s.test_mods.clone()))
-        .collect();
-    let scanned: Vec<&(String, FileScan)> = scans
-        .iter()
-        .filter(|(f, _)| !is_test_file(f, &decls))
-        .collect();
-    let mut failures = Vec::new();
-    for (f, s) in &scanned {
-        let allowed = ALLOW
-            .iter()
-            .find(|(p, _, _)| p == f)
-            .map_or(&[][..], |(_, toks, _)| *toks);
-        if s.hits != allowed {
-            failures.push(format!(
-                "{f}: {} (allowlist expects [{}])",
-                s.hits.join(", "),
-                allowed.join(", ")
-            ));
-        }
-    }
-    let scanned_names: Vec<String> = scanned.iter().map(|(f, _)| f.clone()).collect();
-    for (p, _, _) in ALLOW
-        .iter()
-        .filter(|(p, _, _)| !scanned_names.contains(&(*p).to_owned()))
-    {
-        failures.push(format!("{p}: allowlisted but not scanned (stale entry)"));
-    }
-    for (e, _) in EXCLUDE
-        .iter()
-        .filter(|(e, _)| !excluded.iter().any(|f| under(f, e)))
-    {
-        failures.push(format!(
-            "{e}: excluded but not linked by the node (stale entry)"
-        ));
-    }
-    // A one-file exclusion is only justified while the file holds a float.
-    for f in excluded
-        .iter()
-        .filter(|f| EXCLUDE.iter().any(|(e, _)| e == f))
-    {
-        let src = std::fs::read_to_string(root.join(f)).map_err(|e| format!("{f}: {e}"))?;
-        if scan_file(&src)
-            .map_err(|e| format!("{f}: {e}"))?
-            .hits
-            .is_empty()
-        {
-            failures.push(format!("{f}: excluded but holds no float (stale entry)"));
-        }
-    }
-    for m in unscanned(MUST_SCAN, &scanned_names) {
-        failures.push(format!("{m}: consensus code no longer scanned"));
-    }
-    let ml: BTreeSet<&str> = ML_CRATES
-        .iter()
-        .copied()
-        .filter(|c| linked.names.contains(*c))
-        .collect();
-    for dep in ml {
-        failures.push(format!(
-            "{dep}: ML runtime in the node's dependency closure"
-        ));
-    }
-    println!(
-        "float-check: {} files in {} linked crates scanned ({} test modules, {} excluded), {} packages checked for ML runtimes, {} allowlisted, {} violations",
-        scanned.len(),
-        linked.dirs.len(),
-        lexed.len() - scanned.len(),
-        excluded.len(),
-        linked.names.len(),
-        ALLOW.len(),
-        failures.len()
-    );
+    let rules = Rules {
+        allow: ALLOW,
+        exclude: EXCLUDE,
+        must_scan: MUST_SCAN,
+    };
+    let (summary, failures) = check(&crate::workspace_root(), &rules)?;
+    println!("{summary}");
     if failures.is_empty() {
         Ok(())
     } else {
@@ -462,177 +474,102 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    fn hits(src: &str) -> Vec<String> {
-        scan_file(src).unwrap().hits
+/// The summary line and every violation in the tree at `root`.
+fn check(root: &Path, rules: &Rules) -> Result<(String, Vec<String>), String> {
+    let linked = float_scope::linked(root)?;
+    let mut paths = Vec::new();
+    for d in &linked.dirs {
+        rust_files(&root.join(d).join("src"), &mut paths)?;
     }
-
-    #[test]
-    fn a_float_type_or_literal_is_found_anywhere_in_code() {
-        assert_eq!(hits("fn f(x: u64) -> f64 { x as f64 }"), ["f64", "f64"]);
-        assert_eq!(
-            hits("const R: u32 = 0; static S: [f32; 1] = [0.0];"),
-            ["f32", "0.0"]
-        );
-        assert_eq!(
-            hits("let a = 1e9; let b = 2f64; let c = 3.5_f32;"),
-            ["1e9", "2f64", "3.5_f32"]
-        );
-        assert_eq!(hits("let v = vec![1.5, 2.0];"), ["1.5", "2.0"]);
-        assert_eq!(hits("let r = ..1.5;"), ["1.5"]);
-        assert_eq!(hits("let x = f64::from(3u32);"), ["f64"]);
-        assert_eq!(
-            hits("let a: f16 = b; let c: f128 = d; let e = 2f16 + 1f128;"),
-            ["f16", "f128", "2f16", "1f128"]
-        );
-        assert_eq!(hits("let x: r#f64 = y();"), ["r#f64"]);
-        assert_eq!(hits("let a = 1e-9 + 2.5E+3;"), ["1e-9", "2.5E+3"]);
+    let mut scans = Scans::new();
+    for p in &paths {
+        let f = rel(root, p);
+        let src = std::fs::read_to_string(p).map_err(|e| format!("{f}: {e}"))?;
+        let scan = scan_file(&src).map_err(|e| format!("{f}: {e}"))?;
+        scans.push((f, scan));
     }
-
-    #[test]
-    fn other_float_types_and_wrappers_are_found() {
-        assert_eq!(
-            hits("let x = half::f16::from_bits(0x3C00) * half::bf16::ONE;"),
-            ["f16", "bf16"]
-        );
-        assert_eq!(
-            hits("let v: f32x4 = w; let u = core::simd::f64x2::splat(z);"),
-            ["f32x4", "f64x2"]
-        );
-        assert_eq!(
-            hits("fn g<T: FloatCore + Real>(a: OrderedFloat<T>, b: NotNan<T>) {}"),
-            ["FloatCore", "Real", "OrderedFloat", "NotNan"]
-        );
-        assert_eq!(
-            hits("let a = f32x; let b = f64xa; let c = buf16; let d = Realm;"),
-            Vec::<String>::new()
-        );
+    scans.sort_by(|a, b| a.0.cmp(&b.0));
+    let decls: Vec<(String, Vec<String>)> = scans
+        .iter()
+        .filter(|(_, s)| !s.test_mods.is_empty())
+        .map(|(f, s)| (f.clone(), s.test_mods.clone()))
+        .collect();
+    let lexed = scans.len();
+    scans.retain(|(f, _)| !is_test_file(f, &decls));
+    let tests = lexed - scans.len();
+    let (excluded, scanned): (Scans, Scans) = scans
+        .into_iter()
+        .partition(|(f, _)| rules.exclude.iter().any(|(e, _)| under(f, e)));
+    let mut failures = token_failures(&scanned, rules.allow);
+    failures.extend(stale_entries(&scanned, &excluded, rules));
+    let names: Vec<String> = scanned.iter().map(|(f, _)| f.clone()).collect();
+    for m in unscanned(rules.must_scan, &names) {
+        failures.push(format!("{m}: consensus code no longer scanned"));
     }
-
-    #[test]
-    fn an_import_that_shadows_the_test_attribute_is_found() {
-        assert_eq!(hits("use m::pass as test;"), ["use binds `test`"]);
-        assert_eq!(hits("pub use m::{a, test};"), ["use binds `test`"]);
-        assert_eq!(hits("use m::test;"), ["use binds `test`"]);
-        assert_eq!(
-            hits("use crate::test::helpers; use m::test as t; use test_util::x;"),
-            Vec::<String>::new()
-        );
+    for dep in linked.names.iter().filter(|n| is_ml_runtime(n)) {
+        failures.push(format!(
+            "{dep}: ML runtime in the node's dependency closure"
+        ));
     }
-
-    #[test]
-    fn a_float_named_inside_an_identifier_or_a_float_bound_is_found() {
-        assert_eq!(hits("let x = v.as_f64();"), ["as_f64"]);
-        assert_eq!(
-            hits("let y = n.to_f32().map(from_f64); let b = f64_bits;"),
-            ["to_f32", "from_f64", "f64_bits"]
-        );
-        assert_eq!(hits("fn g<T: num_traits::Float>() {}"), ["Float"]);
-        assert_eq!(
-            hits("let a = buf64; let b = f640; let c = af64_x;"),
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn integers_comments_strings_and_tuple_indices_are_not_floats() {
-        let src = r#"
-            // 0.5 in a comment, and f64 too
-            /// doc: 1.5 f32
-            const A: u64 = 0xE5 + 1_000u64 + 7usize as u64 + 0b10 + 0o7;
-            const S: &str = "1.5 f64";
-            fn g(t: ((u8, u8), u8)) -> u8 { t.0.1 + (0..3).len() as u8 }
-            let m = 1.max(2);
-        "#;
-        assert_eq!(hits(src), Vec::<String>::new());
-    }
-
-    #[test]
-    fn test_items_are_skipped_but_code_after_them_is_not() {
-        let src = r"
-            #[cfg(test)]
-            mod tests { fn t() -> f64 { 0.5 } }
-            #[test]
-            fn u() { let _ = 1.5; }
-            #[cfg(test)]
-            mod more;
-            #[cfg(test)]
-            fn gen<A, B>() where A: Into<f64>, B: Copy { 0.5 }
-            fn live() -> f32 { 0.0 }
-        ";
-        assert_eq!(hits(src), ["f32", "0.0"]);
-    }
-
-    #[test]
-    fn a_test_field_parameter_variant_or_arm_hides_only_itself() {
-        assert_eq!(hits("struct S { #[cfg(test)] a: u8, b: f64 }"), ["f64"]);
-        assert_eq!(hits("fn f(#[cfg(test)] x: u8, y: f32) {}"), ["f32"]);
-        // Fails closed: after a `,` inside `<..>` the rest is scanned, so a
-        // float in a test-only generic is reported (an ALLOW entry absorbs it).
-        assert_eq!(
-            hits("struct S { #[cfg(test)] pub a: HashMap<K, f32>, b: f64 }"),
-            ["f32", "f64"]
-        );
-        assert_eq!(hits("enum E { #[cfg(test)] A(f32), B(f64) }"), ["f64"]);
-        assert_eq!(
-            hits("match k { #[cfg(test)] A => 1, B => g(0.5) }"),
-            ["0.5"]
-        );
-        assert_eq!(
-            hits("match k { #[cfg(test)] A => a < b, B => g(0.5) }"),
-            ["0.5"]
-        );
-        assert_eq!(
-            hits("match k { #[cfg(test)] A => a <= 1.5, B => g(0.5) }"),
-            ["0.5"]
-        );
-        assert_eq!(hits("let s = S { #[cfg(test)] a: 1.5, b: 2.5 };"), ["2.5"]);
-        // A `<` comparison in a test field must not hide the next field.
-        assert_eq!(
-            hits("let s = S { #[cfg(test)] a: x < y, b: 1.5 > w, c: 0 };"),
-            ["1.5"]
-        );
-        assert_eq!(
-            hits("fn f(#[cfg(test)] x: impl Fn(u8) -> u8, y: f32) {}"),
-            ["f32"]
-        );
-    }
-
-    #[test]
-    fn only_a_module_declared_under_cfg_test_marks_its_file_as_a_test() {
-        let s = scan_file("#[cfg(test)]\nmod tests;\npub mod real;\n#[cfg(test)] #[path = \"x.rs\"] pub(crate) mod more;").unwrap();
-        assert_eq!(s.test_mods, ["tests", "more"]);
-        let decls = [
-            ("crates/a/src/suite/mod.rs".to_owned(), s.test_mods.clone()),
-            ("crates/a/src/lib.rs".to_owned(), vec!["tests".to_owned()]),
-        ];
-        assert!(is_test_file("crates/a/src/suite/tests.rs", &decls));
-        assert!(is_test_file("crates/a/src/suite/tests/vectors.rs", &decls));
-        assert!(is_test_file("crates/a/src/tests.rs", &decls));
-        assert!(!is_test_file("crates/a/src/suite/real.rs", &decls));
-        assert!(!is_test_file("crates/a/src/other/tests.rs", &decls));
-        let flat = [(
-            "crates/a/src/agility.rs".to_owned(),
-            vec!["tests".to_owned()],
-        )];
-        assert!(is_test_file("crates/a/src/agility/tests.rs", &flat));
-    }
-
-    #[test]
-    fn a_consensus_path_with_no_scanned_file_is_reported() {
-        let scanned = ["crates/dex/src/lib.rs".to_owned()];
-        assert_eq!(
-            unscanned(&["crates/dex", "crates/vm"], &scanned),
-            ["crates/vm"]
-        );
-    }
-
-    #[test]
-    fn the_consensus_crates_hold_no_float_and_no_model() {
-        run(&[]).unwrap();
-    }
+    let summary = format!(
+        "float-check: {} files in {} linked crates scanned ({tests} test modules, {} excluded), {} packages checked for ML runtimes, {} allowlisted, {} violations",
+        scanned.len(),
+        linked.dirs.len(),
+        excluded.len(),
+        linked.names.len(),
+        rules.allow.len(),
+        failures.len()
+    );
+    Ok((summary, failures))
 }
+
+/// Floats outside the allowlist, and calls into fee-market's neural rule.
+fn token_failures(scanned: &Scans, allow: &[(&str, &[&str], &str)]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (f, s) in scanned {
+        let allowed = allow
+            .iter()
+            .find(|(p, _, _)| p == f)
+            .map_or(&[][..], |(_, toks, _)| *toks);
+        if s.hits != allowed {
+            out.push(format!(
+                "{f}: {} (allowlist expects [{}])",
+                s.hits.join(", "),
+                allowed.join(", ")
+            ));
+        }
+        if !s.model_refs.is_empty() && !under(f, MODEL_HOME) {
+            out.push(format!(
+                "{f}: {} (fee-market's neural rule, reached from outside it)",
+                s.model_refs.join(", ")
+            ));
+        }
+    }
+    out
+}
+
+/// Allowlist entries for no scanned file, and exclusions that cover no linked
+/// file or no float: an exclusion is only justified while it hides a float.
+fn stale_entries(scanned: &Scans, excluded: &Scans, rules: &Rules) -> Vec<String> {
+    let allow = rules
+        .allow
+        .iter()
+        .filter(|(p, _, _)| !scanned.iter().any(|(f, _)| f == p))
+        .map(|(p, _, _)| format!("{p}: allowlisted but not scanned (stale entry)"));
+    let exclude = rules.exclude.iter().filter_map(|(e, _)| {
+        let mut files = excluded.iter().filter(|(f, _)| under(f, e)).peekable();
+        if files.peek().is_none() {
+            Some(format!(
+                "{e}: excluded but not linked by the node (stale entry)"
+            ))
+        } else if files.all(|(_, s)| s.hits.is_empty()) {
+            Some(format!("{e}: excluded but holds no float (stale entry)"))
+        } else {
+            None
+        }
+    });
+    allow.chain(exclude).collect()
+}
+
+#[cfg(test)]
+mod tests;
