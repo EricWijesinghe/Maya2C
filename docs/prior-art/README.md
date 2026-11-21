@@ -56,6 +56,14 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Restaking and shared-security export (restaking)](restaking.md) — searched 2026-11-12
 - [Paid storage markets with possession proofs (storage-market)](storage-market.md) — searched 2026-11-12
 - [Appchains secured by a base chain's validators (appchains)](appchains.md) — searched 2026-11-12
+- [Mixed-suite multisig and suite-diverse quorums (multisig-suite-diversity)](multisig-suite-diversity.md) — searched 2026-11-12
+- [State compression (state-compression)](state-compression.md) — searched 2026-11-12
+- [Data-carrier outputs and metaprotocols (data-carrier)](data-carrier.md) — searched 2026-11-12
+- [Cross-chain token standards (cross-chain-tokens)](cross-chain-tokens.md) — searched 2026-11-12
+- [Blockspace reservation and preconfirmations (blockspace-reservation)](blockspace-reservation.md) — searched 2026-11-12
+- [Generic cross-chain messaging (cross-chain-messaging)](cross-chain-messaging.md) — searched 2026-11-12
+- [Blob transactions and DA attestations (blobs-and-da)](blobs-and-da.md) — searched 2026-11-12
+- [Inclusion lists and fair ordering (inclusion-lists)](inclusion-lists.md) — searched 2026-11-12
 - [Succinct chain-state proofs (succinct-chain-proof)](succinct-chain-proof.md) — searched 2026-11-12
 - [Bitcoin anchoring of checkpoints (bitcoin-anchoring)](bitcoin-anchoring.md) — searched 2026-11-12
 - [Randomness and VRF verification for contracts (contract-randomness)](contract-randomness.md) — searched 2026-11-12

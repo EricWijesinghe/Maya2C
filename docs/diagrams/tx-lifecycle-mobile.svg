@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 2034" width="420" height="2034" role="img" aria-labelledby="t d">
+<title id="t">Transaction lifecycle (phone layout)</title>
+<desc id="d">A transaction is signed with ML-DSA-65 and SLH-DSA, submitted through the gateway, admitted to the mempool after both signatures verify, gossiped, ordered by DAG-BFT, re-verified and executed in apply_block_journaled, and committed with its state root. Below, the hybrid check: ML-DSA-65 first, then SLH-DSA; either failure rejects.</desc>
+<style>
+  text { font-family: Manrope, Inter, "Segoe UI", Helvetica, Arial, sans-serif; fill: #eef3f3; }
+  .h { font-size: 19px; font-weight: 700; }
+  .s { font-size: 15px; fill: #b9c6ca; }
+  .p { font-size: 14px; fill: #8a9ca3; font-family: ui-monospace, Consolas, monospace; }
+  .lane { font-size: 13px; font-weight: 700; fill: #8a9ca3; letter-spacing: 1.5px; }
+  .n { font-size: 17px; font-weight: 800; fill: #2cc3cf; }
+  .nb { font-size: 17px; font-weight: 800; fill: #d9b97a; }
+  .box { fill: #0c171d; stroke: #2cc3cf; stroke-width: 1.5; }
+  .core { fill: #12232b; stroke: #8ff0f5; stroke-width: 1.5; }
+  .pq { fill: #1d1709; stroke: #d9b97a; stroke-width: 1.5; }
+  .bad { fill: #1f0d0b; stroke: #ff7a6b; stroke-width: 1.5; }
+  .ok { fill: #0b1f17; stroke: #4fe3a5; stroke-width: 1.5; }
+  .wire { stroke: #8a9ca3; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+  .no { stroke: #ff7a6b; stroke-width: 1.5; fill: none; marker-end: url(#r); stroke-dasharray: 5 4; }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8a9ca3"/></marker>
+  <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ff7a6b"/></marker>
+</defs>
+<rect x="1" y="1" width="418" height="2032" rx="18" fill="#050b0f" stroke="#2cc3cf" stroke-opacity=".35"/>
+<text x="20" y="40" font-size="22" font-weight="800">One transaction, end to end</text>
+<text x="20" y="64" class="s">bronze = both post-quantum signatures</text>
+<text x="20" y="84" class="s">are made or checked at this step</text>
+<rect class="pq" x="20" y="104" width="380" height="117" rx="10"/><text x="70" y="134" class="h">Sign</text><text x="70" y="158" class="s">ML-DSA-65 and SLH-DSA over</text><text x="70" y="179" class="s">the same bytes + chain tag</text><text x="70" y="201" class="p">HybridSigningKey</text><text x="38" y="134" class="nb">1</text>
+<path class="wire" d="M46 223V241"/>
+<rect class="box" x="20" y="245" width="380" height="117" rx="10"/><text x="70" y="275" class="h">Submit</text><text x="70" y="299" class="s">gateway allowlist, then node</text><text x="70" y="320" class="s">JSON-RPC rate limit per IP</text><text x="70" y="342" class="p">crates/api-gateway</text><text x="38" y="275" class="n">2</text>
+<path class="wire" d="M46 364V382"/>
+<rect class="pq" x="20" y="386" width="380" height="117" rx="10"/><text x="70" y="416" class="h">Admit</text><text x="70" y="440" class="s">both signatures, nonce, fee,</text><text x="70" y="461" class="s">balance, circuit breaker</text><text x="70" y="483" class="p">Mempool::insert</text><text x="38" y="416" class="nb">3</text>
+<path class="wire" d="M46 505V523"/>
+<rect class="box" x="20" y="527" width="380" height="117" rx="10"/><text x="70" y="557" class="h">Gossip</text><text x="70" y="581" class="s">libp2p peers over ML-KEM</text><text x="70" y="602" class="s">sessions layered on Noise</text><text x="70" y="624" class="p">network/pq</text><text x="38" y="557" class="n">4</text>
+<path class="wire" d="M46 646V664"/>
+<rect class="box" x="20" y="668" width="380" height="117" rx="10"/><text x="70" y="698" class="h">Order</text><text x="70" y="722" class="s">DAG-BFT vertices, Bullshark</text><text x="70" y="743" class="s">commit, stake-weighted</text><text x="70" y="765" class="p">crates/dag-bft</text><text x="38" y="698" class="n">5</text>
+<path class="wire" d="M46 787V805"/>
+<rect class="pq" x="20" y="809" width="380" height="159" rx="10"/><text x="70" y="839" class="h">Execute</text><text x="70" y="863" class="s">verify again, run the VM,</text><text x="70" y="884" class="s">recompute the state root;</text><text x="70" y="905" class="s">a root that does not reproduce</text><text x="70" y="926" class="s">is refused (invariant 24)</text><text x="70" y="948" class="p">apply_block_journaled</text><text x="38" y="839" class="nb">6</text>
+<path class="wire" d="M46 970V988"/>
+<rect class="ok" x="20" y="992" width="380" height="117" rx="10"/><text x="70" y="1022" class="h">Finalized</text><text x="70" y="1046" class="s">block and state commit in</text><text x="70" y="1067" class="s">one batch (invariant 26)</text><text x="70" y="1089" class="p">WriteBatch</text><text x="38" y="1022" class="n">7</text>
+<text x="20" y="1161" font-size="19" font-weight="800">The hybrid check, steps 3 and 6</text>
+<text x="20" y="1185" class="p">HybridVerifyingKey::verify</text>
+<text x="20" y="1205" class="p">crates/node/src/crypto/hybrid.rs</text>
+<rect class="box" x="20" y="1225" width="380" height="74" rx="10"/><text x="210" y="1255" text-anchor="middle" class="h">signing_bytes</text><text x="210" y="1279" text-anchor="middle" class="s">commits to both keys and the chain tag</text>
+<path class="wire" d="M70 1301V1323"/>
+<rect class="pq" x="20" y="1327" width="380" height="95" rx="10"/><text x="210" y="1357" text-anchor="middle" class="h">ML-DSA-65 verify</text><text x="210" y="1381" text-anchor="middle" class="s">lattice, FIPS 204</text><text x="210" y="1402" text-anchor="middle" class="s">runs first, fails fast</text>
+<path class="no" d="M265 1424V1446"/>
+<rect class="bad" x="130" y="1450" width="270" height="72" rx="10"/><text x="265" y="1480" text-anchor="middle" class="h">Rejected</text><text x="265" y="1502" text-anchor="middle" class="p">SignatureVerification</text>
+<path class="wire" d="M70 1424V1546"/>
+<rect class="pq" x="20" y="1550" width="380" height="95" rx="10"/><text x="210" y="1580" text-anchor="middle" class="h">SLH-DSA-SHA2-128s verify</text><text x="210" y="1604" text-anchor="middle" class="s">hash-based, FIPS 205</text><text x="210" y="1625" text-anchor="middle" class="s">a different assumption</text>
+<path class="no" d="M265 1647V1669"/>
+<rect class="bad" x="130" y="1673" width="270" height="72" rx="10"/><text x="265" y="1703" text-anchor="middle" class="h">Rejected</text><text x="265" y="1725" text-anchor="middle" class="p">HashSignatureVerification</text>
+<path class="wire" d="M70 1647V1769"/>
+<rect class="ok" x="20" y="1773" width="380" height="95" rx="10"/><text x="210" y="1803" text-anchor="middle" class="h">Accepted</text><text x="210" y="1827" text-anchor="middle" class="s">only when both verify: no frame</text><text x="210" y="1848" text-anchor="middle" class="s">carries just one signature</text>
+<text x="20" y="1904" class="s">Measured cost (docs/hybrid-signatures.md):</text>
+<text x="20" y="1926" class="s">public key 1,984 B · signature 11,165 B</text>
+<text x="20" y="1948" class="s">one-output transfer 13,215 B</text>
+<text x="20" y="1982" class="s">Two distinct errors on purpose: operators</text>
+<text x="20" y="2004" class="s">must know which scheme failed.</text>
+</svg>
