@@ -167,6 +167,16 @@
     },
     {
       "expect": {
+        "error": "AuthorityMoved",
+        "result": "error"
+      },
+      "id": "AA-session-after-authority-change",
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
         "error": "Account",
         "result": "error"
       },
@@ -242,6 +252,31 @@
         "result": "error"
       },
       "id": "AA-policy-before-bit-45",
+      "rules": [
+        "AA-10"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Decode",
+        "result": "error"
+      },
+      "id": "AA-schedule-bit-45-without-bit-9",
+      "input": {
+        "features": "bit 45"
+      },
+      "rules": [
+        "AA-10"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "id": "AA-schedule-bit-45-with-bit-9",
+      "input": {
+        "features": "bits 9 and 45"
+      },
       "rules": [
         "AA-10"
       ]

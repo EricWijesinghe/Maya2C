@@ -15,6 +15,7 @@
 mod account_scene;
 
 use account_scene::*;
+use custom_l1_node::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
 // ------------------------------------------------------------------- tests --
 
@@ -30,7 +31,7 @@ fn a_session_key_pays_a_listed_recipient_up_to_its_cap() {
 fn a_session_key_over_its_cap_is_refused() {
     let mut s = Scene::opted_in();
     refused(&mut s, "max_amount", |s| s.session_pays(PAYEE, CAP + 1));
-    // Two outputs each under the cap: the cap is on the frame, not the output.
+    // Two outputs each under the cap: the cap is on the key's total, not per output.
     let two = vec![
         TxOutput {
             amount: U256::from(CAP / 2 + 1),
@@ -560,6 +561,24 @@ fn vector_cases() -> serde_json::Value {
     let tx = s.session_pays_with_fee(1, required);
     let fee_over_cap = s.chain.send(tx);
     let pays_nothing = Scene::opted_in().session_pays(PAYEE, 0);
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::AdoptPolicy(session_policy(&device(0x0A))))
+        .unwrap();
+    let authority_moved = s.session_pays(PAYEE, 1);
+    let schedule = |features| {
+        let entry = ProtocolUpgrade {
+            version: 3,
+            activation_height: 40,
+            features: FeatureSet(features),
+        };
+        match UpgradeSchedule::new(vec![entry]) {
+            Ok(_) => serde_json::json!({"result": "ok"}),
+            Err(e) if e.to_string().contains("account policy before account authority") => {
+                serde_json::json!({"result": "error", "error": "Decode"})
+            }
+            Err(e) => serde_json::json!({"result": "error", "error": e.to_string()}),
+        }
+    };
 
     serde_json::json!({
         "description": "ADR-135 P-5 smart-account policy: session-key action encodings, session-frame scope, the spending window and activation. Regenerate with MAYA_REGEN_VECTORS=1 cargo test -p custom-l1-node --test account_policy_tests conformance; every implementation must agree.",
@@ -583,12 +602,15 @@ fn vector_cases() -> serde_json::Value {
             {"id": "AA-session-revoked", "rules": ["AA-8"], "expect": outcome(revoked)},
             {"id": "AA-session-total-over-cap", "rules": ["AA-8"], "input": {"spent": CAP.to_string(), "amount": "1", "max_amount": CAP.to_string()}, "expect": outcome(total_over)},
             {"id": "AA-session-fee-counts-against-cap", "rules": ["AA-8"], "input": {"amount": "1", "required_fee": required.to_string(), "max_amount": CAP.to_string()}, "expect": outcome(fee_over_cap)},
+            {"id": "AA-session-after-authority-change", "rules": ["AA-8"], "expect": outcome(authority_moved)},
             {"id": "AA-session-pays-no-recipient", "rules": ["AA-8"], "input": {"amount": "0", "max_amount": CAP.to_string()}, "expect": outcome(pays_nothing)},
             {"id": "AA-window-at-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": "0", "amount": CAP.to_string()}, "expect": outcome(window_fill)},
             {"id": "AA-window-owner-over-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": CAP.to_string(), "amount": "2"}, "expect": outcome(window_over)},
             {"id": "AA-window-refuses-a-kind-without-outputs", "rules": ["AA-9"], "input": {"limit": CAP.to_string(), "kind": "open_channel", "funding": (FUNDS / 2).to_string()}, "expect": outcome(window_escrow)},
             {"id": "AA-window-admits-a-guardian-vault-cancel", "rules": ["AA-9"], "input": {"limit": CAP.to_string(), "kind": "vault_cancel"}, "expect": outcome(guardian_cancel)},
             {"id": "AA-policy-before-bit-45", "rules": ["AA-10"], "expect": outcome(dark)},
+            {"id": "AA-schedule-bit-45-without-bit-9", "rules": ["AA-10"], "input": {"features": "bit 45"}, "expect": schedule(FeatureSet::ACCOUNT_POLICY)},
+            {"id": "AA-schedule-bit-45-with-bit-9", "rules": ["AA-10"], "input": {"features": "bits 9 and 45"}, "expect": schedule(FeatureSet::ACCOUNT_AUTHORITY | FeatureSet::ACCOUNT_POLICY)},
             {"id": "AA-root-without-policy-rows", "rules": ["AA-10"], "expect": {"result": "ok", "roots_equal_dark_chain": transfer_roots(1) == transfer_roots(u64::MAX)}}
         ]
     })

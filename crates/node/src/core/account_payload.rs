@@ -51,12 +51,14 @@ pub const MAX_SESSION_RECIPIENTS: usize = 16;
 
 /// What a session key may do: plain transfers to `recipients` (and the fee
 /// collector), up to and including height `expires_at`, moving at most
-/// `max_amount` over the key's life, every frame summed, with each frame's
-/// required fee exempt (the vault's count, `vault_outflow`).
+/// `max_amount` over the key's life, every frame summed: every output summed,
+/// fee-collector outputs included (no fee exemption, unlike the window and the
+/// vault; spec AA-8).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionScope {
     /// Most the key may move in total across all its frames, every output
-    /// summed, the required fee exempt. Re-adding the key starts a new total.
+    /// summed, fee-collector outputs included (no fee exemption, unlike the
+    /// window and the vault). Re-adding the key starts a new total.
     pub max_amount: U256,
     /// Last height the key may sign at.
     pub expires_at: u64,
