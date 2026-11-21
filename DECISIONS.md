@@ -1002,3 +1002,24 @@ Two findings that contradict the brief, reported rather than worked around (Stan
 - **Cost, stated:** builder worst case `2 × cap + 3,072,000` per selection; producer ~816 ms of priced work at the 250 M default and ~978 ms at the 300 M ceiling, at 1 ns/unit.
 - **Compile prices unchanged.** In release, three runs of the at-limit shapes gave worst 1.231 (loaded), 0.771 and 0.768 ns/fuel, all on `block (type []->[16])` x 2000. The ADR's 1 ns claim now gives the loaded figure. The constants were not tuned to one loaded run.
 - **Needs Eric, not decided here:** charging failed calls (STF-8, economics; two failing calls at the cap from two senders still exhaust the builder budget, G1), and whether to lower `VM_GAS_CEILING` given the producer margin at 300 M (G1b).
+
+## 2026-11-21 — ADR-142 amendment 5: the contracts root kept between blocks (BACKLOG G2 CPU side; Eric 2026-11-17 pre-approval of Claude's recommendations)
+
+- **Decided (performance only, root value unchanged):** the contracts layer's leaves stay in
+  memory at one write generation and move with every commit and revert by the commit's own batch
+  (`state/contracts_root.rs`). A root no longer re-reads and re-hashes all contract state:
+  measured (test profile) 617.8 ms before and 78.4 ms after for one new entry over 400,000, and
+  0.001 ms for a block that writes no contract entry.
+- **Why not the decision brief's A + B here:** a per-block or total contract-state ceiling and a
+  per-byte state price change what blocks are valid and what users pay. They are Eric's, so they
+  are a separate `[needs-eric]` draft (ADR-142 amendment 4) stacked on this one, re-derived
+  against the cached root.
+- **Contradicts the earlier WIP (2026-11-19, never pushed):** it said the layer "cannot be made
+  incremental byte-identically". The per-entry reading and hashing can be removed without
+  touching the value; what stays O(entries) is one pass over the leaves of a positional tree.
+  Removing that needs a different layer format (ROOT-5), not done.
+- **`check_declared_root` now always asks the full rebuild on a mismatch**, not only after a
+  walked accounts plan, so a wrong contracts cache cannot stall a validator. Refusing a bad block
+  costs one more full root.
+- **Still open, for Eric:** contract-state growth is unbounded and unpriced (R-1's disk side,
+  and the cache's resident memory, not measured).

@@ -153,7 +153,13 @@ phase that did it.
     accounts root may come from the local root cache, and a declaration the
     cache does not give is re-checked against the full rebuild before it is
     refused. The full rebuild (`state_root()`, `RootSource::Full`) is the
-    reference; the cache only ever computes the same value faster.
+    reference; the cache only ever computes the same value faster. Since
+    ADR-142 amendment 5 the contracts layer of every non-full root comes from
+    an in-memory cache of its leaves (`state::contracts_root`), on every
+    chain: a declaration the computed root does not match is re-checked
+    against the full rebuild whichever cache was used, and a cache the full
+    fold refutes is withdrawn (`a_wrong_cache_is_refuted_by_a_block_and_withdrawn`,
+    `the_cache_matches_the_full_fold_over_random_histories`).
 25. **Every persisted consensus record is under the state root; everything
     else is on an explicit local-only list.** `state::commitments` holds the
     lists:
@@ -190,6 +196,11 @@ phase that did it.
       under the write guard, so a crash leaves cache and accounts both old or
       both new (ADR-062a; `incremental_root_equals_full_rebuild_over_random_histories`,
       `blocks_a_reorg_and_a_restart_keep_the_cache_equal_to_the_full_rebuild`).
+    - the contracts root cache (ADR-142 amendment 5) is in memory only: it
+      follows a commit by that commit's own batch, after the batch has landed
+      and before the write guard drops, and any write it cannot follow leaves
+      it stale, so a crash or a restart costs one rebuild from the database,
+      never a wrong root.
 
     `Chain::open` rebuilds from it and adopts a heavier stored branch, which is
     how a crash mid-reorg recovers. `seed_state` runs on a **fresh** database

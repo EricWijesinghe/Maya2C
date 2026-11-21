@@ -609,3 +609,98 @@ and commit: 56.9 ms
 --nocapture --test-threads 1 building_a_block_of_failing`). The loop is cheap
 guest compute (~0.11 ns per unit), so this shows the budget is enforced. The
 time bound comes from the gas bound times the slowest priced work.
+
+## Amendment 5, 2026-11-21: the contracts root kept between blocks (Eric 2026-11-17 pre-approval of Claude's recommendations; performance only)
+
+BACKLOG G2, PR #549 review R-1, decision brief 5 option C. No new ADR number
+(`adr-claims.txt`: 142e). Amendment 4 (142d) is the contract-state ceiling,
+which is an economics decision and is a separate `[needs-eric]` draft PR
+stacked on this one; it is not part of this amendment.
+
+### What changed
+
+- **The contracts layer's leaves stay in memory between blocks**
+  (`crates/node/src/state/contracts_root.rs`). Each committed `code:` and
+  `cstate:` entry's `record_leaf` is kept at one write generation
+  (`state::preview`). A root lays the block's own staged leaves over them and
+  runs the same `merkle_root`; a root with nothing staged at an unchanged
+  generation returns the kept value. Before, every root re-read every
+  contract value from RocksDB, copied it into a `BTreeMap` and re-hashed it.
+- **Commits and reverts move the cache on by their own batch.** The commit
+  paths (`apply_block`, `apply_block_checked`, `commit_journaled`), the
+  revert (`revert_block_with`), `write_batch` and the root cache's own writes
+  go through one `StateDB::land`, which reads the batch's
+  contract puts and deletes (`WriteBatchIterator`) and, once the batch has
+  landed and while the write guard is still held, moves the cache from the
+  generation the guard started at to the one it leaves (`preview::landed`).
+  A batch holding an operation the iterator does not report (a range delete)
+  withdraws the cache. Every other write (`raw_put`, `put_account`) leaves it
+  at a generation no later state has, so the next root rebuilds it from the
+  database.
+- **The root value does not change.** Same leaves, same order, same
+  `merkle_root`: byte for byte the full fold's. No consensus rule, wire
+  format, stored key, snapshot or journal changes; no spec rule is added.
+
+### Why this is safe, and what checks it
+
+- The full fold (`StateDB::state_root`, `RootSource::Full`,
+  `contracts_root_full`) is still the reference. Debug builds compare every
+  cached root with it (unit tests panic on a difference; debug nodes repair).
+  A preview at a `CONFIRM_EVERY` height compares too, and on a difference the
+  header carries the full fold's root.
+- `check_declared_root` now asks the full rebuild whenever the computed root
+  differs from a block's declaration, not only after a walked accounts plan.
+  If the full rebuild matches the block, a refuted contracts cache is
+  withdrawn and the block accepted on the full root. A block whose root
+  neither gives is refused as before. Cost: refusing a bad block takes one
+  more full root, which is what every block took before either cache.
+- The cache is never stored, so a crash or a restart costs one rebuild and
+  can never carry a wrong root forward (invariant 26).
+- Pinned by `crates/node/src/state/contracts_root_tests.rs`:
+  `the_cache_matches_the_full_fold_over_random_histories` (seed `0x0C0DE142`,
+  400 steps of deployments, new and overwritten slots, empty values, keys
+  that are prefixes of each other, reverts, reorgs, restarts and an
+  out-of-band write; it also asserts every commit and revert was followed,
+  not rebuilt), `a_wrong_cache_is_refuted_by_a_block_and_withdrawn`,
+  `a_confirm_repairs_a_wrong_cache_before_a_header_carries_it`,
+  `the_debug_cross_check_fails_a_unit_test_on_a_wrong_cache`,
+  `a_batch_with_an_unreported_operation_cannot_be_followed`. Red run: with
+  `follow` made to drop deletions, the differential test failed (a cached
+  root differed from the full fold, `contracts_root_tests.rs:101`).
+
+### Measured
+
+Commit `505e7889`, Intel Core Ultra 9 275HX, 31.4 GB RAM, Windows 11 Pro
+10.0.29708, test profile (`custom-l1-node` at opt-level 0, `blake3` at 3), the
+machine shared with other agents' builds. Median of five.
+`cargo test -p custom-l1-node --lib the_contracts_root_at_400_000 -- --ignored --nocapture --test-threads 1`,
+400,000 committed 1-byte entries:
+
+| Contracts layer root | ms |
+|---|---|
+| before (full fold), 1 new entry | 617.8 |
+| before (full fold), 245 new 4 KiB entries | 646.2 |
+| after, cold (one scan), 1 new entry | 582.8 |
+| after, warm, nothing staged | 0.001 |
+| after, warm, 1 new entry | 78.4 |
+| after, warm, 245 new 4 KiB entries | 79.1 |
+| after, warm, 245 new 4 KiB entries, root then commit | 91.6 |
+
+245 writes of 4 KiB is what one 250 M-gas call stages (R-1). Not measured: a
+release build, other machines, memory held by the cache.
+
+### Not done, and why
+
+- **Still O(entries) per root that writes anything.** The layer is a
+  positional tree (ROOT-3): one new key shifts every leaf after it and every
+  internal node above them, so no cache keeps the value and does less than
+  one pass over all leaves. Only another layer format (a keyed sparse tree,
+  as ADR-062a gave accounts) removes it; that changes ROOT-5 and the genesis
+  root format, and is not done here.
+- **Memory grows with contract state.** The cache holds each entry's stored
+  key and a 32-byte leaf, never a value. Before, every root built a map of
+  every key *and value*, so peak memory per root is lower than it was, but the
+  resident size now grows with the number of entries. Not measured.
+- **Growth itself is still unbounded and unpriced** (R-1's disk side). A
+  per-block or total contract-state ceiling, or a per-byte state price, is a
+  consensus and economics decision: amendment 4, `[needs-eric]` draft.
