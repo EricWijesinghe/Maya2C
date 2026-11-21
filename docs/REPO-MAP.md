@@ -21,6 +21,8 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 | Why is it designed this way? | `docs/adr/` (one ADR per decision), `DECISIONS.md` (short ones) |
 | What must never break? | `docs/invariants.md` |
 | What is done / next / deferred? | `PROGRESS.md` / `STATE.md` "Do next" / `BACKLOG.md` |
+| What changed, PR by PR? | `CHANGELOG.md` (generated: `cargo xtask devlog changelog`) |
+| What gets built, wave by wave? | `docs/ecosystem/ROADMAP.md` (generated from `docs/ecosystem/CATALOG.md`; CI checks) |
 | What could go wrong? | `RISKS.md`, `THREAT_MODEL.md` |
 | Is it ready to launch? | `LAUNCH.md` (gates), `READINESS.md` (generated), `docs/mainnet-readiness.md` |
 | How is the wire/state defined? | `spec/` |
@@ -73,6 +75,7 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 | `docs/runbooks/` | includes `attacknet-lab-guide.md` |
 | `docs/site/` | the documentation website (Astro; `node_modules/` and `dist/` are ignored) |
 | `docs/brand/`, `logo-assets/`, `design/` | brand rules, assets, design tokens |
+| `docs/diagrams/` | architecture, transaction, trust-boundary, ecosystem and roadmap diagrams: SVG + Mermaid ([index](diagrams/README.md)) |
 | `reports/` | numbered topic reports `00`–`32`, plus `sessions/`, `executive/`, `sweeps/`, `attacknet/`, `incidents/` — evidence, append-only |
 | `attic/` | deliberately empty; its README records why |
 

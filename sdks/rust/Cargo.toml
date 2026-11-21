@@ -21,5 +21,13 @@ hex.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+# The contract test serves the real gateway router in-process, so a route,
+# field or status the gateway changes fails here rather than in a user's app.
+[dev-dependencies]
+maya-api-gateway = { path = "../../crates/api-gateway" }
+axum.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+async-trait.workspace = true
+
 [lints]
 workspace = true

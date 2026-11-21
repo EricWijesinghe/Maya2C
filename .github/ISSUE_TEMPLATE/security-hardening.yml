@@ -1,0 +1,33 @@
+name: Security hardening (not a vulnerability)
+description: A public, non-exploitable hardening idea, such as a safer default or a missing check in CI.
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Is this a vulnerability?** Stop and report it privately instead:
+        https://github.com/EricWijesinghe/Maya2C/security/advisories/new
+        (see SECURITY.md). A public issue tells attackers before a fix exists.
+
+        Use this form only for ideas that are safe to discuss in public:
+        nothing here should let anyone attack a node, a wallet or a user today.
+  - type: checkboxes
+    id: not-a-vuln
+    attributes:
+      label: Confirm
+      options:
+        - label: This is not an exploitable vulnerability, and it contains no secrets or personal data.
+          required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The hardening idea
+      description: What should change, and which component (node, wallet, chat, Hub, SDK, site, CI).
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What it protects against
+    validations:
+      required: true
