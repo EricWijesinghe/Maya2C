@@ -902,6 +902,28 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
 
+## 2026-11-21 — S-033 committee floor holds at mainnet bonds (Eric 2026-11-14)
+
+Founder-brief audit question 17. Eric 2026-11-14 ("I approve everything, proceed") took the
+recommended option A, "merge the fix before the freeze".
+
+- **The merged floor did not protect a mainnet validator.** #246 (46a97a61, in the freeze
+  bb4e0940) counted the floor after the 1% downtime slash, and mainnet bonds equal
+  `min_self_bond` exactly (`xtask genesis-check`), so a down validator fell below the
+  minimum and was jailed whatever the floor said. The brief assumed a fix only needed
+  merging; it needed a rule change (Standing Order 9: reported in PR #524).
+- **Chosen: option (a)** of the ADR-070 amendment 2026-11-21. The floor is counted before
+  the slash; a kept validator is unpaid but slashed only if it stays at or above
+  `min_self_bond`. Not (b), which removes the downtime slash for everyone at mainnet bonds,
+  and not (c), which reverses the tiny-bond decision. Consensus-visible, so re-freeze work:
+  PR #524 is retitled `[re-freeze]` and waits for Eric's merge with the re-genesis.
+- **Economics note for Eric:** at mainnet bonds a kept validator loses its epoch reward but
+  no bond. This is the one place the change touches economics; say so if you want (b) or
+  (c) instead.
+- **Beyond any fix**: more than f seated validators gone for good leaves no quorum to reseat
+  anyone (the 2f + 1 rule); recovery is the social re-genesis (`docs/audit/KNOWN_ISSUES.md` #18).
+- **Not decided here**: `cargo xtask go-no-go` counts every self-run `high` row that is not
+  `closed` as a NO-GO; S-033 is `fixed`, not `closed`.
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
