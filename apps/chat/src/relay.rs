@@ -7,10 +7,11 @@
 //! one mailbox can hold, and envelopes expire, so a relay's storage stays
 //! bounded without asking anyone for tokens.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use maya_crypto_pq::suite::{self, SuiteId};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 use crate::identity::{PrekeyBundle, address_of};
 use crate::session::{Handshake, Message};
@@ -34,13 +35,24 @@ pub const MAX_PREKEY_TTL: u64 = 31 * 24 * 3_600;
 /// How long a fetch challenge stays valid, seconds.
 pub const CHALLENGE_TTL: u64 = 120;
 /// Most bytes held across every mailbox. Per-mailbox quotas alone do not
-/// bound a relay: addresses are free to make.
+/// bound a relay: addresses are free to make. At the cap the largest
+/// mailbox gives way to a smaller one (ADR-149).
 pub const MAX_RELAY_BYTES: usize = 1 << 30;
 /// Most prekey bundles held.
 pub const MAX_BUNDLES: usize = 100_000;
-/// Most outstanding fetch challenges.
-pub const MAX_CHALLENGES: usize = 10_000;
-const FETCH_DOMAIN: &[u8] = b"maya-chat mailbox fetch v1";
+/// Most spent fetch challenges remembered. Challenges are stateless (ADR-149),
+/// so only spent ones are stored, and only for [`CHALLENGE_TTL`]; past the cap
+/// the oldest is forgotten, which reopens nothing a third party can use: the
+/// fetch it guards was signed for this relay and travelled encrypted.
+pub const MAX_SPENT_CHALLENGES: usize = 100_000;
+/// Most fetched envelope ids remembered so that a sender's resend after the
+/// fetch is not delivered twice. Past the cap the soonest to expire is
+/// forgotten; a resend of it is delivered again and the session refuses it as
+/// a replay (ADR-149).
+pub const MAX_FETCHED_IDS: usize = 1 << 16;
+// v2 adds the relay id, so a signature for one relay is refused by another.
+const FETCH_DOMAIN: &[u8] = b"maya-chat mailbox fetch v2";
+const CHALLENGE_DOMAIN: &str = "maya-chat 2026-11-21 fetch challenge v1";
 const STAMP_DOMAIN: &str = "maya-chat 2026-09-28 postage stamp v1";
 /// Leading zero bits a deposit's postage stamp needs by default: about a
 /// million hashes, well under a second for one message and ~minutes of CPU
@@ -179,10 +191,19 @@ impl Envelope {
     }
 }
 
-/// What a mailbox owner signs to empty it.
+/// What a mailbox owner signs to empty it at the relay whose id is `relay`
+/// (its libp2p peer id bytes; [`Relay::id`]).
 #[must_use]
-pub fn fetch_bytes(address: &Address, nonce: &[u8; 32]) -> Vec<u8> {
-    [FETCH_DOMAIN, address.as_slice(), nonce.as_slice()].concat()
+pub fn fetch_bytes(relay: &[u8], address: &Address, nonce: &[u8; 32]) -> Vec<u8> {
+    let len = u32::try_from(relay.len()).unwrap_or(u32::MAX).to_be_bytes();
+    [
+        FETCH_DOMAIN,
+        len.as_slice(),
+        relay,
+        address.as_slice(),
+        nonce.as_slice(),
+    ]
+    .concat()
 }
 
 #[derive(Default)]
@@ -193,14 +214,27 @@ struct Mailbox {
 
 /// A relay's state.
 pub struct Relay {
+    /// This relay's identity, bound into every fetch signature.
+    id: Vec<u8>,
     stamp_bits: u32,
     bundles: BTreeMap<Address, PrekeyBundle>,
     mailboxes: BTreeMap<Address, Mailbox>,
     /// Ids of stored envelopes, with their expiry. An expired envelope is
     /// refused anyway, so an id is forgotten once it expires.
     seen: BTreeMap<[u8; 32], u64>,
-    challenges: BTreeMap<Address, ([u8; 32], u64)>,
+    /// Stored envelopes ordered by expiry, with each one's mailbox, so expiry
+    /// pops only what has expired instead of scanning everything held.
+    expiries: BTreeSet<(u64, [u8; 32], Address)>,
+    /// Ids in `seen` whose envelope was fetched, by expiry.
+    fetched: BTreeSet<(u64, [u8; 32])>,
+    /// Mailboxes by size, so the largest is found when the relay is full.
+    by_size: BTreeSet<(usize, Address)>,
+    /// Keys challenge nonces; made on the first challenge.
+    challenge_key: Option<Zeroizing<[u8; 32]>>,
+    /// Spent challenge nonces, by issue time.
+    spent: BTreeSet<(u64, [u8; 32])>,
     bytes: usize,
+    capacity: usize,
 }
 
 impl Default for Relay {
@@ -214,13 +248,41 @@ impl Relay {
     #[must_use]
     pub fn new(stamp_bits: u32) -> Self {
         Self {
+            id: Vec::new(),
             stamp_bits,
             bundles: BTreeMap::new(),
             mailboxes: BTreeMap::new(),
             seen: BTreeMap::new(),
-            challenges: BTreeMap::new(),
+            expiries: BTreeSet::new(),
+            fetched: BTreeSet::new(),
+            by_size: BTreeSet::new(),
+            challenge_key: None,
+            spent: BTreeSet::new(),
             bytes: 0,
+            capacity: MAX_RELAY_BYTES,
         }
+    }
+
+    /// This relay holding at most `bytes` across every mailbox instead of
+    /// [`MAX_RELAY_BYTES`].
+    #[must_use]
+    pub fn with_capacity(mut self, bytes: usize) -> Self {
+        self.capacity = bytes;
+        self
+    }
+
+    /// This relay with identity `id` (its libp2p peer id bytes), which every
+    /// fetch signature must name.
+    #[must_use]
+    pub fn with_id(mut self, id: Vec<u8>) -> Self {
+        self.id = id;
+        self
+    }
+
+    /// The identity fetch signatures must name.
+    #[must_use]
+    pub fn id(&self) -> &[u8] {
+        &self.id
     }
 
     /// The postage this relay requires.
@@ -276,6 +338,7 @@ impl Relay {
     pub fn deposit(&mut self, envelope: Envelope, now: u64) -> Result<[u8; 32], ChatError> {
         let bytes = envelope.encode()?;
         let id = envelope.id()?;
+        self.expire(now);
         if self.seen.contains_key(&id) {
             return Ok(id);
         }
@@ -288,39 +351,97 @@ impl Relay {
         if envelope.expires_at <= now || envelope.expires_at > now + MAX_TTL {
             return Err(ChatError::Refused("expiry outside what this relay keeps"));
         }
-        if self.bytes + bytes.len() > MAX_RELAY_BYTES {
-            self.expire(now);
-            if self.bytes + bytes.len() > MAX_RELAY_BYTES {
-                return Err(ChatError::Refused("relay full"));
-            }
-        }
-        let mailbox = self.mailboxes.entry(envelope.to).or_default();
-        let before = mailbox.bytes;
-        mailbox.envelopes.retain(|(_, _, e)| e.expires_at > now);
-        mailbox.bytes = mailbox.envelopes.iter().map(|(_, size, _)| size).sum();
-        self.bytes -= before - mailbox.bytes;
-        if mailbox.envelopes.len() >= MAX_ENVELOPES
-            || mailbox.bytes + bytes.len() > MAX_MAILBOX_BYTES
-        {
+        let to = envelope.to;
+        let (count, held) = self
+            .mailboxes
+            .get(&to)
+            .map_or((0, 0), |m| (m.envelopes.len(), m.bytes));
+        if count >= MAX_ENVELOPES || held + bytes.len() > MAX_MAILBOX_BYTES {
             return Err(ChatError::Refused("mailbox full"));
         }
+        self.make_room(held + bytes.len(), bytes.len())?;
+        let mailbox = self.mailboxes.entry(to).or_default();
+        self.by_size.remove(&(mailbox.bytes, to));
         mailbox.bytes += bytes.len();
+        self.by_size.insert((mailbox.bytes, to));
         self.bytes += bytes.len();
         self.seen.insert(id, envelope.expires_at);
+        self.expiries.insert((envelope.expires_at, id, to));
         mailbox.envelopes.push_back((id, bytes.len(), envelope));
-        self.seen.retain(|_, expires_at| *expires_at > now);
         Ok(id)
     }
 
-    /// Drops every expired envelope and empty mailbox.
+    /// Frees `len` bytes for a mailbox that will then hold `after`, by
+    /// evicting the oldest envelopes of mailboxes holding more than that
+    /// (ADR-149). Addresses are free, so a flood is many mailboxes; this way
+    /// it displaces its own mail before anyone else's, and a deposit is only
+    /// refused when no mailbox is larger than the one it joins would become.
+    /// An evicted envelope drew no receipt, so its sender's outbox resends it.
+    fn make_room(&mut self, after: usize, len: usize) -> Result<(), ChatError> {
+        while self.bytes + len > self.capacity {
+            match self.by_size.last() {
+                Some(&(size, victim)) if size > after => {
+                    if let Some((id, _)) = self.remove_envelope(victim, 0) {
+                        // Forgotten, so the resend is stored, not taken as a duplicate.
+                        self.seen.remove(&id);
+                    } else {
+                        self.by_size.remove(&(size, victim));
+                    }
+                }
+                _ => return Err(ChatError::Refused("relay full")),
+            }
+        }
+        Ok(())
+    }
+
+    /// Takes `at`'s envelope at `index` out of the mailbox, the size and expiry
+    /// indexes and the relay's byte count. `seen` is the caller's to settle.
+    fn remove_envelope(&mut self, at: Address, index: usize) -> Option<([u8; 32], Envelope)> {
+        let mailbox = self.mailboxes.get_mut(&at)?;
+        let before = mailbox.bytes;
+        let (id, size, envelope) = mailbox.envelopes.remove(index)?;
+        mailbox.bytes -= size;
+        let (left, empty) = (mailbox.bytes, mailbox.envelopes.is_empty());
+        self.bytes -= size;
+        self.by_size.remove(&(before, at));
+        self.expiries.remove(&(envelope.expires_at, id, at));
+        if empty {
+            self.mailboxes.remove(&at);
+        } else {
+            self.by_size.insert((left, at));
+        }
+        Some((id, envelope))
+    }
+
+    /// Drops every expired envelope, id, emptied mailbox and spent challenge.
+    /// Each is popped once, so the cost is in what expired, not in what is held.
     fn expire(&mut self, now: u64) {
-        self.mailboxes.retain(|_, m| {
-            m.envelopes.retain(|(_, _, e)| e.expires_at > now);
-            m.bytes = m.envelopes.iter().map(|(_, size, _)| size).sum();
-            !m.envelopes.is_empty()
-        });
-        self.bytes = self.mailboxes.values().map(|m| m.bytes).sum();
-        self.seen.retain(|_, expires_at| *expires_at > now);
+        while let Some(&(expires_at, id, to)) = self.expiries.first() {
+            if expires_at > now {
+                break;
+            }
+            self.seen.remove(&id);
+            let at = self
+                .mailboxes
+                .get(&to)
+                .and_then(|m| m.envelopes.iter().position(|(i, _, _)| *i == id));
+            if at.and_then(|at| self.remove_envelope(to, at)).is_none() {
+                self.expiries.pop_first();
+            }
+        }
+        while let Some(&(expires_at, id)) = self.fetched.first() {
+            if expires_at > now {
+                break;
+            }
+            self.fetched.pop_first();
+            self.seen.remove(&id);
+        }
+        while let Some(&(issued, _)) = self.spent.first() {
+            if now.saturating_sub(issued) <= CHALLENGE_TTL {
+                break;
+            }
+            self.spent.pop_first();
+        }
     }
 
     /// Bytes held across every mailbox.
@@ -329,53 +450,85 @@ impl Relay {
         self.bytes
     }
 
-    /// A fresh challenge for emptying `address`'s mailbox.
+    /// Envelope ids remembered, stored or fetched.
+    #[must_use]
+    pub fn remembered_ids(&self) -> usize {
+        self.seen.len()
+    }
+
+    /// A fresh challenge for emptying `address`'s mailbox. Nothing is stored
+    /// (ADR-149): the nonce is its issue time, a random salt and a keyed tag
+    /// over both and the address, so asking costs the relay no memory and a
+    /// flood of requests cannot push out an owner's pending challenge.
     ///
     /// # Errors
     ///
     /// [`ChatError::Entropy`].
     pub fn challenge(&mut self, address: Address, now: u64) -> Result<[u8; 32], ChatError> {
-        // A pending nonce is returned, not replaced: a second request must not
-        // void the owner's fetch that is already on its way.
-        if let Some(&(nonce, issued)) = self.challenges.get(&address)
-            && now.saturating_sub(issued) <= CHALLENGE_TTL
-        {
-            return Ok(nonce);
+        if self.challenge_key.is_none() {
+            let mut key = Zeroizing::new([0u8; 32]);
+            getrandom::fill(key.as_mut()).map_err(|_| ChatError::Entropy)?;
+            self.challenge_key = Some(key);
         }
         let mut nonce = [0u8; 32];
-        getrandom::fill(&mut nonce).map_err(|_| ChatError::Entropy)?;
-        if self.challenges.len() >= MAX_CHALLENGES {
-            self.challenges
-                .retain(|_, (_, issued)| now.saturating_sub(*issued) <= CHALLENGE_TTL);
-            if self.challenges.len() >= MAX_CHALLENGES {
-                return Err(ChatError::Refused("too many outstanding challenges"));
-            }
-        }
-        self.challenges.insert(address, (nonce, now));
+        nonce[..8].copy_from_slice(&now.to_be_bytes());
+        getrandom::fill(&mut nonce[8..16]).map_err(|_| ChatError::Entropy)?;
+        let tag = self
+            .challenge_tag(&address, &nonce)
+            .ok_or(ChatError::Entropy)?;
+        nonce[16..].copy_from_slice(&tag);
         Ok(nonce)
     }
 
-    /// Empties a mailbox for its owner: `identity_key` must be the address's
-    /// key and `signature` must sign the current challenge, which is then
-    /// spent. A failed attempt leaves the challenge pending for the owner.
+    /// The tag over `nonce`'s first 16 bytes, if this relay has a key yet.
+    fn challenge_tag(&self, address: &Address, nonce: &[u8; 32]) -> Option<[u8; 16]> {
+        let mut h = blake3::Hasher::new_keyed(self.challenge_key.as_deref()?);
+        h.update(CHALLENGE_DOMAIN.as_bytes());
+        h.update(address);
+        h.update(&nonce[..16]);
+        let mut tag = [0u8; 16];
+        tag.copy_from_slice(&h.finalize().as_bytes()[..16]);
+        Some(tag)
+    }
+
+    /// Empties a mailbox for its owner: `nonce` must be a challenge this relay
+    /// issued for `address` within [`CHALLENGE_TTL`] and not yet spent,
+    /// `identity_key` the address's key, and `signature` must sign the nonce
+    /// at this relay ([`fetch_bytes`] with [`Relay::id`]). A failed attempt
+    /// spends nothing, so the owner's challenge stays usable.
     ///
     /// # Errors
     ///
-    /// No or a stale challenge, the wrong key, or a bad signature.
+    /// No, a stale or a spent challenge, the wrong key, or a bad signature.
     pub fn fetch(
         &mut self,
         address: Address,
+        nonce: &[u8; 32],
         identity_key: &[u8],
         signature: &[u8],
         now: u64,
     ) -> Result<Vec<Envelope>, ChatError> {
-        let &(nonce, issued) = self
-            .challenges
-            .get(&address)
+        let tag = self
+            .challenge_tag(&address, nonce)
             .ok_or(ChatError::Refused("no challenge issued"))?;
-        if now.saturating_sub(issued) > CHALLENGE_TTL {
-            self.challenges.remove(&address);
+        // Constant time, so the tag cannot be guessed a byte at a time.
+        if tag
+            .iter()
+            .zip(&nonce[16..])
+            .fold(0, |d, (a, b)| d | (a ^ b))
+            != 0
+        {
+            return Err(ChatError::Refused("no challenge issued"));
+        }
+        let mut issued = [0u8; 8];
+        issued.copy_from_slice(&nonce[..8]);
+        let issued = u64::from_be_bytes(issued);
+        if issued > now || now - issued > CHALLENGE_TTL {
             return Err(ChatError::Expired);
+        }
+        self.expire(now);
+        if self.spent.contains(&(issued, *nonce)) {
+            return Err(ChatError::Refused("challenge already used"));
         }
         if address_of(identity_key) != address {
             return Err(ChatError::BadSignature);
@@ -383,18 +536,30 @@ impl Relay {
         suite::verify(
             SuiteId::MlDsa65,
             identity_key,
-            &fetch_bytes(&address, &nonce),
+            &fetch_bytes(&self.id, &address, nonce),
             signature,
         )
         .map_err(|_| ChatError::BadSignature)?;
-        self.challenges.remove(&address);
-        let mailbox = self.mailboxes.remove(&address).unwrap_or_default();
+        self.spent.insert((issued, *nonce));
+        while self.spent.len() > MAX_SPENT_CHALLENGES {
+            self.spent.pop_first();
+        }
+        let Some(mailbox) = self.mailboxes.remove(&address) else {
+            return Ok(Vec::new());
+        };
+        self.by_size.remove(&(mailbox.bytes, address));
         self.bytes -= mailbox.bytes;
-        Ok(mailbox
-            .envelopes
-            .into_iter()
-            .filter(|(_, _, e)| e.expires_at > now)
-            .map(|(_, _, e)| e)
-            .collect())
+        let mut out = Vec::with_capacity(mailbox.envelopes.len());
+        for (id, _, envelope) in mailbox.envelopes {
+            self.expiries.remove(&(envelope.expires_at, id, address));
+            self.fetched.insert((envelope.expires_at, id));
+            out.push(envelope);
+        }
+        while self.fetched.len() > MAX_FETCHED_IDS {
+            if let Some((_, id)) = self.fetched.pop_first() {
+                self.seen.remove(&id);
+            }
+        }
+        Ok(out)
     }
 }

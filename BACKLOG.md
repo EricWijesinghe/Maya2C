@@ -134,6 +134,16 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   ciphertext fields would halve every message and double the sticker limit,
   but it changes the chat wire format for the relay and every client: do it
   with a version byte, while users are few.
+- [ ] **Chat client session table is unbounded** (PR #638 review, 2026-11-21).
+  Each stranger handshake costs the sender one postage stamp, so a public
+  bot's memory grows with an attacker's hash rate. A fixed cap that refuses
+  when full (audit commit 1456ac17) would lock new contacts out for good, so
+  it was not taken. Wanted: LRU eviction by last activity, the evicted peer
+  re-handshaking on its next message, and a test that 4,096+N strangers
+  still let a known contact through.
+- [ ] **Chat size-aware postage** (ADR-149, not decided there). Price, or
+  shorten the retention of, large envelopes so holding a relay full for long
+  costs more; a wire and client change, within the 24-bit mint cap.
 
 - **Measure line coverage of the core crates** with `cargo llvm-cov`
   (installed, 0.8.7; never run). M1 criterion 8. Source: EMPIRE.md.
