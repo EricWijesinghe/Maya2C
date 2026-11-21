@@ -127,11 +127,16 @@ dark to look bright, so each meaning has tiers, each with one job:
 |---|---|---|
 | Text | `accent-text`, `bronze`, `bronze-text`, `success`, `warn`, `danger`, `info`, `steel` | Body-size text on every surface, a chip's word and edge. 4.5:1. |
 | Chip ground | `bronze-subtle`, `success-subtle`, `warn-subtle`, `danger-subtle`, `info-subtle`, `accent-subtle` | A translucent tint under the text tier: tint + 1 px role edge + role ink + icon and word. |
-| Solid | `bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill` | Dots, alert edges and counters under `on-fill` (`on-bronze-fill` for bronze). 3:1 on the ground and a card, and bright in both themes: OKLab L and chroma floors in `fill-vividness`. Never a chip ground. |
+| Alert ground | `warn-ground`, `danger-ground` | An opaque panel for an alert (address look-alike, fake token, failed send): `text`, `text-2` and the role ink 4.5:1 on it. Not a tint: 12 % yellow or red over the teal-navy ground composites to olive and plum. |
+| Solid | `bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill` | Dots, alert edges and counters under `on-fill` (`on-bronze-fill`, `on-danger-fill` where white carries it). 3:1 on the ground and a card, and bright in both themes: OKLab L and chroma floors in `fill-vividness`. Never a chip ground. |
 | Display | `bronze-display` | Bronze for figures of 24 px and up (3:1, large text), so a balance can be bright on paper. |
+| Disabled | `disabled-fill`, `on-disabled` | A disabled control: `surface-2` under `text-3`, no gradient, never an opacity, so it cannot pass for a pressable button. |
 
 **Bronze is one ramp.** Each theme's bronze steps are the role, the text
-tone, the display tone, the solid, the two forge stops and chart series 2;
+tone, the display tone, the solid, the two forge stops and chart series 2
+(in light the forge face is a gold ramp above the display tone, and its 3:1
+boundary is `forge-edge`, the display tone, so the button reads as metal,
+not caramel);
 where two of them are the same colour, one names the other with `var()`, and
 the gate measures the step it names. The `hue-families` gate holds every
 meaning (teal, bronze, green, amber, coral, blue, steel) to a 20° OKLCh hue
@@ -148,7 +153,9 @@ the brand hue is present before any accent is drawn; a card is lifted 1.25:1
 off it and the pressed `surface-3` further, both gated, so a panel separates
 without a hairline; and the hero is a tight teal glow from the top rather than
 a wide wash. Light is warm paper (`#faf8f4`) with warm hairlines and shadows,
-not a grey inversion of dark. On paper every input and secondary button is a
+not a grey inversion of dark, and its hero is a white-to-paper wash with a
+bronze corner rather than the dark glow at low strength, which read as a grey
+smudge. On paper every input and secondary button is a
 white `surface-1` with a `border-control` edge, never a beige fill (which
 reads as disabled), and a selected row is the teal `accent-subtle` over a
 card, not a darker beige.
@@ -166,14 +173,14 @@ colours and fills are never series colours.
 |---|---|---|---|
 | `--bg` | `#081c28` | `#faf8f4` | Page ground. The only place motifs and the 3D field paint. |
 | `--surface-1` | `#16303d` | `#ffffff` | Cards, panels, table body; every input and secondary button. 1.25:1 against `bg` in dark. |
-| `--surface-2` | `#1a3a49` | `#f4f1eb` | Hover row, inline code. |
-| `--surface-3` | `#1e4455` | `#e9e5dd` | Pressed. 1.25:1 or more against `bg` (dark) and a card (light). |
+| `--surface-2` | `#1c3c4c` | `#f4f1eb` | Hover row, inline code. |
+| `--surface-3` | `#22485a` | `#e9e5dd` | Pressed. 1.25:1 or more against `bg` (dark) and a card (light). |
 | `--border` | `rgb(150 210 225 / 0.14)` | `rgb(60 45 20 / 0.14)` | Hairlines and card edges. Not a control edge. |
-| `--border-strong` | `#6f9aa9` | `rgb(60 45 20 / 0.26)` | Dividers that must be seen, table header rule. |
+| `--border-strong` | `#4f7686` | `rgb(60 45 20 / 0.26)` | Dividers that must be seen, table header rule. A quieter step than `--border-control` in dark, so a hairline is never as loud as an input edge. |
 | `--border-control` | `#6f9aa9` | `#878176` | Input, checkbox and select edges: 3:1 on all four grounds and a selected row (SC 1.4.11). |
 | `--text` | `#f2f9fa` | `#14201f` | Headlines, values, body. |
 | `--text-2` | `#bcd0d7` | `#3d4a49` | Running text, ledes, table cells. |
-| `--text-3` | `#96b1bb` | `#5d6967` | Labels, captions, timestamps, sources. Body-size text: 4.5:1 on every surface. Never on the hero. |
+| `--text-3` | `#9cb7c1` | `#5d6967` | Labels, captions, timestamps, sources. Body-size text: 4.5:1 on every surface. Never on the hero. |
 | `--accent` | `#1fd3cc` | `#0a7568` | Focus ring, live dot, checked box, icons. Non-text. |
 | `--accent-hover` | `#52e5dd` | `#075c52` | Hover of an accent control. |
 | `--accent-subtle` | `rgb(31 211 204 / 0.14)` | `rgb(10 117 104 / 0.1)` | Selected row, accent chip ground. |
@@ -188,25 +195,29 @@ colours and fills are never series colours.
 | `--steel` | `#accff2` | `#445469` | Reference figures: hashes, heights, IDs. |
 | `--success` | `#4ade80` | `#015728` | Verified, confirmed, delivered. Text tier. |
 | `--warn` | `#ffd43b` | `#855600` | Needs a look: testnet, paused, pending. Never an error, never bare text. |
-| `--danger` | `#ff8994` | `#b3261e` | Error, failed, irreversible. Text tier. |
+| `--danger` | `#ff929d` | `#b3261e` | Error, failed, irreversible. Text tier. |
 | `--info` | `#6cb6ff` | `#2f55b8` | Information, research status. Text tier. |
 | `--bronze-subtle` | `rgb(233 138 19 / 0.12)` | `rgb(181 103 34 / 0.12)` | Value chip ground. |
 | `--success-subtle` | `rgb(60 207 110 / 0.12)` | `rgb(34 163 90 / 0.12)` | Verified chip ground. |
-| `--warn-subtle` | `rgb(248 202 6 / 0.12)` | `rgb(255 198 26 / 0.12)` | Needs-a-look chip and alert ground. |
-| `--danger-subtle` | `rgb(255 77 90 / 0.12)` | `rgb(229 72 77 / 0.12)` | Error chip and alert ground. |
+| `--warn-subtle` | `rgb(248 202 6 / 0.12)` | `rgb(255 198 26 / 0.12)` | Needs-a-look chip ground. |
+| `--danger-subtle` | `rgb(255 77 90 / 0.12)` | `rgb(229 72 77 / 0.12)` | Error chip ground. |
 | `--info-subtle` | `rgb(79 155 255 / 0.12)` | `rgb(59 130 246 / 0.12)` | Information chip ground. |
 | `--bronze-fill` | `#e98a13` | `#a35400` | Coin dot, value counter. Solid tier, under `--on-bronze-fill`. |
 | `--success-fill` | `#3ccf6e` | `#07a44c` | Verified dot, alert edge, counter. |
 | `--warn-fill` | `#f8ca06` | `#c28203` | Needs-a-look dot, alert edge, counter. |
-| `--danger-fill` | `#ff4d5a` | `#fe2119` | Error dot, alert edge, counter. |
+| `--danger-fill` | `#ff4d5a` | `#d92d20` | Error dot, alert edge, counter, under `--on-danger-fill`. |
 | `--info-fill` | `#4f9bff` | `#0d7eff` | Information dot, alert edge, counter. |
-| `--on-fill` | `#0b1a1f` | `#0b1a1f` | Ink on every `*-fill` except the light bronze one: 4.5:1 on each. |
+| `--on-fill` | `#0b1a1f` | `#0b1a1f` | Ink on every `*-fill` except the light bronze and danger ones: 4.5:1 on each. |
 | `--on-bronze-fill` | `var(--on-fill)` | `#ffffff` | Ink on `--bronze-fill`. White on paper keeps the light bronze solid darker than `--warn-fill`, so value and needs-a-look stay apart for colour-blind readers. |
-| `--forge-grad-from` | `var(--bronze-text)` | `#c7802b` | Forge button (value actions: sign, stake), top stop (`--grad-forge`). |
-| `--forge-grad-to` | `#f5a04a` | `#bf702e` | Forge button, bottom stop. Both stops 3:1 on the ground and a card. |
+| `--on-danger-fill` | `var(--on-fill)` | `#ffffff` | Ink on `--danger-fill`. White on a calmer red in light: near-black on a fire-engine red read as a warning sticker. |
+| `--warn-ground` | `#432a08` | `#fef4df` | Needs-a-look alert panel: opaque amber-brown in dark, warm paper tint in light. |
+| `--danger-ground` | `#472020` | `#ffeeec` | Error alert panel: opaque red-brown in dark, warm paper tint in light. |
+| `--forge-grad-from` | `var(--bronze-text)` | `#fbbd6e` | Forge button (value actions: sign, stake), top stop (`--grad-forge`). |
+| `--forge-grad-to` | `#f5a04a` | `#e18528` | Forge button, bottom stop. The face is a gold ramp; its boundary is `--forge-edge`. |
+| `--forge-highlight` | `rgb(255 255 255 / 0.2)` | `rgb(255 255 255 / 0.5)` | The 1 px inner top light of the forge button. |
 | `--on-forge` | `#2b1503` | `#2b1503` | Text on the forge stops. |
 | `--deco-teal` | `rgb(31 211 204 / 0.26)` | `rgb(10 117 104 / 0.12)` | Decorative only: the hero glow. Text over its brightest point is gated. |
-| `--deco-bronze` | `rgb(255 187 107 / 0.16)` | `rgb(181 103 34 / 0.12)` | Decorative only: backdrops. |
+| `--deco-bronze` | `rgb(255 187 107 / 0.16)` | `rgb(181 103 34 / 0.16)` | Decorative only: backdrops and the light hero's warm corner. Text over it is gated. |
 | `--deco-blue` | `rgb(108 182 255 / 0.12)` | `rgb(47 85 184 / 0.08)` | Decorative only. |
 | `--glass` | `rgb(22 48 61 / 0.8)` | `rgb(250 248 244 / 0.82)` | Header and command palette only, with `--glass-blur`. |
 | `--shadow-sm` | `0 1px 2px rgb(2 10 16 / 0.45)` | `0 1px 2px rgb(60 45 20 / 0.08)` | Contact shadow. |
@@ -215,10 +226,10 @@ colours and fills are never series colours.
 | `--shadow-inset` | `inset 0 1px 0 rgb(255 255 255 / 0.06)` | `inset 0 0 0 0 transparent` | Top-edge light on dark cards; none on paper (written as a zero shadow so it still composes in a `box-shadow` list). |
 | `--chart-1` | `#1fd3cc` | `#089192` | Series 1, teal. |
 | `--chart-2` | `var(--bronze)` | `var(--bronze-display)` | Series 2, bronze (the ramp's bright step). |
-| `--chart-3` | `#4e74ff` | `#056190` | Series 3, blue (§3.7). |
+| `--chart-3` | `#5277ff` | `#2887f3` | Series 3, blue (§3.7). |
 | `--chart-4` | `#f2f9fa` | `#06202a` | Series 4, neutral ink: the one ink series per theme. |
-| `--chart-5` | `#c58cff` | `#7c3aed` | Series 5, purple: a chart series, not a role. Unused until Eric decides (§8). |
-| `--chart-6` | `#d97f4f` | `#8b3f03` | Series 6, copper. |
+| `--chart-5` | `#c58cff` | `#5e40a4` | Series 5, purple: a chart series, not a role. Unused until Eric decides (§8). |
+| `--chart-6` | `#d97f4f` | `#9b204c` | Series 6, copper in dark, raspberry in light (a copper next to the bronze series read as a second brown on paper). |
 
 Composed tokens, declared in each theme block because a `var()` resolves where
 it is declared (a nested `data-theme` must re-declare them): `--grad-cta`
@@ -465,5 +476,6 @@ gradient wordmark, mono preview flag, gradient power button, no light theme.
 2. **Website: dark-first or light-first?** Recommendation: keep dark as the brand's home theme and the default for first visits with no OS preference, follow the OS otherwise, remember the choice. All five surfaces get a working light theme either way.
 3. **Footer contact (`Footer.astro:26`)**: keep the personal email, or replace it with `security@maya2c.dev` (for disclosures, already implied by the Hall of Fame) plus GitHub, with Facebook/Instagram moved to `eric.maya2c.dev`? Recommendation: replace.
 4. **App names**: `Maya2C Wallet`, `Maya2C Chat` (today `Maya Wallet`, `Maya Chat`), matching `Maya2C Hub`? Recommendation: yes, and the installers and store listings follow.
-5. **Chart series 5 (open, 2026-11-14).** `--chart-5` is purple (dark `#c58cff`, light `#7c3aed`). It is a chart series, not a role, and no role named violet or quantum exists. Keep it, or replace it with a non-purple series hue? Recommendation: keep until a chart needs more than four series, then decide with the real chart in front of you. Until then no surface draws it.
+5. **Chart series 5 (open, 2026-11-14).** `--chart-5` is purple (dark `#c58cff`, light `#5e40a4`: the brief's `#7c3aed` hue at a lower lightness, because beside the clear light blue the brief's violet collapses for deuteranopes). It is a chart series, not a role, and no role named violet or quantum exists. Keep it, or replace it with a non-purple series hue? Recommendation: keep until a chart needs more than four series, then decide with the real chart in front of you. Until then no surface draws it.
 6. **Manrope (open, 2026-11-14).** The brand rule names Manrope + Inter, self-hosted; the token file (revision 1 of ADR-136) says Inter for everything and Manrope retired. Which is the rule? This lane changed colour only and left the fonts as they are.
+7. **Light success vs accent (open, 2026-11-21).** The brief's light success `#17703a` is 0.065 from the brief's accent `#0a7568` in OKLab (the gate's minimum is 0.10), so the shipped success `#015728` is darker and reads close to body text. Moving the accent a few degrees bluer does not close it (0.080 at hue 192°); 0.10 needs a petrol teal near hue 208°. Accept a smaller distance in light (a success chip always carries its icon and word), or move the light brand teal toward petrol? Recommendation: accept the smaller distance and return success to `#17703a`; a brand teal is harder to change later than a gate threshold. ADR-136, fourth review.

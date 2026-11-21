@@ -162,7 +162,8 @@ heavier rather than brighter, and two meanings sharing one colour. Changes:
   (`#f7f3ec`) so a white card reads as paper on paper.
 - **Matrix additions:** `border-control` as non-text on `surface-3` (a
   checkbox in a selected row), chart series on `surface-2` (dark `chart-3`
-  lightened to `#4e74ff` for it, still clear of `chart-5` under protanopia),
+  lightened for it, `#5277ff` since the fourth review, still clear of
+  `chart-5` under protanopia),
   `on-fill` on every fill, and the light separation pair.
 - **CTA gradient narrowed** (dark `#3fdcd4` to `#19c4bd`, highlight 12%;
   the stops are back to the plan's below, the 12 % highlight stays): the
@@ -206,8 +207,8 @@ the rule:
   translucent `a` painted over `b`: the selected row (`accent-subtle over
   surface-1`, now teal, not a darker neutral) and the hero's brightest point
   (`deco-teal over surface-1`). The hero glow is tighter and brighter
-  (`deco-teal` 0.26 in dark) and the bronze corner wash is gone; `text-3` is
-  never set on the hero.
+  (`deco-teal` 0.26 in dark); light has its own warm wash (fourth review,
+  below); `text-3` is never set on the hero.
 - **`bronze-display`**, a large-text bronze (3:1, 24 px and up), lets a
   balance be bright on paper (`#b56722`) while body bronze keeps 4.5:1.
 - **Dark card separation** (`surface-1` against `bg`, 1.25:1) is now gated
@@ -234,26 +235,33 @@ failed on the brief value.
 | Theme | Token | Brief | Shipped | Change | Gate |
 |---|---|---|---|---|---|
 | dark | `surface-1` | `#0d2734` | `#16303d` | L only | separation, card on `bg`, 1.25 (brief 1.12) |
-| dark | `surface-2` | `#133342` | `#1a3a49` | L only | keeps the ladder above the lifted card |
-| dark | `surface-3` | `#1a4051` | `#1e4455` | L only | keeps the ladder (1.67 on `bg`) |
-| dark | `text-3` | `#8fa9b3` | `#96b1bb` | L only | text on `surface-3` (brief 4.48 on the brief's own `surface-3`) |
-| dark | `danger` | `#ff7183` | `#ff8994` | L only | text on `surface-3` (brief 4.19) |
+| dark | `surface-2` | `#133342` | `#1c3c4c` | L only | ladder: the brief's `surface-2` is 1.04 against the lifted card; shipped 1.18 (fourth review: 1.15 left hover rows barely visible) |
+| dark | `surface-3` | `#1a4051` | `#22485a` | L only | ladder: the brief's `surface-3` is 1.05 against the shipped `surface-2`; shipped 1.19 above it, 1.78 on `bg`. A wider step (1.21) pushed brief `info` under 4.5 on it |
+| dark | `text-3` | `#8fa9b3` | `#9cb7c1` | L only | text on `surface-3`: the brief's value is 3.96 on the shipped `surface-3` (4.48 on the brief's own) |
+| dark | `border-strong` | `#6f9aa9` | `#4f7686` | L only | not a gate: the brief's value equalled `border-control`, so a hairline was as loud as an input edge (fourth review); `border-control` keeps `#6f9aa9` |
+| both | `warn-ground`, `danger-ground` | not given | dark `#432a08`, `#472020`; light `#fef4df`, `#ffeeec` | added | alert panels: the 12 % tints composite to OKLCh hue 143° (olive) and 300° (plum) over the dark `bg` (`#253124`, `#26222e`); the opaque grounds hold the role hue (70°, 21°); `text`, `text-2` and the role ink 4.5:1 on each |
+| both | `disabled-fill`, `on-disabled` | not given | `var(--surface-2)`, `var(--text-3)` | added | a disabled control was the primary at half opacity, still saturated teal with legible ink |
+| dark | `danger` | `#ff7183` | `#ff929d` | L only | text on `surface-3` (brief 3.71 on the shipped `surface-3`) |
 | dark | `steel` | `#96b8da` | `#accff2` | L only | role distance: steel/info 0.069 in the brief |
 | dark | `border-control` | not given | `#6f9aa9` | the brief's `border-strong` | non-text, 3:1 on every ground and a selected row |
-| dark | `chart-3` | `#2f6bff` | `#4e74ff` | L up, hue +4° (gamut) | non-text on `surface-2` (brief 2.67) |
+| dark | `chart-3` | `#2f6bff` | `#5277ff` | L up, hue +4° (gamut) | non-text on `surface-2` (brief 2.59 on the shipped `surface-2`); lighter than this falls under 0.10 from `chart-5` for protanopes |
 | dark | `chart-6` | not given | `#d97f4f` | added | six series in both themes |
 | light | `surface-3` | `#ece8e0` | `#e9e5dd` | L only | separation, `surface-3` on a card, 1.25 (brief 1.22) |
 | light | `text-3` | `#5f6b69` | `#5d6967` | L only | text on the darker `surface-3` |
 | light | `border-control` | `#8d877c` | `#878176` | L only | non-text on `surface-3` (brief 2.92) |
 | light | `success` | `#17703a` | `#015728` | L only | role distance: accent/success 0.065 in the brief |
 | light | `steel` | `#4a5a70` | `#445469` | L only | role distance: accent/steel 0.097 in the brief |
-| light | `chart-3` | `#123f99` | `#056190` | replaced (hue 262° to 240°) | ink rule: the brief had three series under L 0.45; chart distance |
-| light | `chart-6` | `#733f1c` | `#8b3f03` | L up, same family | ink rule, chart distance |
+| light | `chart-3` | `#123f99` | `#2887f3` | L up, clear blue (hue 255°) | ink rule: the brief had three series under L 0.45 (`#06202a`, `#123f99`, `#733f1c`); fourth review: the interim `#056190` was one of four dark series |
+| light | `chart-5` | `#7c3aed` | `#5e40a4` | L only (hue 293° held) | chart distance: beside the clear blue, the brief's violet is 0.072 from it for a deuteranope (min 0.10) |
+| light | `chart-6` | `#733f1c` | `#9b204c` | replaced (copper to raspberry) | ink rule; fourth review: two browns 0.132 apart read as one; dark keeps copper `#d97f4f` |
+| light | `danger-fill` | not given | `#d92d20`, under `on-danger-fill #ffffff` | added | white on the interim `#fe2119` was 3.86 and dark ink on it looked like a sticker; white on `#d92d20` is 4.83, and it clears `fill-vividness` (L 0.576), so no floor exemption is needed |
 | both | `bronze-display` | not given | dark `var(--bronze)`, light `#b56722` (the brief's light `chart-2`) | added | large-text bronze, 3:1 on every ground |
 | both | `*-subtle` | not given | role solid at 12 % | added | chip ink on its ground, 4.5:1 |
 | both | `*-fill`, `on-fill`, `on-bronze-fill` | not given | per theme | added | non-text 3:1 on `bg` and a card; ink 4.5:1; cvd pair; `fill-vividness` |
-| light | `forge-grad-from`, `-to` | the dark stops (`#ffd39b`, `#f5a04a`) | `#c7802b`, `#bf702e` | own light stops, bronze hue | non-text 3:1 on `bg` and a card (the dark stops measured 1.4 on a card) |
-| both | `deco-teal`, `grad-hero` | not given | tight teal glow, no bronze wash | added | text on `deco-teal over surface-1` |
+| light | `forge-grad-from`, `-to` | the dark stops (`#ffd39b`, `#f5a04a`) | `#fbbd6e`, `#e18528` | own light gold ramp, bronze hue | the brief's stops are 1.40 and 2.10 on a card, so the face cannot be the button's boundary; `forge-edge` (`var(--bronze-display)`, 4.26 on a card) is, and `on-forge` is 10.41 and 6.26 on the stops. The interim caramel `#c7802b`/`#bf702e` passed 3:1 but read brown on brown |
+| both | `forge-edge`, `forge-highlight` | not given | dark `var(--forge-grad-to)`, light `var(--bronze-display)`; white at 0.2 / 0.5 | added | non-text 3:1 on `bg` and a card (SC 1.4.11) |
+| dark | `grad-hero` | not given | tight teal glow | added | text on `deco-teal over surface-1` |
+| light | `grad-hero`, `deco-bronze` | not given | white-to-paper wash with a bronze corner, `deco-bronze` at 0.16 | added | the dark recipe at 12 % peaked at `#e2eeed`, a grey smudge on paper; text gated on `deco-bronze over surface-1` |
 
 Every other brief value ships unchanged, among them dark `bg #081c28`,
 `text-2 #bcd0d7`, the CTA stops `#52e5dd` to `#0bb5b3`, `bronze #ffbb6b`,
@@ -282,3 +290,40 @@ family's spread. The `fill-vividness` gate (OKLab L and chroma floors in
 `#015a2a`. Light `accent` stays the brief's `#0a7568`, because white
 `on-accent` needs it; `chart-1 #089192` is the brighter teal for non-text
 marks.
+
+### Fourth review (2026-11-21, same revision, before merge)
+
+The design and truth critics found the most safety-critical panels the
+dullest, and light bronze brown on brown. Changes, each with the gate that
+now holds it (`cargo xtask design-tokens` prints every figure):
+
+- **Alerts get opaque grounds.** `warn-ground` and `danger-ground`, amber-brown
+  and red-brown in dark, warm paper tints in light; the specimen's alerts use
+  them and the chips keep `*-subtle`. Required pairs: `text`, `text-2` and the
+  role ink on each, 4.5:1. A test refuses a translucent value there.
+- **The light forge button is gold with a bronze rim.** The face is a ramp
+  `#fbbd6e` to `#e18528` under `on-forge`, with a 1 px `forge-highlight`
+  top light; `forge-edge` carries the 3:1 boundary, so the gate's solid list
+  measures the edge instead of the face. Inside the bronze hue family.
+- **The light counter is white on a calmer red** (`on-danger-fill`).
+- **Disabled is a neutral step**, not half opacity (`disabled-fill`,
+  `on-disabled`); the specimen shows it and a test forbids opacity there.
+- **The light hero is a warm wash**, not the dark glow at 12 %; its text is
+  gated on `deco-bronze over surface-1` as well as the teal point.
+- **The light chart is lighter**: a clear blue, the violet at a lower
+  lightness with its hue held, raspberry instead of a second brown. One ink
+  series per theme still.
+- **The dark ladder is wider** (`surface-2` 1.18 over the card, `surface-3`
+  1.19 over `surface-2`), with `text-3`, `danger` and `chart-3` lifted by
+  lightness to keep their minimums on the new steps, and `border-strong` is a quieter step than
+  `border-control`.
+
+**Brief conflict for Eric: light success and accent.** The brief's light
+success `#17703a` is 0.065 from the brief's accent `#0a7568` (min 0.10), so
+the shipped success `#015728` is darker and reads close to body text. Moving
+the accent bluer does not fix it inside the teal family: at hue 192° the
+distance is 0.080, and it only reaches 0.10 near hue 208°, a petrol blue
+that then sits 0.095 from `steel`. The two ways out are (a) accept a smaller
+accent/success distance in light, because a success chip always carries its
+icon and word, or (b) move the light brand teal toward petrol. This lane
+ships neither; it is a brand decision (forged-light-2.md §8).

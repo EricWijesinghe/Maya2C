@@ -64,6 +64,17 @@ fn the_committed_specimen_is_current() {
     );
 }
 
+/// A disabled primary at half opacity is still a saturated teal with legible
+/// ink, and first-time users tap it; it is a neutral step instead.
+#[test]
+fn the_disabled_button_is_a_neutral_not_a_faded_primary() {
+    let page = maya_design_system::specimen::page();
+    assert!(
+        page.contains(".btn:disabled { background:var(--disabled-fill); color:var(--on-disabled);")
+    );
+    assert!(!page.contains("opacity"), "no state is drawn by opacity");
+}
+
 #[test]
 fn no_wallet_flow_has_a_dead_end() {
     assert_eq!(FLOWS.len(), 10);

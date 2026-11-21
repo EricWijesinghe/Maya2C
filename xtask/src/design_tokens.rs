@@ -62,6 +62,10 @@ const EXPLORER_OMITS: &[&str] = &[
     "forge-",
     "on-forge",
     "chart-",
+    "warn-ground",
+    "danger-ground",
+    "disabled-",
+    "on-disabled",
 ];
 
 /// Theme names in `tokens.json`; the first is the default.
@@ -98,8 +102,10 @@ const ON_FILLS: &[(&str, &str)] = &[
     ("on-bronze-fill", "bronze-fill"),
     ("on-fill", "success-fill"),
     ("on-fill", "warn-fill"),
-    ("on-fill", "danger-fill"),
+    ("on-danger-fill", "danger-fill"),
     ("on-fill", "info-fill"),
+    // WCAG exempts a disabled control; it is gated anyway so it stays legible.
+    ("on-disabled", "disabled-fill"),
 ];
 
 /// Grounds a chart may be drawn on: never the pressed or selected surface-3.
@@ -111,22 +117,31 @@ const SELECTED: &str = "accent-subtle over surface-1";
 /// The hero's brightest point, where its glow is strongest under the text.
 const HERO: &str = "deco-teal over surface-1";
 
+/// The light hero's warm corner; a theme may draw either glow, so text is
+/// gated on both in both themes.
+const HERO_WARM: &str = "deco-bronze over surface-1";
+
 /// What the hero may set as body text; text-3 is never used on it.
 const HERO_TEXT: [&str; 4] = ["text", "text-2", "accent-text", "bronze-text"];
 
 /// Meanings shown as a chip: role ink and edge on `<role>-subtle`.
 const CHIPS: [&str; 5] = ["bronze", "success", "warn", "danger", "info"];
 
-/// Solid colours drawn as a dot, an alert edge or a button face: 3:1 on the
-/// ground and on a card.
-const SOLIDS: [&str; 7] = [
+/// Meanings shown as an alert panel: role ink, text and text-2 on the opaque
+/// `<role>-ground` (a translucent yellow or red over the teal-navy ground
+/// composites to olive and plum).
+const ALERTS: [&str; 2] = ["warn", "danger"];
+
+/// Solid colours drawn as a dot, an alert edge or a button's boundary: 3:1 on
+/// the ground and on a card. The forge button's face may be lighter than 3:1
+/// because forge-edge is its boundary (SC 1.4.11).
+const SOLIDS: [&str; 6] = [
     "bronze-fill",
     "success-fill",
     "warn-fill",
     "danger-fill",
     "info-fill",
-    "forge-grad-from",
-    "forge-grad-to",
+    "forge-edge",
 ];
 
 type Required = (String, String, &'static str, Option<&'static str>);
@@ -148,13 +163,21 @@ fn required(series: &[String]) -> Vec<Required> {
         // A checkbox inside a selected row (SC 1.4.11).
         add("border-control", bg, "non-text", None);
     }
-    for fg in HERO_TEXT {
-        add(fg, HERO, "text", None);
+    for hero in [HERO, HERO_WARM] {
+        for fg in HERO_TEXT {
+            add(fg, hero, "text", None);
+        }
+        add("bronze-display", hero, "large-text", None);
     }
-    add("bronze-display", HERO, "large-text", None);
     for role in CHIPS {
         for bg in CHART_SURFACES {
             add(role, &format!("{role}-subtle over {bg}"), "text", None);
+        }
+    }
+    for role in ALERTS {
+        let ground = format!("{role}-ground");
+        for fg in ["text", "text-2", role] {
+            add(fg, &ground, "text", None);
         }
     }
     for &(ink, fill) in ON_FILLS {

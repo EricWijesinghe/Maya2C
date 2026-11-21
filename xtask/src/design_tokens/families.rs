@@ -49,9 +49,8 @@ fn vivid(tokens: &Json) -> Result<Vec<Line>, String> {
                 .ok_or_else(|| format!("{VIVID}.roles: role names"))?;
             let [l, a, b] = colour(&decls, t, r)?.oklab(Vision::Normal);
             let c = a.hypot(b);
-            let text = format!(
-                "{t:>5} {r:<13} OKLab L {l:.3} (min {min_l}), chroma {c:.3} (min {min_c})"
-            );
+            let text =
+                format!("{t:>5} {r:<13} OKLab L {l:.3} (min {min_l}), chroma {c:.3} (min {min_c})");
             let failure = (l < min_l || c < min_c).then(|| format!("{VIVID}: {text}"));
             out.push(Line { text, failure });
         }

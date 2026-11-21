@@ -35,10 +35,11 @@ h1 { font-size:var(--type-display-2-size); line-height:var(--line-heading); font
 .btn { background:var(--grad-cta); color:var(--on-accent); border:0; border-radius:var(--r-md);
        box-shadow:inset 0 1px 0 var(--accent-highlight), var(--shadow-sm);
        height:var(--control-h); padding:0 var(--space-4); font:inherit; font-weight:500; }
-.btn.forge { background:var(--grad-forge); color:var(--on-forge); }
+.btn.forge { background:var(--grad-forge); color:var(--on-forge); border:1px solid var(--forge-edge);
+       box-shadow:inset 0 1px 0 var(--forge-highlight), var(--shadow-sm); }
 .btn.hover { background:var(--accent-hover); }
 .btn.secondary { background:var(--surface-1); color:var(--text); border:1px solid var(--border-control); box-shadow:none; }
-.btn:disabled { opacity:.5; }
+.btn:disabled { background:var(--disabled-fill); color:var(--on-disabled); border:1px solid var(--border); box-shadow:none; }
 .focus { outline:2px solid var(--accent); outline-offset:2px; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-4); margin:var(--space-4) 0; }
 .panel { background:var(--surface-1); border:1px solid var(--border); border-radius:var(--r-lg);
@@ -66,12 +67,12 @@ input[type=checkbox]:checked { background:var(--accent); border-color:var(--acce
 .dot.bad { background:var(--danger-fill); } .dot.note { background:var(--info-fill); }
 .dot.value { background:var(--bronze-fill); }
 .count { display:inline-block; min-width:16px; padding:0 var(--space-1); border-radius:var(--r-pill);
-         background:var(--danger-fill); color:var(--on-fill); font-size:var(--type-label-size); font-weight:600; text-align:center; }
+         background:var(--danger-fill); color:var(--on-danger-fill); font-size:var(--type-label-size); font-weight:600; text-align:center; }
 .alert { border-inline-start:3px solid var(--border-strong); }
 .alert.bad { border-inline-start-color:var(--danger-fill); }
 .alert.bad .ico, .alert.bad strong { color:var(--danger); }
-.alert.bad { background:var(--danger-subtle); }
-.alert.caution { border-inline-start-color:var(--warn-fill); background:var(--warn-subtle); }
+.alert.bad { background:var(--danger-ground); }
+.alert.caution { border-inline-start-color:var(--warn-fill); background:var(--warn-ground); }
 .alert.caution .ico, .alert.caution strong { color:var(--warn); }
 td.ok { color:var(--success); }
 td.caution { color:var(--warn); }

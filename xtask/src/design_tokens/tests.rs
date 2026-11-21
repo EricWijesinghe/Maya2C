@@ -83,8 +83,24 @@ fn a_missing_required_pair_is_reported() {
             "[\"border-control\", \"surface-3\", \"non-text\"]",
         ),
         (
-            "[\"on-fill\", \"danger-fill\", \"text\"],",
-            "[\"on-fill\", \"danger-fill\", \"text\"]",
+            "[\"on-danger-fill\", \"danger-fill\", \"text\"],",
+            "[\"on-danger-fill\", \"danger-fill\", \"text\"]",
+        ),
+        (
+            "[\"warn\", \"warn-ground\", \"text\"],",
+            "[\"warn\", \"warn-ground\", \"text\"]",
+        ),
+        (
+            "[\"forge-edge\", \"surface-1\", \"non-text\"],",
+            "[\"forge-edge\", \"surface-1\", \"non-text\"]",
+        ),
+        (
+            "[\"text-2\", \"deco-bronze over surface-1\", \"text\"],",
+            "[\"text-2\", \"deco-bronze over surface-1\", \"text\"]",
+        ),
+        (
+            "[\"on-disabled\", \"disabled-fill\", \"text\"],",
+            "[\"on-disabled\", \"disabled-fill\", \"text\"]",
         ),
         (
             "[\"surface-3\", \"bg\", \"separation\", \"dark\"],",
@@ -585,7 +601,10 @@ fn a_muddy_fill_fails_the_vividness_rule() {
     };
     assert_eq!(fails(&real()), Vec::<String>::new());
     // The 2026-11-14 light success-fill: deep enough for white ink, too deep to look green.
-    let muddy = edited("\"success-fill\": \"#07a44c\"", "\"success-fill\": \"#015a2a\"");
+    let muddy = edited(
+        "\"success-fill\": \"#07a44c\"",
+        "\"success-fill\": \"#015a2a\"",
+    );
     let f = fails(&muddy);
     assert!(f.iter().any(|f| f.contains("light success-fill")), "{f:?}");
 }
@@ -594,8 +613,8 @@ fn a_muddy_fill_fails_the_vividness_rule() {
 fn three_dark_series_on_paper_fail_the_ink_rule() {
     // The first revision's light chart: ink #06202a, navy and brown.
     let tokens = edited_all(&[
-        ("\"chart-3\": \"#056190\"", "\"chart-3\": \"#123f99\""),
-        ("\"chart-6\": \"#8b3f03\"", "\"chart-6\": \"#733f1c\""),
+        ("\"chart-3\": \"#2887f3\"", "\"chart-3\": \"#123f99\""),
+        ("\"chart-6\": \"#9b204c\"", "\"chart-6\": \"#733f1c\""),
     ]);
     let lines = families::report(&tokens).unwrap();
     assert!(
@@ -646,5 +665,63 @@ fn the_explorer_copy_omits_what_it_does_not_draw() {
         render_omitting(&real(), &["accent-grad-"])
             .unwrap_err()
             .contains("--grad-cta uses --accent-grad-from")
+    );
+}
+
+#[test]
+fn an_alert_sits_on_an_opaque_ground_not_a_tint_of_the_navy() {
+    let measured = pair_ratios(&real()).unwrap();
+    for theme_name in THEMES {
+        for role in ALERTS {
+            let ground = format!("{role}-ground");
+            for fg in ["text", "text-2", role] {
+                let m = measured
+                    .iter()
+                    .find(|m| m.theme == theme_name && m.fg == fg && m.bg == ground)
+                    .unwrap_or_else(|| panic!("{theme_name} {fg} on {ground} not measured"));
+                assert!(m.ratio >= 4.5, "{m}");
+            }
+        }
+    }
+    // The 12% yellow tint the review found olive is refused as an alert ground.
+    let tinted = edited(
+        "\"warn-ground\": \"#432a08\"",
+        "\"warn-ground\": \"rgb(248 202 6 / 0.12)\"",
+    );
+    assert!(pair_ratios(&tinted).unwrap_err().contains("#rrggbb"));
+}
+
+#[test]
+fn the_light_forge_face_is_bright_because_its_edge_carries_the_boundary() {
+    let light = theme(&real(), "light").unwrap();
+    let face = colour(&light, "light", "forge-grad-from").unwrap();
+    let edge = colour(&light, "light", "forge-edge").unwrap();
+    // The face is lighter than its edge: gold behind a bronze rim, not caramel.
+    assert!(face.oklab(Vision::Normal)[0] > edge.oklab(Vision::Normal)[0] + 0.15);
+    // A gold edge on paper is below 3:1, so the boundary must stay the deep step.
+    let failures = below_minimum(&edited(
+        "\"forge-edge\": \"var(--bronze-display)\"",
+        "\"forge-edge\": \"var(--forge-grad-from)\"",
+    ));
+    assert!(
+        failures
+            .iter()
+            .any(|m| m.theme == "light" && m.fg == "forge-edge"),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn the_light_counter_carries_white_ink_on_its_red() {
+    // The 2026-11-14 light danger-fill #fe2119 carried white at 3.86:1 only.
+    let failures = below_minimum(&edited(
+        "\"danger-fill\": \"#d92d20\"",
+        "\"danger-fill\": \"#fe2119\"",
+    ));
+    assert!(
+        failures
+            .iter()
+            .any(|m| m.theme == "light" && m.fg == "on-danger-fill"),
+        "{failures:?}"
     );
 }

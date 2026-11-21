@@ -16,11 +16,12 @@ use regex::Regex;
 /// The only line whose literal the platform requires.
 const THEME_COLOR: &str = "name=\"theme-color\"";
 
-/// Files that carry styles or markup. Markdown, SVG assets and images are not
-/// scanned: a logo keeps its own colours.
+/// Files that carry styles or markup (MDX can hold inline JSX styles). Plain
+/// Markdown, SVG assets and images are not scanned: a logo keeps its own
+/// colours. Named colours (`white`, `black`) are not caught.
 const EXTENSIONS: &[&str] = &[
-    "css", "scss", "html", "htm", "astro", "js", "mjs", "cjs", "ts", "tsx", "jsx", "svelte", "vue",
-    "rs",
+    "css", "scss", "html", "htm", "astro", "mdx", "js", "mjs", "cjs", "ts", "tsx", "jsx", "svelte",
+    "vue", "rs",
 ];
 
 /// Build output and dependencies, never a surface's own source.
