@@ -417,9 +417,15 @@ fn measure_the_deepest_recursion_this_isa_completes() {
     let vm = Vm::new().unwrap();
     let limit = 250_000_000;
     let completes = |depth| {
-        vm.execute(&recursion_to(depth), CONTRACT, &[], limit, MemoryState::at_height(1))
-            .outcome
-            .is_ok()
+        vm.execute(
+            &recursion_to(depth),
+            CONTRACT,
+            &[],
+            limit,
+            MemoryState::at_height(1),
+        )
+        .outcome
+        .is_ok()
     };
     let (mut low, mut high) = (1u64, 1_000_000u64);
     assert!(completes(low) && !completes(high));
@@ -431,7 +437,13 @@ fn measure_the_deepest_recursion_this_isa_completes() {
             high = mid;
         }
     }
-    let run = vm.execute(&recursion_to(low), CONTRACT, &[], limit, MemoryState::at_height(1));
+    let run = vm.execute(
+        &recursion_to(low),
+        CONTRACT,
+        &[],
+        limit,
+        MemoryState::at_height(1),
+    );
     eprintln!(
         "R-6 {} deepest completing depth {low}, gas {} at limit {limit}; depth {high} overflows",
         std::env::consts::ARCH,

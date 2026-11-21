@@ -607,7 +607,11 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block(
     for height in 2..4 {
         let (spin, calls) = attack_order(&ids, &attacker, &honest, height - 2);
         if height == 2 {
-            assert_eq!(pool.insert(spin.clone()), Ok(true), "admission checks only the caps");
+            assert_eq!(
+                pool.insert(spin.clone()),
+                Ok(true),
+                "admission checks only the caps"
+            );
         }
         let mut order = vec![spin];
         order.extend(calls.iter().cloned());
@@ -631,7 +635,11 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block(
 fn bft_chain(
     attacker: &HybridSigningKey,
     honest: &[HybridSigningKey],
-) -> (custom_l1_node::consensus::chain::Chain, Vec<[u8; 32]>, TempDir) {
+) -> (
+    custom_l1_node::consensus::chain::Chain,
+    Vec<[u8; 32]>,
+    TempDir,
+) {
     use custom_l1_node::consensus::chain::ChainConfig;
     let dir = TempDir::new().unwrap();
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
@@ -712,9 +720,15 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_bft_block() {
             custom_l1_node::consensus::bft::build_block(&chain, &sub_dag_of(round, &order), 1)
                 .unwrap();
         assert_eq!(block.transactions, calls, "round {round}");
-        chain.insert_block(block).expect("the derived block imports");
+        chain
+            .insert_block(block)
+            .expect("the derived block imports");
         assert_eq!(
-            chain.state().get_account(&attacker.address()).unwrap().nonce,
+            chain
+                .state()
+                .get_account(&attacker.address())
+                .unwrap()
+                .nonce,
             1
         );
     }
