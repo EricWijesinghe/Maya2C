@@ -328,7 +328,8 @@ mod tests {
 
     /// A folder in the temp folder whose DACL is set by icacls `args`.
     fn folder_with_acl(test: &str, args: &[&str]) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("maya-hub-acl-dir-{test}-{}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("maya-hub-acl-dir-{test}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("create the folder");
         let status = Command::new("icacls")
@@ -346,7 +347,13 @@ mod tests {
         let grant = format!("*{me}:F");
         let dir = folder_with_acl(
             "list",
-            &["/inheritance:r", "/grant:r", &grant, "/grant", "*S-1-5-11:RX"],
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-5-11:RX",
+            ],
         );
         let open = others_can_write_into(&dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -360,7 +367,13 @@ mod tests {
         // (WD) on a folder is "create files": enough to plant a key after deleting one.
         let dir = folder_with_acl(
             "add",
-            &["/inheritance:r", "/grant:r", &grant, "/grant", "*S-1-5-11:(WD)"],
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-5-11:(WD)",
+            ],
         );
         let open = others_can_write_into(&dir);
         let _ = std::fs::remove_dir_all(&dir);

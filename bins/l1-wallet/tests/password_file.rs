@@ -43,6 +43,12 @@ fn generate_takes_the_password_from_the_file_before_the_environment() {
     let opened_with_file = keystore::decrypt(&blob, FILE_PASSWORD).is_ok();
     let opened_with_env = keystore::decrypt(&blob, ENV_PASSWORD).is_ok();
     std::fs::remove_dir_all(&dir).expect("remove the test directory");
-    assert!(opened_with_file, "the file's password does not open the keystore");
-    assert!(!opened_with_env, "the environment password was used over the file");
+    assert!(
+        opened_with_file,
+        "the file's password does not open the keystore"
+    );
+    assert!(
+        !opened_with_env,
+        "the environment password was used over the file"
+    );
 }

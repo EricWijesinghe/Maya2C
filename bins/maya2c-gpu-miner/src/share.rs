@@ -550,7 +550,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("miner.key");
         load_or_create_seed(&path).unwrap();
-        let out = std::process::Command::new("icacls").arg(&path).output().unwrap();
+        let out = std::process::Command::new("icacls")
+            .arg(&path)
+            .output()
+            .unwrap();
         std::fs::remove_dir_all(dir).unwrap();
         let acl = String::from_utf8_lossy(&out.stdout);
         // One line per entry, each `principal:(rights)`; `(I)` marks inherited.

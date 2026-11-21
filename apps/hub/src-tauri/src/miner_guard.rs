@@ -496,7 +496,14 @@ mod tests {
         // The temp folder may let every signed-in account write into it, and a
         // key folder that does is refused; start each test from a private one.
         #[cfg(windows)]
-        icacls(&dir, &["/inheritance:r", "/grant:r", &format!("*{}:(OI)(CI)F", my_sid())]);
+        icacls(
+            &dir,
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &format!("*{}:(OI)(CI)F", my_sid()),
+            ],
+        );
         dir
     }
 
