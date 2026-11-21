@@ -118,6 +118,44 @@ impl Totals {
     }
 }
 
+/// Encoded size of a [`PendingParameter`]: a height and a 256-bit value.
+pub const PENDING_PARAMETER_LEN: usize = 8 + 32;
+
+/// A passed change to a block-validity parameter, waiting for its height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingParameter {
+    /// First height whose block is judged under the new value.
+    pub activation: u64,
+    /// The value it takes.
+    pub value: maya_dex::Amount,
+}
+
+impl PendingParameter {
+    /// Encodes the record.
+    #[must_use]
+    pub fn encode(&self) -> [u8; PENDING_PARAMETER_LEN] {
+        let mut buf = [0u8; PENDING_PARAMETER_LEN];
+        buf[..8].copy_from_slice(&self.activation.to_le_bytes());
+        buf[8..].copy_from_slice(&self.value.to_le_bytes());
+        buf
+    }
+
+    /// Decodes a stored record.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Decode`] if the record is the wrong size.
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        let mut reader = ByteReader::new(bytes);
+        let record = Self {
+            activation: reader.read_u64()?,
+            value: maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
+        };
+        reader.finish()?;
+        Ok(record)
+    }
+}
+
 /// The rules currently in force.
 ///
 /// An absent key reads as its compiled default. That is what lets a release add
@@ -350,6 +388,16 @@ fn read_weight(reader: &mut ByteReader<'_>) -> Result<Amount> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_pending_parameter_round_trips_and_refuses_a_short_record() {
+        let record = PendingParameter {
+            activation: 2_592_003,
+            value: Amount::from_u64(512),
+        };
+        assert_eq!(PendingParameter::decode(&record.encode()).unwrap(), record);
+        assert!(PendingParameter::decode(&record.encode()[..PENDING_PARAMETER_LEN - 1]).is_err());
+    }
 
     #[test]
     fn an_absent_parameter_reads_as_its_compiled_default() {

@@ -80,6 +80,21 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
 - **Light-client schedule source.** `LightClient::verify_block` takes the suite
   schedule from its caller. Verify it against a state proof of the `up:` records
   so a light client does not trust its caller for it (ADR-082).
+- **Pending validity parameters over RPC** (PR #575 review, after the freeze).
+  A passed change to a validity key waits 30 days in `g:pending:<tag>`, but
+  the parameter RPC reads only `g:params`, so off-chain parties see it only by
+  reading raw state. Add a read-only view: pending value plus activation height
+  per validity key (seven point reads). No consensus impact.
+- **End-to-end activation test for a DEX ceiling** (PR #575 review). The
+  CON-17 tests check the timing through the parameter table. Add one block-level
+  test that lowers `DexMaxOrdersPerBook` and places order N+1 at activation − 1
+  (accepted) and at activation (refused), so the `stage_block` order (readers
+  before `settle_governance` and `activate_parameters`) is pinned by a test,
+  not by a comment.
+- **Derive the duration pins from the round interval** once PR #500's
+  `CANONICAL_ROUND_INTERVAL_MS` is on master: the DAG epoch, work half-life,
+  policy day and rotation tests should compute their expected block counts
+  from it (e.g. 86,400,000 ms / (2 × 500)), so a block-rate change turns them red.
 
 ## P5 — 256-bit headroom (DECISIONS 2026-11-01, after launch, at an activation height)
 

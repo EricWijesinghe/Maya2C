@@ -993,6 +993,8 @@ impl StateDB {
         // transactions executing under two different sets of rules depending on
         // where they sat, which is a state divergence rather than a subtlety.
         self.settle_governance(&mut overlay, context)?;
+        // Right after: a validity change promoted here binds the next block.
+        self.activate_parameters(&mut overlay, context)?;
         // Burn the base fee before staking runs, so an epoch's reward pool is
         // the tips alone.
         self.settle_fees(&mut overlay)?;
