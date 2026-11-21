@@ -222,7 +222,7 @@ fn a_version_this_binary_lacks_halts_at_the_height_the_committed_entry_names() {
         .check_halt(FIRST_LEGAL_ACTIVATION)
         .expect_err("the activation height is refused");
     assert!(
-        matches!(halt, NodeError::UpgradeRequired { version, height, supported }
+        matches!(halt, NodeError::UpgradeRequired { version, height, supported, .. }
             if version == scheduled && height == FIRST_LEGAL_ACTIVATION
                 && supported == SUPPORTED_PROTOCOL_VERSION),
         "{halt}"
@@ -317,6 +317,110 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
             )
             .is_err()
     );
+}
+
+// ---------------------------------------------------------------------------
+// feature bits a later binary defines (ADR-082 amendment, invariant 34)
+// ---------------------------------------------------------------------------
+
+/// A bit no binary defines yet. The top bit, so bits claimed by branches in
+/// flight (8, 9, ...) never make it known.
+const UNKNOWN_BIT: u64 = 1 << 63;
+
+#[test]
+fn a_proposal_with_an_unknown_feature_bit_is_accepted_and_its_entry_written() {
+    // The genesis binary must not refuse the block that schedules a later
+    // binary's feature: that would stall or fork the chain at the vote rather
+    // than halt it at the activation.
+    assert!(!FeatureSet(UNKNOWN_BIT).is_known());
+    let f = fixture();
+    let id = f
+        .propose(upgrade(
+            SUPPORTED_PROTOCOL_VERSION + 1,
+            FIRST_LEGAL_ACTIVATION,
+            FeatureSet::DVP | UNKNOWN_BIT,
+        ))
+        .expect("the block carrying the proposal is accepted");
+    f.pass(id);
+
+    let schedule =
+        f.db.effective_schedule()
+            .expect("a stored entry with an unknown bit decodes");
+    let entries = schedule.upgrades.entries();
+    assert_eq!(entries.len(), 1, "the passed entry is written, not expired");
+    assert!(entries[0].features.contains(UNKNOWN_BIT));
+}
+
+#[test]
+fn an_unknown_bit_on_a_supported_version_halts_at_its_activation_and_not_before() {
+    // The version alone is one this binary implements; the unknown bit makes
+    // the entry unsupported all the same.
+    let f = fixture();
+    let id = f
+        .propose(upgrade(
+            SUPPORTED_PROTOCOL_VERSION,
+            FIRST_LEGAL_ACTIVATION,
+            FeatureSet::DVP | UNKNOWN_BIT,
+        ))
+        .expect("propose");
+    f.pass(id);
+
+    let schedule = f.db.effective_schedule().expect("schedule");
+    schedule
+        .check_halt(FIRST_LEGAL_ACTIVATION - 1)
+        .expect("nothing changes before the activation");
+    let halt = schedule
+        .check_halt(FIRST_LEGAL_ACTIVATION)
+        .expect_err("the activation height is refused");
+    assert!(
+        matches!(halt, NodeError::UpgradeRequired { version, height, .. }
+            if version == SUPPORTED_PROTOCOL_VERSION && height == FIRST_LEGAL_ACTIVATION),
+        "{halt}"
+    );
+    assert!(
+        halt.to_string().contains(&format!("{UNKNOWN_BIT:#x}")),
+        "the halt names the unknown bits: {halt}"
+    );
+    assert_eq!(
+        schedule.features().dvp,
+        u64::MAX,
+        "an unsupported entry switches nothing on in this binary"
+    );
+}
+
+#[test]
+fn a_known_bit_entry_still_does_not_halt() {
+    let f = fixture();
+    let id = f
+        .propose(upgrade(
+            SUPPORTED_PROTOCOL_VERSION,
+            FIRST_LEGAL_ACTIVATION,
+            FeatureSet::KNOWN & !FeatureSet::ZKML,
+        ))
+        .expect("propose");
+    f.pass(id);
+    let schedule = f.db.effective_schedule().expect("schedule");
+    assert!(schedule.check_halt(u64::MAX).is_ok());
+    assert_eq!(schedule.features().dvp, FIRST_LEGAL_ACTIVATION);
+}
+
+#[test]
+fn a_sunset_only_entry_with_unknown_bits_is_still_refused() {
+    let schedule = fixture().db.effective_schedule().expect("schedule");
+    let request = ScheduleRequest {
+        activation: FIRST_LEGAL_ACTIVATION,
+        version: None,
+        features: FeatureSet(UNKNOWN_BIT),
+        sunsets: vec![SunsetSpec {
+            suite: SuiteId::MlDsa65.to_byte(),
+            sunset_height: FIRST_LEGAL_ACTIVATION + MIN_MIGRATION_WINDOW,
+            emergency: false,
+        }],
+    };
+    let refused = schedule
+        .admit(&request, 1, MIN_UPGRADE_LEAD_BLOCKS, SuiteId::MlDsa87)
+        .expect_err("a sunset-only entry cannot switch features on");
+    assert!(refused.to_string().contains("sunset-only"), "{refused}");
 }
 
 // ---------------------------------------------------------------------------
