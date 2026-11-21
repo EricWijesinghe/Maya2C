@@ -909,3 +909,20 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-21 — DAG-BFT ordering cutoff from the anchor sequence, and node-local BFT bounds (Claude, under Eric's 2026-11-17 pre-approval)
+
+An independent AI review (2026-11-19) replayed two honest engines that batched
+commits differently and derived different blocks for one anchor (57 against 61
+certificates). The ordering cutoff is now `previous committed anchor round −
+GC_DEPTH`, common to every honest node and equal to what a node committing one
+anchor per step already used, so only the batched case changes, to match. In
+the same change: the commit rule runs only after an insertion or a resume;
+proposals and certificates outside the round window or with more parents than
+members are dropped before any signature check; fetch replies share one budget;
+the safety log records each own message once and opens in bounded memory; the
+anchored bootstrap ends at the trusted block and a snapshot import is capped at
+64 GiB; rejoin recency uses the epoch that signed the trusted block. Every
+finding was checked against the code first. The ones that need an owner
+decision (equivocation punishment, weight cap, minimum active set, unconfirmed
+time-old tip) are listed in ADR-150, not changed. ADR-150, ADR-060 amendment.

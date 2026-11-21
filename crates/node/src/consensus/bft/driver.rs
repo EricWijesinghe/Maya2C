@@ -172,6 +172,24 @@ impl EpochCommittee {
     }
 }
 
+/// What makes an own proposal or vote the same statement as one already
+/// logged: `(round, addressee, content)`. A vote's content is the digest it
+/// signs (a re-vote carries a fresh signature over the same digest); a
+/// proposal is re-sent with its stored signature, which is hashed rather than
+/// the vertex, so a megabyte vertex is not rehashed per re-send. `None` for
+/// anything that is not logged.
+fn own_message_key(envelope: &Envelope) -> Option<(u64, u16, [u8; 32])> {
+    match &envelope.message {
+        Message::Propose { vertex, signature } => Some((
+            vertex.round,
+            envelope.to,
+            *blake3::hash(signature).as_bytes(),
+        )),
+        Message::Vote { digest, round, .. } => Some((*round, envelope.to, *digest)),
+        Message::Cert(_) | Message::Fetch(_) => None,
+    }
+}
+
 /// The `(epoch, round)` sealed in the chain's tip, or `None` at genesis.
 fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
     if chain.height() == 0 {
@@ -191,6 +209,14 @@ pub struct BftDriver {
     /// vertex on every receipt to dedupe a log was measurable, and
     /// certification leaves one certificate per slot. Pruned with the horizon.
     logged: BTreeSet<(u64, ValidatorId)>,
+    /// Own proposals and votes already in the safety log, as
+    /// [`own_message_key`]. The engine re-sends its pending proposal every
+    /// resend interval and re-votes for re-sent proposals; logging each copy
+    /// again adds no safety and grew the log by a full vertex (and an fsync)
+    /// per interval for as long as a vertex stayed uncertified. Only keys
+    /// added after a successful write, so a failed write is retried. Pruned
+    /// with the horizon; a new epoch's driver starts empty.
+    signed: BTreeSet<(u64, u16, [u8; 32])>,
     /// Transactions handed to the engine and not yet seen in a block, by id.
     queued: BTreeMap<[u8; 32], Queued>,
     /// Kept to build the next epoch's engine.
@@ -366,6 +392,7 @@ impl BftDriver {
             epoch,
             store,
             logged: BTreeSet::new(),
+            signed: BTreeSet::new(),
             queued: BTreeMap::new(),
             signer,
             params,
@@ -388,6 +415,9 @@ impl BftDriver {
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
         for envelope in recovered.safety {
+            if let Some(key) = own_message_key(&envelope) {
+                driver.signed.insert(key);
+            }
             match envelope.message {
                 Message::Propose { vertex, signature } => {
                     driver.engine.restore_proposal(vertex, signature);
@@ -752,11 +782,11 @@ impl BftDriver {
                 to,
                 message,
             };
-            match &envelope.message {
-                Message::Propose { .. } | Message::Vote { .. } => {
-                    self.store.record_own(&envelope)?;
-                }
-                Message::Cert(_) | Message::Fetch(_) => {}
+            if let Some(key) = own_message_key(&envelope)
+                && !self.signed.contains(&key)
+            {
+                self.store.record_own(&envelope)?;
+                self.signed.insert(key);
             }
             step.frames.push(envelope.encode());
         }
@@ -829,6 +859,7 @@ impl BftDriver {
             .last_committed_round()
             .saturating_sub(maya_dag_bft::GC_DEPTH);
         self.logged = self.logged.split_off(&(horizon, 0));
+        self.signed = self.signed.split_off(&(horizon, 0, [0; 32]));
         Ok(())
     }
 

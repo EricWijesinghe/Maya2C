@@ -67,7 +67,9 @@ pub(super) async fn open_or_bootstrap(
         let anchor = args.trusted_block;
         require_anchor(cfg!(feature = "production"), anchor.is_some())?;
         match anchor {
-            Some(_) => println!("bootstrap:   the source's chain must contain the pinned block"),
+            Some(_) => println!(
+                "bootstrap:   the source's chain must contain the pinned block; the bootstrap stops there and catch-up verifies everything above it"
+            ),
             None => println!(
                 "bootstrap:   no --trusted-block: the source alone decides which chain this node starts on"
             ),
