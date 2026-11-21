@@ -7,10 +7,11 @@
 //   - on a 360x640 and a 390x700 phone screen the hero's primary button is
 //     fully visible without scrolling, and so is a slice of the orbit (that is
 //     also the first-screen shot);
+//   - with the page's real CSP (no bypass), no securitypolicyviolation fires on /;
 //   - pixel-sampled text contrast at 360 and 1440 px on the gradient-backed
 //     text axe cannot resolve (CONTRAST_TARGETS), light and dark;
 //   - the transaction row's SVG text renders at 14 px or more at 1024 px;
-//   - screenshots at 360, 390 and 1440 px in both themes, when --shots <dir>:
+//   - screenshots at 360, 390, 768, 1024 and 1440 px in both themes, when --shots <dir>:
 //     the first screen at scroll 0, and the full page with the sticky header
 //     put back in the flow (a full-page capture otherwise paints it mid-page).
 //
@@ -26,7 +27,7 @@ const arg = (name, dflt) => { const i = process.argv.indexOf(name); return i > 0
 const url = arg("--url", "http://localhost:4321/");
 const shots = arg("--shots", null);
 const WIDTHS = [360, 390, 430, 768, 1024, 1440];
-const SHOT_WIDTHS = [360, 390, 1440];
+const SHOT_WIDTHS = [360, 390, 768, 1024, 1440];
 const THEMES = ["dark", "light"];
 // Real phone viewports (after browser chrome): the primary button must be on the first screen.
 const PHONE_SCREENS = [[360, 640], [390, 700]];
@@ -203,6 +204,23 @@ for (const [width, theme] of THEMES.flatMap((t) => [390, 1440].map((w) => [w, t]
   }));
   console.log(`reduced motion ${theme} ${width}px: ${running.length} running animations${running.length ? `: ${running.join(", ")}` : ""}`);
   if (running.length) fails.push(`reduced motion ${theme} ${width}px`);
+  await ctx.close();
+}
+
+// CSP: the passes above bypass the page's CSP so axe and the shot styles can be injected; this one
+// loads / with the real policy and fails on any violation it reports (an unhashed inline script or style).
+for (const theme of THEMES) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, colorScheme: theme });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => {
+    window.__csp = [];
+    document.addEventListener("securitypolicyviolation", (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI || "inline"}`));
+  });
+  await page.goto(url, { waitUntil: "networkidle" });
+  await scrollThrough(page);
+  const v = await page.evaluate(() => window.__csp);
+  console.log(`csp ${theme}: ${v.length} violations${v.length ? `: ${v.join(", ")}` : ""}`);
+  if (v.length) fails.push(`csp ${theme}`);
   await ctx.close();
 }
 

@@ -160,13 +160,16 @@ a {
 .code-panel { margin-top: var(--space-4); padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid transparent; border-radius: var(--r-lg); background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 10%, var(--surface-2)), var(--surface-2) 60%) padding-box, linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--bronze) 70%, transparent) 55%, color-mix(in srgb, var(--accent) 30%, transparent)) border-box; box-shadow: 0 30px 60px -34px color-mix(in srgb, var(--accent) 70%, transparent); }
 [data-theme="light"] .code-panel { background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 8%, var(--surface-1)), var(--surface-1) 60%) padding-box, linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 25%, transparent)) border-box; box-shadow: 0 24px 48px -32px color-mix(in srgb, var(--accent) 55%, transparent); }
 .code-panel starlight-tabs { margin: 0; }
-@media (max-width: 479.98px) { .code-panel { margin-inline: calc(-1 * var(--space-2)); padding-inline: var(--space-2); } }
+/* Phones: the panel keeps the 16 px page gutter like every other block; only its inner padding tightens. */
+@media (max-width: 479.98px) { .code-panel { padding-inline: var(--space-2); } }
 /* Each tab label stays on one line; code reads at 13 px on a phone, 14 px from 768 px, and a long line scrolls inside its box rather than wrapping mid-token. */
 .home-code starlight-tabs [role="tab"] { white-space: nowrap; }/* The inline-code rule (.sl-markdown-content code, .875em) also shrinks block code to 11.4 px; undo it here. */
 .home-code .expressive-code pre > code { font-size: 13px !important; }
-/* Phones: the right edge fades, the hint that a long line scrolls (no instruction in the copy). */
-@media (max-width: 767.98px) { .home-code .expressive-code pre { -webkit-mask-image: linear-gradient(90deg, black calc(100% - 2rem), transparent); mask-image: linear-gradient(90deg, black calc(100% - 2rem), transparent); } }
+/* The right edge fades at every width, the hint that a long line scrolls (the address overflows up to about 1024 px). */
+.home-code .expressive-code pre { -webkit-mask-image: linear-gradient(90deg, black calc(100% - 3rem), transparent); mask-image: linear-gradient(90deg, black calc(100% - 3rem), transparent); }
 @media (min-width: 768px) { .home-code .expressive-code pre > code { font-size: 14px !important; } }
+/* The close already ends the page; half the footer's usual gap under it. */
+body:has(.hero) .maya-footer { margin-top: 1.5rem; }
 .home-faq .home-lede { margin-top: var(--space-4) !important; }
 /* The close: one confident full-bleed teal panel, a single primary action and two text links; one section step to the footer. */
 /* Dark: ink on bright teal. Light: white on the deeper text teal, since ink on #0e8f80 sampled 4.1:1. */

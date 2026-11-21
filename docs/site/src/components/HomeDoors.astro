@@ -3,7 +3,9 @@
 // a page that works today, whatever the testnet is doing. Each door carries a
 // small drawing of what is behind it (graphics over text): the split two-
 // signature badge, code brackets with the three SDKs, a committee seat. The
-// arrow sits next to the title, where the eye already is.
+// arrow is bound to the title's last word, so it never wraps onto a line alone.
+// Phones: the drawing sits small beside the kicker and the text takes the full
+// card width (a side gutter squeezed it to about 200 px, review 4).
 interface Props { label?: string }
 const { label = "Where to start" } = Astro.props;
 const doors = [
@@ -49,7 +51,7 @@ const seats = Array.from({ length: 7 }, (_, i) => {
             )}
           </svg>
           <span class="k">{d.kicker}</span>
-          <span class="t">{d.title}<span class="go" aria-hidden="true">→</span></span>
+          <span class="t">{d.title.split(" ").slice(0, -1).join(" ")} <span class="nw">{d.title.split(" ").at(-1)}<span class="go" aria-hidden="true">→</span></span></span>
           <span class="l">{d.line}</span>
         </a>
       </li>
@@ -61,7 +63,7 @@ const seats = Array.from({ length: 7 }, (_, i) => {
   .doors { margin: var(--space-8) 0 0; }
   ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); grid-template-columns: minmax(0, 1fr); }
   li { margin: 0; display: flex; }
-  .door { --tone: var(--accent); position: relative; flex: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art k" "art t" "art l"; column-gap: var(--space-4); row-gap: var(--space-1); align-content: start; min-height: 44px; padding: var(--space-5); border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border)); border-radius: var(--r-lg); background: radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--tone) 24%, transparent), transparent 70%), linear-gradient(160deg, color-mix(in srgb, var(--tone) 12%, var(--surface-1)), var(--surface-1) 75%); color: inherit; text-decoration: none; overflow: hidden; transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
+  .door { --tone: var(--accent); position: relative; flex: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art k" "t t" "l l"; align-items: center; column-gap: var(--space-3); row-gap: var(--space-1); align-content: start; min-height: 44px; padding: var(--space-5); border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border)); border-radius: var(--r-lg); background: radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%), linear-gradient(160deg, color-mix(in srgb, var(--accent) 14%, var(--surface-1)), color-mix(in srgb, var(--accent) 10%, var(--surface-1)) 75%); color: inherit; text-decoration: none; overflow: hidden; transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
   .door::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--tone), color-mix(in srgb, var(--tone) 20%, transparent)); }
   .door-bronze { --tone: var(--bronze); }
   /* Steel mixed toward teal so the third door reads as active, not disabled. */
@@ -70,6 +72,7 @@ const seats = Array.from({ length: 7 }, (_, i) => {
   .door:hover, .door:focus-visible { border-color: var(--tone); box-shadow: 0 16px 40px -18px color-mix(in srgb, var(--tone) 75%, transparent); transform: translateY(-2px); }
   .door:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
 
+  /* Dark: every card on a teal-tinted surface a step above the page; bronze is the border, bar and arrow, never a wash over near-black. */
   .art { grid-area: art; align-self: center; width: 64px; height: auto; overflow: visible; }
   .doc { fill: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 2; }
   .doc-l { stroke: color-mix(in srgb, var(--text) 45%, transparent); stroke-width: 2.5; stroke-linecap: round; }
@@ -86,14 +89,16 @@ const seats = Array.from({ length: 7 }, (_, i) => {
   .you { fill: var(--bronze); stroke: var(--bg); stroke-width: 2; }
 
   .k { grid-area: k; font: var(--weight-semibold) var(--type-label-size)/1.4 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--text); }
-  .t { grid-area: t; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); font: var(--weight-semibold) var(--type-title-3-size)/1.25 var(--font-sans); letter-spacing: -0.01em; color: var(--text); }
+  .t { grid-area: t; margin-top: var(--space-2); font: var(--weight-semibold) var(--type-title-3-size)/1.25 var(--font-sans); letter-spacing: -0.01em; color: var(--text); }
   .l { grid-area: l; font-size: var(--type-body-size); line-height: 1.5; color: var(--text-2); }
-  .go { color: var(--tone); transition: transform var(--dur-2) var(--ease); }
+  .nw { white-space: nowrap; }
+  .go { display: inline-block; margin-inline-start: var(--space-2); color: var(--tone); transition: transform var(--dur-2) var(--ease); }
   .door:hover .go, .door:focus-visible .go { transform: translateX(4px); }
   @media (prefers-reduced-motion: reduce) { .door, .go { transition: none; } .door:hover, .door:focus-visible, .door:hover .go { transform: none; } }
   @media (min-width: 760px) {
     ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .door { grid-template-columns: minmax(0, 1fr); grid-template-areas: "art" "k" "t" "l"; }
     .art { justify-self: start; width: 120px; margin-bottom: var(--space-2); }
+    .t { margin-top: 0; }
   }
 </style>

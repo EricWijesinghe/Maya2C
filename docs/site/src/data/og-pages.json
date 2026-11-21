@@ -1,5 +1,5 @@
 [
-  { "card": "og-card.png", "title": "Every transaction signed twice", "line": "Forging one requires breaking both ML-DSA and SLH-DSA. DAG-BFT: final while at most f of n validators are faulty." },
+  { "card": "og-card.png", "title": "Two post-quantum signatures on every transaction.", "line": "A forger has to break both." },
   { "card": "og/guides.png", "title": "Guides", "line": "Start a local chain, mine, run a validator and build a wallet: commands in order, with what each step checks." },
   { "card": "og/reference.png", "title": "Reference", "line": "How each subsystem works, the decision behind it, and the test or report that backs each claim." },
   { "card": "og/support.png", "title": "Support Maya2C", "line": "How to help Maya2C today: star it, contribute, or run a local devnet. Testnet run complete; paused since 2026-10-28." },

@@ -13,9 +13,9 @@
 // closes; the aurora eases into place (transform and opacity only). The seats
 // are an illustration, not validators, and the caption says so. While the
 // testnet is paused, a comet then replays the finished run from the stop
-// report: one lap per 24 h of it, 7.65 laps, then it rests where the run
-// stopped. It is pausable (WCAG 2.2.2), never loops, and nothing runs under
-// reduced motion. While the testnet runs, a pulse crosses
+// report: one 2 s lap per 24 h of it (about 15 s in all), then it fades out
+// so the seven seats rest symmetric (a resting comet read as an eighth seat).
+// It is pausable (WCAG 2.2.2), never loops, and nothing runs under reduced motion. While the testnet runs, a pulse crosses
 // the dot grid for each REAL finalized block (hero-pulses.ts, loaded only
 // then). While it is paused (data/network-state.ts) no socket opens, no canvas
 // script loads, and the chip states the finished run in bronze: a fact, not a
@@ -66,7 +66,6 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
     <figure class="art-wrap">
     <div class="art" aria-hidden="true">
       <div class="aurora aurora-teal"></div>
-      <div class="aurora aurora-bronze"></div>
       <svg viewBox="0 0 400 400" class="orbit">
         <defs>
           <linearGradient id="hero-ring" x1="0" y1="0" x2="1" y2="1">
@@ -101,8 +100,8 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
     </div>
     {testnet.paused && (
       <figcaption class="replay">
-        <span class="rp-still">Illustration of a committee. The {testnet.last.from} to {ended} run: <span class="nw">{halts} {haltWord}.</span></span>
-        <span class="rp-on">Replay of the {testnet.last.from} to {ended} run, one lap per day: <span class="nw">{halts} {haltWord}.</span> The seats are drawn, not validators.</span>
+        <span class="rp-still">The {runDays} run, <span class="nw">{halts} {haltWord}.</span> Illustration.</span>
+        <span class="rp-on">Replay of the {runDays} run, <span class="nw">{halts} {haltWord}.</span> Illustration.</span>
         <span class="rp-day" aria-hidden="true" data-rp-day></span>
         <button type="button" class="rp-btn" data-rp-toggle>Pause replay</button>
       </figcaption>
@@ -127,7 +126,8 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
     if (lap && day && btn) {
       lap.addEventListener("animationstart", () => { day.textContent = `day ${n}`; });
       lap.addEventListener("animationiteration", () => { day.textContent = `day ${++n}`; });
-      lap.addEventListener("animationend", () => { day.textContent = "run complete"; btn.hidden = true; });
+      // Fade the comet out where it stopped (a script animation outranks the CSS fill), so no eighth seat remains.
+      lap.addEventListener("animationend", () => { day.textContent = "run complete"; btn.hidden = true; lap.animate({ opacity: [1, 0] }, { duration: 600, easing: "ease-out", fill: "forwards" }); });
       btn.addEventListener("click", () => {
         const paused = hero.classList.toggle("rp-paused");
         btn.textContent = paused ? "Play replay" : "Pause replay";
@@ -152,7 +152,7 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
   }
   /* The page below keeps a perceptible tint, so the hero does not end in a flat black slab; each section adds its own band (maya.css .home-band). */
   /* Never below a visibly teal ink, top to foot; bronze stays an accent on teal, never a wash over near-black (it read brown-black). */
-  :global(body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, var(--bg)) 0, color-mix(in srgb, var(--accent) 9%, var(--bg)) 60rem, color-mix(in srgb, var(--accent) 8%, var(--bg)) 100%); }
+  :global(body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, var(--bg)) 0, color-mix(in srgb, var(--accent) 13%, var(--bg)) 70rem, color-mix(in srgb, var(--accent) 10%, var(--bg)) 100%); }
   /* Light: a mint paper wash under the whole page, not neutral grey-white; sections add their own mint bands. */
   :global([data-theme="light"] body:has(.hero)) { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, var(--surface-1)) 0, color-mix(in srgb, var(--accent) 4%, var(--surface-1)) 50rem, color-mix(in srgb, var(--accent) 5%, var(--surface-1)) 100%); }
   :global([data-theme="light"]) .hero {
@@ -163,7 +163,7 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
   }
   .bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
   /* The wash fades into the page tint instead of ending on a hard edge. */
-  .bg::before { content: ""; position: absolute; inset: 0; background: var(--hero-bg); -webkit-mask-image: linear-gradient(180deg, black 65%, transparent); mask-image: linear-gradient(180deg, black 65%, transparent); }
+  .bg::before { content: ""; position: absolute; inset: 0; background: var(--hero-bg); -webkit-mask-image: linear-gradient(180deg, black 80%, transparent); mask-image: linear-gradient(180deg, black 80%, transparent); }
   .dots, .pulses { position: absolute; inset: 0; width: 100%; height: 100%; }
   .dots {
     background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 30%, transparent) 1px, transparent 0);
@@ -187,13 +187,15 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
   .hero.live .dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
   h1 { margin: var(--space-5) 0 var(--space-4); max-width: 18ch; font: 700 clamp(2rem, 1.25rem + 3.4vw, 3.5rem)/1.1 var(--type-display-1-font); letter-spacing: -0.02em; color: var(--text); text-wrap: balance; }
   .nw { white-space: nowrap; }
-  /* The second beat of the headline in full text colour; the rest one step down, mixed toward --text so it holds 4.5:1 on the teal wash. */
-  .hero .sub { margin: 0; max-width: 36rem; font-size: clamp(18px, 16px + .5vw, 20px); line-height: 1.5; color: color-mix(in srgb, var(--text) 80%, var(--text-2)); text-wrap: pretty; }
+  /* Full text colour: --text-2 sampled 2.7-4.3:1 over the aurora (review 4); the bold beat carries the weight step instead. */
+  .hero .sub { margin: 0; max-width: 36rem; font-size: clamp(18px, 16px + .5vw, 20px); line-height: 1.5; color: var(--text); text-wrap: pretty; }
   .sub b { font-weight: var(--weight-semibold); color: var(--text); }
   .cta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-6); }
   /* Full-width thumbs on a phone, side by side once there is room. */
   .cta .ui-btn { flex: 1 1 13rem; min-height: 48px; padding: 0 var(--space-6); font-size: var(--type-body-lg-size); text-decoration: none; }
   .cta .ui-btn--primary { color: var(--on-accent); box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--accent) 80%, transparent); }
+  /* Light: the closing band's treatment (white on the deep text teal), so the same action looks the same twice. */
+  :global([data-theme="light"]) .cta .ui-btn--primary { background: var(--accent-text); border-color: var(--accent-text); color: var(--surface-1); }
   .cta .ui-btn--secondary { color: var(--text); }
   .trust-row { min-width: 0; }
 
@@ -203,11 +205,9 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
   .art { position: relative; width: min(76vw, 22rem); aspect-ratio: 1; }
   .orbit { position: relative; width: 100%; height: 100%; overflow: visible; }
   .aurora { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
-  .aurora-teal { inset: -30%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 50%, transparent), transparent); }
-  .aurora-bronze { inset: -10% -40% -40% -10%; background: radial-gradient(closest-side, color-mix(in srgb, var(--bronze) 30%, transparent), transparent); }
-  :global([data-theme="light"]) .aurora-teal { opacity: .6; }
-  /* Light: the bronze lives in the corner wash and the ring, not over the teal glow, where it turned muddy. */
-  :global([data-theme="light"]) .aurora-bronze { display: none; }
+  /* Teal only: a bronze aurora over near-black read as a brown patch (review 4). Eased stops, so no disc edge shows on paper. */
+  .aurora-teal { inset: -30%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 50%, transparent), color-mix(in srgb, var(--accent) 20%, transparent) 45%, color-mix(in srgb, var(--accent) 6%, transparent) 75%, transparent); }
+  :global([data-theme="light"]) .aurora-teal { opacity: .5; }
   .stop-teal { stop-color: var(--accent); }
   .stop-bronze { stop-color: var(--bronze); }
   .seat-in { stop-color: color-mix(in srgb, var(--accent) 34%, var(--ink)); }
@@ -227,7 +227,7 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
   .trail { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; opacity: .45; }
   .blk { fill: var(--accent); }
   .blk-halo { fill: color-mix(in srgb, var(--accent) 35%, transparent); }
-  .armed .lap { animation: lap 6s linear calc(.35s + 7 * .18s + .5s) var(--laps) both; }
+  .armed .lap { animation: lap 2s linear calc(.35s + 7 * .18s + .5s) var(--laps) both; }
   .rp-paused .lap { animation-play-state: paused; }
   @keyframes lap { from { opacity: 1; transform: rotate(0deg); } to { opacity: 1; transform: rotate(360deg); } }
   .replay { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--space-1) var(--space-3); max-width: 26rem; margin: 0; font-size: var(--type-body-sm-size); line-height: 1.45; text-align: center; color: color-mix(in srgb, var(--text) 55%, var(--text-2)); }
@@ -243,7 +243,6 @@ const SEATS = Array.from({ length: N_SEATS }, (_, i) => {
 
   /* One-shot motion, armed by the script only when motion is welcome. */
   .armed .aurora { animation: settle 1.6s var(--ease) both; }
-  .armed .aurora-bronze { animation-delay: .15s; }
   .armed .seat { animation: seat-in .5s var(--ease) both; animation-delay: calc(.35s + var(--i) * .18s); }
   .armed .spoke { animation: fade-in .5s var(--ease) both; animation-delay: calc(.35s + var(--i) * .18s); }
   .armed .ring-main { stroke-dasharray: 100; animation: close-ring 1.4s var(--ease) .3s both; }

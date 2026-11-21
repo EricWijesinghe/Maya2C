@@ -49,11 +49,10 @@ const seg = gates ? 100 / gates.total : 0;
         )}
       </div>
       <p class="note">
-        {paused ? <span>{run.halts} {run.halts === 1 ? "halt" : "halts"}, ended <span class="nw">{run.to}</span></span> : <>block <span data-live="height">unavailable without JavaScript</span></>}
-        <SourceTip icon text={paused ? `status.maya2c.dev /api/status before the stop, in the stop report; ${haltRule}` : `status.maya2c.dev /api/status and the explorer /api/stats; ${haltRule}`} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} />
+        {paused ? <>{run.halts} {run.halts === 1 ? "halt" : "halts"}, ended </> : <>block </>}<span class="nw">{paused ? run.to : <span data-live="height">unavailable without JavaScript</span>}<SourceTip icon text={paused ? `status.maya2c.dev /api/status before the stop, in the stop report; ${haltRule}` : `status.maya2c.dev /api/status and the explorer /api/stats; ${haltRule}`} href={paused ? testnet.report : "https://status.maya2c.dev/api/status"} /></span>
       </p>
-      {/* The stop report's own caveat, beside the figure it qualifies: the run never needed a multi-validator quorum. */}
-      {paused && <p class="caveat"><span class="info" aria-hidden="true">i</span><a href={testnet.report}>One validator held {run.topStakePct}% of stake and finalized alone</a></p>}
+      {/* Marks the figure the footnote under the grid qualifies. */}
+      {paused && <span class="mark-1" aria-hidden="true">i</span>}
     </li>
 
     <li class="tile tone-bronze">
@@ -66,14 +65,14 @@ const seg = gates ? 100 / gates.total : 0;
           ))}
         </svg>
       )}
-      <p class="note">launch gates in the mainnet plan <SourceTip icon text="The mainnet launch plan, read into public/progress.json at build" href="/reference/mainnet-v1-plan/" /></p>
+      <p class="note">launch gates in the mainnet <span class="nw">plan<SourceTip icon text="The mainnet launch plan, read into public/progress.json at build" href="/reference/mainnet-v1-plan/" /></span></p>
     </li>
 
     <li class="tile tone-steel">
       <p class="lbl">Verified subsystems</p>
       <p class="val">{verified} / {total}</p>
       <div class="gfx"><div class="meter" role="img" aria-label={`${verified} of ${total} subsystems verified`}><span style={`width:${total ? (verified / total) * 100 : 0}%`} /></div></div>
-      <p class="note">each names a test CI runs <SourceTip icon text="features.toml, status = verified, counted at build by scripts/gen-health.mjs" href="/health/" /></p>
+      <p class="note">each names a test CI <span class="nw">runs<SourceTip icon text="features.toml, status = verified, counted at build by scripts/gen-health.mjs" href="/health/" /></span></p>
     </li>
 
     <li class="tile tone-teal">
@@ -87,9 +86,12 @@ const seg = gates ? 100 / gates.total : 0;
           <span class="end end-1" aria-hidden="true">{scale} s</span>
         </div>
       )}
-      <p class="note">{finality ? `bench, ${finality.validators} validators, one machine` : "no bench committed"} <SourceTip icon text={finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed"} href="/stats/#finality" /></p>
+      <p class="note">{finality ? `bench, ${finality.validators} validators, one` : "no bench"} <span class="nw">{finality ? "machine" : "committed"}<SourceTip icon text={finality ? "cargo xtask bench-finality, newest committed report: one machine, not a network figure" : "No finality bench report committed"} href="/stats/#finality" /></span></p>
     </li>
   </ul>
+  {/* The stop report's own caveat on the uptime figure (marked i): the run never needed a multi-validator quorum.
+      Under the grid, so the four tiles keep equal height with no hollow bottoms (review 4). */}
+  {paused && <p class="caveat"><span class="info" aria-hidden="true">i</span><span>Uptime: <a href={testnet.report}>one validator held {run.topStakePct}% of stake and finalized alone</a>.</span></p>}
 </section>
 
 <script>
@@ -131,13 +133,14 @@ const seg = gates ? 100 / gates.total : 0;
   .tile {
     --tone: var(--accent);
     position: relative; margin: 0; min-width: 0;
-    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "lbl lbl" "val gfx" "note note" "caveat caveat";
+    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "lbl lbl" "val gfx" "note note";
     gap: var(--space-2) var(--space-5); align-items: center;
     padding: var(--space-5); border: 1px solid color-mix(in srgb, var(--tone) 22%, transparent); border-radius: var(--r-lg);
-    /* A raised, filled panel: a tone glow from the top-left corner over surface-2, not an outline on black. */
+    /* A raised teal-tinted panel a step above the page in every tile; the tone is the bar, border, numeral and graphic,
+       never the fill (a bronze wash over near-black read brown-black, review 4). */
     background:
-      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--tone) 28%, transparent), transparent 65%),
-      linear-gradient(170deg, color-mix(in srgb, var(--tone) 12%, var(--surface-2)), var(--surface-2) 80%);
+      radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%),
+      linear-gradient(170deg, color-mix(in srgb, var(--accent) 14%, var(--surface-1)), color-mix(in srgb, var(--accent) 10%, var(--surface-1)) 80%);
     box-shadow: 0 20px 44px -28px color-mix(in srgb, var(--tone) 70%, transparent);
     overflow: hidden;
   }
@@ -159,10 +162,14 @@ const seg = gates ? 100 / gates.total : 0;
   :global([data-theme="light"]) .tile.tone-teal .val { color: var(--accent-text); }
   .tile .val.stale { white-space: normal; font-size: var(--type-body-size); font-weight: var(--weight-medium); color: var(--text-2); }
   .gfx { grid-area: gfx; min-width: 0; }
-  .note { grid-area: note; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
-  /* The run's caveat as a footnote row with an info mark; the subgrid keeps that row in every tile, so the notes align. */
-  .caveat { grid-area: caveat; display: flex; gap: var(--space-2); align-items: baseline; padding-top: var(--space-2); border-top: 1px solid color-mix(in srgb, var(--tone) 30%, transparent); font-size: var(--type-body-sm-size); line-height: 1.4; }
-  .info { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: var(--r-pill); border: 1.5px solid var(--tone); font: 700 11px/1 var(--font-sans); color: var(--text); transform: translateY(3px); }
+  /* Inline flow: the source mark rides on the note's last word (.nw), never on a line of its own. */
+  .note { grid-area: note; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  .note .nw :global(.src-tip) { margin-inline-start: var(--space-2); vertical-align: middle; }
+  /* The run's caveat as one footnote under the grid, keyed to the mark on the uptime tile. */
+  .caveat { display: flex; gap: var(--space-2); align-items: baseline; margin: var(--space-4) 0 0; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text); }
+  .info, .mark-1 { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: var(--r-pill); border: 1.5px solid var(--accent); font: 700 11px/1 var(--font-sans); color: var(--text); }
+  .info { transform: translateY(3px); }
+  .mark-1 { position: absolute; top: var(--space-4); right: var(--space-4); }
   .caveat a { color: var(--text); text-decoration-color: var(--bronze); text-underline-offset: 3px; }
   .nw { white-space: nowrap; }
 
@@ -189,7 +196,7 @@ const seg = gates ? 100 / gates.total : 0;
   @media (min-width: 520px) {
     .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     /* Subgrid: label, value, graphic, note and footnote rows line up across every tile in a row. */
-    .tile { grid-row: span 5; grid-template-columns: minmax(0, 1fr); grid-template-areas: "lbl" "val" "gfx" "note" "caveat"; grid-template-rows: subgrid; row-gap: var(--space-3); align-items: start; }
+    .tile { grid-row: span 4; grid-template-columns: minmax(0, 1fr); grid-template-areas: "lbl" "val" "gfx" "note"; grid-template-rows: subgrid; row-gap: var(--space-3); align-items: start; }
     .gfx { align-self: center; min-height: 72px; display: grid; align-content: center; }
     .ring { justify-self: start; }
   }

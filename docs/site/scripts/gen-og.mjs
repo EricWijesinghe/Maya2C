@@ -31,8 +31,8 @@ const MAX_BYTES = 150 * 1024;
 const C = {
   bg: "#081c28", deep: "#05121a", ink: "#f2f9fa", muted: "#bcd0d7",
   teal: "#1fd3cc", bronze: "#ffbb6b", ring: "#2b4a57",
-  // A mid-teal lift for the left half, so a card reads luminous rather than near-black in a feed.
-  lift: "#0e4d57",
+  // The hero's teal wash (review 4: the card read darker and more navy than the page): lifted teal, not navy.
+  lift: "#12605f", mid: "#0b3a3c", disc: "#0d4a4a",
 };
 const FONT = "Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
 
@@ -65,10 +65,11 @@ export function wrap(text, size, maxWidth, maxLines) {
 
 const tspans = (lines, x, y, lh) => lines.map((l, i) => `<tspan x="${x}" y="${y + i * lh}">${esc(l)}</tspan>`).join("");
 
-/** Six committee seats on a ring around the emblem: the same motif as the homepage hero. */
+/** Seven committee seats on a ring around the emblem on its teal disc: the homepage hero's motif, seat for seat. */
+const N_SEATS = 7;
 function orbit(cx, cy, emblemHref) {
-  const seats = [0, 1, 2, 3, 4, 5].map((i) => {
-    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+  const seats = Array.from({ length: N_SEATS }, (_, i) => {
+    const a = (i / N_SEATS) * Math.PI * 2 - Math.PI / 2;
     const x = (cx + 170 * Math.cos(a)).toFixed(1), y = (cy + 170 * Math.sin(a)).toFixed(1);
     const c = i % 2 ? C.bronze : C.teal;
     return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="${C.teal}" stroke-opacity=".16"/>` +
@@ -79,6 +80,8 @@ function orbit(cx, cy, emblemHref) {
   <circle cx="${cx}" cy="${cy}" r="170" fill="none" stroke="url(#ring)" stroke-width="2.5"/>
   <circle cx="${cx}" cy="${cy}" r="118" fill="none" stroke="${C.teal}" stroke-opacity=".35"/>
   ${seats}
+  <circle cx="${cx}" cy="${cy}" r="110" fill="${C.disc}" stroke="${C.teal}" stroke-opacity=".5" stroke-width="1.5"/>
+  <circle cx="${cx}" cy="${cy}" r="66" fill="none" stroke="${C.teal}" stroke-opacity=".7" stroke-width="3"/>
   <image href="${emblemHref}" x="${cx - 62}" y="${cy - 62}" width="124" height="124"/>`;
 }
 
@@ -93,9 +96,9 @@ export function cardSvg(entry, { emblemHref, fontCss = "", status }) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <style>${fontCss} text { font-family: ${FONT}; }</style>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2=".45"><stop offset="0" stop-color="${C.lift}"/><stop offset=".55" stop-color="${C.bg}"/><stop offset="1" stop-color="${C.deep}"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2=".45"><stop offset="0" stop-color="${C.lift}"/><stop offset=".55" stop-color="${C.mid}"/><stop offset="1" stop-color="${C.bg}"/></linearGradient>
     <radialGradient id="aurora-t" cx="0.82" cy="0.1" r="0.6"><stop offset="0" stop-color="${C.teal}" stop-opacity=".30"/><stop offset="1" stop-color="${C.teal}" stop-opacity="0"/></radialGradient>
-    <radialGradient id="aurora-b" cx="0.84" cy="0.94" r="0.2"><stop offset="0" stop-color="${C.bronze}" stop-opacity=".34"/><stop offset="1" stop-color="${C.bronze}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="aurora-b" cx="0.84" cy="0.94" r="0.2"><stop offset="0" stop-color="${C.bronze}" stop-opacity=".18"/><stop offset="1" stop-color="${C.bronze}" stop-opacity="0"/></radialGradient>
     <radialGradient id="core"><stop offset="0" stop-color="${C.teal}" stop-opacity=".28"/><stop offset="1" stop-color="${C.teal}" stop-opacity="0"/></radialGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${C.teal}"/><stop offset="1" stop-color="${C.bronze}"/></linearGradient>
     <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${C.teal}"/><stop offset="1" stop-color="${C.bronze}"/></linearGradient>
