@@ -62,6 +62,7 @@ jobs:
       - name: Hardware features compile
         run: |
           cargo check -p maya-wgpu-miner --features gpu
+          cargo check -p maya-wgpu-verify --features gpu --all-targets
           cargo check -p maya-ebpf-net --features xdp
 
       # RESEARCH behind a feature, so the default workspace run compiles its

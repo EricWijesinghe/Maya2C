@@ -2339,6 +2339,17 @@ status = "verified"
 tests = ["crate:maya-wgpu-miner", "hal/wgpu-miner/tests/gpu_validation.rs"]
 
 [[subsystem]]
+id = "gpu-signature-verification-g0"
+name = "GPU signature verification, stage G0: ML-DSA-65 NTT step on wgpu with a CPU differential harness (HW-3)"
+domain = "AI and hardware integration"
+paths = "`hal/wgpu-verify`"
+tier = "frontier"
+class = "RESEARCH"
+status = "stub"
+tests = ["crate:maya-wgpu-verify", "hal/wgpu-verify/tests/differential.rs"]
+note = "ADR-137 HW-3, stage G0 only (Eric: O-6 A, a GPU answer never stands without the CPU; O-7 A, G1 is decided on G0's numbers). Linked by nothing in the node; the CPU verdict from maya-crypto-pq is the only verdict. GPU does NTT, pointwise multiply and inverse NTT; SHAKE (ExpandA, mu, SampleInBall, the final hash) stays on the CPU. SLH-DSA half not built. Stub because the first PR was not compiled locally; every speed-up figure is MISSING until run on a real adapter."
+
+[[subsystem]]
 id = "verifiable-compute-job-market"
 name = "Verifiable compute job market (useful work for AI, science and multi-GPU hardware)"
 domain = "AI and hardware integration"
