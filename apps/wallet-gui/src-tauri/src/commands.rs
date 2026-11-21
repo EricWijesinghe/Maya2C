@@ -31,11 +31,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use maya_clear_sign::Context;
 use maya_wallet_core::address_book::{AddressBook, NameCheck, PasteCheck, Source};
+use maya_wallet_core::chat_pay::{self, BindingKind, BindingTerms};
 use maya_wallet_core::networks;
+
+use crate::sign_checks;
 
 use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::hd::seed_from_mnemonic;
-use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
+use maya_wallet_core::payment::{ChatRequest, FeeTier, PaymentRequest, SignedTransfer};
 use maya_wallet_core::vault::{OsKeychain, Vault, check_new_passphrase};
 use maya_wallet_core::wallet::{
     Account, ChainTag, PendingTransfer, SignTerms, TransferStatus, Wallet,
@@ -610,19 +613,34 @@ pub async fn sign_transfer(
     genesis: String,
     confirmed_hash: String,
     expires_at: Option<u64>,
+    chat: Option<ChatRequest>,
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
     // Taken first: a refused concurrent call must not touch the reviewed slot.
     let _slot = DialogSlot::take(&session.dialog_open)?;
-    // The request may have expired while the form sat open (ADR-086 §7).
-    if expires_at.is_some_and(|exp| unix_now().is_ok_and(|now| now > exp)) {
-        return Err("the payment request has expired; nothing was signed".to_string());
-    }
     let chain = parse_genesis(&genesis)?;
     let amount = parse_amount_arg("amount", &amount)?;
     let fee = parse_amount_arg("fee", &fee)?;
-    // Refused before the dialog, so a person is never asked to approve a fee the core would not sign.
-    wallet::check_fee_cap(fee, amount, false).map_err(|e| e.to_string())?;
+    // The chat request is the one the wallet handed the UI from a link, not
+    // the UI's copy (ADR-088); leaving it out does not skip its checks.
+    let pending: tauri::State<'_, crate::deeplink::PendingPay> = app.state();
+    let chat = pending.resolve_chat(chat.as_ref(), &sign_checks::recipient_id(&recipient)?)?;
+    let paid = match chat {
+        Some(_) => crate::deeplink::paid_list(&app)?,
+        None => chat_pay::PaidRequests::default(),
+    };
+    let now = unix_now().ok();
+    // Expiry (ADR-086 §7), chat chain and paid list, fee cap: all refused
+    // before anyone is asked.
+    let chat_id = sign_checks::before_dialog(&sign_checks::PreSign {
+        expires_at,
+        now,
+        chat: chat.as_ref(),
+        genesis: &genesis,
+        paid: &paid,
+        fee,
+        amount,
+    })?;
     let terms = SignTerms {
         fee,
         fee_to: fee_to.as_deref(),
@@ -646,11 +664,101 @@ pub async fn sign_transfer(
     if !approved_on_screen(&app, &window, &shown).await? {
         return Err("cancelled on the native confirm screen; nothing was signed".to_string());
     }
-    session.with(|wallet| {
+    // Marked paid before signing, so a signed payment is never left
+    // unrecorded; undone if signing then fails.
+    if let (Some(id), Some(now)) = (chat_id, now) {
+        crate::deeplink::record_paid(&app, &id, now).map_err(|e| {
+            format!("the request could not be marked paid, so nothing was signed: {e}")
+        })?;
+    }
+    let signed = session.with(|wallet| {
         wallet
             .sign(index, &recipient, amount, &terms, &shown.signing_hash)
             .map_err(|e| e.to_string())
-    })
+    });
+    match (signed, chat_id) {
+        (Ok(signed), _) => {
+            if let Some(chat) = &chat {
+                pending.close(&chat.request);
+            }
+            Ok(signed)
+        }
+        (Err(e), Some(id)) => Err(match crate::deeplink::forget_paid(&app, &id) {
+            Ok(()) => e,
+            Err(undo) => format!("{e}; the request also stays marked paid: {undo}"),
+        }),
+        (Err(e), None) => Err(e),
+    }
+}
+
+fn hex32(text: &str) -> Option<[u8; 32]> {
+    hex::decode(text).ok()?.try_into().ok()
+}
+
+/// Signs a binding that lets chat identity `chat_id` name account `index`
+/// as where payments to it go, on the chain `genesis` names, for `days`
+/// (default 30, at most 90), or with `revoke`, a revocation of every
+/// earlier binding of `chat_id`. Shown on the native confirm screen first.
+/// Returns the binding as hex, for the chat (ADR-088 amendment 1). It
+/// authorizes no transfer.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
+pub async fn chat_binding(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    index: u32,
+    chat_id: String,
+    genesis: String,
+    days: Option<u32>,
+    revoke: bool,
+    session: tauri::State<'_, Session>,
+) -> Result<String, String> {
+    let _slot = DialogSlot::take(&session.dialog_open)?;
+    let chat = hex32(&chat_id).ok_or("the chat identity must be 64 hex characters")?;
+    let genesis = hex32(&genesis).ok_or("the node's genesis id is malformed; reload")?;
+    let issued_at = unix_now()?;
+    let life = days.map_or(chat_pay::DEFAULT_BINDING_TTL, |d| u64::from(d) * 24 * 3_600);
+    let terms = BindingTerms {
+        kind: if revoke {
+            BindingKind::Revoke
+        } else {
+            BindingKind::Bind
+        },
+        genesis,
+        chat_id: chat,
+        issued_at,
+        expires_at: issued_at.saturating_add(life),
+    };
+    let account = session.with(|w| w.account(index).map_err(|e| e.to_string()))?;
+    let question = if revoke {
+        format!(
+            "Revoke every earlier binding of chat identity\n{chat_id}\nto your accounts?\n\nContacts that receive this stop accepting payment requests from it until you bind it again."
+        )
+    } else {
+        format!(
+            "Let chat identity\n{chat_id}\nask for payments to account\n{}\nfor {} days?\n\nThis moves no money. Only this wallet can spend what arrives.",
+            account.address,
+            life / (24 * 3_600)
+        )
+    };
+    let dialog = app
+        .dialog()
+        .message(question)
+        .parent(&window)
+        .title("Chat payment binding")
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Sign".into(),
+            "Cancel".into(),
+        ));
+    let approved = tauri::async_runtime::spawn_blocking(move || dialog.blocking_show())
+        .await
+        .map_err(|e| e.to_string())?;
+    if !approved {
+        return Err("cancelled on the native confirm screen; nothing was signed".to_string());
+    }
+    let signed = session.with(|w| w.chat_binding(index, &terms).map_err(|e| e.to_string()))?;
+    Ok(hex::encode(signed))
 }
 
 /// The native OK/Cancel screen for a signature. Its words come from the core's

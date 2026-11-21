@@ -10,6 +10,7 @@
 
 pub mod commands;
 pub mod deeplink;
+pub mod sign_checks;
 
 use commands::Session;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -80,6 +81,7 @@ pub fn run() {
             commands::fee_options,
             commands::network_status,
             commands::receive_request,
+            commands::chat_binding,
             deeplink::take_pending_pay,
             commands::contacts,
             commands::add_contact,
