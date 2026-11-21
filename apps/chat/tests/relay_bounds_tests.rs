@@ -8,7 +8,8 @@ use maya_chat::relay::{Envelope, Payload, Relay};
 use maya_chat::session::Message;
 
 const NOW: u64 = 1_800_000_000;
-const DAY: u64 = 24 * 3_600;
+const HOUR: u64 = 3_600;
+const DAY: u64 = 24 * HOUR;
 
 fn envelope(to: [u8; 32], n: u64, len: usize, expires_at: u64) -> Envelope {
     Envelope {
@@ -57,4 +58,19 @@ fn an_oversized_prekey_is_refused_even_when_signed() {
     relay
         .publish(bundle_with_prekey(&bob, real, NOW + DAY), NOW)
         .unwrap();
+}
+
+#[test]
+fn expired_envelopes_in_every_mailbox_stop_counting_at_the_next_deposit() {
+    let mut relay = Relay::new(0);
+    for i in 0..50u8 {
+        relay
+            .deposit(envelope([i; 32], 0, 1_000, NOW + HOUR), NOW)
+            .unwrap();
+    }
+    assert!(relay.stored_bytes() > 50_000);
+    let late = envelope([200; 32], 0, 10, NOW + DAY);
+    let late_len = late.encode().unwrap().len();
+    relay.deposit(late, NOW + 2 * HOUR).unwrap();
+    assert_eq!(relay.stored_bytes(), late_len);
 }

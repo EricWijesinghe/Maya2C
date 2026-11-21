@@ -7,7 +7,7 @@
 //! one mailbox can hold, and envelopes expire, so a relay's storage stays
 //! bounded without asking anyone for tokens.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use maya_crypto_pq::suite::{self, SuiteId};
 use serde::{Deserialize, Serialize};
@@ -211,6 +211,9 @@ pub struct Relay {
     /// Ids of stored envelopes, with their expiry. An expired envelope is
     /// refused anyway, so an id is forgotten once it expires.
     seen: BTreeMap<[u8; 32], u64>,
+    /// `seen` ordered by expiry, with each envelope's mailbox, so expiry
+    /// pops only what has expired instead of scanning everything held.
+    expiries: BTreeSet<(u64, [u8; 32], Address)>,
     challenges: BTreeMap<Address, ([u8; 32], u64)>,
     bytes: usize,
 }
@@ -231,6 +234,7 @@ impl Relay {
             bundles: BTreeMap::new(),
             mailboxes: BTreeMap::new(),
             seen: BTreeMap::new(),
+            expiries: BTreeSet::new(),
             challenges: BTreeMap::new(),
             bytes: 0,
         }
@@ -303,6 +307,7 @@ impl Relay {
     pub fn deposit(&mut self, envelope: Envelope, now: u64) -> Result<[u8; 32], ChatError> {
         let bytes = envelope.encode()?;
         let id = envelope.id()?;
+        self.expire(now);
         if self.seen.contains_key(&id) {
             return Ok(id);
         }
@@ -316,16 +321,9 @@ impl Relay {
             return Err(ChatError::Refused("expiry outside what this relay keeps"));
         }
         if self.bytes + bytes.len() > MAX_RELAY_BYTES {
-            self.expire(now);
-            if self.bytes + bytes.len() > MAX_RELAY_BYTES {
-                return Err(ChatError::Refused("relay full"));
-            }
+            return Err(ChatError::Refused("relay full"));
         }
         let mailbox = self.mailboxes.entry(envelope.to).or_default();
-        let before = mailbox.bytes;
-        mailbox.envelopes.retain(|(_, _, e)| e.expires_at > now);
-        mailbox.bytes = mailbox.envelopes.iter().map(|(_, size, _)| size).sum();
-        self.bytes -= before - mailbox.bytes;
         if mailbox.envelopes.len() >= MAX_ENVELOPES
             || mailbox.bytes + bytes.len() > MAX_MAILBOX_BYTES
         {
@@ -334,20 +332,33 @@ impl Relay {
         mailbox.bytes += bytes.len();
         self.bytes += bytes.len();
         self.seen.insert(id, envelope.expires_at);
+        self.expiries.insert((envelope.expires_at, id, envelope.to));
         mailbox.envelopes.push_back((id, bytes.len(), envelope));
-        self.seen.retain(|_, expires_at| *expires_at > now);
         Ok(id)
     }
 
-    /// Drops every expired envelope and empty mailbox.
+    /// Drops every expired envelope, id and emptied mailbox. Each expiry is
+    /// popped once, so the cost is in what expired, not in what is held.
     fn expire(&mut self, now: u64) {
-        self.mailboxes.retain(|_, m| {
-            m.envelopes.retain(|(_, _, e)| e.expires_at > now);
-            m.bytes = m.envelopes.iter().map(|(_, size, _)| size).sum();
-            !m.envelopes.is_empty()
-        });
-        self.bytes = self.mailboxes.values().map(|m| m.bytes).sum();
-        self.seen.retain(|_, expires_at| *expires_at > now);
+        while let Some(&(expires_at, id, to)) = self.expiries.first() {
+            if expires_at > now {
+                break;
+            }
+            self.expiries.pop_first();
+            self.seen.remove(&id);
+            // Already gone if its mailbox was fetched.
+            if let Some(mailbox) = self.mailboxes.get_mut(&to) {
+                if let Some(at) = mailbox.envelopes.iter().position(|(i, _, _)| *i == id)
+                    && let Some((_, size, _)) = mailbox.envelopes.remove(at)
+                {
+                    mailbox.bytes -= size;
+                    self.bytes -= size;
+                }
+                if mailbox.envelopes.is_empty() {
+                    self.mailboxes.remove(&to);
+                }
+            }
+        }
     }
 
     /// Bytes held across every mailbox.
