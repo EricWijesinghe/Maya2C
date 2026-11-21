@@ -49,3 +49,6 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Account abstraction: session keys and limits (ADR-107)](account-abstraction.md) — partially searched 2026-11-12
 - [Liquid staking receipt token (ADR-108)](liquid-staking.md) — searched 2026-11-12
 - [Scheduled and recurring payments (ADR-109)](scheduled-payments.md) — partially searched 2026-11-12
+- [GPU auto-tuning in a miner GUI (ADR-137 HW-1)](gpu-auto-tuning.md) — partially searched 2026-11-12
+- [Node hardware self-tuning (ADR-137 HW-2)](node-hardware-self-tuning.md) — not searched
+- [GPU batch verification of post-quantum signatures (ADR-137 HW-3)](gpu-signature-verification.md) — partially searched 2026-11-12

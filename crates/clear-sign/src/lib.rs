@@ -18,6 +18,7 @@
 
 use std::collections::BTreeSet;
 
+pub use maya_address::Network;
 use maya_amount::Amount;
 
 /// A 32-byte address.
@@ -27,6 +28,11 @@ pub type Address = [u8; 32];
 pub const UNLIMITED: Amount = Amount([0, 1 << 32, 0, 0]);
 /// Outflow of at least this share of a balance, in percent, is a drain.
 pub const DRAIN_PERCENT: u64 = 90;
+// The drain test below is written for 90% (`10a >= 9b`, `a >= b - b/10`).
+const _: () = assert!(DRAIN_PERCENT == 90);
+
+/// Characters per group when an address is shown in full (ADR-081 §6.1).
+pub const GROUP_LEN: usize = 4;
 
 /// One effect of a transaction.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -121,25 +127,36 @@ pub enum Warning {
     UnverifiedContract,
 }
 
-fn hex4(a: &Address) -> String {
-    format!("{:02x}{:02x}…{:02x}{:02x}", a[0], a[1], a[30], a[31])
+/// An address in full Bech32m on `network`, the data part in groups of
+/// [`GROUP_LEN`]: `maya1 q8f3 k2x…`. Display only — copy the ungrouped form.
+#[must_use]
+pub fn grouped(network: Network, a: &Address) -> String {
+    let text = maya_address::encode(network, a);
+    let data_at = network.hrp().len() + 1;
+    let groups: Vec<String> = text.as_bytes()[data_at..]
+        .chunks(GROUP_LEN)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect();
+    format!("{} {}", &text[..data_at], groups.join(" "))
 }
 
-/// The effect in plain English. Amounts are base units; the wallet applies
-/// the token's decimals where a token declares them.
+/// The effect in plain English, every address in full Bech32m on `network`.
+/// Amounts are base units; the wallet applies the token's decimals where a
+/// token declares them.
 #[must_use]
-pub fn render(e: &Effect) -> String {
+pub fn render(e: &Effect, network: Network) -> String {
+    let full = |a: &Address| grouped(network, a);
     match e {
         // The all-zero token is the native coin; "token 0000…0000" reads as a
         // suspicious unknown token, which is the opposite of the truth.
         Effect::Transfer { token, to, amount } if *token == [0; 32] => {
             format!(
                 "Send {amount} base units of the native coin to {}",
-                hex4(to)
+                full(to)
             )
         }
         Effect::Transfer { token, to, amount } => {
-            format!("Send {amount} of token {} to {}", hex4(token), hex4(to))
+            format!("Send {amount} of token {} to {}", full(token), full(to))
         }
         Effect::Approve {
             token,
@@ -148,8 +165,8 @@ pub fn render(e: &Effect) -> String {
         } if *amount >= UNLIMITED => {
             format!(
                 "Let {} spend ALL of your token {}, now and later",
-                hex4(spender),
-                hex4(token)
+                full(spender),
+                full(token)
             )
         }
         Effect::Approve {
@@ -158,16 +175,16 @@ pub fn render(e: &Effect) -> String {
             amount,
         } => format!(
             "Let {} spend up to {amount} of your token {}",
-            hex4(spender),
-            hex4(token)
+            full(spender),
+            full(token)
         ),
         Effect::ApproveAll {
             collection,
             operator,
         } => format!(
             "Let {} move EVERY item in collection {}",
-            hex4(operator),
-            hex4(collection)
+            full(operator),
+            full(collection)
         ),
         Effect::Permit {
             token,
@@ -176,28 +193,86 @@ pub fn render(e: &Effect) -> String {
         } => {
             format!(
                 "Sign a permit letting {} spend up to {amount} of token {} without asking you again",
-                hex4(spender),
-                hex4(token)
+                full(spender),
+                full(token)
             )
         }
-        Effect::Upgrade { contract } => format!("Replace the code of contract {}", hex4(contract)),
+        Effect::Upgrade { contract } => format!("Replace the code of contract {}", full(contract)),
         Effect::SetOwner { target, owner } => {
-            format!("Make {} the owner of {}", hex4(owner), hex4(target))
+            format!("Make {} the owner of {}", full(owner), full(target))
         }
         Effect::Call { contract, method } => {
-            format!("Call `{method}` on contract {}", hex4(contract))
+            format!("Call `{method}` on contract {}", full(contract))
         }
     }
 }
 
-/// Differs from a contact but shares its first two and last two bytes: the
-/// shape of an address-poisoning look-alike.
+/// Differs from a contact but shares what a person checks: its first two and
+/// last two bytes (the hex form), or the first and last group of its grouped
+/// Bech32m form on any network (the checksum differs per prefix, so all are
+/// checked).
 fn looks_like_contact(to: &Address, ctx: &Context) -> bool {
     !ctx.contacts.contains(to)
         && ctx
             .contacts
             .iter()
-            .any(|c| c[..2] == to[..2] && c[30..] == to[30..])
+            .any(|c| (c[..2] == to[..2] && c[30..] == to[30..]) || text_look_alike(c, to))
+}
+
+/// The first and the last group of the [`grouped`] display match: the
+/// characters a person compares at a glance. The data part is 59 characters,
+/// so that is 4 leading (the version symbol and 3 payload symbols) and 3
+/// trailing; derived from the string, so it follows the display if either
+/// changes. 30 varying bits per network: cheap to grind, which is why it must
+/// warn.
+#[must_use]
+pub fn text_look_alike(a: &Address, b: &Address) -> bool {
+    [Network::Mainnet, Network::Testnet, Network::Devnet]
+        .into_iter()
+        .any(|network| {
+            let shown_a = maya_address::encode(network, a);
+            let shown_b = maya_address::encode(network, b);
+            let data = network.hrp().len() + 1;
+            let tail_len = match (shown_a.len() - data) % GROUP_LEN {
+                0 => GROUP_LEN,
+                rest => rest,
+            };
+            let head = data..data + GROUP_LEN;
+            let tail = shown_a.len() - tail_len..;
+            shown_a[head.clone()] == shown_b[head] && shown_a[tail.clone()] == shown_b[tail]
+        })
+}
+
+/// `amount` is at least 90% of a non-zero `balance`, decided within 256 bits:
+/// `10a >= 9b` by checked additions, and where that would overflow,
+/// `a >= b - b/10`, which is the same inequality for integers.
+#[must_use]
+pub fn drains(amount: Amount, balance: Amount) -> bool {
+    if balance.is_zero() {
+        return false;
+    }
+    match (times(amount, 10), times(balance, 9)) {
+        (Some(a10), Some(b9)) => a10 >= b9,
+        _ => amount >= balance.saturating_sub(div10(balance)),
+    }
+}
+
+/// `a × k` by repeated checked addition, so no wider intermediate exists.
+fn times(a: Amount, k: u8) -> Option<Amount> {
+    (1..k).try_fold(a, |sum, _| sum.checked_add(a))
+}
+
+/// `a / 10`, rounded down, limb by limb (most significant first).
+fn div10(a: Amount) -> Amount {
+    let mut out = [0u64; maya_amount::LIMBS];
+    let mut rem = 0u128;
+    for i in (0..maya_amount::LIMBS).rev() {
+        let cur = (rem << 64) | u128::from(a.0[i]);
+        // Below 2^64 because rem < 10.
+        out[i] = u64::try_from(cur / 10).unwrap_or(u64::MAX);
+        rem = cur % 10;
+    }
+    Amount(out)
 }
 
 fn warnings_for(e: &Effect, ctx: &Context, out: &mut BTreeSet<Warning>) {
@@ -211,12 +286,7 @@ fn warnings_for(e: &Effect, ctx: &Context, out: &mut BTreeSet<Warning>) {
                 .iter()
                 .find(|(t, _)| t == token)
                 .map_or(Amount::default(), |(_, b)| *b);
-            // Exact 512-bit products: a saturated 256-bit product would flag (or miss)
-            // a drain by clamping.
-            if !balance.is_zero()
-                && amount.mul_wide(Amount::from_u64(100))
-                    >= balance.mul_wide(Amount::from_u64(DRAIN_PERCENT))
-            {
+            if drains(*amount, balance) {
                 out.insert(Warning::DrainsBalance);
             }
         }
