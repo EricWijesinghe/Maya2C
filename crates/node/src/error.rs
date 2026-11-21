@@ -369,6 +369,28 @@ pub enum NodeError {
         remaining: u64,
     },
 
+    /// The block would write more distinct contract entries than
+    /// `vm.max_block_contract_writes` allows (ADR-142 amendment 6,
+    /// CSTATE-1). Not this transaction's fault: a block producer leaves it
+    /// for a later block.
+    #[error("the block would write {entries} contract entries, above the cap of {cap}")]
+    BlockContractWritesExhausted {
+        /// Distinct entries the block would have written.
+        entries: u64,
+        /// The cap that applies.
+        cap: u64,
+    },
+
+    /// Committed contract state would grow past
+    /// `vm.max_contract_state_bytes` (ADR-142 amendment 6, CSTATE-2).
+    #[error("contract state would be {size} bytes, above the ceiling of {cap}")]
+    ContractStateFull {
+        /// The total the write would have produced.
+        size: u64,
+        /// The ceiling in force.
+        cap: u64,
+    },
+
     /// A shielded proof did not hold against its public inputs.
     #[error("shielded proof rejected: {0}")]
     ProofVerification(String),

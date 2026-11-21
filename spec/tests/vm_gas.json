@@ -777,6 +777,318 @@
         "error": "OutOfGas",
         "value": "21536000"
       }
+    },
+    {
+      "id": "contract-entry-size-empty",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "contract_entry_size",
+      "input": {
+        "key_len": "0",
+        "value_len": "0"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "1280"
+      }
+    },
+    {
+      "id": "contract-entry-size-slot",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "contract_entry_size",
+      "input": {
+        "key_len": "43",
+        "value_len": "1"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "1324"
+      }
+    },
+    {
+      "id": "contract-entry-size-largest-module",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "contract_entry_size",
+      "input": {
+        "key_len": "37",
+        "value_len": "524288"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "525605"
+      }
+    },
+    {
+      "id": "admit-contract-writes-at-the-cap",
+      "rules": [
+        "CSTATE-1"
+      ],
+      "kind": "admit_contract_writes",
+      "input": {
+        "before": "32767",
+        "after": "32768",
+        "cap": "32768"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "admit-contract-writes-above-the-cap",
+      "rules": [
+        "CSTATE-1"
+      ],
+      "kind": "admit_contract_writes",
+      "input": {
+        "before": "32768",
+        "after": "32769",
+        "cap": "32768"
+      },
+      "expect": {
+        "result": "error",
+        "error": "BlockContractWritesExhausted"
+      }
+    },
+    {
+      "id": "admit-contract-writes-no-new-entry-past-a-lowered-cap",
+      "rules": [
+        "CSTATE-1"
+      ],
+      "kind": "admit_contract_writes",
+      "input": {
+        "before": "5000",
+        "after": "5000",
+        "cap": "1024"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "admit-contract-state-at-the-ceiling",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "admit_contract_state",
+      "input": {
+        "before": "100",
+        "after": "67108864",
+        "cap": "67108864"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "admit-contract-state-above-the-ceiling",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "admit_contract_state",
+      "input": {
+        "before": "67108864",
+        "after": "67108865",
+        "cap": "67108864"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ContractStateFull"
+      }
+    },
+    {
+      "id": "admit-contract-state-shrink-past-a-lowered-ceiling",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "admit_contract_state",
+      "input": {
+        "before": "900",
+        "after": "800",
+        "cap": "100"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "admit-contract-state-same-size-past-a-lowered-ceiling",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "admit_contract_state",
+      "input": {
+        "before": "900",
+        "after": "900",
+        "cap": "100"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "admit-contract-state-growth-past-a-lowered-ceiling",
+      "rules": [
+        "CSTATE-2"
+      ],
+      "kind": "admit_contract_state",
+      "input": {
+        "before": "900",
+        "after": "901",
+        "cap": "100"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ContractStateFull"
+      }
+    },
+    {
+      "id": "param-19-default",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "19",
+        "value": "32768"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "param-19-floor",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "19",
+        "value": "1024"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "param-19-below-the-floor",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "19",
+        "value": "1023"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
+    },
+    {
+      "id": "param-19-ceiling",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "19",
+        "value": "65536"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "param-19-above-the-ceiling",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "19",
+        "value": "65537"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
+    },
+    {
+      "id": "param-20-default",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "20",
+        "value": "67108864"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "param-20-floor",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "20",
+        "value": "8388608"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "param-20-below-the-floor",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "20",
+        "value": "8388607"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
+    },
+    {
+      "id": "param-20-ceiling",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "20",
+        "value": "134217728"
+      },
+      "expect": {
+        "result": "ok"
+      }
+    },
+    {
+      "id": "param-20-above-the-ceiling",
+      "rules": [
+        "CSTATE-3"
+      ],
+      "kind": "param",
+      "input": {
+        "tag": "20",
+        "value": "134217729"
+      },
+      "expect": {
+        "result": "error",
+        "error": "ParameterOutOfRange"
+      }
     }
   ]
 }

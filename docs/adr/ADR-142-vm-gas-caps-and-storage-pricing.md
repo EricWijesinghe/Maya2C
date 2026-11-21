@@ -859,4 +859,78 @@ release build, other machines, memory held by the cache.
   resident size now grows with the number of entries. Not measured.
 - **Growth itself is still unbounded and unpriced** (R-1's disk side). A
   per-block or total contract-state ceiling, or a per-byte state price, is a
-  consensus and economics decision: the `[needs-eric]` draft #644 (claim 142d).
+  consensus and economics decision: the `[needs-eric]` draft #644 (claim 142d, amendment 6 below).
+
+## Amendment 6 (PROPOSED, needs Eric), 2026-11-21: contract-state bounds
+
+Status: **proposed, not accepted**. This is a consensus and economics choice,
+so it is a `[needs-eric]` draft PR stacked on amendment 5, and it is not
+merged until Eric decides (`adr-claims.txt`: 142d, claimed 2026-11-19).
+Amendment 4 in this file is #549's own (R-2, R-5, R-6, R-10), which landed
+the number first, so this one is amendment 6.
+
+### Proposed rules (spec/10 CSTATE-1..3)
+
+- **CSTATE-1:** a block writes at most `vm.max_block_contract_writes` distinct
+  contract entries (tag 19, default 32,768, range `[1,024, 65,536]`).
+  Revealed sealed actions get a quarter more, the same split as GAS-2.
+- **CSTATE-2:** committed contract state, counted as stored key + value +
+  1,280 per entry (`ENTRY_OVERHEAD_BYTES`), grows to at most
+  `vm.max_contract_state_bytes` (tag 20, default 64 MiB, range
+  `[8 MiB, 128 MiB]`). Only growth past the cap is refused, so an overwrite
+  that does not grow the total is always allowed and a lowered cap strands no
+  contract.
+- Both are governed under compiled bounds (invariant 12). The running total
+  lives in memory, keyed by the write generation, and nothing new is stored
+  (invariants 25 and 26 are unaffected).
+
+### Numbers for the decision
+
+Fold time is measured, on the tree of `9d0be08f` before its four pedantic
+lint fixes (a signature and an `if let`, no change in behaviour). Machine as
+in amendment 5, dev profile.
+`cargo test -p custom-l1-node --lib the_contracts_root_at_the_contract_state -- --ignored --nocapture --test-threads 1`,
+smallest entries (4-byte key, 1-byte value, 1,324 counted bytes each), one
+new entry staged:
+
+| CSTATE-2 | Entries | Full fold | Kept leaves (amendment 5) |
+|---|---|---|---|
+| default, 64 MiB | 50,686 | 92.2 ms | 11.7 ms |
+| ceiling, 128 MiB | 101,372 | 179.0 ms | 21.0 ms |
+
+`cargo test -p custom-l1-node --test vm_gas_timing_tests the_contracts_root_fold_grows -- --ignored --nocapture --test-threads 1`
+(the full fold, through `state_root()`): 148.1 ms at 100,000 small entries,
+816.1 ms at 400,000, 186.3 ms at 25,000 entries of 4 KiB.
+
+Cost to fill is arithmetic from the constants, not a measurement:
+
+- **Smallest writes.** A write of 4 + 1 bytes costs 5,000 + 240 × 5 = 6,200
+  gas, so 250 M of gas could stage 40,322. CSTATE-1 stops it at 32,768 a
+  block. The default fills in **2 blocks** and the ceiling in **4**.
+- **4 KiB values.** One write costs about 1,018,760 gas, so about 245 fit a
+  block. An entry counts about 5,543 bytes. The default (about 12,100
+  entries) fills in **about 50 blocks**, the ceiling in **about 99**.
+- **What it costs in coin.** It takes one transaction per block, paying
+  `base_fee × size`. A call carries the same hybrid signature as a transfer,
+  so its size is taken as about the 13,215-byte standard transfer
+  (`reports/13-pq-weight.md`); a call's exact size was not measured. At the
+  `MAX_BASE_FEE_PER_BYTE` that is about 0.1 MAYA per block, so about
+  0.2–0.4 MAYA (smallest writes) or about 5–10 MAYA (4 KiB values) fills it.
+  At the base-fee floor it is a negligible fraction of a coin.
+
+### What this means
+
+- **With amendment 5 in place,** the CPU cost these caps bound is about 8×
+  smaller than the full fold they were sized against (21.0 ms against
+  179.0 ms at the ceiling). By CPU alone the ceiling could be several times
+  higher.
+- **Without a price, any ceiling is filled for byte fees.** Once it is full,
+  no contract can grow until governance raises it. A cap turns unbounded
+  growth into frozen growth, not paid growth. Brief 5's option B, a per-byte
+  state deposit or fee charged from the sender, is what makes growth paid.
+- **Choices for Eric:**
+  - (a) these caps at these numbers;
+  - (b) these caps with a higher ceiling, re-derived from the kept-leaves
+    cost;
+  - (c) a per-byte state price, with or without a cap as a backstop;
+  - (d) contracts dark at genesis (brief 5, option D).

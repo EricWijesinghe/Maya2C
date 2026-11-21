@@ -1031,6 +1031,25 @@ Two findings that contradict the brief, reported rather than worked around (Stan
   The queue now holds any PR whose base is not master.
 - **Still open, for Eric:** contract-state growth is unbounded and unpriced (R-1's disk side,
   and the cache's resident memory, not measured).
+## 2026-11-21 — PROPOSED, needs Eric: ADR-142 amendment 6, contract-state bounds (`[needs-eric]` draft, stacked on amendment 5)
+
+Not decided. A consensus and economics choice, so it is a draft PR for Eric, not a merge.
+
+- **Proposed rules:** CSTATE-1 caps distinct contract entries a block writes
+  (`vm.max_block_contract_writes`, tag 19, default 32,768, `[1,024, 65,536]`; revealed sealed
+  actions get a quarter more); CSTATE-2 caps committed contract state counted as key + value +
+  1,280 per entry (`vm.max_contract_state_bytes`, tag 20, default 64 MiB, `[8 MiB, 128 MiB]`).
+  Only growth past a cap is refused, so a lowered cap never strands a contract. The running
+  total is in memory, keyed by the write generation; nothing new is stored.
+- **What it bounds after amendment 5** (measured, dev profile, smallest entries): the per-block
+  pass over all contract leaves, 11.7 ms at the default (50,686 entries) and 21.0 ms at the
+  ceiling (101,372), against 92.2 ms and 179.0 ms for the full fold it replaced.
+- **What it does not solve:** contract state is not billed in coin. At the default caps the
+  ceiling fills in 2 blocks (smallest entries) to 50 blocks (4 KiB values) for byte fees; after
+  that no contract can grow until governance raises it. A per-byte state deposit or fee (decision
+  brief 5, option B) is what makes growth paid rather than frozen.
+- **Corrects the 2026-11-19 WIP:** it said the layer could not be made incremental; amendment 5
+  removed the per-root re-read and re-hash without changing the value.
 
 ## 2026-11-21 — ADR-142 amendment 4: re-freeze review R-2/R-5/R-6/R-10 on #549, and the gas caps wait the validity-rule lead (Eric 2026-11-17 pre-approval, re-freeze bundle)
 

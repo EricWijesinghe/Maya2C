@@ -196,6 +196,9 @@ pub(crate) struct Overlay {
     /// tree again. Set by `root_with_overlay`; checked against the write
     /// generation and the account changes before it is used.
     pub(crate) root_plan: Option<root_cache::Plan>,
+    /// This block's contract writes as CSTATE-2 counts them
+    /// (`state::contract_bound`).
+    pub(crate) contract_growth: crate::state::contract_bound::ContractGrowth,
 }
 
 impl Overlay {
@@ -328,6 +331,9 @@ pub struct StateDB {
     root_cache: root_cache::Counters,
     /// The contracts layer's leaves between blocks (`state::contracts_root`).
     pub(crate) contracts_root: crate::state::contracts_root::ContractsRoot,
+    /// The committed contract state total CSTATE-2 checks against, valid at
+    /// one write generation (`state::contract_bound`).
+    pub(crate) contract_size: crate::state::contract_bound::ContractSizeCache,
 }
 
 impl StateDB {
@@ -392,6 +398,7 @@ impl StateDB {
             mining_dag: OnceLock::new(),
             root_cache: root_cache::Counters::default(),
             contracts_root: crate::state::contracts_root::ContractsRoot::default(),
+            contract_size: crate::state::contract_bound::ContractSizeCache::default(),
         })
     }
 
@@ -1354,7 +1361,11 @@ impl StateDB {
         let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
         self.stage_commit(&mut batch, &overlay, generation)?;
-        self.land(batch, writing, generation)?;
+        let landed = self.land(batch, writing, generation);
+        // After the guard drops: the total is stamped with the generation
+        // this write left, which no later write leaves (`state::preview`).
+        self.note_contract_commit(generation, &overlay, landed.is_ok());
+        landed?;
 
         Ok(new_root)
     }
@@ -1764,7 +1775,9 @@ impl StateDB {
             balance_changes::encode(&moved),
         );
         extra(&mut batch);
-        self.land(batch, writing, generation)
+        let landed = self.land(batch, writing, generation);
+        self.note_contract_commit(generation, overlay, landed.is_ok());
+        landed
     }
 
     /// `(reused, recomputed)`: checked applies that took the block's kept
@@ -1970,7 +1983,11 @@ impl StateDB {
         let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
         self.stage_commit(&mut batch, &overlay, generation)?;
-        self.land(batch, writing, generation)?;
+        let landed = self.land(batch, writing, generation);
+        // After the guard drops: the total is stamped with the generation
+        // this write left, which no later write leaves (`state::preview`).
+        self.note_contract_commit(generation, &overlay, landed.is_ok());
+        landed?;
 
         Ok(new_root)
     }
