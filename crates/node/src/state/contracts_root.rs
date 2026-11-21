@@ -35,6 +35,7 @@
 //! (and so saw either side of it) ends at the post-state either way; the lock
 //! below keeps a second commit from landing until the first has followed.
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -64,7 +65,7 @@ struct Kept {
     generation: u64,
     leaves: Leaves,
     /// The layer root with nothing staged, once computed at this generation.
-    committed_root: Option<Option<Digest>>,
+    committed_root: OnceCell<Option<Digest>>,
 }
 
 /// What the cache did since the database opened.
@@ -124,21 +125,21 @@ impl ContractsRoot {
                 Kept {
                     generation: now,
                     leaves,
-                    committed_root: None,
+                    committed_root: OnceCell::new(),
                 }
             }
         };
         let kept = slot.insert(current);
-        if staged.is_empty() {
-            if let Some(root) = kept.committed_root {
-                self.reused.fetch_add(1, Ordering::Relaxed);
-                return Ok(root);
-            }
-            let root = merged_root(&kept.leaves, staged);
-            kept.committed_root = Some(root);
-            return Ok(root);
+        if !staged.is_empty() {
+            return Ok(merged_root(&kept.leaves, staged));
         }
-        Ok(merged_root(&kept.leaves, staged))
+        if let Some(root) = kept.committed_root.get() {
+            self.reused.fetch_add(1, Ordering::Relaxed);
+            return Ok(*root);
+        }
+        Ok(*kept
+            .committed_root
+            .get_or_init(|| merged_root(&kept.leaves, staged)))
     }
 
     /// Moves the cache past a commit that held the write guard from
@@ -155,7 +156,7 @@ impl ContractsRoot {
             return;
         };
         if !changes.is_empty() {
-            current.committed_root = None;
+            current.committed_root = OnceCell::new();
         }
         for (key, leaf) in changes {
             match leaf {
@@ -190,7 +191,7 @@ impl ContractsRoot {
     #[cfg(test)]
     pub(crate) fn damage_for_test(&self) {
         if let Some(kept) = self.lock().as_mut() {
-            kept.committed_root = None;
+            kept.committed_root = OnceCell::new();
             for leaf in kept.leaves.values_mut() {
                 leaf[0] ^= 0xFF;
             }

@@ -44,7 +44,7 @@ fn bytes(rng: &mut ChaCha20Rng, max: usize) -> Vec<u8> {
 fn contract(rng: &mut ChaCha20Rng, known: &Known) -> Contract {
     let mut id = [0; 32];
     rng.fill_bytes(&mut id);
-    if !known.contracts.is_empty() && rng.next_u64() % 2 == 0 {
+    if !known.contracts.is_empty() && rng.next_u64().is_multiple_of(2) {
         let near = known.contracts[pick(rng, known.contracts.len())];
         id[..31].copy_from_slice(&near[..31]);
     }
@@ -60,7 +60,7 @@ fn random_overlay(rng: &mut ChaCha20Rng, known: &mut Known) -> Overlay {
     overlay
         .accounts
         .insert(address, crate::state::account::Account::default());
-    if rng.next_u64() % 5 == 0 {
+    if rng.next_u64().is_multiple_of(5) {
         return overlay;
     }
     for _ in 0..=pick(rng, 12) {
@@ -82,7 +82,7 @@ fn random_overlay(rng: &mut ChaCha20Rng, known: &mut Known) -> Overlay {
                     known.contracts[pick(rng, known.contracts.len())]
                 };
                 let mut key = bytes(rng, 3);
-                if !known.slots.is_empty() && rng.next_u64() % 3 == 0 {
+                if !known.slots.is_empty() && rng.next_u64().is_multiple_of(3) {
                     key = known.slots[pick(rng, known.slots.len())].1.clone();
                     key.push(u8::try_from(pick(rng, 256)).unwrap());
                 }
@@ -154,7 +154,7 @@ fn the_cache_matches_the_full_fold_over_random_histories() {
                         reverts += 1;
                     }
                 }
-                if rng.next_u64() % 2 == 0 {
+                if rng.next_u64().is_multiple_of(2) {
                     let id = block_id(&mut counter);
                     commit(&db, random_overlay(&mut rng, &mut known), &id);
                     applied.push(id);
