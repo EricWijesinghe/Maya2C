@@ -453,7 +453,7 @@ impl Proposal {
             .map(|(i, k)| Ok((k.suite.info().signature_len, u8::try_from(i)?)))
             .collect::<std::result::Result<Vec<_>, std::num::TryFromIntError>>()
             .map_err(|_| WalletError::Multisig("a policy index above 255".into()))?;
-        longest.sort_by(|a, b| b.0.cmp(&a.0));
+        longest.sort_by_key(|a| std::cmp::Reverse(a.0));
         longest.truncate(policy.threshold());
         longest.sort_by_key(|&(_, index)| index);
         let approvals = longest
