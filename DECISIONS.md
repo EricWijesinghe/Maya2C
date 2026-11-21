@@ -948,6 +948,14 @@ Raised with Eric, not decided here: one gas-filling call per block crowds out ot
 - **R-6: measured and documented, not fixed.** The boundary depends on the build as well as the ISA: one recursion shape completes to depth 10,915 (release) and 10,901 (dev) on the same x86-64 machine. A boundary vector failed across profiles and was dropped; a 5,000-deep vector pins gas short of it. An independent rule needs a module rewriter or a fixed-frame tier, both larger than this amendment: G4, Eric's decision; until then validators run the one published release binary.
 - **R-10: text fixed to the code.** GAS-2 now bounds a block at `vm.max_block_gas` plaintext plus `sealed_gas_budget` revealed (1.25 × the cap); the bound comment states 3.25 × for a producer.
 - **GAS-5 with #575.** #549 now carries #575; tags 17 and 18 are validity rules, so a passed gas-cap change binds only after `MIN_UPGRADE_LEAD_BLOCKS`, range-checked again at promotion. Pinned by a governance test that votes `vm.max_block_gas` down through the lead.
+
+## 2026-11-22 — ADR-142 amendment 6: deployment scans counted, block selection is consensus (GAS-9), the stack boundary belongs to the binary (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+- **Deployments are scanned only when the scan counts.** Refused on `deploy_fuel(len)` before the scan; any refusal after the scan counts `deploy_fuel(len)`, as a cold call does; block selection bounds a deployment by what the block has left, not by a scan. Four red-then-green tests.
+- **The builder budget is GAS-9, block derivation.** Under DAG-BFT every validator runs the selection, so `BUILDER_GAS_CAPS`, `BUILDER_GAS_SLACK` and one-failure-per-sender are consensus, changed only by a hard fork. Four `builder_select` vectors pin them; CON-12 and CON-13 point to GAS-9.
+- **Cranelift's target is named, so the host CPU no longer sets ISA flags.** Gas unchanged; pinned by a test that was red under inference.
+- **R-6 restated:** release builds of one source on one CPU overflow at depth 10,915 (x86-64 Windows) and 10,919 (x86-64 Linux), so "x86-64 only" is not enough; the condition is one published release binary for every validator, which nothing enforces. BACKLOG G4 is a genesis blocker with three options for Eric (one binary by runbook, a deterministic call-depth bound as parity's `wasm-instrument` stack limiter, or the Pulley tier).
+
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.

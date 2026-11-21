@@ -677,7 +677,7 @@ High" asked about, but under. Two changes:
   count is at most the call's `gas_limit`, so the builder's bound is unchanged.
   It is consensus for a revealed sealed call (whose `gas_limit` can reach
   `deploy_fuel(len)` for modules up to 138,777 bytes under the 62.5 M sealed
-  budget) and builder policy for a plaintext one. Stored code that a later
+  budget) and, for a plaintext one, block selection (GAS-9: consensus under DAG-BFT, amendment 6). Stored code that a later
   release's shape bound refuses counts the same, where it counted nothing.
 
 The review's complete fix, a cold price stored at deployment, is not taken:
@@ -718,7 +718,10 @@ stack that no build or ISA reaches it first (a module rewriter: a new
 dependency in the VM crate, which needs Eric, or a hand-written one); executing
 consensus on a tier with fixed frames (Pulley) changes every price calibrated
 here. Recorded in the spec's Gaps and BACKLOG.md (G4). Until one lands,
-validators should run the one published release binary.
+validators should run the one published release binary. (Amendment 6
+corrects what this paragraph left out: "x86-64 only" is not that condition,
+because Windows and Linux x86-64 builds overflow at different depths, and the
+host CPU's ISA flags were inferred; they are now named.)
 
 ### R-10: GAS-2 says what a block may spend in all
 
@@ -745,3 +748,140 @@ naming 245 M against a cap voted down to 240 M passes GAS-1 at `E + 1` and at
 `E + lead − 1`, and is `GasAboveCap` from `E + lead`) and
 `a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped`. Red captured
 with the two keys classified as immediate.
+
+## Amendment 6, 2026-11-22: the #549 review of amendment 4 (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+Numbered 6 because numbers 4 and 5 are also claimed by two other re-freeze
+branches (`refreeze/contracts-root-bound`, `refreeze/contracts-root`); the
+coordinator renumbers on merge. The review's five findings were read as
+claims and checked against the code first. None of this is an external audit.
+
+### Deployments: scanned only when the scan is counted
+
+The claim: some shape scans in block selection are never counted, so the
+GAS-2 bound on the builder did not match the code. Confirmed, all three parts:
+
+- `trial_gas_bound` ran `gas::cold_call_fuel` (a scan of up to 512 KiB) on
+  every deployment `builder_may_try` considered, before any count, and a
+  deployment it then skipped cost that scan for nothing.
+- `deploy_contract` scanned, then returned `BlockGasExhausted` or
+  `GasAboveCap` without counting. Nothing counted means the builder neither
+  recorded the sender nor moved work to its failed count, so a valid pooled
+  deployment that never fits was scanned free in every block.
+- The same scan was priced two ways: a cold call refused after it counts
+  `deploy_fuel(len)` (amendment 4), a deployment the scan refused counted
+  `50,000 + len`.
+
+Now:
+
+- A deployment is checked on its length price `deploy_fuel(len)` before
+  anything else (before the scan, the contract-id hash and the code lookup):
+  the cold price is that plus the shape's, so one whose length price does not
+  fit is refused whatever its shape, counting 0, as a cold call is.
+- Once scanned, any refusal (a shape bound, the cap, what the block has left)
+  counts `deploy_fuel(len)`, which the first check guarantees fits. An
+  admitted deployment counts its whole `cold_call_fuel` before the compile, as
+  before.
+- Selection bounds a deployment by what the block has left, not by its scan:
+  a deployment counts at most that, so the GAS-9 work bound holds, and no
+  deployment is scanned to be bounded. The difference from the old bound: a
+  deployment is tried while the failed count is at most `cap + 1,536,000`,
+  whatever its size, so one failing call at the cap still leaves deployments
+  tried (as it leaves calls); after two (G1), small calls still fit but
+  deployments do not.
+
+Red, then green (`crates/node/src/state/vm_exec_tests.rs`):
+`a_deployment_refused_after_its_shape_scan_counts_the_length_price` (a
+500,000-byte module refused `BlockGasExhausted` after its scan counted
+nothing: 24,921,650 against 250,000,000 expected),
+`a_deployment_whose_shape_is_refused_counts_the_length_price` (50,027 against
+62,150), `a_deployment_whose_length_price_does_not_fit_is_refused_before_the_scan`
+(the scan's `locals` error came back instead of `BlockGasExhausted`), and
+`the_builder_bounds_a_deployment_by_what_the_block_has_left_without_its_scan`
+(a deployment the scan refuses was tried one unit past the bound).
+
+Consensus effect: the counts change what a revealed sealed deployment leaves
+for the sealed calls after it (GAS-2), and the selection bound changes the
+DAG-BFT block (GAS-9). A plaintext deployment that does not fit fails its
+block either way; only the error's `needed` figure changes.
+
+### The builder budget is block derivation, not policy
+
+The claim: GAS-2 called the builder's budget, its constants and the
+one-failure-per-sender rule "builder policy, not a validity rule", while
+under DAG-BFT `build_block` runs `StateDB::select_applicable` on every
+validator (its own doc: "This is consensus"), so they decide the derived
+block, and no vector pinned them. Confirmed. The clause is now its own rule,
+**GAS-9** (block selection), stated as consensus that changes only by a hard
+fork, pointed to from CON-12 and CON-13. `BUILDER_GAS_CAPS` and
+`BUILDER_GAS_SLACK` say so in their doc comments. Four `builder_select`
+vectors in `spec/tests/vm_gas.json`, replayed by `the_spec_vectors_hold`
+through `StateDB::select_applicable`:
+
+| Vector | Order | Kept |
+|---|---|---|
+| `builder-a-failing-call-at-the-cap-then-honest-calls-all-included` | spin at the cap, writer at the cap, two writers at 1 M | all three writers |
+| `builder-two-failing-senders-leave-exactly-the-slack` | two spins at the cap, writer at 1,524,000 | the writer |
+| `builder-two-failing-senders-exhaust-the-budget` | the same, writer at 1,524,001 | none (`PassedOver`) |
+| `builder-a-failed-sender-second-contract-tx-passed-over` | spin, the same sender's writer at the same nonce, another sender's writer | the other sender's |
+
+The two edge vectors pin both constants exactly: two spins report
+`2 × (250,000,000 + 6,000)` and the budget is `500,000,000 + 1,536,000`, which
+leaves 1,524,000. A PoW producer selects with the same function; there it is
+the producer's choice, and GAS-1 and GAS-2 alone decide validity.
+
+### R-6: the condition is one binary, and the CPU no longer moves it
+
+The claims: amendment 4 offered "launch x86-64-only" as a mitigation while
+its own figures showed the boundary moving with the build; Cranelift's ISA
+flags were inferred from the host CPU, so x86-64 machines could compile
+different frames; the release workflow publishes Windows and Linux validator
+binaries, the realistic genesis mix, never measured against each other.
+Confirmed, and measured. One correction: `release-binaries.yml` publishes
+five node binaries, not three (x86-64 and aarch64 Linux, x86-64 Windows, and
+two macOS).
+
+Measured on 2026-11-22, Intel Core Ultra 9 275HX, this branch, wasmtime
+48.0.8, `recursion_to` (one i64 parameter, one add per level), with the
+target named as below; `cargo test [--release] -p maya-vm --test
+gas_hardening_tests -- --ignored --nocapture
+measure_the_deepest_recursion_this_isa_completes`:
+
+| Target triple (host) | Profile | Deepest completing depth | Gas there |
+|---|---|---|---|
+| x86_64-pc-windows-msvc (Windows 11 Pro 29708) | release | 10,915 (10,916 overflows) | 559,558 |
+| x86_64-pc-windows-msvc | dev | 10,901 | 559,418 |
+| x86_64-unknown-linux-gnu (WSL2, kernel 6.18.33.1, same CPU) | release | 10,919 (10,920 overflows) | 559,598 |
+| x86_64-unknown-linux-gnu | dev | 10,909 | 559,498 |
+| aarch64-unknown-linux-gnu | dev | printed by CI `vm-gas-aarch64` from this push; not read yet | |
+
+So a call recursing to depth 10,916–10,919 applies on a Linux x86-64
+validator and fails on a Windows x86-64 one, same CPU, same source: the
+state roots split, and under DAG-BFT the derived blocks. The figures are the
+maya-vm test binary in each profile; the shipped `maya2c-node` binaries (fat
+LTO, `--features production`) were not measured, and the 14-level
+release/dev gap says their own depths can differ again.
+
+Changed here: `maya_vm::config` names the build's target triple (passed in by
+`crates/vm/build.rs` from cargo's `TARGET`, the string wasmtime's own host
+triple is parsed from), so Cranelift uses that triple's baseline ISA flags
+instead of every feature the CPU reports. One binary on two CPUs now compiles
+a contract to the same code. Fuel is counted on wasm operators before
+lowering, so gas is unchanged; every maya-vm and contract-gas test passes
+unchanged, and the Windows depths above are the ones amendment 4 measured
+with inferred flags (10,915 and 10,901), so this shape's frames did not move
+on this CPU. Pinned by
+`the_engine_compiles_for_its_named_target_not_for_the_host_cpu` (red with the
+old inference: the two engines precompiled one module to identical bytes).
+The setting is in the module-cache digest.
+
+What is not changed, because each is Eric's decision (BACKLOG G4, a genesis
+blocker): the binary still moves the boundary. The condition that holds is
+**every validator runs the same published release binary, one target
+triple**, and nothing enforces it. The options are written in G4: operate one
+binary (every genesis validator on the Linux x86-64 release binary, a Windows
+PC under WSL2 or a VM, other targets published as non-validator builds), a
+deterministic call-depth bound by instrumenting function entry and exits
+(prior art: parity's `wasm-instrument` stack limiter, which Substrate's
+contracts pallet applied to every module), or consensus on the Pulley tier
+with every price re-calibrated.

@@ -21,6 +21,7 @@
 //! | Setting | Without it |
 //! |---|---|
 //! | `consume_fuel` | contracts can loop forever |
+//! | `target` named | Cranelift's ISA flags follow the host CPU, and so do frame sizes and the stack-overflow depth |
 //! | `cranelift_nan_canonicalization` | NaN bit patterns differ between CPUs |
 //! | `wasm_simd` off | SIMD lowering varies by host feature detection |
 //! | `wasm_threads` off | shared memory makes execution order observable |
@@ -62,6 +63,13 @@ pub const MAX_MODULE_BYTES: usize = 512 * 1024;
 /// This is fatal by design: a node that cannot construct the deterministic
 /// configuration must refuse to run rather than quietly use a permissive one.
 pub fn deterministic_config() -> Result<Config> {
+    config_for(Some(env!("MAYA_VM_TARGET")))
+}
+
+/// The deterministic configuration compiling for `target`, or, given `None`,
+/// for the host with its CPU's ISA features inferred: what this crate did
+/// before R-6, kept only so a test can tell the two apart.
+fn config_for(target: Option<&str>) -> Result<Config> {
     let mut config = Config::new();
 
     // Metering. Without fuel a contract can simply not terminate.
@@ -70,6 +78,20 @@ pub fn deterministic_config() -> Result<Config> {
     // Cranelift, explicitly: the compilation strategy affects the fuel schedule,
     // so it must not be left to autodetection.
     config.strategy(Strategy::Cranelift);
+
+    // The target, named: with none set, wasmtime enables every ISA feature
+    // the host CPU reports (AVX, BMI, LZCNT and so on), so one binary on two
+    // CPUs compiled a contract to different code with different frames, and
+    // where deep recursion overflows the stack moved with the CPU (re-freeze
+    // review R-6). Named, Cranelift uses the triple's baseline flags on every
+    // machine. Fuel is counted on wasm operators before lowering, so gas is
+    // unchanged. The binary itself (triple, OS, compiler, profile) still
+    // moves the boundary: ADR-142 amendment 6, BACKLOG G4.
+    if let Some(target) = target {
+        // One line starting `config.`: the digest test counts those.
+        let refused = |e: wasmtime::Error| VmError::EngineConfig(e.to_string());
+        config.target(target).map_err(refused)?;
+    }
 
     // Float results must not depend on the host CPU's NaN payload behaviour.
     config.cranelift_nan_canonicalization(true);
@@ -151,6 +173,7 @@ pub fn config_digest() -> [u8; 32] {
     hasher.update(&[
         1, // consume_fuel
         1, // Strategy::Cranelift
+        1, // target named (hashed below), no host ISA inference
         1, // cranelift_nan_canonicalization
         0, // wasm_simd
         0, // wasm_relaxed_simd
@@ -163,6 +186,7 @@ pub fn config_digest() -> [u8; 32] {
     hasher.update(&(MAX_STACK_BYTES as u64).to_le_bytes());
     hasher.update(&(MAX_MEMORY_PAGES as u64).to_le_bytes());
     hasher.update(&(MAX_MODULE_BYTES as u64).to_le_bytes());
+    hasher.update(env!("MAYA_VM_TARGET").as_bytes());
     // The compiler itself. wasmtime does not guarantee stable fuel accounting
     // across versions — see the pin in Cargo.toml — so a version change must
     // invalidate every cached module too.
@@ -186,9 +210,10 @@ mod digest_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
-    /// Settings `config_digest` accounts for: the ten flags in its byte
-    /// array, plus the three limits and the two version strings hashed after.
-    const SETTINGS_COVERED: usize = 11;
+    /// Settings `config_digest` accounts for: the eleven flags in its byte
+    /// array, plus the three limits, the target and the two version strings
+    /// hashed after.
+    const SETTINGS_COVERED: usize = 12;
 
     #[test]
     fn the_digest_covers_every_setting_the_config_makes() {
@@ -213,6 +238,29 @@ mod digest_tests {
              raise this count — a cached module compiled under the old setting \
              would otherwise outlive the change."
         );
+    }
+
+    #[test]
+    fn the_engine_compiles_for_its_named_target_not_for_the_host_cpu() {
+        // 09 R-6: with no target named, wasmtime took this CPU's ISA features
+        // and the compiled code followed the machine. Named, it is the
+        // triple's baseline. Seen on any CPU with a feature past that
+        // baseline, which every CI runner and validator host has: the two
+        // compile one module to different code.
+        // A precompiled module records the ISA flags it was built with.
+        let module = wat::parse_str(
+            r#"(module (func (export "f") (param i32) (result i32)
+                (i32.popcnt (local.get 0))))"#,
+        )
+        .unwrap();
+        let named = deterministic_engine().unwrap();
+        let inferred = Engine::new(&config_for(None).unwrap()).unwrap();
+        assert_ne!(
+            named.precompile_module(&module).unwrap(),
+            inferred.precompile_module(&module).unwrap(),
+        );
+        // And the named target is the host's, so the engine still runs here.
+        assert!(crate::Vm::new().is_ok());
     }
 
     #[test]

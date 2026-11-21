@@ -379,6 +379,19 @@ fn the_spec_vectors_hold() {
                 };
                 (error, Some(execution.gas_used))
             }
+            "builder_select" => {
+                let (kept, passed_over) = replay_selection(input);
+                let expected: Vec<usize> = expect["kept"]
+                    .as_array()
+                    .expect("kept")
+                    .iter()
+                    .map(|index| usize::try_from(num(index)).unwrap())
+                    .collect();
+                if kept != expected {
+                    wrong.push(format!("{id}: kept {kept:?}, expected {expected:?}"));
+                }
+                (passed_over.then_some("PassedOver"), None)
+            }
             "param" => {
                 let key =
                     ParameterKey::from_tag(u16::try_from(num(&input["tag"])).unwrap()).unwrap();
@@ -403,6 +416,65 @@ fn the_spec_vectors_hold() {
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A `builder_select` vector (GAS-9): deploys `contracts` at height 1, each
+/// from a key of its own, then selects `txs` at height 2. Returns the indices
+/// kept and whether a call to `writer`, which applies whenever it is tried,
+/// was left out.
+fn replay_selection(input: &serde_json::Value) -> (Vec<usize>, bool) {
+    let num = |v: &serde_json::Value| -> u64 { v.as_str().unwrap().parse().unwrap() };
+    let contracts = input["contracts"].as_object().expect("contracts");
+    let txs = input["txs"].as_array().expect("txs");
+    let senders = txs
+        .iter()
+        .map(|tx| usize::try_from(num(&tx["sender"])).unwrap() + 1)
+        .max()
+        .unwrap_or(0);
+    let deployers = keys(contracts.len());
+    let senders = keys(senders);
+    let funded: Vec<Address> = deployers
+        .iter()
+        .chain(&senders)
+        .map(HybridSigningKey::address)
+        .collect();
+    let (db, _dir) = open_state(&funded);
+    let codes: Vec<Vec<u8>> = contracts
+        .values()
+        .map(|wat| wasm(wat.as_str().unwrap()))
+        .collect();
+    let ids = deploy_all(&db, &deployers.iter().collect::<Vec<_>>(), &codes);
+    let id_of: std::collections::BTreeMap<&str, [u8; 32]> =
+        contracts.keys().map(String::as_str).zip(ids).collect();
+    let order: Vec<Transaction> = txs
+        .iter()
+        .map(|tx| {
+            call(
+                id_of[tx["contract"].as_str().unwrap()],
+                num(&tx["gas_limit"]),
+                num(&tx["nonce"]),
+                &senders[usize::try_from(num(&tx["sender"])).unwrap()],
+            )
+        })
+        .collect();
+    let block = db
+        .select_applicable(
+            order.clone(),
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    let kept: Vec<usize> = order
+        .iter()
+        .enumerate()
+        .filter(|(_, tx)| block.contains(tx))
+        .map(|(index, _)| index)
+        .collect();
+    let passed_over = txs
+        .iter()
+        .enumerate()
+        .any(|(index, tx)| tx["contract"] == "writer" && !kept.contains(&index));
+    (kept, passed_over)
 }
 
 #[test]

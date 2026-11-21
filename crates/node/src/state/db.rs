@@ -1202,7 +1202,9 @@ impl StateDB {
         // `overlay.vm_gas` (what applied calls are admitted against, GAS-2):
         // a failed call is never in the block, so its work must bound the
         // builder without taking room from the calls that apply (PR #549
-        // review). Builder-only; `builder_may_try` bounds the two together.
+        // review). Never in the block; `builder_may_try` bounds the two
+        // together. Both counts and `failed_senders` are GAS-9: under DAG-BFT
+        // they decide the derived block, so they are consensus, not policy.
         let mut failed_gas: u64 = 0;
         for tx in transactions {
             let len = transaction_wire_len(tx.to_bytes().len());

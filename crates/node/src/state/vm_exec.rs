@@ -90,26 +90,33 @@ pub const fn sealed_gas_budget(block_cap: u64) -> u64 {
     block_cap / SEALED_GAS_PARTS
 }
 
-/// How many times `vm.max_block_gas` the block builder may run of applied and
-/// failed contract work together in one selection (GAS-2, builder policy, not
-/// a validity rule). Two: failed work keeps its own count, so up to one cap of
-/// it never takes room from the calls that apply (PR #549 review).
+/// How many times `vm.max_block_gas` block selection may run of applied and
+/// failed contract work together (GAS-9). Two: failed work keeps its own
+/// count, so up to one cap of it never takes room from the calls that apply
+/// (PR #549 review).
+///
+/// **Consensus constant.** Under DAG-BFT every validator derives the block
+/// with this selection (CON-12), so a node with another value derives
+/// another block and state root. Changed only by a hard fork.
 pub const BUILDER_GAS_CAPS: u64 = 2;
 
 /// Room over [`BUILDER_GAS_CAPS`] caps for what a failed trial reports past
 /// the bound it was admitted on: the most memory a call can hold (GAS-7), so
 /// a failure at the cap never stops a call that fits after it.
+///
+/// **Consensus constant**, as [`BUILDER_GAS_CAPS`] is (GAS-9).
 pub const BUILDER_GAS_SLACK: u64 = gas::MEMORY_PAGE_FUEL * maya_vm::config::MAX_MEMORY_PAGES as u64;
 
-/// The most contract work a builder trial of `kind` counts before the gas it
-/// reports is known: a call's `gas_limit`, a deployment's cold price (or its
-/// scan, when the scan refuses it). A failed call can report past its limit
-/// by the memory it held (GAS-7), at most `256 × 6,000`.
-fn trial_gas_bound(kind: &TxKind) -> u64 {
+/// The most contract work a selection trial of `kind` counts, known before it
+/// runs (GAS-9): a call's `gas_limit`, past which only the memory it held can
+/// take it (GAS-7, at most `256 × 6,000`); a deployment's `remaining`, what
+/// the block has left, which [`StateDB::deploy_contract`] refuses above
+/// before it counts anything. No scan: bounding a deployment by its shape
+/// scanned up to 512 KiB for every deployment considered, before any count.
+fn trial_gas_bound(kind: &TxKind, remaining: u64) -> u64 {
     match kind {
         TxKind::CallContract(call) => call.gas_limit,
-        TxKind::DeployContract(deploy) => gas::cold_call_fuel(&deploy.code)
-            .unwrap_or_else(|_| gas::priced(gas::CALL_BASE_FUEL, 1, deploy.code.len() as u64)),
+        TxKind::DeployContract(_) => remaining,
         _ => 0,
     }
 }
@@ -182,8 +189,14 @@ impl StateDB {
         nonce: u64,
         deploy: &ContractDeploy,
     ) -> Result<ChannelId> {
-        let contract = derive_contract_id(deployer, nonce, &deploy.code);
+        // The cold price is the length price plus the shape's, so a length
+        // price that does not fit is refused whatever the shape, before the
+        // scan and before anything is counted (GAS-2; as a cold call, 09 R-5).
+        let (_, block_cap) = self.gas_caps(overlay)?;
+        let length_price = gas::deploy_fuel(deploy.code.len());
+        admit_deploy_gas(length_price, block_cap, overlay.vm_gas)?;
 
+        let contract = derive_contract_id(deployer, nonce, &deploy.code);
         if overlay.code.contains_key(&contract) || self.get_code(&contract)?.is_some() {
             return Err(NodeError::ContractExists(hex::encode(contract)));
         }
@@ -192,23 +205,23 @@ impl StateDB {
         // contract gas (GAS-2), and is refused before the compile when it
         // does not fit. The price reads the module's shape as well as its
         // length: a linear scan that refuses a shape over the VM's limits
-        // before anything compiles.
-        let needed = match gas::cold_call_fuel(&deploy.code) {
+        // before anything compiles. A refusal after the scan counts the
+        // length price it reached, as a cold call refused after its scan
+        // does: so the builder records the sender and counts the work, and a
+        // pooled deployment that never fits is not scanned free every block
+        // (PR #549 review of amendment 4). The length price fits (above).
+        let needed = gas::cold_call_fuel(&deploy.code)
+            .map_err(|error| NodeError::Vm(error.to_string()))
+            .and_then(|needed| {
+                admit_deploy_gas(needed, block_cap, overlay.vm_gas).map(|()| needed)
+            });
+        let needed = match needed {
             Ok(needed) => needed,
-            Err(error) => {
-                // The scan read the module: counted like a call refused below
-                // its upfront price, so a sub-DAG of malformed deployments is
-                // inside GAS-2's bound for the builder (PR #549 review).
-                overlay.vm_gas = overlay.vm_gas.saturating_add(gas::priced(
-                    gas::CALL_BASE_FUEL,
-                    1,
-                    deploy.code.len() as u64,
-                ));
-                return Err(NodeError::Vm(error.to_string()));
+            Err(refused) => {
+                overlay.vm_gas = overlay.vm_gas.saturating_add(length_price);
+                return Err(refused);
             }
         };
-        let (_, block_cap) = self.gas_caps(overlay)?;
-        admit_deploy_gas(needed, block_cap, overlay.vm_gas)?;
         // Spent before the compile, not after it: a module that compiles in
         // full and then fails its import check ran the whole compile, and a
         // caller that keeps going after a failed deployment (a revealed sealed
@@ -275,10 +288,10 @@ impl StateDB {
         admit_deployable(needed, block_cap)
     }
 
-    /// Builder policy: whether selection may still trial-run contract
-    /// transaction `kind`, having applied `overlay.vm_gas` and seen `failed`
-    /// of failed contract work. Whether it applies is still GAS-1 and GAS-2
-    /// against `overlay.vm_gas` alone.
+    /// GAS-9, block selection (consensus under DAG-BFT): whether selection
+    /// may still trial-run contract transaction `kind`, having applied
+    /// `overlay.vm_gas` and seen `failed` of failed contract work. Whether it
+    /// applies is still GAS-1 and GAS-2 against `overlay.vm_gas` alone.
     pub(crate) fn builder_may_try(
         &self,
         overlay: &Overlay,
@@ -289,10 +302,11 @@ impl StateDB {
         let budget = block_cap
             .saturating_mul(BUILDER_GAS_CAPS)
             .saturating_add(BUILDER_GAS_SLACK);
+        let remaining = block_cap.saturating_sub(overlay.vm_gas);
         Ok(overlay
             .vm_gas
             .saturating_add(failed)
-            .saturating_add(trial_gas_bound(kind))
+            .saturating_add(trial_gas_bound(kind, remaining))
             <= budget)
     }
 
