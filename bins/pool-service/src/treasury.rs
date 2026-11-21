@@ -97,8 +97,12 @@ impl Treasury {
     /// Returns [`PoolError::Treasury`] if the password is unset, the file is
     /// missing, or the keystore does not decrypt.
     pub fn unlock(path: &Path) -> Result<Self> {
-        let password = std::env::var(PASSWORD_ENV).map_err(|_| missing_password_error(path))?;
-        Self::unlock_with(path, &password)
+        // Zeroed on drop: the passphrase must not outlive the unlock in a plain
+        // heap String. The process environment still holds its own copy.
+        let password = zeroize::Zeroizing::new(
+            std::env::var(PASSWORD_ENV).map_err(|_| missing_password_error(path))?,
+        );
+        Self::unlock_with(path, password.as_str())
     }
 
     /// Unlocks a keystore with a password the caller already has.

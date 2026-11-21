@@ -137,6 +137,14 @@ The observation that would make this worth reopening.
 | [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
 | [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
 | [135](ADR-135-v4-umbrella.md) | v4 umbrella: tokens mint/burn, NFTs, names, sponsored fees (wire v13), smart-account policy, scheduled payments as one fork; bits 41-46; threat models and cut list | Proposed |
+| [117](ADR-117-multisig-suite-diversity.md) | Multisig suite diversity: mixed suites already shipped in v8; a per-family approval floor in a v12 frame | Proposed |
+| [118](ADR-118-compressed-state-collections.md) | Compressed collections: one BLAKE3 sparse root on chain, items proven by witness, 64-block root history, one-way decompress | Proposed |
+| [119](ADR-119-data-carrier.md) | Data carrier: `TxKind::Data { tag, body }` with no state effect, 64 KiB cap, byte fee only, indexer convention by tag | Proposed |
+| [120](ADR-120-cross-chain-token-standard.md) | Cross-chain tokens: a route as a rate-limited mint authority, mint only against a proven event, waiting deliveries, canonical foreign mapping | Proposed |
+| [121](ADR-121-blockspace-reservation-lanes.md) | Blockspace reservation: lanes as a reserved slice of every author's quantum in the decode walk, sold two epochs ahead by pay-as-bid auction under compiled share ceilings | Proposed |
+| [122](ADR-122-cross-chain-messaging.md) | Cross-chain messaging: inbound Ethereum events over the beacon light client and receipt proofs, ordered by nonce, delivered as timer-style calls; outbound record only | Proposed |
+| [123](ADR-123-blob-transactions-and-da-attestations.md) | Blobs: sidecar bytes, vote only after re-encoding the square, expiring `bl:c:` record under the state root as the attestation, second base fee | Proposed |
+| [124](ADR-124-inclusion-and-fair-ordering.md) | Inclusion and fair ordering: inclusion is structural under DAG-BFT (pinned by test); sender-keyed order inside each author's batch; needs two human reviewers | Proposed |
 | [125](ADR-125-succinct-chain-state-proof.md) | Succinct chain-state proof: an off-chain STARK over epoch handoffs between two checkpoints, verified by light clients; recursion behind a written gate (no recursion exists in the tree); `k:cmc:` committee commitment post-genesis | Proposed |
 | [126](ADR-126-bitcoin-checkpoint-anchoring.md) | Bitcoin anchoring: a disclosed publisher writes `OP_RETURN "M2C1" ‖ BLAKE3(checkpoint)` per epoch and pays the fees; an off-chain verifier on `btc-spv`; consensus never reads Bitcoin | Proposed |
 | [127](ADR-127-vrf-host-function.md) | VRF host function: `vrf_verify` with scheme tag and measured fuel; commit-then-draw as timers plus the beacon; `block_randomness` refused in nested calls | Proposed |

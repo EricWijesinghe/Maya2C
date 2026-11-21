@@ -56,6 +56,14 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Post-quantum name service with commit-reveal (ADR-135 P-3)](pq-name-service.md) — searched 2026-11-12
 - [Native tokens and NFTs on a post-quantum chain (ADR-135 P-1, P-2)](pq-native-ownership.md) — searched 2026-11-12
 - [Protocol-level scheduled payments (ADR-135 P-7)](native-scheduled-payments.md) — searched 2026-11-12
+- [Mixed-suite multisig and suite-diverse quorums (multisig-suite-diversity)](multisig-suite-diversity.md) — searched 2026-11-12
+- [State compression (state-compression)](state-compression.md) — searched 2026-11-12
+- [Data-carrier outputs and metaprotocols (data-carrier)](data-carrier.md) — searched 2026-11-12
+- [Cross-chain token standards (cross-chain-tokens)](cross-chain-tokens.md) — searched 2026-11-12
+- [Blockspace reservation and preconfirmations (blockspace-reservation)](blockspace-reservation.md) — searched 2026-11-12
+- [Generic cross-chain messaging (cross-chain-messaging)](cross-chain-messaging.md) — searched 2026-11-12
+- [Blob transactions and DA attestations (blobs-and-da)](blobs-and-da.md) — searched 2026-11-12
+- [Inclusion lists and fair ordering (inclusion-lists)](inclusion-lists.md) — searched 2026-11-12
 - [Succinct chain-state proofs (succinct-chain-proof)](succinct-chain-proof.md) — searched 2026-11-12
 - [Bitcoin anchoring of checkpoints (bitcoin-anchoring)](bitcoin-anchoring.md) — searched 2026-11-12
 - [Randomness and VRF verification for contracts (contract-randomness)](contract-randomness.md) — searched 2026-11-12

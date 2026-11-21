@@ -168,6 +168,24 @@ async fn x_forwarded_for_uses_the_last_hop_which_a_client_cannot_forge() {
 }
 
 #[tokio::test]
+async fn a_forwarded_header_from_a_remote_peer_is_not_believed() {
+    // Not arriving through the proxy on this host: the peer is the client,
+    // whatever header it writes, so rotating the header buys nothing.
+    let app = app(ClientIp::CfConnectingIp);
+    for n in 0..2 {
+        let forged = format!("10.0.0.{n}");
+        status(&app, "203.0.113.1:5000", &[("cf-connecting-ip", &forged)]).await;
+    }
+    let refused = status(
+        &app,
+        "203.0.113.1:5000",
+        &[("cf-connecting-ip", "10.9.9.9")],
+    )
+    .await;
+    assert_eq!(refused, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
 async fn a_request_without_the_header_is_keyed_by_its_socket() {
     // A local health check that did not come through the proxy still gets a
     // key of its own rather than an error.
