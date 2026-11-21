@@ -15,12 +15,14 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 
 <style>
   .brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; min-width: 0; border-radius: var(--r-md); padding: 2px 8px 2px 2px; }
-  .mark { width: 36px; height: 36px; flex: none; transition: transform var(--dur-3) var(--ease); }
-  .brand:hover .mark { transform: rotate(-12deg) scale(1.04); }
+  .mark { width: 36px; height: 36px; flex: none; transition: filter var(--dur-3) var(--ease); }
+  /* Hover lifts the mark (shadow on paper, a brighter glow at night); it never tilts the brand. */
+  .brand:hover .mark { filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--text) 22%, transparent)); }
   /* One word in the text colour: no gradient, no split styling of any part of it. */
   .word { font: 700 21px/1 var(--display); letter-spacing: -0.015em; white-space: nowrap; color: var(--text); }
   /* Dark only: the orb's teal lifts off the near-black bar. Light keeps it flat. */
   :global(:root[data-theme="dark"]) .mark { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 35%, transparent)); }
+  :global(:root[data-theme="dark"]) .brand:hover .mark { filter: brightness(1.15) drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 55%, transparent)); }
   @media (max-width: 30rem) { .word { font-size: 19px; } .mark { width: 32px; height: 32px; } }
-  @media (prefers-reduced-motion: reduce) { .mark { transition: none; } .brand:hover .mark { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .mark { transition: none; } }
 </style>

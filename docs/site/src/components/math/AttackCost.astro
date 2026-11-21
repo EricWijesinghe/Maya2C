@@ -42,8 +42,8 @@
   const B = 32;
   const S_MAX = 512;
   const Y_MAX = 540; // log2 ops; brute force at 512 bits is 512
-  // viewBox units between two line names: the phone label is 12 px tall (below), so 11 let "sieve" and "sieve q" overlap.
-  const LABEL_GAP = 14;
+  // viewBox units between two line names: the phone label is 12 px tall (below), about 13 units at 360 px, so 14 left "sieve" and "sieve q" 1 px apart.
+  const LABEL_GAP = 16;
   const X = (s: number) => L + (s / S_MAX) * (W - L - R);
   const Y = (v: number) => H - B - (Math.min(v, Y_MAX) / Y_MAX) * (H - B - T);
 
@@ -121,9 +121,10 @@
   /* Two families, one hue each: brute force in bronze, lattice sieving in
      info blue; Shor in danger, the attack that breaks today's public-key crypto.
      Solid = classical, dashed = quantum. Every value is a token measured at
-     3:1 or more on --surface-2 in both themes (design/visual/site-shell.mjs). */
-  .attack { --plot: var(--surface-2); }
-  .attack svg { width: 100%; height: auto; background: var(--plot); border: 1px solid var(--border); border-radius: var(--r-md); }
+     3:1 or more on the plot in both themes (design/visual/site-shell.mjs).
+     The plot is a white card on paper (--surface-1, shadow), not beige on beige. */
+  .attack { --plot: var(--surface-1); }
+  .attack svg { width: 100%; height: auto; background: var(--plot); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-sm); }
   .attack :global(.series) { stroke-linejoin: round; }
   .attack :global(.s-brute) { stroke: var(--chart-2); }
   .attack :global(.s-grover) { stroke: var(--chart-2); stroke-dasharray: 6 4; }

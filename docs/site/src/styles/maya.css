@@ -56,7 +56,9 @@
   --sl-color-bg: var(--bg);
   /* A tinted bar in both themes (teal-navy in dark, white on paper in light). */
   --sl-color-bg-nav: var(--surface-1);
-  --sl-color-bg-sidebar: var(--bg);
+  /* Transparent from 50rem, so the wash reaches the left of docs pages; the
+     phone menu paints --sl-color-black and stays opaque. */
+  --sl-color-bg-sidebar: transparent;
   --sl-color-bg-inline-code: var(--surface-2);
   --sl-color-hairline: var(--border);
   --sl-color-hairline-light: var(--border-strong);
@@ -87,7 +89,16 @@
   /* The bar leans teal rather than slate, so it reads as the brand's night
      and not a grey slab over the page (opaque: no backdrop-filter, see below). */
   --sl-color-bg-nav: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  /* Night, not a navy slab (L02 critique): the page leans a step toward teal
+     and the top wash is drawn from --accent and --bronze at a strength that
+     reads on a dark page; the 0.26 / 0.16 decorative tokens vanish there. */
+  --void: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  --wash-a: color-mix(in srgb, var(--accent) 24%, transparent);
+  --wash-b: color-mix(in srgb, var(--bronze) 15%, transparent);
 }
+:root[data-theme="dark"] .sl-markdown-content .card:nth-child(odd) { background: color-mix(in srgb, var(--accent) 9%, var(--surface-1)) !important; }
+:root[data-theme="dark"] .sl-markdown-content .card:nth-child(even) { background: color-mix(in srgb, var(--bronze) 8%, var(--surface-1)) !important; }
+:root[data-theme="dark"] .sl-markdown-content .card:hover { border-color: var(--deco-spark) !important; box-shadow: var(--shadow-inset), 0 0 18px -6px var(--halo, transparent); }
 
 /* Light: paper cards. White surfaces lift off the page with the shadow
    tokens, never a glow; fields and outlined controls sit on --border-control
@@ -97,16 +108,6 @@
 :root[data-theme="light"] .pagination-links a:hover { box-shadow: var(--shadow-md); }
 :root[data-theme="light"] :is(input:not([type="range"], [type="checkbox"], [type="radio"]), select, textarea):not(.cmdk__input) { border-color: var(--border-control, var(--text-3)); }
 
-/* Light gets its own energy, not dark dimmed: the primary is a luminous
-   spark-to-teal fill under a dark label (7.4:1 at the top stop, 5.9:1 where it
-   meets 28% teal at the foot). Beats depth.css's solid prose fill, which
-   exists only to undo the prose link underline. */
-:root[data-theme="light"] .ui-btn--primary {
-  background: linear-gradient(180deg, var(--deco-spark), color-mix(in srgb, var(--deco-spark) 72%, var(--accent)));
-  border-color: color-mix(in srgb, var(--deco-spark) 55%, var(--accent));
-  color: var(--text);
-  box-shadow: inset 0 1px 0 var(--accent-highlight), 0 6px 18px -8px color-mix(in srgb, var(--deco-spark) 70%, transparent);
-}
 /* The hero's second glow is steel, which turns to a grey smudge on paper
    between the aqua and amber washes; in light it is amber (Hero.astro). */
 :root[data-theme="light"] .hero .glow-b { background: radial-gradient(closest-side, var(--deco-bronze), transparent); }
@@ -119,8 +120,8 @@ html {
   /* Paper or night, with the two metals breathing in at the top of every
      page: teal on the left, bronze on the right (decorative tokens only). */
   background:
-    radial-gradient(72rem 34rem at 8% -8rem, var(--deco-teal), transparent 72%) no-repeat,
-    radial-gradient(52rem 28rem at 96% -6rem, var(--deco-bronze), transparent 72%) no-repeat,
+    radial-gradient(84rem 46rem at 8% -10rem, var(--wash-a, var(--deco-teal)), transparent 72%) no-repeat,
+    radial-gradient(60rem 36rem at 96% -8rem, var(--wash-b, var(--deco-bronze)), transparent 72%) no-repeat,
     var(--void);
   /* Full-bleed sections are 100vw wide, which includes the scrollbar. */
   overflow-x: clip;

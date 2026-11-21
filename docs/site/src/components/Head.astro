@@ -28,8 +28,9 @@ const served = new Set([
 ]);
 // The not-found page is served at every unknown URL: no crumbs, no article.
 const is404 = /^404(\.html)?$/.test(parts[0] ?? "");
-// noindex plus a canonical URL is a mixed signal; the not-found page names no canonical.
-if (is404) route.head = route.head.filter((t) => !(t.tag === "link" && t.attrs?.rel === "canonical"));
+// noindex plus a canonical URL is a mixed signal; the not-found page names no
+// canonical, and no og:url (it would point at /404/, which is not a page).
+if (is404) route.head = route.head.filter((t) => !(t.tag === "link" && t.attrs?.rel === "canonical") && !(t.tag === "meta" && t.attrs?.property === "og:url"));
 
 const crumbs = [{ name: "Maya2C", item: `${site}/` }];
 if (parts[0] && SECTIONS[parts[0]] && parts.length > 1 && served.has(`/${parts[0]}/`)) {

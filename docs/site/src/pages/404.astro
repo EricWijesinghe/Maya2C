@@ -52,7 +52,8 @@ const ways = [
     /* Starlight's title band, hidden but kept for screen readers (the home page does the same in maya.css). */
     :global(.content-panel:has(+ .content-panel .nf)) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     :global(.content-panel:has(.nf)) { border-top: 0; }
-    .nf { max-width: 40rem; margin: var(--space-8) auto var(--space-8); display: grid; justify-items: center; gap: var(--space-5); text-align: center; }
+    /* Fills the first screen and centres the block, so no empty band sits above the footer. */
+    .nf { max-width: 40rem; min-height: calc(100dvh - var(--sl-nav-height) - var(--space-24)); margin: var(--space-8) auto; display: grid; justify-items: center; align-content: center; gap: var(--space-5); text-align: center; }
     .nf-mark { position: relative; width: 140px; height: 140px; display: grid; place-items: center; }
     .nf-mark img { width: 96px; height: 96px; }
     /* Two orbits, teal and bronze, turning against each other around the mark. */
@@ -67,6 +68,9 @@ const ways = [
     /* Light: aqua and amber paper in turn, so the three ways read as colour and not three beige boxes. */
     :global(:root[data-theme="light"]) .nf-ways li:nth-child(odd) a { background: color-mix(in srgb, var(--deco-teal) 30%, var(--surface-1)); }
     :global(:root[data-theme="light"]) .nf-ways li:nth-child(even) a { background: color-mix(in srgb, var(--deco-bronze) 30%, var(--surface-1)); }
+    /* Dark: the same teal and bronze turn, mixed from the solid metals (the dark decorative tokens are translucent). */
+    :global(:root[data-theme="dark"]) .nf-ways li:nth-child(odd) a { background: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); }
+    :global(:root[data-theme="dark"]) .nf-ways li:nth-child(even) a { background: color-mix(in srgb, var(--bronze) 10%, var(--surface-1)); }
     .nf-ways b { font-weight: var(--weight-semibold); }
     .nf-ways span { font-size: var(--type-body-sm-size); color: var(--text-2); }
     @keyframes nf-spin { to { transform: rotate(360deg); } }

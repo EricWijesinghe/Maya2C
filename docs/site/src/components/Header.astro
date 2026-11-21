@@ -19,9 +19,11 @@ import MenuPanel from "./MenuPanel.astro";
 import { NAV, START, isCurrent } from "../data/site-nav";
 
 const path = Astro.url.pathname;
-// One filled primary per viewport: the home hero carries its own, so the bar's
-// button is the outlined variant there (design critique, L02).
-const ctaKind = path === "/" ? "ui-btn--secondary" : "ui-btn--primary";
+// One filled primary per viewport, the same button on every page: on home the
+// bar's copy waits until the hero's own "Get started" has scrolled away
+// (design critique, L02). It renders hidden there, so it never flashes in
+// beside the hero's; without script the hero's button is the one door.
+const onHome = path === "/";
 const { hasSidebar } = Astro.locals.starlightRoute;
 const showSearch =
   config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
@@ -41,7 +43,7 @@ const showSearch =
     ))}
   </nav>
   <div class="search print:hidden">{showSearch && <Search />}</div>
-  <a class:list={["cta ui-btn print:hidden", ctaKind]} href={START.href}>{START.label}</a>
+  <a class:list={["cta ui-btn ui-btn--primary print:hidden", { "cta--waiting": onHome }]} href={START.href} data-cta-await-hero={onHome ? "" : undefined}>{START.label}</a>
   <div class="right sl-hidden md:sl-flex print:hidden">
     <SocialIcons />
     <ThemeSelect name="bar" />
@@ -99,6 +101,12 @@ const showSearch =
     });
     panel.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => { mnav.open = false; }));
   }
+  // Home: the bar's button stays out of sight while the hero's buttons are on screen.
+  const cta = document.querySelector<HTMLElement>("[data-cta-await-hero]");
+  const heroCta = document.querySelector(".hero .cta");
+  if (cta && heroCta) {
+    new IntersectionObserver(([e]) => cta.classList.toggle("cta--waiting", e.isIntersecting)).observe(heroCta);
+  }
   // "/" and Ctrl/Cmd+K open the command palette (CommandPalette.astro, the Search override).
 </script>
 
@@ -143,8 +151,9 @@ const showSearch =
      from the hero's). Hidden on phones, where it leads the menu instead. */
   .cta { display: none; flex: none; font-weight: var(--weight-semibold); text-decoration: none; }
   @media (min-width: 40rem) { .cta { display: inline-flex; } }
-  /* The outlined variant (home) is still the bar's action: accent edge and label. */
-  .cta.ui-btn--secondary { border-color: var(--accent); color: var(--accent-text); }
+  /* visibility, not display: the bar keeps its layout, and a hidden link leaves the tab order. */
+  .cta { transition: opacity var(--dur-2) var(--ease), visibility var(--dur-2); }
+  .cta.cta--waiting { opacity: 0; visibility: hidden; }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
   .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--deco-spark); opacity: .8; }
