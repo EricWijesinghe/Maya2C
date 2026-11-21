@@ -36,7 +36,7 @@ use crate::error::{Result, VmError};
 ///
 /// Asserted by a test. If the dependency moves, that test fails and the change
 /// is surfaced as the consensus event it is.
-pub const WASMTIME_VERSION: &str = "48.0.7";
+pub const WASMTIME_VERSION: &str = "48.0.8";
 
 /// WebAssembly page size in bytes.
 pub const PAGE_SIZE: usize = 64 * 1024;
@@ -167,7 +167,8 @@ pub fn config_digest() -> [u8; 32] {
     // across versions — see the pin in Cargo.toml — so a version change must
     // invalidate every cached module too.
     hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
-    hasher.update(b"wasmtime-48.0.1");
+    hasher.update(b"wasmtime-");
+    hasher.update(WASMTIME_VERSION.as_bytes());
     *hasher.finalize().as_bytes()
 }
 
@@ -213,6 +214,21 @@ mod digest_tests {
              raise this count — a cached module compiled under the old setting \
              would otherwise outlive the change."
         );
+    }
+
+    #[test]
+    fn the_digest_hashes_the_pinned_wasmtime_version() {
+        // A version written out as a literal went stale (it named 48.0.1 while
+        // the crate pinned 48.0.8), so a bump left cached modules keyed to the
+        // old compiler. The digest must hash the constant the pin test checks.
+        let source = include_str!("config.rs").replace("\r\n", "\n");
+        let body = source
+            .split("pub fn config_digest()")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("config_digest body");
+        assert!(body.contains("WASMTIME_VERSION.as_bytes()"));
+        assert!(!body.contains("b\"wasmtime-4"));
     }
 
     #[test]
