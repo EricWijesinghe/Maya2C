@@ -243,12 +243,19 @@ impl NodeDriver {
                 ..
             } => {
                 let now = Instant::now();
-                let allowed =
-                    !self.health.is_quarantined(&peer, now) && self.sync_limits.allow(peer, now);
-                let response = if allowed {
-                    sync::serve(&request, |id| self.state.block_bytes(id))
+                let budget = if self.health.is_quarantined(&peer, now) {
+                    None
                 } else {
-                    BlockResponse { blocks: Vec::new() }
+                    self.sync_limits.admit(peer, now)
+                };
+                let response = match budget {
+                    Some(budget) => {
+                        let response =
+                            sync::serve_within(&request, budget, |id| self.state.block_bytes(id));
+                        self.sync_limits.spend(peer, response.payload_len());
+                        response
+                    }
+                    None => BlockResponse { blocks: Vec::new() },
                 };
                 // Fails only if the requester has already gone.
                 let _ = self

@@ -140,3 +140,22 @@ permissions before being tightened.
   tables are node-local memory, iterated only to pick an eviction victim.
 - `pub fn restrict` is removed from the `custom_l1_node` library; no caller
   remains in the repository.
+
+## Amendment 2026-11-22: AI-review follow-ups on the same tables
+
+From the 2026-11-19 AI review of the P2P and RPC layers (P2P-04, RPC-04, RPC-06), on
+the lines this ADR changes; the rest of that review is ADR-151.
+
+- **Block-sync serving has byte budgets.** Per 10 s window, one peer may be sent
+  48 MiB and all peers together 256 MiB and 1,024 requests; a response stops at the
+  smaller of 24 MiB and what is left. The table still forgets its oldest window to
+  admit a newcomer; the global budgets are what bound a flood of fresh identities.
+  One connection holds at most 8 sync streams (the request-response default was 100).
+- **RPC refunds reach IPv6 clients.** A refund looked up the full address while
+  buckets are kept per IPv6 /64 (and IPv4-mapped addresses per IPv4), so the unused
+  part of a certificate-page reservation was never returned to those clients.
+- **The market server limits each source.** 5 requests/s with a burst of 20 per
+  non-loopback address (loopback is exempt: behind a tunnel every client is
+  loopback), a 60 s lifetime per connection, routing on a blocking thread, and a
+  fixed `supply unavailable` body with the cause in the log. This narrows, but does
+  not close, the global-cap trade-off above: sockets are still counted globally.

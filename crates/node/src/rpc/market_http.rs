@@ -39,7 +39,7 @@
 
 use primitive_types::U256;
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -53,6 +53,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 
 use crate::consensus::chain::Chain;
+use crate::rpc::limit::RateLimiter;
 use crate::rpc::market::{self, MarketFeed, SupplyReport};
 
 /// Content type for the bare-number supply endpoints.
@@ -68,6 +69,20 @@ const MAX_MARKET_CONNECTIONS: usize = 256;
 /// Longest a client may take to send its request head. Hyper only enforces it
 /// when a timer is set, so the timer is set alongside it.
 const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The longest one connection is kept, whatever it is doing. Every request
+/// here is a small read answered from a cache, so a minute is generous.
+const CONNECTION_LIFETIME: Duration = Duration::from_secs(60);
+
+/// Requests per second one non-loopback address may make, sustained.
+const REQUESTS_PER_SECOND: u32 = 5;
+
+/// Requests one non-loopback address may make in a burst.
+const REQUEST_BURST: u32 = 20;
+
+/// The body a failed supply read answers with. The cause goes to the log; a
+/// storage error's text describes this node's disk, not the caller's request.
+const SUPPLY_UNAVAILABLE: &str = "supply unavailable";
 
 /// A running market server.
 #[derive(Debug)]
@@ -166,9 +181,10 @@ pub async fn serve(address: SocketAddr, state: Arc<MarketState>) -> std::io::Res
     let bound = listener.local_addr()?;
 
     let connections = Arc::new(Semaphore::new(MAX_MARKET_CONNECTIONS));
+    let limiter = Arc::new(RateLimiter::new(REQUESTS_PER_SECOND, REQUEST_BURST));
     tokio::spawn(async move {
         loop {
-            let (stream, _peer) = match listener.accept().await {
+            let (stream, peer) = match listener.accept().await {
                 Ok(accepted) => accepted,
                 // A failed accept is not a reason to stop answering; the next
                 // poll should still find a listener.
@@ -184,28 +200,68 @@ pub async fn serve(address: SocketAddr, state: Arc<MarketState>) -> std::io::Res
             };
 
             let state = Arc::clone(&state);
+            let limiter = Arc::clone(&limiter);
             tokio::spawn(async move {
                 // Held until this connection ends, so the cap counts live sockets.
                 let _permit = permit;
-                let service = service_fn(move |request| {
-                    let state = Arc::clone(&state);
-                    async move { route(&request, &state) }
+                let service = service_fn(move |request: Request<hyper::body::Incoming>| {
+                    let method = request.method().clone();
+                    let path = request.uri().path().to_owned();
+                    answer(
+                        method,
+                        path,
+                        peer.ip(),
+                        Arc::clone(&state),
+                        Arc::clone(&limiter),
+                    )
                 });
 
-                if let Err(error) = http1::Builder::new()
+                let connection = http1::Builder::new()
                     .timer(TokioTimer::new())
                     .header_read_timeout(HEADER_READ_TIMEOUT)
-                    .serve_connection(TokioIo::new(stream), service)
-                    .await
-                {
-                    // Clients hang up abruptly all the time.
-                    let _ = error;
-                }
+                    .serve_connection(TokioIo::new(stream), service);
+                // Clients hang up abruptly all the time, and a connection past
+                // its lifetime is simply dropped: neither is worth reporting.
+                let _ = tokio::time::timeout(CONNECTION_LIFETIME, connection).await;
             });
         }
     });
 
     Ok(MarketServer { address: bound })
+}
+
+/// Whether `client` may be served now. Loopback is exempt: behind a tunnel
+/// every client arrives from it, and the tunnel's own limits apply there.
+fn admits(limiter: &RateLimiter, client: IpAddr) -> bool {
+    client.to_canonical().is_loopback() || limiter.check(client)
+}
+
+/// Answers one request from `client`: refused over its rate, otherwise routed
+/// on a blocking thread, because a supply read may walk every account and must
+/// not hold one of the runtime's workers while it does.
+async fn answer(
+    method: hyper::Method,
+    path: String,
+    client: IpAddr,
+    state: Arc<MarketState>,
+    limiter: Arc<RateLimiter>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+    if !admits(&limiter, client) {
+        return Ok(respond(
+            StatusCode::TOO_MANY_REQUESTS,
+            JSON,
+            error_json("too many requests; retry later"),
+        ));
+    }
+    let routed = tokio::task::spawn_blocking(move || route(&method, &path, &state)).await;
+    routed.unwrap_or_else(|error| {
+        eprintln!("market: request handler failed: {error}");
+        Ok(respond(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            JSON,
+            error_json("internal error"),
+        ))
+    })
 }
 
 /// Builds a response, falling back to a bare 500 if the builder rejects it.
@@ -256,11 +312,14 @@ fn supply_response(
         // A bare decimal with no newline, no JSON, no units suffix. Both
         // aggregators parse the whole body as a number.
         Ok(report) => respond(StatusCode::OK, PLAIN, select(&report).to_string()),
-        Err(error) => respond(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            PLAIN,
-            format!("supply unavailable: {error}"),
-        ),
+        Err(error) => {
+            eprintln!("market: supply read failed: {error}");
+            respond(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                PLAIN,
+                SUPPLY_UNAVAILABLE.to_string(),
+            )
+        }
     }
 }
 
@@ -288,12 +347,13 @@ fn ticker_response<T: serde::Serialize>(
 
 /// Routes a single request.
 fn route(
-    request: &Request<hyper::body::Incoming>,
+    method: &hyper::Method,
+    path: &str,
     state: &MarketState,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     // Only GET. These endpoints are reads, and answering a POST would be a
     // surface with no purpose.
-    if request.method() != hyper::Method::GET {
+    if method != hyper::Method::GET {
         return Ok(respond(
             StatusCode::METHOD_NOT_ALLOWED,
             JSON,
@@ -301,7 +361,7 @@ fn route(
         ));
     }
 
-    let response = match request.uri().path() {
+    let response = match path {
         "/api/v1/total_supply" => supply_response(state, |report| report.total),
         "/api/v1/circulating_supply" => supply_response(state, |report| report.circulating),
 
@@ -309,11 +369,14 @@ fn route(
         // one number. Not part of either aggregator's spec.
         "/api/v1/supply" => match state.supply() {
             Ok(report) => json_response(&report),
-            Err(error) => respond(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                JSON,
-                error_json(&format!("supply unavailable: {error}")),
-            ),
+            Err(error) => {
+                eprintln!("market: supply read failed: {error}");
+                respond(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    JSON,
+                    error_json(SUPPLY_UNAVAILABLE),
+                )
+            }
         },
 
         "/api/v1/ticker" => ticker_response(state, market::to_coingecko),
@@ -425,6 +488,23 @@ mod tests {
     /// The body of a response, i.e. everything after the header terminator.
     fn body(response: &str) -> &str {
         response.split_once("\r\n\r\n").map_or("", |(_, rest)| rest)
+    }
+
+    #[test]
+    fn a_public_address_is_rate_limited_and_loopback_is_not() {
+        let limiter = RateLimiter::new(REQUESTS_PER_SECOND, REQUEST_BURST);
+        let public: IpAddr = "203.0.113.9".parse().unwrap();
+        let admitted = (0..REQUEST_BURST * 2)
+            .filter(|_| admits(&limiter, public))
+            .count();
+        assert!(
+            admitted < (REQUEST_BURST * 2) as usize,
+            "a burst is bounded"
+        );
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!((0..REQUEST_BURST * 2).all(|_| admits(&limiter, loopback)));
+        let mapped: IpAddr = "::ffff:127.0.0.1".parse().unwrap();
+        assert!(admits(&limiter, mapped), "mapped loopback is loopback");
     }
 
     #[tokio::test]

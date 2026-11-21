@@ -136,7 +136,9 @@ impl RateLimiter {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if let Some(bucket) = buckets.get_mut(&address) {
+        // Keyed as `take_at` keys it: an IPv6 client's bucket is its /64, so
+        // looking up the full address found nothing and the refund was lost.
+        if let Some(bucket) = buckets.get_mut(&bucket_key(address)) {
             bucket.tokens = (bucket.tokens + bytes as f64).min(self.burst);
         }
     }
@@ -408,6 +410,17 @@ mod tests {
         let mut buckets = limiter.buckets.lock().expect("not poisoned");
         RateLimiter::sweep(&mut buckets, limiter.rate, limiter.burst, start);
         assert_eq!(buckets.len(), 1, "a drained bucket must be kept");
+    }
+
+    #[test]
+    fn a_refund_reaches_an_ipv6_clients_bucket() {
+        // Buckets are kept per /64; the refund must look up the same key the
+        // charge used, or an IPv6 client never gets its unused bytes back.
+        let limiter = RateLimiter::new(1, 10);
+        let client: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        assert!(limiter.charge(client, 10));
+        limiter.refund(client, 10);
+        assert!(limiter.charge(client, 10), "the refund was credited");
     }
 
     #[test]
