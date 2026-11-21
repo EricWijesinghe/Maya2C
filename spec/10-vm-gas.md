@@ -18,6 +18,7 @@ the gas the producer spent finding that out stays counted (GAS-2).
 - **GAS-5** `vm.max_tx_gas` (parameter tag 17) and `vm.max_block_gas` (tag 18) start at 250,000,000 and move only by a governance proposal, within `[239,979,600, 300,000,000]`, checked when proposed, when executed and again when promoted. Both are block-validity rules (CON-17): a passed change is held under `g:pending:<tag>` and binds from `E + MIN_UPGRADE_LEAD_BLOCKS`, where `E` is its proposal's execution height, never at `E + 1`; a waiting value outside the range at promotion is deleted and never applied. The floor is `235,979,600 + 4,000,000`: every module GAS-3 lets deploy stays callable by a plaintext call. A revealed sealed call is capped by `min(vm.max_tx_gas, sealed_gas_budget)` instead (GAS-2), so a cold sealed call to a module whose `cold_call_fuel` is above `sealed_gas_budget` (62,500,000 at the default) never applies: a `gas_limit` above the budget is `GasAboveCap`, one within it is below the price (`OutOfGas`), and the envelope is consumed either way. It can apply only warm, after a plaintext call compiled the module in the same block.
 - **GAS-6** Nothing is refunded: unused gas is never charged, and an overwrite or an empty write pays like any other write. *(positive only: no input is rejected by this rule)*
 - **GAS-7** A call may hold at most `min(256, (gas_limit − upfront) / 6,000)` pages of linear memory, its initial pages included, where `upfront` is its GAS-3 price; asking for more ends the call (`MemoryLimit`). Once it returns it pays 6,000 for every page of the most it held; if that takes it past `gas_limit`, it ran out of gas, and its failure gas (GAS-2) is the whole sum, past `gas_limit`. Growth past the module's own declared maximum is refused by the engine and is never held.
+- **GAS-8** A plaintext contract call or deployment that passes its signature, nonce, fee, GAS-1 and GAS-2 checks and then fails in the VM (out of gas, a trap, `MemoryLimit`, a host error, a compile or validation failure, a shape refusal, or a call refused below its GAS-3 price) does not make its block invalid. It is included: its fee is paid, its sender's nonce advances, it writes no contract code or storage, and its failure gas (GAS-2) counts against the block's contract gas. A call naming no contract, a refusal by GAS-1 or GAS-2, and a node-local fault still fail the transaction (STF-8). Revealed sealed actions are unchanged (GAS-2). *(external vectors: crates/node/tests/vm_gas_tests.rs)*
 
 ## Gaps
 
@@ -28,6 +29,10 @@ the gas the producer spent finding that out stays counted (GAS-2).
   storage each block (ROOT-5), which no gas price bounds: its cost grows with
   total contract state, not with the block's gas. ADR-142 records it as open;
   it belongs with the incremental state root (ADR-062a), not with gas.
+- GAS-8 (draft, needs Eric) replaces the next item: a failing call is included
+  and pays its byte fee, once. What remains is that a successful or failing
+  call's fee does not grow with its gas (FEE-5), so one fee per block buys that
+  block's contract gas (re-freeze review R-3).
 - A failing plaintext call is never included, so it pays no fee; GAS-2 bounds
   what failed calls cost a block's builder, not who pays for them (STF-8).
   One such call naming the cap no longer leaves the calls after it out

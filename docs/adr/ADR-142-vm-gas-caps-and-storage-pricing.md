@@ -745,3 +745,35 @@ naming 245 M against a cap voted down to 240 M passes GAS-1 at `E + 1` and at
 `E + lead − 1`, and is `GasAboveCap` from `E + lead`) and
 `a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped`. Red captured
 with the two keys classified as immediate.
+
+## Amendment 5 (PROPOSED, needs Eric): a failed contract call is included and pays (decision brief 3, option A)
+
+**Status: proposed in a draft PR, not accepted.** It changes who pays for
+failed contract work, which is an economics decision.
+
+**Rule (GAS-8).** A plaintext contract call or deployment that passes its
+signature, nonce, fee, GAS-1 and GAS-2 checks and then fails in the VM is
+included instead of failing its block: its fee is paid, its sender's nonce
+advances, it writes nothing, and its failure gas counts against the block's
+contract gas. STF-8 gains that one exception. A call naming no contract, a
+GAS-1 or GAS-2 refusal and a node-local fault still fail the transaction; the
+VM engine failing to start is now `Storage` (a local fault), so no node
+includes a call as failed because its own engine did not start.
+
+**What it closes.** G1: a failing call is no longer free or pooled. Once
+included its nonce has moved, so the same transaction cannot be proposed
+again; repeating the attack costs one signed transaction and one fee per
+block, per account.
+
+**What it does not close, and makes visible.** Re-freeze review R-3: the fee
+is the byte fee (FEE-5), not a price per unit of gas. One call at the cap,
+failing or not, takes the whole block's contract gas for that fee. Under
+amendment 3 one failing sender could not do that (its failure had its own
+builder count) but two could, for nothing; under this amendment one can, for a
+fee. Closing R-3 needs a gas price: a fee that grows with `gas_limit` or
+`gas_used`, which is a fee-market design (who sets the price, a governed
+parameter and its bounds, refunds or none under GAS-6), not built here.
+
+**Variant not built.** Included failed work could count against a budget of
+its own (one cap), so a paying failing call never takes room from calls that
+apply. It doubles a validator's worst case (2.25 × cap) and still leaves R-3.

@@ -458,18 +458,11 @@ fn spin_gas(limit: u64) -> u64 {
     limit + maya_vm::gas::MEMORY_PAGE_FUEL
 }
 
-/// The builder's budget for applied and failed contract work together.
-fn builder_budget() -> u64 {
-    use custom_l1_node::state::vm_exec::{BUILDER_GAS_CAPS, BUILDER_GAS_SLACK};
-    BUILDER_GAS_CAPS * block_cap() + BUILDER_GAS_SLACK
-}
-
 #[test]
-fn a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies() {
-    // Before (PR #549 review): a failed trial's gas stayed on the counter the
-    // applied calls are admitted against. The failing call is never included,
-    // so it pays nothing and stays pooled: one at the cap, early in the
-    // sub-DAG, left every contract call after it out, every block.
+fn a_failing_call_at_the_cap_is_included_and_takes_the_blocks_contract_gas() {
+    // Under GAS-8 the failing call is the block's: it is included, and its
+    // failure gas (the cap plus its page) leaves no room for a call after it
+    // in the same block. That call applies in the next one.
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
     let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
@@ -482,82 +475,59 @@ fn a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies() {
     let after = call(ids[1], block_cap(), 1, &honest);
     let kept = db
         .select_applicable(
-            vec![spin, after.clone()],
+            vec![spin.clone(), after.clone()],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    assert_eq!(kept, vec![after.clone()]);
-    // And the block it builds is valid: the failed work was never the block's.
+    assert_eq!(kept, vec![spin]);
     db.apply_block(&block_of(kept), BlockContext::at_height(2))
         .expect("the builder's block validates");
+    db.apply_block(&block_of(vec![after]), BlockContext::at_height(3))
+        .expect("left out, applied in the next block");
 }
 
 #[test]
-fn failed_work_past_the_builder_budget_stops_contract_trials() {
-    // The bound on the builder: failed work keeps its own count, and once
-    // applied and failed work reach the budget no more contract work is
-    // tried. Two failing calls at the cap, from two senders, get there; that
-    // remaining lever is ADR-142 G1, closed only by charging failed calls.
+fn a_second_failing_call_at_the_cap_finds_no_block_gas_left() {
+    // Under GAS-8 the first failing call is included and spends the cap; the
+    // second is refused by GAS-2 before it runs, so it does no work and is
+    // not charged, and stays pooled for a later block, where it pays too.
     let spinners = [
         generate_signing_key().unwrap(),
         generate_signing_key().unwrap(),
     ];
-    let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[
-        spinners[0].address(),
-        spinners[1].address(),
-        honest.address(),
-    ]);
-    let ids = deploy_all(
-        &db,
-        &[&spinners[0], &honest],
-        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
-    );
-    // Above the slack: a call this small would still fit after them.
-    let limit = 2_000_000;
-    let after = call(ids[1], limit, 1, &honest);
+    let (db, _dir) = open_state(&[spinners[0].address(), spinners[1].address()]);
+    let ids = deploy_all(&db, &[&spinners[0]], &[wasm(FOREVER_WAT)]);
+    let first = call(ids[0], block_cap(), 1, &spinners[0]);
+    let second = call(ids[0], block_cap(), 0, &spinners[1]);
     let kept = db
         .select_applicable(
-            vec![
-                call(ids[0], block_cap(), 1, &spinners[0]),
-                call(ids[0], block_cap(), 0, &spinners[1]),
-                after,
-            ],
+            vec![first.clone(), second],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    assert!(2 * spin_gas(block_cap()) + limit > builder_budget());
-    assert!(kept.is_empty(), "{} kept", kept.len());
+    assert_eq!(kept, vec![first]);
 }
 
 #[test]
-fn one_sender_gets_one_failed_contract_trial_per_block() {
-    // A sub-DAG can carry several versions of one sender's nonce, from
-    // different proposers. Each failing one was tried, each free.
+fn a_second_version_of_an_included_failing_call_fails_on_its_nonce() {
+    // A sub-DAG can carry several versions of one sender's nonce. Under GAS-8
+    // the first failing one is included, so the next fails on its nonce and
+    // runs nothing.
     let attacker = generate_signing_key().unwrap();
-    let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
-    let ids = deploy_all(
-        &db,
-        &[&attacker, &honest],
-        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
-    );
-    let spin = call(ids[0], block_cap(), 1, &attacker);
-    let again = call(ids[0], block_cap() - 1, 1, &attacker);
-    let after = call(ids[1], block_cap() / 2, 1, &honest);
+    let (db, _dir) = open_state(&[attacker.address()]);
+    let ids = deploy_all(&db, &[&attacker], &[wasm(TRAP_WAT)]);
+    let trap = call(ids[0], 1_000_000, 1, &attacker);
+    let again = call(ids[0], 999_999, 1, &attacker);
     let kept = db
         .select_applicable(
-            vec![spin, again, after.clone()],
+            vec![trap.clone(), again],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    // The second version is not tried. Tried, the two would fill the
-    // builder's budget and the honest call would not be.
-    assert!(spin_gas(block_cap()) + spin_gas(block_cap() - 1) + block_cap() / 2 > builder_budget());
-    assert_eq!(kept, vec![after]);
+    assert_eq!(kept, vec![trap]);
 }
 
 /// One failing call at the cap from `attacker`, first, then calls from each
@@ -587,11 +557,118 @@ fn keys(n: usize) -> Vec<HybridSigningKey> {
     (0..n).map(|_| generate_signing_key().unwrap()).collect()
 }
 
+/// Writes `k`, then traps: a call whose writes must not survive its failure.
+const WRITE_THEN_TRAP_WAT: &str = r#"(module
+    (import "env" "storage_write" (func $write (param i32 i32 i32 i32)))
+    (memory (export "memory") 1)
+    (func (export "invoke") (param i32) (result i64)
+      (i32.store8 (i32.const 0) (i32.const 107))
+      (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4))
+      unreachable))"#;
+
 #[test]
-fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block() {
+fn a_failing_call_is_included_pays_its_fee_and_moves_its_nonce() {
+    // GAS-8 (decision brief 3, option A): a plaintext contract call that
+    // fails in the VM no longer fails its block. It is included, pays its
+    // fee, advances its sender's nonce, writes nothing, and its failure gas
+    // counts against the block's contract gas.
+    let caller = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[caller.address()]);
+    let ids = deploy_all(&db, &[&caller], &[wasm(WRITE_THEN_TRAP_WAT)]);
+    let before = db.get_account(&caller.address()).unwrap();
+    let failing = call(ids[0], 2_000_000, 1, &caller);
+    db.apply_block(&block_of(vec![failing.clone()]), BlockContext::at_height(2))
+        .expect("a failed call no longer fails its block");
+    let after = db.get_account(&caller.address()).unwrap();
+    assert_eq!(after.nonce, before.nonce + 1);
+    // Fees are off in this fixture; with them on the call pays
+    // `base_fee x wire bytes` (FEE-5) like any transaction of its size.
+    eprintln!(
+        "GAS-8 a failing call at gas_limit 2,000,000 is {} bytes on the wire",
+        failing.to_bytes().len()
+    );
+    assert_eq!(db.get_contract_storage(&ids[0], b"k").unwrap(), None);
+}
+
+#[test]
+fn an_included_failed_call_spends_block_gas() {
+    // Its failure gas is the block's: a call after it naming more than the
+    // cap minus that gas makes the block invalid.
+    let caller = generate_signing_key().unwrap();
+    let other = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[caller.address(), other.address()]);
+    let ids = deploy_all(
+        &db,
+        &[&caller, &other],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    let limit = block_cap() / 2;
+    let spin = call(ids[0], limit, 1, &caller);
+    let after = call(ids[1], block_cap() - spin_gas(limit) + 1, 1, &other);
+    let result = db.apply_block(
+        &block_of(vec![spin.clone(), after]),
+        BlockContext::at_height(2),
+    );
+    assert!(
+        matches!(result, Err(NodeError::BlockGasExhausted { .. })),
+        "{result:?}"
+    );
+    let fits = call(ids[1], block_cap() - spin_gas(limit), 1, &other);
+    db.apply_block(&block_of(vec![spin, fits]), BlockContext::at_height(2))
+        .expect("within what the failed call left");
+}
+
+#[test]
+fn under_option_a_a_failing_call_at_the_cap_is_paid_for_once_and_then_gone() {
+    // 09 R-2 under GAS-8: the attacker's call is included in the first block
+    // (fee paid, nonce moved) and so cannot be proposed again; the honest
+    // calls that do not fit beside it apply in the next block. What remains is
+    // 09 R-3: one fee per block buys that block's contract gas.
+    let attacker = generate_signing_key().unwrap();
+    let honest = keys(3);
+    let mut funded: Vec<Address> = honest.iter().map(HybridSigningKey::address).collect();
+    funded.push(attacker.address());
+    let (db, _dir) = open_state(&funded);
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &honest[0]],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    let (spin, calls) = attack_order(&ids, &attacker, &honest, 0);
+    let mut order = vec![spin.clone()];
+    order.extend(calls.iter().cloned());
+    let first = db
+        .select_applicable(
+            order.clone(),
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(first[0], spin, "the failing call is included");
+    assert!(
+        !first.contains(&calls[0]),
+        "the honest call at the cap waits"
+    );
+    db.apply_block(&block_of(first.clone()), BlockContext::at_height(2))
+        .expect("the builder's block validates");
+    assert_eq!(db.get_account(&attacker.address()).unwrap().nonce, 2);
+
+    let rest: Vec<Transaction> = order.into_iter().filter(|tx| !first.contains(tx)).collect();
+    let second = db
+        .select_applicable(
+            rest.clone(),
+            BlockContext::at_height(3),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(second, rest, "everything left applies in the next block");
+}
+
+#[test]
+fn under_gas_8_a_failing_call_at_the_cap_is_included_once_then_honest_calls_apply_producer() {
     // 09 R-2, producer path: the failing call is admitted (pooled), placed
-    // first in every block's order, never included and never charged, and
-    // the honest calls after it are included in each block regardless.
+    // first; under GAS-8 it is included in the first block (nonce moved) and
+    // the honest calls apply in the next one.
     let attacker = generate_signing_key().unwrap();
     let honest = keys(3);
     let mut funded: Vec<Address> = honest.iter().map(HybridSigningKey::address).collect();
@@ -605,7 +682,7 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block(
     );
     let pool = Mempool::new(Arc::clone(&db));
     for height in 2..4 {
-        let (spin, calls) = attack_order(&ids, &attacker, &honest, height - 2);
+        let (spin, calls) = attack_order(&ids, &attacker, &honest, 0);
         if height == 2 {
             assert_eq!(
                 pool.insert(spin.clone()),
@@ -613,7 +690,7 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block(
                 "admission checks only the caps"
             );
         }
-        let mut order = vec![spin];
+        let mut order = vec![spin.clone()];
         order.extend(calls.iter().cloned());
         let kept = db
             .select_applicable(
@@ -622,11 +699,13 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block(
                 target_from_leading_zero_bits(0),
             )
             .unwrap();
-        assert_eq!(kept, calls, "height {height}");
+        // GAS-8: included in the first block, so it fails on its nonce in
+        // the second, where the honest calls apply.
+        let expected = if height == 2 { vec![spin] } else { calls };
+        assert_eq!(kept, expected, "height {height}");
         db.apply_block(&block_of(kept), BlockContext::at_height(height))
             .expect("the builder's block validates");
-        // Never included: no fee, no nonce bump, so it is pooled again.
-        assert_eq!(db.get_account(&attacker.address()).unwrap().nonce, 1);
+        assert_eq!(db.get_account(&attacker.address()).unwrap().nonce, 2);
     }
 }
 
@@ -706,20 +785,21 @@ fn sub_dag_of(round: u64, txs: &[Transaction]) -> maya_dag_bft::SubDag {
 }
 
 #[test]
-fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_bft_block() {
+fn under_gas_8_a_failing_call_at_the_cap_is_included_once_then_honest_calls_apply_bft() {
     // 09 R-2, DAG-BFT path: every validator derives the block from the
     // committed order, the failing call first, through `build_block`.
     let attacker = generate_signing_key().unwrap();
     let honest = keys(3);
     let (mut chain, ids, _dir) = bft_chain(&attacker, &honest);
     for round in 2..4 {
-        let (spin, calls) = attack_order(&ids, &attacker, &honest, round - 2);
-        let mut order = vec![spin];
+        let (spin, calls) = attack_order(&ids, &attacker, &honest, 0);
+        let mut order = vec![spin.clone()];
         order.extend(calls.iter().cloned());
         let block =
             custom_l1_node::consensus::bft::build_block(&chain, &sub_dag_of(round, &order), 1)
                 .unwrap();
-        assert_eq!(block.transactions, calls, "round {round}");
+        let expected = if round == 2 { vec![spin] } else { calls };
+        assert_eq!(block.transactions, expected, "round {round}");
         chain
             .insert_block(block)
             .expect("the derived block imports");
@@ -729,7 +809,7 @@ fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_bft_block() {
                 .get_account(&attacker.address())
                 .unwrap()
                 .nonce,
-            1
+            2
         );
     }
 }
@@ -756,50 +836,28 @@ fn a_replayed_old_transaction_does_not_shut_its_sender_out() {
 }
 
 #[test]
-fn a_call_below_its_upfront_price_still_counts_its_code_read_and_scan() {
-    // Refused before the compile, but after a read of the code and a scan of
-    // its shape: before the PR #549 review fix it counted nothing, so a pool
-    // of them was builder work outside GAS-2's bound.
-    // Seen at the edge of the builder's budget: two failing calls fill most
-    // of it first, so the honest call fits only in what the refused one left.
-    let spinners = [
-        generate_signing_key().unwrap(),
-        generate_signing_key().unwrap(),
-    ];
+fn a_call_below_its_upfront_price_is_included_and_counts_its_code_read() {
+    // Refused before the compile, after a read of the code. Under GAS-8 it is
+    // included and its count is the block's: a call after it fits only in
+    // what it left.
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[
-        spinners[0].address(),
-        spinners[1].address(),
-        attacker.address(),
-        honest.address(),
-    ]);
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
     let code = wasm(WRITER_WAT);
-    let ids = deploy_all(
-        &db,
-        &[&attacker, &spinners[0]],
-        &[code.clone(), wasm(FOREVER_WAT)],
-    );
+    let ids = deploy_all(&db, &[&attacker], std::slice::from_ref(&code));
     let counted = maya_vm::gas::CALL_BASE_FUEL + code.len() as u64;
-    let half = block_cap() / 2;
+    let refused = call(ids[0], 1, 1, &attacker);
     let select = |honest_limit: u64| {
         db.select_applicable(
-            vec![
-                call(ids[1], block_cap(), 1, &spinners[0]),
-                call(ids[1], half, 0, &spinners[1]),
-                call(ids[0], 1, 1, &attacker),
-                call(ids[0], honest_limit, 0, &honest),
-            ],
+            vec![refused.clone(), call(ids[0], honest_limit, 0, &honest)],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap()
         .len()
     };
-    let left = builder_budget() - spin_gas(block_cap()) - spin_gas(half) - counted;
-    assert!(left < block_cap());
-    assert_eq!(select(left), 1);
-    assert_eq!(select(left + 1), 0);
+    assert_eq!(select(block_cap() - counted), 2);
+    assert_eq!(select(block_cap() - counted + 1), 1);
 }
 
 #[test]
@@ -838,29 +896,25 @@ fn a_deployment_above_the_deploy_price_is_refused_at_admission() {
 fn a_failed_call_spends_the_gas_it_used_not_the_gas_it_named() {
     // A call that traps on its first instruction ran almost nothing; charging
     // it its whole limit would let one transaction void the block's budget.
-    // A spin at the cap first, so the trap is seen against the builder's
-    // budget: charged its limit, it would leave no room for the honest call.
-    let spinner = generate_signing_key().unwrap();
+    // Under GAS-8 it is included, and the call after it still fits.
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[spinner.address(), attacker.address(), honest.address()]);
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
     let ids = deploy_all(
         &db,
-        &[&attacker, &honest, &spinner],
-        &[wasm(TRAP_WAT), wasm(WRITER_WAT), wasm(FOREVER_WAT)],
+        &[&attacker, &honest],
+        &[wasm(TRAP_WAT), wasm(WRITER_WAT)],
     );
-    let spin = call(ids[2], block_cap(), 1, &spinner);
     let trap = call(ids[0], block_cap(), 1, &attacker);
     let after = call(ids[1], block_cap() / 2, 1, &honest);
-    assert!(spin_gas(block_cap()) + block_cap() + block_cap() / 2 > builder_budget());
     let kept = db
         .select_applicable(
-            vec![spin, trap, after.clone()],
+            vec![trap.clone(), after.clone()],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    assert_eq!(kept, vec![after]);
+    assert_eq!(kept, vec![trap, after]);
 }
 
 /// A module of about `len` bytes importing a name the host does not have:
@@ -878,14 +932,11 @@ fn bad_import_module_of_len(len: usize) -> Vec<u8> {
 fn a_deployment_that_fails_validation_still_spends_its_compile() {
     // Before: the compile ran inside `validate` and the gas was added only
     // after it passed, so a module with one unknown import compiled for free.
-    // Seen against the builder's budget, after a spin at the cap: counted,
-    // the bad compile leaves no room for the good one.
-    let spinner = generate_signing_key().unwrap();
+    // Under GAS-8 the bad deployment is included with its compile counted, so
+    // a good one of the same price no longer fits beside it.
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[spinner.address(), attacker.address(), honest.address()]);
-    let forever = deploy(&db, &spinner, &wasm(FOREVER_WAT));
-    let spin = call(forever, block_cap(), 1, &spinner);
+    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
     let len = usize::try_from(block_cap() * 3 / 5 / maya_vm::gas::CODE_BYTE_FUEL).unwrap();
     let bad = signed(
         TxKind::DeployContract(ContractDeploy {
@@ -903,16 +954,16 @@ fn a_deployment_that_fails_validation_still_spends_its_compile() {
     );
     let kept = db
         .select_applicable(
-            vec![spin.clone(), bad, good.clone()],
+            vec![bad.clone(), good.clone()],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    assert!(kept.is_empty(), "{} kept", kept.len());
-    // Without the bad deployment the good one is tried and applies.
+    assert_eq!(kept, vec![bad]);
+    // Without the bad deployment the good one applies.
     let kept = db
         .select_applicable(
-            vec![spin, good.clone()],
+            vec![good.clone()],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
@@ -944,9 +995,32 @@ fn a_later_call_to_a_contract_in_the_same_block_is_warm_by_block_order() {
     .expect("cold then warm fits");
     // The same small limit as the block's first call is a cold call, whatever
     // the node's module cache holds from the block before.
-    let result = db.apply_block(
-        &block_of(vec![call(contract, warm, 3, &key)]),
+    // Refused below its cold price, so (GAS-8) included as failed: the cap
+    // left after it is what a cold refusal counts, `50,000 + len`, so a call
+    // naming one unit more than that leaves the block over its cap.
+    let refused = gas_left_after_refusal(code.len());
+    db.apply_block(
+        &block_of(vec![
+            call(contract, warm, 3, &key),
+            call(contract, refused, 4, &key),
+        ]),
         BlockContext::at_height(3),
+    )
+    .expect("the refused call is included and the next one fits");
+    let result = db.apply_block(
+        &block_of(vec![
+            call(contract, warm, 5, &key),
+            call(contract, refused + 1, 6, &key),
+        ]),
+        BlockContext::at_height(4),
     );
-    assert!(matches!(result, Err(NodeError::Vm(_))), "{result:?}");
+    assert!(
+        matches!(result, Err(NodeError::BlockGasExhausted { .. })),
+        "{result:?}"
+    );
+}
+
+/// The block cap left after a cold call refused below its length price.
+fn gas_left_after_refusal(code_len: usize) -> u64 {
+    block_cap() - (maya_vm::gas::CALL_BASE_FUEL + code_len as u64)
 }

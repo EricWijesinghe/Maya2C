@@ -107,7 +107,22 @@ impl StateDB {
         // than the key itself, so this is a computation and not a field read.
         let sender = tx.sender();
 
-        self.apply_kind_for(overlay, &sender, tx.nonce, &tx.kind, context)
+        let applied = self.apply_kind_for(overlay, &sender, tx.nonce, &tx.kind, context);
+        // GAS-8 (decision brief 3 option A, a draft for Eric): a contract call
+        // or deployment that fails in the VM is included rather than failing
+        // its block. Its fee and nonce bump are already staged, it staged no
+        // writes (both stage only on success), and the gas it spent stays on
+        // the block's count (GAS-2). Only the VM's verdict on the transaction
+        // is absorbed: refusals by GAS-1, GAS-2, a missing contract and local
+        // faults (`Storage`) still fail the transaction.
+        match applied {
+            Err(NodeError::Vm(_))
+                if matches!(tx.kind, TxKind::CallContract(_) | TxKind::DeployContract(_)) =>
+            {
+                Ok(())
+            }
+            other => other,
+        }
     }
 
     /// Dispatches a payload on behalf of a sender that may not be a
