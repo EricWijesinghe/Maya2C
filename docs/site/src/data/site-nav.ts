@@ -48,7 +48,7 @@ export const FOOTER: { title: string; links: NavItem[] }[] = [
     { label: "Run a validator", href: "/guides/validators/" },
   ] },
   { title: "Trust", links: [
-    { label: "Report a vulnerability privately", href: `${REPO}/security/advisories/new`, external: true },
+    { label: "Report a vulnerability", href: `${REPO}/security/advisories/new`, external: true },
     { label: "Security Hall of Fame", href: "/guides/security-hall-of-fame/" },
     { label: "Code-signing policy", href: "/guides/code-signing-policy/" },
     { label: "Contribute", href: "/guides/contributors/" },

@@ -76,11 +76,16 @@ const stats = [
 <style>
   .proof { margin: var(--space-12) 0 0; }
   dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--shadow-inset); overflow: visible; }
-  .cell { display: grid; gap: var(--space-1); align-content: start; padding: var(--space-5); min-width: 0; }
+  .cell { position: relative; display: grid; grid-template-rows: auto auto 1fr; gap: var(--space-1); padding: var(--space-5); min-width: 0; }
+  /* A short luminous bar per tile, teal and bronze in turn: colour without a glow, and decorative only. */
+  .cell::before { content: ""; position: absolute; top: -1px; inset-inline-start: var(--space-5); width: var(--space-8); height: 3px; border-radius: 0 0 3px 3px; background: var(--deco-spark); }
+  .cell:nth-child(even)::before { background: var(--bronze-display); }
+  :global(:root[data-theme="light"]) dl { background: linear-gradient(180deg, color-mix(in srgb, var(--deco-teal) 28%, var(--surface-1)) 0%, var(--surface-1) 70%); box-shadow: var(--shadow-md); }
   .cell + .cell { border-inline-start: 1px solid var(--border); }
   dt { font: var(--type-label-weight) var(--type-label-size)/var(--type-label-line) var(--type-label-font); color: var(--text-2); }
   dd:not(.note) { margin: 0; text-align: start; font: var(--weight-semibold) var(--type-title-2-size)/1.2 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--text); }
-  .note { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
+  /* Column with the source mark pinned to the foot, so all four tiles line up however the note wraps. */
+  .note { margin: 0; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: var(--space-2); font-size: var(--type-body-sm-size); line-height: 1.4; color: var(--text-2); }
   @media (max-width: 760px) {
     dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .cell:nth-child(3) { border-inline-start: 0; }

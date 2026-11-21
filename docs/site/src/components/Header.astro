@@ -143,6 +143,8 @@ const showSearch =
      from the hero's). Hidden on phones, where it leads the menu instead. */
   .cta { display: none; flex: none; font-weight: var(--weight-semibold); text-decoration: none; }
   @media (min-width: 40rem) { .cta { display: inline-flex; } }
+  /* The outlined variant (home) is still the bar's action: accent edge and label. */
+  .cta.ui-btn--secondary { border-color: var(--accent); color: var(--accent-text); }
 
   .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
   .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--deco-spark); opacity: .8; }

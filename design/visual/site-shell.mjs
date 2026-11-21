@@ -26,7 +26,7 @@
 //      open phone menu, in either theme.
 //   5. Every series, axis and marker colour of the attack-cost plot is at
 //      least 3:1 on the plot background, in both themes.
-// Screenshots (JPEG) land in design/visual/site/: pages at 360 and 1440, the
+// Screenshots (JPEG) land in design/visual/site/: pages at 360, 390 and 1440, the
 // menus at 390/768/880, the header at 1024, and the charts and footer as
 // element shots at 360 and 1440, in both themes.
 import { chromium } from "playwright";
@@ -228,22 +228,30 @@ const PIECES = [
   { name: "quorum", path: "/guides/consensus/", sel: "figure.quorum" },
   { name: "delivery", path: "/experience/", sel: "figure.delivery" },
   { name: "support", path: "/guides/support/", sel: "section.support" },
-  { name: "footer", path: "/guides/faq/", sel: "footer.maya-footer" },
+  // The footer as a phone shows it: the viewport at the bottom of the page, not an element clip under the sticky bars.
+  { name: "footer", path: "/guides/faq/", sel: "footer.maya-footer", viewport: true },
 ];
 for (const scheme of ["light", "dark"]) {
-  for (const width of [360, 1440]) {
-    const ctx = await context({ viewport: { width, height: width === 360 ? 780 : 900 }, colorScheme: scheme });
+  for (const width of [360, 390, 1440]) {
+    const ctx = await context({ viewport: { width, height: width < 1000 ? 780 : 900 }, colorScheme: scheme });
     const page = await ctx.newPage();
-    const full = width === 360 ? ["/", "/guides/faq/", "/stats/", "/404", "/learn/signatures-live/", "/guides/testnet/"] : ["/learn/signatures-live/", "/guides/testnet/"];
+    const full = width === 360 ? ["/", "/guides/faq/", "/stats/", "/404", "/learn/signatures-live/", "/guides/testnet/"] : width === 390 ? ["/", "/guides/faq/"] : ["/learn/signatures-live/", "/guides/testnet/"];
     for (const path of full) {
       await page.goto(BASE + path, { waitUntil: "load" });
       await shot(page, `${shotName(path)}-${scheme}-${width}`);
     }
-    for (const p of PIECES) {
+    for (const p of width === 390 ? [] : PIECES) {
+      await page.mouse.move(0, 0); // no hover state carried over from the last click
       await page.goto(BASE + p.path, { waitUntil: "load" });
       if (p.tab) await page.getByRole("tab", { name: p.tab }).first().click();
       const el = page.locator(p.sel).filter({ visible: true }).first();
       if (!(await el.count())) { fail(`${p.path}: no visible ${p.sel} for the ${p.name} screenshot`); continue; }
+      if (p.viewport) {
+        await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+        await page.waitForTimeout(300);
+        await page.screenshot({ path: join(shots, `${p.name}-${scheme}-${width}.jpg`), type: "jpeg", quality: 72 });
+        continue;
+      }
       await el.scrollIntoViewIfNeeded();
       await el.screenshot({ path: join(shots, `${p.name}-${scheme}-${width}.jpg`), type: "jpeg", quality: 72 });
     }

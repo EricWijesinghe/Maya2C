@@ -64,6 +64,9 @@ const ways = [
     .nf-ways { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--space-3); }
     .nf-ways a { display: grid; gap: var(--space-1); min-height: 44px; padding: var(--space-4); border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface-1); box-shadow: var(--shadow-sm); color: var(--text); text-decoration: none; text-align: start; transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
     .nf-ways a:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    /* Light: aqua and amber paper in turn, so the three ways read as colour and not three beige boxes. */
+    :global(:root[data-theme="light"]) .nf-ways li:nth-child(odd) a { background: color-mix(in srgb, var(--deco-teal) 30%, var(--surface-1)); }
+    :global(:root[data-theme="light"]) .nf-ways li:nth-child(even) a { background: color-mix(in srgb, var(--deco-bronze) 30%, var(--surface-1)); }
     .nf-ways b { font-weight: var(--weight-semibold); }
     .nf-ways span { font-size: var(--type-body-sm-size); color: var(--text-2); }
     @keyframes nf-spin { to { transform: rotate(360deg); } }

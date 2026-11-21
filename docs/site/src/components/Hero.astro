@@ -30,8 +30,18 @@ import { testnet } from "../data/network-state";
     <h1 id="hero-title">Post-quantum <span class="nw">layer-1</span>, built in Rust.</h1>
     <p class="sub">Two NIST signatures on every transaction, ML-DSA and SLH-DSA, finalized by <span class="nw">DAG-BFT</span>. Open source, and every number on this page links to its source.</p>
     <div class="cta">
-      <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
-      <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+      {/* Paused: a "Start mining" door under a "paused" chip reads as a live network. */}
+      {testnet.paused ? (
+        <>
+          <a class="ui-btn ui-btn--primary" href="/guides/quickstart/">Get started</a>
+          <a class="ui-btn ui-btn--secondary" href="/guides/start-mining/">How mining works</a>
+        </>
+      ) : (
+        <>
+          <a class="ui-btn ui-btn--primary" href="/guides/start-mining/">Start mining</a>
+          <a class="ui-btn ui-btn--secondary" href="/guides/quickstart/">Read the docs</a>
+        </>
+      )}
     </div>
   </div>
 </section>
