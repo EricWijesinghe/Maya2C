@@ -30,7 +30,7 @@ against a live server on its own.
    no premine (only the keyless reserve is funded); `protocol_upgrades` empty; timestamp
    within 365 days old and 90 days ahead; tail above zero; reserve exactly the lifetime
    emission; at least 7 validators; `anchor_timeout_ms` at least 500; staking floors set
-   (1,000 coins self-bond, 1 coin delegation); every bond equal to `min_self_bond`; no
+   (1,000 coins self-bond, 1 coin delegation); every bond equal to the genesis bond, `min_self_bond` plus 10.6% (ADR-070 amendment 2026-11-22); no
    operator above 20%; shielded pool off; stake-weighted; proof of work; fee floor 10^6;
    stake above zero. It does **not** read `suite_deprecations`: check that by hand.
    Also confirm `maya-mainnet` is registered in `Network::for_chain_id`
@@ -81,10 +81,12 @@ keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-b
 refuses any other supply on `maya-mainnet`, and writes no root key and no treasury. Amounts are base
 units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
 `--mining-reserve` + the sum of the bonds**, and nothing else. `--mining-reserve` is the
-lifetime emission (`deploy/genesis/mainnet/README.md`), not cap - supply - bonds. Every bond is
-exactly `--min-self-bond`, which is 1,000 coins (`1000000000000000000000000000` base units; the genesis-check floor). `validators.txt` lines are `label key operator bond`.
+lifetime emission (`deploy/genesis/mainnet/README.md`), not cap - supply - bonds. `--min-self-bond`
+is 1,000 coins (`1000000000000000000000000000` base units; the genesis-check floor), and every
+bond is exactly the genesis bond above it, 1,106 coins (`1106000000000000000000000000`; ADR-070
+amendment 2026-11-22, pending Eric). `validators.txt` lines are `label key operator bond`.
 Check the printed `total supply` line before signing: it must equal the reserve plus
-(validators × min-self-bond). Then `cargo xtask genesis-check out/genesis.json`, commit the
+(validators × the genesis bond). Then `cargo xtask genesis-check out/genesis.json`, commit the
 file, and have Eric sign it (`genesis/<chain>.json.sig`). **APPROVED: sign genesis.**
 
 ## 4. Start (testnet) **APPROVED: re-genesis**

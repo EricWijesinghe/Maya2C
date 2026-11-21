@@ -3567,7 +3567,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
-note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. S-033 committee floor (ADR-070, amended 2026-11-21 for the re-freeze): counted before the downtime slash, and a kept validator is not slashed below min_self_bond, so the floor holds at mainnet bonds (docs/audit/FINDINGS.md). Not an external audit."
+note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. S-033 committee floor (ADR-070, amended 2026-11-21 for the re-freeze): counted before the downtime slash, and a kept validator is not slashed below min_self_bond, so the floor holds at mainnet bonds (docs/audit/FINDINGS.md). Proposed, pending Eric (amendment 2026-11-22): genesis bonds of min_self_bond plus 10.6%, checked by xtask genesis-check, not the node. Not an external audit."
 
 [[subsystem]]
 id = "security-council-pause"

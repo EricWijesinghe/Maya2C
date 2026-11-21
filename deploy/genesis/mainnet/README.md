@@ -74,7 +74,8 @@ cargo xtask genesis-check out/genesis.json
   exactly the schedule's `lifetime_emission`.
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
   validators and no operator above 20% of the bonded stake. Every bond is exactly
-  `--min-self-bond` (1,000 coins, DECISIONS 2026-11-08); the ceremony and `genesis-check` both
+  the genesis bond, `--min-self-bond` (1,000 coins, DECISIONS 2026-11-08) plus 10.6%: 1,106
+  coins (ADR-070 amendment 2026-11-22, pending Eric); the ceremony and `genesis-check` both
   refuse any other amount. Stake concentration is therefore the seat count, which the 20% cap
   already bounds.
 - The check counts payout addresses. At launch every validator is run by one person

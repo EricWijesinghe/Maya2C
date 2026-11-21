@@ -95,3 +95,56 @@ validators are gone for good, no quorum exists that could sign a change of commi
 That follows from the quorum rule (2f + 1 of n = 3f + 1, ADR-027; W − f by weight,
 ADR-039/ADR-040), not from a test here. Recovery stays the social re-genesis in
 `docs/runbooks/chain-halt.md` (`docs/audit/KNOWN_ISSUES.md` #18, "recovery open").
+
+## Amendment 2026-11-22: option A + B, pending Eric
+
+**Status: proposed, pending Eric.** Owner decision brief 1 (the independent AI audit of
+2026-11-19, `14-decision-briefs.md` item 1; an AI review, not an external audit) asks Eric to
+choose between four options for the same S-033 gap. Draft PR "[needs-eric] fix(staking): S-033
+committee floor at mainnet bonds (brief 1, option A+B)" builds the brief's recommendation; it is
+stacked on #524 and merges only with Eric's choice.
+
+| Brief option | What it is | Where |
+|---|---|---|
+| A | the floor is counted before the slash; a floor-kept validator stays eligible | already built by #524 (amendment 2026-11-21 above); this amendment keeps it unchanged |
+| B | genesis bonds carry a margin above `min_self_bond` | built here, in `cargo xtask genesis-check` and `genesis-ceremony` |
+| C | a validator the floor keeps is not slashed at all | not built |
+| D | accept and document | not built |
+
+**B as built.** Every mainnet seat bonds exactly the genesis bond, `min_self_bond` plus
+`BOND_MARGIN_BPS` = 10.6%, rounded down (1,106 coins at the 1,000-coin floor). One amount for
+every seat keeps what the tiny-bond decision (Eric 2026-11-07) was for: the bonds are the
+disclosed seats, the 20% operator cap stays a seat count, and genesis mints no more than
+seven small bonds. The margin is the least, in tenths of a percent, that leaves a bond at or
+above the minimum after `MARGIN_OUTAGES` = 10 downtime slashes at the node's compiled 1%
+(1,106 coins leave 1,000.25 after ten slashes; at 10.5%, 1,105 coins leave 999.34). A genesis file cannot change that rate:
+`StakingGenesis::params` takes `downtime_slash_bps` from `Params::DEVNET`, and the xtask test
+reads it from there. The node itself is unchanged and does not check the margin, so B is
+launch policy, not a consensus rule (`spec/06-staking.md`).
+
+**Why A and B together.** A alone holds the floor, but at bonds of exactly the minimum a kept
+validator can never be slashed (any slash would unseat it), so downtime while the committee
+is at four seats costs only the epoch reward — the economics note in #524. With B the kept
+validator's slash leaves it above the minimum, so it is slashed like any other down validator
+for its first ten outages: A keeps the seat, B restores the penalty. B also lets a validator
+jailed above the floor return from its term without a top-up, which a bond of exactly the
+minimum cannot (990 < 1,000 after one outage).
+
+**What B does not cover.** A validator registered after genesis at exactly `min_self_bond`
+brings back the thin-bond case for itself; A still keeps the floor, unslashed. Ten outages is
+a margin, not a bound: the eleventh slash takes a genesis bond below the minimum, and A then
+keeps it seated unslashed while the floor binds.
+
+**What changes at genesis if Eric takes A + B.** The ceremony's `validators.txt` names 1,106
+coins per seat (`1106000000000000000000000000` base units) with `--min-self-bond` still 1,000
+coins; genesis carries 7,742 coins of bonds instead of 7,000. `genesis-check` refuses a bond
+of exactly the minimum. `deploy/genesis/mainnet/README.md`,
+`docs/GENESIS.md` and the re-genesis checklist are updated in the same PR; the DECISIONS
+entries of 2026-11-07 and 2026-11-08 stay as written, and the entry of 2026-11-22 supersedes
+their "exactly the minimum" if Eric takes B.
+
+Tests: `a_bond_other_than_the_genesis_bond_is_refused_and_named` and
+`the_genesis_bond_outlasts_ten_downtime_slashes_and_a_smaller_margin_does_not`
+(`xtask/src/genesis_check.rs`), `mainnet_bonds_must_be_exactly_the_genesis_bond`
+(`bins/genesis-ceremony/src/committee.rs`), `a_mainnet_bond_must_be_exactly_the_genesis_bond`
+(`bins/genesis-ceremony/src/main.rs`); A's tests are those of the amendment above.

@@ -33,5 +33,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # the other reports stamp UTC. See src/stamp.rs.
 time = { workspace = true, features = ["local-offset"] }
 
+[dev-dependencies]
+# The genesis bond margin is priced against the node's downtime slash rate
+# (genesis_check tests); dependency-free, and already in the graph via the node.
+maya-staking = { path = "../crates/staking" }
+
 [lints]
 workspace = true

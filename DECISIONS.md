@@ -902,6 +902,23 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
 
+## 2026-11-22 — S-033 at mainnet bonds: option A + B (decision brief 1) — PENDING ERIC
+
+Not decided. Claude's recommendation, built as a `[needs-eric]` draft PR stacked on #524, from
+owner decision brief 1 of the independent AI audit (2026-11-19; an AI review, not an external audit).
+
+- **Option A** (count the floor before the slash; a floor-kept validator stays eligible) is
+  #524's rule, unchanged (entry of 2026-11-21 below).
+- **Option B, proposed:** every mainnet seat bonds exactly the genesis bond, `min_self_bond`
+  plus 10.6% (1,106 coins at the 1,000-coin floor), enforced by `genesis-check` and the ceremony.
+  It replaces "every bond exactly the minimum" of 2026-11-07 / 2026-11-08 if Eric takes it.
+  Why: at bonds of exactly the minimum a floor-kept validator can never be slashed, and a
+  jailed one cannot return without a top-up; with the margin both hold for ten outages.
+- **What changes at genesis:** 7,742 coins of bonds instead of 7,000; the node is unchanged.
+- **Not taken:** C (no slash while the floor binds) and D (accept); reasons in ADR-070
+  amendment 2026-11-22.
+- **Eric decides:** A + B, A alone (#524 as is), or another option.
+
 ## 2026-11-21 — S-033 committee floor holds at mainnet bonds (Eric 2026-11-14)
 
 Founder-brief audit question 17. Eric 2026-11-14 ("I approve everything, proceed") took the
