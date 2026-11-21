@@ -692,7 +692,7 @@ fn time_fold(entries: u32, value_len: usize) -> (f64, u64) {
 #[ignore = "timing: run with --ignored --nocapture and record the figures in ADR-142"]
 fn the_contracts_root_fold_grows_with_total_contract_state() {
     // Not a gas price: the contracts layer of the state root folds every
-    // contract key every block (ROOT-5). Before ADR-142 amendment 4 nothing
+    // contract key every block (ROOT-5). Before ADR-142 amendment 6 nothing
     // bounded the entries; now CSTATE-2 bounds their counted size. Printed:
     // the fold over small entries (per-entry cost), over 4 KiB values
     // (per-byte cost), and at the default and the ceiling of

@@ -1,4 +1,4 @@
-//! CSTATE-1 and CSTATE-2 (ADR-142 amendment 4) against their references.
+//! CSTATE-1 and CSTATE-2 (ADR-142 amendment 6) against their references.
 //!
 //! The reference for the running total is a scan of every committed entry;
 //! the reference for a block's total is the merged map the contracts layer

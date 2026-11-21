@@ -926,14 +926,32 @@ fn wrote(fixture: &Fixture, contract: &[u8; 32]) -> bool {
 
 /// A loop contract that a cold call of it spends close to `target` gas on.
 fn spinner_using(target: u64) -> Vec<u8> {
+    looper_using(target, "")
+}
+
+/// [`spinner_using`] that writes `k` once the loop is done, so a call that
+/// completed is visible in state.
+fn writing_spinner_using(target: u64) -> Vec<u8> {
+    looper_using(
+        target,
+        "(i32.store8 (i32.const 0) (i32.const 107))
+         (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4))",
+    )
+}
+
+/// A loop contract, then `tail`, that a cold call spends close to `target` on.
+fn looper_using(target: u64, tail: &str) -> Vec<u8> {
     let make = |n: u64| {
         wasm(&format!(
-            r#"(module (memory (export "memory") 1)
+            r#"(module
+                (import "env" "storage_write" (func $write (param i32 i32 i32 i32)))
+                (memory (export "memory") 1)
                 (func (export "invoke") (param i32) (result i64)
                   (local $i i64)
                   (loop $l
                     (local.set $i (i64.add (local.get $i) (i64.const 1)))
                     (br_if $l (i64.lt_u (local.get $i) (i64.const {n}))))
+                  {tail}
                   (i64.const 0)))"#
         ))
     };
@@ -983,6 +1001,41 @@ fn a_plaintext_call_that_fills_the_block_gas_does_not_void_a_due_sealed_call() {
     assert!(
         wrote(&fixture, &ids[1]),
         "the sealed call must run on its own budget"
+    );
+}
+
+#[test]
+fn a_block_spends_its_cap_on_plaintext_calls_and_the_sealed_budget_on_reveals() {
+    // 09 R-10: GAS-2 bounds a block's contract gas at `vm.max_block_gas` of
+    // plaintext work plus `sealed_gas_budget` of revealed work, 1.25 x the
+    // cap in all, not at the cap. Both calls here complete (each writes), and
+    // together they spend more than the cap, in a block that validates.
+    let deployer = generate_signing_key().expect("key");
+    let sender = generate_signing_key().expect("key");
+    let keepers = keepers(3);
+    let mut funded = vec![
+        (deployer.address(), 1_000_000u64),
+        (sender.address(), 1_000_000),
+    ];
+    funded.extend(keepers.iter().map(|(key, _)| (key.address(), 10_000u64)));
+    let fixture = fixture(&funded);
+
+    let margin = 2_000_000;
+    let plain = writing_spinner_using(block_cap() - margin);
+    let sealed = writing_spinner_using(sealed_budget() - margin);
+    let ids = deploy_plain(&fixture, &deployer, &[plain, sealed], 1);
+    let (sealed_call, call_id) =
+        fixture.seal(&contract_call(ids[1], sealed_budget()), &sender, 0, 5);
+    fixture.apply(vec![sealed_call], 2).expect("include");
+
+    let mut reveal = vec![signed(contract_call(ids[0], block_cap()), 2, &deployer)];
+    reveal.extend(fixture.shares(&call_id, 5, 3, &keepers));
+    fixture.apply(reveal, 5).expect("the reveal block applies");
+    assert!(wrote(&fixture, &ids[0]), "the plaintext call completed");
+    assert!(wrote(&fixture, &ids[1]), "the revealed call completed");
+    assert!(
+        (block_cap() - 2 * margin) + (sealed_budget() - 2 * margin) > block_cap(),
+        "the two together spent more than the plaintext cap"
     );
 }
 

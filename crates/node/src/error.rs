@@ -370,7 +370,7 @@ pub enum NodeError {
     },
 
     /// The block would write more distinct contract entries than
-    /// `vm.max_block_contract_writes` allows (ADR-142 amendment 4,
+    /// `vm.max_block_contract_writes` allows (ADR-142 amendment 6,
     /// CSTATE-1). Not this transaction's fault: a block producer leaves it
     /// for a later block.
     #[error("the block would write {entries} contract entries, above the cap of {cap}")]
@@ -382,7 +382,7 @@ pub enum NodeError {
     },
 
     /// Committed contract state would grow past
-    /// `vm.max_contract_state_bytes` (ADR-142 amendment 4, CSTATE-2).
+    /// `vm.max_contract_state_bytes` (ADR-142 amendment 6, CSTATE-2).
     #[error("contract state would be {size} bytes, above the ceiling of {cap}")]
     ContractStateFull {
         /// The total the write would have produced.

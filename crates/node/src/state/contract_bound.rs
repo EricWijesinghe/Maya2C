@@ -1,5 +1,5 @@
 //! Bounds on contract state, so the contracts layer of the state root stays
-//! inside the block time (ADR-142 amendment 4, BACKLOG G2).
+//! inside the block time (ADR-142 amendment 6, BACKLOG G2).
 //!
 //! ## Why a bound, now that the root is kept between blocks
 //!
@@ -10,7 +10,7 @@
 //! memory for every entry's key and leaf, and the disk under it. Nothing
 //! prices that growth in coin (FEE-5). These rules bound it. Whether to bound
 //! it, at what numbers, and whether to price it instead, is Eric's decision
-//! (ADR-142 amendment 4, proposed).
+//! (ADR-142 amendment 6, proposed).
 //!
 //! ## The two rules
 //!

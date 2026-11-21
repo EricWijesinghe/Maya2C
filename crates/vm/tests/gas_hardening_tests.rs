@@ -391,3 +391,62 @@ fn a_module_with_too_many_locals_is_refused_before_it_compiles() {
         "{outcome:?}"
     );
 }
+
+/// A contract that recurses `depth` calls deep and returns: the shape of the
+/// `golden-recursion-5000-deep-completes-on-every-build` vector (09 R-6).
+fn recursion_to(depth: u64) -> Vec<u8> {
+    wasm(&format!(
+        r#"(module (memory (export "memory") 1)
+            (func $down (param i64) (result i64)
+              (if (result i64) (i64.eqz (local.get 0))
+                (then (i64.const 0))
+                (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1)))
+                               (i64.const 1)))))
+            (func (export "invoke") (param i32) (result i64)
+              (call $down (i64.const {depth}))))"#
+    ))
+}
+
+#[test]
+#[ignore = "measurement; run with --ignored --nocapture on each ISA and record the depth in ADR-142"]
+fn measure_the_deepest_recursion_this_isa_completes() {
+    // 09 R-6: where the native stack overflows depends on frame sizes, so on
+    // the ISA, Cranelift's flags and the host build (release and dev differ
+    // by 14 levels on one machine, ADR-142 amendment 4). This finds this
+    // build's boundary for `recursion_to`; no vector can pin it.
+    let vm = Vm::new().unwrap();
+    let limit = 250_000_000;
+    let completes = |depth| {
+        vm.execute(
+            &recursion_to(depth),
+            CONTRACT,
+            &[],
+            limit,
+            MemoryState::at_height(1),
+        )
+        .outcome
+        .is_ok()
+    };
+    let (mut low, mut high) = (1u64, 1_000_000u64);
+    assert!(completes(low) && !completes(high));
+    while high - low > 1 {
+        let mid = low + (high - low) / 2;
+        if completes(mid) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    let run = vm.execute(
+        &recursion_to(low),
+        CONTRACT,
+        &[],
+        limit,
+        MemoryState::at_height(1),
+    );
+    eprintln!(
+        "R-6 {} deepest completing depth {low}, gas {} at limit {limit}; depth {high} overflows",
+        std::env::consts::ARCH,
+        run.gas_used
+    );
+}

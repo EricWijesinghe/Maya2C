@@ -302,6 +302,53 @@ fn a_confirm_repairs_a_wrong_cache_before_a_header_carries_it() {
     UNCHECKED.with(|unchecked| unchecked.set(false));
 }
 
+/// PR #549 review R-4, which this cache makes live from genesis: a node that
+/// only imports blocks (a follower, an RPC node, a validator catching up)
+/// must still confirm the cache every `CONFIRM_EVERY` heights, or a block
+/// declaring the damaged cache's root is accepted here and refused by every
+/// node that restarts.
+#[test]
+fn a_node_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root() {
+    use crate::core::{Block, BlockHeader};
+    use crate::state::context::BlockContext;
+    use crate::state::root_cache::CONFIRM_EVERY;
+
+    let (db, _dir, _) = damaged();
+    UNCHECKED.with(|unchecked| unchecked.set(true));
+    let header = |state_root| BlockHeader {
+        version: 0,
+        prev_hash: [1; 32],
+        state_root,
+        timestamp: 1_790_000_000,
+        nonce: 0,
+        difficulty_target: [0xFF; 32],
+        tx_root: [0; 32],
+    };
+    // The damaged cache's root for an empty block, asked off a confirm height
+    // so the asking does not use up the confirm the import below is due.
+    let wrong = db
+        .preview_root(
+            &Block::new(header([0; 32]), Vec::new()),
+            BlockContext::at_height(CONFIRM_EVERY + 1),
+        )
+        .unwrap();
+    assert_eq!(db.contracts_root_stats().repairs, 0, "still damaged");
+
+    let declared = Block::new(header(wrong), Vec::new());
+    let applied = db.apply_journaled_with(
+        &declared,
+        &[0x43; 32],
+        BlockContext::at_height(CONFIRM_EVERY),
+        |_| (),
+    );
+    assert!(
+        matches!(applied, Err(NodeError::StateRootMismatch { .. })),
+        "a block declaring the damaged cache's root must be refused: {applied:?}"
+    );
+    assert_eq!(db.contracts_root_stats().repairs, 1);
+    UNCHECKED.with(|unchecked| unchecked.set(false));
+}
+
 /// Median of five runs of `f`, in milliseconds.
 fn median_ms(mut f: impl FnMut()) -> f64 {
     let mut runs: Vec<f64> = (0..5)
@@ -389,7 +436,7 @@ fn the_contracts_root_at_400_000_entries_before_and_after() {
 }
 
 #[test]
-#[ignore = "timing: run with --ignored --nocapture; figures go in ADR-142 amendment 4 (proposed)"]
+#[ignore = "timing: run with --ignored --nocapture; figures go in ADR-142 amendment 6 (proposed)"]
 fn the_contracts_root_at_the_contract_state_default_and_ceiling() {
     // CSTATE-2's default and ceiling in the smallest entries (4-byte key,
     // 1-byte value), the most entries each allows: the one pass over all
