@@ -995,3 +995,10 @@ Two findings that contradict the brief, reported rather than worked around (Stan
 - **Invariant 24** now names `check_declared_root` and the full rebuild as the reference.
 - **Still open, for Eric:** (a) or (b) above. Not decided by this revision. Until (a), the
   brief's per-block cost goal is not delivered on the genesis chain.
+
+## 2026-11-19 — ADR-142 amendment 3: failed builder work on its own count; compile prices kept (Eric 2026-11-17 pre-approval, re-freeze bundle 3)
+
+- **Failed contract trials no longer share the applied calls' counter.** Selection moves a failed trial's gas off `Overlay::vm_gas` onto a builder-only count and tries a contract transaction only while applied + failed + its bound fit in `2 × vm.max_block_gas + 1,536,000`. One failing call at the cap no longer leaves the calls after it out. Builder policy only: the block validity rule (GAS-2) is unchanged. This reverses Amendment 2's "not taken": with a two-cap total, one failure at the cap leaves room for every call that passes GAS-2 after it, which a one-cap failure budget did not.
+- **Cost, stated:** builder worst case `2 × cap + 3,072,000` per selection; producer ~816 ms of priced work at the 250 M default and ~978 ms at the 300 M ceiling, at 1 ns/unit.
+- **Compile prices unchanged.** In release, three runs of the at-limit shapes gave worst 1.231 (loaded), 0.771 and 0.768 ns/fuel, all on `block (type []->[16])` x 2000. The ADR's 1 ns claim now gives the loaded figure. The constants were not tuned to one loaded run.
+- **Needs Eric, not decided here:** charging failed calls (STF-8, economics; two failing calls at the cap from two senders still exhaust the builder budget, G1), and whether to lower `VM_GAS_CEILING` given the producer margin at 300 M (G1b).

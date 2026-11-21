@@ -17,7 +17,9 @@
 //! module held in the overlay and pay only to instantiate it (GAS-3).
 //!
 //! A call or deployment that fails still spends what it ran: a call the gas
-//! it used, a deployment its compile, counted before the compile. Revealed
+//! it used, a deployment its compile, counted before the compile. The block
+//! builder moves a failed trial's gas to a count of its own, so it bounds the
+//! builder's work without taking room from calls that apply. Revealed
 //! sealed actions count against their own budget, [`sealed_gas_budget`], so
 //! plaintext calls cannot use up the gas a due sealed call needs.
 //!
@@ -86,6 +88,30 @@ pub const SEALED_GAS_PARTS: u64 = 4;
 #[must_use]
 pub const fn sealed_gas_budget(block_cap: u64) -> u64 {
     block_cap / SEALED_GAS_PARTS
+}
+
+/// How many times `vm.max_block_gas` the block builder may run of applied and
+/// failed contract work together in one selection (GAS-2, builder policy, not
+/// a validity rule). Two: failed work keeps its own count, so up to one cap of
+/// it never takes room from the calls that apply (PR #549 review).
+pub const BUILDER_GAS_CAPS: u64 = 2;
+
+/// Room over [`BUILDER_GAS_CAPS`] caps for what a failed trial reports past
+/// the bound it was admitted on: the most memory a call can hold (GAS-7), so
+/// a failure at the cap never stops a call that fits after it.
+pub const BUILDER_GAS_SLACK: u64 = gas::MEMORY_PAGE_FUEL * maya_vm::config::MAX_MEMORY_PAGES as u64;
+
+/// The most contract work a builder trial of `kind` counts before the gas it
+/// reports is known: a call's `gas_limit`, a deployment's cold price (or its
+/// scan, when the scan refuses it). A failed call can report past its limit
+/// by the memory it held (GAS-7), at most `256 × 6,000`.
+fn trial_gas_bound(kind: &TxKind) -> u64 {
+    match kind {
+        TxKind::CallContract(call) => call.gas_limit,
+        TxKind::DeployContract(deploy) => gas::cold_call_fuel(&deploy.code)
+            .unwrap_or_else(|_| gas::priced(gas::CALL_BASE_FUEL, 1, deploy.code.len() as u64)),
+        _ => 0,
+    }
 }
 
 /// A deployment costing `needed` could ever apply: within the block cap and
@@ -247,6 +273,27 @@ impl StateDB {
             .get(ParameterKey::VmMaxBlockGas)
             .saturating_to_u64();
         admit_deployable(needed, block_cap)
+    }
+
+    /// Builder policy: whether selection may still trial-run contract
+    /// transaction `kind`, having applied `overlay.vm_gas` and seen `failed`
+    /// of failed contract work. Whether it applies is still GAS-1 and GAS-2
+    /// against `overlay.vm_gas` alone.
+    pub(crate) fn builder_may_try(
+        &self,
+        overlay: &Overlay,
+        failed: u64,
+        kind: &TxKind,
+    ) -> Result<bool> {
+        let (_, block_cap) = self.gas_caps(overlay)?;
+        let budget = block_cap
+            .saturating_mul(BUILDER_GAS_CAPS)
+            .saturating_add(BUILDER_GAS_SLACK);
+        Ok(overlay
+            .vm_gas
+            .saturating_add(failed)
+            .saturating_add(trial_gas_bound(kind))
+            <= budget)
     }
 
     /// `(vm.max_tx_gas, the block cap that applies)`: `vm.max_block_gas` for a

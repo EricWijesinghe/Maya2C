@@ -412,6 +412,28 @@ fn multi_value_shapes() -> Vec<(String, Vec<u8>)> {
                 most,
             )),
         ),
+        // What the typed-results row above is made of: the same values pushed
+        // and dropped with no block (priced by bytes alone), and half as many
+        // results per block. Attribution for ADR-142 amendment 3.
+        (
+            format!("{MAX_TYPE_ARITY} pushed, dropped x {most}, no block"),
+            three(times(
+                &format!("{} {}", push(MAX_TYPE_ARITY), drop(MAX_TYPE_ARITY)),
+                most,
+            )),
+        ),
+        (
+            format!("blocks []->[{half}] x {most}, 3 fns"),
+            three(times(
+                &format!(
+                    "block (result {}) {} end {}",
+                    times("i32", half),
+                    push(half),
+                    drop(half)
+                ),
+                most,
+            )),
+        ),
         (
             format!("br_if carrying {half} x {}, 3 fns", most - 1),
             three(format!(

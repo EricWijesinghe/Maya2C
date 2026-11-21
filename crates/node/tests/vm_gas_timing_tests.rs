@@ -535,13 +535,16 @@ const FOREVER_WAT: &str = r#"(module (memory (export "memory") 1)
 fn building_a_block_of_failing_max_gas_calls_stays_inside_the_block_time() {
     // Every DAG-BFT validator runs selection on the same sub-DAG. A failing
     // call is not included, so before the review fix its gas was never
-    // counted: K of them cost K x the cap in execution.
+    // counted: K of them cost K x the cap in execution. Failed work now has
+    // its own count, so selection runs up to two caps of it (GAS-2): eight
+    // calls, each reporting a quarter of the cap (its limit plus its page).
     const FAILING: usize = 8;
     let fixture = fixture(FAILING);
     let contract = deploy_one(&fixture.db, &fixture.keys[0], &wasm(FOREVER_WAT));
-    let mut txs = calls(&fixture, contract, block_cap(), 0);
+    let limit = block_cap() / 4 - maya_vm::gas::MEMORY_PAGE_FUEL;
+    let mut txs = calls(&fixture, contract, limit, 0);
     txs.truncate(FAILING);
-    txs[0] = calls(&fixture, contract, block_cap(), 1).remove(0);
+    txs[0] = calls(&fixture, contract, limit, 1).remove(0);
     let started = Instant::now();
     let kept = fixture
         .db
