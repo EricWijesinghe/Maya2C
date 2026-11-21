@@ -47,10 +47,11 @@ use crate::state::merkle::{HASH_LEN, PathStep, account_leaf, verify_path};
 
 /// A subsystem that folds into the state root above the accounts tree.
 ///
-/// The fold order is [`LAYER_ORDER`], not the order of these variants (nor the
-/// derived `Ord`): it is consensus, and a verifier that applied two layers in
-/// the wrong sequence would compute a different root and reject a valid proof.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The fold order is [`LAYER_ORDER`], not the order of these variants. There is
+/// deliberately no `Ord`: the derived one followed declaration order, which is
+/// not the fold order, and a verifier that applied two layers in the wrong
+/// sequence would compute a different root and reject a valid proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StateLayer {
     /// Payment channels.
     Channels,
@@ -395,6 +396,7 @@ impl AccountProof {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use std::collections::HashSet;
 
     fn digest(layer: StateLayer, seed: u8) -> LayerDigest {
         LayerDigest {
@@ -576,6 +578,13 @@ mod tests {
             .map(|digest| digest.layer)
             .collect();
         assert_eq!(folded, LAYER_ORDER, "LAYER_ORDER must be the fold order");
+    }
+
+    #[test]
+    fn layer_order_names_each_layer_once() {
+        // A duplicate would give one layer two places in the fold.
+        let distinct: HashSet<StateLayer> = LAYER_ORDER.iter().copied().collect();
+        assert_eq!(distinct.len(), LAYER_ORDER.len());
     }
 
     #[test]
