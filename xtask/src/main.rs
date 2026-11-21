@@ -56,6 +56,7 @@ mod sdk_e2e;
 mod site_integrity;
 mod slo_check;
 mod spec_coverage;
+mod stamp;
 mod starter_stickers;
 mod status;
 mod sweep;
