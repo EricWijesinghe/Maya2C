@@ -19,6 +19,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use maya_api_gateway::error::GatewayError;
+use maya_api_gateway::graphql::MAX_REQUEST_BYTES;
 use maya_api_gateway::node::{Balance, ChainInfo, FeeInfo, NodeClient, Supply};
 use maya_api_gateway::sealed::MAX_SEALED_PAYLOAD_BYTES;
 use tower::ServiceExt;
@@ -406,6 +407,77 @@ async fn a_non_hex_sealed_payload_is_refused() {
 // ---------------------------------------------------------------------------
 // GraphQL
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_graphql_upstream_failure_does_not_leak_the_node_address() {
+    // Same policy as REST: the client sees the flat message, the log sees the
+    // node's text. GraphQL reports resolver errors inside a 200 body.
+    let node = Arc::new(MockNode {
+        calls: AtomicUsize::new(0),
+        fail: true,
+    });
+    let query = format!("{{ account(address: \"{}\") {{ balance }} }}", address());
+    let (_, body) = post(
+        app_with(node),
+        "/graphql",
+        serde_json::json!({ "query": query }),
+    )
+    .await;
+
+    assert_eq!(body["errors"][0]["message"], "upstream node error");
+    let rendered = body.to_string();
+    assert!(!rendered.contains("10.0.3.7"), "leaked host: {rendered}");
+    assert!(!rendered.contains("8545"), "leaked port: {rendered}");
+}
+
+#[tokio::test]
+async fn a_graphql_body_over_the_cap_is_refused_before_it_is_run() {
+    // No Content-Length, so the cap is enforced while the body is read. The
+    // query is valid and only its trailing whitespace exceeds the cap.
+    let node = Arc::new(MockNode::default());
+    let padded = format!(
+        "{{ supply {{ circulating }} }}{}",
+        " ".repeat(MAX_REQUEST_BYTES)
+    );
+    let request = Request::builder()
+        .method("POST")
+        .uri("/graphql")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({ "query": padded }).to_string(),
+        ))
+        .expect("request");
+    let response = app_with(Arc::clone(&node))
+        .oneshot(request)
+        .await
+        .expect("response");
+
+    assert!(
+        !response.status().is_success(),
+        "an oversized GraphQL body must be refused, got {}",
+        response.status()
+    );
+    assert_eq!(node.calls(), 0, "an oversized body must not reach the node");
+}
+
+#[tokio::test]
+async fn a_graphql_body_declared_over_the_cap_is_413() {
+    let node = Arc::new(MockNode::default());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/graphql")
+        .header("content-type", "application/json")
+        .header("content-length", (MAX_REQUEST_BYTES + 1).to_string())
+        .body(Body::from(r#"{"query":"{ supply { circulating } }"}"#))
+        .expect("request");
+    let response = app_with(Arc::clone(&node))
+        .oneshot(request)
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(node.calls(), 0);
+}
 
 #[tokio::test]
 async fn a_graphql_query_is_served() {
