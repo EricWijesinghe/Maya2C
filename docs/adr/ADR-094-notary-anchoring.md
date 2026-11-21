@@ -39,9 +39,15 @@ finality. The node's RPC is not extended.
   `get_transaction` RPC would remove that cost. It is a post-genesis change.
 - Finality trusts the node's checkpoint. Verifying committee signatures is the
   next step and is not in this change.
-- The chain tag the signature is checked against comes from the node's
-  `get_chain_info`; verify does not pin a genesis.
+- Verify pins the genesis (`--genesis`, follow-up PR #620), so the chain tag
+  the signature is checked against is no longer the node's word.
+- The block time and height are the node's word: a dishonest node can place a
+  real stamp in an invented block with an earlier time. Until checkpoint
+  signatures and the `prev_hash` chain from the stamp block up to the
+  checkpoint are verified, use a node you run. That check is the fix, and it
+  comes with the committee-signature step above.
 - One earlier manual run (before the devnet test existed) never saw the stamp
   in a block. It was not reproduced and its cause is unknown; the status rests
-  on the devnet test runs recorded in PR #449.
+  on the devnet test runs recorded in PR #449, and 10 of 10 back-to-back runs
+  passed on 2026-11-21 (PR #620).
 - BLAKE3 is plain (not domain-separated), so standard tools reproduce the hash.

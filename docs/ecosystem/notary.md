@@ -85,7 +85,10 @@ hash, for example `b3sum contract.pdf`. Compare it with `hash` in the receipt.
   stamp's signature, and checks each block's transactions against the header
   its id hashes. It does not yet check that the headers link to each other
   or that the height is real, so a hostile node could serve a made-up chain
-  under the right genesis. Ask a node you trust.
+  under the right genesis. The block time and height are the node's word:
+  a dishonest node can place a real stamp in an invented block with an
+  earlier time (backdating). Until checkpoint signatures and the header chain
+  are verified, use a node you run.
 - **Finality is the node's word.** The receipt does not yet check the
   committee signatures on the checkpoint. Treat `final` as "the node says
   so" until that check lands. The rule that turns a checkpoint height into
@@ -98,7 +101,8 @@ hash, for example `b3sum contract.pdf`. Compare it with `hash` in the receipt.
   node's state for old stamps; keep the txid and receipt.
 - **Mainnet genesis is not pinned yet.** Until it is, pass `--genesis`.
 - **One unexplained miss.** An early manual run never saw a stamp land in a
-  block. The devnet test has not reproduced it, and its cause is unknown.
+  block. The devnet test has not reproduced it (10 of 10 back-to-back runs
+  passed on 2026-11-21), and its cause is unknown.
 
 ## Why there is no node change
 

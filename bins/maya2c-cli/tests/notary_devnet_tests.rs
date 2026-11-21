@@ -10,7 +10,6 @@ use l1_wallet::client::NodeClient;
 use maya2c_cli::dev::{CHAIN_ID, DEV_PASSWORD, Options, launch};
 use maya2c_cli::notary::{SCHEMA, hash_file, setup, stamp, verify};
 
-const RPC: u16 = 32_460;
 const WAIT: Duration = Duration::from_secs(60);
 
 fn bin_dir() -> PathBuf {
@@ -27,6 +26,18 @@ async fn wait_nonce(client: &NodeClient, address: &str, past: u64, what: &str) {
     }
 }
 
+/// Two distinct ports the OS reports free, so parallel runs never collide on
+/// a fixed pair. shortcut: a port can be taken between this call and the
+/// node's bind; upgrade if the node ever accepts port 0 and reports its bind.
+fn free_ports() -> (u16, u16) {
+    let a = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let b = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    (
+        a.local_addr().unwrap().port(),
+        b.local_addr().unwrap().port(),
+    )
+}
+
 fn write(path: &Path, bytes: &[u8]) {
     std::fs::write(path, bytes).unwrap();
 }
@@ -35,12 +46,13 @@ fn write(path: &Path, bytes: &[u8]) {
 async fn a_stamp_lands_in_a_block_and_verifies_with_a_receipt() {
     let work = tempfile::tempdir().unwrap();
     let dir = work.path().join("notary");
+    let (rpc, p2p) = free_ports();
     let chain = launch(&Options {
         dir: dir.clone(),
         accounts: 1,
         watch: None,
-        rpc_port: RPC,
-        p2p_port: 31_460,
+        rpc_port: rpc,
+        p2p_port: p2p,
         explorer_port: None,
         bin_dir: bin_dir(),
         stop_after_deploys: None,
@@ -53,7 +65,7 @@ async fn a_stamp_lands_in_a_block_and_verifies_with_a_receipt() {
     let client = &chain.client;
     let address = chain.accounts[0].1.clone();
     let keystore = dir.join("account-0.key");
-    let url = format!("http://127.0.0.1:{RPC}");
+    let url = format!("http://127.0.0.1:{rpc}");
     let genesis = client.get_network().await.unwrap().genesis;
 
     Box::pin(setup(&keystore, DEV_PASSWORD, &url, Some(&genesis)))

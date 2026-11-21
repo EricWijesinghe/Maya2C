@@ -13,9 +13,10 @@
 //!
 //! **Anchoring** uses the existing `AnchorAttestation` transaction (schema
 //! label + 32-byte root), the only tx kind that records an arbitrary digest
-//! today. This crate does not build or submit that transaction — no
-//! notary tool exists yet (CATALOG row `notary`); it prints the schema and
-//! root to anchor and checks an anchor already on chain ([`anchor`]).
+//! today. This crate does not build or submit that transaction, and
+//! `maya2c notary stamp` (CATALOG row `notary`) anchors only its own
+//! `notary-v1` file hash; it prints the schema and root to anchor by hand and
+//! checks an anchor already on chain ([`anchor`]).
 //!
 //! It reads the chain over JSON-RPC only and links no node crate. What it
 //! does not verify: the block an RPC endpoint returns is trusted as the
