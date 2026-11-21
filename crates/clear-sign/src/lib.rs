@@ -16,7 +16,7 @@
 //! itself the loudest warning. That is the Bybit lesson — the interface
 //! showed one transaction and the signers signed another.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use maya_address::Network;
 use maya_amount::Amount;
@@ -277,17 +277,10 @@ fn div10(a: Amount) -> Amount {
 
 fn warnings_for(e: &Effect, ctx: &Context, out: &mut BTreeSet<Warning>) {
     match e {
-        Effect::Transfer { token, to, amount } => {
+        // The drain check is per token over all transfers: `drains_a_balance`.
+        Effect::Transfer { to, .. } => {
             if looks_like_contact(to, ctx) {
                 out.insert(Warning::LookAlikeRecipient);
-            }
-            let balance = ctx
-                .balances
-                .iter()
-                .find(|(t, _)| t == token)
-                .map_or(Amount::default(), |(_, b)| *b);
-            if drains(*amount, balance) {
-                out.insert(Warning::DrainsBalance);
             }
         }
         Effect::Approve {
@@ -331,13 +324,42 @@ fn warnings_for(e: &Effect, ctx: &Context, out: &mut BTreeSet<Warning>) {
 #[must_use]
 pub fn review(claimed: &[Effect], simulated: &[Effect], ctx: &Context) -> Vec<Warning> {
     let mut out = BTreeSet::new();
-    let (c, s): (BTreeSet<&Effect>, BTreeSet<&Effect>) =
+    // Compared as multisets: as sets, a simulation that repeats a claimed
+    // transfer (sending it twice) compared equal to the claim.
+    let (mut c, mut s): (Vec<&Effect>, Vec<&Effect>) =
         (claimed.iter().collect(), simulated.iter().collect());
+    c.sort_unstable();
+    s.sort_unstable();
     if c != s {
         out.insert(Warning::ClaimMismatch);
     }
     for e in simulated {
         warnings_for(e, ctx, &mut out);
     }
+    if drains_a_balance(simulated, ctx) {
+        out.insert(Warning::DrainsBalance);
+    }
     out.into_iter().collect()
+}
+
+/// Some token's summed outflow over every simulated transfer [`drains`] its
+/// balance: ten transfers of 10% empty an account as surely as one of 100%,
+/// and checking each transfer alone let a drainer split one.
+fn drains_a_balance(simulated: &[Effect], ctx: &Context) -> bool {
+    let mut outflow: BTreeMap<&Address, Amount> = BTreeMap::new();
+    for e in simulated {
+        if let Effect::Transfer { token, amount, .. } = e {
+            let sum = outflow.entry(token).or_default();
+            // Saturating is exact here: a sum past 2^256 exceeds any balance.
+            *sum = sum.saturating_add(*amount);
+        }
+    }
+    outflow.into_iter().any(|(token, total)| {
+        let balance = ctx
+            .balances
+            .iter()
+            .find(|(t, _)| t == token)
+            .map_or(Amount::default(), |(_, b)| *b);
+        drains(total, balance)
+    })
 }

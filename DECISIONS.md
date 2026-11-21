@@ -957,3 +957,10 @@ Two findings that contradict the brief, reported rather than worked around (Stan
 - **Invariant 24** now names `check_declared_root` and the full rebuild as the reference.
 - **Still open, for Eric:** (a) or (b) above. Not decided by this revision. Until (a), the
   brief's per-block cost goal is not delivered on the genesis chain.
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.

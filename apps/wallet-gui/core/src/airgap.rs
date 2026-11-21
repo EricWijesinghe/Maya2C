@@ -248,6 +248,14 @@ impl Assembler {
                     .to_string(),
             ));
         }
+        // Frame::decode bounds the index, but a hand-built frame does not: an
+        // index past the total would panic on the slot below.
+        if frame.index >= self.total {
+            return Err(WalletError::Airgap(format!(
+                "frame {} is out of range for a payload of {}",
+                frame.index, self.total
+            )));
+        }
         self.chunks[frame.index as usize] = Some(frame.chunk.clone());
         Ok(())
     }

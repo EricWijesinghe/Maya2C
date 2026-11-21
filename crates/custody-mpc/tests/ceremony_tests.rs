@@ -8,7 +8,8 @@
 //! | a custodian is offline at signing | leaving it out of the session | a signature, if `t` remain |
 //! | too many are offline | leaving `t-1` in | `ShortOfThreshold`, with both numbers |
 //! | a custodian is offline during generation | a missing dealing | `MissingDealer`, naming it |
-//! | a custodian lies | a share off its own polynomial | `InconsistentShare`, naming the dealer |
+//! | a custodian lies at dealing | a share off its own polynomial | `InconsistentShare`, naming the dealer |
+//! | a custodian's stored share is corrupt | a share off the vault commitments, offered at signing | `InconsistentShare` from `contribute`; the slot stays free |
 //!
 //! The last one is the only one that is an attack rather than an outage, and it
 //! is the one a crash-fault-only design would let through.
@@ -180,8 +181,8 @@ fn mixing_two_vaults_shares_never_reaches_a_signature() {
 fn a_corrupted_share_store_is_caught_before_anything_is_signed() {
     // Custodian 2's safe was restored from a bad backup. The arithmetic cannot
     // tell -- it interpolates whatever it is given -- so the commitment check
-    // is the only thing standing between this and a signature under a key that
-    // owns nothing.
+    // on arrival refuses the share before it can join a quorum, and the
+    // custodian's slot stays free for the genuine share.
     let (_, _, held) = ceremony(3, 5);
     let vault = VaultDescriptor::establish(&held[..3]).expect("establish");
 
@@ -194,12 +195,27 @@ fn a_corrupted_share_store_is_caught_before_anything_is_signed() {
 
     let mut session = SigningSession::open(vault, b"tx".to_vec());
     session.contribute(&held[0]).expect("1");
-    session
-        .contribute(&corrupted)
-        .expect("2, accepted -- nothing here can tell");
-    session.contribute(&held[2]).expect("3");
+    assert_eq!(
+        session.contribute(&corrupted).err(),
+        Some(CustodyError::InconsistentShare {
+            dealer: 2,
+            recipient: 2
+        }),
+        "a share its own vault commitment rejects never joins the quorum"
+    );
+    assert!(
+        !session.contributors().contains(&2),
+        "and custodian 2's slot is still free"
+    );
 
-    assert_eq!(session.sign().err(), Some(CustodyError::WrongSeed));
+    session
+        .contribute(&held[1])
+        .expect("2, the genuine share, takes the free slot");
+    session.contribute(&held[2]).expect("3");
+    assert!(session.is_ready());
+    session
+        .sign()
+        .expect("the quorum signs once the corrupt share is out of it");
 }
 
 #[test]

@@ -37,12 +37,15 @@
 pub mod allowlist;
 pub mod coins;
 pub mod error;
+pub mod events;
 pub mod graphql;
 pub mod jsonrpc;
 pub mod limit;
 pub mod node;
 pub mod rest;
 pub mod sealed;
+pub mod ssrf;
+pub mod webhooks;
 
 use std::sync::Arc;
 
@@ -50,6 +53,7 @@ use async_graphql_axum::GraphQL;
 use axum::Router;
 use axum::routing::post_service;
 use maya_web_security::{secure, security_txt};
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::node::NodeClient;
 use crate::rest::AppState;
@@ -68,9 +72,13 @@ fn routes(node: Arc<dyn NodeClient>) -> Router {
     let state = Arc::new(AppState { node });
 
     // `post_service`, not `post`: `GraphQL` is a tower `Service` rather than an
-    // axum handler, and the two are not interchangeable.
-    rest::router(state)
+    // axum handler, and the two are not interchangeable. Its own router carries
+    // the body cap, so the cap reaches this route and no other.
+    let graphql_routes = Router::new()
         .route("/graphql", post_service(GraphQL::new(schema)))
+        .layer(RequestBodyLimitLayer::new(graphql::MAX_REQUEST_BYTES));
+    rest::router(state)
+        .merge(graphql_routes)
         .merge(security_txt())
         .layer(cors())
 }
@@ -97,6 +105,21 @@ pub fn app_with_limiter(node: Arc<dyn NodeClient>, config: &limit::Config) -> Ro
     // Inside `secure`, so a 429 from the limiter carries the headers too.
     secure(
         routes(node).layer(tower_governor::GovernorLayer::new(Arc::clone(config))),
+        CONTENT_SECURITY_POLICY,
+    )
+}
+
+/// [`app_with_limiter`] plus the event subscription routes
+/// ([`events::router`]), under the same limiter and headers.
+pub fn app_with_events(
+    node: Arc<dyn NodeClient>,
+    config: &limit::Config,
+    events: Arc<events::Events>,
+) -> Router {
+    secure(
+        routes(node)
+            .merge(events::router(events))
+            .layer(tower_governor::GovernorLayer::new(Arc::clone(config))),
         CONTENT_SECURITY_POLICY,
     )
 }

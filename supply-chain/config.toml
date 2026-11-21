@@ -1637,7 +1637,7 @@ version = "0.45.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.libp2p-gossipsub]]
-version = "0.50.0"
+version = "0.50.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.libp2p-identify]]

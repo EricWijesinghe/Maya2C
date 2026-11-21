@@ -1,12 +1,17 @@
 //! The `maya2c` developer CLI (Master Prompt 24): the pieces that are worth
 //! testing without a terminal.
 
+#[cfg(feature = "cli")]
 pub mod custody_report;
 pub mod dap;
 pub mod debug;
+#[cfg(feature = "cli")]
 pub mod dev;
 pub mod fork;
 pub mod lines;
+#[cfg(feature = "cli")]
+pub mod notary;
+#[cfg(feature = "cli")]
 pub mod vault;
 
 use maya_vm::host::{ContractId, MemoryState};

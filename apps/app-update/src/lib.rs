@@ -40,7 +40,10 @@ pub fn start<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
     if !enabled(app) {
         return Ok(());
     }
-    app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+    // Set in code, so it holds even when the config sets `allowDowngrades`.
+    let builder = tauri_plugin_updater::Builder::new()
+        .default_version_comparator(|current, release| is_newer(&release.version, &current));
+    app.handle().plugin(builder.build())?;
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = check_and_offer(&handle).await {
@@ -50,7 +53,15 @@ pub fn start<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-async fn check_and_offer<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn Error + Send + Sync>> {
+/// Whether an offered release is strictly newer than the running one. Equal
+/// and older releases are refused, so a manifest cannot roll an app back.
+fn is_newer<V: PartialOrd>(offered: &V, current: &V) -> bool {
+    offered > current
+}
+
+async fn check_and_offer<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let Some(update) = app.updater()?.check().await? else {
         return Ok(());
     };
@@ -75,4 +86,23 @@ async fn check_and_offer<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn E
     }
     update.download_and_install(|_, _| {}, || {}).await?;
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_newer;
+
+    // Tuples stand in for semver here: their order matches the numeric core.
+
+    #[test]
+    fn updater_refuses_older_version() {
+        assert!(!is_newer(&(0, 1, 4), &(0, 1, 5)));
+        assert!(!is_newer(&(0, 1, 5), &(0, 1, 5)));
+    }
+
+    #[test]
+    fn updater_accepts_newer_version_compared_numerically() {
+        assert!(is_newer(&(0, 1, 10), &(0, 1, 9)));
+        assert!(!is_newer(&(0, 1, 9), &(0, 1, 10)));
+    }
 }

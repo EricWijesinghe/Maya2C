@@ -84,6 +84,20 @@ pub struct PaymentRequest {
     /// [`MAX_REQUEST_ID_CHARS`] printable ASCII characters).
     #[serde(default)]
     pub id: Option<String>,
+    /// A chat payment request this pays, as 64 hex characters, with the
+    /// chain it is for: set only by a `maya2c-wallet://pay` link from the
+    /// chat (ADR-088). Signing refuses another chain or a paid request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<ChatRequest>,
+}
+
+/// The chat request a payment answers: what [`crate::chat_pay`] checks.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatRequest {
+    /// The request id, 64 lowercase hex characters.
+    pub request: String,
+    /// The chain's genesis id, 64 lowercase hex characters.
+    pub chain: String,
 }
 
 impl PaymentRequest {
@@ -179,6 +193,7 @@ impl PaymentRequest {
             message,
             expires_at,
             id,
+            chat: None,
         })
     }
 
@@ -372,16 +387,21 @@ fn percent_encode(value: &str) -> String {
 /// Returns [`WalletError::Qr`] if the image cannot be decoded, is larger than
 /// [`MAX_QR_PIXELS`] on a side, or contains no readable QR code.
 pub fn decode_qr_png(png: &[u8]) -> Result<String> {
-    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .map_err(|e| WalletError::Qr(format!("not a readable PNG: {e}")))?;
+    // Dimensions come from the header, so an oversized image is refused before
+    // any pixel buffer is allocated for it.
+    let (width, height) =
+        image::ImageReader::with_format(std::io::Cursor::new(png), image::ImageFormat::Png)
+            .into_dimensions()
+            .map_err(|e| WalletError::Qr(format!("not a readable PNG: {e}")))?;
 
-    if image.width() > MAX_QR_PIXELS || image.height() > MAX_QR_PIXELS {
+    if width > MAX_QR_PIXELS || height > MAX_QR_PIXELS {
         return Err(WalletError::Qr(format!(
-            "image is {}x{}, larger than the {MAX_QR_PIXELS} pixel limit",
-            image.width(),
-            image.height()
+            "image is {width}x{height}, larger than the {MAX_QR_PIXELS} pixel limit"
         )));
     }
+
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|e| WalletError::Qr(format!("not a readable PNG: {e}")))?;
 
     let luma = image.to_luma8();
     let mut prepared = rqrr::PreparedImage::prepare(luma);
