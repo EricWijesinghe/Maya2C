@@ -455,6 +455,7 @@ impl<'a> Reader<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn wasm(text: &str) -> Vec<u8> {

@@ -185,6 +185,12 @@ jobs:
           --test tier_differential_tests
       - name: Golden gas vectors
         run: cargo test --locked -p custom-l1-node --test vm_gas_tests the_spec_vectors_hold
+      # A measurement, not a check: prints where this build's stack overflows
+      # (re-freeze review R-6), so ADR-142 can record the aarch64 figure.
+      - name: Stack-overflow depth (R-6 measurement)
+        run: >-
+          cargo test --locked -p maya-vm --test gas_hardening_tests --
+          --ignored --nocapture measure_the_deepest_recursion_this_isa_completes
 
   # Screenshot diffs of the design-system specimen (Master Prompt 29). Pinned
   # to one Playwright image because font rasterisation differs between hosts:

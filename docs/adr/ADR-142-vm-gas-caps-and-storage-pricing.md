@@ -677,7 +677,7 @@ High" asked about, but under. Two changes:
   count is at most the call's `gas_limit`, so the builder's bound is unchanged.
   It is consensus for a revealed sealed call (whose `gas_limit` can reach
   `deploy_fuel(len)` for modules up to 138,777 bytes under the 62.5 M sealed
-  budget) and builder policy for a plaintext one. Stored code that a later
+  budget) and, for a plaintext one, block selection (GAS-9: consensus under DAG-BFT, amendment 6). Stored code that a later
   release's shape bound refuses counts the same, where it counted nothing.
 
 The review's complete fix, a cold price stored at deployment, is not taken:
@@ -718,7 +718,10 @@ stack that no build or ISA reaches it first (a module rewriter: a new
 dependency in the VM crate, which needs Eric, or a hand-written one); executing
 consensus on a tier with fixed frames (Pulley) changes every price calibrated
 here. Recorded in the spec's Gaps and BACKLOG.md (G4). Until one lands,
-validators should run the one published release binary.
+validators should run the one published release binary. (Amendment 6
+corrects what this paragraph left out: "x86-64 only" is not that condition,
+because Windows and Linux x86-64 builds overflow at different depths, and the
+host CPU's ISA flags were inferred; they are now named.)
 
 ### R-10: GAS-2 says what a block may spend in all
 
@@ -758,7 +761,12 @@ advances, it writes nothing, and its failure gas counts against the block's
 contract gas. STF-8 gains that one exception. A call naming no contract, a
 GAS-1 or GAS-2 refusal and a node-local fault still fail the transaction; the
 VM engine failing to start is now `Storage` (a local fault), so no node
-includes a call as failed because its own engine did not start.
+includes a call as failed because its own engine did not start. A call
+whose engine could not get memory mid-call (an instance, its linear memory,
+compiled code) is `VmError::LocalFault` and so `Storage` too (amendment 7),
+which GAS-8 never absorbs: the review of this draft found that before
+amendment 7 those faults reached the node as `NodeError::Vm` and would have
+been included as failed calls on the node short of memory alone.
 
 **What it closes.** G1: a failing call is no longer free or pooled. Once
 included its nonce has moved, so the same transaction cannot be proposed
@@ -777,3 +785,264 @@ parameter and its bounds, refunds or none under GAS-6), not built here.
 **Variant not built.** Included failed work could count against a budget of
 its own (one cap), so a paying failing call never takes room from calls that
 apply. It doubles a validator's worst case (2.25 × cap) and still leaves R-3.
+## Amendment 6, 2026-11-22: the #549 review of amendment 4 (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+Numbered 6 because numbers 4 and 5 are also claimed by two other re-freeze
+branches (`refreeze/contracts-root-bound`, `refreeze/contracts-root`); the
+coordinator renumbers on merge. The review's five findings were read as
+claims and checked against the code first. None of this is an external audit.
+
+### Deployments: scanned only when the scan is counted
+
+The claim: some shape scans in block selection are never counted, so the
+GAS-2 bound on the builder did not match the code. Confirmed, all three parts:
+
+- `trial_gas_bound` ran `gas::cold_call_fuel` (a scan of up to 512 KiB) on
+  every deployment `builder_may_try` considered, before any count, and a
+  deployment it then skipped cost that scan for nothing.
+- `deploy_contract` scanned, then returned `BlockGasExhausted` or
+  `GasAboveCap` without counting. Nothing counted means the builder neither
+  recorded the sender nor moved work to its failed count, so a valid pooled
+  deployment that never fits was scanned free in every block.
+- The same scan was priced two ways: a cold call refused after it counts
+  `deploy_fuel(len)` (amendment 4), a deployment the scan refused counted
+  `50,000 + len`.
+
+Now:
+
+- A deployment is checked on its length price `deploy_fuel(len)` before
+  anything else (before the scan, the contract-id hash and the code lookup):
+  the cold price is that plus the shape's, so one whose length price does not
+  fit is refused whatever its shape, counting 0, as a cold call is.
+- Once scanned, any refusal (a shape bound, the cap, what the block has left)
+  counts `deploy_fuel(len)`, which the first check guarantees fits. An
+  admitted deployment counts its whole `cold_call_fuel` before the compile, as
+  before.
+- Selection bounds a deployment by what the block has left, not by its scan:
+  a deployment counts at most that, so the GAS-9 work bound holds, and no
+  deployment is scanned to be bounded. The difference from the old bound: a
+  deployment is tried while the failed count is at most `cap + 1,536,000`,
+  whatever its size, so one failing call at the cap still leaves deployments
+  tried (as it leaves calls); after two (G1), small calls still fit but
+  deployments do not.
+
+Red, then green (`crates/node/src/state/vm_exec_tests.rs`):
+`a_deployment_refused_after_its_shape_scan_counts_the_length_price` (a
+500,000-byte module refused `BlockGasExhausted` after its scan counted
+nothing: 24,921,650 against 250,000,000 expected),
+`a_deployment_whose_shape_is_refused_counts_the_length_price` (50,027 against
+62,150), `a_deployment_whose_length_price_does_not_fit_is_refused_before_the_scan`
+(the scan's `locals` error came back instead of `BlockGasExhausted`), and
+`the_builder_bounds_a_deployment_by_what_the_block_has_left_without_its_scan`
+(a deployment the scan refuses was tried one unit past the bound).
+
+Consensus effect: the counts change what a revealed sealed deployment leaves
+for the sealed calls after it (GAS-2), and the selection bound changes the
+DAG-BFT block (GAS-9). A plaintext deployment that does not fit fails its
+block either way; only the error's `needed` figure changes.
+
+### The builder budget is block derivation, not policy
+
+The claim: GAS-2 called the builder's budget, its constants and the
+one-failure-per-sender rule "builder policy, not a validity rule", while
+under DAG-BFT `build_block` runs `StateDB::select_applicable` on every
+validator (its own doc: "This is consensus"), so they decide the derived
+block, and no vector pinned them. Confirmed. The clause is now its own rule,
+**GAS-9** (block selection), stated as consensus that changes only by a hard
+fork, pointed to from CON-12 and CON-13. `BUILDER_GAS_CAPS` and
+`BUILDER_GAS_SLACK` say so in their doc comments. Four `builder_select`
+vectors in `spec/tests/vm_gas.json`, replayed by `the_spec_vectors_hold`
+through `StateDB::select_applicable`:
+
+| Vector | Order | Kept |
+|---|---|---|
+| `builder-a-failing-call-at-the-cap-then-honest-calls-all-included` | spin at the cap, writer at the cap, two writers at 1 M | all three writers |
+| `builder-two-failing-senders-leave-exactly-the-slack` | two spins at the cap, writer at 1,524,000 | the writer |
+| `builder-two-failing-senders-exhaust-the-budget` | the same, writer at 1,524,001 | none (`PassedOver`) |
+| `builder-a-failed-sender-second-contract-tx-passed-over` | spin, the same sender's writer at the same nonce, another sender's writer | the other sender's |
+
+The two edge vectors pin both constants exactly: two spins report
+`2 × (250,000,000 + 6,000)` and the budget is `500,000,000 + 1,536,000`, which
+leaves 1,524,000. A PoW producer selects with the same function; there it is
+the producer's choice, and GAS-1 and GAS-2 alone decide validity.
+
+### R-6: the condition is one binary, and the CPU no longer moves it
+
+The claims: amendment 4 offered "launch x86-64-only" as a mitigation while
+its own figures showed the boundary moving with the build; Cranelift's ISA
+flags were inferred from the host CPU, so x86-64 machines could compile
+different frames; the release workflow publishes Windows and Linux validator
+binaries, the realistic genesis mix, never measured against each other.
+Confirmed, and measured. One correction: `release-binaries.yml` publishes
+five node binaries, not three (x86-64 and aarch64 Linux, x86-64 Windows, and
+two macOS).
+
+Measured on 2026-11-22, Intel Core Ultra 9 275HX, this branch, wasmtime
+48.0.8, `recursion_to` (one i64 parameter, one add per level), with the
+target named as below; `cargo test [--release] -p maya-vm --test
+gas_hardening_tests -- --ignored --nocapture
+measure_the_deepest_recursion_this_isa_completes`:
+
+| Target triple (host) | Profile | Deepest completing depth | Gas there |
+|---|---|---|---|
+| x86_64-pc-windows-msvc (Windows 11 Pro 29708) | release | 10,915 (10,916 overflows) | 559,558 |
+| x86_64-pc-windows-msvc | dev | 10,901 | 559,418 |
+| x86_64-unknown-linux-gnu (WSL2, kernel 6.18.33.1, same CPU) | release | 10,919 (10,920 overflows) | 559,598 |
+| x86_64-unknown-linux-gnu | dev | 10,909 | 559,498 |
+| aarch64-unknown-linux-gnu | dev | printed by CI `vm-gas-aarch64` from this push; not read yet | |
+
+So a call recursing to depth 10,916–10,919 applies on a Linux x86-64
+validator and fails on a Windows x86-64 one, same CPU, same source: the
+state roots split, and under DAG-BFT the derived blocks. The figures are the
+maya-vm test binary in each profile; the shipped `maya2c-node` binaries (fat
+LTO, `--features production`) were not measured, and the 14-level
+release/dev gap says their own depths can differ again.
+
+Changed here: `maya_vm::config` names the build's target triple (passed in by
+`crates/vm/build.rs` from cargo's `TARGET`, the string wasmtime's own host
+triple is parsed from), so Cranelift uses that triple's baseline ISA flags
+instead of every feature the CPU reports. One binary on two CPUs now compiles
+a contract to the same code. Fuel is counted on wasm operators before
+lowering, so gas is unchanged; every maya-vm and contract-gas test passes
+unchanged, and the Windows depths above are the ones amendment 4 measured
+with inferred flags (10,915 and 10,901), so this shape's frames did not move
+on this CPU. Pinned by
+`the_engine_compiles_for_its_named_target_not_for_the_host_cpu` (red with the
+old inference: the two engines precompiled one module to identical bytes).
+The setting is in the module-cache digest.
+
+What is not changed, because each is Eric's decision (BACKLOG G4, a genesis
+blocker): the binary still moves the boundary. The condition that holds is
+**every validator runs the same published release binary, one target
+triple**, and nothing enforces it. The options are written in G4: operate one
+binary (every genesis validator on the Linux x86-64 release binary, a Windows
+PC under WSL2 or a VM, other targets published as non-validator builds), a
+deterministic call-depth bound by instrumenting function entry and exits
+(prior art: parity's `wasm-instrument` stack limiter, which Substrate's
+contracts pallet applied to every module), or consensus on the Pulley tier
+with every price re-calibrated.
+
+## Amendment 7, 2026-11-22: the review of amendment 6 and of draft #647 (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+Three findings, read as claims and checked against the code and wasmtime
+48.0.8's source first. None of this is an external audit.
+
+### The ISA level: measured, then pinned at x86-64-v2
+
+The claim: naming the target left Cranelift on the triple's bare baseline,
+where x86-64 has no SSE4.1 (float `floor`/`ceil`/`nearest`/`trunc` become
+libcalls) and no POPCNT (a bit-twiddling sequence); gas is one fuel per
+operator either way, so a block of those could cost more wall time per unit
+of gas than the calibration measured, and nothing had timed it. Confirmed in
+the source (cranelift-codegen-meta 0.135.8 `isa/x86.rs`, defaults `false`),
+and measured.
+
+Measured on 2026-11-22, Intel Core Ultra 9 275HX, Windows 11 Pro, release,
+`cargo test --release -p maya-vm --lib config:: -- --include-ignored
+--nocapture --test-threads 1`
+(`measure_float_rounding_and_popcnt_against_the_calibrated_compute`: 20 M
+iterations of a loop whose result feeds back, so nothing is dropped; best of
+three; ns per unit of fuel):
+
+| Operator | host-inferred (the old calibration) | named baseline (amendment 6) | x86-64-v2 (this amendment) |
+|---|---|---|---|
+| `i64.div_u` (the calibrated compute) | 0.128 | 0.128 | 0.127 |
+| `f64.floor` | 0.563 | 0.406 | 0.519 |
+| `f64.ceil` | 0.550 | 0.411 | 0.526 |
+| `f64.nearest` | 0.550 | 0.674 | 0.518 |
+| `f64.trunc` | 0.549 | 0.632 | 0.516 |
+| `f32.floor` | 0.553 | 0.421 | 0.525 |
+| `f32.nearest` | 0.555 | 0.511 | 0.517 |
+| `i64.popcnt` | 0.066 | 0.219 | 0.066 |
+| `i32.popcnt` | 0.073 | 0.198 | 0.074 |
+| `i64.clz` | 0.065 | 0.103 | 0.103 |
+| `i64.ctz` | 0.066 | 0.089 | 0.088 |
+
+What it shows. Float rounding in a dependent chain is about 0.52–0.67 ns
+per unit under every configuration, including the host-inferred one the
+earlier calibration ran under: four to five times the `i64.div_u` loop the
+block-time derivation cites, so that derivation's guest-compute figure was
+never the worst guest compute, before or after amendment 6. The worst here,
+0.674 ns per unit on the baseline, is about 169 ms of guest compute for a
+block's 250 M gas of plaintext contract work and about 211 ms at GAS-2's
+1.25 × bound: inside the 1 s block time, so no operator is repriced. The baseline is the worst
+configuration for `nearest`, `trunc` and `popcnt` (3x on popcnt), and its
+libcalls go through the host's C runtime, a different one in each published
+binary. So the level is pinned, keeping CPU independence:
+`maya_vm::config::ISA_FLAGS` turns on `has_sse3`, `has_ssse3`, `has_sse41`,
+`has_sse42`, `has_popcnt` and `has_cmpxchg16b` (the x86-64-v2 set) on
+x86-64, none elsewhere (aarch64's baseline rounds and counts bits natively;
+measured on x86-64 only). They are in the module-cache digest.
+`checked_engine` compiles the empty module when an engine is built, so
+wasmtime's host check (`check_compatible_with_native_host`) refuses a CPU
+without the level at start-up instead of at the first contract call. The
+flags are set through `Config::cranelift_flag_enable`, an `unsafe` call: the
+`SAFETY` comment says why it holds (wasmtime checks the host has every flag
+before it compiles or loads code), and it needs a reviewer as any `unsafe`
+outside the exempt crates does. The Pulley tier names its own target and no
+native flags.
+
+Pinned by `the_engine_compiles_at_the_x86_64_v2_level_not_the_bare_baseline`
+(red with `ISA_FLAGS` empty: the two engines precompiled one module to
+identical bytes) and `an_engine_refuses_a_cpu_without_its_isa_level`
+(flags past the level stand in for a CPU without it: the engine builds
+exactly when the CPU has them). A whole-block figure is
+`a_block_of_float_rounding_and_popcnt_validates_inside_the_block_time` in
+`vm_gas_timing_tests`, run at x86-64-v2 on the same machine (dev profile,
+`cargo test -p custom-l1-node --test vm_gas_timing_tests -- --include-ignored
+--nocapture --test-threads 1 guest_compute float_rounding`): one call at the
+250 M cap applied in 142.3 ms for `f64.nearest` through memory (0.569 ns
+per unit), 22.0 ms for `i64.popcnt` (0.088) and 40.4 ms for the calibrated
+`i64.div_u` (0.162). The baseline was not run at block level.
+
+### Faults of one node's engine are not failed calls
+
+The claims: a contract call or deployment failing because the engine could
+not get memory (an instance's mapping, its linear memory, compiled code)
+reached the node as `NodeError::Vm`, the same as a trap, so (a) draft #647,
+which includes a failed call with its fee, would record it as failed on the
+node short of memory and apply it on the healthy ones, and (b) block
+selection, which is consensus under DAG-BFT (GAS-9), would leave the
+transaction out on that node alone. Confirmed: `classify` turned every
+error that was not out-of-fuel into `VmError::Trap`, `Module::new` failures
+became `InvalidModule`, and the limiter's default `memory_grow_failed`
+turned an operating-system refusal during `memory.grow` into wasm's `-1`,
+which the contract itself could act on.
+
+The suggested rule, "anything that does not downcast to `wasmtime::Trap` is
+local", was checked and **not** taken: wasmtime refuses some modules at
+instantiation with a plain error every node produces alike. A declared
+table is one: the limiter refuses every table, its initial size included
+(`table_growing` returns `false`; wasmtime then bails with "table minimum
+size ... exceeds table limits"), so any module with a table fails every
+call. Under the suggested rule that call would read as local on every node,
+and selection, which passes a local fault up, would stop building blocks on
+every validator while it was pooled.
+
+Changed instead: the rule is positive, by type. `maya_vm::error::is_local_fault`
+is an `io::Error` (how wasmtime's memory and code mappings report the
+operating system's refusal, on Windows and Unix alike) or wasmtime's
+`OutOfMemory`, anywhere in the error chain. Such an error is
+`VmError::LocalFault` from `classify` (instantiation and execution) and
+from `VmError::from_compile` (`Module::new`, through the cache and at
+deployment), and the limiter's `memory_grow_failed` passes it up instead of
+returning `-1`; growth past a module's own maximum stays `-1`. The node maps
+`LocalFault` to `NodeError::Storage` (`vm_exec::vm_failure`), which block
+selection and `stage_transfer_or_undo` already pass up and which refuses the
+block on apply; the engine failing to start is `Storage` too (carried from
+#647). Spec: GAS-9 and two Gaps entries.
+
+Pinned by five `maya-vm` tests in `runtime_local_fault_tests.rs`, four of
+them red before the change (memory refused at instantiation and while
+running became `Trap`; the limiter swallowed the refusal; a compile refusal
+became `InvalidModule`), one guarding the other side (a trap, growth past
+the module maximum and a declared table stay the call's), and the node's
+`a_fault_of_this_nodes_engine_is_storage_not_a_failed_call`. The fault is
+injected through the store's resource limiter, the hook wasmtime calls for
+every linear memory, with the error type a refused mapping has. Not done: a
+node-level test with the engine's memory refused, since `StateDB` holds its
+own engine with no hook; and a local failure wasmtime reports as neither type
+is still taken as the call's (recorded in the spec's Gaps).
+
+The table refusal is pre-existing, alike on every node, and not changed here:
+whether contracts may use `call_indirect` is a contract-ABI question.

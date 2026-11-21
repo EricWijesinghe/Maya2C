@@ -276,3 +276,145 @@ fn a_cold_call_refused_after_the_shape_scan_counts_the_length_price() {
     assert_eq!(refused, Err(NodeError::Vm(out_of_gas)));
     assert_eq!(overlay.vm_gas, length_price);
 }
+
+/// The block cap a fresh database applies: the parameter's default.
+fn default_block_cap() -> u64 {
+    ParameterKey::VmMaxBlockGas
+        .bounds()
+        .default
+        .saturating_to_u64()
+}
+
+/// A valid module of about `len` bytes: one passive data segment, one
+/// function.
+fn data_module_of_len(len: usize) -> Vec<u8> {
+    wat::parse_str(format!(
+        r#"(module (memory (export "memory") 1) (data "{}")
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+        "a".repeat(len)
+    ))
+    .unwrap()
+}
+
+fn deploy_of(code: Vec<u8>) -> ContractDeploy {
+    ContractDeploy { code }
+}
+
+#[test]
+fn a_deployment_refused_after_its_shape_scan_counts_the_length_price() {
+    // #549 review of amendment 4: a 512 KiB deployment whose length price
+    // fits what the block has left, but whose whole price does not, was
+    // scanned and then refused `BlockGasExhausted` with nothing counted. The
+    // builder neither recorded its sender nor counted the scan, so it stayed
+    // pooled and cost every builder the scan again, every block.
+    let dir = tempfile::TempDir::new().unwrap();
+    let db = StateDB::open(dir.path()).unwrap();
+    let code = data_module_of_len(500_000);
+    let length_price = gas::deploy_fuel(code.len());
+    let whole = gas::cold_call_fuel(&code).unwrap();
+    assert!(length_price < whole);
+    let mut overlay = Overlay::new();
+    overlay.vm_gas = default_block_cap() - length_price;
+    let before = overlay.vm_gas;
+
+    let refused = db.deploy_contract(&mut overlay, &[1u8; 32], 0, &deploy_of(code));
+    assert_eq!(
+        refused,
+        Err(NodeError::BlockGasExhausted {
+            needed: whole,
+            remaining: length_price
+        })
+    );
+    assert_eq!(
+        overlay.vm_gas,
+        before + length_price,
+        "the scan it ran counts"
+    );
+}
+
+#[test]
+fn a_deployment_whose_shape_is_refused_counts_the_length_price() {
+    // The same scan priced the same way on both paths: a cold call refused
+    // after the scan counts `deploy_fuel(len)` (R-5), and a deployment the
+    // scan refuses counted `50,000 + len`.
+    let dir = tempfile::TempDir::new().unwrap();
+    let db = StateDB::open(dir.path()).unwrap();
+    let code = past_a_shape_bound();
+    let length_price = gas::deploy_fuel(code.len());
+    let mut overlay = Overlay::new();
+
+    let refused = db.deploy_contract(&mut overlay, &[1u8; 32], 0, &deploy_of(code));
+    assert!(
+        matches!(&refused, Err(NodeError::Vm(message)) if message.contains("locals")),
+        "{refused:?}"
+    );
+    assert_eq!(overlay.vm_gas, length_price);
+}
+
+#[test]
+fn a_deployment_whose_length_price_does_not_fit_is_refused_before_the_scan() {
+    // The cold price is `deploy_fuel(len)` plus the shape's, so a deployment
+    // whose length price alone is above what the block has left is refused
+    // whatever its shape, as a cold call is (R-5). On this code the scan ran
+    // first and refused with its own error.
+    let dir = tempfile::TempDir::new().unwrap();
+    let db = StateDB::open(dir.path()).unwrap();
+    let code = past_a_shape_bound();
+    let length_price = gas::deploy_fuel(code.len());
+    let mut overlay = Overlay::new();
+    overlay.vm_gas = default_block_cap() - length_price + 1;
+    let before = overlay.vm_gas;
+
+    let refused = db.deploy_contract(&mut overlay, &[1u8; 32], 0, &deploy_of(code));
+    assert_eq!(
+        refused,
+        Err(NodeError::BlockGasExhausted {
+            needed: length_price,
+            remaining: length_price - 1
+        })
+    );
+    assert_eq!(overlay.vm_gas, before, "no scan ran, nothing is counted");
+}
+
+#[test]
+fn the_builder_bounds_a_deployment_by_what_the_block_has_left_without_its_scan() {
+    // `builder_may_try` scanned every deployment it considered (up to
+    // 512 KiB) to bound it, before any count, and a deployment it then
+    // skipped cost that scan for nothing. A deployment counts at most what
+    // the block has left (it is refused above that before anything is
+    // counted), so that is its bound, and its shape never enters it: two
+    // deployments of one length, one the scan refuses, are decided alike.
+    let dir = tempfile::TempDir::new().unwrap();
+    let db = StateDB::open(dir.path()).unwrap();
+    let cap = default_block_cap();
+    let refused_by_scan = TxKind::DeployContract(deploy_of(past_a_shape_bound()));
+    let valid = TxKind::DeployContract(deploy_of(data_module_of_len(4)));
+    let mut overlay = Overlay::new();
+    overlay.vm_gas = 1_000_000;
+    // Applied work plus the failed count plus what the block has left.
+    let edge = cap + BUILDER_GAS_SLACK;
+    for kind in [&refused_by_scan, &valid] {
+        assert!(db.builder_may_try(&overlay, edge, kind).unwrap());
+        assert!(!db.builder_may_try(&overlay, edge + 1, kind).unwrap());
+    }
+}
+
+#[test]
+fn a_fault_of_this_nodes_engine_is_storage_not_a_failed_call() {
+    // #647 review: a node short of memory must refuse the block (Storage,
+    // which `select_applicable_within` and `stage_transfer_or_undo` pass
+    // up), never record the call as failed while healthy nodes apply it.
+    let local = vm_failure(&maya_vm::VmError::LocalFault("commit refused".into()));
+    assert!(matches!(local, NodeError::Storage(_)), "got {local:?}");
+    for verdict in [
+        maya_vm::VmError::Trap("unreachable".into()),
+        maya_vm::VmError::OutOfGas { limit: 1 },
+        maya_vm::VmError::InvalidModule("bad".into()),
+    ] {
+        let mapped = vm_failure(&verdict);
+        assert!(
+            matches!(mapped, NodeError::Vm(_)),
+            "{verdict:?}: {mapped:?}"
+        );
+    }
+}

@@ -1,5 +1,5 @@
 {
-  "description": "Contract gas caps and prices (spec/10-vm-gas.md, ADR-142). Replayed by crates/node/tests/vm_gas_tests.rs (the_spec_vectors_hold); the golden_gas cases also by crates/vm/tests/gas_hardening_tests.rs. admit_deploy vectors take the length part of the price (deploy_fuel); a module's shape adds shape_fuel to it.",
+  "description": "Contract gas caps and prices (spec/10-vm-gas.md, ADR-142). Replayed by crates/node/tests/vm_gas_tests.rs (the_spec_vectors_hold); the golden_gas cases also by crates/vm/tests/gas_hardening_tests.rs. admit_deploy vectors take the length part of the price (deploy_fuel); a module's shape adds shape_fuel to it. builder_select vectors (GAS-9) deploy each named contract from a key of its own at height 1 (nonce 0), then run the block selection (StateDB::select_applicable, what DAG-BFT derives a block with) at height 2 over `txs` in order, every sender funded and at the nonce the tx states; `kept` lists the indices of the transactions the block holds, and the result is the error PassedOver when a call to `writer` (which applies whenever it is tried) is left out.",
   "cases": [
     {
       "id": "call-fuel-empty-cold",
@@ -776,6 +776,170 @@
         "result": "error",
         "error": "OutOfGas",
         "value": "21536000"
+      }
+    },
+    {
+      "id": "builder-a-failing-call-at-the-cap-then-honest-calls-all-included",
+      "rules": [
+        "GAS-9"
+      ],
+      "kind": "builder_select",
+      "input": {
+        "contracts": {
+          "spin": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (loop $forever (br $forever)) (i64.const 0)))",
+          "writer": "(module (import \"env\" \"storage_write\" (func $write (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i32.store8 (i32.const 0) (i32.const 107)) (i32.store (i32.const 16) (i32.const 1234)) (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4)) (i64.const 0)))"
+        },
+        "txs": [
+          {
+            "sender": "0",
+            "contract": "spin",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "1",
+            "contract": "writer",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "2",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "3",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          }
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "kept": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    {
+      "id": "builder-two-failing-senders-leave-exactly-the-slack",
+      "rules": [
+        "GAS-9"
+      ],
+      "kind": "builder_select",
+      "input": {
+        "contracts": {
+          "spin": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (loop $forever (br $forever)) (i64.const 0)))",
+          "writer": "(module (import \"env\" \"storage_write\" (func $write (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i32.store8 (i32.const 0) (i32.const 107)) (i32.store (i32.const 16) (i32.const 1234)) (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4)) (i64.const 0)))"
+        },
+        "txs": [
+          {
+            "sender": "0",
+            "contract": "spin",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "1",
+            "contract": "spin",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "2",
+            "contract": "writer",
+            "gas_limit": "1524000",
+            "nonce": "0"
+          }
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "kept": [
+          "2"
+        ]
+      }
+    },
+    {
+      "id": "builder-two-failing-senders-exhaust-the-budget",
+      "rules": [
+        "GAS-9"
+      ],
+      "kind": "builder_select",
+      "input": {
+        "contracts": {
+          "spin": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (loop $forever (br $forever)) (i64.const 0)))",
+          "writer": "(module (import \"env\" \"storage_write\" (func $write (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i32.store8 (i32.const 0) (i32.const 107)) (i32.store (i32.const 16) (i32.const 1234)) (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4)) (i64.const 0)))"
+        },
+        "txs": [
+          {
+            "sender": "0",
+            "contract": "spin",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "1",
+            "contract": "spin",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "2",
+            "contract": "writer",
+            "gas_limit": "1524001",
+            "nonce": "0"
+          }
+        ]
+      },
+      "expect": {
+        "result": "error",
+        "error": "PassedOver",
+        "kept": []
+      }
+    },
+    {
+      "id": "builder-a-failed-sender-second-contract-tx-passed-over",
+      "rules": [
+        "GAS-9"
+      ],
+      "kind": "builder_select",
+      "input": {
+        "contracts": {
+          "spin": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (loop $forever (br $forever)) (i64.const 0)))",
+          "writer": "(module (import \"env\" \"storage_write\" (func $write (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i32.store8 (i32.const 0) (i32.const 107)) (i32.store (i32.const 16) (i32.const 1234)) (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4)) (i64.const 0)))"
+        },
+        "txs": [
+          {
+            "sender": "0",
+            "contract": "spin",
+            "gas_limit": "250000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "0",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "1",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          }
+        ]
+      },
+      "expect": {
+        "result": "error",
+        "error": "PassedOver",
+        "kept": [
+          "2"
+        ]
       }
     }
   ]

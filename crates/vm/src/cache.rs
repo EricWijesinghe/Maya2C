@@ -175,8 +175,7 @@ impl ModuleCache {
         // Compiled outside the lock. Cranelift on a large module takes long
         // enough that holding the map would serialise every other contract call
         // in the process behind it.
-        let module =
-            Module::new(engine, wasm).map_err(|error| VmError::InvalidModule(error.to_string()))?;
+        let module = Module::new(engine, wasm).map_err(|error| VmError::from_compile(&error))?;
         *self
             .misses
             .lock()
