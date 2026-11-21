@@ -255,12 +255,15 @@ fn class(result: &Result<(), NodeError>) -> Option<&'static str> {
         Ok(()) => None,
         Err(NodeError::GasAboveCap { .. }) => Some("GasAboveCap"),
         Err(NodeError::BlockGasExhausted { .. }) => Some("BlockGasExhausted"),
+        Err(NodeError::BlockContractWritesExhausted { .. }) => Some("BlockContractWritesExhausted"),
+        Err(NodeError::ContractStateFull { .. }) => Some("ContractStateFull"),
         Err(_) => Some("other"),
     }
 }
 
 #[test]
 fn the_spec_vectors_hold() {
+    use custom_l1_node::state::contract_bound;
     use custom_l1_node::state::vm_exec::{admit_call_gas, admit_deploy_gas};
     use maya_vm::gas;
 
@@ -379,6 +382,29 @@ fn the_spec_vectors_hold() {
                 };
                 (error, Some(execution.gas_used))
             }
+            "contract_entry_size" => (
+                None,
+                Some(contract_bound::entry_size(
+                    usize::try_from(num(&input["key_len"])).unwrap(),
+                    usize::try_from(num(&input["value_len"])).unwrap(),
+                )),
+            ),
+            "admit_contract_writes" => (
+                class(&contract_bound::admit_block_writes(
+                    num(&input["before"]),
+                    num(&input["after"]),
+                    num(&input["cap"]),
+                )),
+                None,
+            ),
+            "admit_contract_state" => (
+                class(&contract_bound::admit_state_size(
+                    num(&input["before"]),
+                    num(&input["after"]),
+                    num(&input["cap"]),
+                )),
+                None,
+            ),
             "param" => {
                 let key =
                     ParameterKey::from_tag(u16::try_from(num(&input["tag"])).unwrap()).unwrap();
@@ -775,4 +801,154 @@ fn a_later_call_to_a_contract_in_the_same_block_is_warm_by_block_order() {
         BlockContext::at_height(3),
     );
     assert!(matches!(result, Err(NodeError::Vm(_))), "{result:?}");
+}
+
+// ---------------------------------------------------------------------------
+// ADR-142 amendment 4: contract state bounds (CSTATE-1, CSTATE-2)
+// ---------------------------------------------------------------------------
+
+/// Writes `n` new one-byte slots per call, keyed by the caller's first four
+/// bytes and the slot's index, so two callers never share a key.
+fn slot_writer(n: u32) -> Vec<u8> {
+    wasm(&format!(
+        r#"(module
+            (import "env" "storage_write" (func $w (param i32 i32 i32 i32)))
+            (import "env" "caller" (func $c (param i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (local $i i32)
+              (drop (call $c (i32.const 0)))
+              (block $done (loop $again
+                (br_if $done (i32.ge_u (local.get $i) (i32.const {n})))
+                (i32.store (i32.const 4) (local.get $i))
+                (call $w (i32.const 0) (i32.const 8) (i32.const 64) (i32.const 1))
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br $again)))
+              (i64.const 0)))"#
+    ))
+}
+
+/// Sets governed parameters straight in committed state, bounds unchecked.
+fn set_parameters(db: &StateDB, values: &[(ParameterKey, u64)]) {
+    let table = values.iter().fold(
+        custom_l1_node::governance::record::ParameterTable::new(),
+        |table, (key, value)| table.with(*key, maya_governance::Amount::from_u64(*value)),
+    );
+    db.raw_put_for_test(b"g:params", &table.encode())
+        .expect("parameters");
+}
+
+#[test]
+fn the_contract_state_caps_are_governed_with_compiled_bounds() {
+    for key in [
+        ParameterKey::VmMaxBlockContractWrites,
+        ParameterKey::VmMaxContractStateBytes,
+    ] {
+        let bounds = key.bounds();
+        assert!(bounds.contains(bounds.default), "{}", key.label());
+        assert!(
+            key.check(maya_governance::Amount::from_u64(u64::MAX))
+                .is_err()
+        );
+        assert!(key.check(maya_governance::Amount::from_u64(0)).is_err());
+    }
+    // One largest module stays deployable under the lowest state ceiling.
+    let largest =
+        custom_l1_node::state::contract_bound::entry_size(5 + 32, maya_vm::MAX_MODULE_BYTES);
+    assert!(
+        ParameterKey::VmMaxContractStateBytes
+            .bounds()
+            .min
+            .saturating_to_u64()
+            >= largest
+    );
+}
+
+#[test]
+fn a_block_over_the_contract_write_cap_is_left_for_the_next() {
+    let first = generate_signing_key().unwrap();
+    let second = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[first.address(), second.address()]);
+    let contract = deploy(&db, &first, &slot_writer(600));
+    set_parameters(&db, &[(ParameterKey::VmMaxBlockContractWrites, 1_024)]);
+
+    let a = call(contract, 10_000_000, 1, &first);
+    let b = call(contract, 10_000_000, 0, &second);
+    let result = db.apply_block(
+        &block_of(vec![a.clone(), b.clone()]),
+        BlockContext::at_height(2),
+    );
+    assert_eq!(
+        result,
+        Err(NodeError::BlockContractWritesExhausted {
+            entries: 1_200,
+            cap: 1_024
+        })
+    );
+
+    let kept = db
+        .select_applicable(
+            vec![a.clone(), b.clone()],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(kept, vec![a]);
+    db.apply_block(&block_of(kept), BlockContext::at_height(2))
+        .unwrap();
+    db.apply_block(&block_of(vec![b]), BlockContext::at_height(3))
+        .expect("left out, applied in the next block");
+    assert_eq!(
+        db.contract_state_size().unwrap(),
+        db.contract_state_size_scan().unwrap()
+    );
+}
+
+#[test]
+fn contract_state_past_the_ceiling_is_refused_and_an_overwrite_is_not() {
+    let key = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[key.address()]);
+    let narrow = deploy(&db, &key, &slot_writer(10));
+    let wide_code = slot_writer(11);
+    db.apply_block(
+        &block_of(vec![
+            signed(
+                TxKind::DeployContract(ContractDeploy {
+                    code: wide_code.clone(),
+                }),
+                1,
+                &key,
+            ),
+            call(narrow, 10_000_000, 2, &key),
+        ]),
+        BlockContext::at_height(2),
+    )
+    .unwrap();
+    let wide = derive_contract_id(&key.address(), 1, &wide_code);
+    let size = db.contract_state_size().unwrap();
+    assert_eq!(size, db.contract_state_size_scan().unwrap());
+    set_parameters(&db, &[(ParameterKey::VmMaxContractStateBytes, size)]);
+
+    // The same ten slots again: an overwrite of the same size applies.
+    db.apply_block(
+        &block_of(vec![call(narrow, 10_000_000, 3, &key)]),
+        BlockContext::at_height(3),
+    )
+    .expect("an overwrite does not grow contract state");
+    // Eleven new slots: refused, in block validation and by the builder.
+    let grow = call(wide, 10_000_000, 4, &key);
+    let result = db.apply_block(&block_of(vec![grow.clone()]), BlockContext::at_height(4));
+    assert!(
+        matches!(result, Err(NodeError::ContractStateFull { cap, .. }) if cap == size),
+        "{result:?}"
+    );
+    let kept = db
+        .select_applicable(
+            vec![grow],
+            BlockContext::at_height(4),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert!(kept.is_empty());
+    assert_eq!(db.contract_state_size().unwrap(), size);
 }

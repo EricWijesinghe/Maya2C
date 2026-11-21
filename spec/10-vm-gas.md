@@ -3,7 +3,7 @@
 Caps and prices for contract work (ADR-142). Reference: `crates/vm/src/gas.rs`
 (prices), `crates/governance/src/params.rs` (cap parameters). Node:
 `StateDB::call_contract`, `StateDB::deploy_contract`,
-`state::vm_exec::admit_call_gas`, mempool admission. Vectors:
+`state::vm_exec::admit_call_gas`, `state::contract_bound`, mempool admission. Vectors:
 `spec/tests/vm_gas.json`, replayed by `crates/node/tests/vm_gas_tests.rs`.
 
 Gas is wasmtime fuel. It is not billed in coin: it bounds how long one call and
@@ -19,19 +19,30 @@ the gas the producer spent finding that out stays counted (GAS-2).
 - **GAS-6** Nothing is refunded: unused gas is never charged, and an overwrite or an empty write pays like any other write. *(positive only: no input is rejected by this rule)*
 - **GAS-7** A call may hold at most `min(256, (gas_limit − upfront) / 6,000)` pages of linear memory, its initial pages included, where `upfront` is its GAS-3 price; asking for more ends the call (`MemoryLimit`). Once it returns it pays 6,000 for every page of the most it held; if that takes it past `gas_limit`, it ran out of gas, and its failure gas (GAS-2) is the whole sum, past `gas_limit`. Growth past the module's own declared maximum is refused by the engine and is never held.
 
+### Contract state (ADR-142 amendment 4)
+
+A contract *entry* is one stored `code:` key (a deployment) or one `cstate:` key (a storage slot); its stored key is `code:` ‖ contract id, or `cstate:` ‖ contract id ‖ storage key. These rules bound what the contracts layer of the state root (ROOT-5) folds every block. Node: `state::contract_bound`.
+
+- **CSTATE-1** A block's distinct contract entries written so far start at 0; a deployment adds one, and a call that applies adds one for every key it wrote that the block had not written before. A deployment or call that would take the count above `vm.max_block_contract_writes` makes its block invalid (`BlockContractWritesExhausted`), checked after the call ran and before any of its writes is staged; the gas it ran stays counted (GAS-2) and it warms nothing (GAS-3). While revealed sealed actions run, the cap is `vm.max_block_contract_writes + vm.max_block_contract_writes / 4` (integer division), so plaintext transactions cannot use up the room a due sealed call needs; a refused reveal is consumed. A call that adds no new entry is never refused by this rule.
+- **CSTATE-2** An entry counts `len(stored key) + len(value) + 1,280` bytes. Committed contract state is the sum over every committed entry; after a deployment or call it is that sum over committed state with the block's writes so far laid over it. A deployment or call that would leave it larger than before the transaction and above `vm.max_contract_state_bytes` makes its block invalid (`ContractStateFull`), with the same gas and staging rules as CSTATE-1. One that leaves it no larger (an overwrite of the same size or smaller) is never refused, whatever the ceiling.
+- **CSTATE-3** `vm.max_block_contract_writes` (parameter tag 19) starts at 32,768 within `[1,024, 65,536]`, and `vm.max_contract_state_bytes` (tag 20) starts at 67,108,864 within `[8,388,608, 134,217,728]`; both move only by a governance proposal, checked when proposed and again when executed. The floor of tag 20 is above one entry of the largest deployable module. A ceiling above the maximum needs an incremental contracts layer, which is a change to ROOT-5, not a vote.
+
 ## Gaps
 
 - The prices are calibrated on one machine (ADR-142); a slower validator
   validates the same block more slowly, it does not validate it differently.
 - No fee is paid per unit of gas; the fee market prices bytes (FEE-5).
-- The contracts layer of the state root (ROOT-5) is no longer re-read and
-  re-hashed from the database every block: the node keeps every entry's leaf
-  between blocks (ADR-142 amendment 5), so a block pays for the entries it
-  writes plus one pass over all leaves, and nothing when it writes none. That
-  pass, and the memory for the leaves, still grow with total contract state,
-  and nothing bounds that growth but the write price: contract state is not
-  billed in coin (FEE-5). A ceiling or a per-byte state price is an economics
-  decision, open (ADR-142, BACKLOG.md G2).
+- The contracts layer of the state root (ROOT-5) is kept between blocks
+  (ADR-142 amendment 5): a block pays for the entries it writes plus one pass
+  over all leaves, and nothing when it writes none. CSTATE-1 and CSTATE-2
+  bound that pass and the memory for the leaves, so the cost has a ceiling
+  instead of growing without one. The pass itself stays O(entries): the layer
+  is a positional tree, and removing it would change ROOT-5's format.
+- Contract state is not billed in coin: gas is not charged (FEE-5), so the
+  CSTATE-2 ceiling can be filled for transaction byte fees, after which no
+  contract state grows until governance raises the ceiling. A storage deposit
+  or a per-byte state fee would close it; that is an economics decision
+  (ADR-142 amendment 4).
 - A failing plaintext call is never included, so it pays no fee; GAS-2 bounds
   what failed calls cost a block's builder, not who pays for them (STF-8).
   One such call naming the cap no longer leaves the calls after it out
