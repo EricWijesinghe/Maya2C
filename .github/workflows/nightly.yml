@@ -388,8 +388,15 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: "1.22"
-      - name: Python and Go SDKs against a devnet
-        run: cargo xtask sdk-e2e --lang python && cargo xtask sdk-e2e --lang go
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+      # sdk-e2e runs `npx vitest` in sdks/sdk-js, so its dependencies must be there.
+      - name: TypeScript SDK dependencies
+        working-directory: sdks/sdk-js
+        run: npm ci --ignore-scripts
+      - name: Python, Go and TypeScript SDKs against a devnet
+        run: cargo xtask sdk-e2e --lang python && cargo xtask sdk-e2e --lang go && cargo xtask sdk-e2e --lang ts
       - name: kill -9 during commit, 1,000 runs
         run: cargo test -p custom-l1-node --test crash_consistency_tests -- --nocapture
         env:

@@ -905,6 +905,8 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 ## 2026-11-14 — Public indexer API v1 proposed for `/api/v1` (ADR-092, PR #414)
 
 Under Eric's general approval ("I approve everything, proceed", Eric 2026-11-14), the explorer's public indexer API (ADR-092) goes forward as a normal, non-node PR: `/api/v1` is read-only and rate limited, cursors only page the list that issued them, and every list is an index range read whatever the client sends, because an address with no history used to cost a walk of the whole `transactions` table. The ADR stays Proposed until the PR merges. Deploying it resets the explorer index (generation 3 to 4), so it goes out against an archive node or at re-genesis, never against a pruned node, which could not rebuild the history it lost.
+
+Merging master into #414 (2026-11-21) brought #576, which makes the gateway believe `CF-Connecting-IP` / `X-Forwarded-For` only from a loopback peer. The limiter now lives in `maya-web-security`, so the rule moved there and covers the explorer too (Eric 2026-11-14 approval). The explorer's `--trust-proxy-header` stays as a start-up opt-in; it no longer lets a direct client choose its own key, and a proxy on another host counts as one client.
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.

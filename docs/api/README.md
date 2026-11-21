@@ -55,10 +55,11 @@ The contract is [`apps/explorer/openapi/v1.yaml`](../../apps/explorer/openapi/v1
 Default 10 requests per second per client, burst 30. The client is the socket
 address by default. Behind a proxy, start the explorer with
 `--api-client-ip cf` (Cloudflare) or `--api-client-ip xff` (a proxy that appends
-to `X-Forwarded-For`). Only use a header mode when the proxy is the only route
-in: a client can otherwise write its own header. The explorer refuses to start
-with `cf` or `xff` on a non-loopback `--listen` address unless
-`--trust-proxy-header` says a firewall makes the proxy the only way in, and it
+to `X-Forwarded-For`). The header is believed only from a loopback peer (the
+proxy on this host); any other peer, including a proxy on another machine, is
+keyed by its socket address. The explorer refuses to start with `cf` or `xff`
+on a non-loopback `--listen` address unless `--trust-proxy-header` is passed,
+and it
 warns when socket mode listens on loopback (every visitor would arrive from the
 proxy and share one bucket). An IPv6 client is counted per /64.
 

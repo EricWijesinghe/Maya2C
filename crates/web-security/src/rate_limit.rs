@@ -22,9 +22,11 @@
 //!   addresses at will.
 //!
 //! A header mode is only sound when the proxy is the sole route to the
-//! gateway, which is why the gateway binds 127.0.0.1 by default. A request
-//! that arrives without the header (a local health check) falls back to its
-//! socket address rather than failing.
+//! gateway, which is why the gateway binds 127.0.0.1 by default. The header
+//! is read only from a loopback peer (the proxy on this host): from any other
+//! peer it is client-written, so the socket address is the key instead. A
+//! request that arrives without the header (a local health check) falls back
+//! to its socket address rather than failing.
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -91,20 +93,23 @@ pub fn client_address(
     headers: &HeaderMap,
     extensions: &Extensions,
 ) -> Option<IpAddr> {
-    let from_header = match mode {
-        ClientIp::Socket => None,
-        ClientIp::CfConnectingIp => header_ip(headers, "cf-connecting-ip", |value| Some(value)),
-        ClientIp::XForwardedForLast => {
+    // Canonical, so a dual-stack socket's `::ffff:127.0.0.1` counts as loopback.
+    let peer = extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(peer)| peer.ip().to_canonical());
+    // Believed only from a loopback peer, the proxy on this host. From any
+    // other peer the header is client-written, so the socket is the key.
+    let from_header = match (mode, peer) {
+        (ClientIp::Socket, _) | (_, None) => None,
+        (_, Some(ip)) if !ip.is_loopback() => None,
+        (ClientIp::CfConnectingIp, Some(_)) => {
+            header_ip(headers, "cf-connecting-ip", |value| Some(value))
+        }
+        (ClientIp::XForwardedForLast, Some(_)) => {
             header_ip(headers, "x-forwarded-for", |value| value.rsplit(',').next())
         }
     };
-    from_header
-        .or_else(|| {
-            extensions
-                .get::<ConnectInfo<SocketAddr>>()
-                .map(|ConnectInfo(peer)| peer.ip())
-        })
-        .map(bucket_of)
+    from_header.or(peer).map(bucket_of)
 }
 
 /// An IPv6 client counts as its /64: one subscriber is normally handed a
@@ -178,12 +183,23 @@ pub async fn prune(config: Config) {
 mod tests {
     use super::*;
 
+    /// The proxy on this host, the only peer whose forwarded header is believed.
+    const PROXY: &str = "127.0.0.1:40000";
+
+    fn from_peer(peer: &str) -> Extensions {
+        let mut extensions = Extensions::new();
+        extensions.insert(ConnectInfo::<SocketAddr>(peer.parse().expect("peer")));
+        extensions
+    }
+
     fn request_with(lines: &[&str]) -> Request<()> {
         let mut builder = Request::builder();
         for line in lines {
             builder = builder.header("x-forwarded-for", *line);
         }
-        builder.body(()).expect("request")
+        let mut request = builder.body(()).expect("request");
+        *request.extensions_mut() = from_peer(PROXY);
+        request
     }
 
     #[test]
@@ -201,7 +217,25 @@ mod tests {
     fn key_of(ip: &str) -> IpAddr {
         let mut headers = HeaderMap::new();
         headers.insert("cf-connecting-ip", ip.parse().expect("header"));
-        client_address(ClientIp::CfConnectingIp, &headers, &Extensions::new()).expect("key")
+        client_address(ClientIp::CfConnectingIp, &headers, &from_peer(PROXY)).expect("key")
+    }
+
+    #[test]
+    fn a_forwarded_header_is_believed_only_from_a_loopback_peer() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cf-connecting-ip", "10.0.0.7".parse().expect("header"));
+        let key = |peer: &str| client_address(ClientIp::CfConnectingIp, &headers, &from_peer(peer));
+        let remote: IpAddr = "203.0.113.1".parse().expect("ip");
+        let forwarded: IpAddr = "10.0.0.7".parse().expect("ip");
+        assert_eq!(key("203.0.113.1:5000"), Some(remote));
+        assert_eq!(key(PROXY), Some(forwarded));
+        // A dual-stack listener reports the local proxy as an IPv4-mapped address.
+        assert_eq!(key("[::ffff:127.0.0.1]:40000"), Some(forwarded));
+        // No peer at all (no connect info): nothing to trust, no key.
+        assert_eq!(
+            client_address(ClientIp::CfConnectingIp, &headers, &Extensions::new()),
+            None
+        );
     }
 
     #[test]

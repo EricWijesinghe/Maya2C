@@ -691,13 +691,15 @@ async fn spoofed_forwarded_for_does_not_rotate_the_key() {
 async fn proxy_mode_keys_on_the_proxy_appended_address() {
     let limit = limit_of(2, 1, ClientIp::XForwardedForLast);
     let app = app_with(seeded(1).await, Arc::new(FakeNode::default()), limit);
+    // Through the proxy on this host: the only peer whose header is believed.
+    let proxy = SocketAddr::from(([127, 0, 0, 1], 4000));
     // The client prepends whatever it likes; the proxy appends the real peer.
     for prefix in ["7.7.7.7", "8.8.8.8", "9.9.9.9"] {
         let value = format!("{prefix}, 203.0.113.9");
         send(
             &app,
             "/api/v1/mempool",
-            Some(peer(1)),
+            Some(proxy),
             &[("x-forwarded-for", value.as_str())],
         )
         .await;
@@ -705,7 +707,7 @@ async fn proxy_mode_keys_on_the_proxy_appended_address() {
     let limited = send(
         &app,
         "/api/v1/mempool",
-        Some(peer(1)),
+        Some(proxy),
         &[("x-forwarded-for", "6.6.6.6, 203.0.113.9")],
     )
     .await;

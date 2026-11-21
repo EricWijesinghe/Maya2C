@@ -40,7 +40,8 @@ struct Args {
     /// How `/api/v1` identifies clients for rate limiting (ADR-092).
     api_client_ip: ClientIp,
     /// `--trust-proxy-header`: a header mode on a non-loopback listen address
-    /// is accepted because the operator says a proxy is the only way in.
+    /// is accepted. The limiter still believes the header only from a
+    /// loopback peer (a proxy on this host); a remote proxy is one client.
     trust_proxy_header: bool,
 }
 
@@ -68,18 +69,18 @@ fn client_ip(text: &str) -> Result<ClientIp, Box<dyn Error>> {
     }
 }
 
-/// Refuses a header mode that anyone could forge. On a non-loopback address a
-/// client can reach the explorer directly and write its own
-/// `CF-Connecting-IP` / `X-Forwarded-For`, so every request would get a fresh
-/// rate-limit bucket. On loopback only the proxy on this host can connect.
+/// Refuses a header mode on a public address unless asked. The limiter believes
+/// `CF-Connecting-IP` / `X-Forwarded-For` only from a loopback peer, so a
+/// direct client cannot pick its own key; but a proxy on another host would
+/// silently put every visitor in one bucket, which is worth a refusal.
 fn check_client_ip(listen: SocketAddr, mode: ClientIp, trusted: bool) -> Result<(), String> {
     if mode == ClientIp::Socket || listen.ip().is_loopback() || trusted {
         return Ok(());
     }
     Err(format!(
-        "--api-client-ip cf/xff on {listen} trusts a header any direct client can write. \
-         Listen on 127.0.0.1 behind the proxy, or pass --trust-proxy-header if a \
-         firewall makes the proxy the only route in."
+        "--api-client-ip cf/xff on {listen}: the header is believed only from a loopback \
+         peer (a proxy on this host), so a proxy elsewhere counts as one client. Listen \
+         on 127.0.0.1 behind the proxy, or pass --trust-proxy-header to accept this."
     ))
 }
 

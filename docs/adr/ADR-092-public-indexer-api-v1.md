@@ -53,7 +53,10 @@ cannot take that prefix.
    `RateLimit-Reset`. Only `ClientIp::Socket` is the default; the header
    modes are for a deployment behind a proxy that overwrites the header.
    The explorer refuses `cf`/`xff` on a non-loopback listen address unless
-   `--trust-proxy-header` is passed, and warns on socket mode over loopback;
+   `--trust-proxy-header` is passed, and warns on socket mode over loopback.
+   Since the merge with #576 the shared limiter believes a header only from a
+   loopback peer (a proxy on this host), so a direct client cannot pick its
+   own key even with that flag;
    `infra/hybrid-testnet/start-testnet.ps1` runs `--api-client-ip cf` on
    127.0.0.1. An IPv6 client is keyed on its /64 (an IPv4-mapped address
    stays IPv4), in `maya-web-security`, so the gateway counts the same way.
