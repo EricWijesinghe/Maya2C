@@ -48,7 +48,11 @@ certificate in `A`'s causal history not ordered before and of round at least
 anchors a node committed in one step or on what its local DAG still holds.
 Before ADR-150 it was the node's own collection horizon, so two honest nodes
 that batched commits differently derived different blocks for one anchor.
-Pinned by `crates/dag-bft/tests/commit_determinism.rs`. No rule ID and no
+Pinned by `crates/dag-bft/tests/commit_determinism.rs`. A node that resumed
+after round `S` through an attested catch-up (ADR-038) holds no DAG history
+below `S`, so for it this holds only once `P.round − GC_DEPTH > S`: until then
+it imports attested blocks and builds none, and it builds the anchor after `P`
+only when its tip is `P`'s block (ADR-150 item 1). No rule ID and no
 language-neutral vector: the commit rule has no reference model in
 `crates/spec-ref` (gap, below).
 

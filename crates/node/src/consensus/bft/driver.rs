@@ -198,6 +198,26 @@ fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
     chain.get(&chain.tip()).map(|tip| unseal(tip.header.nonce))
 }
 
+/// [`BftDriver::may_build_again`] on plain values: `tip` is the chain tip's
+/// seal, `previous` the anchor committed before the one at `round`.
+fn follower_may_build(
+    tip: Option<(u64, u64)>,
+    epoch: u64,
+    previous: Option<u64>,
+    resumed_at: u64,
+    round: u64,
+) -> bool {
+    // The anchor at `round` orders down to `prev - GC_DEPTH` (ADR-150), so
+    // that cutoff, not `round`, must lie above the resume. Strict: certificates
+    // at `resumed_at` itself may already be ordered under the resumed anchor.
+    // It implies the older `round > resumed_at + GC_DEPTH + 2` window, kept as
+    // a second guard.
+    let past_window = round > resumed_at + maya_dag_bft::GC_DEPTH + 2;
+    previous.is_some_and(|prev| {
+        tip == Some((epoch, prev)) && prev.saturating_sub(maya_dag_bft::GC_DEPTH) > resumed_at
+    }) && past_window
+}
+
 /// One epoch's engine, its safety log, and the bookkeeping between them.
 pub struct BftDriver {
     engine: Validator<MlDsaAuthenticator>,
@@ -561,19 +581,22 @@ impl BftDriver {
     }
 
     /// Whether a follower may build the block for the anchor at `round`
-    /// itself again. Two things must hold. The anchor is more than
-    /// `GC_DEPTH` rounds past where the engine resumed, so every vertex it
-    /// could order is one this node received while running — the history
-    /// it never saw lies below the horizon for it and for every peer alike,
-    /// so its sub-DAG is the network's. And the chain's tip is the block of
-    /// the anchor just before this one, so the new block has the parent the
-    /// network's does. Until then, blocks keep coming from attested imports.
+    /// itself again. Two things must hold. The previous committed anchor `P`
+    /// is more than `GC_DEPTH` rounds past where the engine resumed, so the
+    /// cutoff `P - GC_DEPTH` of this anchor's sub-DAG lies above the resume
+    /// and every vertex it could order is one this node received while
+    /// running; keyed on `P`, not `round`, so skipped anchors cannot open it
+    /// early. And the chain's tip is `P`'s block, so the new block has the
+    /// parent the network's does. Until then, blocks keep coming from
+    /// attested imports.
     fn may_build_again(&self, chain: &Chain, round: u64) -> bool {
-        let past_window = round > self.resumed_at + maya_dag_bft::GC_DEPTH + 2;
-        let at_previous = self
-            .last_anchor
-            .is_some_and(|prev| tip_seal(chain) == Some((self.epoch, prev)));
-        past_window && at_previous
+        follower_may_build(
+            tip_seal(chain),
+            self.epoch,
+            self.last_anchor,
+            self.resumed_at,
+            round,
+        )
     }
 
     /// This epoch's committee: what attestations and checkpoints are
@@ -1003,5 +1026,61 @@ mod release_tests {
         let released = release_unincluded(&mut queued, &own, &BTreeSet::new());
         assert_eq!(released, vec![past_cut]);
         assert!(queued.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod follower_gate_tests {
+    use super::follower_may_build;
+    use maya_dag_bft::GC_DEPTH;
+
+    const EPOCH: u64 = 3;
+    const RESUMED: u64 = 100;
+
+    /// Whether a follower resumed at `RESUMED`, its tip the block of the
+    /// previous anchor `prev`, builds the anchor at `round`.
+    fn builds(prev: u64, round: u64) -> bool {
+        follower_may_build(Some((EPOCH, prev)), EPOCH, Some(prev), RESUMED, round)
+    }
+
+    /// The sub-DAG of the anchor at `round` reaches down to `prev - GC_DEPTH`
+    /// (ADR-150). Below `RESUMED` this node holds nothing, and it never saw
+    /// the resumed anchor ordered, so with skipped anchors between `prev` and
+    /// `round` it would derive a sub-DAG its peers do not: it keeps importing.
+    #[test]
+    fn a_follower_keeps_importing_while_the_previous_anchor_cutoff_is_at_or_below_its_resume() {
+        // Anchors 148 and 150 skipped: P = 146, R = 152, cutoff 96 < 100.
+        let (prev, round) = (RESUMED + GC_DEPTH - 4, RESUMED + GC_DEPTH + 2);
+        assert!(
+            !builds(prev, round),
+            "built from a sub-DAG missing rounds below the resume"
+        );
+        assert!(
+            !builds(prev, round + 2),
+            "one more skip, cutoff still below the resume"
+        );
+        // Cutoff exactly at the resume (P = 150, R = 156): still imports.
+        assert!(!builds(RESUMED + GC_DEPTH, RESUMED + GC_DEPTH + 6));
+    }
+
+    #[test]
+    fn a_follower_builds_once_the_previous_anchor_cutoff_is_above_its_resume() {
+        // No skip: the first anchor the earlier window allowed still builds.
+        assert!(builds(RESUMED + GC_DEPTH + 2, RESUMED + GC_DEPTH + 4));
+        // After skips, once `prev - GC_DEPTH > RESUMED`.
+        assert!(builds(RESUMED + GC_DEPTH + 2, RESUMED + GC_DEPTH + 10));
+        // No skip and inside the window: imports, as before.
+        assert!(!builds(RESUMED + GC_DEPTH, RESUMED + GC_DEPTH + 2));
+    }
+
+    #[test]
+    fn a_follower_never_builds_on_a_tip_that_is_not_the_previous_anchor() {
+        let (prev, round) = (RESUMED + GC_DEPTH + 10, RESUMED + GC_DEPTH + 12);
+        let gate = |tip, previous| follower_may_build(tip, EPOCH, previous, RESUMED, round);
+        assert!(!gate(Some((EPOCH, prev - 2)), Some(prev)));
+        assert!(!gate(Some((EPOCH + 1, prev)), Some(prev)));
+        assert!(!gate(None, Some(prev)));
+        assert!(!gate(Some((EPOCH, prev)), None));
+        assert!(gate(Some((EPOCH, prev)), Some(prev)));
     }
 }

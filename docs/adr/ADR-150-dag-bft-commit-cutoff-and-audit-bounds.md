@@ -38,9 +38,19 @@ the same blocks and compute the same state.
    Residual: after `Validator::resume_after(round)` (ADR-038) the DAG holds
    nothing below `round`, so the first anchor after a resume may order fewer
    certificates than peers that never resumed. A resumed node imports blocks
-   under attestations instead of building them until it has caught up
-   (`may_build_again`), which keeps that case off the chain; it is recorded,
-   not changed here.
+   under attestations instead of building them until the cutoff of the anchor
+   it would build lies above the resumed round: `may_build_again` lets a
+   follower resumed at `resumed_at` build the anchor committed after `P` only
+   when the chain's tip is `P`'s block and `P.round − GC_DEPTH > resumed_at`.
+   Keying the gate on `P` rather than on the anchor being built matters when
+   anchors are skipped: resumed at 100, with anchors 148 and 150 skipped, the
+   anchor at 152 has cutoff 96, and a gate on `152 > 100 + GC_DEPTH + 2` alone
+   would have let the follower build it from a sub-DAG lacking rounds 96–99
+   that its peers order. The bound is strict because at the resumed round
+   itself the follower never saw the resumed anchor ordered. With no skipped
+   anchor (`P` two rounds below) the gate opens at the same anchor as the
+   earlier `round > resumed_at + GC_DEPTH + 2` window. Pinned by
+   `follower_gate_tests` in `crates/node/src/consensus/bft/driver.rs`.
 2. **The commit rule runs only after a DAG insertion or a resume (CON-22).** It is
    a pure function of the DAG and the committer, so skipping it when neither
    changed returns the same (empty) result; running it per message cost a scan

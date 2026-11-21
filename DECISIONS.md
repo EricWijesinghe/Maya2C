@@ -926,3 +926,10 @@ anchored bootstrap ends at the trusted block and a snapshot import is capped at
 finding was checked against the code first. The ones that need an owner
 decision (equivocation punishment, weight cap, minimum active set, unconfirmed
 time-old tip) are listed in ADR-150, not changed. ADR-150, ADR-060 amendment.
+
+Follow-up from review of that PR (2026-11-22): a follower that resumed at round
+`S` builds again only when the previous committed anchor `P` satisfies
+`P − GC_DEPTH > S`, not merely when the anchor being built is past
+`S + GC_DEPTH + 2`. With skipped anchors the old window opened while the
+cutoff still reached below `S`, where the follower holds no history. Without
+skips both gates open at the same anchor. ADR-150 item 1, spec/05.
