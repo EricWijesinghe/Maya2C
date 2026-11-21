@@ -1,5 +1,5 @@
-//! Resource bounds on a relay and a client: what anyone can send must not
-//! hold memory or lock owners out.
+//! Resource bounds on a relay: what anyone can send must not hold memory or
+//! lock owners out.
 #![allow(clippy::unwrap_used)] // a test that fails should panic, and say where
 
 use maya_chat::ChatError;
@@ -80,6 +80,28 @@ fn a_full_challenge_table_does_not_lock_the_owner_out() {
         .fetch(bob.address(), bob.public_key(), &sig, NOW)
         .unwrap();
     assert_eq!(got.len(), 1);
+}
+
+#[test]
+fn reissuing_a_challenge_in_a_full_table_evicts_nobody() {
+    let first = Identity::from_seed([3; 32]);
+    let bob = Identity::from_seed([2; 32]);
+    let mut relay = Relay::new(0);
+    relay.challenge(first.address(), NOW).unwrap();
+    for i in 1..MAX_CHALLENGES - 1 {
+        let mut stranger = [0xEE; 32];
+        stranger[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        relay.challenge(stranger, NOW + 1).unwrap();
+    }
+    relay.challenge(bob.address(), NOW + 1).unwrap();
+    // The table is full; Bob asking again must not push out the oldest.
+    relay.challenge(bob.address(), NOW + 2).unwrap();
+    let wrong = first.sign(b"not the challenge").unwrap();
+    assert_eq!(
+        relay.fetch(first.address(), first.public_key(), &wrong, NOW + 2),
+        Err(ChatError::BadSignature),
+        "the oldest challenge must still be held"
+    );
 }
 
 #[test]
