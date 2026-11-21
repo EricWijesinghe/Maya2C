@@ -26,7 +26,7 @@ Facts an assistant gets wrong without these:
 ## Integrating
 - [docs/integrations/EXCHANGES.md](docs/integrations/EXCHANGES.md), [docs/integrations/CUSTODY.md](docs/integrations/CUSTODY.md)
 - [docs/NODE_TYPES.md](docs/NODE_TYPES.md)
-- `maya2c-mcp`: an MCP server with decode_transaction, review_intent, explain_error, rpc_call (writes refused to non-local nodes)
+- `maya2c-mcp`: an MCP server with decode_transaction, review_intent, explain_error, rpc_call (writes refused to non-local nodes), and read-only debugging: replay_block (re-execute a block, return its balance changes; `--genesis FILE`), trace_transaction (a contract call's steps under the time-travel debugger), explain_refusal (a node refusal explained from `crates/node/src/error.rs`), compare_account (balance at two heights)
 
 ## What is real
 - [features.toml](features.toml): 120+ subsystems, each REAL, RESEARCH or SIM, with a named test
