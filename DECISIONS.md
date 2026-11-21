@@ -902,6 +902,13 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
 
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
 ## 2026-11-14 — Contract gas is capped per transaction and per block, and native work is priced (Eric 2026-11-14 MCQ, ADR-142)
 
 Eric chose "cap + price now" in the 2026-11-14 MCQ. A call's `gas_limit` was sender-chosen up to `u64::MAX`, nothing bounded a block's contract work, host functions and the per-call module compile were unmetered, and every call loaded the contract's whole storage. Now:
@@ -933,6 +940,61 @@ Raised with Eric, not decided here: one gas-filling call per block crowds out ot
 - **Builder work:** a call refused below its upfront price counts `50,000 + len`; one failing contract trial per sender per selection; deployments are shape-checked at admission only after their signature, and refused there above `MAX_COLD_CALL_FUEL`.
 - **Not taken:** a separate failed-work budget in selection (the review's proposal). A call is only known to fail by running it, so it doubles the builder's worst case without letting through an honest call the shared budget refuses.
 - **Genesis blockers, recorded in BACKLOG.md G1–G3:** free failing calls (needs failed calls included with fee and nonce bump, an STF-8 change: Eric's economics decision), the contracts root fold, and the bisection's re-runs.
+## 2026-11-14 — ADR-062a: incremental sparse accounts root built; genesis format unchanged (Eric 2026-11-14 MCQ)
+
+Eric 2026-11-14 MCQ: "incremental root now". Built as an amendment to ADR-062
+(`crates/node/src/state/root_cache.rs`): a persistent, local-only (`smt:`) cache of every
+sparse-tree node holding two or more accounts (layout superseded by the revision below: branches
+only), updated in the same `WriteBatch` as each commit
+and revert, withdrawn by any out-of-band account write, checked node by node against a full
+rebuild at `Chain::open`. Root value unchanged; `state_root()` stays the full rebuild.
+
+Two findings that contradict the brief, reported rather than worked around (Standing Order 9):
+
+1. The brief said the node "rebuilds the whole sparse root every block". It does not at genesis:
+   `STATELESS_ACTIVATION_HEIGHT = u64::MAX`, so the accounts root is the dense address-ordered
+   tree, which cannot be incremental at the same value (an insertion shifts every later leaf).
+   The cache only works once the sparse tree is active. Activating it at genesis is a separate
+   choice for Eric: it changes the genesis root format and retires the dense `account_proof`
+   that the light client's SPV path verifies.
+2. Record layers (DEX, sealed, governance, staking, ...), channels, contracts and nullifiers are
+   dense full rebuilds too and stay so (205-213 ms at 100k records, test profile). Not touched.
+
+### Revision after the PR #540 review (Eric 2026-11-14 MCQ, same item)
+
+- **Branches only.** The first layout stored every node holding two or more accounts,
+  single-child levels included: recipient pairs one bit apart cost about 240 entries each, so a
+  5 MiB block of them was a storage and slow-block vector once the sparse tree activates
+  (review, HIGH, found by reading the code). The cache now stores one entry per branch (N − 1 for
+  N accounts, whatever the addresses), with the children's digests, and folds single-child runs in
+  memory. Pinned by `neighbour_addresses_cost_one_branch_each_not_a_spine`.
+- **One walk a block, and a crossover.** The plan made with the root is carried to the commit in
+  the overlay and staged if the write generation is unchanged. A block touching enough keys
+  (touched × (bits(N) + 1) × 2 > N, N ≥ 4,096) builds from every account instead. (Crossover
+  removed by the second revision below.)
+- **A wrong cache no longer stalls a validator.** A declared root that the full rebuild matches
+  and the cache does not is accepted on the full rebuild, and the cache is withdrawn; repairs are
+  counted (`root_cache_stats`). Debug builds cross-check every planned root.
+- **Still dark at genesis, accounts layer only.** Not changed by the revision. The choice stays
+  Eric's: (a) activate `FeatureSet::STATELESS` at genesis (genesis root format, `spec/03-state.md`
+  rule and vectors for the sparse root, light-client SPV moved off the dense `account_proof`), or
+  (b) keep ADR-062a dark and accept that mainnet's per-block accounts cost is unchanged by it.
+
+### Second revision after the PR #540 re-review (Eric 2026-11-14 MCQ, same item)
+
+- **No crossover: a valid cache is always walked.** The crossover's build rewrote all N − 1
+  branches plus a range tombstone in the block's batch (about 105 MB at 1M accounts) and was the
+  slower path at 1M in its own measurement. The walk is bounded by the union of the touched paths
+  and writes only changed branches. A build runs only without a valid cache.
+- **Generation moves on entry and exit of every write** (`preview::WriteGuard`), so a plan read
+  without the lock mid-write never fits a commit. The chain mutex no longer carries that.
+- **Periodic check on the preview path:** `holds()` every 256 heights (`CONFIRM_EVERY`), once per
+  height; on a difference the header gets the full rebuild's root and the commit replaces the
+  cache. Detection, not prevention, between two checks (ADR-062a, net 3).
+- **Debug nodes repair instead of panicking**; only unit tests panic on a cross-check difference.
+- **Invariant 24** now names `check_declared_root` and the full rebuild as the reference.
+- **Still open, for Eric:** (a) or (b) above. Not decided by this revision. Until (a), the
+  brief's per-block cost goal is not delivered on the genesis chain.
 
 ## 2026-11-19 — ADR-142 amendment 3: failed builder work on its own count; compile prices kept (Eric 2026-11-17 pre-approval, re-freeze bundle 3)
 
@@ -940,6 +1002,35 @@ Raised with Eric, not decided here: one gas-filling call per block crowds out ot
 - **Cost, stated:** builder worst case `2 × cap + 3,072,000` per selection; producer ~816 ms of priced work at the 250 M default and ~978 ms at the 300 M ceiling, at 1 ns/unit.
 - **Compile prices unchanged.** In release, three runs of the at-limit shapes gave worst 1.231 (loaded), 0.771 and 0.768 ns/fuel, all on `block (type []->[16])` x 2000. The ADR's 1 ns claim now gives the loaded figure. The constants were not tuned to one loaded run.
 - **Needs Eric, not decided here:** charging failed calls (STF-8, economics; two failing calls at the cap from two senders still exhaust the builder budget, G1), and whether to lower `VM_GAS_CEILING` given the producer margin at 300 M (G1b).
+
+## 2026-11-21 — ADR-142 amendment 5: the contracts root kept between blocks (BACKLOG G2 CPU side; Eric 2026-11-17 pre-approval of Claude's recommendations)
+
+- **Decided (performance only, root value unchanged):** the contracts layer's leaves stay in
+  memory at one write generation and move with every commit and revert by the commit's own batch
+  (`state/contracts_root.rs`). A root no longer re-reads and re-hashes all contract state:
+  measured (test profile) 617.8 ms before and 78.4 ms after for one new entry over 400,000, and
+  0.001 ms for a block that writes no contract entry.
+- **Why not the decision brief's A + B here:** a per-block or total contract-state ceiling and a
+  per-byte state price change what blocks are valid and what users pay. They are Eric's, so they
+  are a separate `[needs-eric]` draft (#644, ADR-142 claim 142d) stacked on this one, re-derived
+  against the cached root.
+- **Contradicts the earlier WIP (2026-11-19, never pushed):** it said the layer "cannot be made
+  incremental byte-identically". The per-entry reading and hashing can be removed without
+  touching the value; what stays O(entries) is one pass over the leaves of a positional tree.
+  Removing that needs a different layer format (ROOT-5), not done.
+- **`check_declared_root` now always asks the full rebuild on a mismatch**, not only after a
+  walked accounts plan, so a wrong contracts cache cannot stall a validator. Refusing a bad block
+  costs one more full root.
+- **An import confirms the caches too (review R-4, confirmed and extended):** `stage_checked`
+  takes the same `confirm_due` choice as `preview_root`, so a node that never previews still
+  compares both caches with the full rebuild once per 256 heights. R-4 was latent for the dark
+  accounts cache and live for this one from genesis. Cost: one full fold per 256 heights on a
+  node that only imports.
+- **Merge order (#643 review):** #540, then #549, then #643, then #644. #643 is out of the merge
+  queue until #540 and #549 are on master; then its base moves to master and it is re-queued.
+  The queue now holds any PR whose base is not master.
+- **Still open, for Eric:** contract-state growth is unbounded and unpriced (R-1's disk side,
+  and the cache's resident memory, not measured).
 
 ## 2026-11-21 — ADR-142 amendment 4: re-freeze review R-2/R-5/R-6/R-10 on #549, and the gas caps wait the validity-rule lead (Eric 2026-11-17 pre-approval, re-freeze bundle)
 
