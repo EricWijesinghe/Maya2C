@@ -102,8 +102,11 @@ cargo xtask claims-check                # no unbacked "first/only" wording
   ADR.
 - **Subsystems switch off by activation height** (`u64::MAX`), never by a
   cargo feature: every node must compute the same state root (ADR-002).
-- **Secrets** are typed, zeroized and never logged; key files are created
-  owner-only.
+- **Secrets** are typed, zeroized and never logged. Key files are created
+  owner-only on Unix (mode `0o600`). On Windows the wallet keystore also
+  sets an owner-only ACL; the validator key file does not yet, and
+  inherits its directory's ACL, so keep it in a directory only the
+  operator account can read.
 - **Numbers** in docs or commits are measured, with the command that produced
   them, or written MISSING.
 - **New subsystem**: a status tag in `docs/architecture-vision.md` and a

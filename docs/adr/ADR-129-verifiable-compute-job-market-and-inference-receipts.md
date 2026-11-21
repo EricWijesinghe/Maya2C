@@ -155,8 +155,11 @@ The rule therefore becomes:
    bond (invariant 17). Each eligible worker has a **weight**: its
    bonded amount, and, once the share-lane redesign gives shares a
    per-miner ticket count (an open genesis-format decision), its ticket
-   weight as well. Weight is never "one per address"; splitting a bond
-   across addresses gains nothing.
+   weight as well. Weight is never "one per address", so splitting a bond
+   across addresses does not raise its weight. It does let one party
+   fill more than one slot (step 2 draws without replacement, so one
+   address holds at most one); the odds under **Size of `k`** already
+   assume a party that has split its bond.
 2. **Draw.** For a job created in DAG epoch `e` (ADR-044), slots are drawn
    when epoch `e+1` closes, or at the later epoch the job names:
    `r_s = blake3_derive("maya2c compute assign v1", anchor ‖ job_id ‖ s)`
@@ -282,6 +285,8 @@ Red tests, `crates/node/tests/compute_jobs_tests.rs` and
 - Amendment 2026-11-19:
   - `a_worker_cannot_write_its_own_assignment`
   - `splitting_a_bond_across_addresses_does_not_raise_draw_weight`
+  - `a_split_bond_captures_slots_at_the_rate_its_total_weight_predicts`
+    (slot capture by a split party matches the **Size of `k`** odds, not more)
   - `the_draw_is_identical_on_two_nodes_and_uses_no_hashmap_order`
   - `a_copied_commit_from_another_worker_never_opens`
   - `a_reveal_that_does_not_match_its_commit_is_refused`

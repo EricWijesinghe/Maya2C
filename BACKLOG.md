@@ -65,6 +65,11 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   bound (#278).
 - **macOS Hub sidecar hash check** on the first tagged release that ships macOS.
 - **Kani `exact_out_never_undercharges`** stalls the nightly (ledger B40).
+- **Owner-only validator key file on Windows** (`[re-freeze]`, node path).
+  `bins/maya2c-node/src/validator_key.rs` `create_new` sets `0o600` on Unix
+  only; on Windows the file inherits its directory's ACL. Apply the same
+  owner-only `icacls` step as `bins/l1-wallet/src/keystore.rs`, with a test.
+  Found in review of #652 (2026-11-22).
 
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
