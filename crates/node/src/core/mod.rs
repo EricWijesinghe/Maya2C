@@ -22,7 +22,7 @@ pub mod threat_payload;
 pub mod transaction;
 pub mod vault_payload;
 
-pub use block::{Block, BlockHeader, HEADER_LEN, TX_ROOT_RANGE, transaction_leaf};
+pub use block::{Block, BlockHeader, HEADER_LEN, TX_ROOT_RANGE, block_leaf, transaction_leaf};
 pub use dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
     PoolCreation, RouteLeg, SwapRequest, SwapRoute,
