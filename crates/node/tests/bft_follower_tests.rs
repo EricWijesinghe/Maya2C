@@ -497,7 +497,8 @@ fn one_follower_plus_a_crashed_validator_halts_then_recovers_when_the_crashed_on
 /// seats, and the second failure would halt them for good: the healthy
 /// member 3 could return only at an epoch boundary the halted chain never
 /// reaches. The committee floor (ADR-070) keeps member 3 judged down,
-/// slashed and seated, so restarting it ends the halt.
+/// unpaid and seated, so restarting it ends the halt. It is slashed only if
+/// the slash leaves it at or above `min_self_bond` (amendment 2026-11-21).
 fn the_floor_kept_validator_ends_the_halt(bond: u64) {
     let mut mesh = Mesh::with_bond(bond);
     mesh.hold_out(3);
@@ -512,10 +513,18 @@ fn the_floor_kept_validator_ends_the_halt(bond: u64) {
         .staking;
     let down = validator_id(&validator_key(3).verifying_key().to_bytes());
     // Judged down: the 1% downtime slash (`Params::DEVNET`, which mainnet
-    // keeps) burned exactly bond / 100.
+    // keeps) burned exactly bond / 100, unless that would take a kept
+    // validator below the minimum. At mainnet bonds the bond is unchanged, so
+    // only the ten-times-minimum run proves the validator was judged down.
+    let slashed = bond - bond / 100;
+    let expected = if slashed >= MIN_SELF_BOND {
+        slashed
+    } else {
+        bond
+    };
     assert_eq!(
         record.validators[&down].self_bond,
-        maya_ledger_math::Amount::from_u64(bond - bond / 100),
+        maya_ledger_math::Amount::from_u64(expected),
         "the down validator was not judged down, so the floor was never tested"
     );
     assert_eq!(record.active.len(), VALIDATORS, "jailed below the floor");
@@ -542,11 +551,10 @@ fn a_validator_kept_by_the_committee_floor_ends_the_halt_when_it_restarts() {
 }
 
 /// The same scenario at mainnet bonds: every seat bonds exactly
-/// `min_self_bond`. The slash drops the down validator below the minimum, so
-/// it is ineligible and jailed whatever the floor says, and the boundary seats
-/// three. S-033 residual, open until a re-freeze fix (docs/audit/FINDINGS.md).
+/// `min_self_bond` (`xtask genesis-check`). Before the ADR-070 amendment
+/// 2026-11-21 the slash dropped the down validator below the minimum, so it was
+/// ineligible and jailed whatever the floor said, and the boundary seated three.
 #[test]
-#[ignore = "S-033 residual: at bond == min_self_bond the floor does not hold (FINDINGS.md)"]
 fn at_mainnet_bonds_the_committee_floor_ends_the_halt_when_it_restarts() {
     the_floor_kept_validator_ends_the_halt(MIN_SELF_BOND);
 }
