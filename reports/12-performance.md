@@ -237,3 +237,40 @@ $ CRASH_RUNS=1000 cargo nextest run -p custom-l1-node --test crash_consistency_t
 
 Each run now waits about 0.8 s for the child, so the per-change default is
 250 runs, and the nightly workflow runs the brief's 1,000.
+
+## Block builder: sponsored transfers staged in place (2026-11-22, V4-V1 M3)
+
+`StateDB::select_applicable_within` copied the whole overlay for each
+sponsored (v13) transfer. The copy grows with the state the block has
+touched, so a block of them was quadratic. Plain transfers already used an
+in-place save-and-undo path. The fix extends that path to the sponsor, the
+collector and the sponsor's vault window. Measured with
+`crates/node/examples/builder_copy_cost.rs`: every frame comes from its own
+sender, signatures are cached before timing, and each figure is the fastest
+of 7 runs.
+
+Machine: Intel Core Ultra 9 275HX, 31.4 GB, Windows 11 Pro 10.0.29708,
+`rustc 1.99.0-nightly (da80ed070 2026-07-14)`. **Dev profile** (ADR-003
+overrides), not `perf`, on a machine shared with other builds, so read the
+shape, not the absolute figures. Command:
+`cargo run -p custom-l1-node --example builder_copy_cost`.
+
+Before (base `a0554f77`):
+```
+ 250 frames: plain    14.14 ms (  56.6 µs/frame), sponsored    27.05 ms ( 108.2 µs/frame)
+ 500 frames: plain    25.65 ms (  51.3 µs/frame), sponsored    67.52 ms ( 135.0 µs/frame)
+1000 frames: plain    94.27 ms (  94.3 µs/frame), sponsored   263.50 ms ( 263.5 µs/frame)
+2000 frames: plain   115.03 ms (  57.5 µs/frame), sponsored   724.89 ms ( 362.4 µs/frame)
+```
+After:
+```
+ 250 frames: plain     8.67 ms (  34.7 µs/frame), sponsored    13.35 ms (  53.4 µs/frame)
+ 500 frames: plain    18.02 ms (  36.0 µs/frame), sponsored    24.76 ms (  49.5 µs/frame)
+1000 frames: plain    37.46 ms (  37.5 µs/frame), sponsored    51.30 ms (  51.3 µs/frame)
+2000 frames: plain    68.92 ms (  34.5 µs/frame), sponsored    96.59 ms (  48.3 µs/frame)
+```
+The plain column moved between the two runs without any change to its code,
+which is the size of the load noise. The sponsored per-frame cost no longer
+grows with the block. Every other v4 form (tokens, NFTs, names, schedules,
+account actions) still takes the full copy. Those forms are not on this
+branch, so they are not measured here.

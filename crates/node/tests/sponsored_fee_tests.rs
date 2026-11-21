@@ -725,6 +725,59 @@ fn a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner() {
     assert!(fresh.insert(by_honest).expect("honest admitted"));
 }
 
+// M3: the builder stages a sponsored transfer in place and undoes it. An
+// inner that fails after its sponsor was debited (here: an unfunded sender)
+// must leave neither the debit nor the window charge behind, or the valid
+// frame after it is dropped.
+#[test]
+fn the_builder_undoes_a_sponsor_debit_when_the_inner_fails_after_it() {
+    let alice = user(0x45);
+    let broke = user(0x46);
+    let key = sponsor_key(0x73);
+    let payer = sponsor_address(&key);
+    let f = fixture(&[alice.address()]);
+    let fails = sponsored(inner(&broke, 0, 1), &key, GENEROUS, V4 + 100);
+    let valid = sponsored(inner(&alice, 0, 1), &key, GENEROUS, V4 + 100);
+    // Exactly one fee: a debit left behind by `fails` starves `valid`.
+    fund(&f.db, &payer, required(&valid));
+    assert_eq!(required(&fails), required(&valid), "same-size frames");
+
+    let kept =
+        f.db.select_applicable(
+            vec![fails, valid.clone()],
+            at(V4),
+            target_from_leading_zero_bits(0),
+        )
+        .expect("select");
+    assert_eq!(kept, vec![valid], "the failed inner's debit was undone");
+    apply(&f, kept, V4).expect("the kept frame applies");
+    assert_eq!(balance(&f, &payer), U256::zero());
+}
+
+#[test]
+fn the_builder_undoes_a_sponsor_vault_window_charge_when_the_inner_fails() {
+    let alice = user(0x47);
+    let broke = user(0x48);
+    let key = sponsor_key(0x74);
+    let payer = sponsor_address(&key);
+    let f = fixture(&[alice.address(), payer]);
+    let fails = sponsored(inner(&broke, 0, 1), &key, GENEROUS, V4 + 100);
+    let valid = sponsored(inner(&alice, 0, 1), &key, GENEROUS, V4 + 100);
+    let one_fee = required(&valid);
+    let configure = own_paid::<HybridMlDsa65SlhDsa128s>(vault(one_fee + one_fee / 2), 0, &key);
+    apply(&f, vec![configure], V4).expect("the sponsor opts into a vault");
+
+    let kept =
+        f.db.select_applicable(
+            vec![fails, valid.clone()],
+            at(V4 + 1),
+            target_from_leading_zero_bits(0),
+        )
+        .expect("select");
+    assert_eq!(kept, vec![valid], "the window charge was undone");
+    apply(&f, kept, V4 + 1).expect("the kept frame fits the window");
+}
+
 /// A two-key vault for `owner`'s own sends, with an instant limit of
 /// `limit`, configured through a real fee-paying hybrid transaction.
 fn hybrid_vault(f: &Fixture, owner: &HybridSigningKey, limit: u64, height: u64) {

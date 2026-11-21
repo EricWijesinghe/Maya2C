@@ -11,14 +11,13 @@
 //! namespace, but an inner can be squatted in the pool: a limit-0 vault
 //! sponsor's smaller frame displacing an honest one, refused at admission,
 //! `a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner`
-//! there), X1 (open, no test: NOT VERIFIED), unbounded per-block work (M3,
-//! open, no test or benchmark: NOT VERIFIED, and not specific to
-//! sponsors: the block builder's filter (`StateDB::select_applicable_within`) copies the
-//! whole overlay for every frame that is not a plain transfer, so a block full
-//! of v4 forms (or sponsored transfers) costs every builder work quadratic in
-//! the state the block touches. Open as M3 (BACKLOG, v4 activation blockers):
-//! one benchmark over a block of v4 forms before any v4 activation height is
-//! written.)
+//! there), X1 (open, no test: NOT VERIFIED), unbounded per-block work (M3:
+//! the block builder's filter (`StateDB::select_applicable_within`) copied
+//! the whole overlay for every sponsored transfer, quadratic in the state a
+//! block touches. Measured by `examples/builder_copy_cost.rs`, fixed by
+//! staging sponsored transfers in place, pinned by `the_builder_undoes_*` in
+//! `sponsored_fee_tests.rs`. Still open for every other v4 form, which keeps
+//! the full copy: BACKLOG, v4 activation blockers.)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 

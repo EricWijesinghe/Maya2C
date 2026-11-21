@@ -1154,15 +1154,13 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            // A sponsored transfer also writes its sponsor's account, which
-            // the fast path does not save, so it takes the full copy: a
-            // failed inner must not leave the sponsor's debit behind.
-            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) && tx.sponsor.is_none()
-            {
-                // A plain transfer writes only its sender's and recipients'
-                // accounts and the fee tallies, so those are saved and put
+            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
+                // A transfer, sponsored or not, writes only accounts it names,
+                // vault windows and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
-                // copy made building a 900-transaction block quadratic.
+                // copy made building a 900-transaction block quadratic, and a
+                // block of sponsored transfers too (V4-V1 M3,
+                // `examples/builder_copy_cost.rs`).
                 self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)?
             } else {
                 let mut trial = overlay.clone();
@@ -1221,7 +1219,7 @@ impl StateDB {
         Ok(())
     }
 
-    /// Stages a plain transfer, restoring exactly what it could have written
+    /// Stages a transfer, sponsored or not, restoring exactly what it could have written
     /// if it fails. Returns whether it was kept; a storage failure is an error,
     /// not a reason to drop the transaction, or this node would build a block
     /// its peers' state does not match.
@@ -1232,8 +1230,16 @@ impl StateDB {
         context: BlockContext,
         policy: &SuitePolicy,
     ) -> Result<bool> {
+        // A sponsor's fee moves from its account to the collector before the
+        // inner runs (`charge_sponsor`), so both are saved with the rest.
+        let sponsor = tx.sponsor.as_ref().map(|s| s.address());
         let touched: Vec<Address> = std::iter::once(tx.sender())
             .chain(tx.outputs.iter().map(|o| o.recipient))
+            .chain(
+                sponsor
+                    .into_iter()
+                    .flat_map(|s| [s, crate::state::fees::FEE_COLLECTOR]),
+            )
             .collect();
         let saved: Vec<(Address, Option<Account>)> = touched
             .iter()
@@ -1243,17 +1249,27 @@ impl StateDB {
         // A vault sender's window is charged in `stage_transaction` after the
         // nonce check (audit finding 3) and before the transfer's own checks, so
         // a transfer that then fails would leave its spend behind and starve the
-        // valid transfer after it.
-        let vault_key = crate::state::vault::record_key(&tx.sender());
-        let vault_saved = overlay.records.get(&vault_key).cloned();
+        // valid transfer after it. A vault sponsor's window is charged the same
+        // way, before the inner.
+        let vault_saved: Vec<_> = std::iter::once(tx.sender())
+            .chain(sponsor)
+            .map(|owner| {
+                let key = crate::state::vault::record_key(&owner);
+                let previous = overlay.records.get(&key).cloned();
+                (key, previous)
+            })
+            .collect();
         let failure = match self.stage_transaction(overlay, tx, context, policy) {
             Ok(()) => return Ok(true),
             Err(e) => e,
         };
-        match vault_saved {
-            Some(previous) => overlay.records.insert(vault_key, previous),
-            None => overlay.records.remove(&vault_key),
-        };
+        // In reverse, so a sponsor that is also the sender ends at its first save.
+        for (key, previous) in vault_saved.into_iter().rev() {
+            match previous {
+                Some(previous) => overlay.records.insert(key, previous),
+                None => overlay.records.remove(&key),
+            };
+        }
         for (address, previous) in saved.into_iter().rev() {
             match previous {
                 Some(account) => overlay.accounts.insert(address, account),
