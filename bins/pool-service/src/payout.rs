@@ -92,6 +92,10 @@ pub struct SettleReport {
     pub confirmed: usize,
     /// Value moved by batches broadcast this pass, in base units.
     pub value_broadcast: primitive_types::U256,
+    /// Unlanded batches whose signed bytes were sent again this pass.
+    pub rebroadcast: usize,
+    /// Rebroadcasts the node refused this pass. Retried on the next pass.
+    pub rebroadcast_refused: usize,
 }
 
 /// Turns share credits into transactions.
@@ -181,6 +185,8 @@ impl PayoutEngine {
         report.broadcast += progress.broadcast;
         report.confirmed += progress.confirmed;
         report.value_broadcast += progress.value_broadcast;
+        report.rebroadcast += progress.rebroadcast;
+        report.rebroadcast_refused += progress.rebroadcast_refused;
 
         if self.ledger.open_batches()?.is_empty() {
             let started = self.start_batch().await?;
@@ -259,6 +265,24 @@ impl PayoutEngine {
                             batch.included_height = None;
                             batch.state = PayoutState::Signed;
                             self.ledger.put_batch(&batch)?;
+                        }
+                        (false, None) => {
+                            // Not in a block and the nonce is still unspent, so the
+                            // broadcast may have been dropped. The nonce is fixed, so
+                            // the same bytes can go out again and at most one copy lands.
+                            match self.chain.broadcast(&batch.signed_tx).await {
+                                Ok(_) => report.rebroadcast += 1,
+                                Err(error) => {
+                                    // Counted and retried next pass. A duplicate already in
+                                    // the mempool also lands here, so the log names the batch
+                                    // for an operator watching a batch that never clears.
+                                    report.rebroadcast_refused += 1;
+                                    eprintln!(
+                                        "pool: payout batch {} rebroadcast refused, retrying next pass: {error}",
+                                        batch.id
+                                    );
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -675,7 +699,16 @@ mod tests {
         engine.settle().await.unwrap();
         engine.settle().await.unwrap();
 
-        assert_eq!(chain.broadcasts().len(), 1);
+        // The fake never advances its nonce on broadcast, so later passes resend
+        // the open batch's bytes. What must hold is that they are the same bytes
+        // and that no second batch was started.
+        let sent = chain.broadcasts();
+        assert!(!sent.is_empty());
+        assert!(
+            sent.iter().all(|raw| raw == &sent[0]),
+            "every pass resent the first batch's signed bytes"
+        );
+        assert_eq!(ledger.open_batches().unwrap().len(), 1);
         assert_eq!(
             ledger.balance(&ALICE).unwrap().paid,
             primitive_types::U256::from(500)
@@ -747,6 +780,49 @@ mod tests {
             ledger.balance(&ALICE).unwrap().paid,
             primitive_types::U256::from(500)
         );
+    }
+
+    #[tokio::test]
+    async fn a_dropped_broadcast_is_sent_again_while_its_nonce_is_unspent() {
+        // A Submitted batch whose nonce is still unspent is rebroadcast each pass,
+        // so a broadcast the network dropped cannot stall the batch and the
+        // payouts queued behind it. The same bytes go out again; the nonce is
+        // fixed, so at most one copy can land. A refusal is counted and retried
+        // next pass rather than aborting the pass.
+        let (ledger, chain, engine) = seeded();
+        let tip = ledger.tip_sequence().unwrap().unwrap();
+        engine
+            .credit_block(
+                "block-a",
+                100,
+                tip,
+                ALICE,
+                &target_from_leading_zero_bits(8),
+            )
+            .unwrap();
+        chain.put_block(100, "block-a");
+        chain.set_height(110);
+        engine.settle().await.unwrap();
+        assert_eq!(chain.broadcasts().len(), 1);
+
+        chain.set_height(111);
+        let report = engine.settle().await.unwrap();
+        assert_eq!(report.rebroadcast, 1);
+        let sent = chain.broadcasts();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(
+            sent[0], sent[1],
+            "the rebroadcast must reuse the signed bytes"
+        );
+        assert_eq!(
+            ledger.open_batches().unwrap()[0].state,
+            PayoutState::Submitted
+        );
+
+        chain.state.lock().unwrap().refuse_broadcast = true;
+        let report = engine.settle().await.unwrap();
+        assert_eq!(report.rebroadcast, 0);
+        assert_eq!(report.rebroadcast_refused, 1);
     }
 
     #[tokio::test]

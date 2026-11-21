@@ -13,6 +13,16 @@ path = "src/lib.rs"
 [[bin]]
 name = "maya2c"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+# The `maya2c` binary and its key- and RPC-client-holding commands (`dev`,
+# `vault`, `notary`, `custody-report`). A library consumer that only replays
+# or traces - the MCP server, whose ADR-084 rule is that it holds no key and
+# reaches the node through one point - turns this off and links no keystore,
+# no argument parser and no RPC client of this crate's own.
+default = ["cli"]
+cli = ["dep:l1-wallet", "dep:jsonrpsee", "dep:clap", "dep:rpassword", "custom-l1-node/default"]
 
 [dependencies]
 maya-address = { path = "../../crates/address" }
@@ -21,13 +31,15 @@ maya-vm = { path = "../../crates/vm" }
 primitive-types.workspace = true
 # `maya2c dev`: transaction construction and the wallet's keystore and RPC
 # client, so a dev deploy is exactly what a real one is.
-custom-l1-node = { path = "../../crates/node" }
-l1-wallet = { path = "../l1-wallet" }
+# Defaults off so a library consumer keeps its own node feature choice; `cli`
+# turns them back on for the binary.
+custom-l1-node = { path = "../../crates/node", default-features = false }
+l1-wallet = { path = "../l1-wallet", optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
 serde_json.workspace = true
 # `maya2c vault`: the node's `vault_get`, which the wallet client lacks.
-jsonrpsee = { workspace = true, features = ["http-client"] }
-clap = { workspace = true, features = ["derive"] }
+jsonrpsee = { workspace = true, features = ["http-client"], optional = true }
+clap = { workspace = true, features = ["derive"], optional = true }
 anyhow = "1"
 hex.workspace = true
 # `lines`: DWARF line tables from a contract's custom sections, and the code
@@ -37,6 +49,10 @@ wasmparser = { version = "0.258", default-features = false, features = ["std"] }
 # `maya2c custody-report`: a statement's canonical JSON and its digest.
 serde = { workspace = true, features = ["derive"] }
 sha2.workspace = true
+# Notary file hashes (ADR-094): BLAKE3, the digest the node already uses for its own ids.
+blake3.workspace = true
+rpassword = { version = "7", optional = true }
+zeroize.workspace = true
 
 [dev-dependencies]
 wat.workspace = true

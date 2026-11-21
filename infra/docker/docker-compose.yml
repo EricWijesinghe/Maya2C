@@ -60,7 +60,9 @@ services:
       - seed-data:/data
       - ./genesis.json:/config/genesis.json:ro
     ports:
-      - "8545:8545"
+      # RPC is published on 127.0.0.1: it serves the miner methods, which
+      # must not reach the internet from a host running this file.
+      - "127.0.0.1:8545:8545"
       - "30333:30333"
     command:
       - --genesis
@@ -87,7 +89,7 @@ services:
       - peer1-data:/data
       - ./genesis.json:/config/genesis.json:ro
     ports:
-      - "8546:8545"
+      - "127.0.0.1:8546:8545"
       - "30334:30333"
     command:
       - --genesis
@@ -119,7 +121,7 @@ services:
       - peer2-data:/data
       - ./genesis.json:/config/genesis.json:ro
     ports:
-      - "8547:8545"
+      - "127.0.0.1:8547:8545"
       - "30335:30333"
     command:
       - --genesis

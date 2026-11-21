@@ -119,6 +119,16 @@ html, body {
   width: 100%; max-width: 34rem; margin: 0 auto;
 }
 
+/* Android draws the app edge to edge (MainActivity `enableEdgeToEdge`), so
+   the status bar, gesture bar and any cutout overlap the page. The insets are
+   0 on desktop, where these rules change nothing. */
+.titlebar {
+  padding-top: max(0.65rem, env(safe-area-inset-top));
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+.body { padding-bottom: max(2rem, env(safe-area-inset-bottom)); }
+
 /* ------------------------------------------------------------- surfaces */
 
 .card {
@@ -535,3 +545,13 @@ input + .copy-row { margin-top: 0.5rem; }
 }
 .recipient-check.new { border-color: var(--warn); }
 label.check { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--fg); }
+
+/* ------------------------------------------------------- phone widths */
+
+/* Amounts carry up to 24 decimals (ADR-068) with no natural break, so on a
+   360 px phone the balance and the fee chips must wrap inside their box
+   rather than push the page sideways (ui/tests/overflow.mjs). */
+.hero-balance { flex-wrap: wrap; min-width: 0; }
+.hero-balance .value { min-width: 0; overflow-wrap: anywhere; }
+.chips .chip { min-width: 0; }
+.chip-value { overflow-wrap: anywhere; }

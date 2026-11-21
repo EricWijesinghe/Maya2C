@@ -39,6 +39,13 @@ use crate::snapshot::{BackendSummary, RegionSummary, Snapshot};
 /// first.
 pub const MAX_REPORTERS: usize = 100_000;
 
+/// Backend rows shown in a snapshot before the rest are folded into
+/// [`OTHER_BACKEND`]. Real backends are a handful (`cpu`, `cuda`, `wgpu`, ...).
+pub const MAX_BACKEND_ROWS: usize = 8;
+
+/// Label for the folded tail of backend rows.
+pub const OTHER_BACKEND: &str = "other";
+
 /// Live reports, keyed by reporter.
 #[derive(Debug, Default)]
 pub struct Collector {
@@ -172,6 +179,23 @@ impl Collector {
                 .cmp(&a.hash_rate)
                 .then_with(|| a.backend.cmp(&b.backend))
         });
+        // Labels are free text, so their count is not bounded by the reporter
+        // count alone. The tail is folded so the snapshot, which every
+        // dashboard receives on every change, stays a fixed size.
+        if backends.len() > MAX_BACKEND_ROWS {
+            let tail = backends.split_off(MAX_BACKEND_ROWS);
+            let (miners, hash_rate) = tail.iter().fold((0usize, 0u64), |(m, h), row| {
+                (
+                    m.saturating_add(row.miners),
+                    h.saturating_add(row.hash_rate),
+                )
+            });
+            backends.push(BackendSummary {
+                backend: OTHER_BACKEND.to_string(),
+                miners,
+                hash_rate,
+            });
+        }
 
         Snapshot {
             reporters: live.len(),
@@ -414,6 +438,35 @@ mod tests {
         assert_eq!(snapshot.backends[0].backend, "cuda");
         assert_eq!(snapshot.backends[0].hash_rate, 2_000);
         assert_eq!(snapshot.backends[2].backend, "cpu");
+    }
+
+    #[test]
+    fn distinct_backend_labels_cannot_grow_the_snapshot_without_bound() {
+        // Labels are free text, so a reporter can invent one per report. The
+        // snapshot is broadcast to every dashboard on every change, so its
+        // row count must stay fixed; the total must still be conserved.
+        let mut collector = Collector::new();
+        let count: u64 = 1_000;
+        for i in 0..count {
+            collector
+                .accept(
+                    miner(&format!("rig-{i}"), 10, &format!("b{i}")),
+                    Region::UNKNOWN,
+                    1_000,
+                )
+                .expect("valid");
+        }
+
+        let snapshot = collector.snapshot(1_000);
+        assert_eq!(snapshot.backends.len(), MAX_BACKEND_ROWS + 1);
+        assert_eq!(
+            snapshot.backends.last().map(|b| b.backend.as_str()),
+            Some(OTHER_BACKEND)
+        );
+        let total: u64 = snapshot.backends.iter().map(|b| b.hash_rate).sum();
+        assert_eq!(total, snapshot.hash_rate, "folding must conserve the total");
+        let miners: usize = snapshot.backends.iter().map(|b| b.miners).sum();
+        assert_eq!(miners, snapshot.miners);
     }
 
     #[test]

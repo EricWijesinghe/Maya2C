@@ -36,9 +36,6 @@ use crate::error::{Result, WalletError};
 /// SLIP-0010 curve seed for ed25519.
 const ED25519_CURVE: &[u8] = b"ed25519 seed";
 
-/// BIP-39 PBKDF2 iteration count, fixed by the specification.
-const PBKDF2_ROUNDS: u32 = 2048;
-
 /// Length of a BIP-39 seed.
 pub const SEED_LEN: usize = 64;
 
@@ -103,6 +100,22 @@ impl DerivationPath {
         }
     }
 
+    /// Like [`DerivationPath::account`], but refuses an index that already has
+    /// the hardened bit set: `index | HARDENED` would otherwise alias it onto a
+    /// lower account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WalletError::Derivation`] if `account` or `index` is `>= HARDENED`.
+    pub fn try_account(account: u32, index: u32) -> Result<Self> {
+        if account >= HARDENED || index >= HARDENED {
+            return Err(WalletError::Derivation(format!(
+                "account {account} or index {index} has the hardened bit set"
+            )));
+        }
+        Ok(Self::account(account, index))
+    }
+
     /// Parses a path such as `m/44'/2992'/0'/0'/0'`.
     ///
     /// # Errors
@@ -161,16 +174,23 @@ impl core::fmt::Display for DerivationPath {
     }
 }
 
-/// Generates a fresh BIP-39 mnemonic from OS entropy.
+/// Generates a fresh BIP-39 mnemonic from health-tested OS entropy.
 ///
 /// # Errors
 ///
-/// Returns [`WalletError::Entropy`] if the OS entropy source fails. Falling
-/// back to anything weaker would produce a wallet an attacker can reproduce.
+/// Returns [`WalletError::EntropyHealth`] if the OS entropy source fails or
+/// fails its SP 800-90B start-up or continuous tests. Falling back to anything
+/// weaker would produce a wallet an attacker can reproduce.
 pub fn generate_mnemonic() -> Result<Zeroizing<String>> {
-    let mut entropy = Zeroizing::new([0u8; 32]);
-    getrandom::fill(entropy.as_mut())
-        .map_err(|e| WalletError::Entropy(format!("OS entropy unavailable: {e}")))?;
+    mnemonic_from_source(maya_entropy::keygen::KeygenEntropy::os()?)
+}
+
+/// The mnemonic from 32 health-tested bytes of `entropy`; split out so a test
+/// can hand it a broken source.
+fn mnemonic_from_source<S: maya_entropy::EntropySource>(
+    mut source: maya_entropy::keygen::KeygenEntropy<S>,
+) -> Result<Zeroizing<String>> {
+    let entropy = source.seed::<32>()?;
 
     let mnemonic = bip39::Mnemonic::from_entropy(entropy.as_ref())
         .map_err(|e| WalletError::Mnemonic(e.to_string()))?;
@@ -203,23 +223,11 @@ pub fn word_count(phrase: &str) -> usize {
 ///
 /// Returns [`WalletError::Mnemonic`] if the phrase is invalid.
 pub fn seed_from_mnemonic(phrase: &str, passphrase: &str) -> Result<Zeroizing<[u8; SEED_LEN]>> {
-    validate_mnemonic(phrase)?;
-
-    let normalized = phrase.trim();
-    let mut salt = Zeroizing::new(String::with_capacity(8 + passphrase.len()));
-    salt.push_str("mnemonic");
-    salt.push_str(passphrase);
-
-    let mut seed = Zeroizing::new([0u8; SEED_LEN]);
-    pbkdf2::pbkdf2::<Hmac<Sha512>>(
-        normalized.as_bytes(),
-        salt.as_bytes(),
-        PBKDF2_ROUNDS,
-        seed.as_mut(),
-    )
-    .map_err(|e| WalletError::Mnemonic(format!("seed derivation failed: {e}")))?;
-
-    Ok(seed)
+    // BIP-39 hashes the canonical words, not the raw input: separators pasted
+    // from multi-line sources would otherwise change the seed silently.
+    let mnemonic = bip39::Mnemonic::parse_normalized(phrase.trim())
+        .map_err(|e| WalletError::Mnemonic(e.to_string()))?;
+    Ok(Zeroizing::new(mnemonic.to_seed_normalized(passphrase)))
 }
 
 /// The SLIP-0010 master key for ed25519.
@@ -329,4 +337,59 @@ pub fn signing_key_at(seed: &[u8], path: &DerivationPath) -> Result<HybridSignin
 /// Propagates derivation failures.
 pub fn address_at(seed: &[u8], path: &DerivationPath) -> Result<[u8; 32]> {
     Ok(signing_key_at(seed, path)?.address())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maya_entropy::keygen::{KeygenEntropy, KeygenEntropyError, STARTUP_SAMPLES};
+    use maya_entropy::{EntropyError, EntropySource, SourceClass};
+    use sha2::{Digest, Sha256};
+
+    /// Passes the start-up test (a SHA-256 counter stream), then sticks at 0.
+    struct SticksAfterStartup(Vec<u8>, usize);
+
+    impl EntropySource for SticksAfterStartup {
+        fn name(&self) -> &'static str {
+            "sticks-after-startup"
+        }
+        fn class(&self) -> SourceClass {
+            SourceClass::Real
+        }
+        fn min_entropy_millibits(&self) -> u32 {
+            8_000
+        }
+        fn fill(&mut self, out: &mut [u8]) -> core::result::Result<(), EntropyError> {
+            for byte in out.iter_mut() {
+                *byte = self.0.get(self.1).copied().unwrap_or(0);
+                self.1 += 1;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_health_failure_stops_mnemonic_generation_with_a_typed_error() {
+        let good: Vec<u8> = (0u64..)
+            .flat_map(|i| Sha256::digest(i.to_le_bytes()))
+            .take(STARTUP_SAMPLES)
+            .collect();
+        let entropy = KeygenEntropy::new(SticksAfterStartup(good, 0)).expect("start-up passes");
+        // `.err()`, not `expect_err`: on a regression the panic must not
+        // print the mnemonic it unexpectedly produced.
+        let err = mnemonic_from_source(entropy).err();
+        assert!(matches!(
+            err,
+            Some(WalletError::EntropyHealth(KeygenEntropyError::Health(_)))
+        ));
+    }
+
+    #[test]
+    fn a_startup_failure_converts_to_the_wallet_error() {
+        let stuck = KeygenEntropy::new(SticksAfterStartup(Vec::new(), 0)).expect_err("all zeros");
+        assert!(matches!(
+            WalletError::from(stuck),
+            WalletError::EntropyHealth(KeygenEntropyError::Startup(_))
+        ));
+    }
 }
