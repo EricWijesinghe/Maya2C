@@ -77,7 +77,8 @@ or the check refuses it. Rehearse all of this first with `cargo xtask ceremony-r
 `address_text`; the rehearsal's address check fails on purpose to keep the step visible.
 
 `--supply 0` is the mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds only the
-keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-bond = 7,000 coins at 1,000 each; DECISIONS 2026-11-08). The ceremony
+keyless mining reserve and the disclosed validator bonds (7 x the genesis bond = 7,742 coins at 1,106 each: min_self_bond plus 10.6%;
+ADR-070 amendment 2026-11-22, pending Eric). The ceremony
 refuses any other supply on `maya-mainnet`, and writes no root key and no treasury. Amounts are base
 units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
 `--mining-reserve` + the sum of the bonds**, and nothing else. `--mining-reserve` is the
@@ -123,7 +124,8 @@ chain-id.
   constant stays 1 so test genesis files keep working.
 - **Supply:** there is no protocol-wide cap. Total supply is exactly what genesis allocates:
   `--mining-reserve` + bonds (`--supply 0`: no premine; genesis holds only the keyless mining
-  reserve and the disclosed minimum validator bonds, 7 x min-self-bond = 7,000 coins), printed as `total supply` before
+  reserve and the disclosed validator bonds, 7 x the genesis bond = 7,742 coins at 1,106 each: min_self_bond plus
+  10.6%; ADR-070 amendment 2026-11-22, pending Eric), printed as `total supply` before
   signing. The four
   halving eras issue 19,687,500 coins in total; the tail then pays forever (ADR-068), so the
   reserve holds the lifetime emission (about 1.23 × 10^17 coins) and the total is far above
