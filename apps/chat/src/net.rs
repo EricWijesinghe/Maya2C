@@ -21,7 +21,7 @@ pub const PROTOCOL: StreamProtocol = StreamProtocol::new("/maya-chat/1");
 /// Largest request (an envelope plus framing).
 const MAX_REQUEST: u64 = 512 << 10;
 /// Largest response (a full mailbox).
-const MAX_RESPONSE: u64 = 20 << 20;
+pub const MAX_RESPONSE: u64 = 20 << 20;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A request to a relay.

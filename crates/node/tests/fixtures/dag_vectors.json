@@ -89,7 +89,7 @@
     "cache_items": 1048573,
     "dataset_bytes": 4294967296,
     "dataset_pages": 33554393,
-    "epoch_length": 30000
+    "epoch_length": 450000
   },
   "note": "Frozen DAG proof-of-work vectors. Regenerating this file is a consensus change; see examples/gen_dag_vectors.rs.",
   "testing_cases": [

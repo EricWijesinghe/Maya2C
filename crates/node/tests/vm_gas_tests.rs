@@ -560,6 +560,180 @@ fn one_sender_gets_one_failed_contract_trial_per_block() {
     assert_eq!(kept, vec![after]);
 }
 
+/// One failing call at the cap from `attacker`, first, then calls from each
+/// of `honest`: the first at the cap, the rest at 1,000,000. `nonce` is the
+/// honest senders' (the attacker's call is never included, so it keeps 1).
+fn attack_order(
+    ids: &[[u8; 32]],
+    attacker: &HybridSigningKey,
+    honest: &[HybridSigningKey],
+    nonce: u64,
+) -> (Transaction, Vec<Transaction>) {
+    let spin = call(ids[0], block_cap(), 1, attacker);
+    let calls = honest
+        .iter()
+        .enumerate()
+        .map(|(i, key)| {
+            // The deployer of the writer used nonce 0 for it.
+            let nonce = if i == 0 { nonce + 1 } else { nonce };
+            let limit = if i == 0 { block_cap() } else { 1_000_000 };
+            call(ids[1], limit, nonce, key)
+        })
+        .collect();
+    (spin, calls)
+}
+
+fn keys(n: usize) -> Vec<HybridSigningKey> {
+    (0..n).map(|_| generate_signing_key().unwrap()).collect()
+}
+
+#[test]
+fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block() {
+    // 09 R-2, producer path: the failing call is admitted (pooled), placed
+    // first in every block's order, never included and never charged, and
+    // the honest calls after it are included in each block regardless.
+    let attacker = generate_signing_key().unwrap();
+    let honest = keys(3);
+    let mut funded: Vec<Address> = honest.iter().map(HybridSigningKey::address).collect();
+    funded.push(attacker.address());
+    let (db, _dir) = open_state(&funded);
+    let db = Arc::new(db);
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &honest[0]],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    let pool = Mempool::new(Arc::clone(&db));
+    for height in 2..4 {
+        let (spin, calls) = attack_order(&ids, &attacker, &honest, height - 2);
+        if height == 2 {
+            assert_eq!(
+                pool.insert(spin.clone()),
+                Ok(true),
+                "admission checks only the caps"
+            );
+        }
+        let mut order = vec![spin];
+        order.extend(calls.iter().cloned());
+        let kept = db
+            .select_applicable(
+                order,
+                BlockContext::at_height(height),
+                target_from_leading_zero_bits(0),
+            )
+            .unwrap();
+        assert_eq!(kept, calls, "height {height}");
+        db.apply_block(&block_of(kept), BlockContext::at_height(height))
+            .expect("the builder's block validates");
+        // Never included: no fee, no nonce bump, so it is pooled again.
+        assert_eq!(db.get_account(&attacker.address()).unwrap().nonce, 1);
+    }
+}
+
+/// A DAG-BFT chain whose tip has `ids` deployed: FOREVER by `attacker`, the
+/// writer by `honest[0]`, at height 1.
+fn bft_chain(
+    attacker: &HybridSigningKey,
+    honest: &[HybridSigningKey],
+) -> (
+    custom_l1_node::consensus::chain::Chain,
+    Vec<[u8; 32]>,
+    TempDir,
+) {
+    use custom_l1_node::consensus::chain::ChainConfig;
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    let mut genesis = block_of(Vec::new());
+    genesis.header.timestamp = 1_000_000;
+    let mut chain = common::open_chain(state, genesis, ChainConfig::dag_bft()).unwrap();
+    for address in honest
+        .iter()
+        .map(HybridSigningKey::address)
+        .chain([attacker.address()])
+    {
+        chain
+            .state()
+            .put_account(
+                &address,
+                &Account {
+                    balance: primitive_types::U256::from(1_000_000u64),
+                    nonce: 0,
+                },
+            )
+            .unwrap();
+    }
+    let codes = [wasm(FOREVER_WAT), wasm(WRITER_WAT)];
+    let deploys = [attacker, &honest[0]]
+        .iter()
+        .zip(&codes)
+        .map(|(key, code)| {
+            signed(
+                TxKind::DeployContract(ContractDeploy { code: code.clone() }),
+                0,
+                key,
+            )
+        })
+        .collect();
+    let block = chain.candidate_block(1_000_001, deploys).unwrap();
+    chain.insert_block(block).unwrap();
+    let ids = [attacker, &honest[0]]
+        .iter()
+        .zip(&codes)
+        .map(|(key, code)| derive_contract_id(&key.address(), 0, code))
+        .collect();
+    (chain, ids, dir)
+}
+
+/// A one-vertex sub-DAG at `round` carrying `txs` in order.
+fn sub_dag_of(round: u64, txs: &[Transaction]) -> maya_dag_bft::SubDag {
+    use maya_dag_bft::{Certificate, Vertex};
+    let anchor = Certificate {
+        vertex: Vertex {
+            epoch: 0,
+            round,
+            author: 0,
+            timestamp_ms: (1_000_001 + round) * 1_000,
+            parents: Vec::new(),
+            batch: txs.iter().map(Transaction::to_bytes).collect(),
+        },
+        votes: Vec::new(),
+        signatures: Vec::new(),
+    };
+    maya_dag_bft::SubDag {
+        anchor: anchor.clone(),
+        certificates: vec![anchor],
+    }
+}
+
+#[test]
+fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_bft_block() {
+    // 09 R-2, DAG-BFT path: every validator derives the block from the
+    // committed order, the failing call first, through `build_block`.
+    let attacker = generate_signing_key().unwrap();
+    let honest = keys(3);
+    let (mut chain, ids, _dir) = bft_chain(&attacker, &honest);
+    for round in 2..4 {
+        let (spin, calls) = attack_order(&ids, &attacker, &honest, round - 2);
+        let mut order = vec![spin];
+        order.extend(calls.iter().cloned());
+        let block =
+            custom_l1_node::consensus::bft::build_block(&chain, &sub_dag_of(round, &order), 1)
+                .unwrap();
+        assert_eq!(block.transactions, calls, "round {round}");
+        chain
+            .insert_block(block)
+            .expect("the derived block imports");
+        assert_eq!(
+            chain
+                .state()
+                .get_account(&attacker.address())
+                .unwrap()
+                .nonce,
+            1
+        );
+    }
+}
+
 #[test]
 fn a_replayed_old_transaction_does_not_shut_its_sender_out() {
     // A transaction refused at its nonce did no contract work, and anyone can

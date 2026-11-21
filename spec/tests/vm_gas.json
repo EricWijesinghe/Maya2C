@@ -747,6 +747,21 @@
       }
     },
     {
+      "id": "golden-recursion-5000-deep-completes-on-every-build",
+      "rules": [
+        "GAS-2"
+      ],
+      "kind": "golden_gas",
+      "input": {
+        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 5000))))",
+        "gas_limit": "10000000"
+      },
+      "expect": {
+        "result": "ok",
+        "value": "499958"
+      }
+    },
+    {
       "id": "golden-out-of-gas-after-touching-memory",
       "rules": [
         "GAS-2",

@@ -1012,7 +1012,7 @@ Two findings that contradict the brief, reported rather than worked around (Stan
   0.001 ms for a block that writes no contract entry.
 - **Why not the decision brief's A + B here:** a per-block or total contract-state ceiling and a
   per-byte state price change what blocks are valid and what users pay. They are Eric's, so they
-  are a separate `[needs-eric]` draft (ADR-142 amendment 4) stacked on this one, re-derived
+  are a separate `[needs-eric]` draft (#644, ADR-142 claim 142d) stacked on this one, re-derived
   against the cached root.
 - **Contradicts the earlier WIP (2026-11-19, never pushed):** it said the layer "cannot be made
   incremental byte-identically". The per-entry reading and hashing can be removed without
@@ -1023,3 +1023,28 @@ Two findings that contradict the brief, reported rather than worked around (Stan
   costs one more full root.
 - **Still open, for Eric:** contract-state growth is unbounded and unpriced (R-1's disk side,
   and the cache's resident memory, not measured).
+
+## 2026-11-21 — ADR-142 amendment 4: re-freeze review R-2/R-5/R-6/R-10 on #549, and the gas caps wait the validity-rule lead (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+- **R-2 verified, not closed.** One failing call at the cap, pooled and ordered first, no longer keeps honest contract calls out of any block, in the producer and the DAG-BFT paths (two new tests, passed on amendment 3's code). Two failing senders still exhaust the builder budget for free (G1). Charging failed calls is economics and goes to a separate `[needs-eric]` draft PR, not into #549.
+- **R-5: scan skipped below the length price, and priced above it.** Measured in release: the shape scan of a 512 KiB module ran at up to 1.116 ns per unit of the old `50,000 + len` charge. A cold call below `deploy_fuel(len)` is now refused before the scan (charge unchanged); one refused after it counts `deploy_fuel(len)` (≤ 0.004 ns per unit measured). A stored cold price was not added: a new state record for a scan that is now priced.
+- **R-6: measured and documented, not fixed.** The boundary depends on the build as well as the ISA: one recursion shape completes to depth 10,915 (release) and 10,901 (dev) on the same x86-64 machine. A boundary vector failed across profiles and was dropped; a 5,000-deep vector pins gas short of it. An independent rule needs a module rewriter or a fixed-frame tier, both larger than this amendment: G4, Eric's decision; until then validators run the one published release binary.
+- **R-10: text fixed to the code.** GAS-2 now bounds a block at `vm.max_block_gas` plaintext plus `sealed_gas_budget` revealed (1.25 × the cap); the bound comment states 3.25 × for a producer.
+- **GAS-5 with #575.** #549 now carries #575; tags 17 and 18 are validity rules, so a passed gas-cap change binds only after `MIN_UPGRADE_LEAD_BLOCKS`, range-checked again at promotion. Pinned by a governance test that votes `vm.max_block_gas` down through the lead.
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+## 2026-11-15 — Block-validity parameters wait a full upgrade lead; 15 s-era constants rescaled to 1 block/s (Eric 2026-11-14 MCQ)
+
+Eric chose "all format fixes" in the 2026-11-14 re-freeze MCQ. Two of them land together (ADR-082 amendment 2026-11-15):
+
+- **Validity parameters through the schedule.** A passed change to a `ParameterKey` that decides block validity (tags 2-8: DEX fill and order ceilings, oracle and shielded per-block caps, VM memory/module/default-gas bounds) no longer lands at execution. It waits in `g:pending:<tag>` and is in force from execution + `MIN_UPGRADE_LEAD_BLOCKS` (30 days), the lead a protocol upgrade carries, which is what the 2026-10-28 entry's "parameters change by protocol upgrade at an activation height, not by a live governance knob" asked for. The protocol fee, proposal deposit and default suite still apply at execution. One change waits per key; a later passed change to the same key replaces it. The lead is compiled, not chosen by the proposal, so the transaction format does not change.
+- **Rescale:** `WORK_HALF_LIFE_BLOCKS` 5,760 -> 86,400 (one day), DAG `EPOCH_LENGTH` 30,000 -> 450,000 (5.2 days; `DAG_ACTIVATION_HEIGHT` follows it), smart-account `BLOCKS_PER_DAY` 43,200 -> 86,400 (ADR-086 F7 closed), PQ transport `ROTATION_INTERVAL_BLOCKS` 1,000 -> 15,000 with the 15,000 s fallback unchanged. `TARGET_BLOCK_TIME` stays 15 and is documented as PoW-only. The governance windows, migration windows and the round-interval pin are in PR #500 (open).
+- **Not rescaled:** `PRUNE_DEPTH` (node-local policy, was defined as `EPOCH_LENGTH`) is now its own constant and stays 30,000 (8.3 h at 1 block/s). Following the epoch would have raised a default pruned node's worst case to ~2.1 TiB at the 5 MiB block cap, and the default `--bootstrap-from` and snapshot-serve depths, which are `PRUNE_DEPTH`, would have served no snapshot for the first 5.2 days. The `get_balance_at_height` bound `MAX_BALANCE_REWIND` (was `PRUNE_DEPTH`) is its own 30,000, so one public call never walks 450,000 heights. Both pinned by unit tests.
+- **Settle-time range check:** a passed proposal whose value fails `ParameterChange::validate` at execution (a release tightened the bound mid-vote) now expires instead of failing every candidate block, matching the promotion pass.
+- **Review fixes (2026-11-16):** the spec rule is CON-17, not CON-16 (#573 holds CON-16 for the header hash id; claimed in adr-claims.txt). Execution writes `g:params` only when a key that applies at once changed, the rule promotion already follows, so a validity-only or upgrade-only proposal no longer materialises an unchanged table. Kept as they are, with the reason in ADR-082: `MAX_LINKED_GAP` stays 50,000 (13.9 h at 1 block/s, node-local, the byte cap binds), and the vote lock stays at execution for validity changes, as for upgrades. #549's `VmMaxTxGas`/`VmMaxBlockGas` must be classified as validity rules when the two PRs meet.
+- Consequence for operators: default pruning, bootstrap and snapshot depths are unchanged. **This binary is not a rolling upgrade:** `dag_epoch()` divides by `EPOCH_LENGTH`, so old and new binaries hash mining shares against different DAG caches from height 30,000. It needs the planned re-genesis. Activating work claims later must re-check the work-to-stake weight ratio, since steady-state work credit grows with the 15x longer half-life.
