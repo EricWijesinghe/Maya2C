@@ -746,3 +746,80 @@ fn shapes_at_the_limits_compile_inside_their_price() {
         assert!(worst <= MAX_NS_PER_FUEL, "worst {worst:.3} ns/fuel");
     }
 }
+
+/// A module of `functions` bodies, each declaring `locals` locals as one
+/// entry apiece (the most local-declaration bytes a body can hold).
+fn one_entry_per_local(functions: u32, locals: u32) -> Vec<u8> {
+    let mut decls = Vec::new();
+    leb(u64::from(locals), &mut decls);
+    for _ in 0..locals {
+        decls.extend([1, 0x7e]);
+    }
+    let mut out = b"\0asm\x01\0\0\0".to_vec();
+    section(1, &[1, 0x60, 0, 0], &mut out);
+    let mut payload = Vec::new();
+    leb(u64::from(functions), &mut payload);
+    payload.extend(std::iter::repeat_n(0u8, functions as usize));
+    section(3, &payload, &mut out);
+    let mut payload = Vec::new();
+    leb(u64::from(functions), &mut payload);
+    for _ in 0..functions {
+        leb(decls.len() as u64 + 1, &mut payload);
+        payload.extend(&decls);
+        payload.push(0x0b);
+    }
+    section(10, &payload, &mut out);
+    out
+}
+
+#[test]
+#[ignore = "timing; run in release with --ignored --nocapture and record the figures in ADR-142"]
+fn calibrate_the_shape_scan_of_a_refused_cold_call() {
+    // 09 R-5: a cold call whose `gas_limit` reaches `deploy_fuel(len)` but not
+    // its whole price is refused after the shape scan. This times the scan
+    // alone on near-maximum modules built to be slow per byte, against
+    // `deploy_fuel(len)` (what such a refusal counts) and against
+    // `CALL_BASE_FUEL + len` (what it counted before).
+    let room = maya_vm::config::MAX_MODULE_BYTES - 64;
+    let shapes: Vec<(&str, Vec<u8>)> = vec![
+        ("one body of nop", shape(0, 1, 0, &vec![0x01; room], false)),
+        (
+            "one body of i32.const 0; drop",
+            shape(0, 1, 0, &[0x41, 0x00, 0x1a].repeat(room / 3), false),
+        ),
+        (
+            "one br_table, all labels",
+            shape(0, 1, 0, &br_table(room - 16), false),
+        ),
+        ("one local entry per local", one_entry_per_local(250, 1_024)),
+        ("10,000 empty functions", shape(0, 10_000, 0, &[], false)),
+    ];
+    let mut worst: f64 = 0.0;
+    for (label, code) in &shapes {
+        assert!(code.len() <= maya_vm::config::MAX_MODULE_BYTES, "{label}");
+        let expected = maya_vm::shape::scan(code).expect("within the shape bounds");
+        let mut best = f64::MAX;
+        for _ in 0..RUNS * 10 {
+            let started = Instant::now();
+            let scanned = maya_vm::shape::scan(code).unwrap();
+            best = best.min(started.elapsed().as_secs_f64());
+            assert_eq!(scanned, expected);
+        }
+        let before = gas::priced(gas::CALL_BASE_FUEL, 1, code.len() as u64);
+        let length = gas::deploy_fuel(code.len());
+        let per_length = best * 1e9 / length as f64;
+        worst = worst.max(per_length);
+        eprintln!(
+            "SCAN {label:<32} {:>7} B {:>9.3} us {:>6.3} ns/B {:>6.3} ns per unit of 50,000 + len \
+             {per_length:>7.4} ns per unit of deploy_fuel",
+            code.len(),
+            best * 1e6,
+            best * 1e9 / code.len() as f64,
+            best * 1e9 / before as f64,
+        );
+    }
+    eprintln!("SCAN worst {worst:.4} ns per unit of deploy_fuel(len)");
+    if !cfg!(debug_assertions) {
+        assert!(worst <= MAX_NS_PER_FUEL, "worst {worst:.4} ns/fuel");
+    }
+}

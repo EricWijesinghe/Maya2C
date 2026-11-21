@@ -376,28 +376,39 @@ impl StateDB {
         // pay its upfront price is refused here, before the compile; the VM
         // applies the same price again and would refuse it too.
         let warm = overlay.vm_modules.get(&call.contract).cloned();
+        let length_price = gas::deploy_fuel(code.len());
+        // Whether the shape scan runs: cold, and the length price reached.
+        let scanned = warm.is_none() && call.gas_limit >= length_price;
         let upfront = match &warm {
             Some(compiled) => compiled.call_fuel(true),
             // The cold price is the length price plus the shape's, so below
             // the length price the call is refused whatever the shape is and
-            // the scan is not run; the refusal below counts the same (09 R-5).
-            None if call.gas_limit < gas::deploy_fuel(code.len()) => {
-                gas::deploy_fuel(code.len())
-            }
+            // the scan is not run (09 R-5).
+            None if !scanned => length_price,
             // The module's shape as well as its length: stored code passed
-            // the same scan at deployment, so this does not fail.
-            None => gas::cold_call_fuel(&code).map_err(|e| NodeError::Vm(e.to_string()))?,
+            // the same scan at deployment, so this fails only after a release
+            // tightened a shape bound, and the scan it ran still counts.
+            None => match gas::cold_call_fuel(&code) {
+                Ok(price) => price,
+                Err(error) => {
+                    overlay.vm_gas = overlay.vm_gas.saturating_add(length_price);
+                    return Err(NodeError::Vm(error.to_string()));
+                }
+            },
         };
         if call.gas_limit < upfront {
-            // Not free: the code was read and, cold, scanned in full. A
-            // caller that keeps going (the builder, a revealed sealed call)
-            // counts that, at one unit a byte over the call base, so a pool
-            // of such calls is inside GAS-2's bound too (PR #549 review).
-            overlay.vm_gas = overlay.vm_gas.saturating_add(gas::priced(
-                gas::CALL_BASE_FUEL,
-                1,
-                code.len() as u64,
-            ));
+            // Not free: the code was read, and maybe scanned. A caller that
+            // keeps going (the builder, a revealed sealed call) counts that,
+            // so a pool of such calls is inside GAS-2's bound too (PR #549
+            // review): the read at one unit a byte over the call base, and a
+            // scan at the length price the call reached, which a scan of
+            // 512 KiB stays far inside (ADR-142 amendment 4, 09 R-5).
+            let spent = if scanned {
+                length_price
+            } else {
+                gas::priced(gas::CALL_BASE_FUEL, 1, code.len() as u64)
+            };
+            overlay.vm_gas = overlay.vm_gas.saturating_add(spent);
             return Err(NodeError::Vm(
                 maya_vm::VmError::OutOfGas {
                     limit: call.gas_limit,

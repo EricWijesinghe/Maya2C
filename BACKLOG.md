@@ -26,6 +26,18 @@ for Eric; the other two are engineering.
   failed contract call with its fee and a nonce bump (STF-8 change, Eric's
   decision);** a pool eviction of transactions that failed in a committed
   block helps but does not close it (the sender re-signs).
+- **G4 — the stack-overflow boundary depends on the ISA and the build (re-freeze review R-6).**
+  One recursion shape completes to depth 10,915 in a release build and 10,901
+  in a dev build of the same source, same x86-64 machine (ADR-142 amendment 4);
+  aarch64 frames differ again. A contract recursing to between two nodes'
+  limits succeeds on one and fails on the other, and the state roots split.
+  No vector can pin the boundary itself (it fails across profiles); a 5,000-deep
+  vector pins gas short of it, replayed on aarch64 by `vm-gas-aarch64`.
+  Fix options: a deterministic call-depth bound (instrument function entry and
+  exit with a counter: a module rewriter, which is a new VM dependency or a
+  hand-written one), or consensus execution on a fixed-frame tier (Pulley,
+  every price re-calibrated). **Decision for Eric before any aarch64 validator
+  joins:** build one, or launch x86-64-only and say so.
 - **G1b — producer time at the gas ceiling.** The two-cap builder budget puts
   a producer's worst case at about 978 ms of priced work at the 300 M
   `VM_GAS_CEILING` (816 ms at the 250 M default), at 1 ns/unit. Lower the

@@ -1,6 +1,6 @@
 # ADR-142: Contract gas caps per transaction and per block, native work priced in fuel, lazy per-key contract storage
 
-**Status:** Accepted, 2026-11-14 (Eric, 2026-11-14 MCQ: "cap + price now"). Re-freeze change: consensus behaviour, lands before genesis. Amended 2026-11-14 after the PR #549 review (see the end): shape-priced compiles, priced memory, failed work counted, a sealed budget, warm and cold reads, ceiling 300 M.
+**Status:** Accepted, 2026-11-14 (Eric, 2026-11-14 MCQ: "cap + price now"). Re-freeze change: consensus behaviour, lands before genesis. Amended 2026-11-14 after the PR #549 review (see the end): shape-priced compiles, priced memory, failed work counted, a sealed budget, warm and cold reads, ceiling 300 M. Amendment 4 (2026-11-21): the re-freeze review's R-2 verified, R-5 scan skipped and priced, R-6 boundary measured (build- and ISA-dependent), R-10 wording, the caps wait the validity-rule lead.
 **Date:** 2026-11-14
 **Related:** [ADR-034](ADR-034-vm-reference-types-off.md) (VM feature lockdown), [ADR-072](ADR-072-max-block-bytes.md) (block byte cap), [ADR-029](ADR-029-fee-market-live.md) (fees price bytes), [ADR-062](ADR-062-state-layout-before-genesis.md), ADR-131 (P-25 state pricing / rent, options, PR #472), ADR-135 (parameter tags 11–16, PR #477); invariants 7, 12, 17, 21, 24, 25, 33; `spec/10-vm-gas.md` (GAS-1..GAS-6)
 
@@ -609,3 +609,139 @@ and commit: 56.9 ms
 --nocapture --test-threads 1 building_a_block_of_failing`). The loop is cheap
 guest compute (~0.11 ns per unit), so this shows the budget is enforced. The
 time bound comes from the gas bound times the slowest priced work.
+
+## Amendment 4, 2026-11-21: the re-freeze review's R-2, R-5, R-6, R-10 and the gas caps' lead (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+The AI review of the re-freeze PRs (2026-11-19, findings R-1..R-16) was read
+as a list of claims and each was checked against the code before acting.
+None of this is an external audit.
+
+### R-2: amendment 3 verified under the review's scenario; the residual stays open
+
+The claim: a failed contract call is free and stays pooled, so one sender
+starves contract execution every block. Checked against d25ff726 with the
+review's scenario: one call at the cap to a contract that loops until it runs
+out of gas, admitted to the pool (admission checks only the caps), ordered
+first, then three honest calls, the first naming the cap, in two consecutive
+blocks. In both the producer path (`StateDB::select_applicable`) and the
+DAG-BFT path (`consensus::bft::build_block` on a committed sub-DAG), every
+honest call is included in both blocks, the derived block imports, and the
+attacker's nonce stays at 1: it paid nothing and is pooled again
+(`a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block`,
+`a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_bft_block`).
+The tests passed on the existing code: this is verification, not a fix.
+
+So the claim is **wrong for one sender** and **right for two**: two funded
+senders, each with one failing call at the cap, still fill the builder's
+`2 × cap + 1,536,000` and leave every contract call after them untried, every
+block, for nothing (`failed_work_past_the_builder_budget_stops_contract_trials`,
+G1). No builder budget closes that, because a call is known to fail only once
+it has run. Charging failed calls is economics; it is built as a separate draft
+PR ("[needs-eric]", decision brief 3 option A), not here.
+
+### R-5: the shape scan of a refused cold call, measured, skipped and priced
+
+The claim: a cold call refused below its price ran the full shape scan before
+the gas check and counted `50,000 + len`, so the scan was unpriced.
+Confirmed. Measured in release, maya-vm at this branch, wasmtime 48.0.8,
+Intel Core Ultra 9 275HX, Windows 11 Pro 29708, shared with other builds,
+2026-11-21, best of 30 scans (`cargo test --release -p maya-vm --test
+gas_adversarial_calibration_tests -- --ignored --nocapture --test-threads 1
+calibrate_the_shape_scan`):
+
+| Module (all within the shape bounds) | Bytes | Scan | ns/byte | ns per unit of `50,000 + len` | ns per unit of `deploy_fuel(len)` |
+|---|---|---|---|---|---|
+| one body of `nop` | 524,261 | 640.9 µs | 1.222 | **1.116** | 0.0027 |
+| one `br_table`, all labels | 524,255 | 609.3 µs | 1.162 | 1.061 | 0.0026 |
+| one body of `i32.const 0; drop` | 524,260 | 457.0 µs | 0.872 | 0.796 | 0.0019 |
+| 10,000 empty functions | 40,034 | 67.9 µs | 1.696 | 0.754 | 0.0038 |
+| one local entry per local (250 × 1,024) | 513,525 | 354.8 µs | 0.691 | 0.630 | 0.0015 |
+
+The old charge was under the 1 ns rule by up to 12% on the scan alone, before
+the code read. Not the order of magnitude the review's "before rating this
+High" asked about, but under. Two changes:
+
+- **Skipped below the length price** (the review's patch, finished). The cold
+  price is `deploy_fuel(len) + shape_fuel`, so a `gas_limit` below
+  `deploy_fuel(len)` is out of gas whatever the shape: refused before the scan,
+  counting `50,000 + len` as before. Consensus-neutral for stored code, which
+  all passed the scan at deployment
+  (`a_cold_call_below_the_length_price_is_refused_without_the_shape_scan`; red
+  captured: the scan's error came back instead of `OutOfGas`).
+- **Priced above it.** A cold call whose `gas_limit` reaches
+  `deploy_fuel(len)` but not its whole price is refused after the scan and now
+  counts `deploy_fuel(len)`, the part of its price it reached, at most
+  0.0038 ns per unit in the table. It counted `50,000 + len` (red captured:
+  50,054 counted against 74,300 expected,
+  `a_cold_call_refused_after_the_shape_scan_counts_the_length_price`). The
+  count is at most the call's `gas_limit`, so the builder's bound is unchanged.
+  It is consensus for a revealed sealed call (whose `gas_limit` can reach
+  `deploy_fuel(len)` for modules up to 138,777 bytes under the 62.5 M sealed
+  budget) and builder policy for a plaintext one. Stored code that a later
+  release's shape bound refuses counts the same, where it counted nothing.
+
+The review's complete fix, a cold price stored at deployment, is not taken:
+a new state record (invariant 25) to save a scan that is now priced at its
+length.
+
+### R-6: the stack boundary measured; it depends on the build as well as the ISA
+
+The claim: a recursion depth between the x86-64 and aarch64 frame limits
+succeeds on one ISA and traps on the other. Confirmed, and wider than claimed;
+not reproduced on aarch64 (no aarch64 machine here). Measured on this machine
+with `recursion_to(depth)` (one i64 parameter, one add per level,
+`measure_the_deepest_recursion_this_isa_completes`, `--ignored`):
+
+| Build of the same source, x86-64 | Deepest completing depth | Gas there |
+|---|---|---|
+| release | 10,915 (10,916 overflows) | 559,558 |
+| dev (test profile) | 10,901 (10,902 overflows) | 559,418 |
+
+Fourteen levels apart on one ISA and one CPU: the overflow point counts native
+frames the host build contributes, not only the guest's. So a contract that
+recurses to between the two depths splits two x86-64 nodes built differently,
+not only an x86-64 node from an aarch64 one. Validators running the same
+release binary (reproducible builds) agree with each other; nothing makes a
+differently built node agree with them.
+
+A golden vector at the boundary was written first and failed in the dev
+profile for exactly this reason, so it is not kept: it would fail CI's `ci`
+profile for a reason the vector cannot fix. Kept instead:
+`golden-recursion-5000-deep-completes-on-every-build` (499,958 gas), well
+inside every boundary seen, which the `vm-gas-aarch64` job replays, so deep
+recursion is pinned to the same gas on both ISAs short of the boundary.
+
+Not made build- or ISA-independent, because every way of doing it is larger
+than this amendment: a deterministic depth bound needs each function's entry
+and exits instrumented with a counter, with a limit far enough below the native
+stack that no build or ISA reaches it first (a module rewriter: a new
+dependency in the VM crate, which needs Eric, or a hand-written one); executing
+consensus on a tier with fixed frames (Pulley) changes every price calibrated
+here. Recorded in the spec's Gaps and BACKLOG.md (G4). Until one lands,
+validators should run the one published release binary.
+
+### R-10: GAS-2 says what a block may spend in all
+
+The claim: the code lets a block spend 1.25 × `vm.max_block_gas` while GAS-2
+said "no more than `vm.max_block_gas`", and the parameter comment said
+something else again. Confirmed; no split, because import replays the same
+rule. The code is right and the text was not: GAS-2 now says a block spends at
+most `vm.max_block_gas` on plaintext transactions and
+`vm.max_block_gas + sealed_gas_budget` in all, and the comment on the bound
+states 1.25 × the cap to validate and 3.25 × to produce. Pinned by
+`a_block_spends_its_cap_on_plaintext_calls_and_the_sealed_budget_on_reveals`:
+both calls complete and together spend more than the cap, in a block that
+validates.
+
+### GAS-5: the caps wait the validity-rule lead
+
+#575 (ADR-082 amendment 2026-11-15) holds a passed change to a block-validity
+parameter for `MIN_UPGRADE_LEAD_BLOCKS` after execution. This PR now carries
+#575, and tags 17 and 18 are classified as validity rules: both refuse a call
+or a block. GAS-5 says so, and that the value is range-checked again at
+promotion. Pinned by
+`a_passed_block_gas_cap_binds_only_after_the_validity_rule_lead` (a call
+naming 245 M against a cap voted down to 240 M passes GAS-1 at `E + 1` and at
+`E + lead − 1`, and is `GasAboveCap` from `E + lead`) and
+`a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped`. Red captured
+with the two keys classified as immediate.

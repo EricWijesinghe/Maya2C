@@ -236,4 +236,43 @@ fn a_cold_call_below_the_length_price_is_refused_without_the_shape_scan() {
         matches!(&scanned, Err(NodeError::Vm(message)) if message.contains("locals")),
         "{scanned:?}"
     );
+    assert_eq!(overlay.vm_gas, length_price, "the scan it ran counts");
+}
+
+#[test]
+fn a_cold_call_refused_after_the_shape_scan_counts_the_length_price() {
+    // 09 R-5: a `gas_limit` from `deploy_fuel(len)` up to the shape's price
+    // pays for the read and the scan, then is out of gas. It counted
+    // `50,000 + len`, which the scan alone outran (1.12 ns per unit on a
+    // 512 KiB body of `nop`, release, ADR-142 amendment 4). It now counts
+    // the length price it reached.
+    let dir = tempfile::TempDir::new().unwrap();
+    let db = StateDB::open(dir.path()).unwrap();
+    let code = wat::parse_str(
+        r#"(module (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+    )
+    .unwrap();
+    let contract = [9u8; 32];
+    db.raw_put(&code_key(&contract), &code).unwrap();
+    let length_price = gas::deploy_fuel(code.len());
+    assert!(length_price < gas::cold_call_fuel(&code).unwrap());
+
+    let mut overlay = Overlay::new();
+    let refused = db.call_contract(
+        &mut overlay,
+        &[1u8; 32],
+        &ContractCall {
+            contract,
+            input: Vec::new(),
+            gas_limit: length_price,
+        },
+        BlockContext::at_height(1),
+    );
+    let out_of_gas = maya_vm::VmError::OutOfGas {
+        limit: length_price,
+    }
+    .to_string();
+    assert_eq!(refused, Err(NodeError::Vm(out_of_gas)));
+    assert_eq!(overlay.vm_gas, length_price);
 }
