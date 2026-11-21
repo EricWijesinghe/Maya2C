@@ -926,6 +926,90 @@ fn a_block_validity_parameter_takes_effect_only_at_its_scheduled_height() {
     assert_eq!(fixture.db.state_root().expect("root"), root_before);
 }
 
+/// A call naming `gas_limit` to a contract that does not exist: GAS-1 is
+/// checked before the code is read, so the error says which rule refused it.
+fn call_nothing(gas_limit: u64) -> TxKind {
+    TxKind::CallContract(custom_l1_node::core::payload::ContractCall {
+        contract: [0x5a; 32],
+        input: Vec::new(),
+        gas_limit,
+    })
+}
+
+#[test]
+fn a_passed_block_gas_cap_binds_only_after_the_validity_rule_lead() {
+    // GAS-5 with CON-17: `vm.max_block_gas` refuses calls and blocks, so a
+    // passed change to it waits the full upgrade lead after execution, like
+    // every other validity rule (ADR-142 amendment 4).
+    let fixture = fixture();
+    fixture.lock(0, 4_000_000, 4 * MIN_UPGRADE_LEAD_BLOCKS, 1);
+    fixture.lock(1, 4_000_000, 4 * MIN_UPGRADE_LEAD_BLOCKS, 2);
+    let key = ParameterKey::VmMaxBlockGas;
+    let default = fixture.parameter(key);
+    let lowered = 240_000_000;
+    // Above the lowered cap, within the default one.
+    let limit = 245_000_000;
+    assert!(lowered < limit && limit <= default);
+
+    let (id, executable) = fixture.propose(key, lowered, 3);
+    fixture.vote(0, id, Choice::For, 10).expect("vote");
+    fixture.vote(1, id, Choice::For, 11).expect("vote");
+    fixture.apply(vec![], executable).expect("execute");
+    assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+
+    let activation = executable + MIN_UPGRADE_LEAD_BLOCKS;
+    for height in [executable + 1, activation - 1] {
+        // Still the old cap: the call passes GAS-1 and fails on the contract.
+        assert!(
+            matches!(
+                fixture.act(2, call_nothing(limit), height),
+                Err(NodeError::UnknownContract(_))
+            ),
+            "height {height}"
+        );
+        if height == executable + 1 {
+            assert_eq!(fixture.parameter(key), default, "executed is not in force");
+        }
+    }
+    fixture
+        .apply(vec![], activation - 1)
+        .expect("the promoting block");
+    assert_eq!(fixture.parameter(key), lowered);
+    assert!(matches!(
+        fixture.act(2, call_nothing(limit), activation),
+        Err(NodeError::GasAboveCap { limit: named, .. }) if named == limit
+    ));
+}
+
+#[test]
+fn a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped() {
+    // GAS-5: range-checked when proposed, at execution, and again at
+    // promotion: a release that tightened the bound after the vote finds the
+    // waiting value out of range and never applies it.
+    let fixture = fixture();
+    let key = ParameterKey::VmMaxBlockGas;
+    let default = fixture.parameter(key);
+    let over = key.bounds().max.saturating_to_u64() + 1;
+    let root_before = fixture.db.state_root().expect("root");
+    let stale = PendingParameter {
+        activation: 7,
+        value: maya_dex::Amount::from_u64(over),
+    };
+    fixture
+        .db
+        .raw_put_for_test(&pending_parameter_key(key.tag()), &stale.encode())
+        .expect("stage");
+    fixture
+        .apply(vec![], 6)
+        .expect("a stale value is dropped, not a block error");
+    assert_eq!(fixture.parameter(key), default);
+    assert_eq!(
+        fixture.db.state_root().expect("root"),
+        root_before,
+        "the waiting record is deleted and no table is written"
+    );
+}
+
 #[test]
 fn a_replacement_executed_the_block_before_activation_keeps_the_old_value_out() {
     // The settle pass runs before the promotion pass in the same block, so a

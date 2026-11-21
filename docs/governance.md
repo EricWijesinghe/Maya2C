@@ -104,8 +104,8 @@ while leaving every transaction that uses it apparently valid.
 ### A block-validity rule waits a full upgrade lead
 
 A key for which `ParameterKey::is_validity_rule` is true (the DEX fill and
-order ceilings, the oracle and shielded per-block caps, the three VM bounds)
-decides which blocks every node accepts. A passed change to one is written to
+order ceilings, the oracle and shielded per-block caps, the three VM bounds
+and ADR-142's per-transaction and per-block contract gas caps) decides which blocks every node accepts. A passed change to one is written to
 `g:pending:<tag>` when its proposal executes, with activation height = execution
 height + `VALIDITY_RULE_LEAD_BLOCKS` (= `MIN_UPGRADE_LEAD_BLOCKS`, 30 days at
 one block a second), and is promoted into the table at the end of the block
@@ -114,7 +114,9 @@ is judged by. One change waits per key: a later passed change to the same key
 replaces one still waiting. The protocol fee, the proposal deposit and the
 default signature suite apply at execution as before. ADR-082 amendment 2026-11-15
 (Eric 2026-11-14 MCQ); pinned by
-`a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`.
+`a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`, and for
+the gas caps by `a_passed_block_gas_cap_binds_only_after_the_validity_rule_lead`
+(ADR-142 amendment 4).
 
 The waiting value is on chain under `g:pending:<tag>` from execution, so
 anyone reading state can see it. No RPC lists it yet (the parameter RPC reads
