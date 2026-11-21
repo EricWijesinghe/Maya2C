@@ -100,14 +100,14 @@ impl KeyExtractor for ClientKey {
 pub fn bucket_key(address: IpAddr) -> IpAddr {
     match address {
         IpAddr::V4(_) => address,
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => IpAddr::V4(v4),
-            None => {
-                let mut segments = v6.segments();
-                segments[4..].fill(0);
-                IpAddr::V6(segments.into())
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return IpAddr::V4(v4);
             }
-        },
+            let mut segments = v6.segments();
+            segments[4..].fill(0);
+            IpAddr::V6(segments.into())
+        }
     }
 }
 

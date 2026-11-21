@@ -1,6 +1,8 @@
 //! `get_supply` is the node's costliest public read, so the real node client
 //! reuses one answer for `SUPPLY_TTL` whatever route or client asks.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -62,7 +64,7 @@ async fn supply_is_fetched_once_per_window() {
 
 /// A JSON-RPC endpoint that accepts calls and never answers.
 async fn hung_node() -> String {
-    let app = Router::new().route("/", post(|| std::future::pending::<String>()));
+    let app = Router::new().route("/", post(std::future::pending::<String>));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
