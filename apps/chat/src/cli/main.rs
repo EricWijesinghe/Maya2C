@@ -33,6 +33,7 @@ use maya_chat::identity::Identity;
 use maya_chat::net;
 use maya_chat::relay::Relay;
 use maya_chat::{Address, ChatError, courier, now};
+use zeroize::Zeroizing;
 
 /// How long a published prekey stays valid, seconds.
 const PREKEY_TTL: u64 = 30 * 24 * 3_600;
@@ -93,10 +94,13 @@ fn args() -> Result<Args, String> {
 
 fn identity(home: &Path) -> Result<Identity, String> {
     let path = home.join("identity.key");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("{}: {e} (run `maya-chat init` first)", path.display()))?;
-    let bytes = hex::decode(text.trim()).map_err(|_| "identity.key is not hex")?;
+    let text = Zeroizing::new(
+        std::fs::read_to_string(&path)
+            .map_err(|e| format!("{}: {e} (run `maya-chat init` first)", path.display()))?,
+    );
+    let bytes = Zeroizing::new(hex::decode(text.trim()).map_err(|_| "identity.key is not hex")?);
     let seed: [u8; 32] = bytes
+        .as_slice()
         .try_into()
         .map_err(|_| "identity.key is not 32 bytes")?;
     Ok(Identity::from_seed(seed))
@@ -114,24 +118,49 @@ fn load_client(home: &Path) -> Result<Client, String> {
 /// Written to a temporary file and renamed, so a crash mid-write cannot
 /// leave a truncated session store behind.
 fn save_client(home: &Path, client: &Client) -> Result<(), String> {
-    let tmp = home.join("sessions.bin.tmp");
-    std::fs::write(&tmp, client.save().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, home.join("sessions.bin")).map_err(|e| e.to_string())
+    let saved = client.save().map_err(|e| e.to_string())?;
+    write_private(&home.join("sessions.bin"), &saved)
+}
+
+/// Writes a file only its owner can read: created 0600 on unix, written to a
+/// sibling and renamed into place, so a crash cannot leave it truncated.
+/// Renaming also replaces any older file with its looser mode.
+fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write as _;
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&tmp).map_err(|e| e.to_string())?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 fn relay_key(home: &Path) -> Result<libp2p::identity::Keypair, String> {
     let path = home.join("relay.key");
-    if let Ok(bytes) = std::fs::read(&path) {
+    let existing = match std::fs::read(&path) {
+        Ok(bytes) => Some(Zeroizing::new(bytes)),
+        // Only a missing key is replaced. Any other read error would mint a
+        // new relay identity over the old one.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if let Some(bytes) = existing {
         return libp2p::identity::Keypair::from_protobuf_encoding(&bytes)
             .map_err(|e| e.to_string());
     }
     let key = libp2p::identity::Keypair::generate_ed25519();
     std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
-    std::fs::write(
-        &path,
-        key.to_protobuf_encoding().map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let encoded = Zeroizing::new(key.to_protobuf_encoding().map_err(|e| e.to_string())?);
+    write_private(&path, &encoded)?;
     Ok(key)
 }
 
@@ -156,15 +185,25 @@ fn why(e: &ChatError) -> String {
     }
 }
 
+/// Received text with control characters escaped, so a message cannot move
+/// the cursor or rewrite the screen. Newlines and tabs are kept.
+fn printable(text: &[u8]) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in String::from_utf8_lossy(text).chars() {
+        if c == '\n' || c == '\t' || !c.is_control() {
+            out.push(c);
+        } else {
+            out.extend(c.escape_debug());
+        }
+    }
+    out
+}
+
 /// Prints what [`courier::collect`] returned; the count of envelopes.
 fn show(results: &[Result<Received, ChatError>]) -> usize {
     for result in results {
         match result {
-            Ok(r) => println!(
-                "from {}: {}",
-                hex::encode(r.from),
-                String::from_utf8_lossy(&r.text)
-            ),
+            Ok(r) => println!("from {}: {}", hex::encode(r.from), printable(&r.text)),
             Err(ChatError::NoSession) => {
                 eprintln!("skipped a message for a session this identity does not hold");
             }
@@ -228,7 +267,8 @@ async fn run(a: Args) -> Result<(), String> {
             }
             let me = Identity::generate().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(&a.home).map_err(|e| e.to_string())?;
-            std::fs::write(&path, hex::encode(me.seed())).map_err(|e| e.to_string())?;
+            let hex_seed = Zeroizing::new(hex::encode(me.seed()));
+            write_private(&path, hex_seed.as_bytes())?;
             println!("{}", hex::encode(me.address()));
             Ok(())
         }
@@ -290,5 +330,31 @@ async fn main() {
     if let Err(e) = result {
         eprintln!("maya-chat: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{printable, write_private};
+
+    #[test]
+    fn control_characters_are_escaped_and_layout_is_kept() {
+        assert_eq!(printable(b"a\x1b[2J\rb"), "a\\u{1b}[2J\\rb");
+        assert_eq!(printable(b"x\ny\tz"), "x\ny\tz");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_files_replace_looser_ones_with_owner_only_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.key");
+        std::fs::write(&path, b"old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, b"secret").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"secret");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }

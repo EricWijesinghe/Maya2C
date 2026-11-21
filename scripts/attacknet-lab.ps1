@@ -168,7 +168,7 @@ function Start-Lab {
     foreach ($v in $validators) { Write-Host "  $($v.Name): http://127.0.0.1:$($v.RPC)" }
     Write-Host "RPC Gateway: http://127.0.0.1:34310"
     Write-Host "Prometheus: http://127.0.0.1:35310"
-    Write-Host "Grafana: http://127.0.0.1:35311 (admin/lab)"
+    Write-Host "Grafana: http://127.0.0.1:35311 (user admin, password in infra/monitoring/.env)"
 }
 
 function Stop-Lab {
