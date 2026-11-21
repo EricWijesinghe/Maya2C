@@ -251,7 +251,7 @@ failed on the brief value.
 | light | `chart-6` | `#733f1c` | `#8b3f03` | L up, same family | ink rule, chart distance |
 | both | `bronze-display` | not given | dark `var(--bronze)`, light `#b56722` (the brief's light `chart-2`) | added | large-text bronze, 3:1 on every ground |
 | both | `*-subtle` | not given | role solid at 12 % | added | chip ink on its ground, 4.5:1 |
-| both | `*-fill`, `on-fill` | not given | per theme | added | non-text 3:1 on `bg` and a card; ink 4.5:1; cvd pair |
+| both | `*-fill`, `on-fill`, `on-bronze-fill` | not given | per theme | added | non-text 3:1 on `bg` and a card; ink 4.5:1; cvd pair; `fill-vividness` |
 | light | `forge-grad-from`, `-to` | the dark stops (`#ffd39b`, `#f5a04a`) | `#c7802b`, `#bf702e` | own light stops, bronze hue | non-text 3:1 on `bg` and a card (the dark stops measured 1.4 on a card) |
 | both | `deco-teal`, `grad-hero` | not given | tight teal glow, no bronze wash | added | text on `deco-teal over surface-1` |
 
@@ -265,3 +265,20 @@ the threshold now; the role margins the gate prints are the record.
 
 Not decided here: whether `chart-5` stays purple, and whether Manrope
 returns as the display face (forged-light-2.md §8).
+
+### Light fills lifted after the third review (2026-11-21, same revision, before merge)
+
+The third review found light still dull: the solid tier carried white ink,
+which held every light fill at or under the text tier's depth (success-fill
+`#015a2a`, bronze-fill `#6f4612`, warn-fill `#a06b00`), so paper showed no
+bright colour. The light fills now carry the dark ink `on-fill #0b1a1f`, as
+dark already did, which lets them sit at mid-tone: success `#07a44c`, warn
+`#c28203`, danger `#fe2119`, info `#0d7eff`. Bronze is the exception: at the
+same mid-tone it lands on amber for deuteranopes and protanopes (0.03 apart,
+author's calculation), so light `bronze-fill #a35400` stays darker under its
+own white ink `on-bronze-fill` and the cvd pair holds. Hue stays inside each
+family's spread. The `fill-vividness` gate (OKLab L and chroma floors in
+`tokens.json`) fails a fill that sinks back, and a test pins the old
+`#015a2a`. Light `accent` stays the brief's `#0a7568`, because white
+`on-accent` needs it; `chart-1 #089192` is the brighter teal for non-text
+marks.

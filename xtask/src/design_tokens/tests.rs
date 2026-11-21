@@ -240,7 +240,7 @@ fn meaning_roles_stay_apart() {
 #[test]
 fn a_warning_the_colour_of_a_coin_amount_fails() {
     // Light warn-fill set to the light bronze-fill: one colour, two meanings.
-    let tokens = edited("\"warn-fill\": \"#a06b00\"", "\"warn-fill\": \"#6f4612\"");
+    let tokens = edited("\"warn-fill\": \"#c28203\"", "\"warn-fill\": \"#a35400\"");
     let close: Vec<_> = role_worst(&tokens)
         .unwrap()
         .into_iter()
@@ -534,10 +534,10 @@ fn a_brighter_hero_glow_that_drowns_its_text_fails() {
 
 #[test]
 fn a_ramp_step_named_by_reference_is_measured_as_the_step() {
-    let roles = theme(&real(), "light").unwrap();
+    let roles = theme(&real(), "dark").unwrap();
     assert_eq!(
-        colour(&roles, "light", "bronze-fill").unwrap(),
-        colour(&roles, "light", "bronze-text").unwrap()
+        colour(&roles, "dark", "forge-grad-from").unwrap(),
+        colour(&roles, "dark", "bronze-text").unwrap()
     );
     let looped = edited(
         "\"bronze-display\": \"var(--bronze)\"",
@@ -571,6 +571,23 @@ fn a_family_that_drifts_off_its_hue_fails() {
     );
     assert!((families::spread(vec![350.0, 10.0]) - 20.0).abs() < 1e-9);
     assert!((families::spread(vec![10.0, 40.0, 25.0]) - 30.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_muddy_fill_fails_the_vividness_rule() {
+    let fails = |t: &Json| {
+        families::report(t)
+            .unwrap()
+            .into_iter()
+            .filter_map(|l| l.failure)
+            .filter(|f| f.contains(families::VIVID))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(fails(&real()), Vec::<String>::new());
+    // The 2026-11-14 light success-fill: deep enough for white ink, too deep to look green.
+    let muddy = edited("\"success-fill\": \"#07a44c\"", "\"success-fill\": \"#015a2a\"");
+    let f = fails(&muddy);
+    assert!(f.iter().any(|f| f.contains("light success-fill")), "{f:?}");
 }
 
 #[test]

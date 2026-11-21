@@ -127,7 +127,7 @@ dark to look bright, so each meaning has tiers, each with one job:
 |---|---|---|
 | Text | `accent-text`, `bronze`, `bronze-text`, `success`, `warn`, `danger`, `info`, `steel` | Body-size text on every surface, a chip's word and edge. 4.5:1. |
 | Chip ground | `bronze-subtle`, `success-subtle`, `warn-subtle`, `danger-subtle`, `info-subtle`, `accent-subtle` | A translucent tint under the text tier: tint + 1 px role edge + role ink + icon and word. |
-| Solid | `bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill` | Dots, alert edges and counters under `on-fill` only. 3:1 on the ground and a card. Never a chip ground. |
+| Solid | `bronze-fill`, `success-fill`, `warn-fill`, `danger-fill`, `info-fill` | Dots, alert edges and counters under `on-fill` (`on-bronze-fill` for bronze). 3:1 on the ground and a card, and bright in both themes: OKLab L and chroma floors in `fill-vividness`. Never a chip ground. |
 | Display | `bronze-display` | Bronze for figures of 24 px and up (3:1, large text), so a balance can be bright on paper. |
 
 **Bronze is one ramp.** Each theme's bronze steps are the role, the text
@@ -195,12 +195,13 @@ colours and fills are never series colours.
 | `--warn-subtle` | `rgb(248 202 6 / 0.12)` | `rgb(255 198 26 / 0.12)` | Needs-a-look chip and alert ground. |
 | `--danger-subtle` | `rgb(255 77 90 / 0.12)` | `rgb(229 72 77 / 0.12)` | Error chip and alert ground. |
 | `--info-subtle` | `rgb(79 155 255 / 0.12)` | `rgb(59 130 246 / 0.12)` | Information chip ground. |
-| `--bronze-fill` | `#e98a13` | `var(--bronze-text)` | Coin dot, value counter. Solid tier, under `--on-fill`. |
-| `--success-fill` | `#3ccf6e` | `#015a2a` | Verified dot, alert edge, counter. |
-| `--warn-fill` | `#f8ca06` | `#a06b00` | Needs-a-look dot, alert edge, counter. |
-| `--danger-fill` | `#ff4d5a` | `#ec0209` | Error dot, alert edge, counter. |
-| `--info-fill` | `#4f9bff` | `#1e4fff` | Information dot, alert edge, counter. |
-| `--on-fill` | `#0b1a1f` | `#ffffff` | Ink on every `*-fill`: 4.5:1 on each. |
+| `--bronze-fill` | `#e98a13` | `#a35400` | Coin dot, value counter. Solid tier, under `--on-bronze-fill`. |
+| `--success-fill` | `#3ccf6e` | `#07a44c` | Verified dot, alert edge, counter. |
+| `--warn-fill` | `#f8ca06` | `#c28203` | Needs-a-look dot, alert edge, counter. |
+| `--danger-fill` | `#ff4d5a` | `#fe2119` | Error dot, alert edge, counter. |
+| `--info-fill` | `#4f9bff` | `#0d7eff` | Information dot, alert edge, counter. |
+| `--on-fill` | `#0b1a1f` | `#0b1a1f` | Ink on every `*-fill` except the light bronze one: 4.5:1 on each. |
+| `--on-bronze-fill` | `var(--on-fill)` | `#ffffff` | Ink on `--bronze-fill`. White on paper keeps the light bronze solid darker than `--warn-fill`, so value and needs-a-look stay apart for colour-blind readers. |
 | `--forge-grad-from` | `var(--bronze-text)` | `#c7802b` | Forge button (value actions: sign, stake), top stop (`--grad-forge`). |
 | `--forge-grad-to` | `#f5a04a` | `#bf702e` | Forge button, bottom stop. Both stops 3:1 on the ground and a card. |
 | `--on-forge` | `#2b1503` | `#2b1503` | Text on the forge stops. |
@@ -383,7 +384,7 @@ equal buttons → mono hint → 300 px gap → four tiles → stat band.
 **After**, in one screen at 1440 and in 1.4 screens at 390:
 
 - Header: emblem + `Maya2C`; nav `Experience · Build · Run a node · Explorer ↗ · Status ↗`; search; theme. "Built by Eric" moves to the footer.
-- Left column: eyebrow `Post-quantum layer-1 · testnet` (a `chip`), h1 **The ledger for the post-quantum century.** (kept), one lede sentence, **one** primary button and one text link `How a transaction becomes final →`. The primary follows the network state: while the testnet is paused it is `Read the docs`, never `Try the testnet`; `Try the testnet` returns only when the status source reports it running.
+- Left column: eyebrow `Post-quantum layer-1 · testnet (paused)` (a `chip`; the state word is read from the status source, never typed), h1 **The ledger for the post-quantum century.** (kept), one lede sentence, **one** primary button and one text link `How a transaction becomes final →`. The primary follows the network state: while the testnet is paused it is `Read the docs`, never `Try the testnet`; `Try the testnet` returns only when the status source reports it running.
 - Right column: the 3D core with the validator ring (kept; poster when WebGL is off), sized to 440 px, not 100 svh.
 - Under both: four `stat lg` tiles in the first screen: `Height`, `Block time`, `Validators`, `Finalized tx` from the gateway, each with its source line; `—` plus `testnet paused` and the pause date read from the status source (never typed into the page) when the testnet is down, which it is today. The state chip moves here as the tiles' shared state line.
 - Then the facts band (`<verified> / <subsystems> subsystems verified` etc.) as `stat md` tiles in the same component, both counts generated from `features.toml` at build time, never hand-typed.

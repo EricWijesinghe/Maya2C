@@ -95,7 +95,7 @@ const ON_FILLS: &[(&str, &str)] = &[
     ("on-accent", "accent-grad-to"),
     ("on-forge", "forge-grad-from"),
     ("on-forge", "forge-grad-to"),
-    ("on-fill", "bronze-fill"),
+    ("on-bronze-fill", "bronze-fill"),
     ("on-fill", "success-fill"),
     ("on-fill", "warn-fill"),
     ("on-fill", "danger-fill"),

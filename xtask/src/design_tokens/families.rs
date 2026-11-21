@@ -1,4 +1,4 @@
-//! Two palette rules the pair and distance gates cannot express. Each meaning
+//! Palette rules the pair and distance gates cannot express. Each meaning
 //! keeps one hue across its tiers and both themes, so a failing value is
 //! fixed by lightness rather than by drifting to a neighbouring hue (bronze
 //! to copper, red to crimson), and a chart holds at most `max-ink-series`
@@ -11,6 +11,7 @@ use super::{CHART, THEMES, chart_series, colour, entries, group, theme};
 use crate::ordered_json::Json;
 
 const FAMILIES: &str = "hue-families";
+pub(super) const VIVID: &str = "fill-vividness";
 
 /// Below this `OKLCh` chroma a colour is grey and its hue is noise.
 const MIN_CHROMA: f64 = 0.03;
@@ -24,6 +25,37 @@ pub(super) struct Line {
 pub(super) fn report(tokens: &Json) -> Result<Vec<Line>, String> {
     let mut out = hues(tokens)?;
     out.extend(inks(tokens)?);
+    out.extend(vivid(tokens)?);
+    Ok(out)
+}
+
+/// The solid tier must stay bright: a fill as deep as the text tier is the
+/// muddy light theme the third review found.
+fn vivid(tokens: &Json) -> Result<Vec<Line>, String> {
+    let g = group(tokens, VIVID)?;
+    let min_l = number(g.get("min-lightness"), &format!("{VIVID}.min-lightness"))?;
+    let min_c = number(g.get("min-chroma"), &format!("{VIVID}.min-chroma"))?;
+    let roles = g
+        .get("roles")
+        .and_then(Json::as_array)
+        .filter(|r| !r.is_empty())
+        .ok_or_else(|| format!("{VIVID}.roles: a list of roles"))?;
+    let mut out = Vec::new();
+    for t in THEMES {
+        let decls = theme(tokens, t)?;
+        for r in roles {
+            let r = r
+                .as_str()
+                .ok_or_else(|| format!("{VIVID}.roles: role names"))?;
+            let [l, a, b] = colour(&decls, t, r)?.oklab(Vision::Normal);
+            let c = a.hypot(b);
+            let text = format!(
+                "{t:>5} {r:<13} OKLab L {l:.3} (min {min_l}), chroma {c:.3} (min {min_c})"
+            );
+            let failure = (l < min_l || c < min_c).then(|| format!("{VIVID}: {text}"));
+            out.push(Line { text, failure });
+        }
+    }
     Ok(out)
 }
 
