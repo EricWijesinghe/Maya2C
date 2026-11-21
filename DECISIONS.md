@@ -913,6 +913,8 @@ Eric chose the recommended answers to founder-audit Q7 and Q8 ("I approve everyt
 - **Pause ceiling (PR #544 review, 2026-11-17):** a genesis `max_pause_blocks` above `MAX_COUNCIL_PAUSE_BLOCKS` = 86,400 (equal to the cooldown) is refused, as is 0. Without it a genesis could set a pause of years and the cooldown would bound nothing. The B30 choice, six hours of blocks, is inside it.
 - **Not built:** the brief asked for the rotation to be "logged as an event". The chain has no event log outside the VM; the transaction and the `pending` record are the log.
 - **Not decided here:** Q9, who holds the keys. It stays one operator's three devices (2026-10-18 entry) until Eric decides otherwise.
+- **Handover advances the nonce (PR #544 review, 2026-11-21, Eric 2026-11-14):** an approval signs the nonce, not the member set, so before this a key kept across a rotation could have its approval, given under the old quorum, counted toward the new one. `CouncilRecord::at` now advances the nonce by one when a rotation takes over. The alternative, signing a hash of the member set in force, changes the signed bytes; one line in a pure function was the smaller change with the same effect. The cooldowns carry across the handover, now pinned by a test. A council resume of an automatic trip also starts the council cooldown on that module; kept and written in ADR-082 as a residual.
+
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.

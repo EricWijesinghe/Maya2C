@@ -137,3 +137,38 @@ Re-run after the merge, on Windows:
 
 NOT VERIFIED after the merge: `--lib council`, `--lib describe`, and clippy.
 They are left to CI.
+
+## Review fixes 2026-11-21
+
+Found in review: an approval signs the nonce, not the member set, and the
+nonce carried across a rotation's handover. So an approval from a key kept in
+the new set, given under the old quorum, could count toward the new one.
+`CouncilRecord::at` now advances the nonce at the handover. Two tests were
+added: `an_approval_given_before_a_rotation_does_not_count_after_it` and
+`the_renewal_cooldowns_survive_a_rotation`.
+
+Red, before the one-line fix (Windows):
+
+- `cargo test -p custom-l1-node --test council_pause_tests`: 16 passed,
+  4 failed. `an_approval_given_before_a_rotation_does_not_count_after_it`
+  failed with "called `Result::unwrap_err()` on an `Ok` value", so the carried
+  approval was accepted. The other three are the nonce expectations updated
+  for the handover.
+
+Green, after the fix:
+
+- `cargo test -p custom-l1-node --test council_pause_tests`: 20 passed, 0 failed.
+- `cargo test -p custom-l1-node --lib state::council`: 3 passed, 0 failed.
+- `cargo clippy -p custom-l1-node --test council_pause_tests`: no warning in
+  `state/council.rs` or `council_pause_tests.rs`. The lib's 77 warnings are
+  the ratcheted pedantic debt.
+- `cargo xtask spec-coverage --strict`: 66 rules, 164 vectors, 63 consensus
+  rules covered, 0 gaps. CNL-1 to CNL-4 still have no conformance vectors;
+  they count as covered only through the external-vectors label (BACKLOG P2).
+- `cargo xtask claims-check`: 99 public files scanned, 0 unauthorised claims.
+
+CI on the PR: on master f2305189, these jobs fail too: "advisories and
+licences", the three report-only advisories jobs and cargo vet. Neither
+CodeQL (4 s) nor cargo-deny was compared against master. The cargo-deny log
+on the PR is from 2026-11-17: a toolchain-not-installed error plus duplicate
+warnings. `features.toml` stays `working`.

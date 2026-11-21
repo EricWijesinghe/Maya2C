@@ -248,6 +248,13 @@ sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
    *Residual, from the audit:* nothing caps how many modules the council has
    paused at once. Each module has its own cooldown; the council can still
    pause every pausable module in one stretch.
+   *Residual, review of PR #544 (2026-11-21):* a council pause or resume of a
+   module writes that module's breaker record whatever it held, so the
+   council can lift an automatic trip (resume) or replace it with a shorter
+   council pause. A council resume always sets `last_pause_end` for the
+   module, so lifting an automatic trip also starts the council's cooldown on
+   that module. Both are kept: lifting a trip is what the council is for, and
+   the cooldown only ever narrows what it may do next.
    *Ceiling on one pause (review of PR #544, 2026-11-17):* the cooldown bounds
    nothing if a genesis sets `max_pause_blocks` to years, and before this only
    0 was refused. `MAX_COUNCIL_PAUSE_BLOCKS` (86,400, equal to the cooldown, so
@@ -279,8 +286,16 @@ sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
    the council record as `pending`, which is in the state root, so the handover
    is public for the whole lead. A later rotation replaces a pending one, and
    it must clear the lead again from its own block. That is how a mistaken
-   rotation is withdrawn. The nonce carries on across the handover, so no
-   approval from before the handover is valid after it. The handover is applied
+   rotation is withdrawn. The handover advances the nonce by one, so no
+   approval from before the handover is valid after it. An approval signs the
+   nonce, not the member set, so without that step a key kept in the new set
+   could have its approval, given under the old quorum and declined by the
+   rest of it, counted toward the new threshold (review of PR #544,
+   2026-11-21; pinned by
+   `an_approval_given_before_a_rotation_does_not_count_after_it`). The
+   cooldowns (`last_pause_end`, `last_sunset_at`) carry across the handover, so
+   a new council cannot renew at once what the old one just did (pinned by
+   `the_renewal_cooldowns_survive_a_rotation`). The handover is applied
    when the record is next read at or past the activation height:
    `CouncilRecord::at(height)` is a pure function of the record and the height,
    so every node agrees on the council in force at every height, and no
@@ -320,6 +335,8 @@ Pinned by `crates/node/tests/council_pause_tests.rs`:
 `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
 `a_rotation_takes_effect_at_its_height_and_not_before`,
 `the_committed_council_read_after_activation_is_the_new_one`,
+`an_approval_given_before_a_rotation_does_not_count_after_it`,
+`the_renewal_cooldowns_survive_a_rotation`,
 `a_genesis_council_of_more_than_32_members_is_refused`,
 `a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused`; and by the
 `state::council` unit tests `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`

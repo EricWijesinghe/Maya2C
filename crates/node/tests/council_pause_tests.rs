@@ -646,17 +646,19 @@ fn a_rotation_takes_effect_at_its_height_and_not_before() {
     at(&db, activation - 1, vec![council(resume(), 1, &[0, 1], 1)]).unwrap();
 
     // At the height: the old members are no longer the council; the new are.
-    let old = at(&db, activation, vec![council(resume(), 2, &[0, 1], 2)]).unwrap_err();
+    // The handover advances the nonce (2 to 3), so nothing signed before it
+    // counts after it.
+    let old = at(&db, activation, vec![council(resume(), 3, &[0, 1], 2)]).unwrap_err();
     assert!(old.contains("approvals"), "{old}");
     at(
         &db,
         activation,
-        vec![council_with(resume(), 2, &new_set[1..], 2)],
+        vec![council_with(resume(), 3, &new_set[1..], 2)],
     )
     .unwrap();
     let record = db.committed_council(activation).unwrap().unwrap();
     assert_eq!(record.pending, None);
-    assert_eq!(record.nonce, 3);
+    assert_eq!(record.nonce, 4);
     assert_eq!(
         record.members,
         [3u8, 4, 5]
@@ -811,7 +813,93 @@ fn the_committed_council_read_after_activation_is_the_new_one() {
     assert!(before.pending.is_some());
     let after = db.committed_council(activation).unwrap().unwrap();
     assert_eq!(after.members[0], member(3).verifying_key().to_bytes());
-    assert_eq!((after.pending, after.nonce), (None, 1));
+    assert_eq!((after.pending, after.nonce), (None, 2));
+}
+
+#[test]
+fn an_approval_given_before_a_rotation_does_not_count_after_it() {
+    // Review of PR #544, 2026-11-21: member 0 stays in the new set. Its
+    // approval at the pre-handover nonce, which the old quorum declined, must
+    // not join a new member's to reach the new threshold.
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let activation = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    at(
+        &db,
+        1,
+        vec![council(rotation(activation, 2, &[0, 3, 4]), 0, &[0, 1], 0)],
+    )
+    .unwrap();
+    let carried = at(
+        &db,
+        activation,
+        vec![council_with(pause(Module::Dex, 3), 1, &[(0, 0), (1, 3)], 1)],
+    )
+    .unwrap_err();
+    assert!(carried.contains("nonce"), "{carried}");
+    assert_eq!(db.committed_council(activation).unwrap().unwrap().nonce, 2);
+    // Signed afresh under the council in force, the same quorum acts.
+    at(
+        &db,
+        activation,
+        vec![council_with(pause(Module::Dex, 3), 2, &[(0, 0), (1, 3)], 1)],
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_renewal_cooldowns_survive_a_rotation() {
+    use custom_l1_node::state::upgrades::{COUNCIL_SUNSET_LEAD_BLOCKS, SunsetSpec};
+    use maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
+    use maya_crypto_pq::suite::SuiteId;
+
+    // A fresh council must not renew at once what the old one just did (Q7).
+    let sunset = |now: u64, suite: SuiteId| CouncilKind::SunsetSuites {
+        announced_at: now + COUNCIL_SUNSET_LEAD_BLOCKS,
+        sunsets: vec![SunsetSpec {
+            suite: suite.to_byte(),
+            sunset_height: now + COUNCIL_SUNSET_LEAD_BLOCKS + MIN_MIGRATION_WINDOW,
+            emergency: false,
+        }],
+    };
+    let dir = TempDir::new().unwrap();
+    let db = bare(&dir);
+    let activation = 1 + COUNCIL_ROTATION_LEAD_BLOCKS;
+    at(
+        &db,
+        1,
+        vec![council(rotation(activation, 2, &[3, 4, 5]), 0, &[0, 1], 0)],
+    )
+    .unwrap();
+    at(&db, 2, vec![council(pause(Module::Dex, 3), 1, &[0, 1], 1)]).unwrap();
+    at(
+        &db,
+        2,
+        vec![council(sunset(2, SuiteId::MlDsa65), 2, &[0, 1], 2)],
+    )
+    .unwrap();
+    // Both cooldowns run past the activation: the pause's to 5 + a day, the
+    // sunset's to 2 + a day.
+    let new_set = [(0u8, 3u8), (1, 4)];
+    let paused = at(
+        &db,
+        activation,
+        vec![council_with(pause(Module::Dex, 3), 4, &new_set, 3)],
+    )
+    .unwrap_err();
+    assert!(paused.contains("cooldown"), "{paused}");
+    let sunset_again = at(
+        &db,
+        activation,
+        vec![council_with(
+            sunset(activation, SuiteId::SlhDsaSha2_128s),
+            4,
+            &new_set,
+            3,
+        )],
+    )
+    .unwrap_err();
+    assert!(sunset_again.contains("cooldown"), "{sunset_again}");
 }
 
 #[test]

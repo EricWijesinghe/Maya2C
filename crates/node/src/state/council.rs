@@ -12,7 +12,9 @@
 //!   cannot renew it until `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` after it ends.
 //!   The end is kept in the council record (`last_pause_end`), not read back
 //!   from the breaker record, because an automatic trip overwrites that one;
-//!   every action advances the nonce;
+//!   every action advances the nonce, and so does a rotation's handover;
+//! - a council resume of a module also ends an automatic trip of it, and
+//!   starts the council's cooldown on that module like any other resume;
 //! - it is recorded under the governance prefix, so it is in the state root
 //!   and every node enforces it identically.
 //!
@@ -170,11 +172,16 @@ impl CouncilRecord {
     /// has come replaces the members and threshold. A pure function of the
     /// record and the height, so the handover needs no per-block hook and
     /// every node agrees on who the council is at every height.
+    ///
+    /// The handover advances the nonce: an approval names only the nonce, not
+    /// the member set, so one a kept member gave under the old quorum would
+    /// otherwise count toward the new one (review of PR #544, 2026-11-21).
     #[must_use]
     pub fn at(mut self, height: u64) -> Self {
         if let Some(rotation) = self.pending.take_if(|r| r.activation <= height) {
             self.threshold = rotation.threshold;
             self.members = rotation.members;
+            self.nonce = self.nonce.saturating_add(1);
         }
         self
     }
@@ -534,7 +541,7 @@ mod tests {
         let rotated = r.at(50);
         assert_eq!(rotated.threshold, 1);
         assert_eq!(rotated.members, vec![[9; PUBLIC_KEY_LEN]]);
-        assert_eq!((rotated.pending, rotated.nonce), (None, 3));
+        assert_eq!((rotated.pending, rotated.nonce), (None, 4));
     }
 
     /// An automatic trip rewrites the module's breaker record. Before
