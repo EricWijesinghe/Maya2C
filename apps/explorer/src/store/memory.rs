@@ -145,10 +145,42 @@ impl BlockStore for MemoryStore {
             .cloned())
     }
 
-    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>> {
-        Ok(tx_page(&self.read(), None, i64::MAX, |tx| tx.txid == txid)
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx, String)>> {
+        let inner = self.read();
+        Ok(tx_page(&inner, None, i64::MAX, |tx| tx.txid == txid)
             .into_iter()
-            .next())
+            .next()
+            .and_then(|(seek, tx)| {
+                let block = inner.blocks.get(&seek.height)?;
+                Some((seek, tx, block.id.clone()))
+            }))
+    }
+
+    async fn block_transactions_page(
+        &self,
+        height: i64,
+        after: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        let limit = limit.max(0) as usize;
+        let inner = self.read();
+        let Some(txs) = inner.transactions.get(&height) else {
+            return Ok(Vec::new());
+        };
+        Ok(txs
+            .iter()
+            .enumerate()
+            .map(|(position, tx)| {
+                let seek = Seek {
+                    height,
+                    position: position as i64,
+                };
+                (seek, tx)
+            })
+            .filter(|(seek, _)| after.is_none_or(|after| seek.position > after))
+            .take(limit)
+            .map(|(seek, tx)| (seek, tx.clone()))
+            .collect())
     }
 
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>> {

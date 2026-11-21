@@ -142,6 +142,19 @@ pub const TRANSACTIONS_PAGE_SQL: &str = "SELECT * FROM transactions
      WHERE (height, position) < ($1::BIGINT, $2::BIGINT)
      ORDER BY height DESC, position DESC LIMIT $3";
 
+/// `block_transactions_page`: `$1` height, `$2` the position to continue
+/// after (-1 for the first page), `$3` limit. A `transactions_order_idx` range.
+pub const BLOCK_TRANSACTIONS_PAGE_SQL: &str = "SELECT * FROM transactions
+     WHERE height = $1 AND position > $2::BIGINT
+     ORDER BY position ASC LIMIT $3";
+
+/// `transaction_placed`: `$1` txid. One statement, so the transaction and its
+/// block's id come from one snapshot; `put_block` and `rollback_from` each
+/// write both tables in one transaction.
+pub const TRANSACTION_PLACED_SQL: &str = "SELECT t.*, b.id AS block_id
+     FROM transactions t JOIN blocks b ON b.height = t.height
+     WHERE t.txid = $1";
+
 // Address branches, as macros so the three statements stay `&'static str`.
 // `$1` address, `$2, $3` the bound, `$4` limit. Each branch is an index range
 // read newest first and stopped at the limit, so an address with no history
@@ -468,12 +481,32 @@ impl BlockStore for PostgresStore {
         row.as_ref().map(tx_from_row).transpose()
     }
 
-    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>> {
-        let row = sqlx::query("SELECT * FROM transactions WHERE txid = $1")
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx, String)>> {
+        let row = sqlx::query(TRANSACTION_PLACED_SQL)
             .bind(txid)
             .fetch_optional(&self.pool)
             .await?;
-        row.as_ref().map(placed_tx_from_row).transpose()
+        row.as_ref()
+            .map(|row| -> Result<_> {
+                let (seek, tx) = placed_tx_from_row(row)?;
+                Ok((seek, tx, row.try_get("block_id")?))
+            })
+            .transpose()
+    }
+
+    async fn block_transactions_page(
+        &self,
+        height: i64,
+        after: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        let rows = sqlx::query(BLOCK_TRANSACTIONS_PAGE_SQL)
+            .bind(height)
+            .bind(after.unwrap_or(-1))
+            .bind(limit.max(0))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(placed_tx_from_row).collect()
     }
 
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>> {

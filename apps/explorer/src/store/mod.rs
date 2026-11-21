@@ -62,11 +62,23 @@ pub trait BlockStore: Send + Sync {
     async fn transaction(&self, txid: &str) -> Result<Option<IndexedTx>>;
 
     /// A transaction by hex id with its stored `(height, position)` key, so
-    /// the position is the one the index holds rather than one re-derived.
-    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx)>>;
+    /// the position is the one the index holds rather than one re-derived,
+    /// and the id of the block the index holds it in. All three are read
+    /// together: a reorg repair between two reads could otherwise pair a fork
+    /// transaction with the canonical block that replaced it.
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx, String)>>;
 
     /// Transactions in a block, in inclusion order.
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>>;
+
+    /// At most `limit` of a block's transactions after position `after` (from
+    /// the first when `None`), in inclusion order, each with its position.
+    async fn block_transactions_page(
+        &self,
+        height: i64,
+        after: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>>;
 
     /// Transactions sent by an address, newest first.
     async fn transactions_by_sender(&self, sender: &str, limit: i64) -> Result<Vec<IndexedTx>>;

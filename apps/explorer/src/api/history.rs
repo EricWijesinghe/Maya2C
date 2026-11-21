@@ -6,7 +6,6 @@
 
 use axum::extract::State;
 use axum::response::Response;
-use maya_address::Network;
 use serde::Deserialize;
 
 use crate::api::address;
@@ -16,7 +15,7 @@ use crate::api::problem::{ApiError, ApiPath, ApiQuery, Code};
 use crate::api::query::{self, BlockRef, CursorKind};
 use crate::api::respond::{self, Freshness, Meta};
 use crate::api::{ApiState, chain_meta, freshness, network_of};
-use crate::model::{IndexedBlock, IndexedTx};
+use crate::model::IndexedBlock;
 use crate::store::Seek;
 
 /// Query string for every list route.
@@ -155,34 +154,19 @@ pub async fn block_transactions(
         ));
     }
     let network = network_of(&state).await;
-    let txs = state
+    let rows = state
         .store
-        .transactions_in_block(block.height)
+        .block_transactions_page(block.height, after.map(|seek| seek.position), limit)
         .await
         .map_err(|e| index_error(&e))?;
-    let keyed = placed(block.height, &txs, network)
-        .into_iter()
-        .filter(|(seek, _)| after.is_none_or(|a| seek.position > a.position))
-        .take(usize::try_from(limit).unwrap_or(0))
+    let keyed = rows
+        .iter()
+        .map(|(seek, tx)| (*seek, Transaction::new(*seek, tx, network)))
         .collect();
     let page = Page::new(keyed, limit, CursorKind::BlockTransactions);
     let fresh = freshness(&state, block.height, &block.id).await;
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&page, fresh, meta))
-}
-
-/// A block's transactions with their positions, as v1 rows.
-fn placed(height: i64, txs: &[IndexedTx], network: Option<Network>) -> Vec<(Seek, Transaction)> {
-    txs.iter()
-        .enumerate()
-        .map(|(position, tx)| {
-            let seek = Seek {
-                height,
-                position: i64::try_from(position).unwrap_or(i64::MAX),
-            };
-            (seek, Transaction::new(seek, tx, network))
-        })
-        .collect()
 }
 
 /// Transactions across the chain, newest first.
@@ -237,7 +221,7 @@ pub async fn transaction(
     ApiPath(raw): ApiPath<String>,
 ) -> Result<Response, ApiError> {
     let txid = query::txid(&raw)?;
-    let (seek, tx) = state
+    let (seek, tx, block_id) = state
         .store
         .transaction_placed(&txid)
         .await
@@ -256,16 +240,9 @@ pub async fn transaction(
             .map(|output| Output::new(output, network))
             .collect(),
     };
-    // The transaction is only as final as the block the index holds it in.
-    let block = state
-        .store
-        .block_by_height(tx.height)
-        .await
-        .map_err(|e| index_error(&e))?;
-    let fresh = match block {
-        Some(block) => freshness(&state, tx.height, &block.id).await,
-        None => Freshness::Short,
-    };
+    // The transaction is only as final as the block the index holds it in,
+    // read with it (see `BlockStore::transaction_placed`).
+    let fresh = freshness(&state, tx.height, &block_id).await;
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&body, fresh, meta))
 }

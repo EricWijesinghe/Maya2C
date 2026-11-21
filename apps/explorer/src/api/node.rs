@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use custom_l1_node::BlockHeader;
 use custom_l1_node::rpc::types::CheckpointInfo;
 use custom_l1_node::rpc::validators::ValidatorsInfo;
 use custom_l1_node::rpc::{AccountInfo, ChainInfo, SupplyReport};
@@ -43,7 +44,7 @@ pub trait NodeSource: Send + Sync {
     async fn supply(&self) -> Result<SupplyReport>;
     /// Mempool occupancy (`get_mempool_info`).
     async fn mempool(&self) -> Result<Mempool>;
-    /// Hex id of the node's block at `height` (`get_block_by_height`), so a
+    /// Hex id of the node's block at `height` (`get_headers`), so a
     /// response is only marked immutable for the block the chain kept.
     async fn block_id(&self, height: u64) -> Result<String>;
 }
@@ -115,20 +116,24 @@ impl NodeSource for RpcNode {
     }
 
     async fn block_id(&self, height: u64) -> Result<String> {
-        // Only the header id is read; serde skips the rest of the block.
-        #[derive(Deserialize)]
-        struct Header {
-            id: String,
-        }
-        #[derive(Deserialize)]
-        struct Block {
-            header: Header,
-        }
-        let block: Block = self
-            .call("get_block_by_height", rpc_params![height])
+        // One header (a few hundred bytes), not the whole block up to the
+        // block byte cap; the id is the header's own hash.
+        let headers: Vec<String> = self
+            .call("get_headers", rpc_params![height, height])
             .await?;
-        Ok(block.header.id)
+        header_id(&headers)
     }
+}
+
+/// The hex id of the one hex header `get_headers` returned for one height.
+fn header_id(headers: &[String]) -> Result<String> {
+    let bad = |why: String| ExplorerError::NodeRpc(format!("get_headers: {why}"));
+    let [text] = headers else {
+        return Err(bad(format!("{} headers for one height", headers.len())));
+    };
+    let bytes = hex::decode(text).map_err(|e| bad(e.to_string()))?;
+    let header = BlockHeader::from_bytes(&bytes).map_err(|e| bad(e.to_string()))?;
+    Ok(hex::encode(header.id()))
 }
 
 /// A [`NodeSource`] that holds one of a shared set of slots per call.
@@ -220,4 +225,39 @@ impl NodeSource for NoNode {
 
 fn unconfigured() -> ExplorerError {
     ExplorerError::NodeRpc("no node endpoint configured".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use custom_l1_node::core::block::HEADER_VERSION;
+
+    use super::*;
+
+    fn header() -> BlockHeader {
+        BlockHeader {
+            prev_hash: [1; 32],
+            state_root: [2; 32],
+            timestamp: 1_700_000_000,
+            nonce: 7,
+            difficulty_target: [0xff; 32],
+            tx_root: [3; 32],
+            version: HEADER_VERSION,
+        }
+    }
+
+    #[test]
+    fn the_id_is_the_header_hash_the_block_rpc_reports() {
+        let header = header();
+        let text = hex::encode(header.serialize());
+        assert_eq!(header_id(&[text]).unwrap(), hex::encode(header.id()));
+    }
+
+    #[test]
+    fn anything_but_one_well_formed_header_is_an_error() {
+        let text = hex::encode(header().serialize());
+        assert!(header_id(&[]).is_err());
+        assert!(header_id(&[text.clone(), text.clone()]).is_err());
+        assert!(header_id(&["zz".to_string()]).is_err());
+        assert!(header_id(&[text[..text.len() - 2].to_string()]).is_err());
+    }
 }

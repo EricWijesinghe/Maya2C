@@ -303,21 +303,22 @@ async fn lookups(store: &dyn BlockStore) {
         "every tx column round-trips"
     );
     assert_eq!(store.transaction(&txid(9, 9)).await.unwrap(), None);
-    let (at, placed) = store
+    let (at, placed, block_id) = store
         .transaction_placed(&txid(2, 1))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(
-        (at, placed.txid),
+        (at, placed.txid, block_id),
         (
             Seek {
                 height: 2,
                 position: 1
             },
-            txid(2, 1)
+            txid(2, 1),
+            hash(2)
         ),
-        "the stored position, not a re-derived one"
+        "the stored position, not a re-derived one, and the holding block"
     );
     assert_eq!(store.transaction_placed(&txid(9, 9)).await.unwrap(), None);
 
@@ -329,6 +330,30 @@ async fn lookups(store: &dyn BlockStore) {
         .map(|tx| tx.txid)
         .collect();
     assert_eq!(in_block, vec![txid(2, 0), txid(2, 1), txid(2, 2)]);
+
+    // A block's page: ascending, after the cursor, at most the limit, each row
+    // with its stored position.
+    let page = |after: Option<i64>, limit: i64| async move {
+        store
+            .block_transactions_page(2, after, limit)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(at, tx)| (at.position, tx.txid))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(page(None, 2).await, vec![(0, txid(2, 0)), (1, txid(2, 1))]);
+    assert_eq!(page(Some(1), 2).await, vec![(2, txid(2, 2))]);
+    assert!(page(Some(2), 2).await.is_empty());
+    assert!(page(None, 0).await.is_empty());
+    assert!(page(None, -3).await.is_empty());
+    assert!(
+        store
+            .block_transactions_page(99, None, 5)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let by_sender: Vec<String> = store
         .transactions_by_sender(&addr(1), 3)
@@ -600,8 +625,8 @@ async fn generic_plan(pool: &PgPool, sql: &str, types: &str, args: &str) -> Stri
 #[tokio::test]
 async fn postgres_public_queries_never_walk_the_table() {
     use maya_explorer::store::postgres::{
-        ADDRESS_BOTH_SQL, ADDRESS_RECEIVED_SQL, ADDRESS_SENT_SQL, BLOCKS_PAGE_SQL,
-        TRANSACTIONS_PAGE_SQL,
+        ADDRESS_BOTH_SQL, ADDRESS_RECEIVED_SQL, ADDRESS_SENT_SQL, BLOCK_TRANSACTIONS_PAGE_SQL,
+        BLOCKS_PAGE_SQL, TRANSACTION_PLACED_SQL, TRANSACTIONS_PAGE_SQL,
     };
     let Some(db) = PgDb::create("plans").await else {
         return;
@@ -641,8 +666,11 @@ async fn postgres_public_queries_never_walk_the_table() {
     sqlx::raw_sql("ANALYZE").execute(pool).await.unwrap();
 
     let top = i64::MAX;
+    let mut plans = vec![(
+        "transaction placed",
+        generic_plan(pool, TRANSACTION_PLACED_SQL, "text", "'t4242'").await,
+    )];
     // From the tip, and from a client-crafted deep cursor at height 1.
-    let mut plans = Vec::new();
     for (h, p) in [(top, top), (1, 0)] {
         plans.push((
             "blocks",
@@ -655,6 +683,18 @@ async fn postgres_public_queries_never_walk_the_table() {
                 TRANSACTIONS_PAGE_SQL,
                 "bigint, bigint, bigint",
                 &format!("{h}, {p}, 25"),
+            )
+            .await,
+        ));
+        // A block's first page (-1), and one continued after position 0.
+        let position = if p == top { -1 } else { p };
+        plans.push((
+            "block transactions",
+            generic_plan(
+                pool,
+                BLOCK_TRANSACTIONS_PAGE_SQL,
+                "bigint, bigint, bigint",
+                &format!("{}, {position}, 25", PLAN_ROWS / 20),
             )
             .await,
         ));
