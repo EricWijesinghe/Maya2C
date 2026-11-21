@@ -159,6 +159,10 @@ members = [
     # Live watchdog (ADR-077 watcher): read-only, pages on-call by ntfy. A member
     # so its detectors are built and tested with the rest of the workspace.
     "apps/sentinel",
+    # Public invariant monitor and validator ledger (CATALOG W1): read-only,
+    # built only from what the public gateway serves; they reuse the sentinel.
+    "apps/invariant-monitor",
+    "apps/validator-ledger",
     # Merchant checkout (ADR-091): invoices and signed webhooks. A member so
     # its SSRF and matching rules are built with the workspace; it links no
     # node crate, only the address codec.
@@ -498,6 +502,10 @@ sha3 = { version = "0.11", default-features = false }
 socket2 = "0.6"
 tempfile = "3"
 thiserror = "2.0"
+# Report and evidence date stamps in xtask and attacknet-controller; it replaced
+# chrono (RUSTSEC-2026-0543, unmaintained). Already in the lock through
+# rcgen and x509-parser.
+time = "0.3.55"
 tokio = "1"
 # `config.toml` parsing, and `features.toml` in xtask. One format, read once
 # at startup, with `deny_unknown_fields` doing the work a layered config
