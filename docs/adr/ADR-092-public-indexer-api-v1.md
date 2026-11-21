@@ -20,8 +20,12 @@ cannot take that prefix.
 2. **Read-only GET.** History (blocks, transactions, the address index) comes
    from the store. Live values (balance, nonce, validators, supply, mempool,
    chain info, checkpoint) come from the node's JSON-RPC through a TTL cache
-   with single-flight: concurrent misses share one node call. `/supply` has a
-   30 s TTL because the node scans every account to produce it.
+   with single-flight: concurrent misses share one node call, and a failed
+   call is reused for 1 s. `/supply` has a 30 s TTL because the node scans
+   every account to produce it. History responses wait at most 500 ms for the
+   node values they can do without (tip, network, finality, the canonical
+   check), so a node that hangs leaves those fields empty instead of queueing
+   every history request behind it.
 3. **Pagination.** `limit` is 1-100, default 25. The response is
    `{items, next_cursor}`. The cursor is opaque: a version byte, a byte
    naming the list that issued it (blocks; transactions, shared by
@@ -66,9 +70,11 @@ cannot take that prefix.
 7. **Caching.** A block or transaction at or below the finalized height
    (`get_checkpoint`) is `Cache-Control: public, max-age=31536000, immutable`
    only if the node also answered for the chain's network (so no address in
-   the body is null) and its block at that height (`get_block_by_height`) is
-   the one the index holds: a stale fork block the indexer has not yet
-   repaired is never frozen. Anything else is `max-age=5`. Live data is `no-cache` with an `ETag`
+   the body is null) and its block at that height (the id of the one header
+   `get_headers` returns, not the whole block) is the one the index holds: a
+   stale fork block the indexer has not yet repaired is never frozen. A
+   transaction is read with its block's id in one statement, so a repair
+   between two reads cannot pair a fork transaction with the canonical block. Anything else is `max-age=5`. Live data is `no-cache` with an `ETag`
    over the body and `If-None-Match` returns 304.
 8. **Store.** The index gains `tx_outputs(txid, idx, recipient, amount,
    height, position)` and `IndexedOutput`. The index generation is bumped to
@@ -105,7 +111,8 @@ cannot take that prefix.
   rollback, restart and generation rebuild) is run on both `MemoryStore` and
   `PostgresStore`, so the fake the API tests use and the SQL cannot drift. The
   server comes from `MAYA_EXPLORER_TEST_PG`; CI's nextest job and the
-  nightly coverage job provide a `postgres:17-alpine` service. Without the
+  nightly coverage job are configured to provide a `postgres:17-alpine`
+  service (the local run, against PostgreSQL 16, is in the PR). Without the
   variable those tests print SKIPPED locally and fail under `CI`, so a job
   that lost its server cannot pass having checked no SQL. `sqlx` was already
   in the crate, and its 0.9 `query()` accepts only `'static` SQL, so a value
@@ -118,6 +125,10 @@ cannot take that prefix.
   `maya-web-security` gains optional `governor`, `tower_governor`,
   `thiserror` and `tokio` behind `rate-limit`. The lockfile gains no new
   package, only these edges.
+- The indexer writes through its own two-connection pool, apart from the
+  `--max-connections` pool the public reads share, so clients holding every
+  read connection cannot stall indexing. A Postgres explorer therefore opens
+  up to `--max-connections` + 2 connections.
 - **Deploying this resets the explorer index.** Moving from generation 3 to
   4 truncates `blocks`, `transactions` and `tx_outputs`, and the indexer
   re-reads the chain from the node. Against a pruned node, history below the
