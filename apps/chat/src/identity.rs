@@ -6,7 +6,7 @@
 //! (ML-KEM-768 + X25519) key derived from the identity seed and an epoch, so
 //! nothing but the seed needs protecting at rest.
 
-use maya_crypto_pq::kem_suite::{XWing, XWingKey};
+use maya_crypto_pq::kem_suite::{KemSuite, XWing, XWingKey};
 use maya_crypto_pq::suite::{self, MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -148,10 +148,20 @@ impl PrekeyBundle {
     ///
     /// # Errors
     ///
-    /// [`ChatError::BadSignature`] or [`ChatError::Expired`].
+    /// [`ChatError::BadSignature`], [`ChatError::Expired`], or
+    /// [`ChatError::BadKey`] for a field of the wrong length.
     pub fn verify(&self, now: u64) -> Result<Address, ChatError> {
         if now >= self.expires_at {
             return Err(ChatError::Expired);
+        }
+        // Exact lengths: a relay stores what verifies, so an oversized field
+        // would be stored too.
+        let suite = SuiteId::MlDsa65.info();
+        if self.identity_key.len() != suite.public_key_len
+            || self.signature.len() != suite.signature_len
+            || self.prekey.len() != XWing::ENCAPSULATION_KEY_LEN
+        {
+            return Err(ChatError::BadKey);
         }
         suite::verify(
             SuiteId::MlDsa65,
