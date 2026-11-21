@@ -551,7 +551,10 @@ async fn graphql_aliases_cannot_multiply_node_calls_past_five() {
         serde_json::json!({ "query": aliased(5, "supply { circulating total }") }),
     )
     .await;
-    assert!(five["errors"].is_null(), "five calls must be served: {five}");
+    assert!(
+        five["errors"].is_null(),
+        "five calls must be served: {five}"
+    );
     assert_eq!(node.calls(), 5);
 
     for field in [
@@ -565,7 +568,10 @@ async fn graphql_aliases_cannot_multiply_node_calls_past_five() {
             serde_json::json!({ "query": aliased(6, field) }),
         )
         .await;
-        assert!(!six["errors"].is_null(), "six `{field}` calls must be refused: {six}");
+        assert!(
+            !six["errors"].is_null(),
+            "six `{field}` calls must be refused: {six}"
+        );
     }
     assert_eq!(node.calls(), 5, "a refused query must not reach the node");
 }
