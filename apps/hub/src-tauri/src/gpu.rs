@@ -4,9 +4,14 @@
 //! report (a fanless laptop GPU, say) is `None` and the UI draws a dash, never
 //! a guess. Other vendors report nothing yet, and the UI says so.
 
+#[cfg(any(windows, test))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use serde::Serialize;
+
+const NO_DRIVER_NOTE: &str = "No NVIDIA driver found. AMD and Intel telemetry is not wired yet.";
 
 /// The query, in the column order [`parse`] expects.
 const QUERY: &str = "index,name,temperature.gpu,power.draw,power.limit,utilization.gpu,\
@@ -78,10 +83,35 @@ pub fn temperatures(report: &GpuReport) -> Vec<(u32, f64)> {
         .collect()
 }
 
+/// The driver's `nvidia-smi` on Windows, by absolute path: a bare name lets
+/// CreateProcess look in the app and working folders before System32.
+#[cfg(windows)]
+fn driver_tool() -> Option<PathBuf> {
+    std::env::var_os("SystemRoot").map(|root| system32_tool(Path::new(&root)))
+}
+
+/// Elsewhere the driver installs `nvidia-smi` on the PATH, which the user owns.
+#[cfg(not(windows))]
+fn driver_tool() -> Option<PathBuf> {
+    Some(PathBuf::from("nvidia-smi"))
+}
+
+/// `nvidia-smi.exe` in `root`'s System32, where the NVIDIA driver installs it.
+#[cfg(any(windows, test))]
+fn system32_tool(root: &Path) -> PathBuf {
+    root.join("System32").join("nvidia-smi.exe")
+}
+
 /// Reads every NVIDIA adapter now.
 #[must_use]
 pub fn read() -> GpuReport {
-    let output = Command::new("nvidia-smi")
+    let Some(tool) = driver_tool() else {
+        return GpuReport {
+            devices: Vec::new(),
+            note: Some(NO_DRIVER_NOTE.into()),
+        };
+    };
+    let output = Command::new(tool)
         .arg(format!("--query-gpu={QUERY}"))
         .arg("--format=csv,noheader,nounits")
         .output();
@@ -99,7 +129,7 @@ pub fn read() -> GpuReport {
         },
         Err(_) => GpuReport {
             devices: Vec::new(),
-            note: Some("No NVIDIA driver found. AMD and Intel telemetry is not wired yet.".into()),
+            note: Some(NO_DRIVER_NOTE.into()),
         },
     }
 }
@@ -139,6 +169,14 @@ mod tests {
             note: None,
         };
         assert_eq!(temperatures(&report), [(0, 61.0)]);
+    }
+
+    #[test]
+    fn the_windows_driver_tool_is_named_under_system32() {
+        let root = Path::new("/sys-root");
+        let tool = system32_tool(root);
+        assert!(tool.starts_with(root));
+        assert_eq!(tool, root.join("System32").join("nvidia-smi.exe"));
     }
 
     #[test]

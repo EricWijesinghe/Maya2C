@@ -246,3 +246,12 @@ path = "fuzz_targets/pow_target.rs"
 test = false
 doc = false
 bench = false
+
+# Fork choice and reorg depth: cumulative work is order-independent and
+# monotone, retargets stay under the floor, and a refused height stays refused.
+[[bin]]
+name = "reorg_prune"
+path = "fuzz_targets/reorg_prune.rs"
+test = false
+doc = false
+bench = false

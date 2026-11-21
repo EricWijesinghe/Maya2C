@@ -940,3 +940,10 @@ Raised with Eric, not decided here: one gas-filling call per block crowds out ot
 - **Cost, stated:** builder worst case `2 × cap + 3,072,000` per selection; producer ~816 ms of priced work at the 250 M default and ~978 ms at the 300 M ceiling, at 1 ns/unit.
 - **Compile prices unchanged.** In release, three runs of the at-limit shapes gave worst 1.231 (loaded), 0.771 and 0.768 ns/fuel, all on `block (type []->[16])` x 2000. The ADR's 1 ns claim now gives the loaded figure. The constants were not tuned to one loaded run.
 - **Needs Eric, not decided here:** charging failed calls (STF-8, economics; two failing calls at the cap from two senders still exhaust the builder budget, G1), and whether to lower `VM_GAS_CEILING` given the producer margin at 300 M (G1b).
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
