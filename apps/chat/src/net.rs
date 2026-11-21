@@ -141,10 +141,11 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
 pub async fn run_relay(
     keypair: identity::Keypair,
     listen: Vec<Multiaddr>,
-    mut relay: Relay,
+    relay: Relay,
 ) -> Result<(), ChatError> {
     let mut swarm = swarm(keypair).await?;
     let peer = *swarm.local_peer_id();
+    let mut relay = relay.with_id(peer.to_bytes());
     for addr in listen {
         swarm
             .listen_on(addr)

@@ -152,13 +152,16 @@ pub async fn collect(
 ) -> Result<Vec<Result<Received, ChatError>>, ChatError> {
     let me = client.identity();
     let address = me.address();
+    let relay_id = net::peer_of(relay)
+        .ok_or_else(|| ChatError::Network("the relay address must end in /p2p/<peer id>".into()))?
+        .to_bytes();
     let Response::Challenge(nonce) = ask(relay, Request::Challenge(address)).await? else {
         return Err(unexpected("challenge"));
     };
     let request = Request::Fetch {
         address,
         identity_key: me.public_key().to_vec(),
-        signature: me.sign(&fetch_bytes(&address, &nonce))?,
+        signature: me.sign(&fetch_bytes(&relay_id, &address, &nonce))?,
     };
     let Response::Envelopes(envelopes) = ask(relay, request).await? else {
         return Err(unexpected("fetch"));

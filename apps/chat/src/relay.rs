@@ -40,7 +40,8 @@ pub const MAX_RELAY_BYTES: usize = 1 << 30;
 pub const MAX_BUNDLES: usize = 100_000;
 /// Most outstanding fetch challenges.
 pub const MAX_CHALLENGES: usize = 10_000;
-const FETCH_DOMAIN: &[u8] = b"maya-chat mailbox fetch v1";
+// v2 adds the relay id, so a signature for one relay is refused by another.
+const FETCH_DOMAIN: &[u8] = b"maya-chat mailbox fetch v2";
 const STAMP_DOMAIN: &str = "maya-chat 2026-09-28 postage stamp v1";
 /// Leading zero bits a deposit's postage stamp needs by default: about a
 /// million hashes, well under a second for one message and ~minutes of CPU
@@ -179,10 +180,19 @@ impl Envelope {
     }
 }
 
-/// What a mailbox owner signs to empty it.
+/// What a mailbox owner signs to empty it at the relay whose id is `relay`
+/// (its libp2p peer id bytes; [`Relay::id`]).
 #[must_use]
-pub fn fetch_bytes(address: &Address, nonce: &[u8; 32]) -> Vec<u8> {
-    [FETCH_DOMAIN, address.as_slice(), nonce.as_slice()].concat()
+pub fn fetch_bytes(relay: &[u8], address: &Address, nonce: &[u8; 32]) -> Vec<u8> {
+    let len = u32::try_from(relay.len()).unwrap_or(u32::MAX).to_be_bytes();
+    [
+        FETCH_DOMAIN,
+        len.as_slice(),
+        relay,
+        address.as_slice(),
+        nonce.as_slice(),
+    ]
+    .concat()
 }
 
 #[derive(Default)]
@@ -193,6 +203,8 @@ struct Mailbox {
 
 /// A relay's state.
 pub struct Relay {
+    /// This relay's identity, bound into every fetch signature.
+    id: Vec<u8>,
     stamp_bits: u32,
     bundles: BTreeMap<Address, PrekeyBundle>,
     mailboxes: BTreeMap<Address, Mailbox>,
@@ -214,6 +226,7 @@ impl Relay {
     #[must_use]
     pub fn new(stamp_bits: u32) -> Self {
         Self {
+            id: Vec::new(),
             stamp_bits,
             bundles: BTreeMap::new(),
             mailboxes: BTreeMap::new(),
@@ -221,6 +234,20 @@ impl Relay {
             challenges: BTreeMap::new(),
             bytes: 0,
         }
+    }
+
+    /// This relay with identity `id` (its libp2p peer id bytes), which every
+    /// fetch signature must name.
+    #[must_use]
+    pub fn with_id(mut self, id: Vec<u8>) -> Self {
+        self.id = id;
+        self
+    }
+
+    /// The identity fetch signatures must name.
+    #[must_use]
+    pub fn id(&self) -> &[u8] {
+        &self.id
     }
 
     /// The postage this relay requires.
@@ -356,8 +383,9 @@ impl Relay {
     }
 
     /// Empties a mailbox for its owner: `identity_key` must be the address's
-    /// key and `signature` must sign the current challenge, which is then
-    /// spent. A failed attempt leaves the challenge pending for the owner.
+    /// key and `signature` must sign the current challenge at this relay
+    /// ([`fetch_bytes`] with [`Relay::id`]), which is then spent. A failed
+    /// attempt leaves the challenge pending for the owner.
     ///
     /// # Errors
     ///
@@ -383,7 +411,7 @@ impl Relay {
         suite::verify(
             SuiteId::MlDsa65,
             identity_key,
-            &fetch_bytes(&address, &nonce),
+            &fetch_bytes(&self.id, &address, &nonce),
             signature,
         )
         .map_err(|_| ChatError::BadSignature)?;

@@ -30,7 +30,7 @@ fn envelope(to: [u8; 32], n: u64, len: usize, expires_at: u64) -> Envelope {
 
 fn fetch(relay: &mut Relay, who: &Identity, now: u64) -> Result<Vec<Envelope>, ChatError> {
     let nonce = relay.challenge(who.address(), now)?;
-    let sig = who.sign(&fetch_bytes(&who.address(), &nonce))?;
+    let sig = who.sign(&fetch_bytes(relay.id(), &who.address(), &nonce))?;
     relay.fetch(who.address(), who.public_key(), &sig, now)
 }
 
@@ -118,14 +118,18 @@ fn only_the_owner_can_fetch() {
     ));
     // Mallory's own key for Bob's address.
     let nonce = relay.challenge(bob.address(), NOW).unwrap();
-    let sig = mallory.sign(&fetch_bytes(&bob.address(), &nonce)).unwrap();
+    let sig = mallory
+        .sign(&fetch_bytes(relay.id(), &bob.address(), &nonce))
+        .unwrap();
     assert_eq!(
         relay.fetch(bob.address(), mallory.public_key(), &sig, NOW),
         Err(ChatError::BadSignature)
     );
     // Bob's key with a signature over something else; the challenge stays pending.
     let nonce = relay.challenge(bob.address(), NOW).unwrap();
-    let sig = bob.sign(&fetch_bytes(&bob.address(), &[0; 32])).unwrap();
+    let sig = bob
+        .sign(&fetch_bytes(relay.id(), &bob.address(), &[0; 32]))
+        .unwrap();
     assert_ne!(nonce, [0; 32]);
     assert_eq!(
         relay.fetch(bob.address(), bob.public_key(), &sig, NOW),
@@ -133,7 +137,9 @@ fn only_the_owner_can_fetch() {
     );
     // A stale challenge.
     let nonce = relay.challenge(bob.address(), NOW).unwrap();
-    let sig = bob.sign(&fetch_bytes(&bob.address(), &nonce)).unwrap();
+    let sig = bob
+        .sign(&fetch_bytes(relay.id(), &bob.address(), &nonce))
+        .unwrap();
     assert_eq!(
         relay.fetch(
             bob.address(),
@@ -256,12 +262,12 @@ fn a_failed_fetch_leaves_the_owners_challenge_usable() {
         .deposit(envelope(bob.address(), 0, 1, NOW + DAY), NOW)
         .unwrap();
     let nonce = relay.challenge(bob.address(), NOW).unwrap();
-    let forged = mallory.sign(&fetch_bytes(&bob.address(), &nonce)).unwrap();
+    let forged = mallory.sign(&fetch_bytes(relay.id(), &bob.address(), &nonce)).unwrap();
     assert_eq!(
         relay.fetch(bob.address(), mallory.public_key(), &forged, NOW),
         Err(ChatError::BadSignature)
     );
-    let sig = bob.sign(&fetch_bytes(&bob.address(), &nonce)).unwrap();
+    let sig = bob.sign(&fetch_bytes(relay.id(), &bob.address(), &nonce)).unwrap();
     assert_eq!(
         relay
             .fetch(bob.address(), bob.public_key(), &sig, NOW)
@@ -281,7 +287,7 @@ fn a_second_challenge_does_not_void_the_pending_one() {
     let first = relay.challenge(bob.address(), NOW).unwrap();
     let second = relay.challenge(bob.address(), NOW).unwrap();
     assert_eq!(first, second);
-    let sig = bob.sign(&fetch_bytes(&bob.address(), &first)).unwrap();
+    let sig = bob.sign(&fetch_bytes(relay.id(), &bob.address(), &first)).unwrap();
     assert_eq!(
         relay
             .fetch(bob.address(), bob.public_key(), &sig, NOW)
