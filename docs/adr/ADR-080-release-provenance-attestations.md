@@ -74,12 +74,16 @@ updater key is the reason: whoever holds `TAURI_SIGNING_PRIVATE_KEY` could
 push code to every install at once, and an automatic check would deliver it
 without anyone looking.
 
+This amendment sits on ADR-080 because ADR-080 is the ADR for the update
+channel: it covers the `updater-sign` job and the single updater key. No
+separate update-channel ADR exists.
+
 What the apps do now:
 
 1. `maya_app_update::start` registers the updater plugin in a signed build
    and stops there. No background check.
 2. A **Check for updates** button (Hub settings, Wallet network settings,
-   Chat settings) calls `maya_app_update::check_for_updates`. A build with
+   Chat settings) calls `maya_app_update::command::check_for_updates`. A build with
    no updater config says that updates are off (by code review; no test
    builds a Tauri app without one). One check runs at a time: a second
    press while one runs is refused, so two installs cannot race.
@@ -96,19 +100,34 @@ What the apps do now:
    an unsigned or wrong-key bundle first, with its own error text.
    `verify::verify_confirm_install` is a second, stricter check behind it:
    it also refuses legacy (non-prehashed) signatures, which the plugin
-   accepts. It runs in a fixed order: signature, then a second dialog that
+   accepts, and a signature whose trusted comment does not carry
+   `version:<announced version>`. The manifest is not signed, so that
+   binding is what stops whoever controls the manifest host from replaying
+   an older signed bundle under a newer version number; the plugin enforces
+   it only when `requireSignedVersion` is set, which the release configs in
+   `release-binaries.yml` now set too (no signed release existed yet, so
+   nothing is stranded). It runs in a fixed order: signature, then a second dialog that
    shows the download's SHA-256, then install only on **Install now**. That
    SHA-256 is compared with the release's `SHA256SUMS`, which the release
    workflow signs with cosign (keyless) and attests; it is the one check
    that does not depend on the update key.
+5. Installing ends the app without closing its window
+   (`std::process::exit` on Windows, a restart elsewhere), so window-close
+   handlers never run. `start` therefore takes a `before_exit` hook that
+   runs after **Install now** and before the installer; the Hub passes one
+   that stops every miner, so an update cannot leave a miner running with no
+   window.
 
 What the tests pin (`apps/app-update/src/verify.rs`, `src/lib.rs`): the
 signature gate refuses an empty signature, another key's signature, changed
-bytes and unreadable signatures; an unsigned or wrong-key manifest signature
-never reaches the question or the install; a declined download is not
-installed; the digest shown is `sha256sum`'s; `start` contains no check,
-download, install or spawn (a source-level test); a second concurrent check
-is refused. The manifest fetch and parsing are the plugin's and are not
+bytes, unreadable signatures, and a signature for another version or for
+none; an unsigned, wrong-key or wrong-version bundle signature never reaches
+the question or the install; a declined download is not installed; the
+digest shown is `sha256sum`'s; `start` contains no check, download, install
+or spawn (a source-level test); a second concurrent check is refused; the
+Hub registers the miner-stopping hook (a source-level test in
+`apps/hub/src-tauri/src/lib.rs`). These are bundle-signature tests, not
+manifest tests: the manifest fetch and parsing are the plugin's and are not
 tested here.
 
 **Plan for k-of-n (not built).** Automatic checks return only when all of

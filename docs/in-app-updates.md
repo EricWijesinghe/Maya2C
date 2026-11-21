@@ -77,5 +77,5 @@ install those once more by hand.
 3. Publish the fingerprint (the command above) in `docs/verify-release.md`,
    so users can compare it with the one the update dialog shows.
 
-Until both steps are done, every build is the unsigned build it always was,
+Until all three steps are done, every build is the unsigned build it always was,
 and the apps never offer an update.

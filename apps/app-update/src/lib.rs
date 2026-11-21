@@ -48,13 +48,29 @@ fn pubkey<R: Runtime, M: Manager<R>>(app: &M) -> Option<String> {
     Some(updater.get("pubkey")?.as_str()?.to_owned())
 }
 
-/// Call from `setup`: registers the updater plugin in a signed build. It does
-/// not check for updates; see the crate docs for why.
+/// What the app must do before an update replaces it, such as stopping the
+/// processes it started. Installing ends the process without closing its
+/// windows (`std::process::exit` on Windows, [`AppHandle::restart`]
+/// elsewhere), so window-close handlers never run.
+pub type BeforeExit<R> = fn(&AppHandle<R>);
+
+struct BeforeExitHook<R: Runtime>(BeforeExit<R>);
+
+/// Call from `setup`: registers the updater plugin in a signed build, and
+/// `before_exit`, which runs after the user's last yes and before the update
+/// is handed to the installer. It does not check for updates; see the crate
+/// docs for why.
 ///
 /// # Errors
 ///
 /// Only if the updater plugin cannot be registered (a malformed config).
-pub fn start<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+pub fn start<R: Runtime>(
+    app: &tauri::App<R>,
+    before_exit: Option<BeforeExit<R>>,
+) -> tauri::Result<()> {
+    if let Some(hook) = before_exit {
+        app.manage(BeforeExitHook(hook));
+    }
     if pubkey(app).is_some() {
         app.handle()
             .plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -172,7 +188,8 @@ async fn install_offered<R: Runtime>(
     update: tauri_plugin_updater::Update,
 ) -> Result<String, BoxError> {
     // The plugin also checks the signature here and in install(); the gate
-    // below is the stricter second check (no legacy signatures).
+    // below is the stricter second check (no legacy signatures, and the
+    // signed version must be the announced one).
     let bytes = update.download(|_, _| {}, || {}).await?;
     let version = update.version.clone();
     let shown = version.clone();
@@ -181,6 +198,7 @@ async fn install_offered<R: Runtime>(
         verify::verify_confirm_install(
             &pubkey,
             &update.signature,
+            &update.version,
             bytes,
             |digest| {
                 question(
@@ -200,7 +218,12 @@ async fn install_offered<R: Runtime>(
                 )
                 .blocking_show()
             },
-            |bytes| update.install(bytes).map_err(Into::into),
+            |bytes| {
+                if let Some(hook) = handle.try_state::<BeforeExitHook<R>>() {
+                    (hook.0)(&handle);
+                }
+                update.install(bytes).map_err(Into::into)
+            },
         )
     })
     .await??;

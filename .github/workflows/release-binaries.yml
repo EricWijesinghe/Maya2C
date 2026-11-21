@@ -175,7 +175,7 @@ jobs:
             fi
             pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
             cfg="$RUNNER_TEMP/updater.json"
-            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/wallet.json"]}}}\n' \
+            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","requireSignedVersion":true,"endpoints":["https://maya2c.dev/updates/wallet.json"]}}}\n' \
               "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
             echo "args=--config $cfg --no-sign" >> "$GITHUB_OUTPUT"
             echo "update bundles built unsigned, signed by updater-sign: version 0.1.$GITHUB_RUN_NUMBER"
@@ -261,7 +261,7 @@ jobs:
             fi
             pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
             cfg="$RUNNER_TEMP/updater.json"
-            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/chat.json"]}}}\n' \
+            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","requireSignedVersion":true,"endpoints":["https://maya2c.dev/updates/chat.json"]}}}\n' \
               "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
             echo "args=--config $cfg --no-sign" >> "$GITHUB_OUTPUT"
             echo "update bundles built unsigned, signed by updater-sign: version 0.1.$GITHUB_RUN_NUMBER"
@@ -354,7 +354,7 @@ jobs:
             fi
             pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
             cfg="$RUNNER_TEMP/hub-updater.json"
-            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/hub.json"]}}}\n' \
+            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","requireSignedVersion":true,"endpoints":["https://maya2c.dev/updates/hub.json"]}}}\n' \
               "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
             echo "HUB_UPDATER_CONFIG=$cfg" >> "$GITHUB_ENV"
             echo "update bundles built unsigned, signed by updater-sign: version 0.1.$GITHUB_RUN_NUMBER"

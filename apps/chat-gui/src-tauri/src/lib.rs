@@ -307,7 +307,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let state = App::open(Files::new(dir)?)?;
             app.manage(Arc::new(state));
-            maya_app_update::start(app)?;
+            maya_app_update::start(app, None)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

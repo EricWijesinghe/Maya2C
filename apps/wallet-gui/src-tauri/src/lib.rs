@@ -52,7 +52,7 @@ pub fn run() {
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 deeplink::handle(app.handle(), &urls);
             }
-            Ok(maya_app_update::start(app)?)
+            Ok(maya_app_update::start(app, None)?)
         })
         .manage(Session::default())
         .manage(deeplink::PendingPay::default())

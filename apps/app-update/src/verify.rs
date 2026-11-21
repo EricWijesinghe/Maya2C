@@ -7,8 +7,12 @@
 //! (tauri-plugin-updater 2.14.1, `updater.rs`), so an unsigned or wrong-key
 //! bundle normally fails there, with the plugin's error text. [`verify`] is a
 //! second, stricter check behind it: it refuses legacy (non-prehashed)
-//! signatures, which the plugin accepts, and the tests below pin it whatever
-//! a plugin upgrade does to the first check.
+//! signatures, which the plugin accepts, and a signature whose signed
+//! `version:` is missing or differs from the announced version, which the
+//! plugin accepts unless `requireSignedVersion` is set. The manifest itself is
+//! not signed, so that binding is what stops a manifest host from replaying an
+//! older signed bundle under a newer version number. The tests below pin both
+//! whatever a plugin upgrade does to the first check.
 
 use std::error::Error;
 use std::fmt;
@@ -29,6 +33,8 @@ pub enum VerifyError {
     BadSignature,
     /// The signature was made by a different key, or the bytes were changed.
     Refused,
+    /// The signature does not bind the version the manifest announced.
+    VersionMismatch,
 }
 
 impl fmt::Display for VerifyError {
@@ -38,6 +44,9 @@ impl fmt::Display for VerifyError {
             Self::BadKey => "this build's update key cannot be read",
             Self::BadSignature => "the update signature cannot be read; refused",
             Self::Refused => "the update is not signed by this app's publisher key; refused",
+            Self::VersionMismatch => {
+                "the update signature is not for the version announced; refused"
+            }
         })
     }
 }
@@ -85,7 +94,7 @@ pub fn fingerprint(pubkey: &str) -> Result<String, VerifyError> {
 }
 
 /// The install path after the download, in the only order it may run: the
-/// manifest's `signature` must verify over `bytes`, then the user must accept
+/// manifest's `signature` must verify over `bytes` for `version`, then the user must accept
 /// `confirm` (shown the download's [`sha256_hex`]), and only then `install`.
 /// Returns whether it installed.
 ///
@@ -96,11 +105,12 @@ pub fn fingerprint(pubkey: &str) -> Result<String, VerifyError> {
 pub fn verify_confirm_install(
     pubkey: &str,
     signature: &str,
+    version: &str,
     bytes: Vec<u8>,
     confirm: impl FnOnce(&str) -> bool,
     install: impl FnOnce(Vec<u8>) -> Result<(), Box<dyn Error + Send + Sync>>,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    verify(pubkey, signature, &bytes)?;
+    verify(pubkey, signature, version, &bytes)?;
     if !confirm(&sha256_hex(&bytes)) {
         return Ok(false);
     }
@@ -108,13 +118,19 @@ pub fn verify_confirm_install(
     Ok(true)
 }
 
-/// Checks that `data` was signed by `pubkey`. An empty signature, one from
-/// another key, and changed bytes are all refused.
+/// Checks that `data` was signed by `pubkey` as `version`. An empty
+/// signature, one from another key, changed bytes, and a signature whose
+/// trusted comment does not carry `version:<version>` are all refused.
 ///
 /// # Errors
 ///
 /// The [`VerifyError`] that says which check failed.
-pub fn verify(pubkey: &str, signature: &str, data: &[u8]) -> Result<(), VerifyError> {
+pub fn verify(
+    pubkey: &str,
+    signature: &str,
+    version: &str,
+    data: &[u8],
+) -> Result<(), VerifyError> {
     if signature.trim().is_empty() {
         return Err(VerifyError::Unsigned);
     }
@@ -124,7 +140,19 @@ pub fn verify(pubkey: &str, signature: &str, data: &[u8]) -> Result<(), VerifyEr
     // `false`: no legacy (non-prehashed) signatures; `cargo tauri signer`
     // never writes one, so accepting them would only widen what passes.
     key.verify(data, &signature, false)
-        .map_err(|_| VerifyError::Refused)
+        .map_err(|_| VerifyError::Refused)?;
+    // The trusted comment is covered by the signature checked above. The
+    // tauri CLI writes it as tab-separated `key:value` fields.
+    let signed = signature
+        .trusted_comment()
+        .split('\t')
+        .find_map(|field| field.strip_prefix("version:"));
+    match signed {
+        Some(signed) if signed.trim_start_matches('v') == version.trim_start_matches('v') => {
+            Ok(())
+        }
+        _ => Err(VerifyError::VersionMismatch),
+    }
 }
 
 #[cfg(test)]
@@ -133,47 +161,78 @@ mod tests {
 
     // Throwaway keys made for these tests with `cargo tauri signer generate`
     // (empty password); the secret halves were deleted. SIG_A is
-    // `cargo tauri signer sign` by key A over PAYLOAD.
+    // `cargo tauri signer sign` by key A over PAYLOAD with no version (its
+    // trusted comment has only timestamp and file). SIG_C is tauri CLI 2.12.2
+    // `signer sign --app-version 0.1.7` by key C over PAYLOAD, the way the
+    // updater-sign release job signs.
     const KEY_A: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdFODRFRUVDMkZERTEzOUYKUldTZkU5NHY3TzZFZm51TXk3WmRFY1MxQjBhcWU3NUxiMU41b3gySmVpZ0p0YVFmZGlhTVlDZ2kK";
     const KEY_B: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhGOTM5M0NGRjgyQUVCMUMKUldRYzZ5cjR6NU9UaitWeUVxa3FBMzJLQ3FSSTFTVWF5dVRwRnF6TWJISTZCSHRJZ3B3NTRyb3UK";
     const SIG_A: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTZkU5NHY3TzZFZmcrUTkzdHVNbFFDN0xMSVZUdmFmNU9GNU9qOXp6c2tPZXVXVmhGbHdud01TQ2xGOEU2dUZpVVBOTXdxdUxPZ2RoaGNEek1KVjJ2STNPazR1Zm4zUndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTg3NzYzCWZpbGU6cGF5bG9hZC5iaW4KaGNVVEloenRvWjBVWTE5eTFkVWZtREJWckdMS05ZSmo4aXVHWmtDNzhDSlJXOTZpZWw0ZWtLZ3NCZWRZbjRjYUhyVjdDZXM3ekVKSnJjNFRDOUxmQkE9PQo=";
+    const KEY_C: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyMTc0REUzMTU0NjNDRjcKUldUM1BFWVY0MDBYOG1sSTRBSnFkaThBL2YyeGliK3lxNU9kak1IMFRJSHdMNlB1OUtJWTFKZWsK";
+    const SIG_C: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUM1BFWVY0MDBYOGtPNStxdmRjVlc5NVRjZ3I0RWVHRk5xT1M4SXYzMzdVd1ZmenRQLzduOGtmb2E5bkMxTDBLVlVOb3k0L25sV0JZWFAwK2k3eHNVZFNYVDA1ZGtYbFFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjU3MDY4CWZpbGU6cGF5bG9hZC5iaW4JdmVyc2lvbjowLjEuNwo0c2NHdEpEU1UyK2hsMCtjbDBWMTBoK1VWVUltazBwMDFFNlRyaWVpTmZjc1V1U0xVUitrRW41ckFuM3FHYzNJMXUvV1hoNlFHM3VqSVNIeDBTc0hEZz09Cg==";
+    const SIGNED: &str = "0.1.7";
     const PAYLOAD: &[u8] = b"maya2c test update payload\n";
 
     #[test]
     fn signed_by_the_publisher_key_passes() {
-        assert_eq!(verify(KEY_A, SIG_A, PAYLOAD), Ok(()));
+        assert_eq!(verify(KEY_C, SIG_C, SIGNED, PAYLOAD), Ok(()));
+        assert_eq!(verify(KEY_C, SIG_C, "v0.1.7", PAYLOAD), Ok(()));
     }
 
     #[test]
-    fn unsigned_manifest_is_refused() {
-        assert_eq!(verify(KEY_A, "", PAYLOAD), Err(VerifyError::Unsigned));
-        assert_eq!(verify(KEY_A, " \n", PAYLOAD), Err(VerifyError::Unsigned));
+    fn unsigned_bundle_is_refused() {
+        assert_eq!(verify(KEY_C, "", SIGNED, PAYLOAD), Err(VerifyError::Unsigned));
+        assert_eq!(
+            verify(KEY_C, " \n", SIGNED, PAYLOAD),
+            Err(VerifyError::Unsigned)
+        );
     }
 
     #[test]
     fn signature_from_another_key_is_refused() {
-        assert_eq!(verify(KEY_B, SIG_A, PAYLOAD), Err(VerifyError::Refused));
+        assert_eq!(
+            verify(KEY_B, SIG_C, SIGNED, PAYLOAD),
+            Err(VerifyError::Refused)
+        );
     }
 
     #[test]
     fn changed_download_is_refused() {
         assert_eq!(
-            verify(KEY_A, SIG_A, b"maya2c test update payload!\n"),
+            verify(KEY_C, SIG_C, SIGNED, b"maya2c test update payload!\n"),
             Err(VerifyError::Refused)
+        );
+    }
+
+    /// The rollback replay: a genuine signature served under an announced
+    /// version other than the one it signed, or one that signed no version.
+    #[test]
+    fn signature_for_another_version_or_none_is_refused() {
+        for announced in ["0.1.8", "0.1.70", "0.1"] {
+            assert_eq!(
+                verify(KEY_C, SIG_C, announced, PAYLOAD),
+                Err(VerifyError::VersionMismatch),
+                "{announced}"
+            );
+        }
+        // SIG_A is genuine for key A but binds no version.
+        assert_eq!(
+            verify(KEY_A, SIG_A, SIGNED, PAYLOAD),
+            Err(VerifyError::VersionMismatch)
         );
     }
 
     #[test]
     fn garbage_signature_and_key_are_refused() {
         assert_eq!(
-            verify(KEY_A, "not base64 !!", PAYLOAD),
+            verify(KEY_C, "not base64 !!", SIGNED, PAYLOAD),
             Err(VerifyError::BadSignature)
         );
         assert_eq!(
-            verify(KEY_A, KEY_A, PAYLOAD),
+            verify(KEY_C, KEY_C, SIGNED, PAYLOAD),
             Err(VerifyError::BadSignature)
         );
-        assert_eq!(verify("", SIG_A, PAYLOAD), Err(VerifyError::BadKey));
+        assert_eq!(verify("", SIG_C, SIGNED, PAYLOAD), Err(VerifyError::BadKey));
         assert_eq!(fingerprint("bm90IGEga2V5"), Err(VerifyError::BadKey));
     }
 
@@ -196,6 +255,7 @@ mod tests {
     fn gate(
         pubkey: &str,
         signature: &str,
+        version: &str,
         accept: bool,
     ) -> (Result<bool, VerifyError>, Option<String>, Option<Vec<u8>>) {
         let mut asked = None;
@@ -203,6 +263,7 @@ mod tests {
         let result = verify_confirm_install(
             pubkey,
             signature,
+            version,
             PAYLOAD.to_vec(),
             |digest| {
                 asked = Some(digest.to_owned());
@@ -223,13 +284,27 @@ mod tests {
     }
 
     #[test]
-    fn unsigned_manifest_never_reaches_the_question_or_the_install() {
-        assert_eq!(gate(KEY_A, "", true), (Err(VerifyError::Unsigned), None, None));
+    fn unsigned_bundle_never_reaches_the_question_or_the_install() {
+        assert_eq!(
+            gate(KEY_C, "", SIGNED, true),
+            (Err(VerifyError::Unsigned), None, None)
+        );
     }
 
     #[test]
-    fn wrong_key_manifest_never_reaches_the_question_or_the_install() {
-        assert_eq!(gate(KEY_B, SIG_A, true), (Err(VerifyError::Refused), None, None));
+    fn wrong_key_bundle_signature_never_reaches_the_question_or_the_install() {
+        assert_eq!(
+            gate(KEY_B, SIG_C, SIGNED, true),
+            (Err(VerifyError::Refused), None, None)
+        );
+    }
+
+    #[test]
+    fn wrong_version_bundle_signature_never_reaches_the_question_or_the_install() {
+        assert_eq!(
+            gate(KEY_C, SIG_C, "0.1.8", true),
+            (Err(VerifyError::VersionMismatch), None, None)
+        );
     }
 
     #[test]
@@ -237,14 +312,14 @@ mod tests {
         // `printf 'maya2c test update payload\n' | sha256sum`.
         let digest = "079a98ba41136036a6c3f39c354820f3ed3b96afb1b91e1c2bb447b14219687f";
         assert_eq!(
-            gate(KEY_A, SIG_A, true),
+            gate(KEY_C, SIG_C, SIGNED, true),
             (Ok(true), Some(digest.to_owned()), Some(PAYLOAD.to_vec()))
         );
     }
 
     #[test]
     fn declined_download_is_not_installed() {
-        let (result, asked, installed) = gate(KEY_A, SIG_A, false);
+        let (result, asked, installed) = gate(KEY_C, SIG_C, SIGNED, false);
         assert_eq!((result, asked.is_some(), installed), (Ok(false), true, None));
     }
 }
