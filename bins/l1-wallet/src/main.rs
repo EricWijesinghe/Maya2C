@@ -14,9 +14,10 @@
 //! There is deliberately **no `--password` flag**. A password on the command
 //! line lands in shell history and is visible to every user on the machine via
 //! the process list. Instead the wallet prompts on a terminal, and falls back
-//! to `L1_WALLET_PASSWORD` for scripted use — which is still imperfect, but an
-//! environment variable is not persisted to disk by default and is not visible
-//! in `ps` output on modern systems.
+//! to a file named by `L1_WALLET_PASSWORD_FILE` for scripted use, then to
+//! `L1_WALLET_PASSWORD` — which is still imperfect, but an environment
+//! variable is not persisted to disk by default and is not visible in `ps`
+//! output on modern systems.
 
 use l1_wallet::guard::{self, GenesisTrust};
 use l1_wallet::keystore;
@@ -39,6 +40,12 @@ use zeroize::Zeroizing;
 
 /// Environment variable consulted when no terminal is available.
 const PASSWORD_ENV: &str = "L1_WALLET_PASSWORD";
+
+/// A file holding the password, preferred over [`PASSWORD_ENV`]: the value
+/// never sits in the process environment, where child processes and crash
+/// dumps can see it. Read like every other passphrase file in the tree (one
+/// trailing newline dropped).
+const PASSWORD_FILE_ENV: &str = "L1_WALLET_PASSWORD_FILE";
 
 /// Command line wallet for the custom L1 chain.
 #[derive(Parser, Debug)]
@@ -201,6 +208,12 @@ struct TxOptions {
 /// Reads a password, preferring an interactive prompt. The result is held in
 /// `Zeroizing` so its buffer is wiped on drop; it is never printed or logged.
 fn read_password(confirm: bool) -> Result<Zeroizing<String>> {
+    if let Some(path) = std::env::var_os(PASSWORD_FILE_ENV) {
+        let bytes = maya_signer::sealed::read_passphrase_file(Path::new(&path))
+            .context("reading the file named by L1_WALLET_PASSWORD_FILE")?;
+        let text = std::str::from_utf8(&bytes).context("the password file is not UTF-8")?;
+        return checked_password(Zeroizing::new(text.to_owned()), None);
+    }
     if let Ok(from_env) = std::env::var(PASSWORD_ENV)
         && !from_env.is_empty()
     {
