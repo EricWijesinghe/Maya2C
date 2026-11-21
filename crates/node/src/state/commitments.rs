@@ -20,9 +20,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::{NodeError, Result};
+use crate::state::contracts_root;
 use crate::state::db::{
-    CODE_PREFIX, CSTATE_PREFIX, NULLIFIER_PREFIX, Overlay, StateDB, code_key, contract_storage_key,
-    record_leaf,
+    CODE_PREFIX, CSTATE_PREFIX, NULLIFIER_PREFIX, Overlay, RootSource, StateDB, code_key,
+    contract_storage_key, record_leaf, record_leaf_bytes,
 };
 use crate::state::merkle::{HASH_LEN, merkle_root};
 use crate::state::proof::{LayerDigest, StateLayer};
@@ -101,7 +102,28 @@ pub const LOCAL_ONLY_PREFIXES: &[&[u8]] = &[
     crate::state::db::UNDO_PREFIX,
     BLOCK_STORE_PREFIX,
     crate::state::balance_changes::BALANCE_CHANGES_PREFIX,
+    // The sparse accounts root cache (ADR-062a): derived from `acct:`, so a
+    // node rebuilds it rather than trusting anyone else's.
+    crate::state::root_cache::ROOT_CACHE_PREFIX,
 ];
+
+/// The leaves of the contract entries `overlay` writes, by stored key.
+fn staged_contract_leaves(overlay: &Overlay) -> contracts_root::Leaves {
+    let code = overlay.code.iter().map(|(contract, code)| {
+        let key = code_key(contract);
+        let leaf = record_leaf_bytes(&key, code);
+        (key, leaf)
+    });
+    let storage = overlay
+        .contract_storage
+        .iter()
+        .map(|((contract, slot), value)| {
+            let key = contract_storage_key(contract, slot);
+            let leaf = record_leaf_bytes(&key, value);
+            (key, leaf)
+        });
+    code.chain(storage).collect()
+}
 
 /// Hashes one spent nullifier into its leaf of the nullifier layer.
 #[must_use]
@@ -172,17 +194,98 @@ impl StateDB {
         Ok(spent)
     }
 
-    /// The contracts layer, or `None` when no contract exists.
-    pub(crate) fn contracts_layer(&self, overlay: &Overlay) -> Result<Option<LayerDigest>> {
+    /// The contracts layer, or `None` when no contract exists: the full fold
+    /// for [`RootSource::Full`], else the cache (`state::contracts_root`),
+    /// checked against the full fold on a confirm and in debug builds. Every
+    /// source gives the same digest.
+    pub(crate) fn contracts_layer(
+        &self,
+        overlay: &Overlay,
+        source: RootSource,
+    ) -> Result<Option<LayerDigest>> {
+        let root = match source {
+            RootSource::Full => self.contracts_root_full(overlay)?,
+            RootSource::Cache => self.contracts_root_checked(overlay, false)?,
+            RootSource::Confirmed => self.contracts_root_checked(overlay, true)?,
+        };
+        Ok(root.map(|root| LayerDigest {
+            layer: StateLayer::Contracts,
+            root,
+        }))
+    }
+
+    /// The contracts layer root by folding every committed entry: the
+    /// reference the cache is checked against. O(contract bytes).
+    pub(crate) fn contracts_root_full(&self, overlay: &Overlay) -> Result<Option<[u8; HASH_LEN]>> {
         let merged = self.merged_contracts(overlay)?;
         if merged.is_empty() {
             return Ok(None);
         }
         let leaves: Vec<[u8; HASH_LEN]> = merged.iter().map(record_leaf).collect();
-        Ok(Some(LayerDigest {
-            layer: StateLayer::Contracts,
-            root: merkle_root(&leaves),
-        }))
+        Ok(Some(merkle_root(&leaves)))
+    }
+
+    /// The contracts layer root from the cache, unchecked: the leaves of the
+    /// overlay's writes over the kept committed leaves, rebuilt from the
+    /// database when committed state moved without the cache.
+    pub(crate) fn contracts_root_cached(
+        &self,
+        overlay: &Overlay,
+    ) -> Result<Option<[u8; HASH_LEN]>> {
+        self.contracts_root.root(
+            || self.write_generation(),
+            &staged_contract_leaves(overlay),
+            || self.committed_contract_leaves(),
+        )
+    }
+
+    /// [`StateDB::contracts_root_cached`], compared with the full fold when
+    /// `confirm` or in a debug build; on a difference the cache is withdrawn
+    /// and the full fold's root returned.
+    fn contracts_root_checked(
+        &self,
+        overlay: &Overlay,
+        confirm: bool,
+    ) -> Result<Option<[u8; HASH_LEN]>> {
+        let cached = self.contracts_root_cached(overlay)?;
+        let debug = cfg!(debug_assertions) && contracts_root::cross_checked();
+        if !confirm && !debug {
+            return Ok(cached);
+        }
+        let full = self.contracts_root_full(overlay)?;
+        if cached != full {
+            if !confirm {
+                contracts_root::cross_check_failed();
+            }
+            self.contracts_root.withdraw("disagrees with a full fold");
+            return Ok(full);
+        }
+        Ok(cached)
+    }
+
+    /// Whether the cache gives `overlay` a contracts root the full fold
+    /// refutes, withdrawing it if so: `check_declared_root`'s question once
+    /// the full rebuild has matched a block the computed root did not.
+    pub(crate) fn contracts_cache_refuted(&self, overlay: &Overlay) -> Result<bool> {
+        let refuted = self.contracts_root_cached(overlay)? != self.contracts_root_full(overlay)?;
+        if refuted {
+            self.contracts_root
+                .withdraw("gave a root that the full fold and the block refute");
+        }
+        Ok(refuted)
+    }
+
+    /// Every committed contract entry's leaf, read straight from the
+    /// database without copying a value.
+    fn committed_contract_leaves(&self) -> Result<contracts_root::Leaves> {
+        let mut leaves = contracts_root::Leaves::new();
+        for prefix in [CODE_PREFIX, CSTATE_PREFIX] {
+            leaves = self.fold_prefix(prefix, leaves, |mut leaves, key, value| {
+                leaves.insert(key.to_vec(), record_leaf_bytes(key, value));
+                leaves
+            })?;
+        }
+        Ok(leaves)
     }
 
     /// The nullifier layer, or `None` when no note has been spent.
@@ -217,7 +320,7 @@ mod tests {
         let (db, _dir) = open();
         let before = db.state_root().expect("root");
         assert!(
-            db.contracts_layer(&Overlay::default())
+            db.contracts_layer(&Overlay::default(), RootSource::Cache)
                 .expect("layer")
                 .is_none()
         );
@@ -320,9 +423,11 @@ mod tests {
             .expect("put");
 
         assert_eq!(
-            staged_db.contracts_layer(&overlay).expect("layer"),
+            staged_db
+                .contracts_layer(&overlay, RootSource::Cache)
+                .expect("layer"),
             committed_db
-                .contracts_layer(&Overlay::default())
+                .contracts_layer(&Overlay::default(), RootSource::Full)
                 .expect("layer")
         );
         assert_eq!(

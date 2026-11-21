@@ -50,7 +50,8 @@ const card = pageCard ? `${site}/og/pages/${slug.replace(/\//g, "-")}.png` : sec
 const cardAlt = pageCard
   ? `${pageCard.title}: Maya2C link preview`
   : parts[0] && CARDS[parts[0]] ? `${title}: ${CARDS[parts[0]]} card for Maya2C` : "Maya2C: post-quantum layer-1 blockchain";
-const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }) : null;
+// A "</script>" inside a title would end the element early: escape "<" (same JSON value).
+const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c") : null;
 ---
 
 <Default />

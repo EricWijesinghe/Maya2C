@@ -15,7 +15,7 @@ use windows::Win32::Security::Authorization::{
 use windows::Win32::Security::{
     ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
     DACL_SECURITY_INFORMATION, GetAce, GetAclInformation, GetTokenInformation,
-    PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::core::{PCWSTR, PWSTR};
@@ -26,10 +26,17 @@ const FILE_APPEND_DATA: u32 = 0x4;
 const GENERIC_ALL: u32 = 0x1000_0000;
 const GENERIC_WRITE: u32 = 0x4000_0000;
 const GENERIC_READ: u32 = 0x8000_0000;
-/// Access bits that let an account read or write the key's contents.
+const DELETE: u32 = 0x0001_0000;
+const WRITE_DAC: u32 = 0x0004_0000;
+const WRITE_OWNER: u32 = 0x0008_0000;
+/// Access bits that let an account read, write, delete or re-grant the key.
+/// WRITE_DAC and WRITE_OWNER let an account rewrite the DACL, so they count too.
 const OTHERS_ACCESS_MASK: u32 = FILE_READ_DATA
     | FILE_WRITE_DATA
     | FILE_APPEND_DATA
+    | DELETE
+    | WRITE_DAC
+    | WRITE_OWNER
     | GENERIC_READ
     | GENERIC_WRITE
     | GENERIC_ALL;
@@ -39,8 +46,8 @@ const SYSTEM_SID: &str = "S-1-5-18";
 const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
 
 /// True when an account other than the current user, SYSTEM or Administrators
-/// can read or write `path`. A missing DACL gives everyone full access, so it
-/// counts as open.
+/// can read or write `path`, or owns it. A missing DACL gives everyone full
+/// access, so it counts as open.
 ///
 /// # Errors
 ///
@@ -54,14 +61,15 @@ pub fn others_can_access(path: &Path) -> Result<bool, String> {
         .chain(std::iter::once(0))
         .collect();
     let mut dacl: *mut ACL = null_mut();
+    let mut owner = PSID(null_mut());
     let mut sd = PSECURITY_DESCRIPTOR(null_mut());
     // SAFETY: `wide` is NUL-terminated and outlives the call; the out-pointers are locals.
     let status = unsafe {
         GetNamedSecurityInfoW(
             PCWSTR(wide.as_ptr()),
             SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            None,
+            DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION,
+            Some(&mut owner as *mut _),
             None,
             Some(&mut dacl as *mut _),
             None,
@@ -70,6 +78,11 @@ pub fn others_can_access(path: &Path) -> Result<bool, String> {
     };
     let _sd = SecurityDescriptor(sd);
     status.ok().map_err(|e| e.to_string())?;
+    // The owner always holds WRITE_DAC implicitly, and the DACL does not show it,
+    // so a file someone else owns is refused whatever its ACEs say.
+    if owner.0.is_null() || !account_is_trusted(&sid_text(owner)?, &me) {
+        return Ok(true);
+    }
     if dacl.is_null() {
         return Ok(true);
     }
@@ -115,7 +128,12 @@ fn ace_opens_to_others(ace: *mut c_void, me: &str) -> Result<bool, String> {
         .cast(),
     );
     let text = sid_text(sid)?;
-    Ok(text != me && text != SYSTEM_SID && text != ADMINISTRATORS_SID)
+    Ok(!account_is_trusted(&text, me))
+}
+
+/// The accounts allowed to hold the key: the current user, SYSTEM and Administrators.
+fn account_is_trusted(text: &str, me: &str) -> bool {
+    text == me || text == SYSTEM_SID || text == ADMINISTRATORS_SID
 }
 
 /// The current process user's SID in string form (`S-1-5-21-...`).
@@ -240,5 +258,54 @@ mod tests {
         let open = others_can_access(&path);
         let _ = std::fs::remove_file(&path);
         assert_eq!(open, Ok(true));
+    }
+
+    #[test]
+    fn users_read_ace_is_refused() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        let path = key_with_acl(
+            "users",
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-5-32-545:R",
+            ],
+        );
+        let open = others_can_access(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(open, Ok(true));
+    }
+
+    #[test]
+    fn everyone_write_dac_grant_is_refused() {
+        let me = current_user_sid().expect("current user SID");
+        let grant = format!("*{me}:F");
+        let path = key_with_acl(
+            "write-dac",
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &grant,
+                "/grant",
+                "*S-1-1-0:(WDAC)",
+            ],
+        );
+        let open = others_can_access(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(open, Ok(true));
+    }
+
+    #[test]
+    fn only_the_allow_listed_accounts_are_trusted() {
+        let me = "S-1-5-21-1-2-3-1001";
+        assert!(account_is_trusted(me, me));
+        assert!(account_is_trusted(SYSTEM_SID, me));
+        assert!(account_is_trusted(ADMINISTRATORS_SID, me));
+        assert!(!account_is_trusted("S-1-5-21-1-2-3-1002", me));
+        assert!(!account_is_trusted("S-1-1-0", me));
+        assert!(!account_is_trusted("S-1-5-32-545", me));
     }
 }

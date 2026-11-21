@@ -1,8 +1,10 @@
 # ADR-045: Maya2C Hub, one desktop window for mining and every app
 
-**Status:** Proposed (2026-10-11). Asked for by Eric: "all applications should
+**Status:** Accepted (2026-10-11). Asked for by Eric: "all applications should
 be presented in a GUI too, like NiceHash Miner, but with advanced graphical
-statistics and attractive visuals".
+statistics and attractive visuals". Built: `apps/hub` (Tauri 2), unit-tested;
+no end-to-end run against a mining chain yet (`docs/architecture-vision.md`,
+Maya2C Hub row).
 **Date:** 2026-10-11
 
 ## Context

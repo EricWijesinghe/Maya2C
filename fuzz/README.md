@@ -34,6 +34,8 @@ cargo fuzz run tx_decode
 | `rwa_payload_decode` | the five RWA sections in `core::rwa_payload` | no panic; an accepted section re-encodes to itself |
 | `rwa_record_decode` | `maya_rwa` token, attestation, distribution, eligibility, cap-table records | no panic; an accepted record re-encodes to its bytes |
 | `sealed_payload_decode` | `SealedEnvelope`, `RevealShare`, `maya_mev::SealedPayload`, `ShareProof` | no panic; an accepted input re-encodes to its bytes |
+| `pow_target` | `crypto::pow` target rules and `below_prune_horizon` | the digest-meets-target law holds for any digest and bit count; a stricter count never raises the target; refusal at a horizon is monotone |
+| `reorg_prune` | `consensus::difficulty` work and retarget, `below_prune_horizon` | work is non-increasing in the target; cumulative work is order-independent and never falls on extension; a retarget stays in [1, limit]; refusal at a horizon is monotone in height |
 
 The DEX, oracle, governance, identity, RWA and sealed-mempool sections are also
 reached through `payload_decode`, but only after a one-byte tag selects them.

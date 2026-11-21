@@ -22,6 +22,9 @@ maya-amount = { path = "../../../crates/amount" }
 # Text address form (ADR-081): a recipient may be pasted as Bech32m or hex.
 maya-address = { path = "../../../crates/address" }
 custom-l1-node = { path = "../../../crates/node" }
+# Mnemonic entropy passes SP 800-90B start-up and continuous health tests
+# before it becomes a wallet (ADR-137 HW-5). Not linked by the node binary.
+maya-entropy = { path = "../../../hal/entropy" }
 # The pre-sign review (ADR-086 §6): the confirm screen's warnings, the
 # look-alike check and the grouped Bech32m display.
 maya-clear-sign = { path = "../../../crates/clear-sign" }
@@ -32,12 +35,13 @@ unicode-normalization = "0.1.25"
 bip39 = { version = "2.2", default-features = false, features = ["std"] }
 
 # The keychain backend is selected by target at compile time:
-#   windows -> Credential Manager, macos/ios -> Apple Keychain,
-#   android -> Android Keystore, linux -> secret-service / keyutils.
-# Default features already pull in the Windows, Apple, and secret-service
-# stores. The Android Keystore backend is a target-gated dependency, so it is
-# selected automatically when building for Android — there is no feature to
-# enable, and enabling one here would fail to resolve.
+#   windows -> Credential Manager, macos -> Apple Keychain,
+#   linux -> secret-service.
+# Default features (`v1`) pull in exactly those stores. Android and iOS get
+# none: keyring 4.1's `v1` store selection returns `Invalid("platform")` there,
+# and its `android-native-keyring-store` is an optional dependency nothing
+# here enables. An Android build therefore fails closed (vault.rs, `entry`);
+# the Keystore plan is in apps/wallet-gui/ANDROID.md.
 keyring = "4"
 
 argon2.workspace = true

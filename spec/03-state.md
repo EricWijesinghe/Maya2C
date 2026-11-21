@@ -31,3 +31,13 @@ order, and the first rule that fails is the result:
   invariant guard) run after the transfers; with no records they are inert,
   which is what the vectors exercise. Their own rules are specified by code.
 - The sparse accounts tree (stateless mode, dark) has no vectors.
+- The root is a function of state alone. An implementation may compute it
+  incrementally — once the sparse accounts tree is active, the node keeps a
+  local cache of its branches (ADR-062a, `state/root_cache.rs`) — but the value is the full
+  function's, and `StateDB::state_root()` stays the full rebuild it is checked
+  against. The cache is local-only and never part of a snapshot. The
+  contracts layer is computed the same way on every chain, sparse or not: the
+  node keeps each contract entry's leaf in memory between blocks
+  (ADR-142 amendment 5, `state/contracts_root.rs`) and the value is still
+  ROOT-2/ROOT-3 over every entry's leaf in key order, checked against the
+  full fold.
