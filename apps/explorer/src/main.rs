@@ -23,6 +23,10 @@ use maya_explorer::store::memory::MemoryStore;
 use maya_explorer::store::postgres::PostgresStore;
 use maya_web_security::rate_limit::ClientIp;
 
+/// The indexer's own pool: it writes one block transaction at a time, and a
+/// second connection lets a slow write not hold up the next poll's reads.
+const INDEXER_CONNECTIONS: u32 = 2;
+
 struct Args {
     node_rpc: String,
     listen: SocketAddr,
@@ -105,7 +109,7 @@ fn print_usage() {
          --listen <ADDR>        HTTP listen address (default 0.0.0.0:3000)\n  \
          --database-url <URL>   PostgreSQL URL; falls back to $DATABASE_URL,\n                         \
          then to an in-memory index\n  \
-         --max-connections <N>  database pool size (default 5)\n  \
+         --max-connections <N>  read pool size (default 5; the indexer has 2 more)\n  \
          --assets <DIR>         branding assets directory (default ./assets)\n  \
          --api-client-ip <MODE> /api/v1 client identity: socket (default), cf, xff\n  \
          --trust-proxy-header   allow cf/xff on a non-loopback --listen address\n  \
@@ -149,14 +153,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("{warning}");
     }
 
-    let store: Arc<dyn BlockStore> = match &args.database_url {
+    // Public reads and the indexer's writes use separate pools, so clients
+    // holding every read connection cannot stall indexing behind them.
+    let (store, index_store): (Arc<dyn BlockStore>, Arc<dyn BlockStore>) = match &args.database_url
+    {
         Some(url) => {
             println!("index:  postgres");
-            Arc::new(PostgresStore::connect(url, args.max_connections).await?)
+            let reads = Arc::new(PostgresStore::connect(url, args.max_connections).await?);
+            let writes = Arc::new(PostgresStore::connect(url, INDEXER_CONNECTIONS).await?);
+            (reads, writes)
         }
         None => {
             println!("index:  in-memory (no --database-url; index is lost on restart)");
-            Arc::new(MemoryStore::new())
+            let memory: Arc<dyn BlockStore> = Arc::new(MemoryStore::new());
+            (Arc::clone(&memory), memory)
         }
     };
 
@@ -173,7 +183,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("text:   {} addresses", network.hrp());
 
-    let indexer = Indexer::new(source, Arc::clone(&store)).with_network(network);
+    let indexer = Indexer::new(source, index_store).with_network(network);
     let events = indexer.events();
 
     // Checked once, at startup. Mounting the route over a directory that is not
