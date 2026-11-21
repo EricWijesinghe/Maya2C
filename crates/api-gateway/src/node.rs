@@ -5,6 +5,7 @@
 //! end-to-end test that needs `RocksDB`, a genesis file, and a mined block in
 //! order to check that a 404 is a 404 is a test nobody runs.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -138,6 +139,9 @@ pub trait NodeClient: Send + Sync + 'static {
 }
 
 /// A [`NodeClient`] backed by a real node's JSON-RPC port.
+///
+/// Cloning is cheap and shares the connection pool and the supply cache.
+#[derive(Clone)]
 pub struct RpcNodeClient {
     client: HttpClient,
     /// Also forward [`allowlist::BOOTSTRAP_METHODS`] (`--bootstrap`).
@@ -145,7 +149,7 @@ pub struct RpcNodeClient {
     /// The last `get_supply` answer and when it arrived. Held across the
     /// node call, so concurrent callers wait for one call instead of each
     /// making their own.
-    supply: tokio::sync::Mutex<Option<(Instant, Supply)>>,
+    supply: Arc<tokio::sync::Mutex<Option<(Instant, Supply)>>>,
 }
 
 impl RpcNodeClient {
@@ -162,7 +166,7 @@ impl RpcNodeClient {
         Ok(Self {
             client,
             bootstrap: false,
-            supply: tokio::sync::Mutex::new(None),
+            supply: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -228,24 +232,36 @@ impl NodeClient for RpcNodeClient {
     }
 
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
-        // One deadline covers the wait and the call: behind a hung call, a
-        // queued caller would otherwise sit out the earlier caller's
-        // NODE_TIMEOUT and then its own. Dropping the future on timeout
-        // releases the lock and caches nothing.
-        let fetch = async {
-            let mut cached = self.supply.lock().await;
-            if let Some((at, supply)) = cached.as_ref()
-                && at.elapsed() < SUPPLY_TTL
-            {
-                return Ok(supply.clone());
-            }
-            let supply: Supply = self.call("get_supply", rpc_params![]).await?;
-            *cached = Some((Instant::now(), supply.clone()));
-            Ok(supply)
-        };
-        tokio::time::timeout(NODE_TIMEOUT, fetch)
+        // The fetch runs in its own task, so a caller that disconnects (its
+        // handler future is dropped) does not drop the node call with it: the
+        // node finishes its walk either way, and the answer must still reach
+        // the cache, or connect-and-close would buy one walk per request.
+        //
+        // One deadline covers the lock wait and the call: behind a hung call,
+        // a queued fetch would otherwise sit out the earlier one's
+        // NODE_TIMEOUT and then its own. A timed-out fetch caches nothing.
+        let this = self.clone();
+        let fetch = tokio::spawn(async move {
+            let fetch = async {
+                let mut cached = this.supply.lock().await;
+                if let Some((at, supply)) = cached.as_ref()
+                    && at.elapsed() < SUPPLY_TTL
+                {
+                    return Ok(supply.clone());
+                }
+                let supply: Supply = this.call("get_supply", rpc_params![]).await?;
+                *cached = Some((Instant::now(), supply.clone()));
+                Ok(supply)
+            };
+            tokio::time::timeout(NODE_TIMEOUT, fetch)
+                .await
+                .map_err(|_| {
+                    GatewayError::Upstream("get_supply: node call timed out".to_string())
+                })?
+        });
+        fetch
             .await
-            .map_err(|_| GatewayError::Upstream("get_supply: node call timed out".to_string()))?
+            .map_err(|e| GatewayError::Upstream(format!("get_supply: fetch task failed: {e}")))?
     }
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {

@@ -58,7 +58,8 @@ pub const MAX_DEPTH: usize = 6;
 /// [`MAX_COMPLEXITY`] maps to one exact number of node calls.
 pub const UPSTREAM_CALL_COST: usize = 20;
 
-/// Node calls one GraphQL request may make.
+/// Node calls one GraphQL request may make. It holds per HTTP request
+/// because the route refuses batches (`crate::app`).
 pub const MAX_UPSTREAM_CALLS: usize = 5;
 
 /// Maximum complexity of a query.
