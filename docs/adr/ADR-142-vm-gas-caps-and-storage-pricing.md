@@ -785,6 +785,25 @@ R-2/R-5/R-6/R-10 amendment, which took the next number in this file first.
   cached root with it (unit tests panic on a difference; debug nodes repair).
   A preview at a `CONFIRM_EVERY` height compares too, and on a difference the
   header carries the full fold's root.
+- **An import compares at the same heights** (PR #549 review R-4, confirmed
+  and extended). Before, only `preview_root` chose `RootSource::Confirmed`;
+  an import that did not take a kept preview (`stage_checked`: a follower, an
+  RPC node, an explorer's node, a validator catching up) always took the
+  cache, and `check_declared_root` returns as soon as the computed root equals
+  the declared one. So a wrong cached root that a block also declared was
+  accepted there and refused by the same node after a restart. R-4 named the
+  accounts cache, which is dark until STATELESS activates; this cache is live
+  from genesis, so the gap was too. Both paths now take
+  `StateDB::source_at(height)`, which covers both caches because `root_from`
+  hands the source to the contracts layer. Cost on a node that only imports:
+  one full fold per `CONFIRM_EVERY` (256) heights, what a producer already
+  paid. Honest nodes compute the same root either way. Pinned by
+  `a_node_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root`
+  (contracts) and
+  `a_follower_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root`
+  (accounts, the review's patch test). Red run: with the import path back on
+  `RootSource::Cache`, both failed with the block accepted
+  (`Ok([134, 1, 163, ...])` and `Ok([57, 42, 53, ...])`).
 - `check_declared_root` now asks the full rebuild whenever the computed root
   differs from a block's declaration, not only after a walked accounts plan.
   If the full rebuild matches the block, a refuted contracts cache is

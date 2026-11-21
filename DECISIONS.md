@@ -1021,6 +1021,14 @@ Two findings that contradict the brief, reported rather than worked around (Stan
 - **`check_declared_root` now always asks the full rebuild on a mismatch**, not only after a
   walked accounts plan, so a wrong contracts cache cannot stall a validator. Refusing a bad block
   costs one more full root.
+- **An import confirms the caches too (review R-4, confirmed and extended):** `stage_checked`
+  takes the same `confirm_due` choice as `preview_root`, so a node that never previews still
+  compares both caches with the full rebuild once per 256 heights. R-4 was latent for the dark
+  accounts cache and live for this one from genesis. Cost: one full fold per 256 heights on a
+  node that only imports.
+- **Merge order (#643 review):** #540, then #549, then #643, then #644. #643 is out of the merge
+  queue until #540 and #549 are on master; then its base moves to master and it is re-queued.
+  The queue now holds any PR whose base is not master.
 - **Still open, for Eric:** contract-state growth is unbounded and unpriced (R-1's disk side,
   and the cache's resident memory, not measured).
 
