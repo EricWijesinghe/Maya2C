@@ -259,7 +259,7 @@ pub fn checksummed(address: &[u8; 32]) -> String {
 }
 
 /// Shown when the recipient was typed as hex with no checksum.
-pub const UNCHECKED_RECIPIENT: &str = "Warning: the recipient was entered as hex with no checksum,      so a typo cannot be detected. Check the 'To' address against the payee's Bech32m address.";
+pub const UNCHECKED_RECIPIENT: &str = "Warning: the recipient was entered as hex with no checksum, so a typo cannot be detected. Check the 'To' address against the payee's Bech32m address.";
 
 /// The text a native approval dialog shows, built from the confirmation the
 /// core computed. The webview never supplies these words, so it cannot change
