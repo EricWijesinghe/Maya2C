@@ -20,4 +20,4 @@ the treasury split as live; no node has ever paid a treasury share.
 
 - FEE-5 has no vector yet.
 - FEE-1's routing is a state-level rule that the vectors do not reach: the base fee moving from the collector to `FEE_SINK` at the end of each block is pinned by `crates/node/tests/fee_market_live_tests.rs`, and the collector becoming the staking reward pool at the epoch boundary (`fee_exec.rs` `take_fee_pool`, called from `staking_exec.rs` `end_epoch`) is not yet pinned by any test. The vectors cover the split function only.
-- The neural gain rule (`FeeRule::Neural`, `MODEL_V1`) is dark behind a second activation height and is specified by `crates/fee-market/src/model/` and its pinned weight digest.
+- No neural gain rule is part of this spec. The RESEARCH model (`crates/neural-fee`) is not linked by the node (ADR-029 amendment 2026-11-14); adopting it would be a hard fork with its own section and vectors.

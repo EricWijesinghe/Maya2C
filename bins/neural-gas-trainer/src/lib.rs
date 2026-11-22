@@ -5,10 +5,10 @@
 //! 2. [`dataset`] runs it and labels every block with the gain that would have
 //!    set the next block's demand to exactly the target.
 //! 3. [`network`] trains a float 6-16-1 network on those labels.
-//! 4. [`quantize`] turns it into `fee-market`'s integer [`Model`].
+//! 4. [`quantize`] turns it into `neural-fee`'s integer [`Model`].
 //! 5. [`evaluate`] runs the market closed-loop under the linear rule and under
 //!    a model, and reports what each did.
-//! 6. [`emit`] writes `crates/fee-market/src/model/weights_v1.rs`.
+//! 6. [`emit`] writes `crates/neural-fee/src/model/weights_v1.rs`.
 //!
 //! Everything is deterministic: one seeded [`rng::SplitMix64`], one thread,
 //! a fixed order of float operations.
@@ -21,7 +21,7 @@ pub mod quantize;
 pub mod rng;
 pub mod simulator;
 
-use maya_fee_market::Model;
+use maya_neural_fee::Model;
 
 /// Seed for the training data and the initial weights.
 pub const TRAINING_SEED: u64 = 0x4D41_5941_3243_0001;

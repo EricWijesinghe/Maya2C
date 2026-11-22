@@ -1,8 +1,8 @@
 //! Running the market closed-loop under a rule, and checking the envelope on
 //! every block.
 
-use maya_fee_market::Model;
-use maya_fee_market::model::UNIT_GAIN_BPS;
+use maya_neural_fee::Model;
+use maya_neural_fee::model::UNIT_GAIN_BPS;
 
 use crate::dataset::{DENOMINATOR, FLOOR, INITIAL_FEE};
 use crate::simulator::{MAX_BLOCK_BYTES, Market, TARGET_BYTES, features};
@@ -23,7 +23,7 @@ fn linear_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64) -
 
 fn neural_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64, gain: u64) -> u64 {
     use maya_fee_market::Amount;
-    maya_fee_market::neural_next_base_fee(
+    maya_neural_fee::neural_next_base_fee(
         Amount::from_u64(fee),
         size,
         target,

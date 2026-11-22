@@ -4,7 +4,7 @@
 //! quantization into `i16` Q12 and `i32` Q28 never has to saturate a trained
 //! value.
 
-use maya_fee_market::model::{FEATURE_ONE, HIDDEN, INPUTS};
+use maya_neural_fee::model::{FEATURE_ONE, HIDDEN, INPUTS};
 
 use crate::dataset::{MAX_GAIN, Sample};
 use crate::rng::SplitMix64;
