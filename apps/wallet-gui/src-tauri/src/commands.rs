@@ -29,7 +29,7 @@
 use std::collections::BTreeSet;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use maya_clear_sign::Context;
 use maya_wallet_core::address_book::{AddressBook, NameCheck, PasteCheck, Source};
@@ -58,6 +58,32 @@ pub const IDLE_LOCK: Duration = Duration::from_secs(5 * 60);
 /// its next use, so this bounds only how long the seed stays in memory.
 pub const IDLE_CHECK_EVERY: Duration = Duration::from_secs(15);
 
+/// A point in time read from two clocks. `Instant` stops while the machine
+/// sleeps on Linux and macOS, so a closed lid would not count as idle; the
+/// wall clock keeps counting. Idle time is the larger of the two, so moving
+/// either clock can only lock the wallet sooner, never keep it open longer.
+#[derive(Clone, Copy, Debug)]
+pub struct Moment {
+    mono: Instant,
+    wall: SystemTime,
+}
+
+impl Moment {
+    pub fn now() -> Self {
+        Self {
+            mono: Instant::now(),
+            wall: SystemTime::now(),
+        }
+    }
+
+    /// Time from `earlier` to `self`; a clock that ran backwards counts as zero.
+    fn since(self, earlier: Self) -> Duration {
+        let mono = self.mono.saturating_duration_since(earlier.mono);
+        let wall = self.wall.duration_since(earlier.wall).unwrap_or_default();
+        mono.max(wall)
+    }
+}
+
 /// The unlocked session, if any.
 #[derive(Default)]
 pub struct Session {
@@ -65,8 +91,7 @@ pub struct Session {
     /// The unlocked wallet's name: where its address book is stored.
     name: Mutex<Option<String>>,
     /// When a command last used the unlocked wallet; `None` while locked.
-    /// Monotonic, so a wall-clock change cannot extend the session.
-    last_used: Mutex<Option<Instant>>,
+    last_used: Mutex<Option<Moment>>,
     /// True while a sign_transfer call holds the one native confirm screen.
     dialog_open: AtomicBool,
 }
@@ -93,7 +118,7 @@ impl Session {
     /// Runs `body` against the unlocked wallet.
     /// A wallet left idle past [`IDLE_LOCK`] is locked first, and refused.
     fn with<T>(&self, body: impl FnOnce(&mut Wallet) -> Result<T, String>) -> Result<T, String> {
-        self.lock_if_idle(Instant::now());
+        self.lock_if_idle(Moment::now());
         let mut guard = self
             .wallet
             .lock()
@@ -102,7 +127,7 @@ impl Session {
             Some(wallet) => body(wallet),
             None => return Err("the wallet is locked".to_string()),
         };
-        *self.last_used.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+        *self.last_used.lock().unwrap_or_else(|p| p.into_inner()) = Some(Moment::now());
         out
     }
 
@@ -110,7 +135,7 @@ impl Session {
     fn open(&self, name: &str, wallet: Wallet) {
         *self.wallet.lock().unwrap_or_else(|p| p.into_inner()) = Some(wallet);
         *self.name.lock().unwrap_or_else(|p| p.into_inner()) = Some(name.to_string());
-        *self.last_used.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+        *self.last_used.lock().unwrap_or_else(|p| p.into_inner()) = Some(Moment::now());
     }
 
     /// Drops the wallet, which zeroizes the seed.
@@ -122,12 +147,12 @@ impl Session {
 
     /// Locks the wallet when it has gone unused for [`IDLE_LOCK`] as of
     /// `now`; true when this call locked it.
-    pub fn lock_if_idle(&self, now: Instant) -> bool {
+    pub fn lock_if_idle(&self, now: Moment) -> bool {
         let idle = self
             .last_used
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .is_some_and(|last| now.saturating_duration_since(last) >= IDLE_LOCK);
+            .is_some_and(|last| now.since(last) >= IDLE_LOCK);
         if idle {
             self.close();
         }
@@ -352,7 +377,7 @@ pub fn lock(session: tauri::State<'_, Session>) -> Result<(), String> {
 /// the frontend can poll it to notice an idle lock.
 #[tauri::command]
 pub fn is_unlocked(session: tauri::State<'_, Session>) -> Result<bool, String> {
-    session.lock_if_idle(Instant::now());
+    session.lock_if_idle(Moment::now());
     Ok(session
         .wallet
         .lock()
@@ -1074,11 +1099,19 @@ mod unlock_tests {
 
 #[cfg(test)]
 mod idle_lock_tests {
-    use super::{IDLE_LOCK, Session};
+    use super::{IDLE_LOCK, Moment, Session};
     use maya_wallet_core::generate_mnemonic;
     use maya_wallet_core::hd::seed_from_mnemonic;
     use maya_wallet_core::wallet::Wallet;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+
+    /// `base` with both clocks moved forward by `by`.
+    fn after(base: Moment, by: Duration) -> Moment {
+        Moment {
+            mono: base.mono + by,
+            wall: base.wall + by,
+        }
+    }
 
     fn unlocked() -> Session {
         let phrase = generate_mnemonic().expect("mnemonic");
@@ -1091,10 +1124,10 @@ mod idle_lock_tests {
     #[test]
     fn an_unused_wallet_locks_itself_after_the_idle_limit() {
         let session = unlocked();
-        let now = Instant::now();
-        assert!(!session.lock_if_idle(now + IDLE_LOCK - Duration::from_secs(1)));
+        let now = Moment::now();
+        assert!(!session.lock_if_idle(after(now, IDLE_LOCK - Duration::from_secs(1))));
         assert!(session.with(|_| Ok(())).is_ok());
-        assert!(session.lock_if_idle(now + IDLE_LOCK + Duration::from_secs(1)));
+        assert!(session.lock_if_idle(after(now, IDLE_LOCK + Duration::from_secs(1))));
         assert_eq!(
             session.with(|_| Ok(())),
             Err("the wallet is locked".to_string())
@@ -1105,16 +1138,40 @@ mod idle_lock_tests {
     #[test]
     fn using_the_wallet_restarts_the_idle_clock() {
         let session = unlocked();
-        let start = Instant::now();
+        let start = Moment::now();
         std::thread::sleep(Duration::from_millis(20));
         session.with(|_| Ok(())).expect("unlocked");
         // Measured from the last use, not from the unlock.
-        assert!(!session.lock_if_idle(start + IDLE_LOCK));
+        assert!(!session.lock_if_idle(after(start, IDLE_LOCK)));
     }
 
     #[test]
     fn a_locked_session_has_nothing_to_lock() {
         let session = Session::default();
-        assert!(!session.lock_if_idle(Instant::now() + IDLE_LOCK * 2));
+        assert!(!session.lock_if_idle(after(Moment::now(), IDLE_LOCK * 2)));
+    }
+
+    #[test]
+    fn time_asleep_counts_as_idle() {
+        // Suspend: the wall clock moved hours, the monotonic clock did not.
+        let session = unlocked();
+        let now = Moment::now();
+        let woke = Moment {
+            mono: now.mono,
+            wall: now.wall + Duration::from_secs(3 * 60 * 60),
+        };
+        assert!(session.lock_if_idle(woke));
+        assert!(session.with(|_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn a_wall_clock_set_back_cannot_extend_the_session() {
+        let session = unlocked();
+        let now = Moment::now();
+        let rewound = Moment {
+            mono: now.mono + IDLE_LOCK,
+            wall: now.wall - Duration::from_secs(24 * 60 * 60),
+        };
+        assert!(session.lock_if_idle(rewound));
     }
 }

@@ -63,7 +63,7 @@ pub fn run() {
                 loop {
                     std::thread::sleep(commands::IDLE_CHECK_EVERY);
                     idle.state::<Session>()
-                        .lock_if_idle(std::time::Instant::now());
+                        .lock_if_idle(commands::Moment::now());
                 }
             });
             Ok(maya_app_update::start(app)?)
