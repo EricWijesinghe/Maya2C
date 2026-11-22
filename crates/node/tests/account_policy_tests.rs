@@ -573,7 +573,10 @@ fn vector_cases() -> serde_json::Value {
         };
         match UpgradeSchedule::new(vec![entry]) {
             Ok(_) => serde_json::json!({"result": "ok"}),
-            Err(e) if e.to_string().contains("account policy before account authority") => {
+            Err(e)
+                if e.to_string()
+                    .contains("account policy before account authority") =>
+            {
                 serde_json::json!({"result": "error", "error": "Decode"})
             }
             Err(e) => serde_json::json!({"result": "error", "error": e.to_string()}),
