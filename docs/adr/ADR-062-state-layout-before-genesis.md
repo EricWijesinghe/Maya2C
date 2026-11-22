@@ -337,7 +337,8 @@ the boundary, not in the boundary block.
    a budgeted release pass, like the payout pass, would bound it per block
    but changes when funds arrive and what a slash can still reach, so it is
    not done here.
-3. **Dust lockout (PARTIAL, open for Eric).** The mainnet floor is decided:
+3. **Dust lockout (PARTIAL, open for Eric; amendment 062c below proposes a
+   100-coin floor).** The mainnet floor was decided:
    `min_delegation` = 1 coin, required at the ceremony and enforced by
    `cargo xtask genesis-check` (DECISIONS.md 2026-10-30); 10 base units is
    only the devnet default. At that floor, 16,384 positions close one chosen
@@ -355,3 +356,60 @@ the boundary, not in the boundary block.
    stays correct.
 
 Measured figures: `reports/sessions/2026-11-15-per-delegation-staking.md`.
+
+## Amendment 2026-11-22 (062c): dust floor and operator-entry reserve, pending Eric
+
+Status: PROPOSED, pending Eric (decision brief 2 and review finding R-7 of
+the 2026-11-19 AI review; that review is AI work, not an external audit).
+Built as a draft PR stacked on #555, never merged without his choice.
+
+**Floor (brief 2, option A).** Every position holds at least
+`min_delegation`: a delegation and each part of a partial exit are refused
+below it. The proposed mainnet floor is 100 coins (10^26 base units,
+`xtask/src/genesis_check.rs` `MIN_DELEGATION`), up from 1 coin. A genesis
+value only: no record format or rule changes.
+
+| Floor | Close one validator (16,384 positions) | Close the chain (131,072) |
+|---|---|---|
+| 1 coin (decided 2026-10-30) | 16,384 coins | 131,072 coins |
+| 10 coins | 163,840 coins | 1,310,720 coins |
+| **100 coins (proposed)** | **1,638,400 coins** | **13,107,200 coins** |
+| 1,000 coins | 16,384,000 coins | 131,072,000 coins (more than the 19,687,500 the halving eras issue) |
+
+For scale: era 1 issues about 2,625,000 coins a year at one block a second
+(`deploy/genesis/mainnet/README.md`), so at 100 coins closing the chain takes
+more than every coin issued in the first five years. The locked capital is not
+lost: it earns rewards and is refunded after the unbonding window, so the
+attacker's cost is opportunity cost. The price of the higher floor is that a
+holder with less than 100 coins cannot delegate directly and needs a pool.
+Options B (evict the smallest position at a full ceiling; after genesis, by an
+upgrade), C (a refundable per-record deposit) and D (keep 1 coin) are in the
+brief and in the PR body.
+
+**Operator-entry reserve (R-7).** Checked against the code: an operator
+`Unbond` never called `refuse_new_position`, and `Staking::register` has no
+count cap, so positions exceeded the ceiling by up to registered validators ×
+`unbonding_epochs`, with no rule bounding the validator count. Now an operator
+unbond that would open a new entry is refused once positions reach
+`ceiling + OPERATOR_ENTRY_RESERVE` (16,384, one validator's worth), spec
+STK-12; folding into its own entry for the same release epoch is never
+refused, and neither is a full exit (nothing left bonded) of at least
+`min_self_bond`, so an operator can always leave; one a slash took under the
+minimum tops up to it first (a top-up is never refused). A full exit under
+the minimum is not exempt, or one validator could top up one base unit and
+exit again every epoch. Each exempt entry holds at least `min_self_bond`
+until it releases, so positions are bounded by `ceiling + 16,384 + staked
+coins / min_self_bond` (at most 167,143 at the 1,000-coin bond with every
+coin the halving eras issue bonded) whatever the number of validators, which
+bounds what one boundary releases. Delegators are refused at the ceiling, so
+only operators reach the reserve. Filling it takes 2,341 validators (16,384 /
+7 unbonding epochs) at 1,000 coins each, 2,341,000 coins kept refilled at
+every boundary. For as long as the fill is kept up, operators' partial
+unbonds are refused, not merely delayed (the attacker can take a freed slot
+first in the next block); full exits still pass. The first draft of this
+amendment refused full exits too and said the fill "only delays"; review of
+the draft found that wrong, and the exemption replaced it. Not done: a registration ceiling (it needs a validator
+count in the meta record, a layout change); validator records stay bounded by
+`min_self_bond` alone, at most 2,625 in the first year and 19,687 over the
+halving eras if every coin issued were bonded.
+

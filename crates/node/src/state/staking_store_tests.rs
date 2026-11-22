@@ -26,7 +26,8 @@ use crate::state::staking_records::{
     parse_unbonding_key,
 };
 use crate::state::staking_store::{
-    MAX_DELEGATIONS_PER_VALIDATOR, PAYOUTS_PER_BLOCK, RECORDS_READ, StakeOp, commit_view,
+    MAX_DELEGATIONS_PER_VALIDATOR, OPERATOR_ENTRY_RESERVE, PAYOUTS_PER_BLOCK, RECORDS_READ,
+    StakeOp, commit_view,
 };
 
 /// splitmix64: deterministic, so a failure replays exactly.
@@ -47,6 +48,10 @@ impl Rng {
 }
 
 const FUNDS: u64 = 1_000_000_000;
+
+/// One coin: `maya_amount::ONE_COIN` (24 decimals, ADR-046), which the node
+/// reaches only through `maya_staking::Amount`.
+const COIN: u128 = 1_000_000_000_000_000_000_000_000;
 
 fn addr(tag: u8, n: u64) -> Address {
     let mut a = [tag; 32];
@@ -1184,7 +1189,7 @@ fn at_the_ceiling_a_full_exit_and_an_operator_unbond_pass_and_a_partial_exit_doe
                 amount: amount(100),
             },
         )
-        .expect("an operator unbond is never refused for the ceiling");
+        .expect("an operator unbond passes the ceiling, into the reserve");
     let fresh = pair
         .db
         .apply_stake_op(
@@ -1197,6 +1202,189 @@ fn at_the_ceiling_a_full_exit_and_an_operator_unbond_pass_and_a_partial_exit_doe
         )
         .expect_err("still full");
     assert!(fresh.to_string().contains("ceiling"), "{fresh}");
+}
+
+#[test]
+fn operator_entries_stop_at_the_reserve_above_the_ceiling() {
+    // Spec STK-12 (09 R-7): an operator's unbond may pass the ceiling, but
+    // only into the reserve above it, so positions have a protocol bound
+    // whatever the number of registered validators.
+    let epoch_blocks = 2;
+    let ceiling = crate::state::staking_store::max_delegation_records(epoch_blocks);
+    let bound = ceiling + OPERATOR_ENTRY_RESERVE;
+    let mut pair = Pair::new(4, epoch_blocks);
+    let release_epoch = pair.reference.epoch + Params::DEVNET.unbonding_epochs;
+    // Operator 0 already has an entry for this release epoch; the rest of the
+    // positions are other owners' entries spread over validators 1-3.
+    pair.reference.unbonding.push(maya_staking::Unbonding {
+        owner: operator(0),
+        validator: validator(0),
+        amount: amount(1),
+        release_epoch,
+    });
+    for i in 1..bound {
+        pair.reference.unbonding.push(maya_staking::Unbonding {
+            owner: addr(0xE0, i),
+            validator: validator(1 + i % 3),
+            amount: amount(1),
+            release_epoch,
+        });
+    }
+    store_reference(&mut pair, epoch_blocks);
+    let unbond = |v| StakeOp::Unbond {
+        validator: v,
+        amount: amount(100),
+    };
+    let refused = pair
+        .db
+        .apply_stake_op(&mut pair.overlay, &operator(1), unbond(validator(1)))
+        .expect_err("an operator entry past the reserve");
+    assert!(refused.to_string().contains("reserve"), "{refused}");
+    // Folding into the operator's entry for the same release epoch adds no
+    // position, so it still passes.
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &operator(0), unbond(validator(0)))
+        .expect("an operator unbond that folds into its own entry");
+    let (_, all) = entries(&pair, &validator(0));
+    assert_eq!(all, bound, "no position past the bound");
+}
+
+#[test]
+fn a_full_operator_exit_of_at_least_the_minimum_bond_passes_a_full_reserve() {
+    // Spec STK-12: an operator can always leave. A full exit (nothing left
+    // bonded) of at least `min_self_bond` is exempt from the reserve, so the
+    // entries past it are bounded by capital (staked coins / `min_self_bond`).
+    // A full exit below the minimum is not exempt (otherwise one validator
+    // could top up one base unit and exit again every epoch), but a top-up
+    // to the minimum, never refused, makes it exempt.
+    let epoch_blocks = 2;
+    let ceiling = crate::state::staking_store::max_delegation_records(epoch_blocks);
+    let bound = ceiling + OPERATOR_ENTRY_RESERVE;
+    let mut pair = Pair::new(4, epoch_blocks);
+    let release_epoch = pair.reference.epoch + Params::DEVNET.unbonding_epochs;
+    for i in 0..bound {
+        pair.reference.unbonding.push(maya_staking::Unbonding {
+            owner: addr(0xE0, i),
+            validator: validator(i % 2),
+            amount: amount(1),
+            release_epoch,
+        });
+    }
+    // Validator 3 as a downtime slash leaves it: under the minimum bond.
+    let min = Params::DEVNET.min_self_bond;
+    pair.reference
+        .validators
+        .get_mut(&validator(3))
+        .unwrap()
+        .self_bond = min.checked_sub(amount(1)).unwrap();
+    store_reference(&mut pair, epoch_blocks);
+    pair.fund(operator(3));
+    let unbond = |v, n| StakeOp::Unbond {
+        validator: v,
+        amount: n,
+    };
+    let partial = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(2),
+            unbond(validator(2), amount(100)),
+        )
+        .expect_err("a partial operator exit at the full reserve");
+    assert!(partial.to_string().contains("reserve"), "{partial}");
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(2),
+            unbond(validator(2), amount(12_000)),
+        )
+        .expect("a full operator exit passes the full reserve");
+    let small = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(3),
+            unbond(validator(3), min.checked_sub(amount(1)).unwrap()),
+        )
+        .expect_err("a full exit under the minimum bond is not exempt");
+    assert!(small.to_string().contains("reserve"), "{small}");
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(3),
+            StakeOp::BondMore {
+                validator: validator(3),
+                amount: amount(1),
+            },
+        )
+        .expect("a top-up is never refused");
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &operator(3), unbond(validator(3), min))
+        .expect("topped up to the minimum, the full exit passes");
+    let (_, all) = entries(&pair, &validator(0));
+    assert_eq!(
+        all,
+        bound + 2,
+        "the two full exits are the only positions past the bound"
+    );
+}
+
+#[test]
+fn filling_a_ceiling_at_the_proposed_floor_locks_this_much() {
+    // Decision brief 2 option A, pending Eric: `min_delegation` = 100 coins
+    // (xtask/src/genesis_check.rs `MIN_DELEGATION`; xtask does not link the
+    // node, so the value is repeated here). Every position holds at least
+    // the floor: a delegation and each part of a partial exit are refused
+    // below it (`Staking::delegate`, `Staking::undelegate`).
+    let floor = Amount::from_u128(100 * COIN);
+    let mut pair = Pair::new(4, 3_600);
+    pair.reference.params.min_delegation = floor;
+    for i in 0..MAX_DELEGATIONS_PER_VALIDATOR {
+        pair.reference
+            .delegate(addr(0xD4, i), validator(0), floor)
+            .unwrap();
+    }
+    store_reference(&mut pair, 3_600);
+    let bonds: Amount = (0..4)
+        .map(|i| amount(10_000 + i * 1_000))
+        .fold(Amount::ZERO, |a, b| a.checked_add(b).unwrap());
+    let locked = pair
+        .db
+        .staking_held()
+        .unwrap()
+        .unwrap()
+        .checked_sub(bonds)
+        .unwrap();
+    // 16,384 positions x 100 coins = 1,638,400 coins to close one validator.
+    assert_eq!(locked, Amount::from_u128(1_638_400 * COIN));
+    // The whole chain is eight such crowds: 13,107,200 coins.
+    assert_eq!(
+        u128::from(crate::state::staking_store::MAX_DELEGATION_RECORDS) * 100,
+        13_107_200
+    );
+    let delegate = |v, amount| StakeOp::Delegate {
+        validator: v,
+        amount,
+    };
+    // At a validator with room, so the rule's floor refuses, not the ceiling.
+    let below = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &delegator(0),
+            delegate(validator(1), floor.checked_sub(amount(1)).unwrap()),
+        )
+        .expect_err("one base unit under the floor");
+    assert!(below.to_string().contains("BelowMinimum"), "{below}");
+    let full = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &delegator(0),
+            delegate(validator(0), floor),
+        )
+        .expect_err("a new record at the full validator");
+    assert!(full.to_string().contains("per-validator"), "{full}");
 }
 
 #[test]

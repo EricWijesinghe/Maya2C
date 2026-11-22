@@ -1474,3 +1474,28 @@ Branch `refreeze/integration` (draft #626) re-merged onto master `d6a63a5d` to s
 - **Code, semantic (compiled red, then fixed):** #655's snapshot `StateView` read the single staking record that #555 replaced with per-record storage (E0599), so the view now sums validator and payout records with the same helper as `StateDB::staking_held`, and the staking differential test asserts the two agree. Tests added by #584 and #653 built `MiningShare` without #570's work-kind byte (E0063). #540's root-cache test named `maya_fee_market` directly, which `the_fee_market_is_reached_only_through_its_genesis_gate` refuses; it reads the cap through `state::fees`.
 - **Gas golden vectors (#641 × #549):** #641 recorded its seven vectors under master's schedule; #549 changes the schedule on purpose (native work charged in fuel), so all seven moved (e.g. `empty` 2 → 210,302). Re-recorded on the integration branch with wasmtime pinned to 48.0.8 and to 48.0.10: identical costs, boundaries and outputs on both, so the 48.0.10 bump still moves nothing.
 - **Pre-existing, not caused by the bundle:** `byzantine_guard_tests::slow_honest_peers_carrying_valid_traffic_are_never_quarantined` fails on this Windows host on master `d6a63a5d` itself, and at two intermediate points of this branch; left as it is and reported.
+
+### 2026-11-22 — Staking dust floor and operator-entry reserve (decision brief 2, review R-7), pending Eric
+
+Built as a draft `[needs-eric]` PR stacked on #555; nothing here is decided until Eric chooses.
+
+- **Proposed (brief 2 option A):** mainnet `min_delegation` = 100 coins (10^26 base units), up from
+  the 1 coin decided 2026-10-30. Closing one validator to new delegators then locks 1,638,400 coins
+  (16,384 positions), closing the chain 13,107,200 (131,072), against 16,384 and 131,072 at 1 coin.
+  Era 1 issues about 2,625,000 coins a year at one block a second. Cost of the choice: a holder under
+  100 coins needs a pool. One line in `xtask/src/genesis_check.rs`; no record format change.
+- **Proposed (R-7):** an operator unbond that would open a new unbonding entry is refused once
+  positions reach the ceiling plus `OPERATOR_ENTRY_RESERVE` = 16,384 (spec STK-12). Positions are then
+  bounded whatever the number of validators. A full operator exit of at least `min_self_bond` is
+  exempt, so an operator can always leave (a slashed one tops up to the minimum first); each exempt
+  entry holds at least `min_self_bond`, so capital bounds them (positions at most 167,143 at the
+  1,000-coin bond with every coin issued bonded). Filling the reserve takes 2,341 validators at
+  1,000 coins, kept refilled at every boundary; while it is kept up, operators' partial unbonds are
+  refused, not merely delayed. An earlier draft refused full exits too; review caught it.
+- **Not done, for Eric:** a registration ceiling (needs a validator count in the meta record, a
+  layout change); option B (evict the smallest position at a full ceiling), suggested after genesis.
+- **Audit claims checked:** brief 2's ceilings (131,072 and 16,384) and the 1-coin floor are right;
+  R-7's "operator Unbond skips the ceiling" and "registration is uncapped" are right. The brief's
+  "total supply MISSING" is filled from `deploy/genesis/mainnet/README.md` (19,687,500 coins over the
+  halving eras).
+
