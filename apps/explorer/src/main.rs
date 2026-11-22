@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use maya_explorer::indexer::{Indexer, RpcSource};
-use maya_explorer::server::{AppState, serve};
+use maya_explorer::server::{AppState, fetch_network, serve};
 use maya_explorer::store::BlockStore;
 use maya_explorer::store::memory::MemoryStore;
 use maya_explorer::store::postgres::PostgresStore;
@@ -92,6 +92,37 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     Ok(args)
 }
 
+/// How many times startup asks the node for its chain id before giving up.
+const NETWORK_ATTEMPTS: u32 = 10;
+/// Pause between those attempts.
+const NETWORK_RETRY: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The address network for every explanation the indexer stores. Retries,
+/// then refuses to start: guessing devnet would write wrong-prefix addresses
+/// into a mainnet index, where they stay. A chain id with no registered text
+/// form is a local chain, and devnet addresses are its addresses.
+async fn startup_network(url: &str) -> Result<maya_address::Network, Box<dyn Error>> {
+    let mut attempt = 1;
+    loop {
+        match fetch_network(url).await {
+            Ok(Some(network)) => return Ok(network),
+            Ok(None) => return Ok(maya_address::Network::Devnet),
+            Err(e) if attempt >= NETWORK_ATTEMPTS => {
+                return Err(format!(
+                    "chain id unavailable after {NETWORK_ATTEMPTS} attempts ({e}); \
+                     not indexing with a guessed address network"
+                )
+                .into());
+            }
+            Err(e) => {
+                eprintln!("node:   chain id unavailable ({e}); retry {attempt}/{NETWORK_ATTEMPTS}");
+                tokio::time::sleep(NETWORK_RETRY).await;
+                attempt += 1;
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
@@ -110,7 +141,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let source = Arc::new(RpcSource::connect(&args.node_rpc)?);
     println!("node:   {}", args.node_rpc);
 
-    let indexer = Indexer::new(source, Arc::clone(&store));
+    let network = startup_network(&args.node_rpc).await?;
+    println!("text:   {} addresses", network.hrp());
+
+    let indexer = Indexer::new(source, Arc::clone(&store)).with_network(network);
     let events = indexer.events();
 
     // Checked once, at startup. Mounting the route over a directory that is not

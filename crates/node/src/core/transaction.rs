@@ -46,6 +46,7 @@
 use crate::core::codec::ByteReader;
 use crate::core::multisig_tx::{self, MultisigAuth};
 use crate::core::payload::TxKind;
+use crate::core::sponsor_tx::{self, Sponsorship};
 use crate::core::suite_tx::{self, SuiteAuth};
 use crate::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature,
@@ -104,6 +105,7 @@ const TXID_DOMAIN: &[u8] = b"custom-l1-node.txid.v1";
 const TXID_KIND_HYBRID: u8 = 0;
 const TXID_KIND_SUITE: u8 = 7;
 const TXID_KIND_MULTISIG: u8 = 8;
+const TXID_KIND_SPONSORED: u8 = 13;
 
 /// Wire format version for a plain transfer.
 ///
@@ -194,6 +196,11 @@ pub struct Transaction {
     /// An m-of-n authorization (wire version 8), in place of both of the
     /// above. `None` on every other transaction.
     pub multisig: Option<Box<MultisigAuth>>,
+    /// A sponsor paying this transaction's fee (wire version 13, ADR-135
+    /// P-4), around whichever authorization above the frame carries. Every
+    /// other field describes the inner frame, so the sender, nonce and
+    /// outputs are the sponsored user's.
+    pub sponsor: Option<Box<Sponsorship>>,
 }
 
 impl Transaction {
@@ -209,6 +216,7 @@ impl Transaction {
             kind: TxKind::Transfer,
             suite_auth: None,
             multisig: None,
+            sponsor: None,
         }
     }
 
@@ -224,6 +232,7 @@ impl Transaction {
             kind,
             suite_auth: None,
             multisig: None,
+            sponsor: None,
         }
     }
 
@@ -365,6 +374,20 @@ impl Transaction {
                 "suite-tagged transactions verify only through verify_at".into(),
             ));
         }
+        if self.sponsor.is_some() {
+            // A v13 frame has two signatures and an activation height; a
+            // check that saw only the inner one would pass a forged sponsor.
+            return Err(NodeError::SignatureSuite(
+                "sponsored (v13) transactions verify only through verify_at".into(),
+            ));
+        }
+        self.verify_hybrid(chain)
+    }
+
+    /// The hybrid both-schemes check of a v5/v6 frame's own signature,
+    /// ignoring any sponsorship around it. Reached only for a frame with no
+    /// suite or multisig authorization.
+    pub(crate) fn verify_hybrid(&self, chain: &ChainTag) -> Result<()> {
         let signature = self
             .signature
             .as_deref()
@@ -380,6 +403,16 @@ impl Transaction {
     /// the signature because a signature cannot commit to itself.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
+        match &self.sponsor {
+            Some(sponsorship) => sponsor_tx::encode(self, sponsorship),
+            None => self.inner_bytes(),
+        }
+    }
+
+    /// The frame's own encoding without any sponsorship: what a v13 frame
+    /// carries as its inner, and the whole encoding of every other frame.
+    #[must_use]
+    pub fn inner_bytes(&self) -> Vec<u8> {
         if let Some(auth) = &self.multisig {
             return multisig_tx::encode(self, auth);
         }
@@ -457,6 +490,9 @@ impl Transaction {
         if version == multisig_tx::WIRE_VERSION_MULTISIG {
             return multisig_tx::decode(&mut reader);
         }
+        if version == sponsor_tx::WIRE_VERSION_SPONSORED {
+            return sponsor_tx::decode(&mut reader);
+        }
         if version != WIRE_VERSION && version != WIRE_VERSION_PAYLOAD {
             return Err(NodeError::Decode(format!(
                 "unsupported transaction wire version {version}"
@@ -498,6 +534,7 @@ impl Transaction {
             kind,
             suite_auth: None,
             multisig: None,
+            sponsor: None,
         })
     }
 
@@ -559,8 +596,33 @@ impl Transaction {
     /// rather than merely to an intent. It is sound only because signing is
     /// deterministic in *both* schemes (see [`crate::crypto::hybrid`]), so one
     /// payload signed by one key pair always yields one id.
+    ///
+    /// A v13 sponsored frame's id hashes the inner's id and every sponsor
+    /// field, so two sponsors of one inner give two ids (threat model P-12)
+    /// and each id commits to the exact sponsorship that pays.
     #[must_use]
     pub fn txid(&self) -> [u8; 32] {
+        let Some(sponsorship) = &self.sponsor else {
+            return self.inner_txid();
+        };
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(TXID_DOMAIN);
+        hasher.update(&[TXID_KIND_SPONSORED]);
+        hasher.update(&self.inner_txid());
+        hasher.update(&[sponsorship.suite.to_byte()]);
+        hasher.update(&sponsorship.public_key);
+        let mut fee = Vec::with_capacity(32);
+        crate::core::codec::put_amount(&mut fee, &sponsorship.max_fee);
+        hasher.update(&fee);
+        hasher.update(&sponsorship.valid_until.to_le_bytes());
+        hasher.update(&sponsorship.signature);
+        *hasher.finalize().as_bytes()
+    }
+
+    /// The id of the frame's own authorization, ignoring any sponsorship:
+    /// what a sponsor signs, and the whole id of every unsponsored frame.
+    #[must_use]
+    pub fn inner_txid(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
         hasher.update(TXID_DOMAIN);
         if let Some(auth) = &self.multisig {

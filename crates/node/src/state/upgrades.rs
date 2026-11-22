@@ -39,6 +39,35 @@ use maya_governance::limits::MAX_SCHEDULE_HORIZON_BLOCKS;
 pub const COUNCIL_SUNSET_LEAD_BLOCKS: u64 =
     MAX_DELAY_BLOCKS + maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
 
+/// First height at which capped-asset mint and burn (`FeatureSet::ASSET_MINT`,
+/// bit 41, ADR-135 P-1) execute, for a schedule that never names the bit:
+/// never. The v4 entry moves it; a node that never sees that entry refuses
+/// tags 55-58 on admission and apply alike, at every height (ADR-002: a
+/// height, never a cargo feature).
+pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which unique-asset forms (`FeatureSet::NFT`, bit 42,
+/// ADR-135 P-2, tags 59-62) execute. Never, unless a schedule entry names the
+/// bit; a height, never a cargo feature (ADR-002).
+pub const NFT_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which names execute (`FeatureSet::NAMES`, bit 43, ADR-135
+/// P-3, tags 63-66) and the name-fee parameters are accepted. Never, unless a
+/// schedule entry names the bit (ADR-002).
+pub const NAMES_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which wire-v13 sponsored frames (`FeatureSet::SPONSORED_FEES`,
+/// bit 44, ADR-135 P-4) apply, for a schedule that never names the bit: never.
+/// Until the v4 entry moves it, every v13 frame is refused on admission and on
+/// apply by the one check both call (`state::sponsor::require_active`).
+pub const SPONSORED_FEES_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which scheduled payments execute
+/// (`FeatureSet::SCHEDULED_PAYMENTS`, bit 46, ADR-135 P-7: tags 67-68 and the
+/// end-of-block step) and `ScheduleRunFee` is accepted. Never, unless a
+/// schedule entry names the bit (ADR-002).
+pub const SCHEDULED_PAYMENTS_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 /// Prefix of every upgrade-schedule record. A committed layer
 /// (`StateLayer::UpgradeSchedule`), so it is under the state root (invariant 25).
 pub const UPGRADE_PREFIX: &[u8] = b"up:";

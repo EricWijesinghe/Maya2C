@@ -1,5 +1,10 @@
 # Maya2C Attacknet Lab - Quick Start Guide
 
+> **Note (2026-11-10):** The controller (`bins/attacknet-controller`) is a
+> scaffold. Only process kill and start are applied; every other fault
+> returns a "not implemented" error. Gate evidence is `cargo xtask
+> attacknet` only ([reports/attacknet/](../../reports/attacknet/)).
+
 ## Overview
 
 The attacknet lab simulates a **four-validator isolated virtual infrastructure** on a single physical workstation (NITROZEUS). It provides:
@@ -211,9 +216,9 @@ confirmed stale node, and it is for operators, not the lab.
 | ID | Name | Description | Status |
 |----|------|-------------|--------|
 | 1.1 | validator_silence | One validator stops signing | ✅ Implemented |
-| 1.8 | quorum_edge_conditions | f/f+1 validators down | ✅ Implemented |
-| 2.3 | random_bytes | TCP garbage on P2P ports | ✅ Implemented |
-| 8.1 | copied_validator_key | Twin process with same key | ✅ Implemented |
+| 1.8 | quorum_edge_conditions | f/f+1 validators down | Controller verdict not implemented (errors); tested by `cargo xtask attacknet` attacks 1-2 |
+| 2.3 | random_bytes | TCP garbage on P2P ports | Not in the controller; tested by `cargo xtask attacknet` attack 4 |
+| 8.1 | copied_validator_key | Twin process with same key | Not in the controller; tested by `cargo xtask attacknet` attack 3 (twin process, same host) |
 
 ### Running the 4-Week Schedule
 

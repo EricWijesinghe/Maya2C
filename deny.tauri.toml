@@ -1,0 +1,22 @@
+# Advisory gate for the Tauri app manifests (apps/*/src-tauri). Each is its own
+# workspace, so the root deny.toml never resolves their Cargo.lock files.
+# Run by the `tauri-advisories` job in .github/workflows/security-audit.yml.
+
+[advisories]
+version = 2
+ignore = [
+    # GHSA-wrw7-89jp-8q8g (RUSTSEC-2024-0429): unsound Iterator impls in
+    # glib::VariantStrIter. Reached only through the GTK3 bindings on Linux
+    # (gtk 0.18, gtk-rs), which Tauri 2 requires. The fix is glib 0.20.0, which
+    # the gtk 0.18 line cannot take. Re-check when Tauri moves off gtk-rs 0.18,
+    # and remove this entry then.
+    "RUSTSEC-2024-0429",
+    "GHSA-wrw7-89jp-8q8g",
+]
+# Same policy as the root deny.toml: `unmaintained` fires only for crates an
+# app depends on directly. The transitive ones flagged today have no
+# maintained release their parents accept: proc-macro-error (RUSTSEC-2024-0370,
+# via gtk-rs 0.18's macros), paste (RUSTSEC-2024-0436, via libp2p's netlink stack), and zbus_names /
+# zvariant / zvariant_derive (RUSTSEC-2026-0370/0371/0372, merged into zbus 6;
+# keyring and tauri-plugin-single-instance are still on zbus 5).
+unmaintained = "workspace"

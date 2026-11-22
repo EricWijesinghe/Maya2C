@@ -353,6 +353,40 @@ jobs:
           command: check advisories bans licenses sources
 
   # ---------------------------------------------------------------------------
+  # Report-only. Each Tauri app is its own workspace, so the root `deny` job
+  # never reads their Cargo.lock files; this checks advisories over each one.
+  # GHSA-wrw7 (glib, via gtk-rs 0.18) is accepted in deny.tauri.toml with its
+  # reason. Flip continue-on-error off once the open advisories are cleared.
+  tauri-manifests:
+    name: discover tauri manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      manifests: ${{ steps.find.outputs.manifests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: find
+        run: echo "manifests=$(ls apps/*/src-tauri/Cargo.toml | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+
+  tauri-advisories:
+    name: advisories / ${{ matrix.manifest }} (report-only)
+    needs: tauri-manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest: ${{ fromJSON(needs.tauri-manifests.outputs.manifests) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check advisories
+          manifest-path: ${{ matrix.manifest }}
+          arguments: --config deny.tauri.toml
+
+  # ---------------------------------------------------------------------------
   # Report-only. `cargo vet` is set up in supply-chain/ but has not yet been
   # made to block: 1,068 registry crates are exempted rather than audited, so a
   # gate now would fail every pull request. Flip continue-on-error off once the

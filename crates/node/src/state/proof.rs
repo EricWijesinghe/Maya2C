@@ -47,9 +47,9 @@ use crate::state::merkle::{HASH_LEN, PathStep, account_leaf, verify_path};
 
 /// A subsystem that folds into the state root above the accounts tree.
 ///
-/// The order is the order they fold in, and it is consensus: a verifier that
-/// applied two layers in the wrong sequence would compute a different root and
-/// reject a valid proof.
+/// The fold order is [`LAYER_ORDER`], not the order of these variants (nor the
+/// derived `Ord`): it is consensus, and a verifier that applied two layers in
+/// the wrong sequence would compute a different root and reject a valid proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StateLayer {
     /// Payment channels.
@@ -109,9 +109,23 @@ pub enum StateLayer {
     /// Outside the root until 2026-09-11. A snapshot that left a nullifier out
     /// would have produced a node that accepts the second spend of that note.
     Nullifiers,
+    /// Unique assets: collections and items under the `n:` prefix (ADR-135
+    /// P-2). A new tag; folded after `Vault` (see [`LAYER_ORDER`]), and absent
+    /// on a chain that never opens a collection, so it moves no existing root.
+    Nft,
+    /// Names with commit-reveal under `nm:` (ADR-135 P-3). Folded after `Nft`;
+    /// absent until a name is committed or registered.
+    Names,
+    /// Scheduled payments under `sp:` (ADR-135 P-7). A new tag, folded after
+    /// `Vault`, and absent on a chain that never creates a schedule, so it
+    /// moves no existing root.
+    Scheduled,
 }
 
-/// Every layer, in fold order.
+/// Every layer, in fold order: the order `StateDB::state_layers` pushes them
+/// (channels, `RECORD_LAYERS`, shielded, contracts, nullifiers), not the order
+/// the variants are declared in. `layer_order_is_the_order_the_state_root_folds`
+/// reads it back from the fold.
 pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Channels,
     StateLayer::Trading,
@@ -125,8 +139,17 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Iot,
     StateLayer::Staking,
     StateLayer::Vault,
-    StateLayer::UpgradeSchedule,
+    // The order `state_layers` pushes them (`RECORD_LAYERS`, then the pool,
+    // contracts and nullifiers): a proof checks against this list, so a
+    // mismatch fails every account proof once `sl:` and `up:` both hold rows.
+    // Swapping these two moves no root a genesis can seed: none seeds `sl:`.
+    // New record layers go here, after `Vault`, in the ADR-135 allocation
+    // order (#447's account authority, then NFT, names, scheduled payments).
+    StateLayer::Nft,
+    StateLayer::Names,
+    StateLayer::Scheduled,
     StateLayer::Stateless,
+    StateLayer::UpgradeSchedule,
     StateLayer::Shielded,
     StateLayer::Contracts,
     StateLayer::Nullifiers,
@@ -158,6 +181,9 @@ impl StateLayer {
             Self::Stateless => "maya stateless state root v1",
             Self::Vault => "maya vault state root v1",
             Self::UpgradeSchedule => "maya upgrade-schedule state root v1",
+            Self::Nft => "maya nft state root v1",
+            Self::Names => "maya names state root v1",
+            Self::Scheduled => "maya scheduled payments state root v1",
         }
     }
 
@@ -182,6 +208,9 @@ impl StateLayer {
             Self::Staking => 15,
             Self::Vault => 16,
             Self::UpgradeSchedule => 17,
+            Self::Nft => 19,
+            Self::Names => 20,
+            Self::Scheduled => 21,
         }
     }
 
@@ -206,6 +235,9 @@ impl StateLayer {
             15 => Some(Self::Staking),
             16 => Some(Self::Vault),
             17 => Some(Self::UpgradeSchedule),
+            19 => Some(Self::Nft),
+            20 => Some(Self::Names),
+            21 => Some(Self::Scheduled),
             _ => None,
         }
     }
@@ -239,7 +271,10 @@ impl StateLayer {
             Self::Iot => "iot",
             Self::Staking => "staking",
             Self::Vault => "vault",
+            Self::Scheduled => "scheduled",
             Self::UpgradeSchedule => "upgrade-schedule",
+            Self::Nft => "nft",
+            Self::Names => "names",
         }
     }
 }
@@ -529,6 +564,48 @@ mod tests {
         let tag_index = encoded.len() - 1 - HASH_LEN;
         encoded[tag_index] = 99;
         assert!(AccountProof::decode(&encoded).is_err());
+    }
+
+    /// `LAYER_ORDER` read back from the fold itself, not restated by hand: one
+    /// entry in every layer `StateDB::state_layers` can fold, and the layers it
+    /// returns must be exactly `LAYER_ORDER`. A hand-kept copy drifted once
+    /// (`UpgradeSchedule` before `Stateless`) and every proof from a state
+    /// holding both was refused.
+    #[test]
+    fn layer_order_is_the_order_the_state_root_folds() {
+        use crate::state::channel::ChannelRecord;
+        use crate::state::commitments::RECORD_LAYERS;
+        use crate::state::db::{CODE_PREFIX, NULLIFIER_PREFIX, Overlay, StateDB};
+        use crate::state::shielded::ShieldedPool;
+
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let db = StateDB::open(dir.path()).expect("open");
+        for (prefix, _) in RECORD_LAYERS {
+            db.raw_put(&[*prefix, b"order-test"].concat(), b"x")
+                .expect("record");
+        }
+        db.raw_put(&[CODE_PREFIX, &[1u8; 32]].concat(), b"code")
+            .expect("code");
+        db.raw_put(&[NULLIFIER_PREFIX, &[2u8; HASH_LEN]].concat(), b"")
+            .expect("nullifier");
+        let mut overlay = Overlay::new();
+        overlay.channels.insert(
+            [3u8; 32],
+            ChannelRecord::new([4u8; 32], [5u8; 32], primitive_types::U256::from(9), 10),
+        );
+        let mut pool = ShieldedPool::new();
+        let mut note = [0u8; 32];
+        note[0] = 1;
+        pool.append(&note).expect("canonical note");
+        overlay.shielded = Some(pool);
+
+        let folded: Vec<StateLayer> = db
+            .state_layers(&overlay)
+            .expect("layers")
+            .iter()
+            .map(|digest| digest.layer)
+            .collect();
+        assert_eq!(folded, LAYER_ORDER, "LAYER_ORDER must be the fold order");
     }
 
     #[test]

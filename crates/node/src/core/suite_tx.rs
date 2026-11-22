@@ -50,7 +50,11 @@ fn write_len(buf: &mut Vec<u8>, len: usize) {
     );
 }
 
-fn read_exact_len(reader: &mut ByteReader<'_>, expected: usize, what: &str) -> Result<()> {
+pub(crate) fn read_exact_len(
+    reader: &mut ByteReader<'_>,
+    expected: usize,
+    what: &str,
+) -> Result<()> {
     let got = reader.read_u32()?;
     if usize::try_from(got).ok() == Some(expected) {
         Ok(())
@@ -200,7 +204,22 @@ impl Transaction {
     ///
     /// As [`Transaction::verify`] for hybrid transactions;
     /// [`NodeError::SignatureSuite`] or [`NodeError::MissingSignature`] for v7.
+    ///
+    /// For a v13 sponsored frame, the inner frame by the rules above, then the
+    /// sponsor's suite and signature (ADR-135 P-4): both halves or neither.
     pub fn verify_at(&self, height: u64, policy: &SuitePolicy, chain: &ChainTag) -> Result<()> {
+        self.verify_inner_at(height, policy, chain)?;
+        match &self.sponsor {
+            Some(sponsorship) => {
+                crate::core::sponsor_tx::verify(self, sponsorship, height, policy, chain)
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// [`Self::verify_at`] for the frame's own authorization, ignoring any
+    /// sponsorship around it.
+    fn verify_inner_at(&self, height: u64, policy: &SuitePolicy, chain: &ChainTag) -> Result<()> {
         if let Some(multisig) = &self.multisig {
             // One authorization per transaction: a frame carrying two would
             // let the signed bytes and the checked authority disagree.
@@ -215,7 +234,7 @@ impl Transaction {
             // An untagged frame is the hybrid 0x30 by definition, so the schedule
             // judges it like any tagged frame: a sunset of 0x30 refuses it (M1).
             suites::check_admissible(policy, SuiteId::HybridMlDsa65SlhDsa128s, height)?;
-            return self.verify(chain);
+            return self.verify_hybrid(chain);
         };
         suites::check_admissible(policy, auth.suite, height)?;
         let signature = auth

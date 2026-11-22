@@ -312,6 +312,36 @@ pub struct TransactionInfo {
     /// code, or changes who controls something.
     #[serde(default)]
     pub careful: bool,
+    /// `core::describe`'s labelled values, in full and in payload order: the
+    /// addresses, ids and exact amounts the summary refers to. Empty from a
+    /// node that predates it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<DetailInfo>,
+    /// Who pays the fee of a wire-v13 sponsored frame (ADR-135 P-4). Absent
+    /// for every other frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sponsor: Option<SponsorInfo>,
+}
+
+/// One labelled value from `core::describe`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DetailInfo {
+    /// What the value is, e.g. `pay to` or `asset`.
+    pub label: String,
+    /// The value in full: hex for addresses and ids, base units for amounts.
+    pub value: String,
+}
+
+/// The sponsor of a wire-v13 frame, as the API reports it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SponsorInfo {
+    /// The paying account, hex, derived from the sponsor's key.
+    pub address: String,
+    /// The most the sponsorship pays, in base units.
+    #[serde(with = "crate::state::amount_serde")]
+    pub max_fee: primitive_types::U256,
+    /// Last height at which the sponsorship may apply.
+    pub valid_until: u64,
 }
 
 /// A multisig transaction's policy, as the API reports it.
@@ -336,7 +366,9 @@ pub struct SuiteKeyInfo {
 
 impl From<&Transaction> for TransactionInfo {
     fn from(tx: &Transaction) -> Self {
-        let described = crate::core::describe::describe(tx);
+        // A block record: the node verified every sponsorship on import, so
+        // the sponsor may be stated as the payer.
+        let described = crate::core::describe::describe_with_checked_sponsor(tx);
         Self {
             txid: hex::encode(tx.txid()),
             sender: hex::encode(tx.sender()),
@@ -359,11 +391,7 @@ impl From<&Transaction> for TransactionInfo {
                     amount: output.amount,
                 })
                 .collect(),
-            signed: match (&tx.multisig, &tx.suite_auth) {
-                (Some(auth), _) => auth.approvals().len() >= auth.policy().threshold(),
-                (None, Some(auth)) => auth.signature.is_some(),
-                (None, None) => tx.signature.is_some(),
-            },
+            signed: tx.is_authorized(),
             suite: tx.suite_auth.as_ref().map(|auth| SuiteKeyInfo {
                 id: auth.suite.to_byte(),
                 public_key: hex::encode(&auth.public_key),
@@ -384,6 +412,19 @@ impl From<&Transaction> for TransactionInfo {
             kind: tx.kind.label().to_owned(),
             summary: described.summary,
             careful: described.review == crate::core::describe::Review::Careful,
+            details: described
+                .details
+                .into_iter()
+                .map(|(label, value)| DetailInfo {
+                    label: label.to_owned(),
+                    value,
+                })
+                .collect(),
+            sponsor: tx.sponsor.as_ref().map(|s| SponsorInfo {
+                address: hex::encode(s.address()),
+                max_fee: s.max_fee,
+                valid_until: s.valid_until,
+            }),
         }
     }
 }

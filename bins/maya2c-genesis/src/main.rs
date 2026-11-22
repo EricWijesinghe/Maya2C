@@ -93,11 +93,17 @@ fn parse_allocation(spec: &str) -> Result<Allocation, Box<dyn Error>> {
     // every node's startup.
     custom_l1_node::genesis::decode_address(address)?;
 
+    // Decimal only. `U256`'s `FromStr` reads hex, so `.parse()` turned
+    // `:1000` into 4096 base units and an empty amount into zero.
+    if amount.is_empty() || !amount.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(
+            format!("allocation amount {amount:?} is not a whole number of base units").into(),
+        );
+    }
     Ok(Allocation {
         address: address.trim_start_matches("0x").to_lowercase(),
-        balance: amount
-            .parse()
-            .map_err(|e| format!("allocation amount {amount:?} is not a u64: {e}"))?,
+        balance: primitive_types::U256::from_dec_str(amount)
+            .map_err(|_| format!("allocation amount {amount:?} is above 2^256 - 1"))?,
     })
 }
 

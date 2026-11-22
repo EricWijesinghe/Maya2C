@@ -7,7 +7,7 @@
 //!
 //!   P0 (blocks mainnet)  in a mainnet-core crate (ADR-016) and not test code
 //!   P1 (blocks testnet)  in a service or client crate a testnet runs
-//!   P2 (later)           everything else, and every #[ignore]
+//!   P2 (later)           everything else, and every `#[ignore]`
 //!
 //! A `panic!` counts only outside `#[cfg(test)]` modules and `tests/`, `benches/`,
 //! `examples/` directories. Test-module detection is lexical: everything after

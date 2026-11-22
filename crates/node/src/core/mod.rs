@@ -1,5 +1,6 @@
 //! Core chain data structures.
 
+pub mod asset_mint_payload;
 pub mod batch;
 pub mod block;
 pub mod codec;
@@ -12,10 +13,14 @@ pub mod identity_payload;
 pub mod iot_payload;
 pub mod mining_payload;
 pub mod multisig_tx;
+pub mod name_payload;
+pub mod nft_payload;
 pub mod oracle_payload;
 pub mod payload;
 pub mod rwa_payload;
+pub mod schedule_payload;
 pub mod sealed_payload;
+pub mod sponsor_tx;
 pub mod staking_payload;
 pub mod suite_tx;
 pub mod threat_payload;

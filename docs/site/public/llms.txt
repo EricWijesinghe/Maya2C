@@ -29,6 +29,7 @@ Use the FAQ for direct answers. Pages marked as design or research describe work
 - [Help run the network](https://maya2c.dev/guides/help-run/): join the testnet with one command (applies when the testnet restarts)
 - [Run a validator](https://maya2c.dev/guides/validators/): validator steps for maya-testnet-1 (applies when the testnet restarts)
 - [Wallet integration](https://maya2c.dev/guides/wallet/): how a wallet holds keys, signs, sets nonces and fees, and talks to a gateway
+- [Passkey unlock](https://maya2c.dev/guides/passkey-unlock/): a device passkey unlocks the locally encrypted post-quantum key via the WebAuthn PRF extension; it never signs transactions
 - [API reference](https://maya2c.dev/guides/api/): JSON-RPC and REST endpoints of the public gateway
 - [Compiling a contract](https://maya2c.dev/guides/contracts/): building a WASM contract for the Maya VM
 

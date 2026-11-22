@@ -87,6 +87,12 @@ pub fn access_for_transaction(transaction: &Transaction) -> Result<Access, Graph
     for output in &transaction.outputs {
         addresses.push(output.recipient);
     }
+    // A v13 frame writes its sponsor and the collector, neither of them an
+    // output (ADR-135 P-4).
+    if let Some(sponsorship) = &transaction.sponsor {
+        addresses.push(sponsorship.address());
+        addresses.push(crate::state::fees::FEE_COLLECTOR);
+    }
 
     access_for_addresses(&addresses)
 }

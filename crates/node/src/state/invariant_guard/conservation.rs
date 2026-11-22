@@ -14,7 +14,7 @@
 //!
 //! | Asset | Held in |
 //! |---|---|
-//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `q:w:` vault withdrawals, `k:state` validator stake |
+//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `q:w:` vault withdrawals, `sp:s:` schedule escrow, `k:state` validator stake |
 //! | Registered | `d:bal:` balances, `d:pool:` reserves, `d:ord:` escrow |
 //! | LP share | `d:bal:` balances |
 //!
@@ -239,6 +239,8 @@ impl StateDB {
                 fold_htlc_lock(staged, previous, ledger)?;
             } else if key.starts_with(crate::state::vault::WITHDRAWAL_PREFIX) {
                 fold_vault_withdrawal(staged, previous, ledger)?;
+            } else if key.starts_with(crate::state::scheduled::RECORD_PREFIX) {
+                fold_schedule(staged, previous, ledger)?;
             } else if key.as_slice() == crate::state::staking::STATE_KEY {
                 fold_staking(staged, previous, ledger)?;
             }
@@ -418,6 +420,21 @@ fn fold_htlc_lock(
     let escrowed = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
             Some(bytes) => to_u256(htlc_decode(bytes)?.escrowed()),
+            None => U256::zero(),
+        })
+    };
+    moved(ledger, NATIVE_ASSET, escrowed(staged)?, escrowed(previous)?)
+}
+
+/// `sp:s:`: native coin prepaid into a schedule's escrow (ADR-135 P-7).
+fn fold_schedule(
+    staged: Option<&[u8]>,
+    previous: Option<&[u8]>,
+    ledger: &mut Ledger,
+) -> Result<()> {
+    let escrowed = |bytes: Option<&[u8]>| -> Result<U256> {
+        Ok(match bytes {
+            Some(bytes) => crate::state::scheduled::ScheduleRecord::decode(bytes)?.escrow,
             None => U256::zero(),
         })
     };

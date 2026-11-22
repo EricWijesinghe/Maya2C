@@ -324,11 +324,11 @@
     { "id": "S8", "name": "metrics_scraping", "endpoints": ["monitoring-prometheus", "validator-1", "validator-2", "validator-3", "validator-4", "rpc-gateway", "bootnode", "adversarial-peer"], "protocol": "prometheus" }
   ],
   "fault_injection": {
-    "process": { "tool": "powershell_job_objects", "capabilities": ["kill", "start", "restart", "affinity", "memory_limit"] },
-    "network_l4": { "tool": "pktmon", "capabilities": ["drop", "corrupt", "delay", "reset"] },
-    "network_l7": { "tool": "toxiproxy_windows", "capabilities": ["latency", "bandwidth", "loss", "jitter", "reorder", "duplicate", "reset", "close"] },
-    "network_protocol": { "tool": "custom_rust_proxy", "capabilities": ["malformed_frames", "invalid_handshakes", "oversized", "slow_send", "churn"] },
-    "storage": { "tool": "ntfs_quota_powershell", "capabilities": ["quota_enforce", "file_replace", "truncate", "readonly", "corrupt"] },
-    "time": { "tool": "maya_sim", "capabilities": ["virtual_clock", "deterministic_schedule"] }
+    "process": { "status": "partial: kill and start implemented, the rest planned", "tool": "powershell_job_objects", "capabilities": ["kill", "start", "restart", "affinity", "memory_limit"] },
+    "network_l4": { "status": "planned", "tool": "pktmon", "capabilities": ["drop", "corrupt", "delay", "reset"] },
+    "network_l7": { "status": "planned", "tool": "toxiproxy_windows", "capabilities": ["latency", "bandwidth", "loss", "jitter", "reorder", "duplicate", "reset", "close"] },
+    "network_protocol": { "status": "planned", "tool": "custom_rust_proxy", "capabilities": ["malformed_frames", "invalid_handshakes", "oversized", "slow_send", "churn"] },
+    "storage": { "status": "planned", "tool": "ntfs_quota_powershell", "capabilities": ["quota_enforce", "file_replace", "truncate", "readonly", "corrupt"] },
+    "time": { "status": "planned", "tool": "maya_sim", "capabilities": ["virtual_clock", "deterministic_schedule"] }
   }
 }

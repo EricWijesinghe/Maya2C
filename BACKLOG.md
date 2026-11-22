@@ -5,6 +5,29 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — frozen-node findings (CATALOG §M research, 2026-11-10)
+
+Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
+**Decision for Eric: re-freeze vs fix outside the node.**
+
+- **F1 — `get_supply` counts the keyless mining reserve as circulating.**
+  `crates/node/src/rpc/market.rs:48` `NON_CIRCULATING` lists only `FEE_SINK`;
+  `MINING_RESERVE` (`crates/node/src/state/mining.rs:41`, no key derives it) is
+  funded at genesis with `--mining-reserve 122753829695359067419575633036805965021648`
+  base units (`deploy/genesis/mainnet/README.md:46`). `get_supply`,
+  `/api/v1/supply` and aggregator endpoints would report it as circulating on
+  day one. Not consensus. Smaller, same file: the sums use `saturating_add`
+  (`market.rs:95,97,108`), so an overflow would understate silently. Outside-node
+  option: correct the figure in the explorer/status/aggregator layer and in
+  J `supply-recompute`.
+- **F2 — wallet description of `Propose` ignores the upgrade (blind signing).**
+  `crates/node/src/core/describe.rs:336-344` describes `TxKind::Propose` by
+  parameter count only and never reads `ProposalSubmission.upgrade`
+  (`crates/node/src/core/governance_payload.rs:156`); an upgrade-only proposal
+  reads "Propose changing 0 parameters…". The no-wildcard match does not catch a
+  new field inside an existing variant. Outside-node option: render the upgrade
+  section in the wallet/CLI from the decoded payload until `describe.rs` can change.
+
 ## P5 — ADR-082 follow-ups (genesis upgrade levers, 2026-11-07)
 
 - **Suite account migration.** `crates/crypto-pq/src/agility/migration.rs` is
@@ -162,6 +185,25 @@ band; move an item to PROGRESS.md when it starts.
   (`an_honest_seller_with_a_real_bound_is_refunded_not_crushed`), both in
   `crates/node/tests/dex_tests.rs` (#308). No user path sends a swap at
   launch: `compose_swap` has no GUI or Tauri caller.
+- [ ] **V4-I7/I8 follow-ups (#551, post-genesis; the v4 features are dark).**
+  What #551 does not deliver, so it is not lost:
+  - Sponsored fees (v13) in the Python and TypeScript SDKs: they encode and
+    decode payloads only, not frames; deriving the sponsor's address needs
+    BLAKE3, outside both standard libraries. Rust has it (`sdk-ffi`
+    `describe_transaction`, wallet core, node RPC).
+  - Encode/decode of the v4 payloads and v13 frames in `sdk-ffi` (I7 names it):
+    it exports only `describe_payload` and `describe_transaction`, so a
+    Kotlin/Swift binding can preview a v4 transaction but not build one.
+  - Wallet-core composers for each v4 kind (`payment.rs` builds none): the
+    wallet reviews v4 frames but cannot build them. Each needs a round-trip
+    test against `spec/tests/v4-client-vectors.json`.
+  - Explorer JSON routes for asset, NFT and schedule (only `/api/name/{label}`
+    exists), a nav link to the v4 pages, and a sponsored-fee view beyond the
+    payer line.
+  - Go SDK v4 codec (plan I7 names it). `sdk-wasm` v4 codec: open gap;
+    dropping it is a proposal awaiting Eric.
+  - The desktop wallet reading `NameBaseFee3/4/5` and `ScheduleRunFee` from
+    the node (`confirmation_with_fees` has no caller outside tests).
 
 ## P5 — differentiators
 

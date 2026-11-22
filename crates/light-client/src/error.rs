@@ -79,6 +79,46 @@ pub enum LightClientError {
         reason: String,
     },
 
+    /// A checkpoint's quorum, or one of its signatures, did not verify under
+    /// the trusted committee: short of quorum, forged, or signed for another
+    /// chain. The node's own verifier said why; the reason is carried through.
+    #[error("checkpoint rejected: {0}")]
+    CheckpointRejected(String),
+
+    /// A checkpoint names an epoch other than the one this client trusts.
+    #[error("checkpoint is for epoch {got}; the trusted committee is epoch {expected}")]
+    WrongEpoch {
+        /// The epoch this client trusts.
+        expected: u64,
+        /// The epoch the checkpoint names.
+        got: u64,
+    },
+
+    /// A checkpoint's block is not the block its header hashes to.
+    #[error("header does not hash to the checkpoint block at height {0}")]
+    HeaderMismatch(u64),
+
+    /// A checkpoint is below the trusted period, or below one already
+    /// accepted. A chain's height is its clock, so "old" is counted
+    /// in blocks.
+    #[error("checkpoint at height {height} is below the trusted floor {floor}")]
+    StaleCheckpoint {
+        /// Height of the checkpoint offered.
+        height: u64,
+        /// The lowest height this client will accept.
+        floor: u64,
+    },
+
+    /// An epoch handoff's next committee could not be proven against the
+    /// state root of its header.
+    #[error("committee handoff rejected: {0}")]
+    RotationRejected(String),
+
+    /// A trust policy or anchor that cannot be honest, such as a trusted
+    /// period as long as the unbonding period.
+    #[error("trust configuration rejected: {0}")]
+    TrustConfig(String),
+
     /// The node crate reported a failure while evaluating a proof.
     #[error("{0}")]
     Node(String),

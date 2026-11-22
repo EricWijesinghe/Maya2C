@@ -129,6 +129,14 @@ impl Ledger {
         .map_err(|e| e.to_string())
     }
 
+    /// A ledger whose every write fails: `path` opened read-only.
+    #[cfg(test)]
+    pub(crate) fn unwritable(path: &Path) -> Self {
+        Self {
+            file: File::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+        }
+    }
+
     /// Appends a grant and syncs it to disk.
     ///
     /// # Errors

@@ -22,6 +22,11 @@ maya-amount = { path = "../../../crates/amount" }
 # Text address form (ADR-081): a recipient may be pasted as Bech32m or hex.
 maya-address = { path = "../../../crates/address" }
 custom-l1-node = { path = "../../../crates/node" }
+# The pre-sign review (ADR-086 §6): the confirm screen's warnings, the
+# look-alike check and the grouped Bech32m display.
+maya-clear-sign = { path = "../../../crates/clear-sign" }
+# Address-book names are NFC-normalized (ADR-086 §7). Already in the lock.
+unicode-normalization = "0.1.25"
 
 # BIP-39 mnemonics. Wordlist only — seed derivation is PBKDF2 per the spec.
 bip39 = { version = "2.2", default-features = false, features = ["std"] }
@@ -71,6 +76,9 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+# Signs a sponsored (wire v13) frame in the v4 confirm tests: the sponsor's
+# suite keys live in crypto-pq, which the node already links.
+maya-crypto-pq = { path = "../../../crates/crypto-pq" }
 # Encodes real QR images for the decode tests. A parser exercised only on
 # hand-written strings has never seen the input a camera actually produces.
 qrcode = "0.14"

@@ -28,6 +28,8 @@ use crate::rpc::types::{
 };
 use crate::state_pruner::cold::ColdBlocks;
 
+mod v4_reads;
+
 /// JSON-RPC error code for a malformed argument.
 const INVALID_PARAMS: i32 = -32_602;
 
@@ -940,6 +942,8 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             )
         })
         .map_err(|e| rejected(e.to_string()))?;
+
+    v4_reads::register(&mut module)?;
 
     module
         .register_method("stateless_transaction_witness", |params, ctx, _| {

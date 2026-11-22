@@ -9,6 +9,21 @@ working session on branch `feat/utopia-chat` (`docs/adr/ADR-031-maya-chat.md` an
 `reports/32-chat.md` on that branch; not yet on `master`). This file does not repeat that design; it sets
 the rules every app shares and the questions each must answer.
 
+**Trust index (2026-11-10).** Five catalog sections turn trust from a
+statement into something a user or outsider can check, each with its
+research notes and repo facts: [J. Trust you can verify](ecosystem/CATALOG.md#j-trust-you-can-verify-research-2026-11-10)
+(rebuilds, replays, supply recompute, ceremony transcript),
+[K. Protection for people](ecosystem/CATALOG.md#k-protection-for-people-research-2026-11-10)
+(undo-send, payee check, simulate-before-sign),
+[L. Crypto that outlives us](ecosystem/CATALOG.md#l-crypto-that-outlives-us-research-2026-11-10)
+(suite migration, quantum canary, hash agility),
+[M. Rules nobody can bend](ecosystem/CATALOG.md#m-rules-nobody-can-bend-research-2026-11-10)
+(exit windows, upgrade explainer, constitution) and
+[N. Out of the box](ecosystem/CATALOG.md#n-out-of-the-box-research-2026-11-10)
+(flight recorder, signed bench re-runs, trust facts). None of them claims
+independence: until someone other than the foundation runs the checks, they
+are tools that let others check.
+
 ## 1. The shared foundation
 
 Apps stay **separate programs**. They share libraries and identity, never a

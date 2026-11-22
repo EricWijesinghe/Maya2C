@@ -1,6 +1,10 @@
 //! Each detector against hand-built observations. No RPC, no clock: `now` is
 //! passed in, so every threshold is tested at the edge.
 
+// Nodes are named a, b, x, y to match their sample names; `supply` returns the
+// Option the `NodeObs` field takes.
+#![allow(clippy::many_single_char_names, clippy::unnecessary_wraps)]
+
 use maya_sentinel::detect::{Detector, Finding, Severity, Thresholds};
 use maya_sentinel::obs::{NodeObs, Sample, Supply};
 use primitive_types::U256;
@@ -13,6 +17,8 @@ fn obs(height: u64, id: &str, txs: usize) -> NodeObs {
         peers: Some(5),
         supply: None,
         pending: None,
+        finalized: None,
+        bft: None,
     }
 }
 

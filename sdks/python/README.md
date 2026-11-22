@@ -13,6 +13,10 @@ txid = wallet.transfer(recipient, 1_000)
 - `Wallet` — transfers built and signed by `l1-wallet`, the Rust wallet
   shipped with the node, then submitted through `Client`. The password
   reaches the child process in `L1_WALLET_PASSWORD`, never on a command line.
+- `v4` — `encode`, `decode` and `describe` for the v4 payload forms (tokens,
+  NFTs, names, scheduled payments; ADR-135, post-genesis and dark). Payloads
+  only: frames and signatures stay in Rust. Checked against the node-written
+  `spec/tests/v4-client-vectors.json` by `tests/test_v4_vectors.py`.
 
 Standard library only.
 

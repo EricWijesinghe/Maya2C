@@ -1,0 +1,58 @@
+{
+ "cases": [
+  {
+   "expect": {"result": "ok"},
+   "hex": "3f0101010101010101010101010101010101010101010101010101010101010101",
+   "id": "NM-enc-commit",
+   "rules": ["NM-1"],
+   "size": "33",
+   "type": "encoding"
+  },
+  {
+   "expect": {"result": "ok"},
+   "hex": "40036162630202020202020202020202020202020202020202020202020202020202020202030404040404040404040404040404040404040404040404040404040404040404",
+   "id": "NM-enc-register",
+   "rules": ["NM-1", "NM-2"],
+   "size": "70",
+   "type": "encoding"
+  },
+  {
+   "expect": {"result": "ok"},
+   "hex": "410361626301",
+   "id": "NM-enc-renew",
+   "rules": ["NM-1"],
+   "size": "6",
+   "type": "encoding"
+  },
+  {
+   "expect": {"result": "ok"},
+   "hex": "420361626303",
+   "id": "NM-enc-update-reverse",
+   "rules": ["NM-1"],
+   "size": "6",
+   "type": "encoding"
+  },
+  {
+   "expect": {"result": "ok"},
+   "hex": "4203616263040505050505050505050505050505050505050505050505050505050505050505",
+   "id": "NM-enc-update-transfer",
+   "rules": ["NM-1"],
+   "size": "38",
+   "type": "encoding"
+  },
+  {
+   "expect": {"result": "error"},
+   "hex": "4004612d2d630202020202020202020202020202020202020202020202020202020202020202030404040404040404040404040404040404040404040404040404040404040404",
+   "id": "NM-enc-register-double-dash",
+   "rules": ["NM-2"],
+   "type": "encoding"
+  },
+  {
+   "expect": {"result": "error"},
+   "hex": "420361626302",
+   "id": "NM-enc-update-stealth-op-refused",
+   "rules": ["NM-1"],
+   "type": "encoding"
+  }
+ ]
+}
