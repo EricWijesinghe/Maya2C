@@ -83,10 +83,13 @@ it ran, but all of it was compiled into the binary a genesis freezes.
   linear step directly, as it always did on every network.
 - The node's `neural_gas` module, `tests/neural_fee_tests.rs` and the
   `gas_predictor` bench are deleted. They are in history at `3735252d`.
-- Check: `cargo tree -p <pkg> -e normal,build -i maya-neural-fee` answers
-  "did not match any packages" for both `custom-l1-node` and `maya2c-node`
-  (run 2026-11-14; the same command for `maya-fee-market` prints its path, so
-  the query is live). In CI,
+- Check: `cargo tree -e normal,build -p custom-l1-node | rg -i neural` and
+  the same for `maya2c-node` print zero lines (run 2026-11-23), while the
+  `custom-l1-node` tree does list `maya-fee-market`, so the tree is the real
+  one. Secondary: `cargo tree -p custom-l1-node -e normal,build -i
+  maya-neural-fee` errors with "package ID specification `maya-neural-fee`
+  did not match any packages"; that form cannot tell "not linked" from "not
+  in this graph", so it is not the proof. In CI,
   `tests/fee_market_tests.rs::the_launch_binary_carries_no_neural_fee_model`
   walks `Cargo.lock` from both packages, so a transitive path through any
   crate the node links fails it, and it fails if either half comes back.
@@ -106,7 +109,13 @@ state root, vector or encoding moves. Run 2026-11-14 after the move:
 3, all passing; `cargo check -p custom-l1-node --all-targets` clean; `cargo
 xtask spec-coverage --strict` 0 gaps. The fee-market lost its two neural-rule
 unit tests and gained one pinning the linear step at heights up to
-`u64::MAX − 1`. Not re-run: the full node test suite, and the Kani envelope
+`u64::MAX − 1`. Re-run 2026-11-23 (PR #542 review): `maya-fee-market` 58,
+`maya-neural-fee` 18, `maya-neural-gas-trainer` 12, the node's
+`fee_market_tests` 9, all passing; the other 2026-11-14 counts were not
+re-run. Red step, the same day: with an empty `crates/node/src/neural_gas`
+planted, `the_launch_binary_carries_no_neural_fee_model` failed with
+"src/neural_gas still extracts features for a neural fee rule" (8 passed, 1
+failed). There is no red run against `3735252d`. Not re-run: the full node test suite, and the Kani envelope
 proof in its new crate (nightly CI).
 
 The trainer's `-- --check` reports drift, and it reported the same drift with

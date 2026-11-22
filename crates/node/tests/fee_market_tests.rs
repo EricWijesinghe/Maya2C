@@ -267,6 +267,26 @@ fn the_launch_binary_carries_no_neural_fee_model() {
         !fee_market.join("model").exists() && !fee_market.join("rule.rs").exists(),
         "maya-fee-market, which the node links, still carries the neural model"
     );
+    // A model put back under another file name: the old rule's symbols.
+    let mut stack = vec![fee_market];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read fee-market src") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).expect("read file");
+                let code = text.lines().filter(|l| !l.trim_start().starts_with("//"));
+                for line in code {
+                    assert!(
+                        !line.contains("MODEL_") && !line.contains("fn gain"),
+                        "{}: neural model symbol in maya-fee-market: {line}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]

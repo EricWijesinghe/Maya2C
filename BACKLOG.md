@@ -213,6 +213,12 @@ Eric 2026-10-29: build all of these after mainnet (each needs a dated `docs/prio
 
 ## P6 — deferred and frontier (untouched until their milestone)
 
+- **Neural gas trainer weight drift (PR #542 review, 2026-11-23).**
+  `cargo run -p maya-neural-gas-trainer -- --check` reports drift between the
+  committed weight file and the simulator, and did the same at `3735252d`,
+  before the model left the node. RESEARCH, not linked by the node; regenerate
+  the weights or fix the simulator before anyone proposes reviving the rule.
+
 - **Next evolution brief (Eric, 2026-10-30), after mainnet.** The full feature list is in
   [docs/master-prompts/next-evolution.md](docs/master-prompts/next-evolution.md): privacy by default,
   sharding, AI agents, identity, interop, SDKs in five languages, mobile and browser validators.
