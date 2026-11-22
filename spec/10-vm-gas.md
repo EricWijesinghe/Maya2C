@@ -25,10 +25,14 @@ the gas the producer spent finding that out stays counted (GAS-2).
 - The prices are calibrated on one machine (ADR-142); a slower validator
   validates the same block more slowly, it does not validate it differently.
 - No fee is paid per unit of gas; the fee market prices bytes (FEE-5).
-- The contracts layer of the state root is folded over all contract code and
-  storage each block (ROOT-5), which no gas price bounds: its cost grows with
-  total contract state, not with the block's gas. ADR-142 records it as open;
-  it belongs with the incremental state root (ADR-062a), not with gas.
+- The contracts layer of the state root (ROOT-5) is no longer re-read and
+  re-hashed from the database every block: the node keeps every entry's leaf
+  between blocks (ADR-142 amendment 5), so a block pays for the entries it
+  writes plus one pass over all leaves, and nothing when it writes none. That
+  pass, and the memory for the leaves, still grow with total contract state,
+  and nothing bounds that growth but the write price: contract state is not
+  billed in coin (FEE-5). A ceiling or a per-byte state price is an economics
+  decision, open (ADR-142, BACKLOG.md G2).
 - A failing plaintext call is never included, so it pays no fee; GAS-2 bounds
   what failed calls cost a block's builder, not who pays for them (STF-8).
   One such call naming the cap no longer leaves the calls after it out

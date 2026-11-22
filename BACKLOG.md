@@ -78,6 +78,13 @@ for Eric; the other two are engineering.
   gas price bounds it: measured 533 ms at 400,000 entries (dev), reachable in
   about ten blocks of cheap writes. Fix: make the layer incremental as
   ADR-062a did for accounts (PR #540), or a hard ceiling on contract state.
+  **CPU side reduced (ADR-142 amendment 5):** the leaves are kept between
+  blocks, so a root no longer re-reads contract state: 617.8 ms before, 78.4
+  ms after for one new entry over 400,000 (test profile), nothing for a block
+  that writes none. Still one pass over all leaves per contract-writing block
+  (positional tree; a sparse layer would change ROOT-5). **Open, for Eric:**
+  growth is unbounded and unpriced (per-block cap, total ceiling or per-byte
+  state price): the `[needs-eric]` draft #644 (ADR-142 claim 142d).
 - **G3 — end-of-block bisection re-runs contract work** up to ~9 selections
   and 32 builds per anchor (`consensus/bft/builder.rs`, ~12 G gas, ~12 s).
   Fix: cache staged results per prefix, or charge each probe's contract work

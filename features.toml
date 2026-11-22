@@ -2000,6 +2000,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/chaos_simulator.rs", "crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs"]
+note = "ADR-142 amendment 5 (2026-11-21): the contracts layer of every non-full root comes from an in-memory cache of its leaves (state/contracts_root.rs), equal to the full fold, which stays the reference (state_root, check_declared_root); unit tests in crates/node/src/state/contracts_root_tests.rs. Still one pass over all contract leaves per contract-writing block; contract-state growth is unbounded and unpriced (open, Eric)."
 
 [[subsystem]]
 id = "undo-journal-and-reorg-safety"

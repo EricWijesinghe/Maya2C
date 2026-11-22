@@ -52,6 +52,13 @@ impl Drop for WriteGuard<'_> {
     }
 }
 
+/// The generation a committed write leaves behind once its guard drops, for
+/// the write that [`PreviewCache::begin_write_from`] said advanced from
+/// `from`: one bump on entry, one on drop. Wrapping, as `fetch_add` is.
+pub(crate) const fn landed(from: u64) -> u64 {
+    from.wrapping_add(2)
+}
+
 /// The cache and the generation counter it is checked against.
 #[derive(Default)]
 pub(crate) struct PreviewCache {

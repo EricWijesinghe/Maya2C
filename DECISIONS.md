@@ -909,6 +909,43 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+## 2026-11-14 — Contract gas is capped per transaction and per block, and native work is priced (Eric 2026-11-14 MCQ, ADR-142)
+
+Eric chose "cap + price now" in the 2026-11-14 MCQ. A call's `gas_limit` was sender-chosen up to `u64::MAX`, nothing bounded a block's contract work, host functions and the per-call module compile were unmetered, and every call loaded the contract's whole storage. Now:
+
+- **Caps:** `vm.max_tx_gas` (tag 17) and `vm.max_block_gas` (tag 18), 250 M each, governed within compiled bounds `[239,979,600, 500,000,000]`; a call is capped at the smaller, a block's calls and deployments share the block cap. Refused at admission and in block validation; the builder leaves what does not fit for a later block.
+- **Prices** (`crates/vm/src/gas.rs`), at about 1 ns of measured worst-case native work per unit: 50,000 per call, 450 per module byte on a contract's first call in a block (the compile) and 1 after, 600 per host call, storage reads 5,000 + 1/byte, writes 5,000 + 240/byte (priced by persistence: ≤ ~1 MiB of new state per block), events 600 + 1/byte. No refunds.
+- **Lazy storage:** the host reads committed storage one key at a time; randomized equivalence against the old whole-storage load is a test.
+- **Not decided here, left open:** a fee per gas (economics, Eric's), charging failed plaintext calls (changes STF-8), and an incremental contracts root (the root still folds all contract state each block).
+
+## 2026-11-14 — ADR-142 amended after the PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+The review found work running below its price or outside the block's budget; measured on this PC, the worst was a module of 200 functions with 50,000 locals each that compiled in 678 ms (release) against a price of 0.78 M gas, and 40,000 `if`s in one function that compiled in 10.4 s. Implementing "cap + price now" fully therefore needed:
+
+- **Compile priced by shape** (`crates/vm/src/shape.rs`): a linear pre-pass before any compile; at most 1,024 locals and 2,000 control operators per function and 10,000 functions; cold price adds 125,000 per function, 170 per local, 30,000 per control operator, 8,000 per call; a module whose cold price exceeds 235,979,600 is refused at deployment, so the governance floor still keeps every deployed module callable.
+- **Linear memory priced** at 6,000 a page held (GAS-7), and a call may hold only what its gas pays for.
+- **Refused host calls trap**, and event topics are capped at 256 bytes.
+- **Failed work stays counted:** a failed call spends the gas it used (not its limit) and a failed deployment its price, counted before the compile, in block selection and in revealed sealed actions.
+- **Revealed sealed actions get their own budget**, a quarter of `vm.max_block_gas`, so a plaintext call cannot void a due sealed call.
+- **Warm and cold storage reads:** the block's first read of a committed key pays 95,000 more (measured 73–113 µs from disk with direct I/O). A bloom filter was measured and left out (it made hits slower with a small cache).
+- **No per-call copies** of the block's staged contract storage; contract trials no longer clone the overlay.
+- **Ceiling 300 M** for both caps (was 500 M).
+
+Raised with Eric, not decided here: one gas-filling call per block crowds out other contract calls for a byte fee (fee per gas or a per-sender share is economics); failing calls are free and stay pooled (eviction after a failed execution is node policy; charging them changes STF-8); the end-of-block bisection may re-run a block's contract work up to ~41 times on one anchor (audit finding 3); the contracts layer of the state root still folds all contract state each block (533 ms at 400,000 entries, dev; ~10 blocks of cheap writes) and blocks genesis until it is incremental or contract state is capped.
+
+## 2026-11-14 — ADR-142 amendment 2: the second PR #549 review (Eric 2026-11-14 MCQ, same "cap + price now" decision)
+
+- **Multi-value is bounded and priced:** a function type names at most 16 params and results together, a function holds at most 10,000 calls, and the cold price adds 2,500 per value carried by each function's type, typed block, `if` and call, and 30,000 per value a `loop` carries (typed loops compiled 5.09 ns/fuel at 2,500, their time per value growing with the loops in the function; measured in release, ADR-142 amendment 2). The review's `[1000]->[1000]` blocks compiled 166× slower than their price.
+- **A failed call's gas is the same on every validator and counts all its work:** a stack overflow (whose point depends on the ISA) reports its limit plus every page its gas could pay for; any other failure reports what it ran plus its memory, not capped at the limit.
+- **Builder work:** a call refused below its upfront price counts `50,000 + len`; one failing contract trial per sender per selection; deployments are shape-checked at admission only after their signature, and refused there above `MAX_COLD_CALL_FUEL`.
+- **Not taken:** a separate failed-work budget in selection (the review's proposal). A call is only known to fail by running it, so it doubles the builder's worst case without letting through an honest call the shared budget refuses.
+- **Genesis blockers, recorded in BACKLOG.md G1–G3:** free failing calls (needs failed calls included with fee and nonce bump, an STF-8 change: Eric's economics decision), the contracts root fold, and the bisection's re-runs.
 ## 2026-11-14 — ADR-062a: incremental sparse accounts root built; genesis format unchanged (Eric 2026-11-14 MCQ)
 
 Eric 2026-11-14 MCQ: "incremental root now". Built as an amendment to ADR-062
@@ -965,6 +1002,51 @@ Two findings that contradict the brief, reported rather than worked around (Stan
 - **Still open, for Eric:** (a) or (b) above. Not decided by this revision. Until (a), the
   brief's per-block cost goal is not delivered on the genesis chain.
 ## 2026-11-15 — Per-delegation staking records before genesis (Eric 2026-11-14 MCQ)
+
+## 2026-11-19 — ADR-142 amendment 3: failed builder work on its own count; compile prices kept (Eric 2026-11-17 pre-approval, re-freeze bundle 3)
+
+- **Failed contract trials no longer share the applied calls' counter.** Selection moves a failed trial's gas off `Overlay::vm_gas` onto a builder-only count and tries a contract transaction only while applied + failed + its bound fit in `2 × vm.max_block_gas + 1,536,000`. One failing call at the cap no longer leaves the calls after it out. Builder policy only: the block validity rule (GAS-2) is unchanged. This reverses Amendment 2's "not taken": with a two-cap total, one failure at the cap leaves room for every call that passes GAS-2 after it, which a one-cap failure budget did not.
+- **Cost, stated:** builder worst case `2 × cap + 3,072,000` per selection; producer ~816 ms of priced work at the 250 M default and ~978 ms at the 300 M ceiling, at 1 ns/unit.
+- **Compile prices unchanged.** In release, three runs of the at-limit shapes gave worst 1.231 (loaded), 0.771 and 0.768 ns/fuel, all on `block (type []->[16])` x 2000. The ADR's 1 ns claim now gives the loaded figure. The constants were not tuned to one loaded run.
+- **Needs Eric, not decided here:** charging failed calls (STF-8, economics; two failing calls at the cap from two senders still exhaust the builder budget, G1), and whether to lower `VM_GAS_CEILING` given the producer margin at 300 M (G1b).
+
+## 2026-11-21 — ADR-142 amendment 5: the contracts root kept between blocks (BACKLOG G2 CPU side; Eric 2026-11-17 pre-approval of Claude's recommendations)
+
+- **Decided (performance only, root value unchanged):** the contracts layer's leaves stay in
+  memory at one write generation and move with every commit and revert by the commit's own batch
+  (`state/contracts_root.rs`). A root no longer re-reads and re-hashes all contract state:
+  measured (test profile) 617.8 ms before and 78.4 ms after for one new entry over 400,000, and
+  0.001 ms for a block that writes no contract entry.
+- **Why not the decision brief's A + B here:** a per-block or total contract-state ceiling and a
+  per-byte state price change what blocks are valid and what users pay. They are Eric's, so they
+  are a separate `[needs-eric]` draft (#644, ADR-142 claim 142d) stacked on this one, re-derived
+  against the cached root.
+- **Contradicts the earlier WIP (2026-11-19, never pushed):** it said the layer "cannot be made
+  incremental byte-identically". The per-entry reading and hashing can be removed without
+  touching the value; what stays O(entries) is one pass over the leaves of a positional tree.
+  Removing that needs a different layer format (ROOT-5), not done.
+- **`check_declared_root` now always asks the full rebuild on a mismatch**, not only after a
+  walked accounts plan, so a wrong contracts cache cannot stall a validator. Refusing a bad block
+  costs one more full root.
+- **An import confirms the caches too (review R-4, confirmed and extended):** `stage_checked`
+  takes the same `confirm_due` choice as `preview_root`, so a node that never previews still
+  compares both caches with the full rebuild once per 256 heights. R-4 was latent for the dark
+  accounts cache and live for this one from genesis. Cost: one full fold per 256 heights on a
+  node that only imports.
+- **Merge order (#643 review):** #540, then #549, then #643, then #644. #643 is out of the merge
+  queue until #540 and #549 are on master; then its base moves to master and it is re-queued.
+  The queue now holds any PR whose base is not master.
+- **Still open, for Eric:** contract-state growth is unbounded and unpriced (R-1's disk side,
+  and the cache's resident memory, not measured).
+
+## 2026-11-21 — ADR-142 amendment 4: re-freeze review R-2/R-5/R-6/R-10 on #549, and the gas caps wait the validity-rule lead (Eric 2026-11-17 pre-approval, re-freeze bundle)
+
+- **R-2 verified, not closed.** One failing call at the cap, pooled and ordered first, no longer keeps honest contract calls out of any block, in the producer and the DAG-BFT paths (two new tests, passed on amendment 3's code). Two failing senders still exhaust the builder budget for free (G1). Charging failed calls is economics and goes to a separate `[needs-eric]` draft PR, not into #549.
+- **R-5: scan skipped below the length price, and priced above it.** Measured in release: the shape scan of a 512 KiB module ran at up to 1.116 ns per unit of the old `50,000 + len` charge. A cold call below `deploy_fuel(len)` is now refused before the scan (charge unchanged); one refused after it counts `deploy_fuel(len)` (≤ 0.004 ns per unit measured). A stored cold price was not added: a new state record for a scan that is now priced.
+- **R-6: measured and documented, not fixed.** The boundary depends on the build as well as the ISA: one recursion shape completes to depth 10,915 (release) and 10,901 (dev) on the same x86-64 machine. A boundary vector failed across profiles and was dropped; a 5,000-deep vector pins gas short of it. An independent rule needs a module rewriter or a fixed-frame tier, both larger than this amendment: G4, Eric's decision; until then validators run the one published release binary.
+- **R-10: text fixed to the code.** GAS-2 now bounds a block at `vm.max_block_gas` plaintext plus `sealed_gas_budget` revealed (1.25 × the cap); the bound comment states 3.25 × for a producer.
+- **GAS-5 with #575.** #549 now carries #575; tags 17 and 18 are validity rules, so a passed gas-cap change binds only after `MIN_UPGRADE_LEAD_BLOCKS`, range-checked again at promotion. Pinned by a governance test that votes `vm.max_block_gas` down through the lead.
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 Eric 2026-11-14 MCQ, "per-delegation records": ADR-062b is built for the re-genesis instead of
 after mainnet (the 2026-10-28 deferral is withdrawn). Choices made while building it (Claude):

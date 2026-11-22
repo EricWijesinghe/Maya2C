@@ -216,9 +216,9 @@ impl Counters {
         eprintln!("state: sparse root cache {what}; rebuilding it (repair #{count}, ADR-062a)");
     }
 
-    /// Whether a preview at `height` checks the cache: once per height that
-    /// is a multiple of [`CONFIRM_EVERY`], however many times a builder
-    /// previews it.
+    /// Whether a preview or an import at `height` checks the cache: once per
+    /// height that is a multiple of [`CONFIRM_EVERY`], however many times a
+    /// builder previews it.
     pub(crate) fn confirm_due(&self, height: u64) -> bool {
         height.is_multiple_of(CONFIRM_EVERY)
             && self.confirmed.swap(height, Ordering::Relaxed) != height
