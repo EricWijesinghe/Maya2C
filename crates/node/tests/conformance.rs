@@ -297,7 +297,11 @@ fn share_tx(inputs: u64, outputs: u64) -> Transaction {
         .collect();
     let mut tx = Transaction::new(inputs, outputs, 0);
     tx.kind = custom_l1_node::core::payload::TxKind::MiningShare(
-        custom_l1_node::core::mining_payload::MiningShare { epoch: 1, nonce: 0 },
+        custom_l1_node::core::mining_payload::MiningShare {
+            kind: custom_l1_node::core::mining_payload::WorkKind::DagPow,
+            epoch: 1,
+            nonce: 0,
+        },
     );
     tx
 }

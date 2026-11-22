@@ -483,6 +483,7 @@ fn the_mempool_charges_a_share_that_names_an_input_the_base_fee() {
         0,
     );
     tx.kind = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
         epoch: 1,
         nonce: good[0],
     });
@@ -510,6 +511,7 @@ fn a_block_refuses_a_share_that_names_an_input_without_its_base_fee() {
         0,
     );
     tx.kind = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
         epoch: 1,
         nonce: good[0],
     });

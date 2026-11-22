@@ -417,6 +417,11 @@ impl Pair {
         }
         self.commit();
         assert_eq!(self.db.staking_held().unwrap(), self.reference.held());
+        // The supply RPC sums the same records from one snapshot (#655).
+        assert_eq!(
+            self.db.view().staking_held().unwrap(),
+            self.reference.held()
+        );
     }
 }
 

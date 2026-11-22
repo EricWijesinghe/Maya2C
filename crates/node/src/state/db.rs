@@ -2241,18 +2241,25 @@ impl StateView<'_> {
             .map_or_else(|| Ok(ShieldedPool::new()), |b| ShieldedPool::decode(&b))
     }
 
-    /// [`StateDB::committed_staking`] as of this view.
+    /// Every key/value pair under `prefix` as of this view, in key order.
     ///
     /// # Errors
     ///
-    /// A storage failure or a staking record that does not decode.
-    pub fn committed_staking(&self) -> Result<Option<crate::state::staking::StakingRecord>> {
-        self.get(crate::state::staking::STATE_KEY)?
-            .map(|b| crate::state::staking::StakingRecord::decode(&b))
-            .transpose()
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
+        let mut out = Vec::new();
+        for item in self.snapshot.iterator(mode) {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            out.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(out)
     }
 
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         self.snapshot.get(key).map_err(storage_err)
     }
 }

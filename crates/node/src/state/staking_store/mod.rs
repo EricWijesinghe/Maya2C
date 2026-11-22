@@ -96,6 +96,40 @@ fn sub(a: Amount, b: Amount) -> Result<Amount> {
         .ok_or_else(|| corrupt("aggregate below its parts"))
 }
 
+/// What staking holds, summed from its validator and payout records: each
+/// validator's bond, delegations and unbonding funds, then every owed payout.
+fn held_of(validators: &[(Vec<u8>, Vec<u8>)], payouts: &[(Vec<u8>, Vec<u8>)]) -> Result<Amount> {
+    let mut held = Amount::ZERO;
+    for (_, bytes) in validators {
+        let v = StoredValidator::decode(bytes)?;
+        held = add(
+            held,
+            add(add(v.record.self_bond, v.record.delegated)?, v.unbonding)?,
+        )?;
+    }
+    for (_, bytes) in payouts {
+        held = add(held, PayoutJob::decode(bytes)?.owed)?;
+    }
+    Ok(held)
+}
+
+impl crate::state::db::StateView<'_> {
+    /// [`StateDB::staking_held`] as of this view: the supply RPC reads it
+    /// from the same snapshot as the accounts and the shielded pool.
+    ///
+    /// # Errors
+    ///
+    /// Storage failure, a damaged record, or a sum past 2²⁵⁶ − 1.
+    pub fn staking_held(&self) -> Result<Option<Amount>> {
+        if self.get(STATE_KEY)?.is_none() {
+            return Ok(None);
+        }
+        let validators = self.scan_prefix(VALIDATOR_PREFIX)?;
+        let payouts = self.scan_prefix(PAYOUT_PREFIX)?;
+        held_of(&validators, &payouts).map(Some)
+    }
+}
+
 /// The key that sorts right after every key starting with `prefix`.
 fn prefix_end(prefix: &[u8]) -> Vec<u8> {
     let mut end = prefix.to_vec();
@@ -433,25 +467,15 @@ impl StateDB {
             return Ok(None);
         }
         let none = Overlay::new();
-        let mut held = Amount::ZERO;
-        for (_, bytes) in self.staking_range(
+        let validators = self.staking_range(
             &none,
             VALIDATOR_PREFIX,
             &prefix_end(VALIDATOR_PREFIX),
             usize::MAX,
-        )? {
-            let v = StoredValidator::decode(&bytes)?;
-            held = add(
-                held,
-                add(add(v.record.self_bond, v.record.delegated)?, v.unbonding)?,
-            )?;
-        }
-        for (_, bytes) in
-            self.staking_range(&none, PAYOUT_PREFIX, &prefix_end(PAYOUT_PREFIX), usize::MAX)?
-        {
-            held = add(held, PayoutJob::decode(&bytes)?.owed)?;
-        }
-        Ok(Some(held))
+        )?;
+        let payouts =
+            self.staking_range(&none, PAYOUT_PREFIX, &prefix_end(PAYOUT_PREFIX), usize::MAX)?;
+        held_of(&validators, &payouts).map(Some)
     }
 
     /// The committed staking state with every validator loaded and no
