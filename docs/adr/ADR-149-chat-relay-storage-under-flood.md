@@ -41,9 +41,11 @@ with a GPU; what a relay controls is who pays when it is full.
    `MAX_RELAY_BYTES` evicts the oldest envelopes of the largest mailbox, while
    that mailbox holds more than the recipient's mailbox would after the
    deposit. When no mailbox is larger, the deposit is refused ("relay full").
-   This is a max-min fair share of the relay: a flood spread over many
-   addresses displaces its own envelopes first, and a mailbox is squeezed only
-   down to the size of the flood's own mailboxes. An evicted envelope drew no
+   This is a max-min fair share of the relay, not protection from a flood: a
+   flood of mailboxes larger than a victim's displaces its own envelopes
+   first, but a flood of mailboxes smaller than a victim's (many fresh
+   addresses, one envelope each) evicts the victim's oldest envelopes, down to
+   the size of the flood's own mailboxes. An evicted envelope drew no
    receipt, so the sender's outbox (ADR-074) resends it; its id is forgotten so
    the resend is stored, not taken as a duplicate. A size index
    (`BTreeSet<(bytes, address)>`) finds the largest mailbox in O(log n).
@@ -71,8 +73,17 @@ with a GPU; what a relay controls is who pays when it is full.
   flood's largest. The flood's cost to squeeze every mailbox down to S bytes
   is about `MAX_RELAY_BYTES / S` stamps, and it must keep paying as the
   displaced mail is resent and its own envelopes are evicted in turn.
-- Under heavy load a legitimate large mailbox can lose its oldest envelopes;
-  they come back from the senders' outboxes until a receipt arrives.
+- **Accepted tradeoff: a flood can evict stored mail.** At the default 20
+  stamp bits, about 4,096 stamps of 256 KiB fill the relay; after that each
+  flood deposit into a fresh small mailbox evicts the oldest envelopes of the
+  largest real mailboxes. Recovery is the sender's outbox resending until a
+  receipt arrives; if the sender is offline or has uninstalled, the envelope
+  is lost and nobody is told. Before this ADR the same flood left stored mail
+  alone but refused every new deposit for up to `MAX_TTL`. A relay that keeps
+  taking mail was judged the better failure; a floor that protects mailboxes
+  up to a fraction of `MAX_MAILBOX_BYTES` was considered and not taken, since
+  fresh addresses can sit under any floor. The real fix is size-aware postage
+  (below; [BACKLOG.md](../../BACKLOG.md), "Chat size-aware postage").
 - Restarting a relay changes the challenge key, so challenges issued before
   the restart are refused; the client asks again (the table was lost on
   restart before as well).
@@ -81,8 +92,9 @@ with a GPU; what a relay controls is who pays when it is full.
 ## Not decided here
 
 - **Size-aware postage.** Charging by size, or shortening the retention of
-  large envelopes, would raise the price of holding the relay for long; it is
-  a wire and client change and stays open, within the 24-bit mint cap.
+  large envelopes, would raise the price of holding the relay for long and of
+  the eviction flood above; it is a wire and client change and stays open,
+  within the 24-bit mint cap. Tracked in [BACKLOG.md](../../BACKLOG.md).
 - **Identity-gated mailboxes** (proof of personhood, contacts-only): ADR-031
   lists them as the stronger answer; still later decisions.
 - **Session table on the client.** The client's session table is unbounded,

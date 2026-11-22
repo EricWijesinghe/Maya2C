@@ -373,10 +373,12 @@ impl Relay {
 
     /// Frees `len` bytes for a mailbox that will then hold `after`, by
     /// evicting the oldest envelopes of mailboxes holding more than that
-    /// (ADR-149). Addresses are free, so a flood is many mailboxes; this way
-    /// it displaces its own mail before anyone else's, and a deposit is only
-    /// refused when no mailbox is larger than the one it joins would become.
-    /// An evicted envelope drew no receipt, so its sender's outbox resends it.
+    /// (ADR-149). A deposit is only refused when no mailbox is larger than the
+    /// one it joins would become. This is max-min, not flood-proof: a flood of
+    /// mailboxes smaller than a victim's evicts the victim's oldest mail, down
+    /// to the flood's mailbox size, and a flood of larger ones evicts its own.
+    /// An evicted envelope drew no receipt, so its sender's outbox resends it;
+    /// a sender that is offline or gone loses it without notice.
     fn make_room(&mut self, after: usize, len: usize) -> Result<(), ChatError> {
         while self.bytes + len > self.capacity {
             match self.by_size.last() {
