@@ -77,17 +77,16 @@ pub struct SupplyReport {
     pub burned: U256,
 }
 
-/// Scans run outside the chain lock before one runs under it.
-const LOCK_FREE_SCANS: usize = 2;
-
 /// Computes supply from committed state.
 ///
 /// The account walk runs outside the chain lock: block apply and DAG-BFT
 /// commit take that mutex, and holding it for a walk over every account
-/// stalled them for as long as the walk took. A block applied mid-walk would
-/// mix two tips, so the tip is read again afterwards and a moved tip retries.
-/// After [`LOCK_FREE_SCANS`] tries the walk runs under the lock, so a busy
-/// chain gets a slower answer, never a torn one.
+/// stalled them for as long as the walk took. The walk reads a `RocksDB`
+/// snapshot taken under the lock with the tip ([`StateDB::view`]), so it is
+/// consistent with that tip however many blocks land while it runs, and it
+/// never retries or falls back to walking under the lock.
+///
+/// [`StateDB::view`]: crate::state::StateDB::view
 ///
 /// # Errors
 ///
@@ -98,26 +97,21 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
 
 /// [`supply`], with the tip it describes.
 fn supply_at(chain: &Arc<Mutex<Chain>>) -> Result<Cached> {
-    for _ in 0..LOCK_FREE_SCANS {
-        let (state, height, tip) = {
-            let chain = lock(chain);
-            (Arc::clone(chain.state()), chain.height(), chain.tip())
-        };
-        let report = supply_of(&state)?;
-        let chain = lock(chain);
-        if chain.height() == height && chain.tip() == tip {
-            return Ok(Cached {
-                height,
-                tip,
-                report,
-            });
-        }
-    }
-    let chain = lock(chain);
+    supply_at_with(chain, || {})
+}
+
+/// [`supply_at`], calling `during_walk` once the walk's view is fixed and the
+/// chain lock is released: where a test advances the tip mid-walk.
+fn supply_at_with(chain: &Arc<Mutex<Chain>>, mut during_walk: impl FnMut()) -> Result<Cached> {
+    let guard = lock(chain);
+    let (state, height, tip) = (Arc::clone(guard.state()), guard.height(), guard.tip());
+    let view = state.view();
+    drop(guard);
+    during_walk();
     Ok(Cached {
-        height: chain.height(),
-        tip: chain.tip(),
-        report: supply_of(chain.state())?,
+        height,
+        tip,
+        report: supply_of(&view)?,
     })
 }
 
@@ -193,8 +187,8 @@ impl SupplyCache {
     }
 }
 
-/// Supply from `state`, read without any lock.
-fn supply_of(state: &crate::state::StateDB) -> Result<SupplyReport> {
+/// Supply from one consistent view of committed state, read without any lock.
+fn supply_of(state: &crate::state::db::StateView<'_>) -> Result<SupplyReport> {
     let mut transparent = U256::zero();
     let mut burned = U256::zero();
 
@@ -357,6 +351,70 @@ impl MarketFeed {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_tip_that_moves_during_every_walk_never_puts_the_walk_under_the_lock() {
+        use crate::consensus::ChainConfig;
+        use crate::core::{Block, BlockHeader};
+        use crate::state::{Account, StateDB};
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDB::open(dir.path()).unwrap());
+        let fund = |balance: u64| {
+            let account = Account {
+                balance: U256::from(balance),
+                nonce: 0,
+            };
+            state.put_account(&[1; 32], &account).unwrap();
+        };
+        fund(1_000);
+        let genesis = Block::new(
+            BlockHeader {
+                version: 0,
+                prev_hash: [0; 32],
+                state_root: [0; 32],
+                timestamp: 1_700_000_000,
+                nonce: 0,
+                difficulty_target: crate::crypto::pow::target_from_leading_zero_bits(6),
+                tx_root: [0; 32],
+            },
+            Vec::new(),
+        );
+        let chain = Arc::new(Mutex::new(
+            Chain::open(
+                Arc::clone(&state),
+                genesis,
+                ChainConfig::without_pow_verification(),
+            )
+            .unwrap(),
+        ));
+        let (start_height, start_tip) = {
+            let c = lock(&chain);
+            (c.height(), c.tip())
+        };
+        let start = supply_at(&chain).unwrap().report;
+
+        // Every walk sees a new block land and a balance change behind it.
+        let mut walks = 0_u64;
+        let got = supply_at_with(&chain, || {
+            walks += 1;
+            let mut c = chain
+                .try_lock()
+                .expect("the walk must not hold the chain lock");
+            let timestamp = 1_700_000_000 + c.height() + 1;
+            let block = c.candidate_block(timestamp, Vec::new()).unwrap();
+            c.insert_block(block).unwrap();
+            fund(1_000 + walks * 7);
+        })
+        .unwrap();
+        // The report is the one consistent view taken with the tip it names.
+        assert_eq!((got.height, got.tip), (start_height, start_tip));
+        assert_eq!(got.report.total, start.total);
+        assert_eq!(walks, 1, "one walk, never a retry ending under the lock");
+        // And the next walk sees the blocks and the balance that landed.
+        let after = supply_at(&chain).unwrap();
+        assert_eq!(after.height, start_height + 1);
+        assert_eq!(after.report.total, U256::from(1_007));
+    }
 
     fn quote(pair: &str) -> MarketQuote {
         MarketQuote {

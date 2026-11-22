@@ -14,8 +14,9 @@ No vectors; the handshake is covered by `crates/node/tests` and the KEM KATs.
 ## Node-local peer and RPC bounds (ADR-151)
 
 Not interoperability rules: one node's limits, which a second client need not copy.
-A gossiped block whose header id this node already accepted from gossip is
-ignored rather than relayed again; gossipsub message ids stay author plus
+A gossiped block message whose bytes this node already accepted from gossip
+is ignored rather than relayed again (keyed on the bytes, since a block id
+does not commit to multisig approvals); gossipsub message ids stay author plus
 sequence number. `/l1/bft` is scored like the other topics. At most 192 of
 256 established connections are inbound, and one source (IPv4 address or
 IPv6 /48, loopback exempt) holds at most 8 established inbound connections and

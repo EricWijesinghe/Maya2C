@@ -368,15 +368,20 @@ async fn catch_up_once(
 /// block behind is what stranded restarted validators: with more than f of
 /// them following, the builders alone never reached a checkpoint quorum
 /// (attacknet soak, 2026-10-05). `None` when the source cannot be reached
-/// (it abstains); any other failure answers "no", the safe direction.
+/// or its tip is below ours (it abstains: it cannot measure our window, and
+/// a peer that is itself restarting must not send us to follow); any other
+/// failure answers "no", the safe direction.
 async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64) -> Option<bool> {
     use custom_l1_node::consensus::bft::builder::unseal;
     use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()).ok()?;
     tokio::task::spawn_blocking(move || {
         let theirs = source.tip_height().ok()?;
-        if height == 0 || theirs < height {
-            return Some(height == 0 && theirs == 0);
+        if height == 0 {
+            return Some(theirs == 0);
+        }
+        if theirs < height {
+            return None;
         }
         let ancestor = source.block(height).is_ok_and(|b| b.header.id() == tip);
         let Ok(peer_tip) = source.block(theirs) else {
@@ -1289,6 +1294,26 @@ mod tests {
             }
         });
         url
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_source_behind_this_node_abstains_rather_than_vetoes() {
+        // A restarted peer one block behind cannot measure our window; its
+        // answer must not send a node that is in fact inside it to follow.
+        let behind = peer(8).await;
+        assert_eq!(
+            super::within_engine_window(&behind, 9, [0; 32], 0).await,
+            None
+        );
+        // So it leaves a "yes" from a source at or above us standing.
+        assert!(all_answering_agree([Some(true), None]));
+        // A source at our height whose blocks contradict ours still vetoes
+        // (the fake answers every block request with a height, not a block).
+        let level = peer(9).await;
+        assert_eq!(
+            super::within_engine_window(&level, 9, [0; 32], 0).await,
+            Some(false)
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

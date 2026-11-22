@@ -1022,12 +1022,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("threat_indicators", |params, ctx, _| {
+        .register_blocking_method("threat_indicators", |params, ctx, _| {
             // Indicators, lifted ones included, judged at the tip, in author
             // order: optional `[after, limit]` pages through them (authors
             // strictly after the hex author `after`, at most `limit`, capped at
             // `MAX_INDICATOR_PAGE`). A caller has the whole set when a page is
-            // shorter than the limit it asked for.
+            // shorter than the limit it asked for. The page is read by seeking
+            // to it, outside the chain lock (only the height is read under it),
+            // so a page costs `limit` reads, not one per stored indicator.
             let mut seq = params.sequence();
             let after: Option<String> = seq.optional_next()?;
             let limit: Option<usize> = seq.optional_next()?;
@@ -1036,11 +1038,15 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .transpose()
                 .map_err(|e| invalid_params(format!("after is not valid hex: {e}")))?;
             let limit = limit.unwrap_or(MAX_INDICATOR_PAGE).min(MAX_INDICATOR_PAGE);
-            let chain = ctx.chain();
-            let height = chain.height();
-            let indicators = chain.state().stored_threat_indicators().map_err(internal)?;
+            let (height, state) = {
+                let chain = ctx.chain();
+                (chain.height(), Arc::clone(chain.state()))
+            };
+            let indicators = state
+                .threat_indicators_page(after.as_deref(), limit)
+                .map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(
-                page_after(&indicators, after.as_deref(), limit)
+                indicators
                     .iter()
                     .map(|(author, indicator)| ThreatIndicatorInfo::new(author, indicator, height))
                     .collect::<Vec<_>>(),
@@ -1283,20 +1289,6 @@ fn check_peer_exposure(address: SocketAddr, serves_peers: bool) -> crate::error:
     Ok(())
 }
 
-/// At most `limit` of `items` (sorted by key) whose key is strictly after
-/// `after`: one page of a keyed listing.
-fn page_after<'a, K: AsRef<[u8]>, T>(
-    items: &'a [(K, T)],
-    after: Option<&[u8]>,
-    limit: usize,
-) -> &'a [(K, T)] {
-    let start = after.map_or(0, |after| {
-        items.partition_point(|(key, _)| key.as_ref() <= after)
-    });
-    let rest = &items[start..];
-    &rest[..rest.len().min(limit)]
-}
-
 /// The work `miner` should hash now; inactive where the chain does not mine
 /// or mining has not opened yet.
 fn mining_work(
@@ -1335,29 +1327,6 @@ fn mining_work(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-
-    #[test]
-    fn indicator_pages_cover_every_key_once_and_stop_short() {
-        let items: Vec<([u8; 2], u32)> = (0u16..600)
-            .map(|i| (i.to_be_bytes(), u32::from(i)))
-            .collect();
-        let mut seen = Vec::new();
-        let mut after: Option<Vec<u8>> = None;
-        loop {
-            let page = page_after(&items, after.as_deref(), MAX_INDICATOR_PAGE);
-            assert!(page.len() <= MAX_INDICATOR_PAGE);
-            seen.extend(page.iter().map(|(_, v)| *v));
-            if page.len() < MAX_INDICATOR_PAGE {
-                break;
-            }
-            after = page.last().map(|(k, _)| k.to_vec());
-        }
-        assert_eq!(seen, (0..600).collect::<Vec<u32>>());
-        // A cursor between keys, past the end, and a zero limit.
-        assert_eq!(page_after(&items, Some(&[0, 9, 0xff][..]), 2)[0].1, 10);
-        assert!(page_after(&items, Some(&[0xff, 0xff][..]), 10).is_empty());
-        assert!(page_after(&items, None, 0).is_empty());
-    }
 
     #[test]
     fn peer_addresses_are_served_on_loopback_only() {

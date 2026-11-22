@@ -71,6 +71,21 @@ pub trait CheckpointSource: Sync {
     fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
         (from..=to).map(|h| self.block(h)).collect()
     }
+
+    /// The active-chain headers `from..=to`, at most
+    /// [`HEADER_BATCH`](crate::state_pruner::snapshot::HEADER_BATCH) of them.
+    /// Catch-up links these to the checkpoint first, so the bodies it then
+    /// fetches in budgeted steps are each tied to it before any is imported.
+    /// The default takes them from [`CheckpointSource::block`].
+    ///
+    /// # Errors
+    ///
+    /// Any failure reaching the source.
+    fn headers(&self, from: u64, to: u64) -> Result<Vec<crate::core::BlockHeader>> {
+        (from..=to)
+            .map(|h| self.block(h).map(|b| b.header))
+            .collect()
+    }
 }
 
 /// Blocks asked for in one request. A peer hours behind needs thousands, and
@@ -192,7 +207,7 @@ pub fn fetch(
     fetch_capped(from, source, committee, weights, MAX_ATTESTED_GAP_BYTES)
 }
 
-/// [`fetch`], refusing the gap once its blocks pass `max_bytes`.
+/// [`fetch`], returning at most about `max_bytes` of blocks per call.
 fn fetch_capped(
     from: Position,
     source: &impl CheckpointSource,
@@ -231,14 +246,131 @@ fn fetch_capped(
         );
         return Ok(Vec::new());
     }
-    fetch_linked(
-        from,
-        checkpoint.height,
-        checkpoint.block,
-        source,
-        "attested",
-        Some(max_bytes),
-    )
+    fetch_attested(from, checkpoint.height, checkpoint.block, source, max_bytes)
+}
+
+/// The ids at every height after `from` up to `to_height`, read from the
+/// source's headers and checked to form one hash chain from `from.tip` to
+/// `to_id`. 32 bytes a height rather than the bodies, so the whole gap to a
+/// checkpoint is held cheaply and each body fetched afterwards is tied to it.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for headers that do not chain to `to_id`;
+/// [`NodeError::Network`] for a short answer; errors from `source`.
+fn linked_header_ids(
+    from: Position,
+    to_height: u64,
+    to_id: [u8; 32],
+    source: &impl CheckpointSource,
+) -> Result<Vec<[u8; 32]>> {
+    let mut ids = Vec::new();
+    let mut parent = from.tip;
+    let mut lo = from.height + 1;
+    while lo <= to_height {
+        let hi = to_height.min(lo + crate::state_pruner::snapshot::HEADER_BATCH - 1);
+        let headers = source.headers(lo, hi)?;
+        if headers.len() as u64 != hi - lo + 1 {
+            return Err(NodeError::Network(format!(
+                "catch-up: asked for headers {lo}..={hi}, the peer sent {}",
+                headers.len()
+            )));
+        }
+        for (height, header) in (lo..).zip(headers) {
+            if header.prev_hash != parent {
+                return Err(NodeError::Decode(format!(
+                    "catch-up: header {height} does not extend the one before it"
+                )));
+            }
+            parent = header.id();
+            ids.push(parent);
+        }
+        lo = hi + 1;
+    }
+    if parent != to_id {
+        return Err(NodeError::Decode(format!(
+            "catch-up: the headers do not lead to the attested checkpoint block at height {to_height}"
+        )));
+    }
+    Ok(ids)
+}
+
+/// Ordinary catch-up's blocks after `from` toward the checkpoint block `to_id`
+/// at `to_height`: as many as fit `max_bytes` (always at least one), each
+/// already tied to the checkpoint by [`linked_header_ids`]. A gap over the
+/// budget is crossed in steps, one prefix per call, rather than refused: the
+/// caller imports the prefix and asks again from its new tip.
+///
+/// # Errors
+///
+/// As [`linked_header_ids`], and [`NodeError::Decode`] for a body that is not
+/// the block the checkpointed chain holds at its height.
+fn fetch_attested(
+    from: Position,
+    to_height: u64,
+    to_id: [u8; 32],
+    source: &impl CheckpointSource,
+    max_bytes: u64,
+) -> Result<Vec<Block>> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    if to_height <= from.height {
+        return Ok(Vec::new());
+    }
+    let ids = linked_header_ids(from, to_height, to_id, source)?;
+    let first = from.height + 1;
+    let chunks = (to_height - first) / BLOCKS_PER_REQUEST + 1;
+    let range = |i: u64| {
+        let lo = first + i * BLOCKS_PER_REQUEST;
+        (lo, to_height.min(lo + BLOCKS_PER_REQUEST - 1))
+    };
+    let size = |b: &Block| u64::try_from(b.to_bytes().len()).unwrap_or(u64::MAX);
+    // Bytes received across every chunk, so requests stop once the budget is
+    // spent; the peak is above the budget by the responses in flight.
+    let received = AtomicU64::new(0);
+    let (mut blocks, mut kept) = (Vec::new(), 0_u64);
+    for start in (0..chunks).step_by(usize::try_from(CHUNK_WINDOW).unwrap_or(1)) {
+        let end = (start + CHUNK_WINDOW - 1).min(chunks - 1);
+        let window = crate::state_pruner::prefetch::fetch_ordered(
+            start,
+            end,
+            crate::state_pruner::prefetch::PREFETCH_WORKERS,
+            &|i| {
+                // Never skip the first chunk: a round must make progress.
+                if i > 0 && received.load(Ordering::SeqCst) > max_bytes {
+                    return Ok(Vec::new());
+                }
+                let (lo, hi) = range(i);
+                let got = source.blocks(lo, hi)?;
+                if got.len() as u64 != hi - lo + 1 {
+                    return Err(NodeError::Network(format!(
+                        "catch-up: asked for blocks {lo}..={hi}, the peer sent {}",
+                        got.len()
+                    )));
+                }
+                received.fetch_add(got.iter().map(size).sum(), Ordering::SeqCst);
+                Ok(got)
+            },
+        )?;
+        for chunk in window {
+            if chunk.is_empty() {
+                return Ok(blocks);
+            }
+            for block in chunk {
+                if block.header.id() != ids[blocks.len()] {
+                    return Err(NodeError::Decode(format!(
+                        "catch-up: block {} is not the one the attested checkpoint's chain holds there",
+                        first + blocks.len() as u64
+                    )));
+                }
+                kept = kept.saturating_add(size(&block));
+                blocks.push(block);
+                if kept > max_bytes {
+                    return Ok(blocks);
+                }
+            }
+        }
+    }
+    Ok(blocks)
 }
 
 /// Fetches the blocks after `from` up to height `to_height`, checked to form
@@ -406,15 +538,16 @@ pub const MAX_LINKED_GAP: u64 = 50_000;
 /// per-request byte limit set from the peer's advertised size.
 pub const MAX_LINKED_GAP_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Most encoded bytes ordinary catch-up may receive before the blocks reach
-/// the attested checkpoint. Why: those blocks are held, and checked against
-/// the checkpoint, only once the whole gap has arrived, so without a cap a
-/// source could make the node buffer blocks that hash-link to each other but
-/// never reach it. 1 GiB holds a full epoch of 3,600 blocks averaging up to
-/// about 290 KiB; a node further behind than that, by bytes, restores from a
-/// snapshot (`--bootstrap-from`). Node policy, not a consensus rule. The peak
-/// is above the cap by the responses in flight, as for
-/// [`MAX_LINKED_GAP_BYTES`].
+/// Most encoded bytes one round of ordinary catch-up holds before it hands
+/// its blocks to import. Why: a round holds its blocks until it returns, so
+/// without a budget a node a full epoch of 5 MiB blocks behind (about 18 GiB)
+/// would buffer all of it. The gap's ids are linked to the attested
+/// checkpoint from headers first (32 bytes a height), so a round can stop at
+/// the budget and return a prefix already tied to the checkpoint; the caller
+/// imports it and the next round goes on from there. A gap over the budget
+/// therefore takes several rounds, never a refusal. Node policy, not a
+/// consensus rule. The peak is above the budget by the responses in flight
+/// (up to `PREFETCH_WORKERS` requests of `BLOCKS_PER_REQUEST` blocks).
 pub const MAX_ATTESTED_GAP_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Refuses a stale node's link across more than [`MAX_LINKED_GAP`] blocks.
@@ -754,6 +887,9 @@ mod tests {
         newest: Checkpoint,
         requests: std::sync::atomic::AtomicUsize,
         batches: bool,
+        /// A height whose body is served under another header than the one
+        /// `headers` reports.
+        forged_body: Option<u64>,
     }
 
     impl CheckpointSource for Chained {
@@ -778,7 +914,18 @@ mod tests {
             self.requests
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let end = usize::try_from(to).unwrap().min(self.blocks.len());
-            Ok(self.blocks[usize::try_from(from - 1).unwrap()..end].to_vec())
+            let mut got = self.blocks[usize::try_from(from - 1).unwrap()..end].to_vec();
+            if let Some(h) = self.forged_body.filter(|h| (from..=to).contains(h)) {
+                got[usize::try_from(h - from).unwrap()].header.timestamp = 999;
+            }
+            Ok(got)
+        }
+        fn headers(&self, from: u64, to: u64) -> Result<Vec<crate::core::BlockHeader>> {
+            let end = usize::try_from(to).unwrap().min(self.blocks.len());
+            Ok(self.blocks[usize::try_from(from - 1).unwrap()..end]
+                .iter()
+                .map(|b| b.header.clone())
+                .collect())
         }
     }
 
@@ -819,6 +966,7 @@ mod tests {
             newest,
             requests: std::sync::atomic::AtomicUsize::new(0),
             batches,
+            forged_body: None,
         };
         (source, committee)
     }
@@ -995,16 +1143,43 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_catch_up_refuses_a_gap_over_its_byte_cap() {
-        // Why: the attested path holds the whole gap before it can compare the
-        // last block with the checkpoint, so it is byte-capped like the
-        // trusted path rather than unbounded.
-        let (source, committee) = chained(40, true);
-        let err = fetch_capped(at_ten(&source), &source, &committee, None, 1).unwrap_err();
-        assert!(err.to_string().contains("bytes"), "{err}");
-        assert!(err.to_string().contains("attested"), "{err}");
+    fn a_gap_over_the_byte_budget_is_crossed_in_bounded_steps() {
+        // Why: refusing a gap over the budget stranded an honest node far
+        // behind the newest checkpoint on every source and every round. Each
+        // round instead returns a prefix that fits, already linked to the
+        // checkpoint by header, and the next round starts where it ended.
+        let (source, committee) = chained(100, true);
+        let mut from = at_ten(&source);
+        let mut rounds = 0;
+        loop {
+            let got = fetch_capped(from, &source, &committee, None, 1).unwrap();
+            let Some(last) = got.last() else { break };
+            // One block over a one-byte budget: progress, never a refusal.
+            assert_eq!(got.len(), 1);
+            assert_eq!(got[0].header.prev_hash, from.tip);
+            from = Position {
+                height: from.height + 1,
+                tip: last.header.id(),
+                ..from
+            };
+            rounds += 1;
+        }
+        assert_eq!(rounds, 90);
+        assert_eq!(from.tip, source.newest.block);
+        // Within the budget the whole gap comes in one round.
         let got = fetch(at_ten(&source), &source, &committee, None).unwrap();
-        assert_eq!(got.len(), 30);
+        assert_eq!(got.len(), 90);
+    }
+
+    #[test]
+    fn a_prefix_is_never_returned_off_the_checkpointed_chain() {
+        // Why: a prefix is imported before the checkpoint block arrives, so
+        // each block must already be tied to the checkpoint. A source whose
+        // body at 11 is another block is refused, not imported.
+        let (mut source, committee) = chained(100, true);
+        source.forged_body = Some(11);
+        let err = fetch_capped(at_ten(&source), &source, &committee, None, 1).unwrap_err();
+        assert!(err.to_string().contains("checkpoint"), "{err}");
     }
 
     #[test]

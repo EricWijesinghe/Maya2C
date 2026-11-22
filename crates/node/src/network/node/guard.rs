@@ -15,7 +15,6 @@ use libp2p::gossipsub::{Message as GossipMessage, MessageId};
 use libp2p::request_response::{self, Message};
 use tokio::sync::oneshot;
 
-use super::relay::header_id;
 use super::{NodeDriver, NodeEvent};
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
@@ -33,16 +32,19 @@ use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 /// flood of maximum-size junk could pin gigabytes before the engine looks.
 pub(crate) const MAX_BFT_FRAME_BYTES: usize = 5 * 1024 * 1024;
 
-/// Gossiped block ids remembered, so the same block is relayed once.
+/// Gossiped block messages remembered, so the same one is relayed once.
 const RECENT_BLOCKS: usize = 4096;
 
-/// Ids of blocks this node already accepted from gossip.
+/// Digests of the block messages this node already accepted from gossip.
 ///
 /// Gossipsub's message id is the author and sequence number, never the data
 /// (`network::evidence_tap`), so a block re-published under a fresh sequence
-/// number is a new message to it, and every node relayed every copy. Only the
-/// producer publishes a block, so a second gossip message carrying an accepted
-/// id is a re-publication. Bounded by count; evicted oldest first.
+/// number is a new message to it, and every node relayed every copy. Keyed on
+/// the whole message, not the block id: the id does not commit to multisig
+/// approvals (`Transaction::txid` leaves them out on purpose), so a copy with
+/// other approvals shares the honest block's id, and keying on the id would
+/// let whichever copy arrived first shut the other out network-wide. Bounded
+/// by count; evicted oldest first.
 #[derive(Default)]
 pub(super) struct RecentBlocks {
     order: VecDeque<[u8; 32]>,
@@ -159,9 +161,10 @@ impl NodeDriver {
         verdict
     }
 
-    /// [`NodeDriver::gossiped_block`] for the gossip topic, relaying each block
-    /// id once. Remembered only once accepted: a junk body under an honest
-    /// header must not shut the honest block out.
+    /// [`NodeDriver::gossiped_block`] for the gossip topic, relaying each exact
+    /// block message once. Remembered only once accepted, and by its bytes:
+    /// neither a junk body nor other multisig approvals under an honest header
+    /// can shut the honest block out.
     fn gossiped_block_once(
         &mut self,
         source: PeerId,
@@ -169,15 +172,13 @@ impl NodeDriver {
         data: &[u8],
         now: Instant,
     ) -> Verdict {
-        let id = header_id(data);
-        if id.is_some_and(|id| self.recent_blocks.contains(&id)) {
+        let digest = *blake3::hash(data).as_bytes();
+        if self.recent_blocks.contains(&digest) {
             return Verdict::Ignore;
         }
         let verdict = self.gossiped_block(source, author, data, now);
-        if verdict == Verdict::Accept
-            && let Some(id) = id
-        {
-            self.recent_blocks.insert(id);
+        if verdict == Verdict::Accept {
+            self.recent_blocks.insert(digest);
         }
         verdict
     }

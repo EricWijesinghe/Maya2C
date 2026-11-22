@@ -294,7 +294,7 @@ pub(super) async fn next_inbound(relay: &mut Option<RelayState>) -> Inbound {
 }
 
 /// The id a block body's own header gives it.
-pub(super) fn header_id(body: &[u8]) -> Option<[u8; 32]> {
+fn header_id(body: &[u8]) -> Option<[u8; 32]> {
     BlockHeader::from_bytes(body.get(..HEADER_LEN)?)
         .ok()
         .map(|header| header.id())

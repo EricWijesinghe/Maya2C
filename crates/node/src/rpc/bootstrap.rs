@@ -420,6 +420,10 @@ impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
         BootstrapSource::tip_height(self)
     }
 
+    fn headers(&self, from: u64, to: u64) -> Result<Vec<crate::core::BlockHeader>> {
+        BootstrapSource::headers(self, from, to)
+    }
+
     fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
         let batch: Result<Vec<BlockInfo>> = self.call(
             "get_blocks_by_height_range",

@@ -21,10 +21,14 @@ branch under ADR-147. This ADR covers the rest.
 
 Peer-to-peer:
 
-1. **Gossiped blocks are relayed once per block id.** A gossiped block whose header
-   id this node already accepted from gossip is ignored (not relayed, not scored).
-   The id is remembered only after acceptance, so a mismatched body under an honest
-   header cannot shut the honest body out. 4,096 ids, oldest evicted. Gossipsub's
+1. **Gossiped blocks are relayed once per exact message.** A gossiped block whose
+   bytes (BLAKE3 of the message data) this node already accepted from gossip is
+   ignored (not relayed, not scored). The digest is remembered only after
+   acceptance. It is keyed on the bytes, not the header id: the block id does not
+   commit to multisig approvals (`Transaction::txid` leaves them out on purpose), so
+   a copy with other approvals shares the honest block's id and, keyed on the id,
+   whichever copy arrived first would shut the other out on every node. 4,096
+   digests, oldest evicted. Amended 2026-11-22 after review of #655. Gossipsub's
    message id stays author plus sequence number: the DAG-BFT engine resends identical
    frames to recover losses, and a content id would refuse those resends.
 2. **`/l1/bft` is scored** with the same topic parameters as blocks and transactions,
@@ -54,19 +58,34 @@ Peer-to-peer:
 
 Catch-up:
 
-8. **The attested catch-up path has a 1 GiB byte cap** on the blocks it holds before
-   checking the hash links, as the trusted path already had.
-9. **Resuming as a builder needs every answering `--catch-up-from` source to agree.**
-   One answering "no" keeps the node following attested blocks. An unreachable source
-   abstains; no answers at all means "no". A lying source can only hold a node back
-   from building, never make it build while far behind.
+8. **Attested catch-up is crossed in byte-budgeted steps (1 GiB per round).** The gap's
+   headers are linked to the attested checkpoint first (32 bytes a height held), then
+   bodies are fetched in order, each checked against the linked id, until the round
+   holds 1 GiB; that prefix is imported and the next round starts from it. A gap over
+   the budget (a full epoch of 5 MiB blocks is about 18 GiB) takes several rounds and
+   is never refused. Amended 2026-11-22: the first version refused such a gap, which
+   left an honest node that far behind stuck on every source until a snapshot restore.
+9. **Resuming as a builder needs every source that can judge to agree.** A
+   `--catch-up-from` source at or above this node's height judges: one whose ancestor,
+   epoch or round check fails answers "no" and keeps the node following attested
+   blocks. A source that is unreachable, or whose tip is below this node's, abstains:
+   it cannot measure this node's window, and in a rolling restart a peer that is
+   itself restarting must not send every node that lists it into follower mode (more
+   than f followers is the checkpoint-quorum stall of 2026-10-05 and 2026-10-18). No
+   judging answer at all means "no". Unanimity rather than a majority of judging
+   sources: a lying source can then only hold a node back from building, never make
+   it build while far behind, and an honest source at or above this node that says
+   "no" is reporting a real gap. Amended 2026-11-22 after review of #655.
 
 RPC:
 
 10. **Supply is computed once per tip** (`market::SupplyCache`, single-flight) for
-    `get_supply` and the market endpoints. The account walk runs outside the chain
-    lock and is repeated if the tip moved during it; after two moved tips it runs
-    under the lock.
+    `get_supply` and the market endpoints. The account walk reads a `RocksDB` snapshot
+    taken under the chain lock together with the tip it reports (`StateDB::view`), and
+    runs outside the lock: consistent with that tip however many blocks land during
+    it, and never repeated or moved under the lock. Amended 2026-11-22: the first
+    version walked under the lock after two moved tips, which is when the chain is
+    busiest.
 11. **Request bodies are capped** at two maximal transactions plus 64 KiB and must
     arrive within 30 s.
 12. **Many-record reads run on blocking threads** (`get_supply`,
@@ -79,6 +98,9 @@ RPC:
 14. **`get_peers` drops direction, score and quarantine state** unless the server is
     bound to loopback with peer addresses enabled (`with_peers`).
 15. **`threat_indicators` is paged:** optional `[after, limit]`, at most 256 per page.
+    A page is read by seeking to `after` in the store (at most `limit` records), on a
+    blocking thread and outside the chain lock, so paging through N indicators costs
+    O(N) reads in total rather than one full scan per page.
 
 ## Not done here
 
