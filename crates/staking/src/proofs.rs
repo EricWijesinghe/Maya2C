@@ -83,38 +83,22 @@ fn bps_of_is_exact_at_the_launch_slash_rates() {
     }
 }
 
-/// One epoch boundary, rewards and the downtime slash together, conserves
-/// value: what the module held plus the reward pool equals what it holds
-/// afterwards plus every credit and burn the boundary emitted. It never debits
-/// an account, and it never fails.
+/// One validator `[9; 32]` with one delegation, seated with nothing pending:
+/// the state `end_epoch` pays rewards in.
 ///
-/// One validator with one delegation, every amount below 2^8 (see
-/// [`small_amount`]), every commission up to 100%, and every participation
-/// count below 2^8, so both a paid epoch and a down one are explored. The stake
-/// is past its pending epoch and seated, the state `end_epoch` pays rewards in.
-/// Bounded, and said so: the collections hold one entry each, and
-/// `tests/scenario.rs` covers many validators by execution. `pay_rewards`
-/// checks `pool - paid`, so `end_epoch` returning `Err` would mean it paid more
-/// than the pool: the `unwrap` is itself the no-overpayment check.
-///
-/// No verdict yet: still in symbolic execution when stopped at 25 min in WSL
-/// (2026-11-23), so it runs only in `kani-heavy.yml`.
-#[kani::proof]
-#[kani::unwind(40)]
-fn an_epoch_boundary_conserves_value() {
+/// The start state is written by hand (pending maps cleared, `active` set),
+/// not reached through a first `end_epoch`, because that call adds a second
+/// pass over every collection to a symbolic state CBMC already struggles with.
+/// It is reachable: an `end_epoch` after `register` and `delegate` clears both
+/// pending maps and seats the ranked eligible set, which with one validator
+/// whose bond meets `min_self_bond` is exactly `[id]`.
+fn seated(bond: Amount, delegation: Amount, commission: u16) -> Staking {
     let params = Params {
         min_self_bond: Amount::ONE,
         min_delegation: Amount::ONE,
         max_commission_bps: 10_000,
         ..Params::DEVNET
     };
-    let bond = small_amount();
-    let delegation = small_amount();
-    let pool = small_amount();
-    let commission: u16 = kani::any();
-    kani::assume(u64::from(commission) <= BPS);
-    kani::assume(!bond.is_zero() && !delegation.is_zero());
-
     let id = [9; 32];
     let mut s = Staking::new(params).unwrap();
     let _ = s.register([1; 32], id, bond, commission).unwrap();
@@ -122,18 +106,27 @@ fn an_epoch_boundary_conserves_value() {
     s.pending_self.clear();
     s.pending_delegations.clear();
     s.active = vec![id];
+    s
+}
 
-    let rounds: u8 = kani::any();
-    let authored: u8 = kani::any();
-    kani::assume(authored <= rounds);
+/// Runs one epoch boundary and returns `(held before, held after, credited,
+/// burned)`, after asserting that it never debits an account and that held +
+/// pool before equals held + credits + burns after. `pay_rewards` checks
+/// `pool - paid`, so `end_epoch` returning `Err` would mean it paid more than
+/// the pool: the `unwrap` is itself the no-overpayment check.
+fn conserving_epoch(
+    s: &mut Staking,
+    rounds: u64,
+    authored: u64,
+    pool: Amount,
+) -> (Amount, Amount, Amount, Amount) {
     let mut authored_by = BTreeMap::new();
-    authored_by.insert(id, u64::from(authored));
+    authored_by.insert([9; 32], authored);
     let participation = Participation {
-        rounds: u64::from(rounds),
+        rounds,
         expected: BTreeMap::new(),
         authored: authored_by,
     };
-
     let before = s.held().unwrap();
     let out = s.end_epoch(&participation, pool).unwrap();
     let mut credited = Amount::ZERO;
@@ -150,10 +143,110 @@ fn an_epoch_boundary_conserves_value() {
         .checked_add(credited)
         .and_then(|x| x.checked_add(burned));
     assert!(before.checked_add(pool) == outgoing);
+    (before, after, credited, burned)
+}
+
+/// One epoch boundary, rewards and the downtime slash together, conserves
+/// value (see [`conserving_epoch`]).
+///
+/// One validator with one delegation (see [`seated`]), every amount below 2^8
+/// (see [`small_amount`]), every commission up to 100%, and every participation
+/// count below 2^8, so both a paid epoch and a down one are explored. Bounded,
+/// and said so: the collections hold one entry each, and `tests/scenario.rs`
+/// covers many validators by execution. The two harnesses after it split this
+/// one into a paid and a down epoch with the rates and counts concrete.
+///
+/// No verdict yet: still in symbolic execution when stopped at 25 min in WSL
+/// (2026-11-23), so it runs only in `kani-heavy.yml`.
+#[kani::proof]
+#[kani::unwind(40)]
+fn an_epoch_boundary_conserves_value() {
+    let bond = small_amount();
+    let delegation = small_amount();
+    let pool = small_amount();
+    let commission: u16 = kani::any();
+    kani::assume(u64::from(commission) <= BPS);
+    kani::assume(!bond.is_zero() && !delegation.is_zero());
+    let mut s = seated(bond, delegation, commission);
+
+    let rounds: u8 = kani::any();
+    let authored: u8 = kani::any();
+    kani::assume(authored <= rounds);
+    let (before, after, credited, burned) =
+        conserving_epoch(&mut s, u64::from(rounds), u64::from(authored), pool);
 
     kani::cover!(
         after == before && !credited.is_zero() && !burned.is_zero(),
         "a reward is paid and its rounding dust burned"
     );
     kani::cover!(after < before, "a down validator is slashed");
+}
+
+/// A paid epoch conserves value and leaves the stake untouched: the validator
+/// led its one slot, so there is no slash, and the pool leaves as credits plus
+/// a dust burn. Amounts below 2^8, commission fixed at `Params::DEVNET`'s
+/// maximum (2,000 bps). Bounded, and said so.
+#[kani::proof]
+#[kani::unwind(40)]
+fn a_paid_epoch_conserves_value() {
+    let bond = small_amount();
+    let delegation = small_amount();
+    let pool = small_amount();
+    kani::assume(!bond.is_zero() && !delegation.is_zero());
+    let mut s = seated(bond, delegation, Params::DEVNET.max_commission_bps);
+
+    let (before, after, credited, burned) = conserving_epoch(&mut s, 1, 1, pool);
+    assert!(after == before);
+    assert!(credited.checked_add(burned) == Some(pool));
+    kani::cover!(!credited.is_zero(), "a reward is paid");
+    kani::cover!(
+        !credited.is_zero() && !burned.is_zero(),
+        "a reward is paid and its rounding dust burned"
+    );
+}
+
+/// A down epoch conserves value: the validator missed its one slot, so the
+/// boundary slashes it at `Params::DEVNET`'s downtime rate (100 bps), pays
+/// nothing, and burns the pool with the cut. Stake below 2^16 (so a 1% cut can
+/// be non-zero), pool below 2^8. Bounded, and said so.
+#[kani::proof]
+#[kani::unwind(40)]
+fn a_down_epoch_slashes_and_conserves_value() {
+    let bond = Amount::from_u64(u64::from(kani::any::<u16>()));
+    let delegation = Amount::from_u64(u64::from(kani::any::<u16>()));
+    let pool = small_amount();
+    kani::assume(!bond.is_zero() && !delegation.is_zero());
+    let mut s = seated(bond, delegation, 0);
+
+    let (before, after, credited, _) = conserving_epoch(&mut s, 1, 0, pool);
+    assert!(credited.is_zero());
+    assert!(after <= before);
+    kani::cover!(after < before, "a down validator is slashed");
+}
+
+/// A double-sign slash conserves value, as `a_double_sign_slash_conserves_value`
+/// above, with the bond and delegation below 2^16 (the full-width version gave
+/// no verdict in 15 min) and `Params::DEVNET`'s minimums and launch rate
+/// (5,000 bps), on the real state machine. Bounded, and said so.
+#[kani::proof]
+#[kani::unwind(40)]
+fn a_bounded_double_sign_slash_conserves_value() {
+    let bond = Amount::from_u64(u64::from(kani::any::<u16>()));
+    let delegation = Amount::from_u64(u64::from(kani::any::<u16>()));
+    let params = Params::DEVNET;
+    kani::assume(bond >= params.min_self_bond && delegation >= params.min_delegation);
+    let mut s = Staking::new(params).unwrap();
+    let _ = s.register([1; 32], [9; 32], bond, 0).unwrap();
+    let _ = s.delegate([2; 32], [9; 32], delegation).unwrap();
+    let before = s.held().unwrap();
+    let effects = s.slash_double_sign([9; 32]).unwrap();
+    let mut burned = Amount::ZERO;
+    for e in &effects {
+        match e {
+            Effect::Burn(b) => burned = burned.checked_add(*b).unwrap(),
+            _ => panic!("a slash moved value to an account"),
+        }
+    }
+    assert!(s.held().unwrap().checked_add(burned) == Some(before));
+    kani::cover!(!burned.is_zero(), "a slash burns stake");
 }
