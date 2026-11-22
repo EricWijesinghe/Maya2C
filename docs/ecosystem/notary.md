@@ -32,6 +32,13 @@ maya2c notary setup --keystore wallet.key --rpc http://NODE:8545 --genesis <gene
 maya2c notary stamp contract.pdf --keystore wallet.key --rpc http://NODE:8545 --genesis <genesis-hex>
 ```
 
+`setup` and `stamp` each wait until their transaction is in a block (up to
+two minutes) before they report success, so you can run `stamp` straight
+after `setup`, or two stamps in a row. If the wait runs out, the command
+fails and says the transaction was not included; check before you stamp
+again. Do not run two stamps from one wallet at the same moment in two
+terminals: they would share a nonce, and only one would land.
+
 The command prints a transaction id (`txid`). Keep it. The file is hashed on
 your machine, and only the hash goes into the transaction. `setup` and `stamp`
 sign and pay a fee, so both ask you to type `yes` first; pass `--yes` in
@@ -61,9 +68,13 @@ receipt as JSON:
 }
 ```
 
-- `timestamp` is the block time. It is the node's clock at block production.
-- `finality` is `final` when a committee checkpoint covers the block, and
-  `pending` until then.
+- `timestamp` is the block time. Under DAG-BFT it is the median of the
+  validators' vertex times for that block, and never earlier than the parent
+  block's time. It is honest only while the BFT assumption holds (more than
+  two thirds of the committee's weight honest).
+- `finality` is `final` when the node's newest committee checkpoint is at or
+  above the block, and the block the node serves at the checkpoint's height
+  is the one the checkpoint names. Otherwise it is `pending`.
 
 If the file has changed by even one byte, verify fails with
 "the file does not match the stamped hash", and prints no receipt.
@@ -91,18 +102,24 @@ hash, for example `b3sum contract.pdf`. Compare it with `hash` in the receipt.
   are verified, use a node you run.
 - **Finality is the node's word.** The receipt does not yet check the
   committee signatures on the checkpoint. Treat `final` as "the node says
-  so" until that check lands. The rule that turns a checkpoint height into
-  `final` or `pending` is unit-tested
-  (`finality_needs_a_checkpoint_at_or_above_the_block`); the devnet test does
-  not check the field end to end.
+  so" until that check lands. Verify does compare the checkpoint's block id
+  with the block it is served at that height, so a node on another branch
+  does not report `final`; it does not yet check that the stamp's block is
+  an ancestor of that block (the header links). The rule is unit-tested
+  (`finality_needs_a_checkpoint_at_or_above_the_block`,
+  `a_checkpoint_counts_only_for_the_block_this_verifier_was_served`), and the
+  devnet test waits for `final` end to end.
 - **One DID signs all stamps.** Stamps from one wallet share a schema record
   on the node, and each new stamp replaces that record. The stamp
   transaction in its block is the proof, not the record. Do not rely on the
   node's state for old stamps; keep the txid and receipt.
 - **Mainnet genesis is not pinned yet.** Until it is, pass `--genesis`.
-- **One unexplained miss.** An early manual run never saw a stamp land in a
-  block. The devnet test has not reproduced it (10 of 10 back-to-back runs
-  passed on 2026-11-21), and its cause is unknown.
+- **An early miss, likely explained.** An early manual run never saw a stamp
+  land in a block. The devnet test did not reproduce it (10 of 10 runs passed
+  on 2026-11-21). A likely cause, found by reading the code and not
+  reproduced: `stamp` run straight after `setup` reused setup's nonce, so one
+  of the two was dropped. Both commands now wait for inclusion, and the
+  devnet test runs setup and two stamps back to back.
 
 ## Why there is no node change
 

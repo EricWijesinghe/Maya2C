@@ -18,10 +18,14 @@
 //! heights and the `prev_hash` links between them are still the node's word:
 //! a hostile node can serve a made-up chain under the right genesis id.
 //! Checking header linkage and checkpoint signatures is the next step.
+//! shortcut: `setup`/`stamp` call a transaction included once the sender's
+//! nonce passes the one it used. Two processes stamping from one key at once
+//! can each see the other's landing; upgrade with a `get_transaction` RPC.
 
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use custom_l1_node::core::identity_payload::{AnchorAttestation, RegisterDid};
@@ -42,6 +46,10 @@ pub const SCHEMA: &str = "notary-v1";
 const READ_BYTES: usize = 64 * 1024;
 /// The node's cap on one `get_blocks_by_height_range` call.
 const SCAN_BATCH: u64 = 32;
+/// How long `setup`/`stamp` wait for their transaction to land in a block.
+const INCLUSION_WAIT: Duration = Duration::from_secs(120);
+/// Pause between nonce polls while waiting for inclusion.
+const POLL_EVERY: Duration = Duration::from_millis(500);
 
 /// Whether a stamped block is covered by a committee checkpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,20 +364,45 @@ async fn finish(
     block: &Block,
     height: u64,
 ) -> Result<Receipt> {
-    let checkpoint: Option<CheckpointHeight> =
-        client.request("get_checkpoint", rpc_params![]).await?;
+    let checkpoint: Option<CheckpointRef> = client.request("get_checkpoint", rpc_params![]).await?;
+    let covering = match checkpoint {
+        Some(c) if c.height >= height => {
+            let served: Vec<BlockInfo> = client
+                .request("get_blocks_by_height_range", rpc_params![c.height, 1])
+                .await?;
+            next_height(&served, c.height)?;
+            let id = decode_block(&served[0])?.header.id();
+            checkpoint_on_chain(&c, &id).then_some(c.height)
+        }
+        _ => None,
+    };
     let place = Placement {
         height,
         block_hash: block.header.id(),
         timestamp: block.header.timestamp,
     };
-    build_receipt(file_hash, tx, place, checkpoint.map(|c| c.height))
+    build_receipt(file_hash, tx, place, covering)
 }
 
-/// The one field of a checkpoint that finality needs.
-#[derive(Deserialize)]
-struct CheckpointHeight {
-    height: u64,
+/// The height and block id of a checkpoint, the fields finality needs.
+#[derive(Debug, Deserialize)]
+pub struct CheckpointRef {
+    /// Height of the attested block.
+    pub height: u64,
+    /// Hex id of the attested block.
+    pub block: String,
+}
+
+/// Whether the checkpoint attests `served_id`, the block this verifier was
+/// served at the checkpoint's height. A node on another branch serves a
+/// different block there, so its checkpoint must not make a stamp final.
+#[must_use]
+pub fn checkpoint_on_chain(checkpoint: &CheckpointRef, served_id: &[u8; 32]) -> bool {
+    let named = checkpoint.block.trim();
+    named
+        .strip_prefix("0x")
+        .unwrap_or(named)
+        .eq_ignore_ascii_case(&hex::encode(served_id))
 }
 
 fn open_key(keystore: &Path, password: &str) -> Result<HybridSigningKey> {
@@ -406,7 +439,26 @@ async fn submit(
         .send_raw_transaction(&hex::encode(tx.to_bytes()))
         .await
         .context("the node refused the transaction")?;
-    Ok(hex::encode(tx.txid()))
+    let txid = hex::encode(tx.txid());
+    wait_included(&client, &sender, nonce, &txid).await?;
+    Ok(txid)
+}
+
+/// Waits until the sender's committed nonce passes `used`, so success is only
+/// reported once the transaction is in a block. Without it a `setup` followed
+/// at once by a `stamp` signs both with one nonce, and one is silently dropped.
+async fn wait_included(client: &NodeClient, sender: &str, used: u64, txid: &str) -> Result<()> {
+    let deadline = Instant::now() + INCLUSION_WAIT;
+    while client.get_balance(sender).await?.nonce <= used {
+        if Instant::now() >= deadline {
+            bail!(
+                "transaction {txid} was sent but not included within {INCLUSION_WAIT:?}; \
+                 it may have been dropped, so check before stamping again"
+            );
+        }
+        tokio::time::sleep(POLL_EVERY).await;
+    }
+    Ok(())
 }
 
 /// The fee output, sized on a signed probe, as the wallet does (ADR-029).

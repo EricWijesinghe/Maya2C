@@ -336,7 +336,7 @@ async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
             println!("txid: {txid}");
             // shortcut: no get_transaction RPC yet, so verify scans; a known height saves it.
             eprintln!(
-                "keep the txid; once it lands, run verify once and keep the receipt's height to pass as --from later"
+                "the stamp is in a block; keep the txid, run verify once and keep the receipt's height to pass as --from later"
             );
         }
         NotaryCommand::Verify {

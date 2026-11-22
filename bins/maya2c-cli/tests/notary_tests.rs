@@ -5,9 +5,22 @@ use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind};
 use custom_l1_node::crypto::generate_signing_key;
 use custom_l1_node::rpc::types::BlockInfo;
 use maya2c_cli::notary::{
-    Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match, decode_block, finality,
-    find_stamp, hash_reader, next_height,
+    CheckpointRef, Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match,
+    checkpoint_on_chain, decode_block, finality, find_stamp, hash_reader, next_height,
 };
+
+#[test]
+fn a_checkpoint_counts_only_for_the_block_this_verifier_was_served() {
+    let served = [7u8; 32];
+    let on = |block: String| checkpoint_on_chain(&CheckpointRef { height: 5, block }, &served);
+    assert!(on(hex::encode(served)));
+    assert!(on(format!("0x{}", hex::encode(served).to_uppercase())));
+    assert!(
+        !on(hex::encode([8u8; 32])),
+        "a checkpoint on another branch"
+    );
+    assert!(!on(String::new()));
+}
 
 /// A transaction carrying a notary anchor for `root` under `schema`.
 fn anchor_tx(schema: &str, root: [u8; 32]) -> Transaction {
