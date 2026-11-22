@@ -2548,7 +2548,8 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-amount", "crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-staking", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
-gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance"
+gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance -p maya-fee-market -p maya-staking"
+note = "verified for the arithmetic crates. maya-staking is PARTIAL: only bps_of_is_exact_at_the_launch_slash_rates has a verdict; the epoch-boundary and slash conservation harnesses have none and run only in kani-heavy.yml (reports/kani/2026-11-14-apply-path.md). No harness calls the node's own apply functions."
 
 [[subsystem]]
 id = "supply-chain-gates"

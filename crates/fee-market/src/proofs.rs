@@ -225,7 +225,7 @@ fn check_the_base_fee_law_at(target: u64) {
     );
     kani::cover!(law == floor && floor > parent, "the floor binds");
     // Only a block more than twice the target can have delta > share, so at a
-    // target of half `MAX_BLOCK_BYTES` Kani reports this cover unreachable.
+    // target of half `MAX_BLOCK_BYTES` Kani reports this cover UNSATISFIABLE.
     kani::cover!(
         size > target && delta > share && law == parent + share && law > floor,
         "the one-share cap binds"
@@ -236,7 +236,7 @@ fn check_the_base_fee_law_at(target: u64) {
 /// of `MAX_BLOCK_BYTES`; the public testnet genesis value — the mainnet target
 /// is set at genesis). Here the gap is at most the target, so delta is at most
 /// one share and the one-share cap cannot bind (Kani reports its cover
-/// unreachable): this harness does not pin the cap; the next one does.
+/// UNSATISFIABLE): this harness does not pin the cap; the next one does.
 #[kani::proof]
 // 41, as above: `==` on `Amount` is a byte-wise memcmp.
 #[kani::unwind(41)]

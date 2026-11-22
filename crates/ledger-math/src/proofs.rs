@@ -402,15 +402,21 @@ fn placing_the_spare_adds_exactly_the_spare() {
     }
 }
 
-/// A self-transfer moves only what goes to someone else.
+/// A self-transfer moves only what goes to someone else, in this crate's model
+/// of the apply order.
 ///
 /// `StateDB::stage_transaction` debits the sender's whole output total first
 /// and then credits each recipient by reading back through the overlay, so a
 /// sender who names itself as a recipient is credited against the debited
-/// balance, not the original. This is the arithmetic of that order: with one
-/// output to itself and one to another account, the sender ends exactly
-/// `to_other` poorer and the other account exactly `to_other` richer. A
-/// reading of the stale balance would instead mint `to_self`.
+/// balance, not the original. This proves the arithmetic of that order, built
+/// from `total_outputs`, `debit` and `credit`: with one output to itself and
+/// one to another account, the sender ends exactly `to_other` poorer and the
+/// other account exactly `to_other` richer. It does not prove the node: the
+/// node calls `U256::checked_sub`/`checked_add` directly, not `debit`/`credit`
+/// (only `total_outputs` is shared), so a node that read the stale balance
+/// would still pass here. What pins `stage_transaction` itself is the test
+/// `self_transfer_nets_to_zero_and_does_not_mint` in
+/// `crates/node/tests/state_tests.rs`.
 #[kani::proof]
 // 40: `==` on an Amount is a 32-byte memcmp, unrolled per byte.
 #[kani::unwind(40)]
@@ -447,10 +453,13 @@ fn a_self_transfer_moves_only_what_goes_elsewhere() {
 /// The fee is an ordinary output to the fee collector (`charge_fee` checks that
 /// those outputs cover the base fee owed), and `settle_fees` moves the owed base
 /// fee from the collector to the sink at the end of the block. Four accounts,
-/// each step one of this crate's checked operations in the node's order. What
-/// is asserted: the sender's loss is exactly what the recipient, the collector
-/// and the sink gained, and the collector keeps the tip (`offered - owed`), so a
-/// burn can never draw on fees other transactions paid.
+/// each step one of this crate's checked operations, in the order the node
+/// applies them. What is asserted: the sender's loss is exactly what the
+/// recipient, the collector and the sink gained, and the collector keeps the
+/// tip (`offered - owed`), so a burn can never draw on fees other transactions
+/// paid. A proof of this model of the order, not of the node: `settle_fees`
+/// (`crates/node/src/state/fee_exec.rs`) calls `U256` arithmetic directly, so a
+/// node that burned from the wrong account would still pass here.
 #[kani::proof]
 // 40: `==` on an Amount is a 32-byte memcmp, unrolled per byte.
 #[kani::unwind(40)]
