@@ -304,6 +304,22 @@ phase that did it.
     `GenesisConfig::validate` refuses anything else
     (`a_value_bearing_genesis_refuses_a_round_interval_off_the_canonical_rate`),
     and so does `cargo xtask genesis-check`.
+    The council's own levers are bounded the same way (ADR-082 amendment,
+    2026-11-14): it can neither pause nor resume Governance; a council pause
+    of a module is refused within `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` (86,400)
+    after the council's last pause of that module ends (a resume ends it at
+    the resume's height), counted from the end the council record keeps, so
+    an automatic breaker trip on the module does not reset it; a council
+    sunset is refused within the same cooldown after the council's last
+    sunset; and a council rotation takes effect no sooner than
+    `COUNCIL_ROTATION_LEAD_BLOCKS` (86,400) after it lands, needs a quorum of
+    the council in force and a signed acceptance from every new member, names
+    a strict-majority set of 1 to 32 distinct valid keys, and replaces any
+    pending rotation; its handover advances the council's nonce, so no
+    approval given before it counts after it, and keeps both cooldowns. A
+    genesis council's `max_pause_blocks` is 1 to `MAX_COUNCIL_PAUSE_BLOCKS`
+    (86,400), or the cooldown bounds nothing. The
+    three constants are compiled in `crates/governance/src/limits.rs`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
     `a_new_entry_must_lie_after_every_entry_already_written`,
@@ -311,7 +327,19 @@ phase that did it.
     `an_unknown_bit_on_a_supported_version_halts_at_its_activation_and_not_before`,
     `a_sunset_only_entry_with_unknown_bits_is_still_refused`) and
     `crates/node/tests/council_pause_tests.rs`
-    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
+    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`,
+    `the_council_can_neither_pause_nor_resume_governance`,
+    `a_council_pause_cannot_be_renewed_within_the_cooldown`,
+    `a_council_sunset_cannot_follow_another_within_the_cooldown`,
+    `a_council_pause_that_expires_unresumed_cools_down_from_its_end`,
+    `an_approval_given_before_a_rotation_does_not_count_after_it`,
+    `the_renewal_cooldowns_survive_a_rotation`,
+    `a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused`,
+    `a_rotation_naming_a_key_nobody_signed_for_is_refused`,
+    `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
+    `a_rotation_takes_effect_at_its_height_and_not_before`) and the
+    `state::council` unit test
+    `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
     — ADR-082.
     A passed change to a block-validity `ParameterKey` (`is_validity_rule`,
     tags 2-8, 17, 18) is held under `g:pending:` and binds `VALIDITY_RULE_LEAD_BLOCKS`

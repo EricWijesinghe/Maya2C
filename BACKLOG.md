@@ -221,6 +221,14 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
 
 ## P2 — make claimed-working features verified
 
+- **Council rules CNL-1..CNL-4 have no reference-crate vectors.** `spec-ref`
+  has no council model; `spec/03-state.md` cites the node's own
+  `council_pause_tests.rs` as external vectors, so `cargo xtask spec-coverage
+  --strict` counts them covered on the label alone (the same convention as
+  CRY-2). Add a council model to `spec-ref` and vectors in
+  `spec/tests/state_transitions.json`, then drop the label. (PR #544 review,
+  2026-11-17.)
+
 - **Joining nodes dial private addresses learned from the DHT.** A helper's
   node behind only the wss bootnode tried 172.25.x, 192.168.64.x and 10.1.x
   (WSL, the stagenet containers, attacknet on the seed's PC), all refused, and
