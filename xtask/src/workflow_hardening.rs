@@ -131,8 +131,11 @@ mod tests {
         let sbom = code(RELEASE_BINARIES, "  sbom:");
         assert!(sbom.contains("cargo cyclonedx"));
         assert!(!sbom.contains("id-token") && !sbom.contains("environment:"));
+        // The `needs:` line itself: the sign job's comments also name `sbom`.
         assert!(
-            block(RELEASE_BINARIES, "  sign:").contains("sbom"),
+            code(RELEASE_BINARIES, "  sign:")
+                .lines()
+                .any(|l| l.trim_start().starts_with("needs:") && l.contains("sbom")),
             "sign does not wait for the SBOM"
         );
     }
@@ -143,6 +146,8 @@ mod tests {
         assert!(verify.contains("cargo run --locked -p xtask -- verify-release"));
         assert!(!verify.contains("id-token") && !verify.contains("attestations: write"));
         assert!(!verify.contains("contents: write"));
+        // `gh attestation verify` reads the attestations API with this token.
+        assert!(verify.contains("attestations: read"));
         assert!(block(RELEASE_BINARIES, "  release:").contains("needs: [verify]"));
     }
 

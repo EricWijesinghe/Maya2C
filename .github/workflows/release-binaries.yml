@@ -638,6 +638,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      attestations: read   # `gh attestation verify` reads the attestations API; read only
     steps:
       # First, a checkout cleans the workspace, so it must come before the artifacts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
