@@ -262,7 +262,16 @@ mechanisms rather than by convention: `apply_block_journaled` refuses a
 floating-point value may enter a consensus rule (invariant 20 — the reason
 `tract-onnx` is confined to `zkml-prover`). Anything new on the consensus path
 must be reproducible bit-for-bit on a different machine and a different
-toolchain, or it is not a consensus rule.
+toolchain, or it is not a consensus rule. Across operating systems,
+`crates/node/tests/golden_root_tests.rs` replays a committed chain against
+committed state roots. It is checked in CI on Linux (the `test` job) and on
+Windows (the `golden-roots` job, which passed once, run 43490569203, but is not
+a required check yet), so the status stays `working`. macOS is not checked: its
+leg never got a runner and was dropped. It pins the path a validator that
+derived the block takes; the fresh apply a syncing node or a replay takes
+disagrees at a mining epoch boundary (BACKLOG.md F3) and is not covered until
+that node bug is fixed. It runs the `ci` profile, not the validator's
+`production` release build.
 
 **No dynamic heap allocation inside critical consensus loops.** A target, not a
 description. The apply path allocates today — RocksDB's interface is owned
