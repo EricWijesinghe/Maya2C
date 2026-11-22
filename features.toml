@@ -3145,9 +3145,9 @@ paths = "`xtask/src/float_check.rs`, `xtask/src/float_scope.rs`"
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crate:xtask"]
+tests = ["crate:xtask", "xtask/src/float_check/tests.rs"]
 gate = "cargo xtask float-check"
-note = "ADR-148. Lexes every non-test file under src/ of each path crate the node binary links and fails on a float token outside an exact-token allowlist, on an ML runtime (matched by family prefix) anywhere in the node's Cargo.lock closure, or on a file outside fee-market naming its neural fee path. Unit tests: float_check::tests (a fixture tree checks every failure kind) and float_scope::tests. Runs in CI's reality ledger job."
+note = "ADR-148. Lexes every non-test file under src/ of each path crate the node binary links and fails on a float token outside an exact-token allowlist, on a #[path] attribute, on an ML runtime (a non-exhaustive denylist matched by family prefix) anywhere in the node's Cargo.lock closure, or on a non-test src/ file of a linked crate outside fee-market naming its neural fee path (node tests and benches name it and are not linked). The tests are unit tests in the xtask binary (xtask/src/float_check/tests.rs, float_scope::tests), so the ledger checks that the file exists and CI's workspace nextest runs them; it does not count individual test functions. Runs in CI's reality ledger job."
 
 # --- Master Prompt 2: cryptography (ADR-007 .. ADR-010) -------------------
 

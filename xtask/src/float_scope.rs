@@ -12,36 +12,134 @@ use std::path::{Component, Path, PathBuf};
 /// The binary whose link graph is the scope.
 pub const NODE_BIN: &str = "bins/maya2c-node";
 
-/// Linked code that is not scanned: `(repo-relative dir or file, why no
-/// consensus rule depends on it)`. An entry needs a reviewer. Inside the node
-/// crate an entry is one file, never a module directory: `rpc/` and
-/// `network/` also hold block submission and sync (`Chain::insert_block*`),
-/// so a float added to any other file there must fail.
-pub const EXCLUDE: &[(&str, &str)] = &[
+/// `(repo-relative file, the exact float tokens it may hold, in order, why
+/// none of them reaches a consensus rule)`. Any other float in the file
+/// fails, so a new float in an operator-side file of `rpc/` or `network/`
+/// still needs a reviewer. An entry needs a reviewer.
+pub const ALLOW: &[(&str, &[&str], &str)] = &[
     (
-        "crates/node/src/rpc/limit.rs",
-        "per-IP token buckets refilled by elapsed seconds; they decide whether a request is answered, never what a block contains",
+        "bins/maya2c-node/src/bft.rs",
+        &["f64", "1_000.0"],
+        "`observe_finality` takes the finality latency in seconds for a Prometheus histogram; it is computed after the block is final and feeds nothing back",
     ),
     (
-        "crates/node/src/rpc/market.rs",
-        "listing-aggregator quotes (price, volume) an operator configures; the node only relays them",
-    ),
-    (
-        "crates/node/src/rpc/peers.rs",
-        "reports this node's local health score for a peer to the operator",
+        "crates/node/src/metrics/mod.rs",
+        &[
+            "f64",
+            "0.05",
+            "0.1",
+            "0.25",
+            "0.5",
+            "1.0",
+            "2.5",
+            "5.0",
+            "10.0",
+            "15.0",
+            "30.0",
+            "60.0",
+            "f64",
+            "0.001",
+            "0.005",
+            "0.01",
+            "0.025",
+            "0.05",
+            "0.1",
+            "0.25",
+            "0.5",
+            "1.0",
+            "2.5",
+            "f64",
+            "0.01",
+            "0.025",
+            "0.05",
+            "0.1",
+            "0.25",
+            "0.5",
+            "1.0",
+            "2.0",
+            "3.0",
+            "4.0",
+            "6.0",
+            "10.0",
+            "20.0",
+            "60.0",
+            "f64",
+            "f64",
+            "f64",
+            "0.0",
+            "as_secs_f64",
+            "as_secs_f64",
+            "f64",
+            "as_secs_f64",
+        ],
+        "Prometheus gauge and histogram buckets, read by operators only",
     ),
     (
         "crates/node/src/network/gossip_score.rs",
+        &[
+            "f64", "50.0", "f64", "0.9", "1.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0",
+        ],
         "gossipsub peer-score parameters: local mesh management, never in a block or the state root",
     ),
     (
         "crates/node/src/network/peer_health.rs",
+        &[
+            "f64",
+            "25.0",
+            "50.0",
+            "f64",
+            "100.0",
+            "f64",
+            "f64",
+            "0.0",
+            "as_secs_f64",
+            "as_secs_f64",
+            "f64",
+            "0.5f64",
+            "0.0",
+        ],
         "decayed per-peer health score that drives local quarantine of a peer, not block validity",
     ),
     (
-        "crates/node/src/metrics/mod.rs",
-        "Prometheus gauge and histogram buckets, read by operators only",
+        "crates/node/src/rpc/limit.rs",
+        &[
+            "f64",
+            "f64",
+            "f64",
+            "f64",
+            "f64",
+            "0.0",
+            "1.0",
+            "f64",
+            "f64",
+            "f64",
+            "as_secs_f64",
+            "f64",
+            "f64",
+            "as_secs_f64",
+        ],
+        "per-IP token buckets refilled by elapsed seconds; they decide whether a request is answered, never what a block contains",
     ),
+    (
+        "crates/node/src/rpc/market.rs",
+        &[
+            "f64", "f64", "f64", "f64", "f64", "f64", "f64", "f64", "f64",
+        ],
+        "listing-aggregator quotes (price, volume) an operator configures; the node only relays them",
+    ),
+    (
+        "crates/node/src/rpc/peers.rs",
+        &["f64"],
+        "reports this node's local health score for a peer to the operator",
+    ),
+];
+
+/// Linked crates that are not scanned for floats: `(repo-relative dir, why no
+/// consensus rule depends on it)`. An entry needs a reviewer, and the model
+/// check still reads it. Nothing inside the node crate is excluded: its
+/// operator-side floats are pinned token by token in `float_check::ALLOW`,
+/// because `rpc/` and `network/` also hold block submission and sync.
+pub const EXCLUDE: &[(&str, &str)] = &[
     (
         "crates/archive",
         "copies finalized blocks to disk or IPFS after the fact; progress and timing figures only",
@@ -319,12 +417,12 @@ mod tests {
     }
 
     #[test]
-    fn a_node_crate_exclusion_is_one_file_not_a_module_dir() {
-        for (e, _) in EXCLUDE
-            .iter()
-            .filter(|(e, _)| e.starts_with("crates/node/"))
-        {
-            assert!(e.ends_with(".rs"), "{e} excludes a whole directory");
+    fn nothing_in_the_node_crate_or_binary_is_excluded() {
+        for (e, _) in EXCLUDE {
+            assert!(
+                !under(e, "crates/node") && !under(e, NODE_BIN),
+                "{e}: node code is pinned in ALLOW, never excluded"
+            );
         }
     }
 

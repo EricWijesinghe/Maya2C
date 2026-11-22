@@ -65,6 +65,11 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   bound (#278).
 - **macOS Hub sidecar hash check** on the first tagged release that ships macOS.
 - **Kani `exact_out_never_undercharges`** stalls the nightly (ledger B40).
+- **Type-aware float lints for invariant 36 (after genesis).** `cargo xtask float-check` is a
+  lexer: a float with no float token in the scanned file (an inferred `"0.5".parse()`, a
+  registry `pub type Scalar = f64`, a registry function returning `f64`) passes it. Deny
+  `clippy::float_arithmetic`, `float_cmp` and `cast_precision_loss` for the `MUST_SCAN` crates
+  (`xtask/src/float_scope.rs`). Found in the 2026-11-23 review of PR #546 (ADR-148).
 
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 

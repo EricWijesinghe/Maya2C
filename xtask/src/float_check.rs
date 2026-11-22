@@ -13,30 +13,36 @@
 //! (`r#f64`) or as a `_` segment (`as_f64`), a float trait or wrapper
 //! ([`FLOAT_NAMES`]), or a float literal. Comments and strings never reach the
 //! token stream. Items under `#[cfg(test)]` or `#[test]` are skipped, and so
-//! is a file whose every `mod x;` declaration is under `#[cfg(test)]`; a `use`
-//! that binds the name `test` or globs in an outside crate (either could
-//! shadow `#[test]`) is itself a violation. It also fails if an ML runtime
-//! ([`ML_CRATES`], [`ML_FAMILIES`]) is anywhere in the node's dependency
-//! closure, or if a file outside fee-market names that crate's neural rule
-//! ([`MODEL_ENTRY`]).
+//! is a file whose every `mod x;` declaration (macro bodies included) is
+//! under `#[cfg(test)]`. A `use` that binds the name `test` or globs in an
+//! outside crate (either could shadow `#[test]`) is itself a violation, and
+//! so is a `#[path]` attribute outside a test item: it loads a file other
+//! than the one this check maps the module to, possibly outside `src/`. It
+//! also fails if an ML runtime ([`ML_CRATES`], [`ML_FAMILIES`], a denylist
+//! that is not exhaustive) is anywhere in the node's dependency closure, or
+//! if a scanned or excluded non-test file outside fee-market names that
+//! crate's neural rule ([`MODEL_ENTRY`]).
 //!
-//! Not caught: a float reached by type inference with no float token in the
-//! scanned file (`"0.5".parse()` into an inferred type, a function from an
-//! unscanned crate that returns `f64`), code outside `src/` (a `build.rs`,
-//! a `[lib] path` elsewhere, an `include!` of an unscanned file), and a
-//! `#[macro_use] extern crate` exporting a `test` macro; none of these occurs
+//! Not caught: a float with no float token in the scanned file, reached by
+//! type inference (`"0.5".parse()` into an inferred type) or through a
+//! registry crate (a `pub type Scalar = f64` alias, a function returning
+//! `f64`); code outside `src/` that no `#[path]` names (a `build.rs`, a
+//! `[lib] path` elsewhere, an `include!` of an unscanned file); and a
+//! `#[macro_use] extern crate` exporting a `test` macro. None of these occurs
 //! in linked code today. `clippy::float_arithmetic` uses type information and
-//! closes the first gap; it is not configured yet.
+//! closes the first two; it is not configured yet (BACKLOG.md).
 
 use std::path::{Path, PathBuf};
 
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 
-use crate::float_scope::{self, EXCLUDE, MUST_SCAN, under};
+use crate::float_scope::{self, ALLOW, EXCLUDE, MUST_SCAN, under};
 
 /// Crates that run a model. `maya-neural-fee` and `maya-zkml-prover` do not
 /// exist yet: they are reserved for the neural fee gain moved out of the node
 /// (PR #542) and a future zkML prover, so they fail the day they are linked.
+/// A denylist is never exhaustive: a runtime missing here passes, which is
+/// why the float scan, not this list, is the main line.
 const ML_CRATES: &[&str] = &[
     "ort",
     "onnxruntime",
@@ -46,6 +52,12 @@ const ML_CRATES: &[&str] = &[
     "tensorflow",
     "rten",
     "wonnx",
+    "linfa",
+    "smartcore",
+    "dfdx",
+    "mistralrs",
+    "kalosm",
+    "luminal",
     "maya-neural-fee",
     "maya-zkml-prover",
 ];
@@ -61,6 +73,13 @@ const ML_FAMILIES: &[&str] = &[
     "tensorflow-",
     "rten-",
     "wonnx-",
+    "linfa-",
+    "dfdx-",
+    "llama-cpp-",
+    "llama_cpp",
+    "mistralrs-",
+    "kalosm-",
+    "luminal_",
 ];
 
 fn is_ml_runtime(name: &str) -> bool {
@@ -83,15 +102,6 @@ const MODEL_ENTRY: &[&str] = &[
 
 /// The crate that defines [`MODEL_ENTRY`].
 const MODEL_HOME: &str = "crates/fee-market";
-
-/// `(repo-relative file, the exact float tokens it may hold, why none of them
-/// reaches a consensus rule)`. Any other float in the file still fails. An
-/// entry needs a reviewer.
-const ALLOW: &[(&str, &[&str], &str)] = &[(
-    "bins/maya2c-node/src/bft.rs",
-    &["f64", "1_000.0"],
-    "`observe_finality` takes the finality latency in seconds for a Prometheus histogram; it is computed after the block is final and feeds nothing back",
-)];
 
 /// Leading words of an item whose `,` does not end it (`fn f<A, B>()`, a
 /// `where` list). Anything else under a test attribute is a field, parameter,
@@ -144,14 +154,53 @@ fn test_only_mods(tokens: &[TokenTree]) -> Vec<String> {
         .filter(|&i| is_test_attr(tokens, i))
         .filter_map(|i| out_of_line_mod(tokens, i + 2))
         .collect();
-    let all: Vec<String> = (0..tokens.len())
-        .filter_map(|i| mod_decl(tokens, i))
-        .collect();
+    let mut all = Vec::new();
+    all_mod_decls(tokens, &mut all);
     let count = |v: &[String], m: &str| v.iter().filter(|x| *x == m).count();
     test.iter()
         .filter(|m| count(&test, m) == count(&all, m))
         .cloned()
         .collect()
+}
+
+/// Every `mod x;` in `tokens`, nested groups included: a macro body
+/// (`m! { mod x; }`) can compile one in beside a `#[cfg(test)] mod x;`.
+fn all_mod_decls(tokens: &[TokenTree], out: &mut Vec<String>) {
+    for (i, t) in tokens.iter().enumerate() {
+        if let TokenTree::Group(g) = t {
+            all_mod_decls(&g.stream().into_iter().collect::<Vec<_>>(), out);
+        }
+        out.extend(mod_decl(tokens, i));
+    }
+}
+
+/// `#[path = ..]`, `#![path = ..]`, or a `cfg_attr` that sets `path`, at `i`.
+/// The file it loads is not the one [`is_test_file`] maps the module to and
+/// may lie outside `src/`, so outside a test item it fails closed.
+fn is_path_attr(tokens: &[TokenTree], i: usize) -> bool {
+    if !is_punct(tokens.get(i), '#') {
+        return false;
+    }
+    let g = match (tokens.get(i + 1), tokens.get(i + 2)) {
+        (Some(TokenTree::Group(g)), _) => g,
+        (Some(t), Some(TokenTree::Group(g))) if is_punct(Some(t), '!') => g,
+        _ => return false,
+    };
+    if g.delimiter() != Delimiter::Bracket {
+        return false;
+    }
+    let body: Vec<TokenTree> = g.stream().into_iter().collect();
+    match ident_at(&body, 0).as_deref() {
+        Some("path") => is_punct(body.get(1), '='),
+        Some("cfg_attr") => {
+            let mut flat = Vec::new();
+            flatten(&body[1..], &mut flat);
+            (0..flat.len()).any(|k| {
+                ident_at(&flat, k).as_deref() == Some("path") && is_punct(flat.get(k + 1), '=')
+            })
+        }
+        _ => false,
+    }
 }
 
 fn scan(tokens: &[TokenTree], out: &mut FileScan) {
@@ -163,6 +212,9 @@ fn scan(tokens: &[TokenTree], out: &mut FileScan) {
         }
         if let Some(why) = use_shadow(tokens, i) {
             out.hits.push(why.to_owned());
+        }
+        if is_path_attr(tokens, i) {
+            out.hits.push("`#[path]` attribute".to_owned());
         }
         match &tokens[i] {
             TokenTree::Group(g) => scan(&g.stream().into_iter().collect::<Vec<_>>(), out),
@@ -305,9 +357,14 @@ fn ident_at(tokens: &[TokenTree], j: usize) -> Option<String> {
     }
 }
 
-/// `x` when the item at `j`, after its attributes, is `mod x;`.
+/// `x` when the item at `j`, after its attributes, is `mod x;` with no
+/// `#[path]`: such a module loads some other file, so `x.rs` is not a test.
 fn out_of_line_mod(tokens: &[TokenTree], j: usize) -> Option<String> {
-    mod_decl(tokens, after_attrs(tokens, j))
+    let k = after_attrs(tokens, j);
+    if (j..k).any(|a| is_path_attr(tokens, a)) {
+        return None;
+    }
+    mod_decl(tokens, k)
 }
 
 /// `x` when the tokens at `k` are `mod x;`.
@@ -501,6 +558,9 @@ fn check(root: &Path, rules: &Rules) -> Result<(String, Vec<String>), String> {
         .into_iter()
         .partition(|(f, _)| rules.exclude.iter().any(|(e, _)| under(f, e)));
     let mut failures = token_failures(&scanned, rules.allow);
+    // An exclusion waives floats only: the model check reads excluded files too.
+    failures.extend(model_failures(&scanned));
+    failures.extend(model_failures(&excluded));
     failures.extend(stale_entries(&scanned, &excluded, rules));
     let names: Vec<String> = scanned.iter().map(|(f, _)| f.clone()).collect();
     for m in unscanned(rules.must_scan, &names) {
@@ -523,7 +583,7 @@ fn check(root: &Path, rules: &Rules) -> Result<(String, Vec<String>), String> {
     Ok((summary, failures))
 }
 
-/// Floats outside the allowlist, and calls into fee-market's neural rule.
+/// Floats outside the allowlist.
 fn token_failures(scanned: &Scans, allow: &[(&str, &[&str], &str)]) -> Vec<String> {
     let mut out = Vec::new();
     for (f, s) in scanned {
@@ -538,14 +598,22 @@ fn token_failures(scanned: &Scans, allow: &[(&str, &[&str], &str)]) -> Vec<Strin
                 allowed.join(", ")
             ));
         }
-        if !s.model_refs.is_empty() && !under(f, MODEL_HOME) {
-            out.push(format!(
-                "{f}: {} (fee-market's neural rule, reached from outside it)",
-                s.model_refs.join(", ")
-            ));
-        }
     }
     out
+}
+
+/// Files outside fee-market that name its neural rule.
+fn model_failures(files: &Scans) -> Vec<String> {
+    files
+        .iter()
+        .filter(|(f, s)| !s.model_refs.is_empty() && !under(f, MODEL_HOME))
+        .map(|(f, s)| {
+            format!(
+                "{f}: {} (fee-market's neural rule, reached from outside it)",
+                s.model_refs.join(", ")
+            )
+        })
+        .collect()
 }
 
 /// Allowlist entries for no scanned file, and exclusions that cover no linked

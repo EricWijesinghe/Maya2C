@@ -139,7 +139,8 @@ fn a_test_field_parameter_variant_or_arm_hides_only_itself() {
 
 #[test]
 fn only_a_module_declared_under_cfg_test_marks_its_file_as_a_test() {
-    let s = scan_file("#[cfg(test)]\nmod tests;\npub mod real;\n#[cfg(test)] #[path = \"x.rs\"] pub(crate) mod more;").unwrap();
+    let s = scan_file("#[cfg(test)]\nmod tests;\npub mod real;\n#[cfg(test)] pub(crate) mod more;")
+        .unwrap();
     assert_eq!(s.test_mods, ["tests", "more"]);
     let decls = [
         ("crates/a/src/suite/mod.rs".to_owned(), s.test_mods.clone()),
@@ -185,6 +186,36 @@ fn a_module_also_declared_outside_cfg_test_is_scanned() {
 }
 
 #[test]
+fn a_path_attribute_fails_and_never_marks_a_test_file() {
+    // `live` compiles helpers.rs in production; the test `mod helpers;` must
+    // not hide it.
+    let s = scan_file("#[cfg(test)] mod helpers;\n#[path = \"helpers.rs\"] mod live;").unwrap();
+    assert_eq!(s.hits, ["`#[path]` attribute"]);
+    // A file outside `src/`, which the scan never reads.
+    assert_eq!(
+        hits("#[path = \"../../elsewhere/x.rs\"] mod m;"),
+        ["`#[path]` attribute"]
+    );
+    assert_eq!(
+        hits("#![path = \"a\"] #[cfg_attr(unix, path = \"u.rs\")] mod n;"),
+        ["`#[path]` attribute", "`#[path]` attribute"]
+    );
+    // A test module loading another file marks neither file as a test.
+    let t = scan_file("#[cfg(test)] #[path = \"x.rs\"] mod more;").unwrap();
+    assert_eq!((t.hits.len(), t.test_mods.len()), (0, 0));
+    assert_eq!(
+        hits("#[doc = \"path = x\"] #[serde(rename = \"path\")] fn f() {}"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_module_a_macro_also_declares_is_scanned() {
+    let s = scan_file("#[cfg(test)] mod x;\nm! { mod x; }\n#[cfg(test)] mod t;").unwrap();
+    assert_eq!(s.test_mods, ["t"]);
+}
+
+#[test]
 fn a_glob_import_of_an_outside_crate_is_found() {
     assert_eq!(
         hits("use outside::prelude::*;"),
@@ -220,6 +251,11 @@ fn an_ml_runtime_is_matched_by_its_family_not_only_its_facade() {
         "rten",
         "wonnx",
         "tensorflow",
+        "linfa-trees",
+        "smartcore",
+        "dfdx-core",
+        "llama-cpp-2",
+        "mistralrs-core",
     ] {
         assert!(is_ml_runtime(name), "{name} not caught");
     }
@@ -251,6 +287,11 @@ fn every_kind_of_violation_in_a_tree_is_reported() {
         (&format!("{node}/Cargo.toml"), manifest),
         (&format!("{node}/src/main.rs"), main),
         (&format!("{node}/src/quiet.rs"), "pub fn q() -> u8 { 1 }\n"),
+        // An exclusion waives floats, never the model check.
+        (
+            &format!("{node}/src/loud.rs"),
+            "pub fn l() -> f64 { resolve_base_fee() }\n",
+        ),
         (&format!("{node}/src/calm/a.rs"), "pub fn a() -> u8 { 1 }\n"),
     ] {
         let p = fx.0.join(path);
@@ -261,6 +302,7 @@ fn every_kind_of_violation_in_a_tree_is_reported() {
         allow: &[("bins/maya2c-node/src/gone.rs", &["f64"], "fixture")],
         exclude: &[
             ("bins/maya2c-node/src/quiet.rs", "fixture"),
+            ("bins/maya2c-node/src/loud.rs", "fixture"),
             ("bins/maya2c-node/src/calm", "fixture"),
             ("crates/unlinked", "fixture"),
         ],
@@ -272,6 +314,7 @@ fn every_kind_of_violation_in_a_tree_is_reported() {
         [
             "bins/maya2c-node/src/main.rs: glob `use` of an outside crate, f64, 0.5 (allowlist expects [])",
             "bins/maya2c-node/src/main.rs: apply_block_fees (fee-market's neural rule, reached from outside it)",
+            "bins/maya2c-node/src/loud.rs: resolve_base_fee (fee-market's neural rule, reached from outside it)",
             "bins/maya2c-node/src/gone.rs: allowlisted but not scanned (stale entry)",
             "bins/maya2c-node/src/quiet.rs: excluded but holds no float (stale entry)",
             "bins/maya2c-node/src/calm: excluded but holds no float (stale entry)",

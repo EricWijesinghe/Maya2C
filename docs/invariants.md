@@ -281,10 +281,14 @@ phase that did it.
     model may not decide anything. The integer fee model in
     `crates/fee-market/src/model/` is compiled in and dormant because the
     node never calls it: `crates/node/src/state/fees.rs` computes the base
-    fee with the linear `next_base_fee`, and no file outside fee-market
-    names its neural path (`apply_block_fees*`, `resolve_base_fee`,
-    `is_neural_active`, `next_base_fee_by_rule`, `FeeRule`, `MODEL_V1`;
-    checked by float-check). The `FeeConfig` in `crates/node/src/genesis.rs`
+    fee with the linear `next_base_fee`, and no non-test `src/` file of a
+    crate the node links, outside fee-market, names its neural path
+    (`apply_block_fees*`, `resolve_base_fee`, `is_neural_active`,
+    `next_base_fee_by_rule`, `FeeRule`, `MODEL_V1`; checked by float-check,
+    excluded crates included). Tests, benches and other binaries do name it
+    (`crates/node/tests/neural_fee_tests.rs`, `fee_market_tests.rs`,
+    `conformance.rs`, `crates/node/benches/gas_predictor.rs`,
+    `bins/neural-gas-trainer`); none of them is linked into the node. The `FeeConfig` in `crates/node/src/genesis.rs`
     sets `neural_activation_height` to `u64::MAX` but is only validated, not
     stored. Calling that path from the node is an amendment to this
     invariant, not a parameter change. The rule lived under invariant 20, which retired with
@@ -301,49 +305,55 @@ phase that did it.
     `NotNan`), a float literal (signed exponents and `f16`/`f128` suffixes
     included), or a `use` that could shadow the `#[test]` the scanner trusts:
     one that binds the name `test`, or a glob from outside `std`, `core`,
-    `alloc`, `crate`, `super` and `self`. A file counts as a test only when
-    every `mod` declaring it is under `#[cfg(test)]`. A test-only field whose `<` may have been a
-    comparison is scanned past its first comma (fails closed). Excluded,
-    each with a written reason (`EXCLUDE`, ADR-148): six single files in the
-    node crate that hold floats today (`rpc/limit.rs`, `rpc/market.rs`,
-    `rpc/peers.rs`, `network/gossip_score.rs`, `network/peer_health.rs`,
-    `metrics/mod.rs`; a test pins that a node-crate entry is a file), and two
-    crates as a whole (`archive`, `hal/ebpf-net`). Any entry, file or
-    directory, under which no file holds a float fails as stale. That these
-    exclusions are off the consensus path is a review judgement, written in
-    each reason; no test pins it. Any
-    other file in the node's `rpc` and `network` modules, which also carry
-    block submission and sync, is scanned. One allowlist entry holds the
-    finality-latency metric in `bins/maya2c-node/src/bft.rs`, and lists the
-    exact tokens allowed, so any other float in that file still fails. The
+    `alloc`, `crate`, `super` and `self`, or a `#[path]` attribute (it loads
+    a file other than the one the scanner maps the module to, possibly
+    outside `src/`). A file counts as a test only when every `mod` declaring
+    it, macro bodies included, is under `#[cfg(test)]` and carries no
+    `#[path]`. A test-only field whose `<` may have been a
+    comparison is scanned past its first comma (fails closed). Two crates
+    are excluded from the float scan as a whole, each with a written reason
+    (`EXCLUDE`, ADR-148): `archive` and `hal/ebpf-net`; the model check still
+    reads them, and an entry under which no file holds a float fails as
+    stale. Nothing in the node crate is excluded (a test pins it): the
+    operator-side floats in `rpc/limit.rs`, `rpc/market.rs`, `rpc/peers.rs`,
+    `network/gossip_score.rs`, `network/peer_health.rs`, `metrics/mod.rs`
+    and the finality-latency metric in `bins/maya2c-node/src/bft.rs` are
+    allowlist entries (`ALLOW`) that list the exact tokens allowed, in order,
+    so any other float in those files fails. That those tokens are off the
+    consensus path is a review judgement written in each reason. The
     check also fails if a named consensus path stops being scanned
     (`MUST_SCAN`), and if an ML runtime (`ort`, `onnxruntime`, `burn`, `tch`,
     `torch-sys`, `tensorflow`, `rten`, `wonnx`, every `tract-*`, `candle-*`,
     `burn-*`, `ort-*`, `onnxruntime-*`, `tensorflow-*`, `rten-*` and
-    `wonnx-*` crate, and the reserved names `maya-neural-fee` and
-    `maya-zkml-prover`, which no crate uses yet) is anywhere in the node's
+    `wonnx-*` crate, `linfa`, `smartcore`, `dfdx`, `llama-cpp-*`,
+    `mistralrs`, `kalosm`, `luminal` and their families, and the reserved
+    names `maya-neural-fee` and `maya-zkml-prover`, which no crate uses yet;
+    a denylist, not exhaustive) is anywhere in the node's
     dependency closure, walked through `Cargo.lock`
     (transitive, renamed and target-specific dependencies included). Runs in
-    CI's `reality ledger` job. Pinned by `xtask/src/float_check.rs`
-    (`the_consensus_crates_hold_no_float_and_no_model`,
+    CI's `reality ledger` job. Pinned by unit tests that CI's workspace
+    nextest job runs (`the_consensus_crates_hold_no_float_and_no_model`,
     `a_float_type_or_literal_is_found_anywhere_in_code`,
     `other_float_types_and_wrappers_are_found`,
     `an_import_that_shadows_the_test_attribute_is_found`,
     `a_glob_import_of_an_outside_crate_is_found`,
     `a_test_field_parameter_variant_or_arm_hides_only_itself`,
     `a_module_also_declared_outside_cfg_test_is_scanned`,
+    `a_path_attribute_fails_and_never_marks_a_test_file`,
+    `a_module_a_macro_also_declares_is_scanned`,
     `an_ml_runtime_is_matched_by_its_family_not_only_its_facade`,
-    `every_kind_of_violation_in_a_tree_is_reported`) and
-    `xtask/src/float_scope.rs`
+    `every_kind_of_violation_in_a_tree_is_reported`; in
+    `xtask/src/float_check/tests.rs`) and `xtask/src/float_scope.rs`
     (`an_ml_runtime_two_hops_away_is_in_the_lock_closure`,
-    `a_node_crate_exclusion_is_one_file_not_a_module_dir`). Not covered: a
-    float reached by type inference with no float token in the scanned file
-    (`"0.5".parse()` into an inferred type, or an `f64` returned by a function
-    in an excluded crate); `clippy::float_arithmetic` uses type information
-    and would catch these, and is not configured yet. Code outside `src/`
-    (a `build.rs`, a `[lib] path` elsewhere, an `include!` of an unscanned
-    file), or a `#[macro_use] extern crate` exporting a `test` macro; none
-    occurs in linked code today. The model half is enforced only by the
+    `nothing_in_the_node_crate_or_binary_is_excluded`). Not covered: a
+    float with no float token in the scanned file, reached by type inference
+    (`"0.5".parse()` into an inferred type) or through a registry crate (a
+    `pub type Scalar = f64` alias, an `f64` returned by a registry or
+    excluded-crate function); `clippy::float_arithmetic` uses type
+    information and would catch these, and is not configured yet (BACKLOG.md).
+    Code outside `src/` that no `#[path]` names (a `build.rs`, a `[lib] path`
+    elsewhere, an `include!` of an unscanned file), or a `#[macro_use]
+    extern crate` exporting a `test` macro; none occurs in linked code today. The model half is enforced only by the
     ML-crate denylist and the fee-market entry-point check: an integer model
     elsewhere, which a lexer cannot tell from other integer code, or a model
     run off-node whose output is stored and later read by a rule, is not
