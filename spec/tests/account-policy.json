@@ -167,6 +167,37 @@
     },
     {
       "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-tip-over-fee-headroom",
+      "input": {
+        "amount": "1",
+        "collector": "10913",
+        "max_amount": "54561",
+        "required_fee": "5456"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "Account",
+        "result": "error"
+      },
+      "id": "AA-session-collector-output-with-fees-off",
+      "input": {
+        "amount": "1",
+        "collector": "1",
+        "max_amount": "100"
+      },
+      "rules": [
+        "AA-8"
+      ]
+    },
+    {
+      "expect": {
         "error": "AuthorityMoved",
         "result": "error"
       },

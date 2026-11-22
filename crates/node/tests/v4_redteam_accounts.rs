@@ -236,6 +236,27 @@ fn a_guardian_with_a_daily_limit_cancels_a_vault_request_during_a_halt() {
 }
 
 #[test]
+fn an_owner_revokes_a_leaked_session_key_during_a_halt() {
+    use custom_l1_node::state::invariant_guard::{BreakerRecord, Invariant, Module, guard_key};
+    // Decision 8: a halt of Module::Account must not leave a leaked key live.
+    let mut s = Scene::opted_in();
+    let halt = BreakerRecord {
+        module: Module::Account,
+        invariant: Invariant::CouncilPause,
+        tripped_at: s.chain.height,
+        until: s.chain.height + 1_000,
+    };
+    s.chain
+        .db
+        .raw_put_for_test(&guard_key(Module::Account), &halt.encode())
+        .unwrap();
+    let digest = s.session_policy.digest();
+    s.owner_does(AccountAction::RevokeSessionKey { key_hash: digest })
+        .expect("revoke is never halted");
+    refused(&mut s, "authority moved", |s| s.session_pays(PAYEE, 1));
+}
+
+#[test]
 fn a_sixteen_recipient_scope_pays_its_last_recipient() {
     // The membership test's bound (MAX_SESSION_RECIPIENTS) is admitted in
     // full; seventeen does not decode (vector AA-seventeen-recipients).

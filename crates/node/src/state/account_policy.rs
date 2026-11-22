@@ -56,6 +56,11 @@ pub const MAX_SESSION_BLOCKS: u64 = maya_governance::limits::MAX_SCHEDULE_HORIZO
 /// Verification budget of one session-signed frame, in cost units
 /// (ML-DSA-65 = 1), the smart-account crate's `MAX_VALIDATION_COST`.
 pub const MAX_SESSION_COST: u64 = 40;
+/// Most a session frame may pay the fee collector, in multiples of the
+/// required fee (AA-8): room for a base-fee step between mempool admission
+/// and inclusion, too little to route a cap to validators as tips.
+/// Consensus once bit 45 is on: never edit in place.
+pub const SESSION_FEE_HEADROOM: u64 = 2;
 
 /// Relative verification cost per suite, the table of
 /// `maya_smart_account::account::verify_cost`, copied because a core crate
@@ -334,6 +339,25 @@ impl StateDB {
             .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
         if paid.is_zero() {
             return refuse("a session frame must pay a listed recipient a non-zero amount");
+        }
+        // Everything over the required fee is a tip that ends in the staking
+        // pool: uncapped, a leaked key could route its whole cap to validators
+        // instead of a listed recipient. The headroom absorbs a base-fee step
+        // between admission and inclusion; with fees off nothing is a fee.
+        let tipped = tx
+            .outputs
+            .iter()
+            .filter(|o| o.recipient == FEE_COLLECTOR)
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
+        let fee_cap = match self.fee_record(overlay)? {
+            Some(fees) => maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()))
+                .saturating_mul(U256::from(SESSION_FEE_HEADROOM)),
+            None => U256::zero(),
+        };
+        if tipped > fee_cap {
+            return refuse(format!(
+                "a session frame may pay the fee collector at most {fee_cap}, not {tipped}"
+            ));
         }
         // The cap is the key's total over every output, the fee included (the
         // window and the vault exempt the required fee; a session key may not):

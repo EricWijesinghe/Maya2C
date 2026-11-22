@@ -15,6 +15,8 @@
 mod account_scene;
 
 use account_scene::*;
+use custom_l1_node::core::account_payload::GuardianSet;
+use custom_l1_node::state::account_authority::MIN_DELAY_BLOCKS;
 use custom_l1_node::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
 // ------------------------------------------------------------------- tests --
@@ -240,6 +242,180 @@ fn with_fees_on_a_session_frames_fee_counts_against_its_cap() {
 }
 
 #[test]
+fn a_session_frame_cannot_route_its_cap_to_the_fee_collector() {
+    // A leaked key pays 1 unit to a listed recipient and the rest of its cap
+    // as a tip, which ends in the staking pool: refused over 2x the required
+    // fee (AA-8, SESSION_FEE_HEADROOM).
+    let mut s = Scene::opted_in();
+    let required = required_fee(|fee| s.session_pays_with_fee(1, fee));
+    s.regrant_session(1 + 10 * required).unwrap();
+    s.fees_on();
+    refused(&mut s, "fee collector at most", |s| {
+        let tx = s.session_pays_with_fee(1, 2 * required + 1);
+        s.chain.send(tx)
+    });
+    let tx = s.session_pays_with_fee(1, 2 * required);
+    s.chain.send(tx).expect("a tip within the headroom");
+}
+
+#[test]
+fn with_fees_off_a_session_frame_pays_the_collector_nothing() {
+    let mut s = Scene::opted_in();
+    refused(&mut s, "fee collector at most 0", |s| {
+        let tx = s.session_pays_with_fee(1, 1);
+        s.chain.send(tx)
+    });
+}
+
+#[test]
+fn a_finished_recovery_voids_the_thiefs_session_key() {
+    // The headline case: the thief's key, granted under the stolen owner key,
+    // dies when the guardians finish a recovery (finish_recovery writes
+    // since = height).
+    let mut s = Scene::opted_in();
+    let guardian = guardian_of(&mut s);
+    s.owner_does(AccountAction::AddSessionKey {
+        key_hash: s.session_policy.digest(),
+        scope: scope(CAP, LONG_EXPIRY, vec![PAYEE]),
+    })
+    .unwrap();
+    let new_owner = device(0x0A);
+    let target = s.address;
+    guardian_sends(
+        &mut s,
+        &guardian,
+        AccountAction::ProposeRecovery {
+            account: target,
+            policy: session_policy(&new_owner),
+        },
+    )
+    .expect("propose");
+    s.session_pays(PAYEE, 1)
+        .expect("live until the recovery finishes");
+    s.chain.next_at(s.chain.height + MIN_DELAY_BLOCKS);
+    guardian_sends(
+        &mut s,
+        &guardian,
+        AccountAction::FinishRecovery { account: target },
+    )
+    .expect("finish");
+    refused(&mut s, "authority moved", |s| s.session_pays(PAYEE, 1));
+}
+
+#[test]
+fn a_key_granted_after_a_queued_change_matures_survives_normalisation() {
+    // effective_since's queued branch: a key granted after a queued AdoptPolicy
+    // matured, but before the record was rewritten, is bound to `ready`; the
+    // next write normalises since = ready and the key must stay live.
+    let mut s = Scene::opted_in();
+    guardian_of(&mut s);
+    let b_key = device(0x0A);
+    let b = session_policy(&b_key);
+    s.owner_does(AccountAction::AdoptPolicy(b.clone()))
+        .expect("queued behind the delay");
+    s.chain.next_at(s.chain.height + 1 + MIN_DELAY_BLOCKS);
+    let as_b = |s: &Scene, action| {
+        v9_frame(
+            s.address,
+            &b,
+            account(action),
+            vec![],
+            s.chain.nonce(&s.address),
+            |m| {
+                vec![Approval {
+                    index: 0,
+                    signature: MlDsa65::sign(&b_key, m).unwrap(),
+                }]
+            },
+        )
+    };
+    let grant = AccountAction::AddSessionKey {
+        key_hash: s.session_policy.digest(),
+        scope: scope(CAP, s.chain.height + 1 + LONG_EXPIRY, vec![PAYEE]),
+    };
+    let tx = as_b(&s, grant);
+    s.chain.send(tx).expect("B signs once matured");
+    s.session_pays(PAYEE, 1).expect("granted under B");
+    // A second queued change normalises the record (since = ready).
+    let tx = as_b(
+        &s,
+        AccountAction::AdoptPolicy(session_policy(&device(0x0B))),
+    );
+    s.chain.send(tx).expect("normalising write");
+    s.session_pays(PAYEE, 1)
+        .expect("still B's generation after normalisation");
+}
+
+#[test]
+fn the_mempool_refuses_a_session_frame_over_the_daily_window() {
+    let mut s = Scene::opted_in();
+    s.owner_does(AccountAction::SetDailyLimit {
+        limit: U256::from(CAP / 2),
+    })
+    .unwrap();
+    let over = s.as_session(TxKind::Transfer, pay_to(PAYEE, CAP / 2 + 1));
+    let (pool, _dir) = pool_at_tip(s);
+    let err = pool.validate(&over).unwrap_err().to_string();
+    assert!(err.contains("past the account's limit"), "{err}");
+}
+
+/// Blocks a session key lives in the recovery tests: past the guardian delay.
+const LONG_EXPIRY: u64 = 2 * MIN_DELAY_BLOCKS;
+
+/// A funded hybrid-key account set as the scene's only guardian (1 of 1,
+/// the shortest delay).
+fn guardian_of(s: &mut Scene) -> HybridSigningKey {
+    let key = signing_key_from_seed(&[0x07; 32]).unwrap();
+    let funded = Account {
+        balance: U256::from(FUNDS),
+        nonce: 0,
+    };
+    s.chain.db.put_account(&key.address(), &funded).unwrap();
+    s.owner_does(AccountAction::SetGuardians(GuardianSet {
+        guardians: vec![key.address()],
+        threshold: 1,
+        delay_blocks: MIN_DELAY_BLOCKS,
+    }))
+    .expect("set guardians");
+    key
+}
+
+fn guardian_sends(
+    s: &mut Scene,
+    key: &HybridSigningKey,
+    action: AccountAction,
+) -> Result<(), String> {
+    let mut tx = Transaction::with_kind(account(action), s.chain.nonce(&key.address()));
+    tx.sign(key, &CHAIN).unwrap();
+    s.chain.send(tx)
+}
+
+/// A mempool judging at the scene's state: a tip at height 0 and a version-2
+/// schedule entry switching bits 9 and 45 on at height 1.
+fn pool_at_tip(s: Scene) -> (Mempool, TempDir) {
+    s.chain
+        .db
+        .init_chain(
+            &s.chain.block(vec![]),
+            custom_l1_node::consensus::U256::ZERO,
+        )
+        .unwrap();
+    let features = FeatureSet::ACCOUNT_AUTHORITY | FeatureSet::ACCOUNT_POLICY;
+    // The version record: version u32 LE, activation height u64 LE, bits u64 LE.
+    let entry = [
+        2u32.to_le_bytes().as_slice(),
+        1u64.to_le_bytes().as_slice(),
+        features.to_le_bytes().as_slice(),
+    ]
+    .concat();
+    s.chain
+        .db
+        .raw_put_for_test(&version_key(2), &entry)
+        .unwrap();
+    (Mempool::new(Arc::new(s.chain.db)), s.chain._dir)
+}
+
+#[test]
 fn with_fees_on_the_required_fee_is_outside_the_window() {
     let mut s = Scene::opted_in();
     s.owner_does(AccountAction::SetDailyLimit {
@@ -264,30 +440,10 @@ fn the_mempool_admits_a_session_frame_inside_its_scope() {
     let required = required_fee(|fee| s.session_pays_with_fee(CAP, fee));
     s.regrant_session(CAP + required).unwrap();
     s.fees_on();
-    // The mempool judges at the tip under the committed schedule: a tip at
-    // height 0 and a version-2 entry switching bits 9 and 45 on at height 1.
-    s.chain
-        .db
-        .init_chain(
-            &s.chain.block(vec![]),
-            custom_l1_node::consensus::U256::ZERO,
-        )
-        .unwrap();
-    let features = FeatureSet::ACCOUNT_AUTHORITY | FeatureSet::ACCOUNT_POLICY;
-    // The version record: version u32 LE, activation height u64 LE, bits u64 LE.
-    let entry = [
-        2u32.to_le_bytes().as_slice(),
-        1u64.to_le_bytes().as_slice(),
-        features.to_le_bytes().as_slice(),
-    ]
-    .concat();
-    s.chain
-        .db
-        .raw_put_for_test(&version_key(2), &entry)
-        .unwrap();
+    // The mempool judges at the tip under the committed schedule.
     let inside = s.session_pays_with_fee(CAP, required);
     let over = s.session_pays_with_fee(CAP + 1, required);
-    let pool = Mempool::new(Arc::new(s.chain.db));
+    let (pool, _dir) = pool_at_tip(s);
     pool.validate(&inside)
         .expect("a session frame inside its scope");
     let err = pool.validate(&over).unwrap_err().to_string();
@@ -560,6 +716,15 @@ fn vector_cases() -> serde_json::Value {
     let required = required_fee(|fee| s.session_pays_with_fee(1, fee));
     let tx = s.session_pays_with_fee(1, required);
     let fee_over_cap = s.chain.send(tx);
+    let mut s = Scene::opted_in();
+    let tip_required = required_fee(|fee| s.session_pays_with_fee(1, fee));
+    s.regrant_session(1 + 10 * tip_required).unwrap();
+    s.fees_on();
+    let tx = s.session_pays_with_fee(1, 2 * tip_required + 1);
+    let tip_over_headroom = s.chain.send(tx);
+    let mut s = Scene::opted_in();
+    let tx = s.session_pays_with_fee(1, 1);
+    let tip_fees_off = s.chain.send(tx);
     let pays_nothing = Scene::opted_in().session_pays(PAYEE, 0);
     let mut s = Scene::opted_in();
     s.owner_does(AccountAction::AdoptPolicy(session_policy(&device(0x0A))))
@@ -605,6 +770,8 @@ fn vector_cases() -> serde_json::Value {
             {"id": "AA-session-revoked", "rules": ["AA-8"], "expect": outcome(revoked)},
             {"id": "AA-session-total-over-cap", "rules": ["AA-8"], "input": {"spent": CAP.to_string(), "amount": "1", "max_amount": CAP.to_string()}, "expect": outcome(total_over)},
             {"id": "AA-session-fee-counts-against-cap", "rules": ["AA-8"], "input": {"amount": "1", "required_fee": required.to_string(), "max_amount": CAP.to_string()}, "expect": outcome(fee_over_cap)},
+            {"id": "AA-session-tip-over-fee-headroom", "rules": ["AA-8"], "input": {"amount": "1", "collector": (2 * tip_required + 1).to_string(), "required_fee": tip_required.to_string(), "max_amount": (1 + 10 * tip_required).to_string()}, "expect": outcome(tip_over_headroom)},
+            {"id": "AA-session-collector-output-with-fees-off", "rules": ["AA-8"], "input": {"amount": "1", "collector": "1", "max_amount": CAP.to_string()}, "expect": outcome(tip_fees_off)},
             {"id": "AA-session-after-authority-change", "rules": ["AA-8"], "expect": outcome(authority_moved)},
             {"id": "AA-session-pays-no-recipient", "rules": ["AA-8"], "input": {"amount": "0", "max_amount": CAP.to_string()}, "expect": outcome(pays_nothing)},
             {"id": "AA-window-at-limit", "rules": ["AA-9"], "input": {"limit": (CAP + 1).to_string(), "spent": "0", "amount": CAP.to_string()}, "expect": outcome(window_fill)},

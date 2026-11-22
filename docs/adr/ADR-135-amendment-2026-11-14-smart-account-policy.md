@@ -7,10 +7,12 @@ ADR-135 itself is on `docs/adr-135-v4-umbrella` (PR #477) and not on this
 branch's base (`postgen/account-authority`, PR #447). This file holds the
 amendment so the PR that builds P-5 carries its own design record. When #477
 lands, this text is appended to ADR-135's "Amendment" section and this file is
-removed. Decided under Eric 2026-11-14 ("I approve everything, proceed"),
-except the items marked **PENDING Eric**, which that approval does not cover;
-DECISIONS.md has the entry. Ten decisions below: 1-4, 6-8 and 10 decided
-under that approval; 5 and 9 **PENDING Eric**.
+removed. Attribution: Eric's 2026-11-14 approval ("I approve everything,
+proceed") was blanket and chose none of these options. Decision 4 follows
+Eric's own answer to ADR-135 O-1 (2026-11-12). Decisions 1-3, 6-8 and 10 are
+Claude-proposed, adopted within that blanket approval, and open to Eric's
+review like any other. Decisions 5 and 9 are **PENDING Eric**, which the
+blanket approval does not cover. DECISIONS.md has the entry.
 
 ## Context
 
@@ -67,7 +69,18 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    `a_session_key_at_its_cap_cannot_burn_the_account_in_fees`,
    `a_session_frame_paying_nobody_cannot_take_nonces_with_fees_off`; vectors
    `AA-session-fee-counts-against-cap`, `AA-session-pays-no-recipient`.
-   Decided under Eric 2026-11-14.
+   Third review round: the collector outputs of a session frame are capped
+   at `SESSION_FEE_HEADROOM` (2) times the required fee, and must be zero
+   while fees are off. Everything above the required fee is a tip that ends
+   in the staking pool, so without the cap a leaked key could pay 1 unit to
+   a listed recipient and route the rest of its cap to validators (one of
+   whom may be the thief). The 2x headroom absorbs a base-fee step between
+   mempool admission and inclusion. Tests:
+   `a_session_frame_cannot_route_its_cap_to_the_fee_collector`,
+   `with_fees_off_a_session_frame_pays_the_collector_nothing`; vectors
+   `AA-session-tip-over-fee-headroom`,
+   `AA-session-collector-output-with-fees-off`.
+   Claude-proposed (PR #548 review), within the blanket approval.
 4. **Window = 86,400 blocks**, not 43,200: one day at ADR-135 O-1's answer,
    "1 block/s", recorded in ADR-135's "Eric's answers (2026-11-12)" table
    (branch `docs/adr-135-v4-umbrella`, PR #477). 43,200 was the
@@ -118,8 +131,8 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    ordinary frames can move. Tests:
    `a_limited_account_cannot_move_value_without_outputs`
    (`v4_redteam_accounts.rs`), vector
-   `AA-window-refuses-a-kind-without-outputs`. Decided under Eric
-   2026-11-14.
+   `AA-window-refuses-a-kind-without-outputs`. Claude-proposed (V4-V1 red
+   team), within the blanket approval.
    Two vault actions stay open (PR #548 review): `Cancel` and `Execute`.
    Neither moves the sender's balance (`Cancel` returns escrow to the
    vault's owner, `Execute` pays escrow already debited from it), and
@@ -136,7 +149,10 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
    module map is a function of the transaction alone, and whether a new
    limit is lower depends on state; exempting every non-zero `SetDailyLimit`
    would let an owner-key thief raise the limit during a halt. Revoking the
-   leaked session key is the defence that is never halted.
+   leaked session key is the defence that is never halted. Tests:
+   `cancel_and_withdraw_are_never_halted` (`account_authority_tests.rs`),
+   `an_owner_revokes_a_leaked_session_key_during_a_halt`
+   (`v4_redteam_accounts.rs`).
 9. **`max_amount` is cumulative** (changed in the PR #548 review). As first
    built it capped each frame, so without a daily limit a leaked key could
    sign one capped frame per nonce until `expires_at`, up to a year. Now the
@@ -162,7 +178,7 @@ Order 9: each is recorded, not worked around. Spec rules AA-7..AA-10
     (vector `AA-root-without-policy-rows`: a chain with no policy rows keeps
     its root byte for byte). Promotion to REAL is the written decision that
     schedules bit 45 at a height, after decisions 5 and 9 are closed.
-    Decided under Eric 2026-11-14.
+    Claude-proposed, within the blanket approval.
 
 Also as built: the verification budget (40 units) applies to session-signed
 frames only, so #447's 3-of-5 hybrid owner frames (55 units) are unchanged;

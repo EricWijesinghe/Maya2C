@@ -679,6 +679,12 @@ fn cancel_and_withdraw_are_never_halted() {
         Module::of(&account(AccountAction::WithdrawApproval { account: a })),
         None
     );
+    // ADR-135 amendment decision 8: an owner can revoke a leaked session key
+    // while Module::Account is halted.
+    assert_eq!(
+        Module::of(&account(AccountAction::RevokeSessionKey { key_hash: a })),
+        None
+    );
     assert_eq!(
         Module::of(&account(AccountAction::FinishRecovery { account: a })),
         Some(Module::Account)
