@@ -47,7 +47,7 @@
 - **Consensus.** DAG-BFT: Narwhal + Bullshark, stake-weighted finality ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)).
 - **Execution.** A metered WASM VM, an EIP-1559 fee market over bytes, and a state root every block must reproduce (invariant 24).
 - **Transport.** libp2p over TCP and WebSocket, with ML-KEM-1024 (ML-KEM-768 as fallback) layered on Noise ([docs/pq-transport.md](docs/pq-transport.md)).
-- **Supply.** No premine apart from the disclosed 7,000 coins of genesis validator bonds (7 × 1,000, one operator). The schedule for the four halving eras of mining rewards totals **19,687,500 coins**, and at most that is paid ([ADR-068](docs/adr/ADR-068-forever-mining.md)). Shown separately: a tail of about 23.96 coins per 3,600-block epoch after those eras, for ever, and the bonds above. The whole base fee of every transaction burns ([ADR-029](docs/adr/ADR-029-fee-market-live.md)).
+- **Supply.** No premine apart from the disclosed 7,742 coins of genesis validator bonds (7 × 1,106, one operator: `min_self_bond` plus 10.6%, ADR-070 amendment 2026-11-22, pending Eric). The schedule for the four halving eras of mining rewards totals **19,687,500 coins**, and at most that is paid ([ADR-068](docs/adr/ADR-068-forever-mining.md)). Shown separately: a tail of about 23.96 coins per 3,600-block epoch after those eras, for ever, and the bonds above. The whole base fee of every transaction burns ([ADR-029](docs/adr/ADR-029-fee-market-live.md)).
 - **Money math.** 256-bit amounts in `ledger-math`, which keeps C and C++ out of its dependency graph so Kani can check it.
 - **Apps.** Maya2C Wallet, Maya2C Chat, Maya2C Hub, an explorer, SDKs, and an MCP server for AI assistants that reads and drafts but never signs.
 
