@@ -24,7 +24,7 @@ Feature: the Omega design's three-speed evolution and bounded integer controller
   governance-installs-code attack.
 - **Controllers:** feedback control on chain is established (EIP-1559, PID
   proposals). The difference proposed here is a rule: every adaptive consensus
-  parameter uses integer-only law (invariant 20) with a machine-checked output
+  parameter uses integer-only law (invariant 36) with a machine-checked output
   bound.
 
 ## What may be said publicly

@@ -221,7 +221,7 @@ members = [
     "bins/htlc-watcher",
     # Training for the fee market's neural gain: a synthetic demand simulator,
     # float SGD, and quantization into fee-market's integer weight file. Floats
-    # stop here; the node does not depend on it (invariant 20).
+    # stop here; the node does not depend on it (invariant 36).
     "bins/neural-gas-trainer",
     # Stateless transfer execution: a keyed sparse Merkle commitment over
     # accounts, its witnesses, and a Ring-SIS research backend. Chain-free, so
@@ -231,7 +231,7 @@ members = [
     "crates/stateless-core",
     # Federated training without revealed updates: ML-KEM secure aggregation,
     # integer discrete-Gaussian DP, an attestation hook. Off-chain; the node
-    # takes it as a dev-dependency only (invariant 20) — see
+    # takes it as a dev-dependency only (invariant 36) — see
     # docs/confidential-ai.md.
     "crates/confidential-ai",
     # The XDP relay's shared rules: the 56-byte header, the integer token

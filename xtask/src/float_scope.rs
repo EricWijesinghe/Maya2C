@@ -1,0 +1,435 @@
+//! What `float-check` reads: the code the node binary links, derived from the
+//! manifests rather than kept by hand, so a crate the node starts to link is
+//! scanned unless an [`EXCLUDE`] entry says why not.
+//!
+//! Dev-dependencies are not followed (they are not linked). Normal, build and
+//! `[target.'cfg(..)']` dependencies are, and `workspace = true` entries are
+//! resolved against the root `[workspace.dependencies]`, renames included.
+
+use std::collections::{BTreeSet, VecDeque};
+use std::path::{Component, Path, PathBuf};
+
+/// The binary whose link graph is the scope.
+pub const NODE_BIN: &str = "bins/maya2c-node";
+
+/// `(repo-relative file, the exact float tokens it may hold, in order, why
+/// none of them reaches a consensus rule)`. Any other float in the file
+/// fails, so a new float in an operator-side file of `rpc/` or `network/`
+/// still needs a reviewer. An entry needs a reviewer.
+pub const ALLOW: &[(&str, &[&str], &str)] = &[
+    (
+        "bins/maya2c-node/src/bft.rs",
+        &["f64", "1_000.0"],
+        "`observe_finality` takes the finality latency in seconds for a Prometheus histogram; it is computed after the block is final and feeds nothing back",
+    ),
+    (
+        "crates/node/src/metrics/mod.rs",
+        &[
+            "f64",
+            "0.05",
+            "0.1",
+            "0.25",
+            "0.5",
+            "1.0",
+            "2.5",
+            "5.0",
+            "10.0",
+            "15.0",
+            "30.0",
+            "60.0",
+            "f64",
+            "0.001",
+            "0.005",
+            "0.01",
+            "0.025",
+            "0.05",
+            "0.1",
+            "0.25",
+            "0.5",
+            "1.0",
+            "2.5",
+            "f64",
+            "0.01",
+            "0.025",
+            "0.05",
+            "0.1",
+            "0.25",
+            "0.5",
+            "1.0",
+            "2.0",
+            "3.0",
+            "4.0",
+            "6.0",
+            "10.0",
+            "20.0",
+            "60.0",
+            "f64",
+            "f64",
+            "f64",
+            "0.0",
+            "as_secs_f64",
+            "as_secs_f64",
+            "f64",
+            "as_secs_f64",
+        ],
+        "Prometheus gauge and histogram buckets, read by operators only",
+    ),
+    (
+        "crates/node/src/network/gossip_score.rs",
+        &[
+            "f64", "50.0", "f64", "0.9", "1.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "0.0",
+        ],
+        "gossipsub peer-score parameters: local mesh management, never in a block or the state root",
+    ),
+    (
+        "crates/node/src/network/peer_health.rs",
+        &[
+            "f64",
+            "25.0",
+            "50.0",
+            "f64",
+            "100.0",
+            "f64",
+            "f64",
+            "0.0",
+            "as_secs_f64",
+            "as_secs_f64",
+            "f64",
+            "0.5f64",
+            "0.0",
+        ],
+        "decayed per-peer health score that drives local quarantine of a peer, not block validity",
+    ),
+    (
+        "crates/node/src/rpc/limit.rs",
+        &[
+            "f64",
+            "f64",
+            "f64",
+            "f64",
+            "f64",
+            "0.0",
+            "1.0",
+            "f64",
+            "f64",
+            "f64",
+            "as_secs_f64",
+            "f64",
+            "f64",
+            "as_secs_f64",
+        ],
+        "per-IP token buckets refilled by elapsed seconds; they decide whether a request is answered, never what a block contains",
+    ),
+    (
+        "crates/node/src/rpc/market.rs",
+        &[
+            "f64", "f64", "f64", "f64", "f64", "f64", "f64", "f64", "f64",
+        ],
+        "listing-aggregator quotes (price, volume) an operator configures; the node only relays them",
+    ),
+    (
+        "crates/node/src/rpc/peers.rs",
+        &["f64"],
+        "reports this node's local health score for a peer to the operator",
+    ),
+];
+
+/// Linked crates that are not scanned for floats: `(repo-relative dir, why no
+/// consensus rule depends on it)`. An entry needs a reviewer, and the model
+/// check still reads it. Nothing inside the node crate is excluded: its
+/// operator-side floats are pinned token by token in `float_check::ALLOW`,
+/// because `rpc/` and `network/` also hold block submission and sync.
+pub const EXCLUDE: &[(&str, &str)] = &[
+    (
+        "crates/archive",
+        "copies finalized blocks to disk or IPFS after the fact; progress and timing figures only",
+    ),
+    (
+        "hal/ebpf-net",
+        "XDP packet filter in front of the p2p port; it drops packets and validates nothing",
+    ),
+];
+
+/// Consensus code that must stay in scope. `float-check` fails if any of
+/// these contributes no scanned file, so the scope cannot shrink silently.
+pub const MUST_SCAN: &[&str] = &[
+    "crates/node/src/state",
+    "crates/node/src/consensus",
+    "crates/node/src/core",
+    "crates/node/src/crypto",
+    "crates/node/src/oracle",
+    "crates/node/src/governance",
+    "crates/node/src/neural_gas",
+    "crates/node/src/upgrade.rs",
+    "crates/node/src/genesis.rs",
+    "crates/ledger-math",
+    "crates/dex",
+    "crates/governance",
+    "crates/fee-market",
+    "crates/vrf",
+    "crates/crypto-pq",
+    "crates/dag-bft",
+    "crates/staking",
+    "crates/vm",
+    "crates/lattice-pow",
+    "crates/amount",
+    "crates/stateless-core",
+    "crates/htlc-lattice",
+    "crates/identity",
+    "crates/rwa",
+    "crates/threat-intel",
+    "hal/iot-anchor",
+    "bins/maya2c-node/src/bft.rs",
+];
+
+/// The node's link graph: workspace crate dirs and every package name in it.
+pub struct Linked {
+    /// Repo-relative dirs of the path crates, the node binary included.
+    pub dirs: Vec<String>,
+    /// Path crates, their registry dependencies, and those dependencies'
+    /// closure in `Cargo.lock` (all versions of a name are merged).
+    pub names: BTreeSet<String>,
+}
+
+/// `path` is `entry` itself or lies in the dir `entry`.
+pub fn under(path: &str, entry: &str) -> bool {
+    path == entry || path.strip_prefix(entry).is_some_and(|r| r.starts_with('/'))
+}
+
+pub fn linked(root: &Path) -> Result<Linked, String> {
+    let ws = workspace_deps(root)?;
+    let mut dirs = Vec::new();
+    let mut names = BTreeSet::new();
+    let mut registry = BTreeSet::new();
+    let mut queue = VecDeque::from([root.join(NODE_BIN)]);
+    while let Some(dir) = queue.pop_front() {
+        let rel = rel_dir(root, &dir);
+        if dirs.contains(&rel) {
+            continue;
+        }
+        let manifest = dir.join("Cargo.toml");
+        let text =
+            std::fs::read_to_string(&manifest).map_err(|e| format!("{rel}/Cargo.toml: {e}"))?;
+        let doc: toml::Table = text.parse().map_err(|e| format!("{rel}/Cargo.toml: {e}"))?;
+        if let Some(name) = doc
+            .get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(toml::Value::as_str)
+        {
+            names.insert(name.to_owned());
+        }
+        for table in dep_tables(&doc) {
+            for (key, value) in table {
+                let (name, path) = resolve(key, value, &ws);
+                match path {
+                    Some(Base::Crate(p)) => queue.push_back(normalize(&dir.join(p))),
+                    Some(Base::Root(p)) => queue.push_back(normalize(&root.join(p))),
+                    None => {
+                        registry.insert(name);
+                    }
+                }
+            }
+        }
+        dirs.push(rel);
+    }
+    let lock =
+        std::fs::read_to_string(root.join("Cargo.lock")).map_err(|e| format!("Cargo.lock: {e}"))?;
+    names.extend(lock_closure(&lock, &registry)?);
+    Ok(Linked { dirs, names })
+}
+
+/// Where a path dependency's `path` is relative to.
+#[derive(Debug, PartialEq)]
+pub enum Base {
+    Crate(String),
+    Root(String),
+}
+
+/// `(package name, path)` of one dependency entry; `workspace = true` reads
+/// the root entry, and a `package =` rename on either side wins over the key.
+pub fn resolve(key: &str, value: &toml::Value, ws: &toml::Table) -> (String, Option<Base>) {
+    let base = value
+        .get("workspace")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false)
+        .then(|| ws.get(key))
+        .flatten();
+    let field = |k: &str| {
+        let own = value.get(k).and_then(toml::Value::as_str);
+        own.or_else(|| base.and_then(|b| b.get(k)).and_then(toml::Value::as_str))
+    };
+    let name = field("package").unwrap_or(key).to_owned();
+    let path = match (value.get("path").and_then(toml::Value::as_str), base) {
+        (Some(p), _) => Some(Base::Crate(p.to_owned())),
+        (None, Some(b)) => b
+            .get("path")
+            .and_then(toml::Value::as_str)
+            .map(|p| Base::Root(p.to_owned())),
+        (None, None) => None,
+    };
+    (name, path)
+}
+
+/// `[dependencies]`, `[build-dependencies]` and both under every `[target.*]`.
+pub fn dep_tables(doc: &toml::Table) -> Vec<&toml::Table> {
+    const KINDS: [&str; 2] = ["dependencies", "build-dependencies"];
+    let targets = doc.get("target").and_then(toml::Value::as_table);
+    let scopes = std::iter::once(doc).chain(
+        targets
+            .into_iter()
+            .flat_map(|t| t.values().filter_map(toml::Value::as_table)),
+    );
+    scopes
+        .flat_map(|s| {
+            KINDS
+                .iter()
+                .filter_map(|k| s.get(*k).and_then(toml::Value::as_table))
+        })
+        .collect()
+}
+
+/// Every package reachable in `Cargo.lock` from `roots`, the roots included.
+/// Registry entries in a lock list no dev-dependencies, so this is the linked
+/// closure; merging versions of one name can only over-include.
+pub fn lock_closure(lock: &str, roots: &BTreeSet<String>) -> Result<BTreeSet<String>, String> {
+    let doc: toml::Table = lock.parse().map_err(|e| format!("Cargo.lock: {e}"))?;
+    let packages = doc
+        .get("package")
+        .and_then(toml::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let deps_of = |name: &str| -> Vec<String> {
+        packages
+            .iter()
+            .filter(|p| p.get("name").and_then(toml::Value::as_str) == Some(name))
+            .filter_map(|p| p.get("dependencies").and_then(toml::Value::as_array))
+            .flatten()
+            .filter_map(toml::Value::as_str)
+            .filter_map(|d| d.split(' ').next())
+            .map(str::to_owned)
+            .collect()
+    };
+    let mut seen = BTreeSet::new();
+    let mut queue: VecDeque<String> = roots.iter().cloned().collect();
+    while let Some(name) = queue.pop_front() {
+        if seen.insert(name.clone()) {
+            queue.extend(deps_of(&name));
+        }
+    }
+    Ok(seen)
+}
+
+fn workspace_deps(root: &Path) -> Result<toml::Table, String> {
+    let text =
+        std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| format!("Cargo.toml: {e}"))?;
+    let doc: toml::Table = text.parse().map_err(|e| format!("Cargo.toml: {e}"))?;
+    Ok(doc
+        .get("workspace")
+        .and_then(|w| w.get("dependencies"))
+        .and_then(toml::Value::as_table)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn rel_dir(root: &Path, dir: &Path) -> String {
+    dir.strip_prefix(normalize(root))
+        .or_else(|_| dir.strip_prefix(root))
+        .unwrap_or(dir)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_workspace_rename_and_its_path_are_resolved_from_the_root() {
+        let ws: toml::Table =
+            "nn = { package = \"candle-core\", version = \"0.8\" }\nm = { path = \"crates/m\" }\n"
+                .parse()
+                .unwrap();
+        let member: toml::Table =
+            "nn = { workspace = true }\nm = { workspace = true }\nlocal = { path = \"../l\" }\nserde = \"1\"\n"
+                .parse()
+                .unwrap();
+        let got: Vec<_> = member.iter().map(|(k, v)| resolve(k, v, &ws)).collect();
+        assert_eq!(
+            got,
+            [
+                ("local".to_owned(), Some(Base::Crate("../l".to_owned()))),
+                ("m".to_owned(), Some(Base::Root("crates/m".to_owned()))),
+                ("candle-core".to_owned(), None),
+                ("serde".to_owned(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_and_target_specific_tables_are_read_and_dev_dependencies_are_not() {
+        let doc: toml::Table = "[dependencies]\na = \"1\"\n[build-dependencies]\nb = \"1\"\n[dev-dependencies]\nd = \"1\"\n[target.'cfg(windows)'.dependencies]\nt = \"1\"\n"
+            .parse()
+            .unwrap();
+        let keys: Vec<&str> = dep_tables(&doc)
+            .iter()
+            .flat_map(|t| t.keys())
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["a", "b", "t"]);
+    }
+
+    #[test]
+    fn an_ml_runtime_two_hops_away_is_in_the_lock_closure() {
+        let lock = r#"
+            [[package]]
+            name = "a"
+            dependencies = ["b 1.0.0", "serde"]
+            [[package]]
+            name = "b"
+            version = "1.0.0"
+            dependencies = ["ort"]
+            [[package]]
+            name = "ort"
+            [[package]]
+            name = "unrelated"
+            dependencies = ["tch"]
+        "#;
+        let got = lock_closure(lock, &BTreeSet::from(["a".to_owned()])).unwrap();
+        assert_eq!(
+            got,
+            BTreeSet::from(["a", "b", "ort", "serde"].map(str::to_owned))
+        );
+    }
+
+    #[test]
+    fn nothing_in_the_node_crate_or_binary_is_excluded() {
+        for (e, _) in EXCLUDE {
+            assert!(
+                !under(e, "crates/node") && !under(e, NODE_BIN),
+                "{e}: node code is pinned in ALLOW, never excluded"
+            );
+        }
+    }
+
+    #[test]
+    fn under_matches_a_dir_and_not_a_sibling_with_the_same_prefix() {
+        assert!(under("crates/vm/src/a.rs", "crates/vm"));
+        assert!(under("crates/vm", "crates/vm"));
+        assert!(!under("crates/vmx/src/a.rs", "crates/vm"));
+    }
+}

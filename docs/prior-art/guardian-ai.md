@@ -20,10 +20,10 @@ No single paper matched the full "AI proposes, human approves, chain executes" d
 
 ## What Maya2C has (checked in repo, 2026-11-10)
 
-- `docs/adr/ADR-077-sentinel-recovery-network.md`, decision 1: "Sentinels are advisory. Off-chain detectors, including ML, publish signed alerts. Only deterministic integer rules (invariant 20) and stake signatures change on-chain state."
+- `docs/adr/ADR-077-sentinel-recovery-network.md`, decision 1: "Sentinels are advisory. Off-chain detectors, including ML, publish signed alerts. Only deterministic integer rules (invariant 36) and stake signatures change on-chain state."
 - Same ADR: "Deterministic rules raise a cell to T3 at most." T4 and T5 need council and stake votes. So a deterministic rule can raise a threat level without a human; no AI output can.
 - `apps/sentinel/src/detect.rs`, `apps/sentinel/src/notify.rs`: the sentinel app (detection and notification). Its ML path is off-chain.
-- Invariant 20 (`docs/invariants.md`): no float in a consensus rule.
+- Invariant 36 (`docs/invariants.md`): no float in a consensus rule.
 
 ## How a Maya2C version would differ
 

@@ -2641,7 +2641,7 @@ tier = "core"
 class = "RESEARCH"
 status = "planned"
 tests = []
-note = "MIP-0002 / ADR-078, accepted 2026-11-02. Every adaptive consensus parameter as an integer PI controller with a governed setpoint, a per-block step clamp and a machine-checked bound (invariant 20); code upgrades pre-shipped and vote-activated, never fetched from chain state (invariant 13). The base-fee clamp (ADR-076) is the existing instance."
+note = "MIP-0002 / ADR-078, accepted 2026-11-02. Every adaptive consensus parameter as an integer PI controller with a governed setpoint, a per-block step clamp and a machine-checked bound (invariant 36); code upgrades pre-shipped and vote-activated, never fetched from chain state (invariant 13). The base-fee clamp (ADR-076) is the existing instance."
 
 [[subsystem]]
 id = "iso-20022-xml-messaging-parser"
@@ -3136,6 +3136,18 @@ status = "working"
 tests = []
 gate = "cargo xtask coverage && cargo xtask disk"
 note = "`cargo xtask disk` and `cargo xtask coverage`."
+
+[[subsystem]]
+id = "no-float-in-consensus-check"
+name = "No float and no model in consensus (invariant 36)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`xtask/src/float_check.rs`, `xtask/src/float_scope.rs`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:xtask", "xtask/src/float_check/tests.rs"]
+gate = "cargo xtask float-check"
+note = "ADR-148. Lexes every non-test file under src/ of each path crate the node binary links and fails on a float token outside an exact-token allowlist, on a #[path] attribute, on an ML runtime (a non-exhaustive denylist matched by family prefix) anywhere in the node's Cargo.lock closure, or on a non-test src/ file of a linked crate outside fee-market naming its neural fee path (node tests and benches name it and are not linked). The tests are unit tests in the xtask binary (xtask/src/float_check/tests.rs, float_scope::tests), so the ledger checks that the file exists and CI's workspace nextest runs them; it does not count individual test functions. Runs in CI's reality ledger job."
 
 # --- Master Prompt 2: cryptography (ADR-007 .. ADR-010) -------------------
 

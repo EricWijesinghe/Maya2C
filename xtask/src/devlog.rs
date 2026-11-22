@@ -81,8 +81,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         [cmd, rest @ ..] if cmd == "week" => {
             let since = match rest {
-                [] => (chrono::Local::now().date_naive() - chrono::Duration::days(DAYS_PER_WEEK))
-                    .to_string(),
+                [] => crate::stamp::date(
+                    crate::stamp::local_now() - time::Duration::days(DAYS_PER_WEEK),
+                ),
                 [flag, date] if flag == "--since" && is_date(date) => date.clone(),
                 _ => return Err(USAGE.into()),
             };
@@ -209,7 +210,22 @@ fn splice_counts(readme: &str, table: &str) -> Result<String, String> {
 }
 
 fn is_date(s: &str) -> bool {
-    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
+    // Exactly YYYY-MM-DD and a real calendar date, as chrono's "%Y-%m-%d" accepted.
+    let (Some(y), Some(m), Some(d)) = (s.get(0..4), s.get(5..7), s.get(8..10)) else {
+        return false;
+    };
+    let digits = |p: &str| p.bytes().all(|b| b.is_ascii_digit());
+    s.len() == 10
+        && s.as_bytes()[4] == b'-'
+        && s.as_bytes()[7] == b'-'
+        && digits(y)
+        && digits(m)
+        && digits(d)
+        && match (y.parse::<i32>(), m.parse::<u8>(), d.parse::<u8>()) {
+            (Ok(y), Ok(m), Ok(d)) => time::Month::try_from(m)
+                .is_ok_and(|m| time::Date::from_calendar_date(y, m, d).is_ok()),
+            _ => false,
+        }
 }
 
 fn merged_prs(search: Option<&str>) -> Result<Vec<Pr>, String> {
@@ -432,6 +448,23 @@ mod tests {
                 name: "docs".into(),
             }],
             merged_at: merged_at.into(),
+        }
+    }
+
+    #[test]
+    fn since_takes_only_a_real_calendar_date() {
+        assert!(is_date("2026-11-14"));
+        assert!(is_date("2028-02-29"));
+        for bad in [
+            "2026-02-30",
+            "2026-13-01",
+            "2026-1-14",
+            "2026/11/14",
+            "+026-11-14",
+            "2026-11-1é",
+            "",
+        ] {
+            assert!(!is_date(bad), "{bad:?} accepted");
         }
     }
 

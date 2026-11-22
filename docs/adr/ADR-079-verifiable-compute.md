@@ -2,6 +2,7 @@
 
 **Status:** Proposed, 2026-11-03. Build after mainnet (ADR-016, ADR-069). Nothing in this ADR enters the launch binary. Every consensus part ships at an activation height of `u64::MAX` until its own ADR and a written height exist.
 **Date:** 2026-11-03
+**Amended 2026-11-14:** the float-free, model-free rule this ADR cited as invariant 20 is invariant 36, checked by `cargo xtask float-check`; invariant 20 retired with `crates/zkml` (ADR-008).
 **Related:** [ADR-016](ADR-016-launch-scope.md) (launch scope), [ADR-044](ADR-044-mining-rewards-lane.md) (reward lane and the `WorkClaim` kind byte), [ADR-077](ADR-077-sentinel-recovery-network.md) (AI as advisory, never executing), [ADR-078](ADR-078-omega-durable-advantage.md) (three-speed evolution), [invariants](../invariants.md)
 
 ## Context
@@ -20,7 +21,7 @@ The existing building blocks are: the `WorkClaim` lane (ADR-044), staking with e
 
 ### 1. Consensus stays deterministic; AI is advisory
 
-- **No model runs on the consensus path.** Consensus rules are integer, float-free and wall-clock-free (invariants 9, 20, 24). An AI component never decides a block, a payout, a verification result or a parameter value.
+- **No model runs on the consensus path.** Consensus rules are integer, float-free and wall-clock-free (invariants 9, 24, 36). An AI component never decides a block, a payout, a verification result or a parameter value.
 - **Network intelligence is advisory.** Three permitted roles:
   1. monitoring and anomaly detection over public chain data, reporting to humans and to dashboards;
   2. parameter *proposals* (for example a fee-controller setpoint), which enter through governance and nowhere else, and become effective at an activation height that someone wrote down;

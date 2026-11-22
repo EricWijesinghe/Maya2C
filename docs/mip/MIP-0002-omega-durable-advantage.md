@@ -82,7 +82,7 @@ because none has been measured for this chain.
 ## 3. Phase 3: Protocol intelligence from first principles
 
 The brief rejects external ML frameworks and asks for intelligence native to
-consensus. Invariant 20 (no floats in consensus) already demands most of that.
+consensus. Invariant 36 (no floats in consensus; retired 20 before it) already demands most of that.
 The design is **verifiable cybernetics**: the protocol steers itself with
 integer feedback controllers whose behaviour can be proved.
 

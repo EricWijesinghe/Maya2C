@@ -12,7 +12,7 @@ name = "maya_confidential_ai"
 path = "src/lib.rs"
 
 # Off-chain, like `neural-gas-trainer`: local training is floating point, and
-# nothing the node links depends on this crate (invariant 20). No RNG crate:
+# nothing the node links depends on this crate (invariant 36). No RNG crate:
 # entropy is the caller's, expanded with BLAKE3, as in `htlc-lattice`.
 [dependencies]
 maya-crypto-pq = { path = "../crypto-pq" }

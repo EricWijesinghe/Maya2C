@@ -39,7 +39,7 @@ These apply to every task in this repository, without being restated.
    without an activation height somebody wrote down.
 4. **Consensus-critical code has no floats, no `HashMap` iteration order, no
    wall-clock time, and no `unsafe` without a `// SAFETY:` comment and a test.**
-   Invariants 9, 20, 24 and 28 are the specific cases; this is the general rule.
+   Invariants 9, 24, 28 and 36 are the specific cases; this is the general rule.
 5. **Secrets are typed, zeroized, and never logged.** `zeroize` is already a
    dependency of every crate holding key material. A `Vec<u8>` that went
    through a serializer has already been copied.
@@ -176,8 +176,8 @@ satellite/light-cone consensus (9), TEE attestation (no numbered invariant yet; 
 
 ## Critical Invariants
 
-Thirty live invariants, in [docs/invariants.md](docs/invariants.md). They are
-numbered 1–34; 20–23 are retired and keep their numbers. The numbers are cited
+Thirty-one live invariants, in [docs/invariants.md](docs/invariants.md). They are
+numbered 1–36; 20–23 are retired and keep their numbers, 35 is held by a proposal. The numbers are cited
 from code comments and ADRs, and **a number is never reused**.
 
 Read them before changing: `ledger-math`, `dex`, `governance`, `fee-market` or
@@ -209,7 +209,8 @@ written as achieved is a directive nobody will implement. Expanded in
    `drop`, and stay in typed wrappers from generation to use (Standing Order 5).
 2. **Deterministic execution, WASM and state.** Enforced mechanically:
    `apply_block_journaled` refuses a `state_root` execution does not reproduce
-   (invariant 24); no float enters a consensus rule (invariant 20).
+   (invariant 24); no float enters a consensus rule (invariant 36,
+   `cargo xtask float-check` in CI).
 3. **No dynamic heap allocation in critical consensus loops.** A target, not
    today: the apply path allocates (RocksDB owned buffers, the journal's `Vec`).
    Do not add an allocation to an inner loop that lacked one; measure first.

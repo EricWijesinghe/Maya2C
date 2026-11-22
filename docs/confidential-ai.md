@@ -2,7 +2,7 @@
 
 **Status: RESEARCH.** Crate `confidential-ai`; tests in the crate and in
 `crates/node/tests/federated_ai_tests.rs`. Off-chain: it writes no chain state, and the
-node takes it as a dev-dependency only (invariant 20).
+node takes it as a dev-dependency only (invariant 36).
 
 ## The brief, and what it maps to
 

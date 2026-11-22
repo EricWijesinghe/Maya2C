@@ -32,6 +32,9 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # bench-finality and bench-gate stamp the run in local time (`local-offset`);
 # the other reports stamp UTC. See src/stamp.rs.
 time = { workspace = true, features = ["local-offset"] }
+# float-check (invariant 36) lexes consensus sources. Already in the lock through
+# every proc macro; without `proc-macro` it always uses its own lexer.
+proc-macro2 = { version = "1", default-features = false }
 
 [lints]
 workspace = true

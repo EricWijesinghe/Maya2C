@@ -12950,6 +12950,7 @@ dependencies = [
  "hex",
  "image",
  "maya-amount",
+ "proc-macro2",
  "regex",
  "reqwest",
  "serde",
