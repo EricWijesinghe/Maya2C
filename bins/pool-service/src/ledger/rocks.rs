@@ -82,6 +82,16 @@ pub struct RocksLedger {
     /// survive a restart, so the durable store is the source of truth and the
     /// lock exists only to make reading and advancing it one step.
     counters: std::sync::Mutex<()>,
+    /// Serialises every read-modify-write of a miner balance, and the
+    /// idempotency check that guards it.
+    ///
+    /// Block recording (a credit), maturing and orphaning (moves between
+    /// buckets), and batch create and reverse (payouts) all read a balance,
+    /// change it, and write it back. Without this lock, two of them on different
+    /// threads can both read the old balance and the later write drops the
+    /// earlier change. The status check sits under the same lock so a block
+    /// cannot be credited twice by two racing callers either.
+    balances: std::sync::Mutex<()>,
 }
 
 /// Builds a prefixed key from a byte slice.
@@ -126,7 +136,15 @@ impl RocksLedger {
         Ok(Self {
             db,
             counters: std::sync::Mutex::new(()),
+            balances: std::sync::Mutex::new(()),
         })
+    }
+
+    /// Takes [`RocksLedger::balances`] for one balance read-modify-write.
+    fn lock_balances(&self) -> Result<std::sync::MutexGuard<'_, ()>> {
+        self.balances
+            .lock()
+            .map_err(|_| PoolError::Ledger("the balance lock is poisoned".to_string()))
     }
 
     /// Reads and increments a counter.
@@ -209,6 +227,7 @@ impl RocksLedger {
         to: BlockState,
         adjust: impl Fn(&mut MinerBalance, primitive_types::U256),
     ) -> Result<()> {
+        let _guard = self.lock_balances()?;
         let Some(mut block) = self.block(id)? else {
             return Ok(());
         };
@@ -290,6 +309,7 @@ impl ShareLedger for RocksLedger {
     }
 
     fn record_block(&self, block: &FoundBlock, credits: &[PayoutEntry]) -> Result<()> {
+        let _guard = self.lock_balances()?;
         if self.block(&block.id)?.is_some() {
             // A block the pool already credited. Submitting one twice is
             // ordinary — a retry, a restart — and crediting twice is not.
@@ -370,6 +390,7 @@ impl ShareLedger for RocksLedger {
     }
 
     fn create_batch(&self, batch: &PayoutBatch) -> Result<()> {
+        let _guard = self.lock_balances()?;
         if self.batch(batch.id)?.is_some() {
             return Ok(());
         }
@@ -388,6 +409,7 @@ impl ShareLedger for RocksLedger {
     }
 
     fn reverse_batch(&self, batch: &PayoutBatch) -> Result<()> {
+        let _guard = self.lock_balances()?;
         if let Some(stored) = self.batch(batch.id)?
             && matches!(
                 stored.state,

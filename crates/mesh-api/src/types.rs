@@ -53,7 +53,7 @@ pub struct AccountIdentifier {
 pub struct Currency {
     /// Ticker.
     pub symbol: String,
-    /// Base units only: the chain has no decimals constant.
+    /// Decimal places of one whole coin (`maya_amount::COIN_DECIMALS`).
     pub decimals: u32,
 }
 

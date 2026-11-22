@@ -4,6 +4,6 @@
 
 **Check.** Signer process up? Channel handshake errors (`peer identity is not pinned` means a key mismatch)?
 
-**Act.** Restore the signer on its dedicated host. **Never** start a second signer with the same key without importing the first one's slashing-protection history (interchange file).
+**Act.** Restore the signer on its dedicated host. **Never** start a second signer with the same key without importing the first one's slashing-protection history (interchange file). The interchange file covers only the DAG database: also copy the attestation database (the `--protection` path with its extension replaced by `attestations.jsonl`) to the second host before its first `serve`, or it can sign a block attestation the first signer already signed.
 
 **Rehearsal.** rehearsed in tests: `crates/signer/tests/signer_tests.rs` (pinning, restart from backup refused)
