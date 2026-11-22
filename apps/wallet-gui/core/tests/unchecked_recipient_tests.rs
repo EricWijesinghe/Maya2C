@@ -32,6 +32,10 @@ fn one_case_hex_is_flagged_and_the_approval_text_warns() {
     for text in [hex::encode(RECIPIENT), hex::encode_upper(RECIPIENT)] {
         let shown = shown_for(&text);
         assert!(shown.recipient_unchecked, "{text}");
+        assert!(
+            shown.warnings.iter().any(|w| w == UNCHECKED_RECIPIENT),
+            "{text}"
+        );
         assert!(approval_message(&shown).contains(UNCHECKED_RECIPIENT));
     }
 }
@@ -46,6 +50,10 @@ fn checksummed_forms_are_not_flagged_and_sign_the_same_bytes() {
     ] {
         let shown = shown_for(&text);
         assert!(!shown.recipient_unchecked, "{text}");
+        assert!(
+            !shown.warnings.iter().any(|w| w == UNCHECKED_RECIPIENT),
+            "{text}"
+        );
         assert!(!approval_message(&shown).contains(UNCHECKED_RECIPIENT));
         assert_eq!(shown.signing_hash, plain.signing_hash, "{text}");
     }

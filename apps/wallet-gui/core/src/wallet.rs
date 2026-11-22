@@ -221,6 +221,12 @@ impl Wallet {
         let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
         let mut shown = confirmation_with(&tx, terms.chain, ctx);
         shown.recipient_unchecked = !crate::payment::has_checksum(recipient);
+        if shown.recipient_unchecked {
+            // In `warnings`, not only the bool: the webview renders `warnings`.
+            shown
+                .warnings
+                .push(crate::confirm::UNCHECKED_RECIPIENT.to_string());
+        }
         self.reviewed = Some(shown.signing_hash.clone());
         Ok(shown)
     }

@@ -475,6 +475,8 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
                 .to_string(),
             maya_wallet_core::confirm::warning_text(maya_clear_sign::Warning::DrainsBalance)
                 .to_string(),
+            // The recipient above is one-case hex, so it carries no checksum.
+            maya_wallet_core::confirm::UNCHECKED_RECIPIENT.to_string(),
         ]
     );
     let text = approval_message(&shown);
@@ -492,7 +494,11 @@ fn the_confirm_screen_shows_review_warnings_most_severe_first() {
         )
         .unwrap();
     assert_eq!(plain.signing_hash, shown.signing_hash);
-    assert!(plain.warnings.is_empty());
+    // With no context only the missing-checksum warning remains.
+    assert_eq!(
+        plain.warnings,
+        vec![maya_wallet_core::confirm::UNCHECKED_RECIPIENT.to_string()]
+    );
 
     // A transfer with no outputs moves nothing and warns about nothing.
     let quiet = confirmation_with(&Transaction::with_kind(TxKind::Transfer, 1), &CHAIN, &ctx);

@@ -258,8 +258,10 @@ pub fn checksummed(address: &[u8; 32]) -> String {
         .collect()
 }
 
-/// Shown when the recipient was typed as hex with no checksum.
-pub const UNCHECKED_RECIPIENT: &str = "Warning: the recipient was entered as hex with no checksum, so a typo cannot be detected. Check the 'To' address against the payee's Bech32m address.";
+/// Pushed into [`Confirmation::warnings`] when the recipient was typed as hex
+/// with no checksum, so the webview confirm screen and the native dialog both
+/// show it.
+pub const UNCHECKED_RECIPIENT: &str = "The recipient was entered as hex with no checksum, so a typo cannot be detected. Check the 'To' address against the payee's Bech32m address.";
 
 /// The text a native approval dialog shows, built from the confirmation the
 /// core computed. The webview never supplies these words, so it cannot change
@@ -273,9 +275,6 @@ pub fn approval_message(shown: &Confirmation) -> String {
         .collect();
     if shown.fee_exceeds_amount {
         lines.push("Warning: the fee is larger than the amount.".to_string());
-    }
-    if shown.recipient_unchecked {
-        lines.push(UNCHECKED_RECIPIENT.to_string());
     }
     lines.push(shown.description.clone());
     if let Some(to) = &shown.recipient {
