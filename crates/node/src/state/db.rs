@@ -923,9 +923,14 @@ impl StateDB {
     /// often a peer can make a node pay that is the header check that runs
     /// before execution: `Chain::insert_block_inner` checks proof of work
     /// before `apply_body` on a chain with `verify_pow`. A DAG-BFT chain
-    /// (`ChainConfig::dag_bft`, `verify_pow = false`) builds every block it
-    /// applies itself (`consensus::bft::builder::build_block`), so the
-    /// declared root is its own preview's.
+    /// (`ChainConfig::dag_bft`, `verify_pow = false`) has no such check: a
+    /// builder applies its own blocks (`consensus::bft::builder::build_block`),
+    /// whose declared root is its own preview's, but a follower or a node in
+    /// catch-up applies peer-served blocks (`consensus::bft::catchup`), and a
+    /// wrong root there costs a walk plus a full rebuild before it is
+    /// refused. That is the cost every block had before ADR-062a. Catch-up
+    /// sources are the operator's (`--catch-up-from`), and the attested path
+    /// imports only blocks under a quorum-signed checkpoint.
     pub(crate) fn check_declared_root(
         &self,
         overlay: &mut Overlay,
@@ -2058,7 +2063,13 @@ impl StateDB {
             kept
         } else {
             let mut overlay = self.stage_block(block, context)?;
-            let root = self.root_with_overlay(&mut overlay)?;
+            // A follower never previews, so the periodic check runs here too.
+            let source = if self.root_cache.confirm_due(context.height) {
+                RootSource::Confirmed
+            } else {
+                RootSource::Cache
+            };
+            let root = self.root_into(&mut overlay, source)?;
             (overlay, root)
         };
         let new_root =

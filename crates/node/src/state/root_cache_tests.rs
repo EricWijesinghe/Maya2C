@@ -17,12 +17,13 @@ use rocksdb::WriteBatch;
 use tempfile::TempDir;
 
 use super::{
-    Change, MARKER, NODES_END, ROOT_CACHE_PREFIX, RootCacheStats, UNCHECKED, Walk, marker,
-    node_key, root_after, touches_accounts,
+    Change, MARKER, MARKER_LEN, NODES_END, ROOT_CACHE_PREFIX, RootCacheStats, UNCHECKED, Walk,
+    marker, node_key, root_after, touches_accounts,
 };
 use crate::state::account::{Account, Address};
 use crate::state::commitments::{LOCAL_ONLY_PREFIXES, is_committed};
 use crate::state::db::{Overlay, RootSource, StateDB};
+use crate::state::merkle::HASH_LEN;
 use crate::state::stateless::SPARSE_ACCOUNTS_KEY;
 
 fn sparse_db(dir: &TempDir) -> StateDB {
@@ -672,6 +673,57 @@ fn a_preview_checks_the_cache_once_at_each_confirm_height() {
     assert_eq!(db.root_cache_stats().repaired, 0, "not a confirm height");
     db.preview_root(&empty, BlockContext::at_height(CONFIRM_EVERY))
         .expect("preview");
+    assert_eq!(db.root_cache_stats().repaired, 1);
+    UNCHECKED.with(|unchecked| unchecked.set(false));
+}
+
+#[test]
+fn a_follower_that_never_previews_refuses_a_block_declaring_a_damaged_cache_root() {
+    use super::CONFIRM_EVERY;
+    use crate::core::{Block, BlockHeader};
+    use crate::error::NodeError;
+    use crate::state::context::BlockContext;
+
+    let dir = TempDir::new().expect("tempdir");
+    let db = sparse_db(&dir);
+    let mut rng = ChaCha20Rng::seed_from_u64(43);
+    let mut known = Vec::new();
+    for step in 0..4_u8 {
+        commit(&db, random_overlay(&mut rng, &mut known), &[step; 32]);
+    }
+    // A wrong root in the marker: an empty block walks to it unchanged, so
+    // only the confirm check can tell it from the full rebuild.
+    let (_, accounts) = marker(db.raw_db()).expect("marker io").expect("marker");
+    let mut damaged = [0xCD; MARKER_LEN];
+    damaged[HASH_LEN..].copy_from_slice(&accounts.to_le_bytes());
+    UNCHECKED.with(|unchecked| unchecked.set(true));
+    db.raw_put_for_test(MARKER, &damaged).expect("damage");
+
+    let header = |state_root| BlockHeader {
+        version: 0,
+        prev_hash: [1; 32],
+        state_root,
+        timestamp: 1_790_000_000,
+        nonce: 0,
+        difficulty_target: [0xFF; 32],
+        tx_root: [0; 32],
+    };
+    let empty = Block::new(header([0; 32]), Vec::new());
+    // Above a confirm height, so the preview does not check the cache itself.
+    let wrong = db
+        .preview_root(&empty, BlockContext::at_height(CONFIRM_EVERY + 1))
+        .expect("preview");
+    let declared = Block::new(header(wrong), Vec::new());
+    let applied = db.apply_journaled_with(
+        &declared,
+        &[0x43; 32],
+        BlockContext::at_height(CONFIRM_EVERY),
+        |_| (),
+    );
+    assert!(
+        matches!(applied, Err(NodeError::StateRootMismatch { .. })),
+        "a block declaring the damaged cache's root must be refused: {applied:?}"
+    );
     assert_eq!(db.root_cache_stats().repaired, 1);
     UNCHECKED.with(|unchecked| unchecked.set(false));
 }
