@@ -1842,7 +1842,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-zk-stark", "crates/node/tests/shielded_tests.rs", "crates/node/tests/exploit_replays.rs", "crates/zk-stark/tests/pqc_zk_tests.rs"]
-note = "Replaced the Groth16/BLS12-381 pool (crates/zk-privacy, removed 2026-09-21; ADR-008). 2-in-2-out joinsplit AIR, 128 rows (joinsplit.rs ROWS); proof ~383 KB (382,689 and 382,703 B measured; hiding randomness varies it), 113 bits conjectured / 99 proven. Mainnet stays blocked on CIRCUIT_IS_AUDITED = false: no independent audit of the AIR yet."
+note = "Replaced the Groth16/BLS12-381 pool (crates/zk-privacy, removed 2026-09-21; ADR-008). 2-in-2-out joinsplit AIR, 128 rows (joinsplit.rs ROWS); proof ~386 KB (386,263 B measured 2026-11-22 on fix/audit-zk-stark after the CT-07 nullifier change, report_proof_size_and_security; was 382,689 and 382,703 B before it; hiding randomness varies it), 113 bits conjectured / 99 proven. Mainnet stays blocked on CIRCUIT_IS_AUDITED = false: no independent audit of the AIR yet."
 
 [[subsystem]]
 id = "zero-knowledge-proofs-halo2-kzg"

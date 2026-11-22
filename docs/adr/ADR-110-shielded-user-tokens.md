@@ -15,7 +15,7 @@ public_in: u64, public_out: u64, fee: u64, recipient }`
 (`crates/node/src/core/payload.rs:240-254`) names no asset. A note is
 `Note { value: u64, address, rho, rand }` (`crates/zk-stark/src/pool/note.rs:81-90`)
 and its commitment is `compress(value_layer, nonce_digest)` (`note.rs:148`);
-the nullifier is `compress(sk, nullifier_right(rho))` (`note.rs:153`). The
+the nullifier is `compress(sk, nullifier_right(cm))` (`note.rs:157`; it hashed `rho` alone before PR #663). The
 2-in-2-out AIR range-checks values as two 29-bit limbs of `BabyBear`, so a
 note holds at most `2^58 - 1` base units (ADR-067, not implemented).
 
@@ -65,9 +65,10 @@ nothing migrates.
   `in_1 + in_2 + public_in = out_1 + out_2 + public_out + fee` is per asset
   because every term is in that asset. Mixed-asset joinsplits are refused by
   the circuit, not by the node.
-- The nullifier is unchanged: `rho` is unique per note regardless of asset,
-  so one nullifier set serves every asset and a token note cannot be
-  double-spent as a native note.
+- The nullifier is unchanged by this ADR. It hashes the note commitment
+  (`NULLIFIER, cm[0..7]`, PR #663), and the commitment covers the asset
+  through the value layer, so one nullifier set serves every asset and a
+  token note cannot be double-spent as a native note.
 
 ### Wire form
 

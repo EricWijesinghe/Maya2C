@@ -295,6 +295,36 @@ fn the_nullifier_cannot_skip_the_commitment() {
 }
 
 #[test]
+fn the_commitment_register_must_hold_the_note_s_own_commitment() {
+    // A forged cm register, held constant like the real one, with the
+    // nullifier row and the public nullifier recomputed over it: only the
+    // tie between the register and the commitment row refuses this.
+    let (w, _) = fixture(50, 50, 0);
+    let mut trace = witness::trace(&w);
+    let forged = [F::ONE; crate::hash::DIGEST];
+    for (k, x) in forged.iter().enumerate() {
+        set_register(&mut trace, in_reg(0) + input::CM + k, *x);
+    }
+    rehash(
+        &mut trace,
+        joinsplit::INPUT_ROWS - 1,
+        state(&w.inputs[0].sk, &nullifier_right(&forged)),
+    );
+    let mut public = witness::public_of(&w);
+    public.nullifiers[0] = compress(&w.inputs[0].sk, &nullifier_right(&forged));
+    assert!(refused(trace, &public));
+}
+
+#[test]
+fn the_joinsplit_layout_is_pinned() {
+    // Any change here changes which proofs every node accepts: it needs a
+    // re-genesis or an activation height, not a silent merge.
+    assert_eq!(in_reg(1), 27, "input register block");
+    assert_eq!(joinsplit::EXTRA, 102 + 4 * 54, "columns after Poseidon2");
+    assert_eq!(joinsplit::ROWS, 128);
+}
+
+#[test]
 fn notes_sharing_a_rho_do_not_share_a_nullifier() {
     // `rho` is the creator's choice; a payer who reuses it across two notes
     // to one recipient must not make one of them unspendable.
