@@ -41,8 +41,12 @@ Peer-to-peer:
    caps.
 4. **Bootnodes must pin a peer id** at a public or DNS address, unless the operator
    passes `--allow-unpinned-bootnodes`. Local addresses (loopback, private ranges)
-   are accepted unpinned for devnets. The k8s manifest and the operator, whose pod
-   keys are generated at first start, pass the flag. The redial loop now keeps
+   are accepted unpinned for devnets. The k8s manifest, the operator and the docker
+   compose file, whose node keys are generated at first start, pass the flag; the VM
+   and Windows join installers (`install.sh`, `join-validator.ps1`) refuse a
+   bootnode without `/p2p/<id>`. A unit test (`shipped_deploy_paths_pass_the_pin_policy`)
+   reads every shipped deploy path and fails on an unpinned public or DNS bootnode
+   without the flag (amended 2026-11-22, review of #655). The redial loop now keeps
    redialling while any pinned bootnode is missing, not until any peers are connected.
 5. **The quarantine table holds its cap.** When every tracked peer is quarantined,
    the quarantine closest to expiry is released early to make room, and the guard
@@ -65,6 +69,11 @@ Catch-up:
    the budget (a full epoch of 5 MiB blocks is about 18 GiB) takes several rounds and
    is never refused. Amended 2026-11-22: the first version refused such a gap, which
    left an honest node that far behind stuck on every source until a snapshot restore.
+   Under a `--trusted-block` (`Anchor::Checked`) whose height lies inside the gap, the
+   trusted id is compared with the linked header id at that height before any body is
+   fetched, so a round that returns a prefix short of the trusted height never returns
+   blocks from a chain that holds another block there (amended 2026-11-22, review of
+   #655: the first stepped version checked only the returned prefix).
 9. **Resuming as a builder needs every source that can judge to agree.** A
    `--catch-up-from` source at or above this node's height judges: one whose ancestor,
    epoch or round check fails answers "no" and keeps the node following attested
@@ -85,7 +94,10 @@ RPC:
     runs outside the lock: consistent with that tip however many blocks land during
     it, and never repeated or moved under the lock. Amended 2026-11-22: the first
     version walked under the lock after two moved tips, which is when the chain is
-    busiest.
+    busiest. A cached report is served only for the exact (height, tip) it was walked
+    at, and each walk replaces it: fork choice is heaviest work, so a reorg can lower
+    the height, and a rule that served any newer cached height kept a branch's supply
+    the node had left (review of #655).
 11. **Request bodies are capped** at two maximal transactions plus 64 KiB and must
     arrive within 30 s.
 12. **Many-record reads run on blocking threads** (`get_supply`,
@@ -115,6 +127,10 @@ RPC:
 
 - Operators with an unpinned public or DNS bootnode must pin it or pass
   `--allow-unpinned-bootnodes`; the node refuses to start otherwise and says why.
+  Release note for the rollout: before upgrading a live node, check its
+  `node-config.toml` `[network] bootnodes` and any `--bootnode` in its service unit
+  (`infra/testnet-vm` writes `BOOTNODES` into `/etc/maya2c/v<i>.env`) for an address
+  without `/p2p/<id>`.
 - Clients that parsed internal error text, or `get_peers`' health fields from a public
   node, now get the fixed message and no such fields.
 - Wire format, block validity and state are unchanged; no conformance vectors change.

@@ -35,7 +35,9 @@
 # Join mode (another machine joining a running seed network, e.g. a home PC):
 #   GENESIS_URL      where the seed operator published genesis.json
 #   EXPECTED_SHA256  the sha256 the seed operator published with it
-#   BOOTNODE         the seed's p2p address, /ip4/<ip>/tcp/31100
+#   BOOTNODE         the seed's p2p address with its peer id,
+#                    /ip4/<ip>/tcp/31100/p2p/<peer id> (the node refuses an
+#                    unpinned public bootnode, ADR-151)
 # A joining node starts as an observer; it enters the committee through a
 # staking registration, and the installer prints the public key to register.
 #
@@ -89,7 +91,11 @@ preflight() {
     case "$VALIDATORS" in [1-4]) ;; *) die "VALIDATORS must be 1-4 (got '$VALIDATORS')" ;; esac
     if [ -n "$GENESIS_URL" ]; then
         [ -n "$EXPECTED_SHA256" ] || die "join mode needs EXPECTED_SHA256, published by the seed operator"
-        [ -n "$BOOTNODE" ] || die "join mode needs BOOTNODE, the seed's /ip4/<ip>/tcp/31100"
+        [ -n "$BOOTNODE" ] || die "join mode needs BOOTNODE, the seed's /ip4/<ip>/tcp/31100/p2p/<peer id>"
+        case "$BOOTNODE" in
+            */p2p/?*) ;;
+            *) die "BOOTNODE must end in /p2p/<peer id> (the seed prints it at start): the node refuses an unpinned public bootnode" ;;
+        esac
         VALIDATORS=1
     fi
     if [ -n "$DOMAIN" ] && [ -z "$EMAIL" ]; then

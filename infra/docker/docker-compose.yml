@@ -2,10 +2,12 @@
 #
 # ## Topology
 #
-# Both peers dial the seed by DNS name. libp2p accepts a bootnode address
-# without a `/p2p/<PeerId>` suffix, so the compose file does not need to know
-# peer ids ahead of time — which matters because they are only established the
-# first time each node writes its `node_key`.
+# Both peers dial the seed by DNS name, without a `/p2p/<PeerId>` suffix: peer
+# ids are only established the first time each node writes its `node_key`, so
+# the compose file cannot know them ahead of time. The node refuses an unpinned
+# public or DNS bootnode by default (ADR-151, `bootnode_policy`), so both peers
+# pass the opt-in flag below; inside one compose network the DNS name is the
+# trust anchor.
 #
 # ## Genesis
 #
@@ -17,7 +19,9 @@
 # ## Multi-region
 #
 # This file models the fleet on one host. Running it across real VPS instances
-# means one node per host, `L1_BOOTNODE` pointing at the seed's public address,
+# means one node per host, `L1_BOOTNODE` pointing at the seed's public address
+# with its peer id (`/ip4/<ip>/tcp/30333/p2p/<id>`, printed in the seed's log;
+# then drop the opt-in flag),
 # and the P2P port reachable through each provider's firewall. The service
 # definitions are otherwise unchanged — the bootnode address is the only value
 # that has to differ, which is why it is an environment variable rather than
@@ -102,6 +106,9 @@ services:
       - "30333"
       - --bootnode
       - ${L1_BOOTNODE:-/dns4/seed-node/tcp/30333}
+      # The seed's peer id exists only after its first start, so the default
+      # cannot pin it; the compose network's DNS is the trust anchor here.
+      - --allow-unpinned-bootnodes
       # Gossip only carries blocks minted after a node joins. A peer starting
       # from genesis against a chain already in progress needs an explicit pull
       # to cover the gap, or it sits at height 0 forever.
@@ -134,6 +141,9 @@ services:
       - "30333"
       - --bootnode
       - ${L1_BOOTNODE:-/dns4/seed-node/tcp/30333}
+      # The seed's peer id exists only after its first start, so the default
+      # cannot pin it; the compose network's DNS is the trust anchor here.
+      - --allow-unpinned-bootnodes
       # Gossip only carries blocks minted after a node joins. A peer starting
       # from genesis against a chain already in progress needs an explicit pull
       # to cover the gap, or it sits at height 0 forever.

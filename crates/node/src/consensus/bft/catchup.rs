@@ -204,16 +204,26 @@ pub fn fetch(
     committee: &[VerifyingKey],
     weights: Option<&[u64]>,
 ) -> Result<Vec<Block>> {
-    fetch_capped(from, source, committee, weights, MAX_ATTESTED_GAP_BYTES)
+    fetch_capped(
+        from,
+        source,
+        committee,
+        weights,
+        MAX_ATTESTED_GAP_BYTES,
+        None,
+    )
 }
 
-/// [`fetch`], returning at most about `max_bytes` of blocks per call.
+/// [`fetch`], returning at most about `max_bytes` of blocks per call. With
+/// `trusted`, a checkpointed chain that holds another block at the trusted
+/// height is refused from its headers, before any prefix is returned.
 fn fetch_capped(
     from: Position,
     source: &impl CheckpointSource,
     committee: &[VerifyingKey],
     weights: Option<&[u64]>,
     max_bytes: u64,
+    trusted: Option<TrustedBlock>,
 ) -> Result<Vec<Block>> {
     let Some(newest) = source.checkpoint()? else {
         return Ok(Vec::new());
@@ -246,7 +256,14 @@ fn fetch_capped(
         );
         return Ok(Vec::new());
     }
-    fetch_attested(from, checkpoint.height, checkpoint.block, source, max_bytes)
+    fetch_attested(
+        from,
+        checkpoint.height,
+        checkpoint.block,
+        source,
+        max_bytes,
+        trusted,
+    )
 }
 
 /// The ids at every height after `from` up to `to_height`, read from the
@@ -299,24 +316,31 @@ fn linked_header_ids(
 /// at `to_height`: as many as fit `max_bytes` (always at least one), each
 /// already tied to the checkpoint by [`linked_header_ids`]. A gap over the
 /// budget is crossed in steps, one prefix per call, rather than refused: the
-/// caller imports the prefix and asks again from its new tip.
+/// caller imports the prefix and asks again from its new tip. A `trusted`
+/// block inside the gap is checked against the linked ids first, so a prefix
+/// is never returned from a chain that contradicts it.
 ///
 /// # Errors
 ///
 /// As [`linked_header_ids`], and [`NodeError::Decode`] for a body that is not
-/// the block the checkpointed chain holds at its height.
+/// the block the checkpointed chain holds at its height, or a linked id at the
+/// trusted height that is not the trusted block.
 fn fetch_attested(
     from: Position,
     to_height: u64,
     to_id: [u8; 32],
     source: &impl CheckpointSource,
     max_bytes: u64,
+    trusted: Option<TrustedBlock>,
 ) -> Result<Vec<Block>> {
     use std::sync::atomic::{AtomicU64, Ordering};
     if to_height <= from.height {
         return Ok(Vec::new());
     }
     let ids = linked_header_ids(from, to_height, to_id, source)?;
+    if let Some(trusted) = trusted {
+        check_trusted(from, &ids, trusted)?;
+    }
     let first = from.height + 1;
     let chunks = (to_height - first) / BLOCKS_PER_REQUEST + 1;
     let range = |i: u64| {
@@ -477,8 +501,10 @@ pub enum Anchor {
 ///
 /// # Errors
 ///
-/// As [`fetch`], and [`NodeError::Decode`] when the blocks do not match the
-/// trusted block (nothing is returned, so nothing is imported).
+/// As [`fetch`], and [`NodeError::Decode`] when the chain does not match the
+/// trusted block (nothing is returned, so nothing is imported). Under
+/// [`Anchor::Checked`] that is decided from the linked headers of the whole
+/// gap to the checkpoint, so it holds for a round that returns a prefix.
 pub fn fetch_anchored(
     from: Position,
     source: &impl CheckpointSource,
@@ -486,12 +512,32 @@ pub fn fetch_anchored(
     weights: Option<&[u64]>,
     anchor: Anchor,
 ) -> Result<Vec<Block>> {
+    fetch_anchored_capped(
+        from,
+        source,
+        committee,
+        weights,
+        anchor,
+        MAX_ATTESTED_GAP_BYTES,
+    )
+}
+
+/// [`fetch_anchored`], with ordinary catch-up's per-round byte budget given.
+fn fetch_anchored_capped(
+    from: Position,
+    source: &impl CheckpointSource,
+    committee: &[VerifyingKey],
+    weights: Option<&[u64]>,
+    anchor: Anchor,
+    max_bytes: u64,
+) -> Result<Vec<Block>> {
     match anchor {
         Anchor::Unanchored => fetch(from, source, committee, weights),
         Anchor::Checked(trusted) if from.height < trusted.height => {
-            let blocks = fetch(from, source, committee, weights)?;
-            check_trusted(from, &blocks, trusted)?;
-            Ok(blocks)
+            // The trusted id is checked on the linked headers inside, before
+            // any body: a round may return a prefix short of the height, and
+            // every body returned is tied to those headers.
+            fetch_capped(from, source, committee, weights, max_bytes, Some(trusted))
         }
         // At or past the trusted height: a batch that crossed it was checked
         // then, and a block at or below the tip at start-up is checked by the
@@ -572,21 +618,23 @@ fn gap_bytes_error(total: u64, limit: u64, what: &str) -> NodeError {
     ))
 }
 
-/// Checks the block `blocks` carry at `trusted.height`, if they reach it.
-/// A batch that stops short checks nothing; the batch that reaches the height
-/// does.
+/// Checks the id `ids` (one per height after `from`) carry at
+/// `trusted.height`, if they reach it. Called on the linked header ids of the
+/// whole gap to the checkpoint, so a trusted height inside the gap is checked
+/// even by a round that returns only a prefix; a gap that stops short of the
+/// height checks nothing, and the round that reaches it does.
 ///
 /// # Errors
 ///
 /// [`NodeError::Decode`] when the block at that height is not `trusted.id`.
-pub fn check_trusted(from: Position, blocks: &[Block], trusted: TrustedBlock) -> Result<()> {
+fn check_trusted(from: Position, ids: &[[u8; 32]], trusted: TrustedBlock) -> Result<()> {
     let Some(index) = trusted.height.checked_sub(from.height + 1) else {
         return Ok(());
     };
-    let Some(block) = usize::try_from(index).ok().and_then(|i| blocks.get(i)) else {
+    let Some(id) = usize::try_from(index).ok().and_then(|i| ids.get(i)) else {
         return Ok(());
     };
-    if block.header.id() == trusted.id {
+    if *id == trusted.id {
         return Ok(());
     }
     Err(NodeError::Decode(format!(
@@ -1152,7 +1200,7 @@ mod tests {
         let mut from = at_ten(&source);
         let mut rounds = 0;
         loop {
-            let got = fetch_capped(from, &source, &committee, None, 1).unwrap();
+            let got = fetch_capped(from, &source, &committee, None, 1, None).unwrap();
             let Some(last) = got.last() else { break };
             // One block over a one-byte budget: progress, never a refusal.
             assert_eq!(got.len(), 1);
@@ -1172,13 +1220,44 @@ mod tests {
     }
 
     #[test]
+    fn a_checked_anchor_is_held_to_the_linked_headers_before_any_prefix() {
+        // Why: a round over the byte budget returns a prefix that stops short
+        // of the trusted height, and the caller imports it. A source whose
+        // attested chain holds another block at that height must be refused in
+        // the first round, before a single block of that chain is returned.
+        let (source, committee) = chained(100, true);
+        let wrong = TrustedBlock {
+            height: 50,
+            id: [0xEE; 32],
+        };
+        let err = fetch_anchored_capped(
+            at_ten(&source),
+            &source,
+            &committee,
+            None,
+            Anchor::Checked(wrong),
+            1,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, NodeError::Decode(m) if m.contains("trusted")),
+            "{err}"
+        );
+        // The right id at the same height still crosses in bounded steps.
+        let right = Anchor::Checked(trusted_at(&source, 50));
+        let got =
+            fetch_anchored_capped(at_ten(&source), &source, &committee, None, right, 1).unwrap();
+        assert_eq!(got.len(), 1);
+    }
+
+    #[test]
     fn a_prefix_is_never_returned_off_the_checkpointed_chain() {
         // Why: a prefix is imported before the checkpoint block arrives, so
         // each block must already be tied to the checkpoint. A source whose
         // body at 11 is another block is refused, not imported.
         let (mut source, committee) = chained(100, true);
         source.forged_body = Some(11);
-        let err = fetch_capped(at_ten(&source), &source, &committee, None, 1).unwrap_err();
+        let err = fetch_capped(at_ten(&source), &source, &committee, None, 1, None).unwrap_err();
         assert!(err.to_string().contains("checkpoint"), "{err}");
     }
 

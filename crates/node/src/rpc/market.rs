@@ -170,10 +170,10 @@ impl SupplyCache {
             .last
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Never move the cache back to an older tip.
-        if last.is_none_or(|old| old.height <= fresh.height) {
-            *last = Some(fresh);
-        }
+        // Walks are serialized by `scan` and each reads the chain when it
+        // starts, so the newest walk is the current tip, even a lower one
+        // after a heaviest-work reorg: always replace.
+        *last = Some(fresh);
         Ok(fresh.report)
     }
 
@@ -182,7 +182,9 @@ impl SupplyCache {
             .last
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        last.filter(|old| old.height > height || (old.height == height && old.tip == tip))
+        // Exact match only: a cached height above the chain's is another
+        // branch after a reorg, not a newer view of this one.
+        last.filter(|old| old.height == height && old.tip == tip)
             .map(|old| old.report)
     }
 }
@@ -414,6 +416,54 @@ mod tests {
         let after = supply_at(&chain).unwrap();
         assert_eq!(after.height, start_height + 1);
         assert_eq!(after.report.total, U256::from(1_007));
+    }
+
+    #[test]
+    fn a_reorg_to_a_lower_height_recomputes_the_supply() {
+        // Why: fork choice is heaviest work, so a reorg can leave the chain
+        // lower than the cached height. A cache that served any newer height
+        // kept the left branch's supply until the chain grew past it.
+        use crate::consensus::ChainConfig;
+        use crate::core::{Block, BlockHeader};
+        use crate::state::{Account, StateDB};
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDB::open(dir.path()).unwrap());
+        let account = Account {
+            balance: U256::from(1_000_u64),
+            nonce: 0,
+        };
+        state.put_account(&[1; 32], &account).unwrap();
+        let genesis = Block::new(
+            BlockHeader {
+                version: 0,
+                prev_hash: [0; 32],
+                state_root: [0; 32],
+                timestamp: 1_700_000_000,
+                nonce: 0,
+                difficulty_target: crate::crypto::pow::target_from_leading_zero_bits(6),
+                tx_root: [0; 32],
+            },
+            Vec::new(),
+        );
+        let chain = Arc::new(Mutex::new(
+            Chain::open(state, genesis, ChainConfig::without_pow_verification()).unwrap(),
+        ));
+        let now = supply_at(&chain).unwrap();
+        // The cache holds a report from a branch above the chain's height.
+        let left_branch = Cached {
+            height: now.height + 5,
+            tip: [0xAB; 32],
+            report: SupplyReport {
+                total: U256::from(7_u64),
+                ..now.report
+            },
+        };
+        let cache = SupplyCache::default();
+        *cache.last.lock().unwrap() = Some(left_branch);
+        assert_eq!(cache.get(&chain).unwrap().total, now.report.total);
+        // And the cache now holds the chain's own tip, so the next call hits.
+        let held = cache.last.lock().unwrap().unwrap();
+        assert_eq!((held.height, held.tip), (now.height, now.tip));
     }
 
     fn quote(pair: &str) -> MarketQuote {

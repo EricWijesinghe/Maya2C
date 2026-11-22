@@ -98,6 +98,82 @@ mod tests {
         assert!(bootnodes_satisfied(&[bootnode], &with_bootnode));
     }
 
+    /// Every bootnode address a shipped deploy path passes, read from the
+    /// lines that name a bootnode (or follow one, as in a YAML argument list).
+    /// `${VAR:-default}` yields its default; a placeholder such as `<ip>` does
+    /// not parse and is skipped (the scripts check operator input themselves).
+    fn bootnode_addresses(text: &str) -> Vec<Multiaddr> {
+        let mut previous = false;
+        let mut found = Vec::new();
+        for line in text.lines() {
+            let names = line.to_ascii_lowercase().contains("bootnode");
+            if names || previous {
+                for token in line.split(|c: char| c.is_whitespace() || "\"'=".contains(c)) {
+                    let token = token.rsplit(":-").next().unwrap_or(token);
+                    let token = token.trim_matches(|c| "${}),".contains(c));
+                    if token.starts_with("/ip") || token.starts_with("/dns") {
+                        found.extend(token.parse::<Multiaddr>().ok());
+                    }
+                }
+            }
+            previous = names;
+        }
+        found
+    }
+
+    #[test]
+    fn shipped_deploy_paths_pass_the_pin_policy() {
+        // Why: the node refuses to start on an unpinned public or DNS
+        // bootnode, so a deploy path that passes one without the flag ships a
+        // node that never starts. Each such address needs its own flag.
+        let shipped = [
+            (
+                "docker-compose.yml",
+                include_str!("../../../infra/docker/docker-compose.yml"),
+            ),
+            (
+                "deploy.yaml",
+                include_str!("../../../infra/k8s/deploy.yaml"),
+            ),
+            (
+                "maya_operator.py",
+                include_str!("../../../infra/operator/maya_operator.py"),
+            ),
+            (
+                "install.sh",
+                include_str!("../../../infra/testnet-vm/install.sh"),
+            ),
+            (
+                "join-validator.ps1",
+                include_str!("../../../infra/testnet-vm/join-validator.ps1"),
+            ),
+            (
+                "join-testnet.sh",
+                include_str!("../../../scripts/join-testnet.sh"),
+            ),
+        ];
+        for (name, text) in shipped {
+            let refused = bootnode_addresses(text)
+                .iter()
+                .filter(|address| check_pinned(address, false).is_err())
+                .count();
+            let allowed = text.matches("--allow-unpinned-bootnodes").count();
+            assert!(
+                refused <= allowed,
+                "{name}: {refused} unpinned public or DNS bootnode(s), {allowed} --allow-unpinned-bootnodes"
+            );
+        }
+    }
+
+    #[test]
+    fn the_deploy_scan_sees_compose_style_defaults() {
+        let compose = "      - --bootnode\n      - ${L1_BOOTNODE:-/dns4/seed-node/tcp/30333}\n";
+        assert_eq!(
+            bootnode_addresses(compose),
+            [addr("/dns4/seed-node/tcp/30333")]
+        );
+    }
+
     #[test]
     fn unpinned_bootnodes_keep_the_peer_count_rule() {
         let bootnodes = [addr("/ip4/127.0.0.1/tcp/1"), addr("/ip4/127.0.0.1/tcp/2")];
