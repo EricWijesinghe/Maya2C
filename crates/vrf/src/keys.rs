@@ -14,11 +14,20 @@
 
 use curve25519_dalek::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
+use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha512};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::{Result, VrfError};
 use crate::scheme::{PUBLIC_KEY_LEN, SECRET_KEY_LEN, VrfScheme};
+
+/// Decompresses an edwards25519 point, refusing any encoding that is not the
+/// canonical one. Decompression alone accepts y >= p, so one point would have
+/// several byte strings, and each would be a different key or proof identifier.
+pub(crate) fn decompress_canonical(bytes: &[u8; 32]) -> Option<EdwardsPoint> {
+    let point = curve25519_dalek::edwards::CompressedEdwardsY(*bytes).decompress()?;
+    (point.compress().to_bytes() == *bytes).then_some(point)
+}
 
 /// A VRF secret key.
 ///
@@ -79,30 +88,41 @@ impl VrfSecretKey {
     /// multiple of the cofactor, and fix bit 254 so the scalar is a uniform
     /// 255-bit value. Both matter — the first kills small-subgroup leakage, the
     /// second stops a variable-time ladder from leaking the top bits.
-    pub(crate) fn expand(&self) -> (Scalar, [u8; 32]) {
-        let hash = Sha512::digest(self.seed);
+    ///
+    /// Best-effort wiping: the digest, the clamped bytes and the prefix are
+    /// zeroized on drop, and callers wipe the returned `Scalar`. Copies the
+    /// compiler makes, and the hasher's internal block buffer, are not reached.
+    pub(crate) fn expand(&self) -> (Scalar, Zeroizing<[u8; 32]>) {
+        // Hashed straight into a wiped buffer: its two halves are the secret
+        // scalar and the nonce prefix.
+        let mut hash = Zeroizing::new([0u8; 64]);
+        Sha512::new()
+            .chain_update(self.seed)
+            .finalize_into(GenericArray::from_mut_slice(&mut hash[..]));
 
-        let mut clamped = [0u8; 32];
+        let mut clamped = Zeroizing::new([0u8; 32]);
         clamped.copy_from_slice(&hash[..32]);
         clamped[0] &= 248;
         clamped[31] &= 127;
         clamped[31] |= 64;
 
-        let mut prefix = [0u8; 32];
+        let mut prefix = Zeroizing::new([0u8; 32]);
         prefix.copy_from_slice(&hash[32..]);
 
         // Reduction mod the group order is a no-op for scalar multiplication —
         // the basepoint has that order — and it is what `Scalar` requires.
-        (Scalar::from_bytes_mod_order(clamped), prefix)
+        (Scalar::from_bytes_mod_order(*clamped), prefix)
     }
 
     /// The public key this seed corresponds to.
     #[must_use]
     pub fn public_key(&self) -> VrfPublicKey {
-        let (scalar, _) = self.expand();
+        let (mut scalar, _) = self.expand();
+        let compressed = EdwardsPoint::mul_base(&scalar).compress().to_bytes();
+        scalar.zeroize();
         VrfPublicKey {
             scheme: VrfScheme::Ed25519Sha512Tai,
-            compressed: EdwardsPoint::mul_base(&scalar).compress().to_bytes(),
+            compressed,
         }
     }
 }
@@ -135,11 +155,9 @@ impl VrfPublicKey {
     /// - [`VrfError::SmallOrderKey`] if the point has small order, which would
     ///   make its outputs predictable to everyone.
     pub fn point(&self) -> Result<EdwardsPoint> {
-        let point = curve25519_dalek::edwards::CompressedEdwardsY(self.compressed)
-            .decompress()
-            .ok_or(VrfError::InvalidPoint {
-                what: "VRF public key",
-            })?;
+        let point = decompress_canonical(&self.compressed).ok_or(VrfError::InvalidPoint {
+            what: "VRF public key",
+        })?;
 
         // RFC 9381 makes key validation optional. It is not optional here: a
         // small-order key has a keyspace of eight, so its "unpredictable"

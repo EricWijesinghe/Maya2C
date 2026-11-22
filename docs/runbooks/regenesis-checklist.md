@@ -49,7 +49,10 @@ against a live server on its own.
 
 1. One validator key per validator: `maya2c-node --generate-validator-key PATH
    --validator-passphrase-file F` on the machine that will run it. Sealed from
-   creation; the passphrase file lives off the repo drive.
+   creation; the passphrase file lives off the repo drive. On Linux or macOS
+   it must be mode 0600 (`umask 077` or `chmod 600`) on a filesystem that keeps
+   Unix permissions, not FAT, exFAT or NTFS removable media: the node and the
+   ceremony tool refuse a passphrase file group or others can read.
 2. Three council keys on three devices: `genesis-ceremony council key --label L
    --passphrase-file F`. Copy only `*.council.public` into the council folder;
    the tool refuses a folder holding a `.sealed` file.

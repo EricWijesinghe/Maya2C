@@ -3406,7 +3406,7 @@ paths = "`crates/signer`, `bins/maya2c-signer`, `crates/node/src/consensus/bft/r
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
+tests = ["crates/signer/tests/signer_tests.rs", "crates/signer/tests/hardening_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
 note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed. Held at working (P2 red team, 2026-11-14): `maya2c-signer export`/`import` carry vertex and vote history only; the block-attestation database (ADR-038) has no interchange entries, so moving a key to a new signer machine drops its once-per-height record. The fix touches crates/signer, which the node links, so it waits for the post-genesis branch."
 
 [[subsystem]]

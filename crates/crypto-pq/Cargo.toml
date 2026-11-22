@@ -102,9 +102,11 @@ thiserror.workspace = true
 # dual KEMs built on them). Off by default because `hqc-kem =0.1.0-rc.0`
 # decapsulation measured NOT constant-time (dudect |t| = 47.5 at n = 176k on
 # a clean run, ADR-009 addenda): a crate that does not ask for it cannot put HQC on a path an
-# attacker can time. The node's default features include hqc
-# (crates/node/Cargo.toml), but the runtime dual-KEM policy is off
-# (crates/node/src/config.rs), so it is not used unless a config asks for it.
+# attacker can time. The node enables it by default for devnet builds only
+# (crates/node/Cargo.toml); a production build uses --no-default-features and
+# leaves it out. Where it is compiled in, the runtime dual-KEM policy is off
+# (crates/node/src/config.rs), so it is not used unless a config asks for it,
+# and then only for ephemeral per-connection keys (ADR-009).
 hqc = ["dep:hqc-kem", "dep:rand", "dep:rand_core", "maya-build-guard/research"]
 
 [dev-dependencies]
