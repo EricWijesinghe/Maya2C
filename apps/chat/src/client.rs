@@ -24,9 +24,11 @@ pub use payments::MAX_PAY_INBOX;
 /// How long an envelope asks relays to keep it, seconds.
 pub const ENVELOPE_TTL: u64 = 7 * 24 * 3_600;
 /// Most sessions one client keeps. Anyone can open a session for one stamp,
-/// so past this the least recently active session gives way: a hard refusal
-/// would lock out every new contact for good. An evicted peer is reached
-/// again by a fresh handshake from either side.
+/// so past this a session gives way: a hard refusal would lock out every new
+/// contact for good. Peers this client never wrote to go first, oldest first,
+/// so a flood of strangers evicts other strangers before a chosen contact.
+/// Recovery is manual: the evicted side sees `NoSession` for that peer's
+/// `Chat` envelopes until one side opens a fresh handshake.
 pub const MAX_SESSIONS: usize = 4_096;
 
 /// A received message.
@@ -108,6 +110,9 @@ struct State {
     /// Absent before the session cap: those sessions load as least recent.
     #[serde(default)]
     last_active: BTreeMap<Address, u64>,
+    /// Absent before eviction ranking: those sessions rank as strangers.
+    #[serde(default)]
+    chosen: BTreeSet<Address>,
     accepted: BTreeMap<[u8; 32], u64>,
     #[serde(default)]
     outbox: BTreeMap<[u8; 32], Pending>,
@@ -138,6 +143,10 @@ pub struct Client {
     /// When each session last sent or received, for eviction past
     /// [`Client::max_sessions`].
     last_active: BTreeMap<Address, u64>,
+    /// Peers the user has written to (text or payment, not receipts): a
+    /// stranger cannot add itself here, so eviction spares these first.
+    /// Always a subset of `sessions`.
+    chosen: BTreeSet<Address>,
     /// [`MAX_SESSIONS`] unless lowered; not saved.
     max_sessions: usize,
     /// Handshakes already accepted, by session id, with their send time.
@@ -180,6 +189,7 @@ impl Client {
             identity,
             sessions: BTreeMap::new(),
             last_active: BTreeMap::new(),
+            chosen: BTreeSet::new(),
             max_sessions: MAX_SESSIONS,
             accepted: BTreeMap::new(),
             outbox: BTreeMap::new(),
@@ -202,21 +212,25 @@ impl Client {
         self
     }
 
-    /// Stores `session` for `peer`, first evicting the least recently
-    /// active other sessions while the table is full.
+    /// Stores `session` for `peer`, first evicting other sessions while the
+    /// table is full: strangers before chosen contacts, then least recent.
     fn insert_session(&mut self, peer: Address, session: Session, now: u64) {
         while !self.sessions.contains_key(&peer) && self.sessions.len() >= self.max_sessions {
             // shortcut: O(n) scan of at most MAX_SESSIONS per new peer; index by time if the cap grows.
             let Some(oldest) = self
                 .sessions
                 .keys()
-                .min_by_key(|p| (self.last_active.get(*p).copied().unwrap_or(0), **p))
+                .min_by_key(|p| {
+                    let when = self.last_active.get(*p).copied().unwrap_or(0);
+                    (self.chosen.contains(*p), when, **p)
+                })
                 .copied()
             else {
                 break;
             };
             self.sessions.remove(&oldest);
             self.last_active.remove(&oldest);
+            self.chosen.remove(&oldest);
             // Its receipts can no longer be sealed.
             self.owed.remove(&oldest);
         }
@@ -239,6 +253,7 @@ impl Client {
             version: STATE_VERSION,
             sessions: self.sessions.clone(),
             last_active: self.last_active.clone(),
+            chosen: self.chosen.clone(),
             accepted: self.accepted.clone(),
             outbox: self.outbox.clone(),
             owed: self.owed.clone(),
@@ -290,6 +305,7 @@ impl Client {
             identity,
             sessions: state.sessions,
             last_active: state.last_active,
+            chosen: state.chosen,
             max_sessions: MAX_SESSIONS,
             accepted: state.accepted,
             outbox: state.outbox,
@@ -366,6 +382,7 @@ impl Client {
             self.insert_session(to, session, now);
             Payload::Open { handshake, first }
         };
+        self.chosen.insert(to);
         Ok(Envelope {
             to,
             expires_at: now + ENVELOPE_TTL,
@@ -592,6 +609,7 @@ impl Client {
             if !had_session {
                 self.sessions.remove(&to);
                 self.last_active.remove(&to);
+                self.chosen.remove(&to);
             }
             return Err(e);
         }
