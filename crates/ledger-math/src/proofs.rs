@@ -17,6 +17,11 @@
 //! immediately. These harnesses take full 256-bit symbolic inputs; the
 //! carry and borrow chains are also proved on their own in `maya-amount`.
 //!
+//! A harness that returns early on every refusal proves nothing if no input
+//! reaches its assertions, so those carry `kani::cover!` statements, and a
+//! run's `N of M cover properties satisfied` line is part of its result. Kani
+//! 0.67 does not fail a harness on an unsatisfied cover; the report reads it.
+//!
 //! # Bounded versus unbounded
 //!
 //! Stated plainly, because the difference is the difference between a proof and
@@ -211,6 +216,8 @@ fn total_outputs_refuses_any_intermediate_overflow() {
 
     let total = total_outputs(amounts);
     assert!(total == running);
+    kani::cover!(total.is_some(), "a three-output total is representable");
+    kani::cover!(total.is_none(), "a three-output total overflows");
     if let Some(total) = total {
         for amount in amounts {
             assert!(total >= amount);
@@ -271,6 +278,12 @@ fn a_two_output_transfer_conserves_value() {
     };
     assert!(left.is_some());
     assert!(left == arrived);
+    // Non-vacuity: every early return above is a refusal, so without this a
+    // harness whose steps always failed would pass with nothing checked.
+    kani::cover!(
+        !first_amount.is_zero() && !second_amount.is_zero(),
+        "a two-output transfer is accepted"
+    );
 }
 
 /// `settle_pool` agrees with its inverse in all three outcomes.
@@ -288,7 +301,14 @@ fn settle_pool_agrees_with_its_inverse() {
     let out_overflows = sum_overflows(public_out, fee);
     let in_overflows = sum_overflows(held, public_in);
 
-    match settle_pool(held, public_in, public_out, fee) {
+    let result = settle_pool(held, public_in, public_out, fee);
+    kani::cover!(result.is_ok(), "a settle succeeds");
+    kani::cover!(result == Err(SettleError::Overflow), "a settle overflows");
+    kani::cover!(
+        matches!(result, Err(SettleError::Underflow { .. })),
+        "a settle underflows"
+    );
+    match result {
         Ok(remaining) => {
             assert!(!out_overflows && !in_overflows);
             let withdrawn = public_out.checked_add(fee);
@@ -380,4 +400,117 @@ fn placing_the_spare_adds_exactly_the_spare() {
         // Refused only when a holder already had every unit an Amount holds.
         assert!(before.contains(&Amount::MAX));
     }
+}
+
+/// A self-transfer moves only what goes to someone else, in this crate's model
+/// of the apply order.
+///
+/// `StateDB::stage_transaction` debits the sender's whole output total first
+/// and then credits each recipient by reading back through the overlay, so a
+/// sender who names itself as a recipient is credited against the debited
+/// balance, not the original. This proves the arithmetic of that order, built
+/// from `total_outputs`, `debit` and `credit`: with one output to itself and
+/// one to another account, the sender ends exactly `to_other` poorer and the
+/// other account exactly `to_other` richer. It does not prove the node: the
+/// node calls `U256::checked_sub`/`checked_add` directly, not `debit`/`credit`
+/// (only `total_outputs` is shared), so a node that read the stale balance
+/// would still pass here. What pins `stage_transaction` itself is the test
+/// `self_transfer_nets_to_zero_and_does_not_mint` in
+/// `crates/node/tests/state_tests.rs`.
+#[kani::proof]
+// 40: `==` on an Amount is a 32-byte memcmp, unrolled per byte.
+#[kani::unwind(40)]
+fn a_self_transfer_moves_only_what_goes_elsewhere() {
+    let sender_before = any_amount();
+    let other_before = any_amount();
+    let to_self = any_amount();
+    let to_other = any_amount();
+
+    let Some(total_out) = total_outputs([to_self, to_other]) else {
+        return;
+    };
+    let Some(debited) = debit(sender_before, total_out) else {
+        return;
+    };
+    let Some(sender_after) = credit(debited, to_self) else {
+        return;
+    };
+    let Some(other_after) = credit(other_before, to_other) else {
+        return;
+    };
+
+    assert!(sender_before.checked_sub(sender_after) == Some(to_other));
+    assert!(other_after.checked_sub(other_before) == Some(to_other));
+    kani::cover!(
+        !to_self.is_zero() && !to_other.is_zero(),
+        "a self-transfer with a second recipient is accepted"
+    );
+}
+
+/// A fee-paying transfer conserves value through the end-of-block burn, and the
+/// burn never takes more than the fee paid.
+///
+/// The fee is an ordinary output to the fee collector (`charge_fee` checks that
+/// those outputs cover the base fee owed), and `settle_fees` moves the owed base
+/// fee from the collector to the sink at the end of the block. Four accounts,
+/// each step one of this crate's checked operations, in the order the node
+/// applies them. What is asserted: the sender's loss is exactly what the
+/// recipient, the collector and the sink gained, and the collector keeps the
+/// tip (`offered - owed`), so a burn can never draw on fees other transactions
+/// paid. A proof of this model of the order, not of the node: `settle_fees`
+/// (`crates/node/src/state/fee_exec.rs`) calls `U256` arithmetic directly, so a
+/// node that burned from the wrong account would still pass here.
+#[kani::proof]
+// 40: `==` on an Amount is a 32-byte memcmp, unrolled per byte.
+#[kani::unwind(40)]
+fn a_fee_paying_transfer_conserves_value_through_the_burn() {
+    let sender_before = any_amount();
+    let recipient_before = any_amount();
+    let collector_before = any_amount();
+    let sink_before = any_amount();
+    let amount = any_amount();
+    let offered = any_amount();
+    let owed = any_amount();
+    // charge_fee refuses the transaction unless the offered fee covers it.
+    kani::assume(owed <= offered);
+
+    let Some(total_out) = total_outputs([amount, offered]) else {
+        return;
+    };
+    let Some(sender_after) = debit(sender_before, total_out) else {
+        return;
+    };
+    let Some(recipient_after) = credit(recipient_before, amount) else {
+        return;
+    };
+    let Some(collected) = credit(collector_before, offered) else {
+        return;
+    };
+    // settle_fees: the burn must come out of the collector...
+    let collector_after = debit(collected, owed);
+    assert!(collector_after.is_some());
+    let Some(collector_after) = collector_after else {
+        return;
+    };
+    // ...and into the sink.
+    let Some(sink_after) = credit(sink_before, owed) else {
+        return;
+    };
+
+    let left = sender_before.checked_sub(sender_after);
+    let to_recipient = recipient_after.checked_sub(recipient_before);
+    let tip_kept = collector_after.checked_sub(collector_before);
+    let burned = sink_after.checked_sub(sink_before);
+    assert!(burned == Some(owed));
+    assert!(tip_kept == offered.checked_sub(owed));
+    let arrived = match (to_recipient, tip_kept, burned) {
+        (Some(r), Some(t), Some(b)) => r.checked_add(t).and_then(|rt| rt.checked_add(b)),
+        _ => None,
+    };
+    assert!(left.is_some());
+    assert!(left == arrived);
+    kani::cover!(
+        !owed.is_zero() && owed < offered && !amount.is_zero(),
+        "a transfer that pays a fee above the base fee is accepted"
+    );
 }

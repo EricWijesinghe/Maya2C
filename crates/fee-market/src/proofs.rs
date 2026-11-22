@@ -168,3 +168,88 @@ fn a_burn_moves_only_circulating_and_by_exactly_the_burn() {
         Err(_) => assert!(burned > circulating),
     }
 }
+
+/// The 256-bit base-fee step equals the control law in `base_fee.rs`'s module
+/// documentation, restated in native `u64`, at one concrete `target` and the
+/// launch denominator `MIN_CHANGE_DENOMINATOR` (8), for every block size up to
+/// `MAX_BLOCK_BYTES` and every parent fee and floor below 2^8.
+///
+/// A re-statement check: it proves the implementation matches a second write
+/// of the same rule, not that the rule is the right one. The full-width
+/// harnesses above give no verdict in budget (the symbolic divisor is the
+/// obstacle; kani-heavy.yml), so this fixes the divisors and bounds the fee,
+/// and states the exact answer rather than a bound: a rule that rounded the
+/// wrong way, dropped the one-unit minimum rise, dropped or misplaced the
+/// one-share cap (where it can bind), or applied the floor before the step,
+/// fails. `MAX_BASE_FEE_PER_BYTE` cannot bind at this fee width. Bounded, and
+/// said so.
+fn check_the_base_fee_law_at(target: u64) {
+    use crate::limits::{MAX_BLOCK_BYTES, MIN_CHANGE_DENOMINATOR};
+    let parent = u64::from(kani::any::<u8>());
+    let floor = u64::from(kani::any::<u8>());
+    let size = u64::from(kani::any::<u32>());
+    kani::assume(size <= MAX_BLOCK_BYTES);
+    let denominator = MIN_CHANGE_DENOMINATOR;
+
+    let next = next_base_fee(
+        Amount::from_u64(parent),
+        size,
+        target,
+        denominator,
+        Amount::from_u64(floor),
+    );
+
+    // parent < 2^8 and gap <= MAX_BLOCK_BYTES < 2^23: every product fits a u64.
+    let scale = target * denominator;
+    let share = (parent / denominator).max(1);
+    let delta = parent * size.abs_diff(target) / scale;
+    let law = if size > target {
+        parent + delta.max(1).min(share)
+    } else if size < target {
+        parent - delta
+    } else {
+        parent
+    };
+    let law = law.max(floor);
+    assert!(MAX_BASE_FEE_PER_BYTE > Amount::from_u64(1 << 9));
+    assert!(next == Amount::from_u64(law));
+
+    kani::cover!(size > target && law > floor, "a full block raises the fee");
+    kani::cover!(
+        size > target && delta == 0 && law == parent + 1 && law > floor,
+        "the one-unit minimum rise applies"
+    );
+    kani::cover!(
+        size < target && law < parent && law > floor,
+        "an empty block lowers the fee"
+    );
+    kani::cover!(law == floor && floor > parent, "the floor binds");
+    // Only a block more than twice the target can have delta > share, so at a
+    // target of half `MAX_BLOCK_BYTES` Kani reports this cover UNSATISFIABLE.
+    kani::cover!(
+        size > target && delta > share && law == parent + share && law > floor,
+        "the one-share cap binds"
+    );
+}
+
+/// [`check_the_base_fee_law_at`] at `MAX_TARGET_BLOCK_BYTES` (2,621,440, half
+/// of `MAX_BLOCK_BYTES`; the public testnet genesis value — the mainnet target
+/// is set at genesis). Here the gap is at most the target, so delta is at most
+/// one share and the one-share cap cannot bind (Kani reports its cover
+/// UNSATISFIABLE): this harness does not pin the cap; the next one does.
+#[kani::proof]
+// 41, as above: `==` on `Amount` is a byte-wise memcmp.
+#[kani::unwind(41)]
+fn the_launch_base_fee_step_is_its_law_exactly() {
+    check_the_base_fee_law_at(crate::limits::MAX_TARGET_BLOCK_BYTES);
+}
+
+/// [`check_the_base_fee_law_at`] at `FeeConfig::TESTING`'s 1 MiB target, where
+/// a block up to `MAX_BLOCK_BYTES` is up to 4x over target and the one-share
+/// cap binds (its `cover!` shows the branch is reached). This is the harness
+/// that pins the cap.
+#[kani::proof]
+#[kani::unwind(41)]
+fn the_base_fee_step_is_its_law_where_the_cap_binds() {
+    check_the_base_fee_law_at(crate::FeeConfig::TESTING.target_block_bytes);
+}
