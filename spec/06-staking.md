@@ -19,10 +19,12 @@ the state root (ROOT-5, invariant 25). Amounts are 256-bit little-endian
 - **STK-4** An epoch boundary reads every validator record, the delegations and unbonding entries of each validator slashed for downtime, and the release index up to the new epoch, which is at most every open unbonding entry (STK-7). Each active validator's earning delegated stake is its `delegated` less its pending part; no delegation of a validator that is not slashed is read. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-5** At the boundary of epoch E a paid validator's operator is credited as before, and its reward less that credit is owed to its delegators as `k:pj:<validator><E>` with the delegation count at the boundary. A delegation that was `a` at the boundary, `p` of it added in E, receives `rest × (a − p) / total` rounded down — the amount the single-record rules credited at the boundary — the first time an operation reads it or the per-block pass reaches it, whichever is first, and exactly once. When no delegation is still owed, what is left is burned. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-6** Every block, after the boundary work, the payout pass pays at most 1,024 delegations, taking the lowest `k:pj:` key first and that validator's delegations in key order from where the last block stopped. Within a block the pass resumes after the last payout key it finished. Every delegation the pass walks is settled against every open payout of its validator; a validator's lower payout key is always finished first, and a later payout then walks from that validator's first delegation. A payout whose validator has no delegation left to pay while it still owes some is a state error, refused like a wrong root: every node halts at that block. Its precondition is the invariant that an open payout's `remaining` equals the number of its validator's delegations whose `next_payout_epoch` is at most the payout's epoch, which the randomized history test recounts after every step. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
-- **STK-7** A position is a delegation record or an unbonding entry. A delegation that would create a new delegation record, and an undelegation that keeps part of its delegation and would open a new unbonding entry, are refused once the chain holds `min(MAX_DELEGATION_RECORDS, 1,024 × epoch_blocks / 2)` positions, `MAX_DELEGATION_RECORDS` = 131,072. An unbonding entry keeps its position until it is released, so delegating and leaving at once frees nothing. Never refused for this: adding to an existing delegation, an undelegation folding into the owner's entry for the same release epoch, an undelegation of the whole delegation (it trades its record for at most one entry), and a validator's own unbond (at most one entry per release epoch, so at most `unbonding_epochs` open per validator). Positions therefore exceed the ceiling only by operators' own entries, at most registered validators × `unbonding_epochs`; registration has no record ceiling, so the number of validators is bounded only by `min_self_bond` locked per validator (Gaps). The staking layer holds at most twice the positions in delegation, unbonding and release-index records, plus validators, payouts and the meta record. The second term means that, while the per-block pass spends its budget on the payouts of one boundary, it reaches every delegation within half an epoch. That is the typical case, not a bound proved under churn: the budget is also spent on delegations created after the boundary (which owe nothing) and on payouts left open from earlier epochs, so a payout can outlive the next boundary; it stays correct, because open payouts accumulate and each delegation is paid every one it is owed. The first term bounds the staking layer's per-block root fold and what one boundary releases (Gaps). *(external vectors: crates/node/src/state/staking_store_tests.rs)*
+- **STK-7** A position is a delegation record or an unbonding entry. A delegation that would create a new delegation record, and an undelegation that keeps part of its delegation and would open a new unbonding entry, are refused once the chain holds `min(MAX_DELEGATION_RECORDS, 1,024 × epoch_blocks / 2)` positions, `MAX_DELEGATION_RECORDS` = 131,072. An unbonding entry keeps its position until it is released, so delegating and leaving at once frees nothing. Never refused for this: adding to an existing delegation, an undelegation folding into the owner's entry for the same release epoch, an undelegation of the whole delegation (it trades its record for at most one entry), and a validator's own unbond (at most one entry per release epoch, so at most `unbonding_epochs` open per validator; STK-12 bounds them chain-wide). Positions therefore exceed the ceiling only by operators' own entries: up to the reserve of STK-12, plus full operator exits of at least `min_self_bond`, which STK-12 exempts and capital bounds. The staking layer holds at most twice the positions in delegation, unbonding and release-index records, plus validators, payouts and the meta record. The second term means that, while the per-block pass spends its budget on the payouts of one boundary, it reaches every delegation within half an epoch. That is the typical case, not a bound proved under churn: the budget is also spent on delegations created after the boundary (which owe nothing) and on payouts left open from earlier epochs, so a payout can outlive the next boundary; it stays correct, because open payouts accumulate and each delegation is paid every one it is owed. The first term bounds the staking layer's per-block root fold and what one boundary releases (Gaps). *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-8** Native coin held by staking is the sum, over its records, of each validator's self bond, each delegation, each unbonding entry and each payout still owed; the conservation check folds exactly these. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-9** The operations STK-7 refuses chain-wide are refused for one validator once its record counts `MAX_DELEGATIONS_PER_VALIDATOR` = 16,384 positions (`MAX_DELEGATION_RECORDS / 8`), with the same exemptions. It bounds what one double-sign slash or one downtime boundary reads, settles and rewrites at 16,384 positions plus `unbonding_epochs` operator entries. Eight validators full to this ceiling fill the chain-wide one exactly; seven leave room. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-10** Committing an operation rewrites a delegation record only when its meaning changed: its amount, its pending part in the current epoch, or its `next_payout_epoch`; and a validator record only when its rules record, its pending parts in the current epoch, its counts or its unbonding sum changed, so a boundary that changes no validator writes none. Settling a delegation that owes no open payout leaves `next_payout_epoch` as it was (no payout for an earlier epoch can be created later). A slash or a downtime boundary that cuts nothing from a delegation writes nothing for it. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
+
+- **STK-12** An operator's unbond that would open a new unbonding entry is refused once the chain holds `ceiling + OPERATOR_ENTRY_RESERVE` positions, where the ceiling is STK-7's and `OPERATOR_ENTRY_RESERVE` = 16,384 (`MAX_DELEGATIONS_PER_VALIDATOR`). Never refused for this: an operator unbond folding into its own entry for the same release epoch (it adds no position), and a full exit, one that leaves nothing bonded, of at least `min_self_bond`, so an operator can always leave. An operator whose bond a slash took under `min_self_bond` tops up to it (a top-up is never refused) and then exits in full. A full exit under the minimum is not exempt: otherwise one validator could top up one base unit and leave again every epoch. Delegators are refused at the ceiling (STK-7), so only operators can use the reserve. Each exempt entry holds at least `min_self_bond` until it releases, so positions never exceed `ceiling + 16,384 + staked coins / min_self_bond` whatever the number of registered validators (at most 131,072 + 16,384 + 19,687 = 167,143 at the mainnet 1,000-coin bond if every coin the halving eras issue were bonded): that bounds what one boundary releases (STK-4). STK-11 is reserved for the committee-floor rule of a parallel change (ADR-070). Pending Eric (decision brief 2, 09 R-7). *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 
 ## Record layouts
 
@@ -63,28 +65,39 @@ with `remaining` = 0 or `total` = 0 does not decode.
   incremental staking-layer root. Accepting this for genesis is open for
   Eric (DECISIONS.md 2026-11-15, review round 2).
 - PARTIAL, a boundary's release of due unbonding entries is proportional to
-  the entries due, bounded by the ceiling plus operators' own entries
-  (registered validators × `unbonding_epochs`, STK-4, STK-7), not by a
-  per-block budget: every position released at one boundary is the measured
-  worst case.
+  the entries due, bounded by the ceiling, the operator reserve and the
+  capital-bounded full operator exits (STK-4, STK-7, STK-12), not by a per-block budget: every position released
+  at one boundary is the measured worst case.
 - PARTIAL, validator count. Registering a validator has no record ceiling
   (`max_validators` limits only the active set); only `min_self_bond`, locked
-  and refundable, limits it. Every boundary reads every validator record, and
-  each validator's operator may hold `unbonding_epochs` entries the position
-  ceiling exempts, so both grow with registered validators at
-  `min_self_bond` per validator. A registration ceiling or a higher bond is an
-  economics decision, open for Eric beside the dust item.
-- PARTIAL, dust. The mainnet `min_delegation` is 1 coin (10^24 base units,
-  DECISIONS.md 2026-10-30, enforced by `cargo xtask genesis-check`); the
+  and refundable, limits it. Every boundary reads every validator record, so
+  that read grows with registered validators. At the mainnet 1,000-coin
+  floor that is at most 2,625 validators in the first year if every coin
+  issued were bonded (about 2,625,000 coins issued a year in era 1 at one
+  block a second) and at most 19,687 over all four halving eras. The
+  positions operators open no longer grow with it (STK-12). A registration
+  ceiling needs a validator count in the meta record, a layout change; open
+  for Eric.
+- PARTIAL, dust, pending Eric (decision brief 2 option A). The proposed
+  mainnet `min_delegation` is 100 coins (10^26 base units, enforced by
+  `cargo xtask genesis-check`; it was 1 coin, DECISIONS.md 2026-10-30); the
   devnet default is 10 base units. A crowd of 16,384 minimum positions closes
-  one chosen validator to new delegators (16,384 coins locked at the mainnet
-  floor, refunded after the unbonding window): an attack on honest
-  validators, a new one among them, that the per-validator ceiling (STK-9)
-  makes possible. 131,072 positions, eight such crowds, close every new
-  delegation record on the chain (131,072 coins locked). Top-ups and exits
-  always pass. A deposit per record, a floor that rises as the ceiling fills,
-  or a higher ceiling behind an incremental root would change this; each is
-  an economics decision, open for Eric.
-- STK-3 to STK-10 are about which records exist and are read, which the
+  one chosen validator to new delegators: 1,638,400 coins locked at the
+  proposed floor (16,384 at 1 coin), refunded after the unbonding window.
+  131,072 positions, eight such crowds, close every new delegation record on
+  the chain: 13,107,200 coins (131,072 at 1 coin), more than every coin
+  issued in the first five years (about 11,812,500 at one block a second). Top-ups, delegators' exits and full operator exits of at least
+  `min_self_bond` always pass. Filling the operator reserve (STK-12) takes
+  2,341 validators (16,384 / 7 unbonding epochs) at 1,000 coins each,
+  2,341,000 coins, kept refilled at every boundary. For as long as that fill
+  is kept up, an operator's partial unbond is refused, not only delayed: a
+  slot freed at a boundary can be taken first by the attacker in the next
+  block. A full exit still passes, so an operator held by the fill can leave
+  (topping up to `min_self_bond` first if a slash took it under), and its
+  downtime-slash exposure ends with the exit. Evicting
+  the smallest position at a full ceiling (option B) is the follow-up after
+  genesis; a deposit per record or a higher ceiling behind an incremental
+  root are the others.
+- STK-3 to STK-10 and STK-12 are about which records exist and are read, which the
   node's own tests check against the in-memory rules; their JSON vectors are
   the layouts and the root only.

@@ -32,7 +32,6 @@ const VALIDATORS: u16 = 7;
 const RPC_BASE: u16 = 35_000;
 const P2P_BASE: u16 = 35_300;
 const CHAIN_ID: &str = "maya-proving-1";
-const COIN: u128 = 1_000_000_000_000_000_000_000_000;
 /// Every bond is exactly the mainnet floor, as `genesis-check` requires of a
 /// mainnet genesis; 1/7 of the stake each.
 const BOND: u128 = crate::genesis_check::MIN_SELF_BOND;
@@ -41,7 +40,8 @@ const SUPPLY: u128 = 0;
 /// `MiningRecord::lifetime_emission` of the mainnet schedule (README beside it).
 const RESERVE: &str = "122753829695359067419575633036805965021648";
 const MIN_SELF_BOND: u128 = BOND;
-const MIN_DELEGATION: u128 = COIN;
+/// The mainnet floor, as `genesis-check` requires of a mainnet genesis.
+const MIN_DELEGATION: u128 = crate::genesis_check::MIN_DELEGATION;
 /// Eric, 2026-11-02: the 7-day soak is done; any later test network runs one day at most.
 const DEFAULT_HOURS: u64 = 24;
 const CHECK_EVERY: Duration = Duration::from_secs(60);

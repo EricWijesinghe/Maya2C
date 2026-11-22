@@ -59,11 +59,24 @@ pub(crate) const MAX_DELEGATIONS_PER_VALIDATOR: u64 = MAX_DELEGATION_RECORDS / 8
 const _: () = assert!(7 * MAX_DELEGATIONS_PER_VALIDATOR < MAX_DELEGATION_RECORDS);
 const _: () = assert!(8 * MAX_DELEGATIONS_PER_VALIDATOR == MAX_DELEGATION_RECORDS);
 
+/// Positions above the ceiling that only operators' own unbonds may open
+/// (spec STK-12, 09 R-7). An operator's unbond is an exit and passes the
+/// ceiling, so a crowd of delegators cannot trap a validator's bond; but
+/// operator entries counted only against `registered validators ×
+/// unbonding_epochs`, which no rule bounds. Past `ceiling + reserve` an
+/// operator's partial unbond that would open a new entry is refused too. A
+/// full exit of at least `min_self_bond` never is, so an operator can always
+/// leave; each such entry locks `min_self_bond` until it releases, so capital
+/// bounds them. The positions one boundary releases then have a bound
+/// whatever the number of validators. One validator's worth, so the slash and
+/// boundary bounds stay the ones `MAX_DELEGATIONS_PER_VALIDATOR` already states.
+pub(crate) const OPERATOR_ENTRY_RESERVE: u64 = MAX_DELEGATIONS_PER_VALIDATOR;
+
 /// Most positions a chain with epochs of `epoch_blocks` blocks may hold:
 /// [`MAX_DELEGATION_RECORDS`], or on short epochs what the per-block pass
 /// pays in half an epoch. A new delegation record, or a partial exit opening
-/// a new unbonding entry, past it is refused; a top-up, a full exit and an
-/// operator's unbond never are.
+/// a new unbonding entry, past it is refused; a top-up and a full exit never
+/// are, and an operator's unbond only past [`OPERATOR_ENTRY_RESERVE`] more.
 #[must_use]
 pub(crate) fn max_delegation_records(epoch_blocks: u64) -> u64 {
     ((PAYOUTS_PER_BLOCK as u64).saturating_mul(epoch_blocks) / 2).min(MAX_DELEGATION_RECORDS)
@@ -280,6 +293,23 @@ impl StakingView {
         if held >= MAX_DELEGATIONS_PER_VALIDATOR {
             return Err(NodeError::Network(format!(
                 "staking refused: the validator holds {MAX_DELEGATIONS_PER_VALIDATOR} delegation records and unbonding entries, its per-validator ceiling; top up an existing delegation or choose another validator"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Refuses an operator unbond that would open a new entry once the chain
+    /// holds its ceiling plus [`OPERATOR_ENTRY_RESERVE`] positions (spec STK-12).
+    fn refuse_operator_entry(&self) -> Result<()> {
+        let bound =
+            max_delegation_records(self.record.epoch_blocks).saturating_add(OPERATOR_ENTRY_RESERVE);
+        if self
+            .delegation_records
+            .saturating_add(self.unbonding_records)
+            >= bound
+        {
+            return Err(NodeError::Network(format!(
+                "staking refused: the chain holds {bound} positions, its ceiling plus the operator reserve; unbond again once entries release"
             )));
         }
         Ok(())
@@ -674,6 +704,27 @@ impl StateDB {
                 self.load_validator(overlay, view, &validator)?;
                 if let Some(release) = release {
                     self.load_unbonding(overlay, view, (validator, release, *sender))?;
+                    // Folding into this release epoch's entry adds no position.
+                    // A full exit of at least the minimum bond is exempt: an
+                    // operator can always leave, and the minimum it locks per
+                    // entry bounds such entries by capital. Below the minimum
+                    // it is not, or a one-unit top-up could exit every epoch.
+                    let opens_entry = matches!(
+                        view.unbonding.get(&(validator, release, *sender)),
+                        Some(None)
+                    );
+                    let full_exit =
+                        view.record
+                            .staking
+                            .validators
+                            .get(&validator)
+                            .is_some_and(|v| {
+                                amount == v.self_bond
+                                    && amount >= view.record.staking.params.min_self_bond
+                            });
+                    if opens_entry && !full_exit {
+                        view.refuse_operator_entry()?;
+                    }
                 }
                 view.record
                     .staking

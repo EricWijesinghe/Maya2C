@@ -22,11 +22,15 @@ const MIN_VALIDATORS: usize = 7;
 /// Lowest mainnet base fee per byte: 1 unit at 18 decimals, 10^6 at 24.
 const MIN_BASE_FEE: u128 = 1_000_000;
 /// Mainnet staking floors (24 decimals): 1,000 coins to register a validator
-/// and 1 coin per delegation, decided 2026-10-30 (DECISIONS.md) under Eric's
-/// delegation; changing either is one line here. The devnet defaults (1,000 and
-/// 10 base units) are dust: a free validator seat, a free delegation.
+/// (decided 2026-10-30, DECISIONS.md) and 100 coins per delegation (decision
+/// brief 2 option A, 2026-11-22, pending Eric); changing either is one line
+/// here. Every staking position is created holding at least this floor, so it
+/// prices the position ceilings (spec STK-7, STK-9): 16,384 positions close one
+/// validator to new delegators (1,638,400 coins at 100, 16,384 at 1 coin) and
+/// 131,072 close the chain (13,107,200 coins at 100). The devnet defaults (1,000
+/// and 10 base units) are dust: a free validator seat, a free delegation.
 pub(crate) const MIN_SELF_BOND: u128 = 1_000 * COIN;
-const MIN_DELEGATION: u128 = COIN;
+pub(crate) const MIN_DELEGATION: u128 = 100 * COIN;
 const COIN: u128 = maya_amount::ONE_COIN;
 
 /// The keyless mining reserve's address: the ASCII tag below, zero-padded to 32
@@ -473,7 +477,7 @@ mod tests {
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\"epoch_blocks\":3600,\
              \"min_self_bond\":\"{FLOOR}\",\
-             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
+             \"min_delegation\":\"{MIN_DELEGATION}\",\"bonds\":[{bonds}]}}}}}}"
         )
     }
 
@@ -587,12 +591,32 @@ mod tests {
             "{found:?}"
         );
         let unset = genesis(20, true, &EVEN)
-            .replace("\"min_delegation\":\"1000000000000000000000000\",", "");
+            .replace(&format!("\"min_delegation\":\"{MIN_DELEGATION}\","), "");
         let found = check(&unset).unwrap();
         assert!(
             found.iter().any(|p| p.contains("min_delegation is unset")),
             "{found:?}"
         );
+    }
+
+    #[test]
+    fn a_one_coin_delegation_floor_fails() {
+        // Decision brief 2 option A (pending Eric): at 1 coin, 16,384 minimum
+        // delegations (16,384 coins) close one validator to new delegators
+        // and 131,072 coins close the chain; the floor is 100 coins.
+        assert_eq!(MIN_DELEGATION, 100 * COIN);
+        let one_coin = genesis(20, true, &EVEN).replace(
+            &format!("\"min_delegation\":\"{MIN_DELEGATION}\""),
+            &format!("\"min_delegation\":\"{COIN}\""),
+        );
+        let found = check(&one_coin).unwrap();
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains(&format!("min_delegation {COIN} is below"))),
+            "{found:?}"
+        );
+        assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
     }
 
     #[test]

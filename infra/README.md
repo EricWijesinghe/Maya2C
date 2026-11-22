@@ -72,7 +72,7 @@ genesis-ceremony --chain-id maya-mainnet \
     --mining deploy/genesis/mainnet/mining.json \
     --mining-reserve 122753829695359067419575633036805965021648 \
     --council council-public --council-threshold 2 --council-max-pause-blocks <N> \
-    --min-self-bond 1000000000000000000000000000 --min-delegation 1000000000000000000000000 \
+    --min-self-bond 1000000000000000000000000000 --min-delegation 100000000000000000000000000 \
     --timestamp <UNIX> --out-dir out
 cargo xtask genesis-check out/genesis.json
 ```
