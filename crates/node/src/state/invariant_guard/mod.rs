@@ -83,6 +83,10 @@ pub use breaker::{BreakerRecord, Invariant, guard_key};
 /// peer-to-peer payment is ungated by construction and no future edit can
 /// accidentally gate it — which is what "maintaining basic peer transfers"
 /// has to mean if it is to survive somebody adding a module.
+///
+/// A module tag is never removed or reused: the council record names tags in
+/// `last_pause_end` and refuses to decode one it does not know, so retiring a
+/// tag would stop every council action on a chain whose record names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Module {
     /// Payment channels: open, close, dispute, penalty.

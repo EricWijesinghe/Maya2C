@@ -284,7 +284,8 @@
       "fn": "header_version",
       "id": "header-version-zero",
       "rules": [
-        "CON-10"
+        "CON-10",
+        "CON-16"
       ],
       "version": 0
     },
@@ -311,6 +312,30 @@
         "CON-10"
       ],
       "version": 255
+    },
+    {
+      "expect": {
+        "error": "UnknownHashId",
+        "result": "error"
+      },
+      "fn": "header_version",
+      "id": "header-hash-id-one-is-invalid",
+      "rules": [
+        "CON-16"
+      ],
+      "version": 16
+    },
+    {
+      "expect": {
+        "error": "UnknownHashId",
+        "result": "error"
+      },
+      "fn": "header_version",
+      "id": "header-hash-id-max-is-invalid",
+      "rules": [
+        "CON-16"
+      ],
+      "version": 240
     },
     {
       "expect": {

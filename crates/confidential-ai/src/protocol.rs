@@ -214,10 +214,21 @@ pub struct Participant {
     held_shares: BTreeMap<u16, Share>,
     own_share: Option<Share>,
     answered: Option<Vec<u16>>,
+    // At most one share set and one masked input per instance. These guards
+    // live on this instance, not the round: a new participant built from the
+    // same entropy has the same self-mask and fresh guards, so callers must
+    // draw fresh entropy for every round.
+    shares_sent: bool,
+    masked_sent: bool,
 }
 
 impl Participant {
     /// A participant with fresh keys, drawing its seeds from `entropy`.
+    ///
+    /// `entropy` must be fresh for every round. The self-mask is derived from
+    /// it, and the one-share-set and one-masked-input guards apply to this
+    /// instance only, so the same entropy reused in a new instance repeats the
+    /// mask.
     ///
     /// # Errors
     ///
@@ -241,6 +252,8 @@ impl Participant {
             held_shares: BTreeMap::new(),
             own_share: None,
             answered: None,
+            shares_sent: false,
+            masked_sent: false,
         })
     }
 
@@ -314,6 +327,11 @@ impl Participant {
     ///
     /// [`Error::InvalidParameter`] if key agreement is incomplete.
     pub fn share_seed(&mut self) -> Result<Vec<ShareEnvelope>> {
+        if self.shares_sent {
+            return Err(Error::InvalidParameter(
+                "shares were already sent this round",
+            ));
+        }
         let shares = shamir::split(
             self.self_seed.as_ref(),
             self.config.threshold,
@@ -340,6 +358,7 @@ impl Participant {
                 sealed: masking::seal(key, self.config.round, self.index, holder, &plaintext)?,
             });
         }
+        self.shares_sent = true;
         Ok(envelopes)
     }
 
@@ -375,7 +394,12 @@ impl Participant {
     ///
     /// [`Error::DimensionMismatch`] for the wrong length; [`Error::InvalidParameter`]
     /// if key agreement is incomplete.
-    pub fn masked_input(&self, update: &[i64]) -> Result<MaskedInput> {
+    pub fn masked_input(&mut self, update: &[i64]) -> Result<MaskedInput> {
+        if self.masked_sent {
+            return Err(Error::InvalidParameter(
+                "a masked input was already sent this round",
+            ));
+        }
         if update.len() != self.config.dimension {
             return Err(Error::DimensionMismatch {
                 expected: self.config.dimension,
@@ -404,6 +428,7 @@ impl Participant {
             let mask = masking::expand(seed, values.len());
             masking::apply(&mut values, &mask, self.index < *peer);
         }
+        self.masked_sent = true;
         Ok(MaskedInput {
             index: self.index,
             values,
@@ -610,5 +635,35 @@ impl Aggregator {
             hasher.update(&value.to_le_bytes());
         }
         *hasher.finalize().as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod single_use_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    fn paired() -> (Participant, Participant) {
+        let config = RoundConfig::new(1, 2, 2, 4, 100).unwrap();
+        let mut a = Participant::new(config, 0, &[1; 32]).unwrap();
+        let mut b = Participant::new(config, 1, &[2; 32]).unwrap();
+        let ads = [a.advertise(), b.advertise()];
+        let to_b = a.encapsulate(&ads).unwrap();
+        b.accept_keys(&to_b).unwrap();
+        (a, b)
+    }
+
+    #[test]
+    fn a_second_share_set_is_refused() {
+        let (mut a, _b) = paired();
+        a.share_seed().unwrap();
+        assert!(a.share_seed().is_err());
+    }
+
+    #[test]
+    fn a_second_masked_input_is_refused() {
+        let (mut a, _b) = paired();
+        a.masked_input(&[1, 2, 3, 4]).unwrap();
+        assert!(a.masked_input(&[5, 6, 7, 8]).is_err());
     }
 }

@@ -255,3 +255,9 @@ fn rotation_to_a_deprecated_suite_is_refused() {
         Err(MigrationError::TargetNotActive(SuiteId::MlDsa65))
     );
 }
+
+#[test]
+fn the_migration_window_is_thirty_days_at_one_block_per_second() {
+    // 30 d * 86_400 s/d at 1 block/s. The old 172_800 was 30 d only at 15 s.
+    assert_eq!(MIN_MIGRATION_WINDOW, 2_592_000);
+}

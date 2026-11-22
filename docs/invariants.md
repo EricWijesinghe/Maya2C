@@ -149,15 +149,31 @@ phase that did it.
     never from `state_root()`, which is the *pre*-block root. Before this, one
     block id could carry two transaction lists (`crates/node/tests/chaos_simulator.rs`
     replays that attack). Do not add an unchecked apply path to `Chain`.
+    Since ADR-062a the comparison is `StateDB::check_declared_root`: a sparse
+    accounts root may come from the local root cache, and a declaration the
+    cache does not give is re-checked against the full rebuild before it is
+    refused. The full rebuild (`state_root()`, `RootSource::Full`) is the
+    reference; the cache only ever computes the same value faster. Since
+    ADR-142 amendment 5 the contracts layer of every non-full root comes from
+    an in-memory cache of its leaves (`state::contracts_root`), on every
+    chain: a declaration the computed root does not match is re-checked
+    against the full rebuild whichever cache was used, and a cache the full
+    fold refutes is withdrawn (`a_wrong_cache_is_refuted_by_a_block_and_withdrawn`,
+    `the_cache_matches_the_full_fold_over_random_histories`).
 25. **Every persisted consensus record is under the state root; everything
     else is on an explicit local-only list.** `state::commitments` holds the
     lists:
     - `RECORD_LAYERS`, the one source for the generic-record prefixes;
     - `committed_prefixes()`;
-    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`, `bdelta:`). `bdelta:` is the Mesh
+    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`, `bdelta:`, `smt:`). `bdelta:` is the Mesh
       balance-change record (`state::balance_changes`): derived from the block's
       own before/after pair, so it is not consensus state, and it is deleted with
-      the undo journal on reorg.
+      the undo journal on reorg. `smt:` is the sparse accounts root cache
+      (`state::root_cache`, ADR-062a): derived from `acct:`, rebuilt locally
+      whenever it cannot be vouched for, and never in a snapshot, so two nodes
+      with different caches still compute the same root. Pinned by
+      `the_cache_prefix_is_local_only_and_outside_the_root` and
+      `a_snapshot_carries_no_root_cache_and_the_importer_builds_its_own`.
     - The upgrade schedule (`up:`, ADR-082) is a committed layer, not local-only.
       Its writes are overlay records, so `capture_undo` records their prior values
       and a reorg restores them.
@@ -173,7 +189,18 @@ phase that did it.
     store (`state/blocks.rs`) lives in the state's RocksDB:
     - `apply_canonical` writes the canonical-index entry and the tip pointer
       in the same `WriteBatch` as the block's state;
-    - `revert_canonical` does the same for a revert.
+    - `revert_canonical` does the same for a revert;
+    - on all four commit paths (`apply_block`, `apply_block_checked`,
+      `apply_journaled_with`, `revert_block_with`) the sparse root cache's
+      branch writes and its `smt:` marker go in the block's own batch, staged
+      under the write guard, so a crash leaves cache and accounts both old or
+      both new (ADR-062a; `incremental_root_equals_full_rebuild_over_random_histories`,
+      `blocks_a_reorg_and_a_restart_keep_the_cache_equal_to_the_full_rebuild`).
+    - the contracts root cache (ADR-142 amendment 5) is in memory only: it
+      follows a commit by that commit's own batch, after the batch has landed
+      and before the write guard drops, and any write it cannot follow leaves
+      it stale, so a crash or a restart costs one rebuild from the database,
+      never a wrong root.
 
     `Chain::open` rebuilds from it and adopts a heavier stored branch, which is
     how a crash mid-reorg recovers. `seed_state` runs on a **fresh** database
@@ -232,6 +259,11 @@ phase that did it.
     is a constant — the genesis schedule under mainnet rules — so neither a
     governance vote nor a node's config can change which signatures a block's
     validity rests on. `SUITE_ENVELOPE_ACTIVATION_HEIGHT` is 0 (ADR-013).
+    Every signed message names its wire version and suite right after the
+    chain tag, from the same function `to_bytes` takes the version byte
+    from, so a signature made under one version's reading never verifies
+    another's (TX-6, ADR-143; pinned by
+    `crates/node/tests/signed_header_tests.rs`).
     Pinned by `crates/node/tests/suite_parity_tests.rs` and
     `crates/node/tests/suite_envelope_live_tests.rs` — ADR-007, ADR-013.
 32. **A vault account moves at most its `limit` per window of `delay_blocks`
@@ -257,18 +289,80 @@ phase that did it.
     already written.** Governance's `ScheduleUpgrade` needs
     `MIN_UPGRADE_LEAD_BLOCKS` (30 days at one block per second) between the last
     height its proposal can execute at and its activation. The security council's
-    `SunsetSuites` needs `COUNCIL_SUNSET_LEAD_BLOCKS` (1,172,800 blocks, about
-    13.6 days) and may schedule nothing else. Neither can move funds or mint: a
+    `SunsetSuites` needs `COUNCIL_SUNSET_LEAD_BLOCKS` (3,592,000 blocks, about
+    41.6 days at one block per second) and may schedule nothing else. Neither can move funds or mint: a
     schedule entry switches on a dark feature or retires a suite. Both leads are
     compiled, so no proposal shortens them: `MIN_UPGRADE_LEAD_BLOCKS` in
     `crates/governance/src/limits.rs` (invariant 12), and
     `COUNCIL_SUNSET_LEAD_BLOCKS` in `crates/node/src/state/upgrades.rs`, derived
     as `vault::MAX_DELAY_BLOCKS + agility::MIN_MIGRATION_WINDOW`
-    (1,000,000 + 172,800) so a vault withdrawal a sunset announcement starts can
+    (1,000,000 + 2,592,000) so a vault withdrawal a sunset announcement starts can
     finish before the sunset height (ADR-082).
+    Every lead and window here is counted in blocks at one block per second, so
+    a `maya-mainnet` genesis must set `bft.round_interval_ms` to
+    `CANONICAL_ROUND_INTERVAL_MS` (500; an anchor every two rounds):
+    `GenesisConfig::validate` refuses anything else
+    (`a_value_bearing_genesis_refuses_a_round_interval_off_the_canonical_rate`),
+    and so does `cargo xtask genesis-check`.
+    The council's own levers are bounded the same way (ADR-082 amendment,
+    2026-11-14): it can neither pause nor resume Governance; a council pause
+    of a module is refused within `COUNCIL_RENEWAL_COOLDOWN_BLOCKS` (86,400)
+    after the council's last pause of that module ends (a resume ends it at
+    the resume's height), counted from the end the council record keeps, so
+    an automatic breaker trip on the module does not reset it; a council
+    sunset is refused within the same cooldown after the council's last
+    sunset; and a council rotation takes effect no sooner than
+    `COUNCIL_ROTATION_LEAD_BLOCKS` (86,400) after it lands, needs a quorum of
+    the council in force and a signed acceptance from every new member, names
+    a strict-majority set of 1 to 32 distinct valid keys, and replaces any
+    pending rotation; its handover advances the council's nonce, so no
+    approval given before it counts after it, and keeps both cooldowns. A
+    genesis council's `max_pause_blocks` is 1 to `MAX_COUNCIL_PAUSE_BLOCKS`
+    (86,400), or the cooldown bounds nothing. The
+    three constants are compiled in `crates/governance/src/limits.rs`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,
-    `a_new_entry_must_lie_after_every_entry_already_written`) and
+    `a_new_entry_must_lie_after_every_entry_already_written`,
+    `a_proposal_with_an_unknown_feature_bit_is_accepted_and_its_entry_written`,
+    `an_unknown_bit_on_a_supported_version_halts_at_its_activation_and_not_before`,
+    `a_sunset_only_entry_with_unknown_bits_is_still_refused`) and
     `crates/node/tests/council_pause_tests.rs`
-    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
+    (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`,
+    `the_council_can_neither_pause_nor_resume_governance`,
+    `a_council_pause_cannot_be_renewed_within_the_cooldown`,
+    `a_council_sunset_cannot_follow_another_within_the_cooldown`,
+    `a_council_pause_that_expires_unresumed_cools_down_from_its_end`,
+    `an_approval_given_before_a_rotation_does_not_count_after_it`,
+    `the_renewal_cooldowns_survive_a_rotation`,
+    `a_genesis_council_pause_longer_than_the_compiled_ceiling_is_refused`,
+    `a_rotation_naming_a_key_nobody_signed_for_is_refused`,
+    `a_later_rotation_replaces_a_pending_one_and_clears_the_lead_again`,
+    `a_rotation_takes_effect_at_its_height_and_not_before`) and the
+    `state::council` unit test
+    `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
     — ADR-082.
+    A passed change to a block-validity `ParameterKey` (`is_validity_rule`,
+    tags 2-8, 17, 18) is held under `g:pending:` and binds `VALIDITY_RULE_LEAD_BLOCKS`
+    (= `MIN_UPGRADE_LEAD_BLOCKS`) after its proposal executes, so a per-block
+    ceiling moves on the notice a version gets (ADR-082 amendment 2026-11-15; pinned by
+    `crates/node/tests/governance_tests.rs`
+    `a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`).
+    **Unknown feature bits (ADR-082 amendment).** A version entry may carry
+    feature bits this binary does not define (or zkML, which it defines but
+    cannot verify, or the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED`
+    is false, ADR-044 amendment 2026-11-15): it is admitted, stored and decoded like any other, and this
+    binary treats it as unsupported, halting with `UpgradeRequired` at its
+    activation height and not one block before. Whether an entry is valid never
+    depends on the binary checking it: refusing it at admission would make every
+    older binary reject the block that schedules a later binary's feature, a
+    stall or fork at the vote instead of a halt at activation.
+    `FeatureSet::is_known` says which bits this binary defines;
+    `FeatureSet::unimplemented` (everything outside `FeatureSet::IMPLEMENTED`)
+    says which it cannot execute, and only that decides support. Governance
+    gains no power by this: it could already schedule a version this binary
+    does not implement, which halts it the same way. A sunset-only entry still
+    cannot switch any feature on, known or not. The halt through the import
+    path and the BFT driver is pinned by `crates/node/tests/unknown_bit_halt_tests.rs`
+    and `crates/node/tests/bft_node_tests.rs`; the work-claim case by
+    `crates/node/tests/upgrade_schedule_tests.rs`
+    (`work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`).

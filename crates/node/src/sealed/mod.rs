@@ -54,6 +54,15 @@ pub(crate) const SHARE_PREFIX: &[u8] = b"m:sh:";
 /// reveals than the reveal block can afford to perform.
 pub const MAX_SEALED_PER_BLOCK: usize = 128;
 
+/// Envelopes that may wait for one reveal height.
+///
+/// The per-block cap alone did not bound the reveal block: any of the 255
+/// blocks inside the delay window may aim at the same height, so one height
+/// could inherit 255 × 128 = 32,640 envelopes and open or expire all of them
+/// in a single block (2026-11-13). Equal to the per-block cap, so a reveal
+/// block does at most the work the per-block cap was written to allow.
+pub const MAX_SEALED_PER_REVEAL_HEIGHT: usize = MAX_SEALED_PER_BLOCK;
+
 /// Decryption shares one block may accept.
 ///
 /// Every share carries a Chaum–Pedersen proof that every node verifies, so this

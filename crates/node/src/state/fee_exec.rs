@@ -9,6 +9,30 @@ use crate::state::db::{Overlay, StateDB};
 use crate::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
 use crate::state::shielded::FEE_SINK;
 
+/// Whether `tx` is a mining share exempt from the base fee.
+///
+/// Inputs count too: they are carried in the encoding and cost bytes, so a
+/// share that names one is not the zero-value share the exemption describes.
+#[must_use]
+pub fn is_free_share(tx: &Transaction) -> bool {
+    matches!(tx.kind, TxKind::MiningShare(_)) && tx.outputs.is_empty() && tx.inputs.is_empty()
+}
+
+/// The base fee `tx`, `size` bytes encoded, owes at `fees` (spec FEE-7).
+///
+/// A mining share that moves nothing pays no base fee: a new miner holds no
+/// coin, and Bitcoin's first miners paid none either. Its bytes still count
+/// toward the base-fee step, and the per-block share cap bounds how many there
+/// can be (ADR-044).
+#[must_use]
+pub fn required_fee(fees: &FeeRecord, tx: &Transaction, size: usize) -> U256 {
+    if is_free_share(tx) {
+        U256::zero()
+    } else {
+        maya_stateless_core::amount::to_u256(fees.required(size))
+    }
+}
+
 impl StateDB {
     /// The fee record through `overlay`, or `None` where fees are off.
     ///
@@ -43,15 +67,7 @@ impl StateDB {
             return Ok(());
         };
         let size = tx.to_bytes().len();
-        // A mining share that moves nothing pays no base fee: a new miner
-        // holds no coin, and Bitcoin's first miners paid none either. Its bytes
-        // still count toward the base-fee step, and the per-block share cap
-        // bounds how many there can be (ADR-044).
-        let required = if matches!(tx.kind, TxKind::MiningShare(_)) && tx.outputs.is_empty() {
-            U256::zero()
-        } else {
-            maya_stateless_core::amount::to_u256(fees.required(size))
-        };
+        let required = required_fee(&fees, tx, size);
         // Saturating: the outputs already passed the transaction's checked
         // output total, so a sum past 2^256 cannot reach here.
         let offered = tx
@@ -120,5 +136,37 @@ impl StateDB {
         // The whole collector, 256-bit (ADR-046): the staking reward pool is
         // an Amount, so nothing is truncated.
         Ok(pool)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::core::TxInput;
+    use crate::core::mining_payload::{MiningShare, WorkKind};
+
+    fn share(inputs: Vec<TxInput>) -> Transaction {
+        let mut tx = Transaction::new(inputs, vec![], 0);
+        tx.kind = TxKind::MiningShare(MiningShare {
+            kind: WorkKind::DagPow,
+            epoch: 0,
+            nonce: 0,
+        });
+        tx
+    }
+
+    #[test]
+    fn an_empty_share_is_free() {
+        assert!(is_free_share(&share(vec![])));
+    }
+
+    #[test]
+    fn a_share_with_an_input_is_not_free() {
+        let input = TxInput {
+            prev_tx: [1; 32],
+            index: 0,
+        };
+        assert!(!is_free_share(&share(vec![input])));
     }
 }

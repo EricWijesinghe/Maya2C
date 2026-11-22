@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::config::StorageConfig;
 use crate::state::fees::MAX_BLOCK_BYTES;
@@ -30,12 +30,13 @@ use crate::core::block::{block_wire_len, transaction_wire_len, warmup_len};
 use crate::core::payload::ChannelId;
 use crate::core::{Block, ChainTag, Transaction};
 use crate::error::{NodeError, Result};
-use crate::state::account::{Account, Address};
+use crate::state::account::{ACCOUNT_LEN, Account, Address};
 use crate::state::balance_changes;
 use crate::state::channel::ChannelRecord;
 use crate::state::context::BlockContext;
 use crate::state::merkle::{HASH_LEN, account_leaf, merkle_path, merkle_root};
 use crate::state::proof::{AccountProof, LayerDigest, StateLayer};
+use crate::state::root_cache;
 use crate::state::shielded::ShieldedPool;
 use crate::state::undo::{RecordUndo, UndoEntry, UndoRecord};
 
@@ -63,6 +64,13 @@ pub(crate) const NULLIFIER_PREFIX: &[u8] = b"null:";
 /// Key holding the serialized shielded pool.
 pub(crate) const POOL_KEY: &[u8] = b"shld:pool";
 
+/// One block's staged contract storage, keyed by contract then key.
+pub(crate) type StagedContractStorage = BTreeMap<(ChannelId, Vec<u8>), Vec<u8>>;
+
+/// Committed contract storage keys this block's applied calls have read,
+/// keyed by contract then key: a later read of one is warm (GAS-4).
+pub(crate) type BlockStorageReads = BTreeSet<(ChannelId, Vec<u8>)>;
+
 /// Staged mutations for one block.
 ///
 /// Both maps are ordered so the Merkle root is a function of content rather
@@ -76,7 +84,13 @@ pub(crate) struct Overlay {
     /// Contract code deployed by this block.
     pub(crate) code: BTreeMap<ChannelId, Vec<u8>>,
     /// Contract storage written by this block, keyed by contract then key.
-    pub(crate) contract_storage: BTreeMap<(ChannelId, Vec<u8>), Vec<u8>>,
+    ///
+    /// Shared, not owned: a contract call's host reads this block's earlier
+    /// writes through it instead of copying them, and a builder trial's
+    /// clone of the overlay is one reference count (PR #549 review: both
+    /// copies were O(entries) work no gas price saw). Written through
+    /// `Arc::make_mut`, which copies only while another clone is alive.
+    pub(crate) contract_storage: Arc<StagedContractStorage>,
     /// Nullifiers spent by this block.
     ///
     /// Checked alongside the committed set, so two joinsplits in one block
@@ -112,6 +126,10 @@ pub(crate) struct Overlay {
     /// an end-of-block pass. Ordered, so the pass visits them identically on
     /// every node.
     pub(crate) touched_pairs: BTreeSet<PairId>,
+    /// Resting orders in the books of `touched_pairs` when each was first
+    /// touched, against `MAX_BOOK_ORDERS_PER_BLOCK`: the end-of-block pass
+    /// rebuilds each of those books whole.
+    pub(crate) book_orders: u64,
     /// Order fills produced so far, against the per-block ceiling.
     pub(crate) fills: usize,
     /// The VRF output proved for this block, if a valid proof arrived.
@@ -160,16 +178,85 @@ pub(crate) struct Overlay {
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
+    /// Contract gas this block has spent, calls and deployments together,
+    /// against `vm.max_block_gas` (ADR-142, GAS-2).
+    pub(crate) vm_gas: u64,
+    /// Contracts already called in this block, compiled. A later call to one
+    /// is warm (GAS-3): it reuses this module rather than compiling again, so
+    /// the price follows the work regardless of any cache. Block-local.
+    pub(crate) vm_modules: BTreeMap<ChannelId, maya_vm::Compiled>,
+    /// Committed storage keys this block's applied calls have read. A later
+    /// read of one is warm; the block's first is cold and pays
+    /// `STORAGE_COLD_READ_FUEL` (GAS-4). Only calls that applied add to it,
+    /// so a builder and a validator of the same block agree on it. Shared
+    /// like `contract_storage`, so a call's host reads it without a copy.
+    pub(crate) vm_reads: Arc<BlockStorageReads>,
+    /// True while `settle_sealed` runs revealed actions. `vm_gas` then counts
+    /// the revealed actions' own budget, `sealed_gas_budget` (GAS-2), not
+    /// the plaintext transactions'.
+    pub(crate) revealing: bool,
+    /// The root-cache plan the accounts root came from (ADR-062a), so the
+    /// commit stages the writes it already computed rather than walking the
+    /// tree again. Set by `root_with_overlay`; checked against the write
+    /// generation and the account changes before it is used.
+    pub(crate) root_plan: Option<root_cache::Plan>,
 }
 
 impl Overlay {
     pub(crate) fn new() -> Self {
         Self::default()
     }
+
+    /// The staged records under `prefix`, in key order: a range of the map,
+    /// not a filter over all of it. A pass that reads one prefix per item
+    /// (an envelope, a pair) would otherwise walk the whole block's writes
+    /// each time, which is quadratic in the block.
+    pub(crate) fn records_under<'a>(
+        &'a self,
+        prefix: &'a [u8],
+    ) -> impl Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a {
+        self.records_from(prefix)
+            .take_while(move |(key, _)| key.starts_with(prefix))
+    }
+
+    /// The staged records from `start` on, in key order: the one overlay
+    /// range primitive. [`Self::records_under`] and [`StateDB::scan_range`]
+    /// both stop it where they need to.
+    pub(crate) fn records_from<'a>(
+        &'a self,
+        start: &[u8],
+    ) -> impl Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a {
+        self.records
+            .range::<[u8], _>((std::ops::Bound::Included(start), std::ops::Bound::Unbounded))
+    }
 }
 
 fn storage_err(e: rocksdb::Error) -> NodeError {
     NodeError::Storage(e.to_string())
+}
+
+/// Where `StateDB::root_from` takes a sparse accounts root from (ADR-062a).
+/// Every source gives the same value; they differ in cost and in what checks
+/// the cache.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RootSource {
+    /// A build over every account: the reference.
+    Full,
+    /// The root cache when it is valid.
+    Cache,
+    /// The root cache, after checking it node by node against a full
+    /// rebuild: a preview, or an import that did not take a kept preview, at
+    /// a height `root_cache::Counters::confirm_due` picks.
+    Confirmed,
+}
+
+/// `overlay`'s account writes as root-cache changes, in address order.
+fn account_changes(overlay: &Overlay) -> Vec<root_cache::Change> {
+    overlay
+        .accounts
+        .iter()
+        .map(|(address, account)| (*address, Some(account.encode())))
+        .collect()
 }
 
 fn account_key(address: &Address) -> Vec<u8> {
@@ -222,7 +309,12 @@ pub(crate) fn nullifier_key_bytes(nullifier: &[u8; HASH_LEN]) -> Vec<u8> {
 /// different pair that hashes the same — the concatenation `ab‖c` and `a‖bc`
 /// are one string otherwise, and two different states would share a root.
 pub(crate) fn record_leaf(entry: (&Vec<u8>, &Vec<u8>)) -> [u8; HASH_LEN] {
-    let (key, value) = entry;
+    record_leaf_bytes(entry.0, entry.1)
+}
+
+/// [`record_leaf`] over borrowed bytes, for leaves hashed from a database
+/// iterator or a write batch without copying the pair first.
+pub(crate) fn record_leaf_bytes(key: &[u8], value: &[u8]) -> [u8; HASH_LEN] {
     let mut hasher = blake3::Hasher::new_derive_key("maya aux record leaf v1");
     hasher.update(&(key.len() as u64).to_le_bytes());
     hasher.update(key);
@@ -239,7 +331,13 @@ pub(crate) fn undo_key(block_id: &[u8; HASH_LEN]) -> Vec<u8> {
 
 /// Persistent account state.
 pub struct StateDB {
-    db: DB,
+    /// Shared so a contract call's host can read storage one key at a time
+    /// (ADR-142): wasmtime's store needs a `'static` host, which a borrow is not.
+    db: Arc<DB>,
+    /// The one VM every contract call and deployment on this state runs on,
+    /// built on first use. One engine, so a module compiled for one call in a
+    /// block can be run by the next (`Overlay::vm_modules`).
+    vm: OnceLock<maya_vm::Vm>,
     /// Signatures already verified, shared by mempool admission, the DAG-BFT
     /// builder and block application (`state::verified`).
     verified: crate::state::verified::VerifiedCache,
@@ -253,6 +351,13 @@ pub struct StateDB {
     /// DAG caches for mining shares (ADR-044), built on the first share so a
     /// chain that does not mine never pays for one.
     pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
+    /// What the sparse root cache did since open (ADR-062a).
+    root_cache: root_cache::Counters,
+    /// The contracts layer's leaves between blocks (`state::contracts_root`).
+    pub(crate) contracts_root: crate::state::contracts_root::ContractsRoot,
+    /// Share proofs of work hashed (`StateDB::share_proofs`): a diagnostic,
+    /// never read by consensus.
+    pub(crate) share_proofs: std::sync::atomic::AtomicU64,
 }
 
 impl StateDB {
@@ -297,6 +402,11 @@ impl StateDB {
         // the real ceiling rather than the ceiling plus an unbounded amount of
         // metadata.
         block_opts.set_cache_index_and_filter_blocks(true);
+        // No bloom filter. One was tried for absent-key reads (ADR-142
+        // review) and measured: with the cache too small to keep a whole-file
+        // filter, every lookup reread it, 580 us a hit against 73 us without
+        // (`cold_point_reads_against_the_read_price`). The cold-read price
+        // covers the read without one.
         opts.set_block_based_table_factory(&block_opts);
 
         opts.set_write_buffer_size(storage.write_buffer_mib * 1024 * 1024);
@@ -304,11 +414,15 @@ impl StateDB {
 
         let db = DB::open(&opts, path).map_err(storage_err)?;
         Ok(Self {
-            db,
+            db: Arc::new(db),
+            vm: OnceLock::new(),
             verified: crate::state::verified::VerifiedCache::default(),
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
             mining_dag: OnceLock::new(),
+            root_cache: root_cache::Counters::default(),
+            contracts_root: crate::state::contracts_root::ContractsRoot::default(),
+            share_proofs: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -364,9 +478,14 @@ impl StateDB {
     ///
     /// Returns [`NodeError::Storage`] on a write failure.
     pub fn put_account(&self, address: &Address, account: &Account) -> Result<()> {
-        self.db
-            .put(account_key(address), account.encode())
-            .map_err(storage_err)
+        // Outside a commit path, so the root cache stops vouching for accounts.
+        // A write like any other, so a kept preview or root-cache plan made
+        // before it is not used after it.
+        let _writing = self.preview.begin_write();
+        let mut batch = WriteBatch::default();
+        batch.put(account_key(address), account.encode());
+        root_cache::stage_invalidate(&mut batch);
+        self.db.write(batch).map_err(storage_err)
     }
 
     /// Raw read by key. Internal plumbing for sibling state modules.
@@ -391,9 +510,69 @@ impl StateDB {
         self.raw_put(key, value)
     }
 
+    /// The database handle, for a contract host that reads storage lazily
+    /// (ADR-142). Reads only: every write still goes through an overlay.
+    pub(crate) fn shared_db(&self) -> Arc<DB> {
+        Arc::clone(&self.db)
+    }
+
+    /// The VM contract work on this state runs on, built on first use.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Storage`] if the deterministic engine cannot be built:
+    /// a fault of this node, never a verdict on a transaction, so GAS-8
+    /// cannot include a call as failed because one node's engine did not start.
+    pub(crate) fn vm(&self) -> Result<&maya_vm::Vm> {
+        if let Some(vm) = self.vm.get() {
+            return Ok(vm);
+        }
+        let vm = maya_vm::Vm::new().map_err(|e| NodeError::Storage(format!("contract VM: {e}")))?;
+        // A racing thread may have set one first; either is the same
+        // configuration, and every caller from here on uses the one stored.
+        let _ = self.vm.set(vm);
+        self.vm
+            .get()
+            .ok_or_else(|| NodeError::Storage("the contract VM was not stored".into()))
+    }
+
     pub(crate) fn raw_put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         let _writing = self.preview.begin_write();
-        self.db.put(key, value).map_err(storage_err)
+        let mut batch = WriteBatch::default();
+        batch.put(key, value);
+        if key.starts_with(ACCOUNT_PREFIX) {
+            root_cache::stage_invalidate(&mut batch);
+        }
+        self.db.write(batch).map_err(storage_err)
+    }
+
+    /// Folds `f` over every pair under `prefix`, in key order, copying none
+    /// of them: [`StateDB::scan_prefix`] without its O(bytes) allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn fold_prefix<T>(
+        &self,
+        prefix: &[u8],
+        init: T,
+        mut f: impl FnMut(T, &[u8], &[u8]) -> T,
+    ) -> Result<T> {
+        let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
+        let mut acc = init;
+        for item in self.db.iterator(mode) {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            acc = f(acc, &key, &value);
+        }
+        Ok(acc)
+    }
+
+    /// The committed write generation (`state::preview`).
+    pub(crate) fn write_generation(&self) -> u64 {
+        self.preview.generation()
     }
 
     /// Every key/value pair under `prefix`, in key order.
@@ -408,6 +587,112 @@ impl StateDB {
             let (key, value) = item.map_err(storage_err)?;
             if !key.starts_with(prefix) {
                 break;
+            }
+            out.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(out)
+    }
+
+    /// Up to `limit` live records with keys in `[start, end)`, committed state
+    /// merged with `overlay` (a staged deletion hides a committed record), in
+    /// key order.
+    ///
+    /// A bounded key-range read: its cost is the records it returns plus the
+    /// staged ones in the same range, not everything under a prefix. The
+    /// per-record staking layout (ADR-062b) reads one validator's delegations,
+    /// one release epoch's unbonding entries, and the payout pass's next
+    /// batch through this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_range(
+        &self,
+        overlay: &Overlay,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        // The bound stops RocksDB at `end` rather than skipping deletion
+        // tombstones past it until the next live key (released unbonding
+        // entries, paid payouts); the `take_while` below stays the rule.
+        let mut bounded = rocksdb::ReadOptions::default();
+        bounded.set_iterate_upper_bound(end.to_vec());
+        let mut disk = self
+            .db
+            .iterator_opt(
+                IteratorMode::From(start, rocksdb::Direction::Forward),
+                bounded,
+            )
+            .map(|item| item.map_err(storage_err))
+            .take_while(|item| item.as_ref().map_or(true, |(key, _)| &key[..] < end));
+        let mut staged = overlay
+            .records_from(start)
+            .take_while(|(key, _)| key.as_slice() < end)
+            .peekable();
+        let mut next_disk = disk.next().transpose()?;
+        let mut out = Vec::new();
+        while out.len() < limit {
+            // Which side holds the smaller key; on a tie the staged value
+            // supersedes the committed one, which is skipped.
+            let staged_first = match (&next_disk, staged.peek()) {
+                (None, None) => break,
+                (Some(_), None) => None,
+                (None, Some(_)) => Some(false),
+                (Some((disk_key, _)), Some((staged_key, _))) => {
+                    match staged_key.as_slice().cmp(&disk_key[..]) {
+                        std::cmp::Ordering::Less => Some(false),
+                        std::cmp::Ordering::Equal => Some(true),
+                        std::cmp::Ordering::Greater => None,
+                    }
+                }
+            };
+            match staged_first {
+                None => {
+                    if let Some((key, value)) = next_disk.take() {
+                        out.push((key.to_vec(), value.to_vec()));
+                    }
+                    next_disk = disk.next().transpose()?;
+                }
+                Some(tie) => {
+                    if tie {
+                        next_disk = disk.next().transpose()?;
+                    }
+                    if let Some((key, Some(value))) = staged.next() {
+                        out.push((key.clone(), value.clone()));
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// At most `limit` key/value pairs under `prefix` whose key, past the
+    /// prefix, sorts strictly after `after`, in key order. Seeks straight to
+    /// the page, so a page costs `limit` reads however many keys precede it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix_page(
+        &self,
+        prefix: &[u8],
+        after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let start = [prefix, after.unwrap_or_default()].concat();
+        let mode = IteratorMode::From(&start, rocksdb::Direction::Forward);
+        let mut out = Vec::new();
+        for item in self.db.iterator(mode) {
+            if out.len() >= limit {
+                break;
+            }
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            if after.is_some() && *key == *start {
+                continue;
             }
             out.push((key.to_vec(), value.to_vec()));
         }
@@ -452,30 +737,18 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] on an iteration failure, or
     /// [`NodeError::InvalidLength`] if a stored record is corrupt.
     pub fn all_accounts(&self) -> Result<Vec<(Address, Account)>> {
-        let mode = IteratorMode::From(ACCOUNT_PREFIX, rocksdb::Direction::Forward);
-        let mut accounts = Vec::new();
+        decode_accounts(self.db.iterator(account_scan()))
+    }
 
-        for item in self.db.iterator(mode) {
-            let (key, value) = item.map_err(storage_err)?;
-
-            // Seeking positions the cursor at the prefix; stop once past it.
-            if !key.starts_with(ACCOUNT_PREFIX) {
-                break;
-            }
-
-            let raw = &key[ACCOUNT_PREFIX.len()..];
-            let Ok(address) = <Address>::try_from(raw) else {
-                return Err(NodeError::InvalidLength {
-                    what: "account key",
-                    expected: ACCOUNT_PREFIX.len() + 32,
-                    actual: key.len(),
-                });
-            };
-
-            accounts.push((address, Account::decode(&value)?));
+    /// A point-in-time view of committed state (a `RocksDB` snapshot), for a
+    /// long read that must not hold the chain lock. Taken while the caller
+    /// holds that lock, it describes exactly the tip the lock shows: a block
+    /// commits in one write batch, so later blocks are invisible to it.
+    #[must_use]
+    pub fn view(&self) -> StateView<'_> {
+        StateView {
+            snapshot: self.db.snapshot(),
         }
-
-        Ok(accounts)
     }
 
     /// Computes the Merkle state root of the committed state.
@@ -483,27 +756,67 @@ impl StateDB {
     /// # Errors
     ///
     /// Propagates read failures from [`StateDB::all_accounts`].
+    ///
+    /// Always the full rebuild, never the root cache (ADR-062a): this is the
+    /// reference the cache is checked against, at chain open and in tests.
     pub fn state_root(&self) -> Result<[u8; HASH_LEN]> {
-        self.root_with_overlay(&Overlay::new())
+        self.root_from(&Overlay::new(), RootSource::Full)
+            .map(|(root, _)| root)
     }
 
     /// Computes the state root that *would* result from applying `overlay`,
     /// without writing anything.
     ///
     /// This is what allows a block's committed state root to be checked before
-    /// the batch is durable.
-    fn root_with_overlay(&self, overlay: &Overlay) -> Result<[u8; HASH_LEN]> {
-        let mut merged: BTreeMap<Address, Account> = self.all_accounts()?.into_iter().collect();
-        for (address, account) in &overlay.accounts {
-            merged.insert(*address, *account);
-        }
+    /// the batch is durable. A sparse accounts root comes from the root cache
+    /// when it is valid, rehashing only the overlay's paths, and the cache
+    /// writes it implies are kept in `overlay.root_plan` for the commit
+    /// (ADR-062a).
+    pub(crate) fn root_with_overlay(&self, overlay: &mut Overlay) -> Result<[u8; HASH_LEN]> {
+        self.root_into(overlay, RootSource::Cache)
+    }
 
+    fn root_into(&self, overlay: &mut Overlay, source: RootSource) -> Result<[u8; HASH_LEN]> {
+        let (root, plan) = self.root_from(overlay, source)?;
+        overlay.root_plan = plan;
+        Ok(root)
+    }
+
+    /// The database itself, for the root-cache tests.
+    #[cfg(test)]
+    pub(crate) fn raw_db(&self) -> &DB {
+        &self.db
+    }
+
+    /// A committed write's guard, for the tests that land a write under it.
+    #[cfg(test)]
+    pub(crate) fn begin_write_for_test(&self) -> crate::state::preview::WriteGuard<'_> {
+        self.preview.begin_write()
+    }
+
+    /// The root after `overlay`, and, unless `source` is [`RootSource::Full`]
+    /// and when the accounts are sparse, the root-cache plan its accounts root
+    /// came from.
+    pub(crate) fn root_from(
+        &self,
+        overlay: &Overlay,
+        source: RootSource,
+    ) -> Result<([u8; HASH_LEN], Option<root_cache::Plan>)> {
         // Which tree is a fact about the state itself — the `sl:` marker — not
         // about a height, so `state_root()` answers without knowing one.
+        let mut plan = None;
         let accounts_root = if self.sparse_accounts(overlay)? {
-            crate::state::stateless::sparse_accounts_root(&merged)?
+            if source == RootSource::Full {
+                crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?
+            } else {
+                let made = self.checked_plan(overlay, source == RootSource::Confirmed)?;
+                let root = made.root();
+                plan = Some(made);
+                root
+            }
         } else {
-            let leaves: Vec<[u8; HASH_LEN]> = merged
+            let leaves: Vec<[u8; HASH_LEN]> = self
+                .merged_accounts(overlay)?
                 .iter()
                 .map(|(address, account)| account_leaf(address, account))
                 .collect();
@@ -524,11 +837,209 @@ impl StateDB {
         // here. A prover and a verifier that each kept their own copy of five
         // string literals would drift, and the drift would look like tampering.
         let mut root = accounts_root;
-        for digest in self.state_layers(overlay)? {
+        for digest in self.state_layers_from(overlay, source)? {
             root = digest.layer.fold(&root, &digest.root);
         }
 
-        Ok(root)
+        Ok((root, plan))
+    }
+
+    /// The root-cache plan for `overlay`, checked against a full rebuild when
+    /// `confirm` (the cache, node by node) or in a debug build (the root), and
+    /// rebuilt from every account on a difference (ADR-062a). Unit tests panic
+    /// on a root difference instead, so a cache bug fails them; a debug node
+    /// repairs, as a release node does at its periodic check.
+    fn checked_plan(&self, overlay: &Overlay, confirm: bool) -> Result<root_cache::Plan> {
+        // The generation is read before the plan's snapshot, and it moves on
+        // entry to and exit from every write, so any write that lands after
+        // the snapshot makes the plan unfit for the commit.
+        let made = root_cache::plan(
+            &self.db,
+            self.preview.generation(),
+            account_changes(overlay),
+            &self.root_cache,
+        )?;
+        if !made.walked() {
+            return Ok(made);
+        }
+        if confirm && !root_cache::holds(&self.db)? {
+            self.root_cache
+                .note_repair("failed its periodic check against a full rebuild");
+            return made.rebuilt(&self.db, &self.root_cache);
+        }
+        // Every debug build, so every test that runs the sparse tree, checks
+        // the cache against the full rebuild (O(N) a block).
+        if cfg!(debug_assertions) && root_cache::cross_checked() {
+            let full =
+                crate::state::stateless::sparse_accounts_root(&self.merged_accounts(overlay)?)?;
+            if made.root() != full {
+                root_cache::cross_check_failed();
+                self.root_cache
+                    .note_repair("disagrees with a full rebuild (debug cross-check)");
+                return made.rebuilt(&self.db, &self.root_cache);
+            }
+        }
+        Ok(made)
+    }
+
+    /// Committed accounts with `overlay`'s written over them, in address order.
+    fn merged_accounts(&self, overlay: &Overlay) -> Result<BTreeMap<Address, Account>> {
+        let mut merged: BTreeMap<Address, Account> = self.all_accounts()?.into_iter().collect();
+        for (address, account) in &overlay.accounts {
+            merged.insert(*address, *account);
+        }
+        Ok(merged)
+    }
+
+    /// Stages the root cache for a commit whose account writes are `changes`
+    /// (sorted, distinct), in the same batch (ADR-062a): `planned` when it
+    /// was made at `generation` for the same changes, else a fresh plan. A
+    /// post-state that is not sparse has no cache, so a later activation
+    /// starts from a rebuild. The caller holds the write guard `generation`
+    /// came from, so nothing writes between the plan and the commit.
+    fn stage_root_cache(
+        &self,
+        batch: &mut WriteBatch,
+        changes: Vec<root_cache::Change>,
+        sparse_after: bool,
+        planned: Option<&root_cache::Plan>,
+        generation: u64,
+    ) -> Result<()> {
+        if !sparse_after {
+            root_cache::stage_invalidate(batch);
+            return Ok(());
+        }
+        if let Some(plan) = planned
+            && plan.fits(generation, &changes)
+        {
+            root_cache::stage(batch, plan);
+            return Ok(());
+        }
+        let plan = root_cache::plan(&self.db, generation, changes, &self.root_cache)?;
+        root_cache::stage(batch, &plan);
+        Ok(())
+    }
+
+    /// Stages `overlay`'s writes and the root cache that follows them: what
+    /// every apply path commits, besides its own journal. `generation` is what
+    /// the caller's write guard advanced from.
+    fn stage_commit(
+        &self,
+        batch: &mut WriteBatch,
+        overlay: &Overlay,
+        generation: u64,
+    ) -> Result<()> {
+        self.write_overlay(batch, overlay);
+        self.stage_root_cache(
+            batch,
+            account_changes(overlay),
+            self.sparse_accounts(overlay)?,
+            overlay.root_plan.as_ref(),
+            generation,
+        )
+    }
+
+    /// Checks the root cache, node by node, against a full rebuild, and
+    /// rebuilds it on any difference. Run when a chain opens, which is where a
+    /// cache damaged on disk is caught. `true` when it held or was absent.
+    ///
+    /// O(N) reads and hashes, and O(N) memory for the account list (about
+    /// 72 B an account), beside `check_tip_state`'s own full `state_root()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on a read or write failure.
+    pub fn verify_root_cache(&self) -> Result<bool> {
+        if root_cache::marker(&self.db)?.is_none() || root_cache::holds(&self.db)? {
+            return Ok(true);
+        }
+        self.root_cache
+            .note_repair("disagrees with a full rebuild at open");
+        // Straight to the database, not `write_batch`: the rebuild's
+        // `delete_range` would read as an account write and withdraw it.
+        let (writing, generation) = self.preview.begin_write_from();
+        let plan = root_cache::rebuild(&self.db, generation, &self.root_cache)?;
+        let mut batch = WriteBatch::default();
+        root_cache::stage(&mut batch, &plan);
+        self.land(batch, writing, generation)?;
+        Ok(false)
+    }
+
+    /// What the root cache has done since this database opened (ADR-062a).
+    #[must_use]
+    pub fn root_cache_stats(&self) -> root_cache::RootCacheStats {
+        self.root_cache.stats()
+    }
+
+    /// What the contracts root cache has done since this database opened
+    /// (`state::contracts_root`).
+    #[cfg(test)]
+    pub(crate) fn contracts_root_stats(&self) -> crate::state::contracts_root::ContractsRootStats {
+        self.contracts_root.stats()
+    }
+
+    /// Compares the root a block declares with the one staging computed. When
+    /// they differ and the accounts root (the sparse cache) or the contracts
+    /// layer (`state::contracts_root`) came from a cache, the full rebuild
+    /// decides: if it matches the declaration, the cache was wrong, so it is
+    /// withdrawn and the block accepted on the rebuild's root. A wrong cache
+    /// then costs one rebuild, not a validator that refuses every honest block
+    /// (PR #540 review).
+    ///
+    /// The cost is asymmetric: accepting a valid block costs its touched
+    /// paths, refusing one whose root the cache does not give costs a full
+    /// rebuild first (what every block cost before ADR-062a). What bounds how
+    /// often a peer can make a node pay that is the header check that runs
+    /// before execution: `Chain::insert_block_inner` checks proof of work
+    /// before `apply_body` on a chain with `verify_pow`. A DAG-BFT chain
+    /// (`ChainConfig::dag_bft`, `verify_pow = false`) has no such check: a
+    /// builder applies its own blocks (`consensus::bft::builder::build_block`),
+    /// whose declared root is its own preview's, but a follower or a node in
+    /// catch-up applies peer-served blocks (`consensus::bft::catchup`), and a
+    /// wrong root there costs a walk plus a full rebuild before it is
+    /// refused: every account, and the full contracts fold over all contract
+    /// code and storage (`merged_contracts`), whichever layer the mismatch is
+    /// in. That is the cost every block had before ADR-062a and the contracts
+    /// cache. Catch-up
+    /// sources are the operator's (`--catch-up-from`), and the attested path
+    /// imports only blocks under a quorum-signed checkpoint.
+    pub(crate) fn check_declared_root(
+        &self,
+        overlay: &mut Overlay,
+        computed: [u8; HASH_LEN],
+        declared: &[u8; HASH_LEN],
+    ) -> Result<[u8; HASH_LEN]> {
+        if computed == *declared {
+            return Ok(computed);
+        }
+        // The contracts layer of every non-full root came from its cache
+        // (`state::contracts_root`), so the full rebuild is asked whenever the
+        // roots differ, not only after a walked plan: one more full root to
+        // refuse a block, which is what every block cost before either cache.
+        let walked = overlay
+            .root_plan
+            .as_ref()
+            .is_some_and(root_cache::Plan::walked);
+        let (full, _) = self.root_from(overlay, RootSource::Full)?;
+        if full == *declared {
+            let contracts = self.contracts_cache_refuted(overlay)?;
+            if walked {
+                self.root_cache
+                    .note_repair("gave a root that the full rebuild and the block refute");
+                let mut batch = WriteBatch::default();
+                root_cache::stage_invalidate(&mut batch);
+                let (writing, generation) = self.preview.begin_write_from();
+                self.land(batch, writing, generation)?;
+                overlay.root_plan = None;
+            }
+            if walked || contracts {
+                return Ok(full);
+            }
+        }
+        Err(NodeError::StateRootMismatch {
+            expected: hex::encode(declared),
+            actual: hex::encode(computed),
+        })
     }
 
     /// Builds a proof that `address` holds what committed state says it holds.
@@ -595,6 +1106,16 @@ impl StateDB {
     /// before trading existed — and it is why a proof carries a *list* rather
     /// than a fixed five digests.
     pub(crate) fn state_layers(&self, overlay: &Overlay) -> Result<Vec<LayerDigest>> {
+        self.state_layers_from(overlay, RootSource::Cache)
+    }
+
+    /// [`StateDB::state_layers`], with the contracts layer from `source`
+    /// (`state::contracts_root`): every source gives the same digests.
+    pub(crate) fn state_layers_from(
+        &self,
+        overlay: &Overlay,
+        source: RootSource,
+    ) -> Result<Vec<LayerDigest>> {
         let mut layers = Vec::new();
 
         // Escrowed value that no commitment covers is value a light client
@@ -653,7 +1174,7 @@ impl StateDB {
         // Last, after every layer a pre-existing chain could hold, so adding
         // them moved no root that had already been committed. See
         // `state::commitments` for why they were missing.
-        layers.extend(self.contracts_layer(overlay)?);
+        layers.extend(self.contracts_layer(overlay, source)?);
         layers.extend(self.nullifiers_layer(overlay)?);
 
         Ok(layers)
@@ -674,7 +1195,7 @@ impl StateDB {
         for (id, code) in &overlay.code {
             batch.put(code_key(id), code);
         }
-        for ((contract, key), value) in &overlay.contract_storage {
+        for ((contract, key), value) in overlay.contract_storage.iter() {
             batch.put(contract_storage_key(contract, key), value);
         }
         for nullifier in &overlay.nullifiers {
@@ -757,9 +1278,48 @@ impl StateDB {
     ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         let mut merged: BTreeMap<Vec<u8>, Vec<u8>> =
             self.scan_prefix(prefix)?.into_iter().collect();
-        for (key, value) in &overlay.records {
+        for (key, value) in overlay.records_under(prefix) {
+            match value {
+                Some(bytes) => merged.insert(key.clone(), bytes.clone()),
+                None => merged.remove(key),
+            };
+        }
+        Ok(merged)
+    }
+
+    /// [`Self::merged_records`] limited to keys below `end`.
+    ///
+    /// Reads only the keys it returns (plus one), so the cost is the size of
+    /// the answer rather than of the prefix: what an ordered index such as
+    /// governance's due list (`g:due:`) needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn merged_records_before(
+        &self,
+        overlay: &Overlay,
+        prefix: &[u8],
+        end: &[u8],
+    ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        let mut merged = BTreeMap::new();
+        // `BTreeMap::range` panics on an inverted range.
+        if end <= prefix {
+            return Ok(merged);
+        }
+        for item in self
+            .db
+            .iterator(IteratorMode::From(prefix, rocksdb::Direction::Forward))
+        {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) || &*key >= end {
+                break;
+            }
+            merged.insert(key.to_vec(), value.to_vec());
+        }
+        for (key, value) in overlay.records.range(prefix.to_vec()..end.to_vec()) {
             if !key.starts_with(prefix) {
-                continue;
+                break;
             }
             match value {
                 Some(bytes) => merged.insert(key.clone(), bytes.clone()),
@@ -927,6 +1487,8 @@ impl StateDB {
         // transactions executing under two different sets of rules depending on
         // where they sat, which is a state divergence rather than a subtlety.
         self.settle_governance(&mut overlay, context)?;
+        // Right after: a validity change promoted here binds the next block.
+        self.activate_parameters(&mut overlay, context)?;
         // Burn the base fee before staking runs, so an epoch's reward pool is
         // the tips alone.
         self.settle_fees(&mut overlay)?;
@@ -948,6 +1510,11 @@ impl StateDB {
 
     /// Executes `block` and commits it atomically.
     ///
+    /// Unchecked: it skips the header `state_root` check and writes no undo
+    /// record, so a block applied this way cannot be reverted and nothing
+    /// verifies the root it leaves. Chain code uses
+    /// [`StateDB::apply_block_journaled`].
+    ///
     /// Returns the new state root on success. On any failure — bad signature,
     /// wrong nonce, insufficient funds — nothing is written and committed state
     /// is unchanged.
@@ -957,18 +1524,16 @@ impl StateDB {
     /// Returns the first validation error encountered, or
     /// [`NodeError::Storage`] if the final batch write fails.
     pub fn apply_block(&self, block: &Block, context: BlockContext) -> Result<[u8; HASH_LEN]> {
-        let overlay = self.stage_block(block, context)?;
+        let mut overlay = self.stage_block(block, context)?;
 
-        let new_root = self.root_with_overlay(&overlay)?;
+        let new_root = self.root_with_overlay(&mut overlay)?;
 
         // Single atomic write. Until this line runs, the database has not been
         // touched by this block at all.
+        let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
-        self.write_overlay(&mut batch, &overlay);
-        let writing = self.preview.begin_write();
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.stage_commit(&mut batch, &overlay, generation)?;
+        self.land(batch, writing, generation)?;
 
         Ok(new_root)
     }
@@ -1060,6 +1625,21 @@ impl StateDB {
             .verify(tx, height, policy, self.get_chain_tag()?)
     }
 
+    /// Full signature verifications run through [`StateDB::verify_cached`]
+    /// (cache misses and every v8 frame). Diagnostic only: tests use it to show
+    /// a path does not re-verify.
+    #[must_use]
+    pub fn signature_verifications(&self) -> u64 {
+        self.verified.verifications()
+    }
+
+    /// Mining-share proofs of work hashed so far (ADR-044). Diagnostic only,
+    /// like [`StateDB::signature_verifications`].
+    #[must_use]
+    pub fn share_proofs(&self) -> u64 {
+        self.share_proofs.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// The longest prefix-closed subsequence of `transactions` that executes,
     /// in the order given: each transaction is staged on top of the ones kept
     /// before it, and one that fails is dropped rather than failing the rest.
@@ -1124,6 +1704,20 @@ impl StateDB {
         self.prewarm_verification(&transactions[..warm], context.height, &policy)?;
         let mut kept = Vec::with_capacity(transactions.len());
         let mut wire = block_wire_len(std::iter::empty::<usize>());
+        // Senders whose contract call or deployment already failed in this
+        // selection. Their later transactions here would fail on the nonce
+        // anyway, except another version of the same nonce: a sub-DAG can
+        // carry several, from different proposers, and each one tried would be
+        // free contract work (PR #549 review). One failed trial per sender.
+        let mut failed_senders = std::collections::BTreeSet::new();
+        // Contract gas of the trials that failed, kept apart from
+        // `overlay.vm_gas` (what applied calls are admitted against, GAS-2):
+        // a failed call is never in the block, so its work must bound the
+        // builder without taking room from the calls that apply (PR #549
+        // review). Never in the block; `builder_may_try` bounds the two
+        // together. Both counts and `failed_senders` are GAS-9: under DAG-BFT
+        // they decide the derived block, so they are consensus, not policy.
+        let mut failed_gas: u64 = 0;
         for tx in transactions {
             let len = transaction_wire_len(tx.to_bytes().len());
             // First-fit (ADR-072): one too big for the room left is passed over
@@ -1132,11 +1726,30 @@ impl StateDB {
             if wire.saturating_add(len) > cap {
                 continue;
             }
-            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
+            let contract = matches!(
+                tx.kind,
+                crate::core::TxKind::CallContract(_) | crate::core::TxKind::DeployContract(_)
+            );
+            if contract
+                && (failed_senders.contains(&tx.sender())
+                    || !self.builder_may_try(&overlay, failed_gas, &tx.kind)?)
+            {
+                continue;
+            }
+            let gas_before = overlay.vm_gas;
+            let staged = if contract || matches!(tx.kind, crate::core::TxKind::Transfer) {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
                 // copy made building a 900-transaction block quadratic.
+                //
+                // A contract call or deployment writes the same, then stages
+                // its own writes only once it has succeeded, so it takes the
+                // same path. What a failed one leaves behind is the contract
+                // gas it spent (`Overlay::vm_gas`), moved to `failed_gas`
+                // below: every validator runs this selection on the same
+                // sub-DAG, so a failed call that cost nothing here let K of
+                // them cost K x the cap (PR #549 review).
                 self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)?
             } else {
                 let mut trial = overlay.clone();
@@ -1152,6 +1765,15 @@ impl StateDB {
             if staged {
                 wire = wire.saturating_add(len);
                 kept.push(tx);
+            } else if contract && overlay.vm_gas > gas_before {
+                // Only a failure that did contract work: one refused at the
+                // nonce (a replay of the sender's old transaction, which
+                // anyone can put in a sub-DAG) must not shut the sender out.
+                failed_senders.insert(tx.sender());
+                // Off the applied count, so the block's count is exactly what
+                // a validator of the kept transactions counts.
+                failed_gas = failed_gas.saturating_add(overlay.vm_gas - gas_before);
+                overlay.vm_gas = gas_before;
             }
         }
         Ok(kept)
@@ -1195,8 +1817,11 @@ impl StateDB {
         Ok(())
     }
 
-    /// Stages a plain transfer, restoring exactly what it could have written
-    /// if it fails. Returns whether it was kept; a storage failure is an error,
+    /// Stages a plain transfer, a contract call or a deployment, restoring
+    /// exactly what it could have written if it fails, except the contract
+    /// gas a failed call or deployment spent, which stays spent (ADR-142,
+    /// GAS-2). `call_contract` and `deploy_contract` write nothing else
+    /// before their last check. Returns whether it was kept; a storage failure is an error,
     /// not a reason to drop the transaction, or this node would build a block
     /// its peers' state does not match.
     fn stage_transfer_or_undo(
@@ -1256,8 +1881,11 @@ impl StateDB {
         // preview stale, and `keep` then declines it.
         let staging = self.preview.begin_preview();
         let generation = self.preview.generation();
-        let overlay = self.stage_block(block, context)?;
-        let root = self.root_with_overlay(&overlay)?;
+        let mut overlay = self.stage_block(block, context)?;
+        // The root this node puts in its own header: nothing it does later
+        // refutes it, so the cache is checked here every `CONFIRM_EVERY`
+        // heights (ADR-062a).
+        let root = self.root_into(&mut overlay, self.source_at(context.height))?;
         drop(staging);
         self.preview.keep(block, context, generation, overlay, root);
         Ok(root)
@@ -1301,7 +1929,20 @@ impl StateDB {
         extra: impl FnOnce(&mut WriteBatch),
     ) -> Result<[u8; HASH_LEN]> {
         let (overlay, new_root) = self.stage_checked(block, context)?;
-        let undo = self.capture_undo(&overlay)?;
+        self.commit_journaled(&overlay, block_id, extra)?;
+        Ok(new_root)
+    }
+
+    /// Commits a staged `overlay` with its undo journal under `block_id`: the
+    /// write half of [`StateDB::apply_journaled_with`], which the root-cache
+    /// tests drive with overlays no signed block needs to produce.
+    pub(crate) fn commit_journaled(
+        &self,
+        overlay: &Overlay,
+        block_id: &[u8; HASH_LEN],
+        extra: impl FnOnce(&mut WriteBatch),
+    ) -> Result<()> {
+        let undo = self.capture_undo(overlay)?;
 
         // The Mesh Data API's view of the block (`state::balance_changes`):
         // every balance it moved, from the same before/after pair the journal
@@ -1310,20 +1951,16 @@ impl StateDB {
             overlay.accounts.get(address).map(|a| a.balance)
         });
 
+        let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
-        self.write_overlay(&mut batch, &overlay);
+        self.stage_commit(&mut batch, overlay, generation)?;
         batch.put(undo_key(block_id), undo.encode());
         batch.put(
             balance_changes::balance_changes_key(block_id),
             balance_changes::encode(&moved),
         );
         extra(&mut batch);
-        let writing = self.preview.begin_write();
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
-
-        Ok(new_root)
+        self.land(batch, writing, generation)
     }
 
     /// `(reused, recomputed)`: checked applies that took the block's kept
@@ -1346,11 +1983,46 @@ impl StateDB {
     }
 
     /// Writes a batch built elsewhere in the crate.
-    pub(crate) fn write_batch(&self, batch: WriteBatch) -> Result<()> {
-        let writing = self.preview.begin_write();
+    pub(crate) fn write_batch(&self, mut batch: WriteBatch) -> Result<()> {
+        // Accounts written here bypass the root cache (snapshot import, a
+        // purge), so it stops vouching for them until a commit rebuilds it.
+        if root_cache::touches_accounts(&batch) {
+            root_cache::stage_invalidate(&mut batch);
+        }
+        let (writing, generation) = self.preview.begin_write_from();
+        self.land(batch, writing, generation)
+    }
+
+    /// Writes `batch`, a committed write under `writing` (taken from
+    /// `generation`), and moves the contracts root cache past it by the
+    /// batch's own contract writes (`state::contracts_root`), before the
+    /// guard's second bump lets the next write start.
+    fn land(
+        &self,
+        batch: WriteBatch,
+        writing: crate::state::preview::WriteGuard<'_>,
+        generation: u64,
+    ) -> Result<()> {
+        let changes = crate::state::contracts_root::changes(&batch);
         let written = self.db.write(batch).map_err(storage_err);
+        if written.is_ok() {
+            self.contracts_root.follow(
+                generation,
+                crate::state::preview::landed(generation),
+                changes,
+            );
+        }
         drop(writing);
         written
+    }
+
+    /// Commits an overlay's writes without a block, for tests that need state
+    /// to move between `RocksDB` and the overlay the way blocks move it.
+    #[cfg(test)]
+    pub(crate) fn commit_overlay_for_test(&self, overlay: &Overlay) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        self.write_overlay(&mut batch, overlay);
+        self.write_batch(batch)
     }
 
     /// Writes a `RocksDB` checkpoint of the whole database to `path`: hard
@@ -1362,7 +2034,7 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] if the checkpoint cannot be made, for
     /// example because `path` already exists.
     pub fn create_checkpoint(&self, path: impl AsRef<Path>) -> Result<()> {
-        rocksdb::checkpoint::Checkpoint::new(&self.db)
+        rocksdb::checkpoint::Checkpoint::new(&*self.db)
             .and_then(|checkpoint| checkpoint.create_checkpoint(path))
             .map_err(storage_err)
     }
@@ -1422,13 +2094,34 @@ impl StateDB {
             }
         }
 
+        // The root cache follows the restored accounts. Sparse afterwards if
+        // the `sl:` marker survives the revert: restored by it, or untouched.
+        let restored: BTreeMap<Address, Option<[u8; ACCOUNT_LEN]>> = undo
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.address,
+                    entry.previous.map(|account| account.encode()),
+                )
+            })
+            .collect();
+        let changes: Vec<root_cache::Change> = restored.into_iter().collect();
+        let sparse_after = match undo
+            .records
+            .iter()
+            .find(|record| record.key == crate::state::stateless::SPARSE_ACCOUNTS_KEY)
+        {
+            Some(record) => record.previous.is_some(),
+            None => self.sparse_accounts(&Overlay::new())?,
+        };
+        let (writing, generation) = self.preview.begin_write_from();
+        self.stage_root_cache(&mut batch, changes, sparse_after, None, generation)?;
+
         batch.delete(&key);
         batch.delete(balance_changes::balance_changes_key(block_id));
         extra(&mut batch);
-        let writing = self.preview.begin_write();
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.land(batch, writing, generation)?;
 
         Ok(())
     }
@@ -1479,12 +2172,10 @@ impl StateDB {
     ) -> Result<[u8; HASH_LEN]> {
         let (overlay, new_root) = self.stage_checked(block, context)?;
 
+        let (writing, generation) = self.preview.begin_write_from();
         let mut batch = WriteBatch::default();
-        self.write_overlay(&mut batch, &overlay);
-        let writing = self.preview.begin_write();
-        let written = self.db.write(batch).map_err(storage_err);
-        drop(writing);
-        written?;
+        self.stage_commit(&mut batch, &overlay, generation)?;
+        self.land(batch, writing, generation)?;
 
         Ok(new_root)
     }
@@ -1497,19 +2188,110 @@ impl StateDB {
         block: &Block,
         context: BlockContext,
     ) -> Result<(Overlay, [u8; HASH_LEN])> {
-        let (overlay, new_root) = if let Some(kept) = self.preview.take(block, context) {
+        let (mut overlay, computed) = if let Some(kept) = self.preview.take(block, context) {
             kept
         } else {
-            let overlay = self.stage_block(block, context)?;
-            let root = self.root_with_overlay(&overlay)?;
+            let mut overlay = self.stage_block(block, context)?;
+            // A node that only imports never previews, so it confirms here
+            // too: otherwise a wrong cached root that a block also declares
+            // is accepted (PR #549 review R-4; the contracts cache is live
+            // from genesis).
+            let root = self.root_into(&mut overlay, self.source_at(context.height))?;
             (overlay, root)
         };
-        if new_root != block.header.state_root {
-            return Err(NodeError::StateRootMismatch {
-                expected: hex::encode(block.header.state_root),
-                actual: hex::encode(new_root),
-            });
-        }
+        let new_root =
+            self.check_declared_root(&mut overlay, computed, &block.header.state_root)?;
         Ok((overlay, new_root))
     }
+
+    /// [`RootSource::Confirmed`] once per `CONFIRM_EVERY` heights, whether the
+    /// block is previewed or only imported, else [`RootSource::Cache`].
+    fn source_at(&self, height: u64) -> RootSource {
+        if self.root_cache.confirm_due(height) {
+            RootSource::Confirmed
+        } else {
+            RootSource::Cache
+        }
+    }
+}
+
+/// Committed state as of one moment ([`StateDB::view`]).
+pub struct StateView<'a> {
+    snapshot: rocksdb::Snapshot<'a>,
+}
+
+impl StateView<'_> {
+    /// [`StateDB::all_accounts`] as of this view.
+    ///
+    /// # Errors
+    ///
+    /// As [`StateDB::all_accounts`].
+    pub fn all_accounts(&self) -> Result<Vec<(Address, Account)>> {
+        decode_accounts(self.snapshot.iterator(account_scan()))
+    }
+
+    /// [`StateDB::stored_pool`] as of this view.
+    ///
+    /// # Errors
+    ///
+    /// A storage failure or a pool record that does not decode.
+    pub fn stored_pool(&self) -> Result<crate::state::shielded::ShieldedPool> {
+        use crate::state::shielded::ShieldedPool;
+        self.get(POOL_KEY)?
+            .map_or_else(|| Ok(ShieldedPool::new()), |b| ShieldedPool::decode(&b))
+    }
+
+    /// Every key/value pair under `prefix` as of this view, in key order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mode = IteratorMode::From(prefix, rocksdb::Direction::Forward);
+        let mut out = Vec::new();
+        for item in self.snapshot.iterator(mode) {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            out.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(out)
+    }
+
+    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.snapshot.get(key).map_err(storage_err)
+    }
+}
+
+/// Where a scan of every account starts.
+fn account_scan() -> IteratorMode<'static> {
+    IteratorMode::From(ACCOUNT_PREFIX, rocksdb::Direction::Forward)
+}
+
+/// The accounts an iterator from [`account_scan`] yields, in address order.
+///
+/// `RocksDB` iterates lexicographically, and the shared prefix preserves that
+/// order over raw addresses, so no explicit sort is needed.
+fn decode_accounts(
+    items: impl Iterator<Item = std::result::Result<(Box<[u8]>, Box<[u8]>), rocksdb::Error>>,
+) -> Result<Vec<(Address, Account)>> {
+    let mut accounts = Vec::new();
+    for item in items {
+        let (key, value) = item.map_err(storage_err)?;
+        // Seeking positions the cursor at the prefix; stop once past it.
+        if !key.starts_with(ACCOUNT_PREFIX) {
+            break;
+        }
+        let raw = &key[ACCOUNT_PREFIX.len()..];
+        let Ok(address) = <Address>::try_from(raw) else {
+            return Err(NodeError::InvalidLength {
+                what: "account key",
+                expected: ACCOUNT_PREFIX.len() + 32,
+                actual: key.len(),
+            });
+        };
+        accounts.push((address, Account::decode(&value)?));
+    }
+    Ok(accounts)
 }

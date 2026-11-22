@@ -165,17 +165,13 @@ impl CouncilGenesis {
     ///
     /// # Errors
     ///
-    /// A malformed key, a duplicate member, or a threshold that is not a
-    /// strict majority (a minority could pause over the majority's head).
+    /// A malformed key, a duplicate member, a `max_pause_blocks` of zero or
+    /// above `MAX_COUNCIL_PAUSE_BLOCKS` (2026-11-17), a threshold that is not
+    /// a strict majority (a minority could pause over the majority's head), or more
+    /// than `MAX_COUNCIL_MEMBERS` (32) members: a new bound since 2026-11-14,
+    /// because a strict majority of 33 would not fit in `MAX_APPROVALS`.
     pub fn record(&self) -> Result<crate::state::council::CouncilRecord> {
-        let n = self.members.len();
-        if n == 0 || usize::from(self.threshold) * 2 <= n || usize::from(self.threshold) > n {
-            return Err(NodeError::Decode(format!(
-                "security_council: threshold {} of {n} is not a strict majority",
-                self.threshold
-            )));
-        }
-        let mut members = Vec::with_capacity(n);
+        let mut members = Vec::with_capacity(self.members.len());
         for (i, m) in self.members.iter().enumerate() {
             let bytes = hex::decode(m)
                 .map_err(|e| NodeError::Decode(format!("security_council.members[{i}]: {e}")))?;
@@ -183,19 +179,28 @@ impl CouncilGenesis {
                 .as_slice()
                 .try_into()
                 .map_err(|_| NodeError::Decode(format!("security_council.members[{i}]: length")))?;
-            crate::crypto::keys::VerifyingKey::from_bytes(&key)?;
-            if members.contains(&key) {
-                return Err(NodeError::Decode(format!(
-                    "security_council.members[{i}] repeats"
-                )));
-            }
             members.push(key);
+        }
+        // The rule a rotation must also meet, so a rotated council is never
+        // looser than a genesis one.
+        crate::state::council::check_member_set(self.threshold, &members)
+            .map_err(|why| NodeError::Decode(format!("security_council: {why}")))?;
+        // Without a compiled ceiling the renewal cooldown bounds nothing.
+        let max = maya_governance::limits::MAX_COUNCIL_PAUSE_BLOCKS;
+        if self.max_pause_blocks == 0 || self.max_pause_blocks > max {
+            return Err(NodeError::Decode(format!(
+                "security_council: max_pause_blocks {} is not 1 to {max}",
+                self.max_pause_blocks
+            )));
         }
         Ok(crate::state::council::CouncilRecord {
             threshold: self.threshold,
             max_pause_blocks: self.max_pause_blocks,
             nonce: 0,
             members,
+            pending: None,
+            last_sunset_at: None,
+            last_pause_end: std::collections::BTreeMap::new(),
         })
     }
 }
@@ -209,6 +214,16 @@ impl CouncilGenesis {
 /// reply has time to arrive before it is asked for again, and a multiple of
 /// the node's 100 ms tick. `xtask genesis-check` holds the same number.
 pub const MIN_ANCHOR_TIMEOUT_MS: u64 = 500;
+
+/// The round interval a value-bearing chain must use: one block per second
+/// (an anchor every two 500 ms rounds). The governance and migration windows
+/// are counted in blocks and sized for this rate (block-time fix A).
+pub const CANONICAL_ROUND_INTERVAL_MS: u64 = 500;
+
+/// A chain id containing this (case and spaces ignored) carries value. The same
+/// rule as the genesis ceremony's guard, so `maya2c-mainnet` cannot skip it by
+/// spelling. A devnet or testnet genesis may name any interval.
+const VALUE_BEARING_NAME_PART: &str = "mainnet";
 
 /// The genesis committee of a DAG-BFT network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -276,7 +291,6 @@ impl FeesGenesis {
             change_denominator: self.change_denominator,
             treasury_bps: 0,
             initial_base_fee: to_amount(self.initial_base_fee),
-            neural_activation_height: u64::MAX,
         };
         config
             .validate()
@@ -624,8 +638,22 @@ impl GenesisConfig {
     ///
     /// # Errors
     ///
-    /// [`NodeError::Decode`] if the upgrades are out of order.
+    /// [`NodeError::Decode`] if the upgrades are out of order, or an entry
+    /// carries a feature bit this binary does not implement. Admission and
+    /// stored records accept such bits (ADR-082 amendment); a genesis is
+    /// written for this binary, so one there is a mistake, refused at boot.
     pub fn upgrade_schedule(&self) -> Result<UpgradeSchedule> {
+        if let Some(u) = self
+            .protocol_upgrades
+            .iter()
+            .find(|u| u.features.unimplemented() != 0)
+        {
+            return Err(NodeError::Decode(format!(
+                "genesis upgrade to version {} names feature bits {:#x} this binary does not implement",
+                u.version,
+                u.features.unimplemented()
+            )));
+        }
         UpgradeSchedule::new(self.protocol_upgrades.clone())
     }
 
@@ -686,7 +714,8 @@ impl GenesisConfig {
     ///
     /// Returns [`NodeError::Decode`] if the chain id is empty, the difficulty
     /// floor is harder than the starting difficulty, an address is malformed,
-    /// an address is duplicated, or the total allocation overflows `u64`.
+    /// an address is duplicated, the total allocation overflows `u64`, or a
+    /// value-bearing chain's `round_interval_ms` is not [`CANONICAL_ROUND_INTERVAL_MS`].
     pub fn validate(&self) -> Result<()> {
         if self.chain_id.is_empty() {
             return Err(NodeError::Decode("chain_id must not be empty".to_string()));
@@ -712,6 +741,18 @@ impl GenesisConfig {
             if bft.anchor_timeout_ms < MIN_ANCHOR_TIMEOUT_MS {
                 return Err(NodeError::Decode(format!(
                     "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
+                )));
+            }
+            let value_bearing = self
+                .chain_id
+                .trim()
+                .to_ascii_lowercase()
+                .contains(VALUE_BEARING_NAME_PART);
+            if value_bearing && bft.round_interval_ms != CANONICAL_ROUND_INTERVAL_MS {
+                return Err(NodeError::Decode(format!(
+                    "bft.round_interval_ms must be {CANONICAL_ROUND_INTERVAL_MS} on {} \
+                     (got {}): the governance windows assume one block per second",
+                    self.chain_id, bft.round_interval_ms
                 )));
             }
             if bft.staking.as_ref().is_some_and(|staking| {
@@ -971,7 +1012,7 @@ impl GenesisConfig {
     /// validator count, or a bond the staking rules refuse.
     pub fn staking_records(&self) -> Result<std::collections::BTreeMap<Vec<u8>, Vec<u8>>> {
         use crate::state::staking::{
-            STATE_KEY, StakingRecord, committee_record, encode_committee, key_record, validator_id,
+            StakingRecord, committee_record, encode_committee, key_record, validator_id,
         };
         let mut records = std::collections::BTreeMap::new();
         let Some(bft) = &self.bft else {
@@ -1058,7 +1099,8 @@ impl GenesisConfig {
             expected: std::collections::BTreeMap::new(),
             authored: std::collections::BTreeMap::new(),
         };
-        records.insert(STATE_KEY.to_vec(), record.encode());
+        // One record per validator and the meta record (ADR-062b).
+        records.extend(record.to_records()?);
         records.insert(committee_record(0), encode_committee(&active));
         if staking.stake_weighted {
             records.insert(
@@ -1364,7 +1406,7 @@ pub fn decode_address(value: &str) -> Result<Address> {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use crate::state::staking::{STATE_KEY, StakingRecord};
+    use crate::state::staking::StakingRecord;
     use maya_staking::{Effect, Participation};
 
     #[test]
@@ -1401,9 +1443,19 @@ mod tests {
             }),
         };
         let records = config.staking_records().unwrap();
-        let bytes = records.get(STATE_KEY).unwrap().clone();
-        let mut record = StakingRecord::decode(&bytes).unwrap();
-        assert_eq!(record.encode(), bytes);
+        let mut record = StakingRecord::from_records(&records).unwrap().unwrap();
+        let staking_only = |r: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>| {
+            r.iter()
+                .filter(|(k, _)| {
+                    !k.starts_with(b"k:key:") && !k.starts_with(b"k:cmt:") && k.starts_with(b"k:")
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert_eq!(
+            staking_only(&record.to_records().unwrap()),
+            staking_only(&records)
+        );
         let pool = to_amount(U256::from(1_000));
         let out = record
             .staking
@@ -1451,6 +1503,54 @@ mod tests {
         for accepted in [MIN_ANCHOR_TIMEOUT_MS, 1_000, 10_000] {
             assert!(!about_the_timeout(accepted), "{accepted} ms was refused");
         }
+    }
+
+    #[test]
+    fn a_value_bearing_genesis_refuses_a_round_interval_off_the_canonical_rate() {
+        let with_interval = |chain_id: &str, round_interval_ms: u64| GenesisConfig {
+            chain_id: chain_id.to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: Vec::new(),
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            suite_deprecations: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec!["00".repeat(32)],
+                anchor_timeout_ms: 1_000,
+                batch_size: 100,
+                round_interval_ms,
+                staking: None,
+                fees: None,
+                mining: None,
+            }),
+        };
+        let refused = |chain_id: &str, ms: u64| {
+            with_interval(chain_id, ms)
+                .validate()
+                .is_err_and(|e| e.to_string().contains("round_interval_ms"))
+        };
+        // Mainnet at 1 s per block (the 15 s figure the windows once assumed) is refused.
+        assert!(refused("maya-mainnet", 1_000), "1000 ms mainnet accepted");
+        assert!(refused("maya-mainnet", 15_000), "15000 ms mainnet accepted");
+        // Case and surrounding space do not get a value-bearing chain out of the check.
+        assert!(refused("Maya-Mainnet", 1_000), "case variant accepted");
+        assert!(refused(" MAINNET ", 1_000), "padded variant accepted");
+        // Any name containing "mainnet" is value-bearing, as in the ceremony guard.
+        assert!(refused("maya2c-mainnet", 1_000), "maya2c-mainnet accepted");
+        assert!(
+            refused("maya-mainnet-1", 1_000),
+            "suffixed mainnet accepted"
+        );
+        assert!(with_interval("maya-mainnet", 500).validate().is_ok());
+        assert!(with_interval("maya2c-mainnet", 500).validate().is_ok());
+        // A devnet or testnet genesis keeps the interval it names.
+        assert!(!refused("maya-testnet-2", 1_000), "testnet refused 1000 ms");
     }
 
     /// A default `min_delegation` leaves the bytes and the id of every earlier

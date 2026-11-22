@@ -40,10 +40,10 @@
 //! *up* is bounded by one denominator's share per block and by the ceiling
 //! (ADR-076), the same bounds the linear rule has.
 
-use crate::limits::MAX_BASE_FEE_PER_BYTE;
 use crate::model::{Features, MAX_GAIN_BPS, Model, UNIT_GAIN_BPS};
-use crate::next_base_fee;
 use maya_amount::Amount;
+use maya_fee_market::limits::MAX_BASE_FEE_PER_BYTE;
+use maya_fee_market::next_base_fee;
 
 /// Which base-fee rule a block uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

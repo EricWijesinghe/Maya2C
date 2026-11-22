@@ -9,7 +9,7 @@ use maya_stateless_core::amount::{to_amount, to_u256};
 use std::sync::Arc;
 
 use crate::core::block::BlockHeader;
-use crate::core::mining_payload::MiningShare;
+use crate::core::mining_payload::{MiningShare, WorkKind};
 use crate::crypto::dag::cache::Cache;
 use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
@@ -33,6 +33,15 @@ fn dag_epoch(record: &MiningRecord) -> Result<u64> {
         .checked_mul(record.epoch_blocks)
         .ok_or_else(|| NodeError::Mining("epoch start overflow".into()))?;
     Ok(start / record.dag.params().epoch_length.max(1))
+}
+
+/// What a share that passed every state rule needs for its proof of work and
+/// its payment.
+struct Payable {
+    record: MiningRecord,
+    reward: Amount,
+    header: [u8; 32],
+    key: Vec<u8>,
 }
 
 fn refuse(reason: &str) -> NodeError {
@@ -102,19 +111,19 @@ impl StateDB {
         registry.cache_for_epoch(dag_epoch(record)?)
     }
 
-    /// Pays one share from the reserve, or refuses it.
-    ///
-    /// # Errors
-    ///
-    /// Mining off, a wrong epoch, a full block, a spent share, or work that
-    /// misses the target. Each fails the transaction.
-    pub(crate) fn apply_mining_share(
+    /// Every share rule that reads state, in execution order, short of the
+    /// proof of work: mining enabled, right epoch, budget left, block cap, not
+    /// already paid. What the proof of work and the payment then need.
+    fn share_payable(
         &self,
-        overlay: &mut Overlay,
+        overlay: &Overlay,
         miner: &Address,
         share: &MiningShare,
-    ) -> Result<()> {
-        let Some(mut record) = self.mining_record(overlay)? else {
+    ) -> Result<Payable> {
+        // A new kind must add its feature-bit gate and its own header domain
+        // and seen-key prefix here before this compiles (ADR-044, MINE-11).
+        let WorkKind::DagPow = share.kind;
+        let Some(record) = self.mining_record(overlay)? else {
             return Err(refuse("this chain does not mine"));
         };
         // Epoch 0's anchor is fixed before launch, so its work could be done
@@ -145,7 +154,35 @@ impl StateDB {
         if self.record(overlay, &key)?.is_some() {
             return Err(refuse("already paid"));
         }
+        Ok(Payable {
+            record,
+            reward,
+            header,
+            key,
+        })
+    }
+
+    /// Pays one share from the reserve, or refuses it.
+    ///
+    /// # Errors
+    ///
+    /// Mining off, a wrong epoch, a full block, a spent share, or work that
+    /// misses the target. Each fails the transaction.
+    pub(crate) fn apply_mining_share(
+        &self,
+        overlay: &mut Overlay,
+        miner: &Address,
+        share: &MiningShare,
+    ) -> Result<()> {
+        let Payable {
+            mut record,
+            reward,
+            header,
+            key,
+        } = self.share_payable(overlay, miner, share)?;
         let cache = self.share_cache(&record)?;
+        self.share_proofs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let proof = hashimoto_light(&cache, &header, share.nonce);
         if !meets_target(&proof.result, &record.target) {
             return Err(refuse("work does not meet the share target"));
@@ -234,6 +271,23 @@ impl StateDB {
     /// As [`Self::apply_mining_share`].
     pub(crate) fn check_mining_share(&self, miner: &Address, share: &MiningShare) -> Result<()> {
         self.apply_mining_share(&mut Overlay::default(), miner, share)
+    }
+
+    /// [`Self::check_mining_share`] without the proof of work, for a share
+    /// whose work was already checked at admission. The header it hashes and
+    /// the target it must meet change only with the epoch, which this still
+    /// checks, so a share that passed once can only go stale here.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::apply_mining_share`], except a miss on the target.
+    pub(crate) fn check_mining_share_state(
+        &self,
+        miner: &Address,
+        share: &MiningShare,
+    ) -> Result<()> {
+        self.share_payable(&Overlay::default(), miner, share)
+            .map(|_| ())
     }
 
     /// Deletes a closed epoch's spent-share set, committed and staged. Its

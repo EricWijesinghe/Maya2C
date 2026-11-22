@@ -38,7 +38,8 @@ What is not ready, stated as plainly:
 - Contracts cannot yet check who called them, so ownership contracts wait
   for ADR-026.
 - The fee market is inactive.
-- Nothing has been audited externally.
+- Pre-audit: no external audit yet; validators run by one operator at
+  launch; external audit planned after funding.
 
 Where Maya2C stands against the best public numbers, including where it is
 worse: [beat-bar status](BEAT_BAR_STATUS.md).

@@ -37,11 +37,16 @@ use std::time::Instant;
 
 /// Addresses tracked before the table is swept.
 ///
-/// A bucket per address is a map an attacker can grow by sourcing from many
-/// addresses, so the table itself needs a ceiling. When it is reached, entries
+/// A bucket per address grows with the number of distinct sources, so the
+/// table itself needs a ceiling. When it is reached, entries
 /// that have refilled to full are dropped: a full bucket is indistinguishable
-/// from an absent one, so forgetting it changes no decision.
+/// from an absent one, so forgetting it changes no decision. If too few have
+/// refilled, the least recently touched buckets are dropped instead.
 const MAX_TRACKED: usize = 65_536;
+
+/// Buckets one eviction pass frees once the sweep leaves the table full, so
+/// the next newcomers find room without another full pass each under the lock.
+const EVICT_BATCH: usize = MAX_TRACKED / 16;
 
 /// One address's bucket.
 #[derive(Debug, Clone, Copy)]
@@ -131,7 +136,9 @@ impl RateLimiter {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if let Some(bucket) = buckets.get_mut(&address) {
+        // Keyed as `take_at` keys it: an IPv6 client's bucket is its /64, so
+        // looking up the full address found nothing and the refund was lost.
+        if let Some(bucket) = buckets.get_mut(&bucket_key(address)) {
             bucket.tokens = (bucket.tokens + bytes as f64).min(self.burst);
         }
     }
@@ -154,6 +161,7 @@ impl RateLimiter {
 
         if buckets.len() >= MAX_TRACKED && !buckets.contains_key(&address) {
             Self::sweep(&mut buckets, self.rate, self.burst, now);
+            Self::evict_least_recent(&mut buckets);
         }
 
         let bucket = buckets.entry(address).or_insert(Bucket {
@@ -184,6 +192,36 @@ impl RateLimiter {
             let elapsed = now.saturating_duration_since(bucket.updated).as_secs_f64();
             bucket.tokens + elapsed * rate < burst
         });
+    }
+
+    /// Makes room when the sweep left too little: drops the buckets untouched
+    /// longest until [`EVICT_BATCH`] places are free.
+    ///
+    /// Refusing new addresses here would lock out first-time clients whenever
+    /// the table is full, so the ceiling is enforced by eviction instead. Freeing
+    /// a batch means the next newcomers skip both this pass and the sweep, so a
+    /// source cycling fresh addresses pays for a full pass once per batch, not
+    /// once per address. Trade-off: drained addresses whose buckets are oldest
+    /// regain a full quota once enough newer addresses have cycled through.
+    fn evict_least_recent(buckets: &mut HashMap<IpAddr, Bucket>) {
+        let excess = (buckets.len() + EVICT_BATCH).saturating_sub(MAX_TRACKED);
+        if excess == 0 {
+            return;
+        }
+        let mut by_age: Vec<(Instant, IpAddr)> = buckets
+            .iter()
+            .map(|(address, bucket)| (bucket.updated, *address))
+            .collect();
+        let excess = excess.min(by_age.len());
+        if excess == 0 {
+            return;
+        }
+        // `IpAddr` breaks ties between equal times, so the victims do not
+        // depend on the map's order.
+        by_age.select_nth_unstable(excess - 1);
+        for (_, address) in &by_age[..excess] {
+            buckets.remove(address);
+        }
     }
 
     /// Addresses currently tracked. For tests and metrics.
@@ -372,5 +410,86 @@ mod tests {
         let mut buckets = limiter.buckets.lock().expect("not poisoned");
         RateLimiter::sweep(&mut buckets, limiter.rate, limiter.burst, start);
         assert_eq!(buckets.len(), 1, "a drained bucket must be kept");
+    }
+
+    #[test]
+    fn a_refund_reaches_an_ipv6_clients_bucket() {
+        // Buckets are kept per /64; the refund must look up the same key the
+        // charge used, or an IPv6 client never gets its unused bytes back.
+        let limiter = RateLimiter::new(1, 10);
+        let client: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        assert!(limiter.charge(client, 10));
+        limiter.refund(client, 10);
+        assert!(limiter.charge(client, 10), "the refund was credited");
+    }
+
+    #[test]
+    fn a_full_table_of_drained_buckets_still_admits_a_new_address() {
+        // Nothing has refilled, so the sweep frees nothing and the eviction
+        // path is the only thing keeping the table at its ceiling.
+        let limiter = RateLimiter::new(1, 1);
+        let now = Instant::now();
+        {
+            let mut buckets = limiter.buckets.lock().expect("not poisoned");
+            for index in 0..MAX_TRACKED as u32 {
+                let ip = IpAddr::from((0x0a00_0000u32 + index).to_be_bytes());
+                buckets.insert(
+                    ip,
+                    Bucket {
+                        tokens: 0.0,
+                        updated: now,
+                    },
+                );
+            }
+        }
+
+        let newcomer = IpAddr::from([192, 0, 2, 1]);
+        assert!(limiter.take_at(newcomer, 1.0, now), "newcomer not admitted");
+        assert!(
+            limiter.tracked() <= MAX_TRACKED,
+            "table grew past MAX_TRACKED: eviction did not run"
+        );
+    }
+
+    #[test]
+    fn eviction_at_the_ceiling_leaves_headroom_and_keeps_the_newest() {
+        // One eviction pass must free a batch, so the next newcomers do not
+        // each pay for a full sweep and scan under the lock.
+        let limiter = RateLimiter::new(1, 1);
+        let start = Instant::now();
+        let later = start + std::time::Duration::from_millis(1);
+        let newest = IpAddr::from([10, 255, 255, 255]);
+        {
+            let mut buckets = limiter.buckets.lock().expect("not poisoned");
+            for index in 0..MAX_TRACKED as u32 - 1 {
+                let ip = IpAddr::from((0x0a00_0000u32 + index).to_be_bytes());
+                buckets.insert(
+                    ip,
+                    Bucket {
+                        tokens: 0.0,
+                        updated: start,
+                    },
+                );
+            }
+            buckets.insert(
+                newest,
+                Bucket {
+                    tokens: 0.0,
+                    updated: later,
+                },
+            );
+        }
+
+        assert!(limiter.take_at(IpAddr::from([192, 0, 2, 1]), 1.0, later));
+        assert!(
+            limiter.tracked() <= MAX_TRACKED - EVICT_BATCH + 1,
+            "no headroom left: {} tracked",
+            limiter.tracked()
+        );
+        let buckets = limiter.buckets.lock().expect("not poisoned");
+        assert!(
+            buckets.contains_key(&newest),
+            "the newest bucket was evicted"
+        );
     }
 }

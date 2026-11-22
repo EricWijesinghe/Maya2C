@@ -26,19 +26,21 @@
 
 /// Fewest blocks a proposal must remain open for voting.
 ///
-/// 480 blocks — sized as about two hours at the 15-second PoW target in
-/// `consensus::difficulty::TARGET_BLOCK_TIME`, which is 8 minutes at the
-/// measured DAG-BFT rate of about one block a second (`docs/block-time.md`,
-/// open item 2). The intent: long enough that a vote cannot be opened and
-/// closed between two glances at a block explorer.
-pub const MIN_VOTING_BLOCKS: u64 = 480;
+/// 7,200 blocks — two hours at 1 block/s (`round_interval_ms` 500, anchor every
+/// 2 rounds). Short enough that governance is
+/// usable, long enough that a vote cannot be opened and closed between two
+/// glances at a block explorer.
+pub const MIN_VOTING_BLOCKS: u64 = 7_200;
 
 /// Most blocks a proposal may remain open.
 ///
 /// A ceiling as well as a floor, because a proposal open for a year is a
 /// proposal whose voters have long since changed their minds and whose locked
 /// stake is stranded behind it.
-pub const MAX_VOTING_BLOCKS: u64 = 100_000;
+///
+/// 1,500,000 blocks, about 17.4 days at 1 block/s: the wall-clock time the
+/// original 100,000 blocks of 15 s meant (Eric, 2026-11-13).
+pub const MAX_VOTING_BLOCKS: u64 = 1_500_000;
 
 /// Fewest blocks between a proposal passing and executing.
 ///
@@ -48,15 +50,17 @@ pub const MAX_VOTING_BLOCKS: u64 = 100_000;
 /// with no dissent mechanism, which is why this is a floor rather than a
 /// default.
 ///
-/// 960 blocks: sized as about four hours at the 15-second PoW target, which is
-/// 16 minutes at about one block a second (`docs/block-time.md`, open item 2).
-pub const MIN_TIMELOCK_BLOCKS: u64 = 960;
+/// 14,400 blocks, four hours at 1 block/s (`round_interval_ms` 500, anchor every 2 rounds).
+pub const MIN_TIMELOCK_BLOCKS: u64 = 14_400;
 
 /// Most blocks a proposal may wait between passing and executing.
 ///
 /// Bounded so a passed proposal cannot sit indefinitely and execute into a
 /// chain that has moved on. Past this it expires unexecuted.
-pub const MAX_TIMELOCK_BLOCKS: u64 = 200_000;
+///
+/// 3,000,000 blocks, about 34.7 days at 1 block/s: the original 200,000 blocks
+/// of 15 s (Eric, 2026-11-13).
+pub const MAX_TIMELOCK_BLOCKS: u64 = 3_000_000;
 
 /// Least turnout, in basis points of eligible stake, for a vote to count.
 ///
@@ -81,7 +85,10 @@ pub const BPS_DENOMINATOR: u32 = 10_000;
 /// how long it *may* be executed for afterwards. Without it, a proposal that
 /// nobody executed stays executable forever, and a stale change lands years
 /// later into a chain nobody expected it in.
-pub const EXECUTION_GRACE_BLOCKS: u64 = 100_000;
+///
+/// 1,500,000 blocks, about 17.4 days at 1 block/s: the original 100,000 blocks
+/// of 15 s (Eric, 2026-11-13).
+pub const EXECUTION_GRACE_BLOCKS: u64 = 1_500_000;
 
 /// Fewest blocks between a scheduled protocol upgrade's execution and its
 /// activation, when governance schedules it: 30 days at one block per second.
@@ -95,6 +102,34 @@ pub const MIN_UPGRADE_LEAD_BLOCKS: u64 = 2_592_000;
 /// a sunset: about one year at one block per second. A far entry would fix the
 /// floor every later entry of its kind must clear (ADR-082, H1).
 pub const MAX_SCHEDULE_HORIZON_BLOCKS: u64 = 31_536_000;
+
+/// Fewest blocks between the end of one security-council pause of a module and
+/// the next council pause of that module, and between two council suite
+/// sunsets: one day at one block per second.
+///
+/// Without it a council renews its own bounded pause back to back and the
+/// bound means nothing; with it a module the council pauses is open at least
+/// this long between pauses. A council resume ends the pause, so the cooldown
+/// runs from the resume. Compiled, so no council action and no proposal
+/// shortens it (founder audit Q7, Eric 2026-11-14; ADR-082 amendment).
+pub const COUNCIL_RENEWAL_COOLDOWN_BLOCKS: u64 = 86_400;
+
+/// Longest single pause a genesis may give the security council: one day at
+/// one block per second, the same as the renewal cooldown.
+///
+/// The cooldown only bounds the council if one pause is bounded too: with a
+/// `max_pause_blocks` of years, one pause never ends in practice. At this
+/// bound a module the council pauses is open at least as long as it was shut.
+/// The recorded choice (DECISIONS.md, B30) is six hours of blocks, inside it.
+pub const MAX_COUNCIL_PAUSE_BLOCKS: u64 = COUNCIL_RENEWAL_COOLDOWN_BLOCKS;
+
+/// Fewest blocks between a council rotation landing and the new member set
+/// taking over: one day at one block per second.
+///
+/// The rotation sits in the council record, in the state root, for this long,
+/// so everybody sees the new keys before they can act. Compiled, like the
+/// cooldown (founder audit Q8, Eric 2026-11-14; ADR-082 amendment).
+pub const COUNCIL_ROTATION_LEAD_BLOCKS: u64 = 86_400;
 
 /// Whether an upgrade activation leads its execution by enough, for governance.
 #[must_use]

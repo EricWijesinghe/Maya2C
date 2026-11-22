@@ -113,6 +113,15 @@ fn take_batch(queue: &mut VecDeque<Payload>, batch_size: usize, max_bytes: usize
     batch
 }
 
+/// Starts a new `(start, sent)` window once `interval` has passed, and says
+/// whether it still has room under `budget`.
+fn window_open(window: &mut (u64, u32), now_ms: u64, interval: u64, budget: u32) -> bool {
+    if now_ms.saturating_sub(window.0) >= interval {
+        *window = (now_ms, 0);
+    }
+    window.1 < budget
+}
+
 /// Whether a vertex's payloads fit the receive bound: within `max_bytes`, or a
 /// single payload no larger than `LONE_PAYLOAD_BYTES` (see `take_batch`).
 fn within_batch_bound(v: &Vertex, max_bytes: usize) -> bool {
@@ -203,11 +212,22 @@ pub struct Validator<A = Unauthenticated> {
     /// so an unanswered budget is an amplifier for anyone who can send a
     /// 33-byte `Fetch`.
     fetch_replies: BTreeMap<ValidatorId, (u64, u32)>,
+    /// Fetch replies sent to anyone in the current window: (window start,
+    /// replies). `from` is the sender a frame claims, not one the transport
+    /// authenticated, so a per-member budget alone multiplies by every id a
+    /// requester is willing to claim.
+    fetch_replies_total: (u64, u32),
     /// The horizon moved since the buffer was last drained. Parents at or
     /// below it count as held, so a buffered certificate may be ready
     /// although nothing it waited for arrived; without a drain it stayed
     /// buffered for good, and an engine resumed past its gap never advanced.
     drain_due: bool,
+    /// A certificate was inserted, or the node resumed, since the commit
+    /// rule last ran. The rule is a pure function of the DAG and of what was
+    /// committed, so without either it would find nothing; running it on
+    /// every message made each message cost a scan of every uncommitted
+    /// round while commits stall.
+    commit_due: bool,
 }
 
 impl Validator<Unauthenticated> {
@@ -241,7 +261,9 @@ impl<A: Authenticator> Validator<A> {
             last_resend_ms: 0,
             last_refetch_ms: 0,
             fetch_replies: BTreeMap::new(),
+            fetch_replies_total: (0, 0),
             drain_due: false,
+            commit_due: false,
         }
     }
 
@@ -347,6 +369,7 @@ impl<A: Authenticator> Validator<A> {
         self.buffer.retain(|_, c| c.vertex.round >= horizon);
         // Inserted on the next step, which has an `Output` to report them in.
         self.drain_due = true;
+        self.commit_due = true;
         if self.round < round {
             self.round = round;
             self.pending = None;
@@ -388,6 +411,8 @@ impl<A: Authenticator> Validator<A> {
     /// `resend_interval_ms`. An honest node asks for at most twice the
     /// committee per gap it finds (`fetch_missing`), so twice that again is
     /// room for a retry; past it the fetch is dropped and asked again later.
+    /// All members together get twice one member's budget: room for two
+    /// nodes catching up at once, and a ceiling no claimed `from` can raise.
     fn on_fetch(&mut self, now_ms: u64, from: ValidatorId, d: Digest, out: &mut Output) {
         if from >= self.committee.size() {
             return;
@@ -397,15 +422,19 @@ impl<A: Authenticator> Validator<A> {
         };
         let budget = self.fetch_budget();
         let interval = self.params.resend_interval_ms;
-        let (start, sent) = self.fetch_replies.entry(from).or_insert((now_ms, 0));
-        if now_ms.saturating_sub(*start) >= interval {
-            *start = now_ms;
-            *sent = 0;
-        }
-        if *sent >= budget {
+        let member = self.fetch_replies.entry(from).or_insert((now_ms, 0));
+        if !window_open(member, now_ms, interval, budget)
+            || !window_open(
+                &mut self.fetch_replies_total,
+                now_ms,
+                interval,
+                budget.saturating_mul(2),
+            )
+        {
             return;
         }
-        *sent += 1;
+        member.1 += 1;
+        self.fetch_replies_total.1 += 1;
         out.sends.push((Dest::To(from), Message::Cert(c.clone())));
     }
 
@@ -441,6 +470,8 @@ impl<A: Authenticator> Validator<A> {
         if !self.voting
             || v.epoch != self.params.epoch
             || v.round == 0
+            || !self.in_round_window(v.round)
+            || v.parents.len() > usize::from(self.committee.size())
             || v.author >= self.committee.size()
             || v.batch.len() > self.params.batch_size
             || !within_batch_bound(&v, self.params.max_batch_bytes)
@@ -561,7 +592,16 @@ impl<A: Authenticator> Validator<A> {
     }
 
     fn on_cert(&mut self, now_ms: u64, from: ValidatorId, c: Certificate, out: &mut Output) {
-        if c.vertex.epoch != self.params.epoch || !c.is_well_formed(&self.committee) {
+        if c.vertex.epoch != self.params.epoch
+            || !c.is_well_formed(&self.committee)
+            || c.vertex.parents.len() > usize::from(self.committee.size())
+        {
+            return;
+        }
+        // Before the digest and the signatures: `accept` drops a certificate
+        // below the horizon or past the buffer ceiling anyway, and hashing a
+        // full vertex plus a quorum of verifications is the expensive part.
+        if !self.in_round_window(c.vertex.round) {
             return;
         }
         // A held slot answers before the digest does: certification leaves one
@@ -637,6 +677,15 @@ impl<A: Authenticator> Validator<A> {
             .saturating_add(BUFFER_ROUNDS)
     }
 
+    /// Whether `round` is one this node can still use: not below the
+    /// collection horizon, and within [`Self::buffer_ceiling`]. A proposal or
+    /// certificate outside it would be stored, fetched for or verified for
+    /// nothing. (The parent cap beside it: a round holds at most one
+    /// certificate per member, so no honest vertex lists more parents.)
+    fn in_round_window(&self, round: u64) -> bool {
+        round >= self.dag.gc_round() && round <= self.buffer_ceiling()
+    }
+
     /// Fetches from `from` the ancestors buffered certificate `digest` waits
     /// on, through parents that are themselves buffered: each once, and at
     /// most two committees' worth per call. Every fetch is a gossip frame the
@@ -685,7 +734,8 @@ impl<A: Authenticator> Validator<A> {
 
     /// Copies a certificate just inserted into `out.inserted`, while the DAG
     /// still holds it.
-    fn report_inserted(&self, digest: &Digest, out: &mut Output) {
+    fn report_inserted(&mut self, digest: &Digest, out: &mut Output) {
+        self.commit_due = true;
         if let Some(c) = self.dag.by_digest(digest) {
             out.inserted.push(c.clone());
         }
@@ -715,9 +765,12 @@ impl<A: Authenticator> Validator<A> {
     }
 
     fn progress(&mut self, now_ms: u64, out: &mut Output) {
-        let sub_dags = self
-            .committer
-            .try_commit_sub_dags(&self.dag, &self.committee);
+        let sub_dags = if std::mem::take(&mut self.commit_due) {
+            self.committer
+                .try_commit_sub_dags(&self.dag, &self.committee)
+        } else {
+            Vec::new()
+        };
         if !sub_dags.is_empty() {
             let horizon = self
                 .committer

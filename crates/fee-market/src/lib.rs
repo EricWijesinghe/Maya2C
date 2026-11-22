@@ -17,6 +17,13 @@
 //! | burn "from total supply" | a burn credits the unspendable fee sink: `total` is conserved, `circulating` falls | [`Supply::after_burn`] moves `circulating` only |
 //! | a hard supply cap | the cap is 2²⁵⁶ − 1, the width of a balance (ADR-046); emission, not the cap, limits real supply | [`MAX_SUPPLY`] is [`Amount::MAX`] |
 //!
+//! # No neural rule
+//!
+//! The neural base-fee gain and its model sat here until 2026-11-14, dark
+//! behind a second activation height of `u64::MAX`. They moved to
+//! `crates/neural-fee`, which the node does not link, so the launch binary
+//! carries one base-fee rule: the linear step (ADR-029 amendment).
+//!
 //! # Why dependency-free
 //!
 //! Every function here decides how much value moves. Kani compiles a crate with
@@ -33,8 +40,6 @@ pub mod base_fee;
 pub mod config;
 pub mod execute;
 pub mod limits;
-pub mod model;
-pub mod rule;
 pub mod split;
 pub mod supply;
 
@@ -47,7 +52,5 @@ pub use execute::{
     BlockFeeOutcome, Charge, FeeClaim, FeeError, ParentFees, TxFee, apply_block_fees,
 };
 pub use maya_amount::Amount;
-pub use model::{Feature, Features, Model, weights_v1::MODEL_V1};
-pub use rule::{FeeRule, neural_next_base_fee, next_base_fee_by_rule};
 pub use split::{FeeSplit, split};
 pub use supply::{MAX_SUPPLY, Supply, SupplyError, check_supply};

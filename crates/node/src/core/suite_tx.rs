@@ -19,17 +19,16 @@ use maya_crypto_pq::suite::{self as pq_suite, SignatureSuite, SuiteId};
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::TxKind;
-use crate::core::transaction::{ChainTag, Transaction};
+use crate::core::transaction::{ChainTag, Transaction, signed_message};
 use crate::crypto::suites;
 use crate::error::{NodeError, Result};
 
 /// The wire version byte of a suite-tagged transaction.
 pub const WIRE_VERSION_SUITE: u8 = 7;
 
-/// Signing domain for suite-tagged transactions; bumped to v2 with chain-bound
-/// signatures (ADR-036). Suite-tagged transactions now commit to the chain's
-/// genesis block id to prevent cross-chain replay.
-const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v2";
+/// Signing domain for suite-tagged transactions; v2 with chain-bound
+/// signatures (ADR-036), v3 with the signed header (ADR-143).
+const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v3";
 
 /// One suite's key and signature, as a v7 transaction carries them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,16 +74,17 @@ pub(crate) fn body_bytes(tx: &Transaction, auth: &SuiteAuth) -> Vec<u8> {
 
 /// The bytes a v7 signature covers.
 ///
-/// Structure: `TX_DOMAIN_SUITE || chain_tag || body_bytes()`
+/// Structure: `TX_DOMAIN_SUITE || chain_tag || 7 || suite || body_bytes()`
 /// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
-/// preventing cross-chain replay attacks.
+/// and the signed header (ADR-143) to bind it to this version's reading.
 pub(crate) fn signing_bytes(tx: &Transaction, auth: &SuiteAuth, chain: &ChainTag) -> Vec<u8> {
-    let body = body_bytes(tx, auth);
-    let mut buf = Vec::with_capacity(TX_DOMAIN_SUITE.len() + 32 + body.len());
-    buf.extend_from_slice(TX_DOMAIN_SUITE);
-    buf.extend_from_slice(&chain.0);
-    buf.extend_from_slice(&body);
-    buf
+    signed_message(
+        TX_DOMAIN_SUITE,
+        chain,
+        WIRE_VERSION_SUITE,
+        auth.suite.to_byte(),
+        &body_bytes(tx, auth),
+    )
 }
 
 /// The v7 wire encoding.

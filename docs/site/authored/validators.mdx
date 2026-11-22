@@ -1,6 +1,6 @@
 ---
 title: Run a validator
-description: "How independent operators run a DAG-BFT validator on maya-testnet-1: commands in order, penalties, and what still blocks open registration."
+description: "How an operator runs a DAG-BFT validator on maya-testnet-1 (paused since 2026-10-28; returns with the next genesis): commands in order, penalties, and what still blocks open registration."
 head:
   - tag: title
     content: "Run a Post-Quantum Validator on the Maya2C Testnet"
@@ -35,8 +35,8 @@ allocation, and anyone who says otherwise is not speaking for this project.
 | Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
 | Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
-| Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
-| Connecting to the network | A public WebSocket bootnode at `p2p.maya2c.dev`, and a bootstrap endpoint for snapshots and headers at `bootstrap.maya2c.dev` |
+| Committee | The testnet committee was four validators, all run by the project on one machine; maya-testnet-1 has been paused since 2026-10-28 and returns with the next genesis. Mainnet launches with seven validators, the genesis floor, run by one operator on one PC: real multi-signer DAG-BFT, any two can stop without halting the chain, but not independent, since the PC failing halts the chain until it returns (it does not fork it). Other operators join after launch ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md) and its 2026-11-16 amendment). Live membership returns to the [status page](https://status.maya2c.dev/) with the next genesis. |
+| Connecting to the network | While the testnet ran: a public WebSocket bootnode at `p2p.maya2c.dev`, and a bootstrap endpoint for snapshots and headers at `bootstrap.maya2c.dev`. Both return with the next genesis. |
 | Open registration | **Not yet.** Registrations are reviewed; see below. |
 
 ### Why registration is reviewed for now

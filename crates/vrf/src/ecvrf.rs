@@ -36,10 +36,12 @@ use curve25519_dalek::EdwardsPoint;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::IsIdentity;
+use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha512};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::{Result, VrfError};
-use crate::keys::{VrfPublicKey, VrfSecretKey};
+use crate::keys::{VrfPublicKey, VrfSecretKey, decompress_canonical};
 use crate::scheme::{OUTPUT_LEN, VrfScheme};
 
 /// Suite octet for `ECVRF-EDWARDS25519-SHA512-TAI`.
@@ -134,7 +136,7 @@ impl VrfProof {
 /// Returns [`VrfError::HashToCurveExhausted`] only if hashing to a curve point
 /// fails 256 times, which is not reachable with a working hash function.
 pub fn prove(secret: &VrfSecretKey, alpha: &[u8]) -> Result<VrfProof> {
-    let (x, nonce_prefix) = secret.expand();
+    let (mut x, nonce_prefix) = secret.expand();
     let public_point = EdwardsPoint::mul_base(&x);
     let public_bytes = public_point.compress().to_bytes();
 
@@ -148,11 +150,13 @@ pub fn prove(secret: &VrfSecretKey, alpha: &[u8]) -> Result<VrfProof> {
 
     // Deterministic nonce: the secret's own prefix, bound to this input.
     let mut hasher = Sha512::new();
-    hasher.update(nonce_prefix);
+    hasher.update(&nonce_prefix[..]);
     hasher.update(h_bytes);
-    let mut wide = [0u8; 64];
-    wide.copy_from_slice(&hasher.finalize());
-    let k = Scalar::from_bytes_mod_order_wide(&wide);
+    // Wiped on drop, and hashed straight into it: the nonce is as sensitive as
+    // the key it protects. Best-effort, as in `expand`.
+    let mut wide = Zeroizing::new([0u8; 64]);
+    hasher.finalize_into(GenericArray::from_mut_slice(&mut wide[..]));
+    let mut k = Scalar::from_bytes_mod_order_wide(&wide);
 
     let (challenge_bytes, c) = challenge(&[
         &public_point,
@@ -163,6 +167,8 @@ pub fn prove(secret: &VrfSecretKey, alpha: &[u8]) -> Result<VrfProof> {
     ]);
 
     let s = k + c * x;
+    x.zeroize();
+    k.zeroize();
 
     let mut bytes = [0u8; PROOF_LEN];
     bytes[..32].copy_from_slice(gamma.compress().as_bytes());
@@ -310,9 +316,8 @@ fn decode(proof: &VrfProof) -> Result<(EdwardsPoint, [u8; CHALLENGE_LEN], Scalar
 
     let mut gamma_bytes = [0u8; 32];
     gamma_bytes.copy_from_slice(&bytes[..32]);
-    let gamma = CompressedEdwardsY(gamma_bytes)
-        .decompress()
-        .ok_or(VrfError::InvalidPoint { what: "gamma" })?;
+    let gamma =
+        decompress_canonical(&gamma_bytes).ok_or(VrfError::InvalidPoint { what: "gamma" })?;
 
     let mut challenge_bytes = [0u8; CHALLENGE_LEN];
     challenge_bytes.copy_from_slice(&bytes[32..32 + CHALLENGE_LEN]);
@@ -428,7 +433,7 @@ mod tests {
             let (_, prefix) = key.expand();
 
             let mut hasher = Sha512::new();
-            hasher.update(prefix);
+            hasher.update(&prefix[..]);
             hasher.update(unhex(expected_h));
             let mut wide = [0u8; 64];
             wide.copy_from_slice(&hasher.finalize());

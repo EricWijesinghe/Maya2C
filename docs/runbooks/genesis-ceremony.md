@@ -19,6 +19,10 @@ Three devices by default: this PC, the MacBook, and an offline backup. Every app
 
 - Put a long random passphrase in a file on another drive than the key, and a
   paper copy somewhere safe. Never type it on a command line.
+- On macOS or Linux, make that file owner-only (`umask 077` before writing it,
+  or `chmod 600 <file>`), on a drive that keeps Unix permissions. The tools
+  refuse a passphrase file group or others can read, and a FAT, exFAT or NTFS
+  USB stick shows every file as readable by all, so it cannot hold the file.
 - `genesis-ceremony council key --label <pc|mac|paper> --passphrase-file <file>
   --out-dir <fresh dir>`: writes `<label>.council.sealed` (keep it) and
   `<label>.council.public` (send it). Note the `commitment` it prints.
@@ -26,8 +30,10 @@ Three devices by default: this PC, the MacBook, and an offline backup. Every app
 ## Coordinator
 
 4. Collect every `*.public` into one directory. Write `validators.txt`, one
-   `label key operator bond` line per validator; at least 4 lines for a
-   value-bearing chain id.
+   `label key operator bond` line per validator; at least 7 lines for a
+   value-bearing chain id (ADR-047 amendment 2026-11-16). A value-bearing
+   assemble refuses to run without `--validators`, and on mainnet `--supply`
+   must be 0 (ADR-044).
 5. ```
    genesis-ceremony assemble --chain-id <id> --supply <units> \
        --contributions <dir> --validators validators.txt \

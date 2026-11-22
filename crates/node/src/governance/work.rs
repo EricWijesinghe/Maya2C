@@ -45,11 +45,11 @@ use crate::error::Result;
 
 /// Blocks over which work credit loses half its weight.
 ///
-/// 5,760 — about a day at the 15-second target in
-/// `consensus::difficulty::TARGET_BLOCK_TIME`. A week of absence leaves about
+/// 86,400: one day at one block a second (docs/block-time.md). It was 5,760,
+/// a day only at the 15 s proof-of-work target. A week of absence leaves about
 /// one part in 128 of a miner's weight, which is the intended shape: leaving is
 /// gradual rather than instant, and returning is quick.
-pub const WORK_HALF_LIFE_BLOCKS: u64 = 5_760;
+pub const WORK_HALF_LIFE_BLOCKS: u64 = 86_400;
 
 /// Halvings past which a credit is treated as gone.
 ///
@@ -78,9 +78,11 @@ impl WorkRecord {
     /// worth at `last_height` and every reader derives the rest.
     #[must_use]
     pub const fn value_at(&self, height: u64) -> u128 {
-        // A height below the record's own means a reorg is in flight. Reporting
-        // the undecayed value is the conservative reading: it is what the
-        // credit was worth at a height the chain has actually seen.
+        // A height below the record's own means a reorg is in flight. The
+        // undecayed credit is returned: the largest value this record yields at
+        // any height, not a conservative one. Reads below `last_height` apply
+        // no decay, so a caller that must not see the larger value has to
+        // refuse the read.
         let elapsed = match height.checked_sub(self.last_height) {
             Some(elapsed) => elapsed,
             None => return self.credit,
@@ -173,6 +175,15 @@ pub fn narrow_work(work: &crate::consensus::uint::U256) -> u128 {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn the_half_life_is_one_day_at_one_block_per_second() {
+        // docs/block-time.md: the chain makes one block a second, so a day is
+        // 86,400 blocks. 5,760 was a day only at the 15 s PoW target.
+        // shortcut: a literal pin, not derived from a rate constant; derive it from
+        // CANONICAL_ROUND_INTERVAL_MS once PR #500 lands, so a rate change turns it red.
+        assert_eq!(WORK_HALF_LIFE_BLOCKS, 86_400);
+    }
 
     #[test]
     fn credit_halves_over_one_half_life() {

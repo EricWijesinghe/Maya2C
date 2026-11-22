@@ -184,7 +184,7 @@ impl ArchiveNode {
                         TxKind::CallContract(ContractCall {
                             contract,
                             input: Vec::new(),
-                            gas_limit: 1_000_000,
+                            gas_limit: 10_000_000,
                         }),
                         self.nonce,
                         &self.key,
@@ -793,7 +793,29 @@ fn a_bootstrap_whose_chain_contains_the_trusted_block_proceeds() {
         Some(anchor),
     )
     .expect("the source serves the chain the operator trusts");
-    assert_eq!(pruned.tip(), archive.chain.tip());
+    // The bootstrap ends at the trusted block; the rest is catch-up's.
+    assert_eq!(pruned.height(), 60);
+    assert_eq!(pruned.tip(), anchor.id);
+}
+
+#[test]
+fn nothing_above_the_trusted_block_is_taken_from_the_source() {
+    // The source is honest up to the trusted block and serves a body that is
+    // not on its own header chain above it (any tail it likes). That body is
+    // never asked for, so it cannot reach this node's state.
+    let archive = archive_node(70);
+    let mut source = Source::honest(&archive);
+    source.swap_body_at = Some(65);
+    let (state, _dir) = empty_state();
+    let anchor = trusted(&archive, 60);
+    let pruned = bootstrap_pruned_anchored(state, genesis(), config(), &source, K, Some(anchor))
+        .expect("bootstrap to the trusted block");
+    assert_eq!(pruned.tip(), anchor.id);
+    let asked = source.bodies.lock().expect("lock").clone();
+    assert!(
+        asked.iter().all(|h| *h <= 60),
+        "bodies above the trusted block were fetched: {asked:?}"
+    );
 }
 
 #[test]

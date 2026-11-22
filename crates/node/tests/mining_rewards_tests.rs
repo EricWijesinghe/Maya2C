@@ -12,9 +12,9 @@ use std::sync::Arc;
 
 use custom_l1_node::consensus::U256;
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
-use custom_l1_node::core::mining_payload::MiningShare;
+use custom_l1_node::core::mining_payload::{MiningShare, WorkKind};
 use custom_l1_node::core::payload::TxKind;
-use custom_l1_node::core::transaction::Transaction;
+use custom_l1_node::core::transaction::{Transaction, TxInput};
 use custom_l1_node::crypto::dag::Params;
 use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
@@ -136,7 +136,11 @@ fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
 
 fn share(epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], vec![], tx_nonce);
-    tx.kind = TxKind::MiningShare(MiningShare { epoch, nonce });
+    tx.kind = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch,
+        nonce,
+    });
     tx.sign(&miner(), &common::test_chain()).unwrap();
     tx
 }
@@ -458,4 +462,153 @@ fn a_tail_needs_a_reserve_that_pays_it_until_the_last_height() {
     config.allocations[0].balance = lifetime;
     let state = Arc::new(StateDB::open(funded.path()).unwrap());
     config.seed_state(&state).unwrap();
+}
+
+#[test]
+fn the_mempool_charges_a_share_that_names_an_input_the_base_fee() {
+    // Valid epoch and work, but an input the share spends: it is not
+    // fee-free, so admission refuses it for the fee, as the block would.
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 64);
+
+    let mut tx = Transaction::new(
+        vec![TxInput {
+            prev_tx: [0; 32],
+            index: 0,
+        }],
+        vec![],
+        0,
+    );
+    tx.kind = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 1,
+        nonce: good[0],
+    });
+    tx.sign(&miner(), &common::test_chain()).unwrap();
+
+    let err = pool.validate(&tx).unwrap_err();
+    assert!(matches!(err, NodeError::FeeTooLow { .. }), "{err:?}");
+}
+
+#[test]
+fn a_block_refuses_a_share_that_names_an_input_without_its_base_fee() {
+    // The executor applies the same rule as the pool: only a share with no
+    // inputs and no outputs is exempt from the base fee.
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let good = find_shares(&c, 1, 0, 1);
+
+    let mut tx = Transaction::new(
+        vec![TxInput {
+            prev_tx: [0; 32],
+            index: 0,
+        }],
+        vec![],
+        0,
+    );
+    tx.kind = TxKind::MiningShare(MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 1,
+        nonce: good[0],
+    });
+    tx.sign(&miner(), &common::test_chain()).unwrap();
+
+    let err = c.candidate_block(1_000_000 + H1, vec![tx]).unwrap_err();
+    assert!(matches!(err, NodeError::FeeTooLow { .. }), "{err:?}");
+}
+
+/// One share's work signed under many transaction nonces is still one share:
+/// only the first copy can ever be paid, so only the first may be pooled.
+/// Before, every copy was admitted fee-free and outside the per-sender cap.
+#[test]
+fn one_shares_work_under_many_tx_nonces_is_pooled_once() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 2);
+
+    assert!(pool.insert(share(1, good[0], 0)).unwrap());
+    for tx_nonce in 1..4 {
+        let err = pool.insert(share(1, good[0], tx_nonce)).unwrap_err();
+        assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    }
+    // Different work under the next nonce is a different share.
+    assert!(pool.insert(share(1, good[1], 1)).unwrap());
+    assert_eq!(pool.len(), 2);
+}
+
+/// A share is executed at its exact nonce like any transaction, so one that
+/// leaves a gap can never run and would only be re-proposed fee-free.
+#[test]
+fn a_share_whose_nonce_leaves_a_gap_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 2);
+
+    let err = pool.insert(share(1, good[0], 1)).unwrap_err();
+    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    let far = custom_l1_node::network::mempool::MAX_NONCE_AHEAD + 1;
+    let err = pool.insert(share(1, good[0], far)).unwrap_err();
+    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+
+    assert!(pool.insert(share(1, good[0], 0)).unwrap());
+    assert!(
+        pool.insert(share(1, good[1], 1)).unwrap(),
+        "the gap is filled"
+    );
+}
+
+/// A pooled share's work was hashed at admission and cannot go bad, so the
+/// per-round prune on the BFT consensus task must not hash it again: a pool
+/// of shares past the block's share cap would otherwise cost every validator
+/// ~2 ms per share every round (review of #653).
+#[test]
+fn pruning_dropped_shares_does_not_hash_their_work_again() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 3);
+    let txs: Vec<Transaction> = (0u64..)
+        .zip(&good)
+        .map(|(tx_nonce, &work)| share(1, work, tx_nonce))
+        .collect();
+    for tx in &txs {
+        assert!(pool.insert(tx.clone()).unwrap());
+    }
+
+    let before = c.state().share_proofs();
+    let ids: Vec<_> = txs.iter().map(Transaction::txid).collect();
+    assert_eq!(pool.prune_invalid(&ids), 0, "every share can still pay");
+    assert_eq!(c.state().share_proofs(), before, "the prune re-hashed work");
+    assert_eq!(pool.len(), 3);
+}
+
+/// The cheap share rules still prune: once the epoch closes, a pooled share
+/// for it can never pay, and it goes without its work being hashed.
+#[test]
+fn a_dropped_share_from_a_closed_epoch_is_pruned_without_hashing() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let work = find_shares(&c, 1, 0, 1)[0];
+    let tx = share(1, work, 0);
+    assert!(pool.insert(tx.clone()).unwrap());
+    for h in H1..=2 * EPOCH_BLOCKS {
+        mine(&mut c, h, Vec::new()).unwrap();
+    }
+    assert_eq!(c.state().committed_mining().unwrap().unwrap().epoch, 2);
+
+    let before = c.state().share_proofs();
+    assert_eq!(pool.prune_invalid(&[tx.txid()]), 1);
+    assert_eq!(c.state().share_proofs(), before);
+    assert!(pool.is_empty());
 }

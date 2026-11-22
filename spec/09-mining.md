@@ -1,4 +1,4 @@
-# 9. Mining rewards — v0.1.0
+# 9. Mining rewards — v0.1.1
 
 Active only on a chain whose genesis carries `bft.mining` (ADR-044). Rewards are
 transfers out of the mining reserve, never mints. Reference:
@@ -7,8 +7,22 @@ transfers out of the mining reserve, never mints. Reference:
 Timing: a miner's share pays when it is applied. The committee's part of epoch
 `e` is paid to the fee collector at the boundary block, the first block whose
 height is `(e + 1) × epoch_blocks`; height 0 closes nothing. Epoch 0 accepts no
-shares, so mining opens at the first boundary (ADR-044). The reserve holds
-`MAX_SUPPLY − Σ allocations`, so the cap is the reserve, not a counter.
+shares, so mining opens at the first boundary (ADR-044). The reserve is an
+explicit genesis allocation to the keyless `MINING_RESERVE`; with `tail > 0`,
+MINE-3 refuses one below the lifetime emission, so the reserve is the cap, not a
+counter.
+
+Informative, not a rule (v0.1.1, 2026-11-16): under the mainnet schedule
+(`deploy/genesis/mainnet/mining.json`) the schedule for the four halving eras
+totals 19,687,500 coins, the supply headline (exactly
+19687499999999999999999999910864 base units after per-halving truncation;
+pinned by `crates/node/src/state/mining.rs`
+`the_mainnet_halving_era_pays_19_687_500_coins_then_the_tail_from_epoch_140256`
+and `spec/tests/units.json`). At most that is paid: epoch 0 accepts no shares,
+and unclaimed miner budget stays in the reserve. The tail after them,
+23.96 coins an epoch for ever, and the 7,000 coins of genesis validator bonds
+(7 × 1,000) are separate figures. v0.1.0 described the reserve as
+`MAX_SUPPLY − Σ allocations`, which the node never did.
 
 - **MINE-1** The reward of epoch `e` is `max(⌊initial / 2^⌊e / halving_epochs⌋⌋, tail)`; after 256 halvings the halved part is 0, so a chain with `tail = 0` stops paying and one with `tail > 0` pays the tail forever (ADR-068). *(positive only: defines a value)*
 - **MINE-2** Each epoch's reward splits into the miners' budget `⌊reward × min(miner_share_bps, 10000) / 10000⌋` and the committee's part, the rest; the two always sum to the reward. *(positive only: defines a value)*
@@ -20,9 +34,11 @@ shares, so mining opens at the first boundary (ADR-044). The reserve holds
 - **MINE-8** A record's share target is non-zero and no easier than its target limit: `0 < target ≤ target_limit`; otherwise invalid.
 - **MINE-9** The header a share's proof of work commits to is the BLAKE3 derive-key hash, under context `maya2c mining share v1`, of `chain_tag ‖ epoch (u64, little-endian) ‖ anchor ‖ miner`. It binds the chain, the epoch, the epoch's anchor and the payee. *(positive only: defines a value)*
 - **MINE-10** A share's proof-of-work digest is a share when it is at or below the epoch's target, both read as 256-bit big-endian integers; a digest above the target is refused.
+- **MINE-11** A mining share's payload (after its tag) is `kind (u8) ‖ epoch (u64, little-endian) ‖ nonce (u64, little-endian)`, and a work claim's is `kind (u8) ‖ beneficiary[32]`. Kind `0` (DAG proof of work) is the only kind defined; any other byte is refused at decode. A new kind is added only by a binary that refuses it below its own feature bit's scheduled activation, and uses its own share-header domain and spent-share key prefix, since neither MINE-9's header nor the spent-share key commits to the kind (ADR-044 amendment 2026-11-15).
 
 ## Gaps
 
+- Work claims are refused at every height (`WORK_CLAIM_ADR_ACCEPTED = false` in `crates/node/src/upgrade.rs`: feature bit 4 is outside `FeatureSet::IMPLEMENTED`, so a genesis naming it is refused at boot and a governance entry naming it halts the node at its activation (ADR-082 amendment, the zkML model); the mempool refuses the transaction; the executor refuses it below `WORK_CLAIM_ACTIVATION_HEIGHT = u64::MAX`). State-level, covered by `crates/node/tests/governance_tests.rs` and `upgrade_schedule_tests.rs`.
 - Share admission (`apply_mining_share`: epoch 0 refused, wrong epoch, spent budget, block cap, a share already paid, the DAG proof of work) is state-level. It is covered by `crates/node/tests/mining_rewards_tests.rs`, not replayed from vectors. The DAG hash itself is specified in `docs/dag-pow.md`.
 - Epoch boundaries (the timing paragraph above) and the reserve payout (`pay_from_reserve`: a payout never exceeds the reserve, and emission ends when it is empty) are inline in the node's apply path and have no pure function.
 - Genesis funding (the reserve holds at least `initial_epoch_reward`, and at least the lifetime emission when `tail > 0`) is inline in `crates/node/src/genesis.rs`.

@@ -77,8 +77,9 @@ pub const MIX_WORDS: usize = MIX_BYTES / 4;
 
 /// Blocks between dataset regenerations.
 ///
-/// At `TARGET_BLOCK_TIME` of 15 seconds this is 450,000 seconds, or 5.21 days.
-pub const EPOCH_LENGTH: u64 = 30_000;
+/// 450,000 seconds, or 5.21 days, at one block a second (docs/block-time.md).
+/// It was 30,000, which is 5.21 days only at the 15 s proof-of-work target.
+pub const EPOCH_LENGTH: u64 = 450_000;
 
 /// First height whose proof of work is the DAG rather than `ArgonBlake`.
 ///
@@ -324,11 +325,13 @@ mod tests {
 
     #[test]
     fn the_epoch_period_is_the_advertised_five_days() {
-        // 30,000 blocks at the chain's 15-second target.
-        let seconds = EPOCH_LENGTH * crate::consensus::difficulty::TARGET_BLOCK_TIME;
+        // One block a second (docs/block-time.md), so the epoch in seconds is
+        // its length in blocks: 450,000 s, five days and three hours.
+        // shortcut: a literal pin, not derived from a rate constant; derive it from
+        // CANONICAL_ROUND_INTERVAL_MS once PR #500 lands, so a rate change turns it red.
+        let seconds = EPOCH_LENGTH;
         assert_eq!(seconds, 450_000);
-        let days = seconds as f64 / 86_400.0;
-        assert!((days - 5.208).abs() < 0.01, "epoch is {days} days");
+        assert_eq!(seconds / 86_400, 5);
     }
 
     #[test]

@@ -19,6 +19,7 @@
 //! own weight would be a ballot whose weight the voter chose.
 
 use crate::core::codec::ByteReader;
+use crate::core::mining_payload::WorkKind;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 use crate::state::upgrades::SunsetSpec;
@@ -116,8 +117,13 @@ impl ScheduleUpgrade {
 }
 
 /// Crediting a block's work to an address.
+///
+/// Refused at every height until an Accepted ADR binds a claim to a verified
+/// share ([`crate::upgrade::WORK_CLAIM_ADR_ACCEPTED`], ADR-044).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorkClaim {
+    /// The kind of work credited. [`WorkKind::DagPow`] is the only one.
+    pub kind: WorkKind,
     /// Address whose work credit rises by this block's difficulty.
     pub beneficiary: Address,
 }
@@ -166,8 +172,9 @@ pub struct Ballot {
 }
 
 impl WorkClaim {
-    /// Appends the fixed-width encoding.
+    /// Appends the fixed-width encoding: kind, beneficiary.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
+        buf.push(self.kind.to_byte());
         buf.extend_from_slice(&self.beneficiary);
     }
 
@@ -175,9 +182,11 @@ impl WorkClaim {
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::Decode`] if the section is truncated.
+    /// Returns [`NodeError::Decode`] if the section is truncated or the kind
+    /// byte names no [`WorkKind`].
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
+            kind: WorkKind::decode(reader)?,
             beneficiary: reader.read_array::<32>()?,
         })
     }

@@ -36,7 +36,8 @@
 > ([proof](reports/sessions/2026-10-28-testnet-stopped.md)).
 > **Pre-audit:** no external audit yet. Validators are run by one operator at
 > launch; an external audit is planned after funding
-> ([ADR-042](docs/adr/ADR-042-solo-launch-path.md)). Shielded transfers stay
+> ([ADR-042](docs/adr/ADR-042-solo-launch-path.md),
+> [ADR-047](docs/adr/ADR-047-single-pc-foundation-set.md)). Shielded transfers stay
 > off at genesis until their circuit is externally audited
 > ([docs/mainnet-v1-plan.md](docs/mainnet-v1-plan.md)). The testnet coin has no value.
 
@@ -46,6 +47,7 @@
 - **Consensus.** DAG-BFT: Narwhal + Bullshark, stake-weighted finality ([ADR-027](docs/adr/ADR-027-dag-bft-in-the-node.md)).
 - **Execution.** A metered WASM VM, an EIP-1559 fee market over bytes, and a state root every block must reproduce (invariant 24).
 - **Transport.** libp2p over TCP and WebSocket, with ML-KEM-1024 (ML-KEM-768 as fallback) layered on Noise ([docs/pq-transport.md](docs/pq-transport.md)).
+- **Supply.** No premine apart from the disclosed 7,000 coins of genesis validator bonds (7 × 1,000, one operator). The schedule for the four halving eras of mining rewards totals **19,687,500 coins**, and at most that is paid ([ADR-068](docs/adr/ADR-068-forever-mining.md)). Shown separately: a tail of about 23.96 coins per 3,600-block epoch after those eras, for ever, and the bonds above. The whole base fee of every transaction burns ([ADR-029](docs/adr/ADR-029-fee-market-live.md)).
 - **Money math.** 256-bit amounts in `ledger-math`, which keeps C and C++ out of its dependency graph so Kani can check it.
 - **Apps.** Maya2C Wallet, Maya2C Chat, Maya2C Hub, an explorer, SDKs, and an MCP server for AI assistants that reads and drafts but never signs.
 
@@ -150,10 +152,12 @@ test. Status meanings and the reasoning behind each subsystem:
 
 ## Security
 
-<p align="center"><img src="docs/diagrams/trust-boundaries.svg" width="100%" alt="Trust boundaries: untrusted input crosses the public edge, the peer edge and consensus checks before anything touches keys, which sit in a separate signer process. External audit pending."></p>
+<p align="center"><img src="docs/diagrams/trust-boundaries.svg" width="100%" alt="Trust boundaries: untrusted input crosses the public edge, the peer edge and consensus checks before anything touches keys, which sit in a separate signer process. Pre-audit: no external audit yet."></p>
 
-- **No external audit yet.** Fuzzing, Kani checks and self-run attack rounds
-  are not independent review ([docs/security-audit.md](docs/security-audit.md)).
+- **Pre-audit: no external audit yet; validators run by one operator at launch;
+  external audit planned after funding.** Fuzzing, Kani checks and self-run
+  attack rounds are not independent review
+  ([docs/security-audit.md](docs/security-audit.md)).
 - Thirty active invariants, each pinned by a test: [docs/invariants.md](docs/invariants.md).
 - Threats and known gaps: [THREAT_MODEL.md](THREAT_MODEL.md).
 - Found a vulnerability? Report it privately: [SECURITY.md](SECURITY.md).

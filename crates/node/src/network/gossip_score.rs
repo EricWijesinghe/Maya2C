@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use libp2p::gossipsub::{PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
 
-use crate::network::topics::{blocks_topic, txs_topic};
+use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 
 /// P4 weight. Gossipsub squares the invalid-delivery counter, so one rejected
 /// message costs 50 and puts the peer below the gossip and publish thresholds;
@@ -38,13 +38,18 @@ fn topic() -> TopicScoreParams {
     }
 }
 
-/// Score parameters for both topics.
+/// Score parameters for every topic. A topic missing here scores nothing, so
+/// its rejections (a malformed DAG-BFT frame) never reached the graylist.
 #[must_use]
 pub fn params() -> PeerScoreParams {
-    let topics: HashMap<_, _> = [txs_topic().hash(), blocks_topic().hash()]
-        .into_iter()
-        .map(|hash| (hash, topic()))
-        .collect();
+    let topics: HashMap<_, _> = [
+        txs_topic().hash(),
+        blocks_topic().hash(),
+        bft_topic().hash(),
+    ]
+    .into_iter()
+    .map(|hash| (hash, topic()))
+    .collect();
     PeerScoreParams {
         topics,
         // No application score: quarantine is enforced by blacklisting, not
@@ -84,5 +89,17 @@ mod tests {
         assert_eq!(topic.mesh_message_deliveries_weight, 0.0);
         assert_eq!(topic.mesh_failure_penalty_weight, 0.0);
         assert_eq!(params().slow_peer_weight, 0.0);
+    }
+
+    #[test]
+    fn every_subscribed_topic_is_scored() {
+        let topics = params().topics;
+        for hash in [
+            txs_topic().hash(),
+            blocks_topic().hash(),
+            bft_topic().hash(),
+        ] {
+            assert!(topics.contains_key(&hash), "{hash} has no score params");
+        }
     }
 }

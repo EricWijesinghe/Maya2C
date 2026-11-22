@@ -1,9 +1,10 @@
 # Integrating Maya2C at an exchange
 
-Status: **mainnet has not launched.** The public network is `maya-testnet-1`.
+Status: **mainnet has not launched.** The public test network, `maya-testnet-1`,
+has been paused since 2026-10-28 and returns with the next genesis.
 Everything below is the node as the code stands on `master`, with the source
-for each statement. **External audit pending:** no external security audit
-has been completed or reported. A self-review is not an audit.
+for each statement. **Pre-audit: no external audit yet; validators run by one operator at launch; external audit planned after funding.** No
+external security audit has been completed or reported. A self-review is not an audit.
 
 ## Finality: one confirmation is final
 
