@@ -157,10 +157,12 @@ struct Bond {
 
 /// The one bond every mainnet seat holds: `min_self_bond` plus
 /// [`BOND_MARGIN_BPS`], rounded down; `None` past `u128`.
-pub(crate) fn genesis_bond(min_self_bond: u128) -> Option<u128> {
-    min_self_bond
-        .checked_mul(BPS + BOND_MARGIN_BPS)
-        .map(|x| x / BPS)
+pub(crate) const fn genesis_bond(min_self_bond: u128) -> Option<u128> {
+    // `const` so a generator can derive its bond at compile time (proving.rs).
+    match min_self_bond.checked_mul(BPS + BOND_MARGIN_BPS) {
+        Some(x) => Some(x / BPS),
+        None => None,
+    }
 }
 
 /// The reserve address as genesis writes it: lowercase hex, no `0x`.
