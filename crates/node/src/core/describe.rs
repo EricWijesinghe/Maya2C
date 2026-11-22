@@ -630,6 +630,36 @@ fn describe_account(action: &AccountAction) -> Description {
             Routine,
         )
         .with("account", full(account)),
+        AccountAction::AddSessionKey { key_hash, scope } => Description::new(
+            format!(
+                "Let a session key send up to {} in total, fees included, to {} listed recipients until block {}. Adding the same key again starts a new total.",
+                amount(scope.max_amount),
+                scope.recipients.len(),
+                scope.expires_at
+            ),
+            Careful,
+        )
+        .with("session key", full(key_hash))
+        .with(
+            "recipients",
+            scope.recipients.iter().map(|r| full(r)).collect::<Vec<_>>().join(", "),
+        ),
+        AccountAction::RevokeSessionKey { key_hash } => Description::new(
+            "Revoke a session key: it can no longer sign for this account.",
+            Routine,
+        )
+        .with("session key", full(key_hash)),
+        AccountAction::SetDailyLimit { limit } => Description::new(
+            if limit.is_zero() {
+                "Remove this account's daily spending limit.".to_string()
+            } else {
+                format!(
+                    "Cap what this account sends at {} per 86,400-block window (aligned, so up to twice that across a window boundary), fees aside, for every key that signs for it. While set, only transfers, account actions and vault cancel/execute are allowed.",
+                    amount(*limit)
+                )
+            },
+            Careful,
+        ),
     }
 }
 

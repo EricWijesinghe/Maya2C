@@ -330,15 +330,22 @@ impl Mempool {
         )?;
         // ADR-086 Rule A at the tip, and the v9 / account-action activation
         // gate, before the signature like every state check here.
+        let features = self.state.effective_schedule()?.features();
         self.state.authority_check(
             &crate::state::db::Overlay::default(),
             tx,
             &sender_address,
             self.admission_height()?,
-            self.state
-                .effective_schedule()?
-                .features()
-                .account_authority,
+            features.account_authority,
+            features.account_policy,
+        )?;
+        // ADR-135 P-5: the account's spending window, against committed state.
+        self.state.window_check(
+            &crate::state::db::Overlay::default(),
+            tx,
+            &sender_address,
+            self.admission_height()?,
+            features.account_policy,
         )?;
 
         // Then the signature, with the same rule block execution applies, at
