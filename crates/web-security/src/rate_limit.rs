@@ -69,7 +69,7 @@ pub struct RateLimit {
 
 /// Why rate-limit settings were refused.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("rate limit must allow at least one request per second and a burst of at least one")]
+#[error("rate limit must allow 1 to 1,000,000,000 requests per second and a burst of at least one")]
 pub struct InvalidRateLimit;
 
 /// The client key: the configured [`ClientIp`] source.
@@ -145,21 +145,34 @@ pub type Config = Arc<GovernorConfig<ClientKey, NoOpMiddleware<governor::clock::
 ///
 /// # Errors
 ///
-/// [`InvalidRateLimit`] if `per_second` or `burst` is zero.
+/// [`InvalidRateLimit`] if `per_second` or `burst` is zero, or `per_second`
+/// is above one per nanosecond.
 pub fn config(limits: &RateLimit) -> Result<Config, InvalidRateLimit> {
-    if limits.per_second == 0 || limits.burst == 0 {
+    if limits.burst == 0 {
         return Err(InvalidRateLimit);
     }
-    // governor refills one token per period; a rate above 1,000/s would
-    // round the period to zero, so it is floored at one millisecond.
-    let period_ms = (1_000 / limits.per_second).max(1);
+    let period_ns = refill_period_ns(limits.per_second).ok_or(InvalidRateLimit)?;
     GovernorConfigBuilder::default()
-        .per_millisecond(period_ms)
+        .per_nanosecond(period_ns)
         .burst_size(limits.burst)
         .key_extractor(ClientKey(limits.client_ip))
         .finish()
         .map(Arc::new)
         .ok_or(InvalidRateLimit)
+}
+
+const NANOS_PER_SECOND: u64 = 1_000_000_000;
+
+/// governor refills one token per period. In nanoseconds the truncation of
+/// `1e9 / per_second` moves the rate by under one part in a million for any
+/// rate up to 1,000/s; in milliseconds 700/s would have become 1,000/s.
+/// `None` when the rate is zero or the period would round to zero.
+fn refill_period_ns(per_second: u64) -> Option<u64> {
+    match per_second {
+        0 => None,
+        n if n > NANOS_PER_SECOND => None,
+        n => Some(NANOS_PER_SECOND / n),
+    }
 }
 
 /// Prunes clients that have not called recently, every [`PRUNE_INTERVAL`].
@@ -245,6 +258,28 @@ mod tests {
             key_of("2001:db8:1:2:ffff:abcd::9")
         );
         assert_ne!(key_of("2001:db8:1:2::1"), key_of("2001:db8:1:3::1"));
+    }
+
+    #[test]
+    fn the_configured_rate_is_the_rate_enforced() {
+        for per_second in [10_u64, 400, 700, 1_000, 3, 250_000] {
+            let period = refill_period_ns(per_second).expect("valid rate");
+            let enforced = NANOS_PER_SECOND / period;
+            assert_eq!(enforced, per_second, "{per_second}/s became {enforced}/s");
+        }
+        assert_eq!(refill_period_ns(0), None);
+        assert_eq!(refill_period_ns(NANOS_PER_SECOND + 1), None);
+        let limits = |per_second| RateLimit {
+            per_second,
+            burst: 1,
+            client_ip: ClientIp::Socket,
+        };
+        assert!(config(&limits(700)).is_ok());
+        assert_eq!(config(&limits(0)).err(), Some(InvalidRateLimit));
+        assert_eq!(
+            config(&limits(NANOS_PER_SECOND + 1)).err(),
+            Some(InvalidRateLimit)
+        );
     }
 
     #[test]
