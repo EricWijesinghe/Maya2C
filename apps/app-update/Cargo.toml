@@ -14,7 +14,9 @@ publish = false
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-updater = "2.13"
+# 2.14.1: its `Update::install` re-verifies the bytes (2.13.3 did not), which
+# verify.rs docs rely on; all three app locks are on it.
+tauri-plugin-updater = "2.14.1"
 tauri-plugin-dialog = "2"
 # The updater plugin's own verifier and its base64; already in every app's
 # lock through tauri-plugin-updater, so this pins no new code.

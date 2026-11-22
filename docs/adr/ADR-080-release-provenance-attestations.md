@@ -96,7 +96,9 @@ What the apps do now:
    and the dialog says so. Nothing downloads until the user presses
    **Download**.
 4. The plugin checks the signature in `Update::download` and again in
-   `Update::install` (tauri-plugin-updater 2.14.1), so it normally refuses
+   `Update::install` (tauri-plugin-updater 2.14.1; 2.13.3's `install` did
+   not re-check, so `apps/app-update` requires 2.14.1 and all three apps
+   lock it), so it normally refuses
    an unsigned or wrong-key bundle first, with its own error text.
    `verify::verify_confirm_install` is a second, stricter check behind it:
    it also refuses legacy (non-prehashed) signatures, which the plugin
@@ -105,8 +107,9 @@ What the apps do now:
    binding is what stops whoever controls the manifest host from replaying
    an older signed bundle under a newer version number; the plugin enforces
    it only when `requireSignedVersion` is set, which the release configs in
-   `release-binaries.yml` now set too (no signed release existed yet, so
-   nothing is stranded). It runs in a fixed order: signature, then a second dialog that
+   `release-binaries.yml` set since PR #592.
+   The plugin's version comparator is also set in code to strictly newer
+   (#592), so an equal or older manifest version is never offered. It runs in a fixed order: signature, then a second dialog that
    shows the download's SHA-256, then install only on **Install now**. That
    SHA-256 is compared with the release's `SHA256SUMS`, which the release
    workflow signs with cosign (keyless) and attests; it is the one check
@@ -116,19 +119,22 @@ What the apps do now:
    handlers never run. `start` therefore takes a `before_exit` hook that
    runs after **Install now** and before the installer; the Hub passes one
    that stops every miner, so an update cannot leave a miner running with no
-   window.
+   window. If the install then fails, the hook is not undone; the error the
+   user sees says that stopped work was not restarted.
 
 What the tests pin (`apps/app-update/src/verify.rs`, `src/lib.rs`): the
 signature gate refuses an empty signature, another key's signature, changed
-bytes, unreadable signatures, and a signature for another version or for
-none; an unsigned, wrong-key or wrong-version bundle signature never reaches
+bytes, unreadable signatures, a legacy (non-prehashed) signature by the
+publisher key, and a signature for another version or for none; an unsigned, wrong-key or wrong-version bundle signature never reaches
 the question or the install; a declined download is not installed; the
 digest shown is `sha256sum`'s; `start` contains no check, download, install
-or spawn (a source-level test); a second concurrent check is refused; the
+or spawn (a source-level test); a second concurrent check is refused; an
+equal or older version is not newer; the
 Hub registers the miner-stopping hook (a source-level test in
 `apps/hub/src-tauri/src/lib.rs`). These are bundle-signature tests, not
 manifest tests: the manifest fetch and parsing are the plugin's and are not
-tested here.
+tested here. The bundle signature they check is the string the manifest's
+`signature` field carries.
 
 **Plan for k-of-n (not built).** Automatic checks return only when all of
 this exists:

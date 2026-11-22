@@ -4,7 +4,8 @@
 //! The keys and signatures are the ones `cargo tauri signer` writes: base64 of
 //! a minisign text file. The Tauri updater plugin checks the signature first:
 //! `Update::download` and `Update::install` both call its `verify_signature`
-//! (tauri-plugin-updater 2.14.1, `updater.rs`), so an unsigned or wrong-key
+//! (tauri-plugin-updater 2.14.1, `updater.rs`; 2.13.3's `install` did not, so
+//! `Cargo.toml` requires 2.14.1 and all three apps lock it), so an unsigned or wrong-key
 //! bundle normally fails there, with the plugin's error text. [`verify`] is a
 //! second, stricter check behind it: it refuses legacy (non-prehashed)
 //! signatures, which the plugin accepts, and a signature whose signed
@@ -170,8 +171,31 @@ mod tests {
     const SIG_A: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTZkU5NHY3TzZFZmcrUTkzdHVNbFFDN0xMSVZUdmFmNU9GNU9qOXp6c2tPZXVXVmhGbHdud01TQ2xGOEU2dUZpVVBOTXdxdUxPZ2RoaGNEek1KVjJ2STNPazR1Zm4zUndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTg3NzYzCWZpbGU6cGF5bG9hZC5iaW4KaGNVVEloenRvWjBVWTE5eTFkVWZtREJWckdMS05ZSmo4aXVHWmtDNzhDSlJXOTZpZWw0ZWtLZ3NCZWRZbjRjYUhyVjdDZXM3ekVKSnJjNFRDOUxmQkE9PQo=";
     const KEY_C: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyMTc0REUzMTU0NjNDRjcKUldUM1BFWVY0MDBYOG1sSTRBSnFkaThBL2YyeGliK3lxNU9kak1IMFRJSHdMNlB1OUtJWTFKZWsK";
     const SIG_C: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUM1BFWVY0MDBYOGtPNStxdmRjVlc5NVRjZ3I0RWVHRk5xT1M4SXYzMzdVd1ZmenRQLzduOGtmb2E5bkMxTDBLVlVOb3k0L25sV0JZWFAwK2k3eHNVZFNYVDA1ZGtYbFFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjU3MDY4CWZpbGU6cGF5bG9hZC5iaW4JdmVyc2lvbjowLjEuNwo0c2NHdEpEU1UyK2hsMCtjbDBWMTBoK1VWVUltazBwMDFFNlRyaWVpTmZjc1V1U0xVUitrRW41ckFuM3FHYzNJMXUvV1hoNlFHM3VqSVNIeDBTc0hEZz09Cg==";
+    // KEY_D is a raw Ed25519 key built in minisign format with Python
+    // `cryptography` (secret discarded), because `cargo tauri signer` cannot
+    // write a legacy signature. Both signatures are over PAYLOAD with trusted
+    // comment `timestamp:1795257068\tfile:payload.bin\tversion:0.1.7`:
+    // SIG_D_PREHASHED is algorithm `ED` (Ed25519 over BLAKE2b-512 of PAYLOAD,
+    // what the tauri CLI writes), SIG_D_LEGACY is algorithm `Ed` (Ed25519
+    // over PAYLOAD itself).
+    const KEY_D: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBMTM5MjgzMTlDNDgxOEEKUldTS2djUVpnNUlUU296a3ZkU2FsTTRHbTlJRlpaWkg2TFI1aXUwNkZNRUkrOWowb3B2MmlzSmQK";
+    const SIG_D_PREHASHED: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTS2djUVpnNUlUU28zaitYSy8rZlhYYStUTmV5ZnV3Umk2YjZDRG9CUnZZaXdFRHRKRWV0U1k5Yis3TVpkNFU5SVA1aVlRb0dkRTg0eDA0QU02Sk5IYlJhR0VJUEdpZXdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjU3MDY4CWZpbGU6cGF5bG9hZC5iaW4JdmVyc2lvbjowLjEuNwpueTFISWV5cW5TWGVvajRMQ010b1BtaC9GVFQrTzZhY01kYndvMnFzRHhwbFg1SjU1S2tHeS9YUVZmZTNaOXRFRnhZNmNyZmp5UWVwa1NBNHhMRHFCZz09Cg==";
+    const SIG_D_LEGACY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUldTS2djUVpnNUlUU3NTem9sWGFUS2tNUHBoZkVCOFluc0gwYnNWMG8rRGJOQWtML1h3ZkJGMTBrL0VtQWNwRjJ0VVp2WUNQY1pjYUJFQ2FtQkpWNWo4WEFSanVEUm1ZYkFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjU3MDY4CWZpbGU6cGF5bG9hZC5iaW4JdmVyc2lvbjowLjEuNwoyYUxSMjdadkY1ZFRYZlRYL0dEU21pbnJvUlQrdWJGSlA2UFltYU5mSmJ2Y1Jmbk9DcTNSSHhqWE1vQWRhWmxVN1czWWJxZjBZSmNuc2NzUUk4UXNDUT09Cg==";
     const SIGNED: &str = "0.1.7";
     const PAYLOAD: &[u8] = b"maya2c test update payload\n";
+
+    /// The one property that makes [`verify`] stricter than the plugin's own
+    /// check: a legacy (non-prehashed) signature by the publisher key, over the
+    /// right bytes and version, is still refused. The prehashed twin passes,
+    /// so the refusal is the algorithm and not a broken vector.
+    #[test]
+    fn legacy_signature_by_the_publisher_key_is_refused() {
+        assert_eq!(verify(KEY_D, SIG_D_PREHASHED, SIGNED, PAYLOAD), Ok(()));
+        assert_eq!(
+            verify(KEY_D, SIG_D_LEGACY, SIGNED, PAYLOAD),
+            Err(VerifyError::Refused)
+        );
+    }
 
     #[test]
     fn signed_by_the_publisher_key_passes() {

@@ -12,6 +12,11 @@ one does, a dialog names it, shows the **publisher key fingerprint**
 (SHA-256 of the update public key) and offers **Download** or **Later**.
 Nothing downloads without that click. The download must be signed by the
 public key built into the app; an unsigned or wrongly signed one is refused.
+(The manifest file itself is not signed. What is checked, and what the tests
+in `apps/app-update/src/verify.rs` refuse, is the bundle signature the
+manifest's `signature` field carries.) In the Hub, **Install now** stops the
+miners first; if the install then fails they stay stopped, and the error
+says so.
 A second dialog then shows the **SHA-256 of the download** and offers
 **Install now** or **Cancel**. Only that click installs it, and the app
 restarts.
