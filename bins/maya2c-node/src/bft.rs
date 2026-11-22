@@ -982,21 +982,25 @@ async fn act(
             }
         }
     }
-    // Ordered but not executed: no longer queued, still pooled, so the next
-    // feed proposes them again. Forgetting when they were first seen restarts
-    // their share grace, which is what spreads a nonce chain across rounds.
-    feed.forget(
-        &step
-            .dropped
-            .iter()
-            .map(custom_l1_node::Transaction::txid)
-            .collect::<Vec<_>>(),
-    );
-    if !step.included.is_empty() {
-        for pool in pools {
-            pool.remove_all(&step.included);
-        }
-        feed.forget(&step.included);
+    // Ordered but not executed: no longer queued. Those that can still
+    // execute stay pooled, so the next feed proposes them again. Forgetting
+    // when they were first seen restarts their share grace, which is what
+    // spreads a nonce chain across rounds.
+    let dropped = step
+        .dropped
+        .iter()
+        .map(custom_l1_node::Transaction::txid)
+        .collect::<Vec<_>>();
+    feed.forget(&dropped);
+    feed.forget(&step.included);
+    // Included entries leave the pools, then a dropped entry that can never
+    // execute (stale nonce, a run whose head is gone, a spent share) is
+    // removed rather than proposed again, fee-free, next round (independent
+    // audit CT-01). State reads only, no signature or proof of work, so it
+    // stays cheap on this task (`Mempool::settle_round`). The two pools are
+    // linked in `main`, so a run split across them is not taken for a gap.
+    for pool in pools {
+        pool.settle_round(&step.included, &dropped);
     }
     for id in &step.blocks {
         println!("bft: built block {}", hex::encode(&id[..8]));

@@ -455,7 +455,10 @@ curve25519-dalek = "4"
 # parameter set is a set someone can select by accident; the security level of
 # a chain should not be a function of which import somebody reached for.
 # Members add `default-rng` where they generate keys.
-fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
+# Pinned exactly, like `slh-dsa` and `ml-dsa` in crates/crypto-pq: pre-1.0 and
+# in the consensus path, so a version change must be a reviewed edit here,
+# never a `cargo update` that two nodes resolve differently.
+fips204 = { version = "=0.4.6", default-features = false, features = ["ml-dsa-65"] }
 futures = "0.3"
 futures-util = "0.3"
 # In-memory duplex streams for driving both halves of a handshake without a

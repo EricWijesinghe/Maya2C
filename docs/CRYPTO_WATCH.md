@@ -11,7 +11,7 @@ what the chain does about each change. Master Prompt 15 §6.
 
 | Use | Primitive | Standard | Where |
 |---|---|---|---|
-| Transaction signature, lattice half | ML-DSA-65 | FIPS 204 (final, Aug 2024) | `crates/fips204`, `crates/crypto-pq` |
+| Transaction signature, lattice half | ML-DSA-65 | FIPS 204 (final, Aug 2024) | `fips204` crate (node), `ml-dsa` crate (`crates/crypto-pq`) |
 | Transaction signature, hash-based half | SLH-DSA-SHA2-128s | FIPS 205 (final, Aug 2024) | `crates/crypto-pq` |
 | P2P key agreement | ML-KEM-768 inside Noise XX (X25519) | FIPS 203 (final, Aug 2024) | `crates/node/src/network/pq/` |
 | Second KEM (optional) | HQC | selected by NIST in 2025; standard in draft | node feature `hqc` (RESEARCH gate) |
@@ -89,3 +89,52 @@ until a build defines it, so a migration gives the new hash an id and
 schedules it, and no header is ever read under the wrong one. Txids and
 addresses need no id of their own, because the signed wire version (`TX-6`)
 and the suite already choose their hash.
+
+## 5. Domain separation of signed messages
+
+The hybrid suite (`0x30`) signs with an empty FIPS 204 / FIPS 205 context
+string, the same bytes the node's own hybrid produces (invariant 30). What
+keeps a signature made for one purpose from verifying as another is the
+message, not the context, so two rules apply to every caller:
+
+- Every signed message starts with a domain string of its own, and no domain
+  is a prefix of another. A new message type gets a new domain.
+- One key signs under one suite. A key is never reused across suites.
+
+Adding a non-empty context string to suite `0x30` would change its bytes and
+break invariant 30; it needs an ADR and a new suite id, not an edit.
+
+## 6. Implementations in the signature path
+
+Every crate below decides whether a signature is valid, so a version change
+is a consensus change. Each is pinned with `=`; changing one is a reviewed
+manifest edit, never a `cargo update`.
+
+| Crate | Pinned | Where | Line |
+|---|---|---|---|
+| `fips204` | `=0.4.6` | root `Cargo.toml` | pre-1.0 |
+| `ml-dsa` | `=0.1.2` | `crates/crypto-pq/Cargo.toml` | pre-1.0 |
+| `slh-dsa` | `=0.2.0-rc.5` | `crates/crypto-pq/Cargo.toml` | release candidate |
+| `ml-kem` | `=0.3.4` | `crates/crypto-pq/Cargo.toml` | pre-1.0, transport only |
+| `x-wing` | `=0.1.1` | `crates/crypto-pq/Cargo.toml` | pre-1.0, transport only |
+
+No published third-party audit of these crates is recorded in this
+repository. What stands in for one today:
+
+- **Known-answer vectors:** `crates/crypto-pq/tests/acvp_tests.rs` (NIST ACVP).
+- **Two implementations, one answer:** the node verifies the lattice half with
+  `fips204`, suite `0x30` with `ml-dsa`. `crates/node/tests/suite_parity_tests.rs`
+  pins identical keys and signatures; `crates/node/tests/verify_differential_tests.rs`
+  pins identical verdicts on corrupted signatures, corrupted keys and altered
+  messages. A disagreement there is a disagreement between nodes.
+- **Advisories:** `cargo deny` fails the build on a RustSEC entry.
+  `cargo vet` runs report-only (`security-audit.yml`), so it is not a gate yet.
+
+**The `slh-dsa` release candidate.** The hash-based half of every hybrid
+signature runs on `0.2.0-rc.5`. The exact pin means no build picks up a
+different candidate silently; the ACVP vectors and the parity tests run against
+the pinned version. Checked 2026-11-22 against deps.dev and OSV: no final
+`0.2.0` is published (the latest stable release is `0.1.0`, 2024-08-18), and
+OSV lists no advisory for `0.2.0-rc.5`. Check again before genesis. If a final
+release is adopted, re-run the vectors and both parity files before merging the
+pin change. Moving it after genesis is a scheduled upgrade, not a patch.
