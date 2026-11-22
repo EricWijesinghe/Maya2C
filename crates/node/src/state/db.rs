@@ -948,6 +948,11 @@ impl StateDB {
 
     /// Executes `block` and commits it atomically.
     ///
+    /// Unchecked: it skips the header `state_root` check and writes no undo
+    /// record, so a block applied this way cannot be reverted and nothing
+    /// verifies the root it leaves. Chain code uses
+    /// [`StateDB::apply_block_journaled`].
+    ///
     /// Returns the new state root on success. On any failure — bad signature,
     /// wrong nonce, insufficient funds — nothing is written and committed state
     /// is unchanged.
