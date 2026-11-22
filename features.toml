@@ -1799,9 +1799,9 @@ domain = "Cryptography and key management"
 paths = "`crates/node/src/network/pq`, `crates/crypto-pq/src/kem_suite`"
 tier = "core"
 class = "REAL"
-status = "working"
+status = "verified"
 tests = ["crates/node/tests/pq_transport_tests.rs", "crates/node/tests/dualkem_negotiation_tests.rs"]
-note = "ADR-051 option 1. /maya/mlkem1024/1.0.0 offered first, /maya/mlkem/1.0.0 kept so 768-only peers connect. MlKem1024Policy::Required is not yet wired to operator configuration. Not externally reviewed; no benchmark claim made."
+note = "ADR-051 option 1. /maya/mlkem1024/1.0.0 offered first, /maya/mlkem/1.0.0 kept so 768-only peers connect. P2 red team 2026-11-17: each policy's offer list is pinned exactly (a stripped or reordered list is the downgrade surface), and Required refuses a level-3 peer in both directions, each behind a positive control. MlKem1024Policy::Required is not yet wired to operator configuration. Not externally reviewed; no benchmark claim made."
 
 [[subsystem]]
 id = "ml-dsa-65-fips-204"
@@ -3402,7 +3402,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
-note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed."
+note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed. Held at working (P2 red team, 2026-11-14): `maya2c-signer export`/`import` carry vertex and vote history only; the block-attestation database (ADR-038) has no interchange entries, so moving a key to a new signer machine drops its once-per-height record. The fix touches crates/signer, which the node links, so it waits for the post-genesis branch."
 
 [[subsystem]]
 id = "sealed-validator-keys"
@@ -3412,8 +3412,8 @@ paths = "`crates/signer/src/sealed.rs`, `bins/maya2c-node/src/validator_key.rs`,
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
-note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
+tests = ["crates/signer/tests/sealed_tests.rs", "crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
+note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. P2 red team 2026-11-14 (tests re-run 2026-11-17): sealed_tests.rs fails closed on a relabelled kind, format/KDF swap, nonce tamper, ciphertext transplant, truncation and non-file input; dropping kind from the AAD turns it red. The production refusal tests (validator_key.rs, cfg(feature = \"production\")) are not in any CI test job; CI builds that feature only in release-binaries.yml, so the entry is held at working until a CI test job runs `--features production`. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
 
 [[subsystem]]
 id = "dos-guard"
@@ -3422,9 +3422,9 @@ domain = "Kernel, networking and transport"
 paths = "`crates/dos-guard`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs"]
-note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack."
+status = "verified"
+tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs", "crates/dos-guard/tests/edges.rs"]
+note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack, so verified means the crate does what it says, not that the node is defended (class stays RESEARCH). P2 red team 2026-11-14 (tests re-run 2026-11-17) found and fixed two levers in the defences themselves: a full inbound table recorded every refused subnet (unbounded memory under IPv6 rotation), and a same-nonce replacement could grow a transaction 100x for a 10% fee bump. The diversity table has no release path for closed connections yet."
 
 [[subsystem]]
 id = "exchange-deposit-watcher"
@@ -3489,8 +3489,8 @@ paths = "`bins/maya2c-mcp`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "crate:maya2c-mcp"]
-note = "Master Prompt 24 §5, ADR-084. Read-only: 6 fixed node methods behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending."
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs", "bins/maya2c-mcp/tests/debug_tools_tests.rs", "crate:maya2c-mcp"]
+note = "Master Prompt 24 §5, ADR-084. Read-only: 8 fixed node methods (READ_METHODS in bins/maya2c-mcp/src/node.rs) behind one allowlist, client-side rate limit at the node's default. draft_transfer returns an unsigned transaction and a summary; no tool signs or submits (test pins it). Generic rpc_call removed. get_tx needs a block height (the node has no lookup by id). Key-safety review pending. v3 P6 (gap S6): read-only debugging tools replay_block (maya2c_cli::fork::replay), trace_transaction (maya2c_cli::record_spec), explain_refusal (parsed from crates/node/src/error.rs at build time) and compare_account (get_balance_at_height twice, through the allowlist), tested against an in-process dev chain served by the node RPC. Trace starts from empty contract storage. Node replies are size- and deadline-capped (#593) for every tool; contract- and chain-written text comes back as untrusted_* fields, control characters removed and length capped. maya2c-cli is linked with default-features = false: no keystore, clap or CLI RPC client (ADR-084 consequences)."
 
 [[subsystem]]
 id = "interop-proof-routes"

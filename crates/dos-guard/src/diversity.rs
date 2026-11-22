@@ -43,11 +43,14 @@ impl Table {
     /// Accepts an inbound connection from `addr` if its subnet and the
     /// inbound total have room.
     pub fn accept_inbound(&mut self, addr: Addr) -> bool {
-        let n = self.inbound.entry(addr.subnet()).or_default();
-        if *n >= self.limits.per_subnet || self.inbound_total >= self.limits.inbound {
+        // Decide before inserting: a refused subnet must leave no entry, or
+        // rotating subnets against a full table grows it without bound.
+        let subnet = addr.subnet();
+        let n = self.inbound.get(&subnet).copied().unwrap_or(0);
+        if n >= self.limits.per_subnet || self.inbound_total >= self.limits.inbound {
             return false;
         }
-        *n += 1;
+        *self.inbound.entry(subnet).or_default() += 1;
         self.inbound_total += 1;
         true
     }
