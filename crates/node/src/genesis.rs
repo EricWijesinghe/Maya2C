@@ -215,8 +215,10 @@ pub const MIN_ANCHOR_TIMEOUT_MS: u64 = 500;
 /// are counted in blocks and sized for this rate (block-time fix A).
 pub const CANONICAL_ROUND_INTERVAL_MS: u64 = 500;
 
-/// Chains that carry value. A devnet or testnet genesis may name any interval.
-const VALUE_BEARING_CHAIN_IDS: &[&str] = &["maya-mainnet", "mainnet"];
+/// A chain id containing this (case and spaces ignored) carries value. The same
+/// rule as the genesis ceremony's guard, so `maya2c-mainnet` cannot skip it by
+/// spelling. A devnet or testnet genesis may name any interval.
+const VALUE_BEARING_NAME_PART: &str = "mainnet";
 
 /// The genesis committee of a DAG-BFT network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -737,10 +739,11 @@ impl GenesisConfig {
                     "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
                 )));
             }
-            let id = self.chain_id.trim();
-            let value_bearing = VALUE_BEARING_CHAIN_IDS
-                .iter()
-                .any(|known| id.eq_ignore_ascii_case(known));
+            let value_bearing = self
+                .chain_id
+                .trim()
+                .to_ascii_lowercase()
+                .contains(VALUE_BEARING_NAME_PART);
             if value_bearing && bft.round_interval_ms != CANONICAL_ROUND_INTERVAL_MS {
                 return Err(NodeError::Decode(format!(
                     "bft.round_interval_ms must be {CANONICAL_ROUND_INTERVAL_MS} on {} \
@@ -1534,7 +1537,14 @@ mod tests {
         // Case and surrounding space do not get a value-bearing chain out of the check.
         assert!(refused("Maya-Mainnet", 1_000), "case variant accepted");
         assert!(refused(" MAINNET ", 1_000), "padded variant accepted");
+        // Any name containing "mainnet" is value-bearing, as in the ceremony guard.
+        assert!(refused("maya2c-mainnet", 1_000), "maya2c-mainnet accepted");
+        assert!(
+            refused("maya-mainnet-1", 1_000),
+            "suffixed mainnet accepted"
+        );
         assert!(with_interval("maya-mainnet", 500).validate().is_ok());
+        assert!(with_interval("maya2c-mainnet", 500).validate().is_ok());
         // A devnet or testnet genesis keeps the interval it names.
         assert!(!refused("maya-testnet-2", 1_000), "testnet refused 1000 ms");
     }
