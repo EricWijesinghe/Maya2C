@@ -4,7 +4,10 @@
 
 use maya_chat::ChatError;
 use maya_chat::identity::{Identity, PrekeyBundle};
-use maya_chat::relay::{Envelope, MAX_ENVELOPES, MAX_FETCHED_IDS, Payload, Relay, fetch_bytes};
+use maya_chat::relay::{
+    Envelope, MAX_ENVELOPE_BYTES, MAX_ENVELOPES, MAX_FETCHED_IDS, MAX_POSTAGE_BITS,
+    POSTAGE_UNIT_BYTES, Payload, Relay, STAMP_BITS, fetch_bytes, postage_bits,
+};
 use maya_chat::session::Message;
 
 const NOW: u64 = 1_800_000_000;
@@ -213,4 +216,52 @@ fn expired_envelopes_in_every_mailbox_stop_counting_at_the_next_deposit() {
     let late_len = late.encode().unwrap().len();
     relay.deposit(late, NOW + 2 * HOUR).unwrap();
     assert_eq!(relay.stored_bytes(), late_len);
+}
+
+#[test]
+fn postage_grows_with_envelope_size_up_to_the_mint_cap() {
+    assert_eq!(postage_bits(STAMP_BITS, 1_000), STAMP_BITS);
+    assert_eq!(postage_bits(STAMP_BITS, POSTAGE_UNIT_BYTES), STAMP_BITS);
+    assert_eq!(
+        postage_bits(STAMP_BITS, POSTAGE_UNIT_BYTES + 1),
+        STAMP_BITS + 1
+    );
+    assert_eq!(
+        postage_bits(STAMP_BITS, MAX_ENVELOPE_BYTES),
+        MAX_POSTAGE_BITS
+    );
+    // A relay quoting more than the default still accepts a full envelope a
+    // sender can mint; one quoting nothing charges nothing.
+    assert_eq!(
+        postage_bits(STAMP_BITS + 2, MAX_ENVELOPE_BYTES),
+        MAX_POSTAGE_BITS
+    );
+    assert_eq!(postage_bits(0, MAX_ENVELOPE_BYTES), 0);
+    assert_eq!(postage_bits(MAX_POSTAGE_BITS + 1, 1), MAX_POSTAGE_BITS + 1);
+}
+
+#[test]
+fn a_large_envelope_stamped_at_the_base_postage_is_refused() {
+    let base = 2;
+    let mut relay = Relay::new(base);
+    let big = envelope([9; 32], 0, 200_000, NOW + DAY);
+    let needed = big.postage(base).unwrap();
+    assert_eq!(needed, base + 4, "200 kB is between 8 and 16 postage units");
+    // A stamp good enough for a small envelope, short for this one.
+    let short = (0..u64::MAX)
+        .map(|stamp| Envelope {
+            stamp,
+            ..big.clone()
+        })
+        .find(|e| e.stamped(base).unwrap() && !e.stamped(needed).unwrap())
+        .unwrap();
+    assert!(matches!(
+        relay.deposit(short, NOW),
+        Err(ChatError::Refused(_))
+    ));
+    relay.deposit(big.mint(needed).unwrap(), NOW).unwrap();
+    // A small envelope still costs only the base.
+    let small = envelope([9; 32], 1, 10, NOW + DAY);
+    assert_eq!(small.postage(base).unwrap(), base);
+    relay.deposit(small.mint(base).unwrap(), NOW).unwrap();
 }

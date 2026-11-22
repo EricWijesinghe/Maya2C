@@ -575,8 +575,9 @@ impl Client {
             .collect()
     }
 
-    /// The envelope to deposit for `id` at `bits` of postage. Re-minted only
-    /// if the current stamp is short, so a retry sends the same bytes.
+    /// The envelope to deposit for `id` at a relay quoting `bits` of base
+    /// postage, scaled by its size ([`Envelope::postage`]). Re-minted only if
+    /// the current stamp is short, so a retry sends the same bytes.
     ///
     /// # Errors
     ///
@@ -586,6 +587,7 @@ impl Client {
             .outbox
             .get_mut(id)
             .ok_or(ChatError::Refused("not in the outbox"))?;
+        let bits = entry.envelope.postage(bits)?;
         if !entry.envelope.stamped(bits)? {
             entry.envelope = entry.envelope.clone().mint(bits)?;
         }

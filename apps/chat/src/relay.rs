@@ -63,6 +63,26 @@ pub const STAMP_BITS: u32 = 20;
 /// relay's quote comes from the network, so a larger one is refused rather
 /// than ground out for hours. A relay that wants more than this is unusable.
 pub const MAX_POSTAGE_BITS: u32 = 24;
+/// Envelope bytes the base postage covers. Each doubling of size above it adds
+/// one bit, so work grows with bytes held, and a full [`MAX_ENVELOPE_BYTES`]
+/// envelope at [`STAMP_BITS`] needs exactly [`MAX_POSTAGE_BITS`] (ADR-149).
+pub const POSTAGE_UNIT_BYTES: usize = MAX_ENVELOPE_BYTES >> (MAX_POSTAGE_BITS - STAMP_BITS);
+
+/// Postage an envelope of `len` unstamped bytes needs at a relay quoting
+/// `base` bits: `base` up to [`POSTAGE_UNIT_BYTES`], one more bit per doubling
+/// above it, never above [`MAX_POSTAGE_BITS`] unless `base` already is. A
+/// relay quoting 0 charges nothing for any size.
+#[must_use]
+pub fn postage_bits(base: u32, len: usize) -> u32 {
+    if base == 0 {
+        return 0;
+    }
+    let units = len.div_ceil(POSTAGE_UNIT_BYTES).max(1);
+    let extra = units
+        .checked_next_power_of_two()
+        .map_or(usize::BITS, usize::trailing_zeros);
+    base.saturating_add(extra).min(MAX_POSTAGE_BITS.max(base))
+}
 
 /// The envelope encoding this build reads and writes, and the newest it
 /// accepts. Version 1 is the original CBOR (integer arrays for bytes);
@@ -148,11 +168,27 @@ impl Envelope {
     ///
     /// [`ChatError::Encoding`].
     pub fn id(&self) -> Result<[u8; 32], ChatError> {
-        let unstamped = Self {
+        Ok(*blake3::hash(&self.unstamped_bytes()?).as_bytes())
+    }
+
+    /// The encoding with the stamp zeroed, so its length does not move as a
+    /// stamp is minted.
+    fn unstamped_bytes(&self) -> Result<Vec<u8>, ChatError> {
+        Self {
             stamp: 0,
             ..self.clone()
-        };
-        Ok(*blake3::hash(&unstamped.encode()?).as_bytes())
+        }
+        .encode()
+    }
+
+    /// The postage this envelope needs at a relay quoting `base` bits: see
+    /// [`postage_bits`].
+    ///
+    /// # Errors
+    ///
+    /// [`ChatError::Encoding`].
+    pub fn postage(&self, base: u32) -> Result<u32, ChatError> {
+        Ok(postage_bits(base, self.unstamped_bytes()?.len()))
     }
 
     fn stamp_work(id: &[u8; 32], stamp: u64) -> u32 {
@@ -285,7 +321,8 @@ impl Relay {
         &self.id
     }
 
-    /// The postage this relay requires.
+    /// The base postage this relay quotes; larger envelopes need more
+    /// ([`postage_bits`]).
     #[must_use]
     pub fn stamp_bits(&self) -> u32 {
         self.stamp_bits
@@ -342,11 +379,11 @@ impl Relay {
         if self.seen.contains_key(&id) {
             return Ok(id);
         }
-        if !envelope.stamped(self.stamp_bits)? {
-            return Err(ChatError::Refused("postage stamp carries too little work"));
-        }
         if bytes.len() > MAX_ENVELOPE_BYTES {
             return Err(ChatError::Refused("envelope too large"));
+        }
+        if !envelope.stamped(envelope.postage(self.stamp_bits)?)? {
+            return Err(ChatError::Refused("postage stamp carries too little work"));
         }
         if envelope.expires_at <= now || envelope.expires_at > now + MAX_TTL {
             return Err(ChatError::Refused("expiry outside what this relay keeps"));

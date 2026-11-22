@@ -141,9 +141,10 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   it was not taken. Wanted: LRU eviction by last activity, the evicted peer
   re-handshaking on its next message, and a test that 4,096+N strangers
   still let a known contact through.
-- [ ] **Chat size-aware postage** (ADR-149, not decided there). Price, or
+- [x] (`apps/chat/src/relay.rs` `postage_bits`, ADR-149 decision 4) **Chat size-aware postage.** Price, or
   shorten the retention of, large envelopes so holding a relay full for long
-  costs more; a wire and client change, within the 24-bit mint cap.
+  costs more; a wire and client change, within the 24-bit mint cap. Priced by
+  size; retention by size still open.
 
 - **Measure line coverage of the core crates** with `cargo llvm-cov`
   (installed, 0.8.7; never run). M1 criterion 8. Source: EMPIRE.md.
