@@ -168,3 +168,62 @@ fn a_burn_moves_only_circulating_and_by_exactly_the_burn() {
         Err(_) => assert!(burned > circulating),
     }
 }
+
+/// At the launch target and denominator, the 256-bit base-fee step is exactly
+/// the control law in `base_fee.rs`'s module documentation, computed here in
+/// native `u64`, for every block size up to `MAX_BLOCK_BYTES` and every parent
+/// fee and floor below 2^8.
+///
+/// The full-width harnesses above give no verdict in budget (the symbolic
+/// divisor is the obstacle; kani-heavy.yml). This one fixes the divisors to the
+/// launch values — target `MAX_TARGET_BLOCK_BYTES` (2,621,440, the testnet
+/// genesis value) and denominator `MIN_CHANGE_DENOMINATOR` (8) — and bounds
+/// the fee, so it states the exact answer rather than a bound: a rule that
+/// rounded the wrong way, dropped the one-unit minimum rise, or applied the
+/// floor before the step fails here. Bounded in magnitude, and said so.
+#[kani::proof]
+// 41, as above: `==` on `Amount` is a byte-wise memcmp.
+#[kani::unwind(41)]
+fn the_launch_base_fee_step_is_its_law_exactly() {
+    use crate::limits::{MAX_BLOCK_BYTES, MAX_TARGET_BLOCK_BYTES, MIN_CHANGE_DENOMINATOR};
+    let parent = u64::from(kani::any::<u8>());
+    let floor = u64::from(kani::any::<u8>());
+    let size = u64::from(kani::any::<u32>());
+    kani::assume(size <= MAX_BLOCK_BYTES);
+    let (target, denominator) = (MAX_TARGET_BLOCK_BYTES, MIN_CHANGE_DENOMINATOR);
+
+    let next = next_base_fee(
+        Amount::from_u64(parent),
+        size,
+        target,
+        denominator,
+        Amount::from_u64(floor),
+    );
+
+    // parent < 2^8 and gap <= MAX_BLOCK_BYTES < 2^23: every product fits a u64.
+    let scale = target * denominator;
+    let law = if size > target {
+        let delta = parent * (size - target) / scale;
+        let rise = delta.max(1).min((parent / denominator).max(1));
+        // The ceiling is far above 2^9, so it never binds at this width.
+        parent + rise
+    } else if size < target {
+        parent - parent * (target - size) / scale
+    } else {
+        parent
+    };
+    let law = law.max(floor);
+    assert!(MAX_BASE_FEE_PER_BYTE > Amount::from_u64(1 << 9));
+    assert!(next == Amount::from_u64(law));
+
+    kani::cover!(size > target && law > floor, "a full block raises the fee");
+    kani::cover!(
+        size > target && parent * (size - target) / scale == 0 && law == parent + 1 && law > floor,
+        "the one-unit minimum rise applies"
+    );
+    kani::cover!(
+        size < target && law < parent && law > floor,
+        "an empty block lowers the fee"
+    );
+    kani::cover!(law == floor && floor > parent, "the floor binds");
+}

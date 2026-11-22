@@ -48,6 +48,13 @@ jobs:
           - { package: maya-amount, harness: mul_wide_is_commutative }
           - { package: maya-amount, harness: decimal_chunk_step_is_exact }
           - { package: maya-amount, harness: display_round_trips_through_a_decimal_reader }
+          # BTreeMap state machine with 32-byte keys: still in symbolic execution
+          # when stopped at 25 min in WSL (2026-11-23, reports/kani/2026-11-14-apply-path.md).
+          - { package: maya-staking, harness: an_epoch_boundary_conserves_value }
+          # Full 256-bit amount through a 512-bit product: no verdict in 15 min each
+          # in WSL (2026-11-23). Never ran in CI before maya-staking joined nightly.
+          - { package: maya-staking, harness: bps_of_never_exceeds_the_amount }
+          - { package: maya-staking, harness: a_double_sign_slash_conserves_value }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # .cargo/config.toml links through clang + mold on Linux; a runner

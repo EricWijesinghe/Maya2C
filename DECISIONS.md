@@ -909,3 +909,9 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-23 — Apply-path Kani harnesses land; staking proofs without a verdict go to kani-heavy (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **V3-P5:** four new apply-path harnesses verified (self-transfer, fee through the burn, launch base-fee step, launch slash rates) and cover statements added to three existing ledger-math harnesses; results in `reports/kani/2026-11-14-apply-path.md`. No counterexample, no code change.
+- **Bounded where CBMC closes:** the base-fee and slash-rate harnesses fix the launch divisors and bound magnitudes, and say so; the full-width harnesses stay in `kani-heavy.yml`.
+- **maya-staking in nightly:** it joins the Kani matrix, but its epoch-boundary harness and the two pre-existing staking harnesses gave no verdict in 15-25 min, so they run only in `kani-heavy.yml`. No claim is made for them.

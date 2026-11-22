@@ -2543,11 +2543,11 @@ tests = ["crates/node/tests/fuzz_harness.rs"]
 id = "kani-model-checking"
 name = "Kani model checking"
 domain = "Security and macro engines"
-paths = "`crates/ledger-math`, `crates/dex`, `crates/governance`, `crates/fee-market`, `crates/threat-intel`, `crates/amount`"
+paths = "`crates/ledger-math`, `crates/dex`, `crates/governance`, `crates/fee-market`, `crates/threat-intel`, `crates/amount`, `crates/staking`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-amount", "crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
+tests = ["crate:maya-amount", "crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-staking", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
 gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance"
 
 [[subsystem]]

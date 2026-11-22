@@ -188,7 +188,7 @@ is a fork; §7 states the rule.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | Fuzz targets (cargo-fuzz, libFuzzer) | **SHIPPED** | `fuzz/` | Decoders and SV2 frames; `car_decode.rs` fuzzes untrusted archives |
-| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel`, `amount` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux) |
+| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel`, `amount`, `staking` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux). Apply-path harnesses (self-transfer, fee through the burn, launch base-fee step, launch slash rates) with `kani::cover!` non-vacuity checks: [reports/kani/2026-11-14-apply-path.md](../reports/kani/2026-11-14-apply-path.md); the staking epoch-boundary harness has no verdict yet and runs in `kani-heavy.yml` |
 | Supply-chain gates | **SHIPPED** | `deny.toml`, `cargo audit` | Committed, run in CI |
 | Telemetry threat surface | **SHIPPED** | `telemetry` | Nothing on the dashboard is verified, and that is stated rather than papered over — invariants 14, 15 |
 | State invariant guard + circuit breaker | **SHIPPED** | `crates/node/src/state/invariant_guard/` | Value conservation over all five holding places fails the block; an anomaly halts one module for 100 blocks and never a transfer — invariant 28, [invariant-guard.md](invariant-guard.md) |
