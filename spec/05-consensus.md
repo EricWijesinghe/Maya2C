@@ -57,6 +57,13 @@ DAG construction, the commit rule, finality and fork choice under DAG-BFT
 are specified only by the node's code and `crates/dag-bft`, and have no rule
 IDs yet.
 
+Attestation collection is node-local, not a validity rule: a node counts one
+attestation per `(epoch, height, validator)`, refuses one of another epoch than
+its collector's and one that does not verify against the epoch's committee, and
+ignores a repeat naming the block already
+counted without verifying it again (ADR-147). No rule IDs, no vectors. Node:
+`crates/node/src/consensus/bft/attest.rs`.
+
 Catch-up by certificate replay (ADR-052) is specified by its ADR and the node,
 with no rule IDs and no conformance vectors yet. Its wire rule: `get_certificates`
 serves at most 256 records per page and about 8 MiB; a client refuses a larger

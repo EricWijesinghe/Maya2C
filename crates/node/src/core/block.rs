@@ -527,12 +527,14 @@ impl Block {
         Ok(())
     }
 
-    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072).
+    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072),
+    /// and returns that wire length otherwise, so a caller that also needs it
+    /// does not encode the block a second time.
     ///
     /// # Errors
     ///
     /// Returns [`NodeError::BlockTooLarge`] if it is.
-    pub fn check_size(&self) -> Result<()> {
+    pub fn check_size(&self) -> Result<u64> {
         let bytes = block_wire_len(self.transactions.iter().map(|tx| tx.to_bytes().len()));
         if bytes > MAX_BLOCK_BYTES {
             return Err(NodeError::BlockTooLarge {
@@ -540,7 +542,7 @@ impl Block {
                 cap: MAX_BLOCK_BYTES,
             });
         }
-        Ok(())
+        Ok(bytes)
     }
 
     /// Encodes the block for the wire.

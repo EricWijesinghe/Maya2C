@@ -372,7 +372,7 @@ impl BftDriver {
             dir,
             committee: Arc::clone(committee),
             weights,
-            attestations: Collector::default(),
+            attestations: Collector::for_epoch(epoch),
             follower: false,
             resumed_at: 0,
             // The anchor the tip was built for, so a block that later
