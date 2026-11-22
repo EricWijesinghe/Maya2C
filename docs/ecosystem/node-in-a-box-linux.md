@@ -60,6 +60,9 @@ Setup does this, in order:
 
 If you have a validator key, create it first with
 `maya2c-node --generate-validator-key /var/lib/maya2c/node/validator.key`.
+A sealed key's passphrase file (`--validator-passphrase-file`) must be mode
+0600, created with `umask 077` or `chmod 600`, on a filesystem that keeps Unix
+permissions: the node refuses one group or others can read.
 Without one the node runs as an observer.
 
 ## 4. Install the service

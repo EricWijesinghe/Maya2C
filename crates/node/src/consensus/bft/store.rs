@@ -21,12 +21,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use maya_dag_bft::Certificate;
+use maya_dag_bft::{Certificate, Message};
 
 use super::wire::{Envelope, decode_certificate, encode_certificate};
 use crate::error::{NodeError, Result};
 
-const SAFETY_LOG: &str = "safety.log";
+/// File name of an epoch's own-message log, the double-sign guard's evidence.
+pub const SAFETY_LOG: &str = "safety.log";
 const CERTS_LOG: &str = "certs.log";
 
 /// The on-disk logs for one epoch.
@@ -41,6 +42,11 @@ pub struct SafetyStore {
 #[derive(Debug, Default)]
 pub struct Recovered {
     /// Own proposals and votes, oldest first, as the frames that carried them.
+    /// Only the newest proposal is kept whole: each older one is replaced by
+    /// a vote envelope for its own slot (`to` = its author, its digest, no
+    /// signature), which is all a restart needs from it. The newest sets the
+    /// round, the engine never proposes below its round, and a log of full
+    /// vertices would otherwise be held in memory whole at every start.
     pub safety: Vec<Envelope>,
     /// Bytes cut from the end of the two logs at open, as a torn write left
     /// them. Zero after a clean shutdown.
@@ -108,33 +114,84 @@ fn open_append(path: &Path) -> Result<File> {
         .map_err(|e| io_err("open", path, &e))
 }
 
-/// Reads `len:u64 frame` records, stopping at a torn tail.
-fn read_records(path: &Path) -> Result<Vec<Vec<u8>>> {
-    let mut bytes = Vec::new();
-    match File::open(path) {
-        Ok(mut f) => f
-            .read_to_end(&mut bytes)
-            .map_err(|e| io_err("read", path, &e))?,
+/// Streams the own-message log at `path`, one record at a time, keeping the
+/// newest proposal whole and turning each older one into the vote for its own
+/// slot (see [`Recovered::safety`]). Stops at a torn tail.
+fn read_own_messages(path: &Path) -> Result<Vec<Envelope>> {
+    let file = match File::open(path) {
+        Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(io_err("open", path, &e)),
     };
-    let mut records = Vec::new();
-    let mut rest = bytes.as_slice();
-    while let Some((len, tail)) = rest.split_first_chunk::<8>() {
-        let Ok(len) = usize::try_from(u64::from_le_bytes(*len)) else {
-            break;
+    let mut reader = BufReader::new(file);
+    let mut out: Vec<Envelope> = Vec::new();
+    // Index in `out` of the newest proposal kept whole.
+    let mut newest: Option<usize> = None;
+    while let Some(record) = next_record(&mut reader)? {
+        let envelope = Envelope::decode(&record)?;
+        let Message::Propose { vertex, .. } = &envelope.message else {
+            out.push(envelope);
+            continue;
         };
-        let Some((record, after)) = tail.split_at_checked(len) else {
-            break; // torn tail
-        };
-        records.push(record.to_vec());
-        rest = after;
+        let round = vertex.round;
+        match newest {
+            Some(i) if proposal_round(&out[i]) > round => out.push(own_slot(&envelope)),
+            Some(i) => {
+                out[i] = own_slot(&out[i]);
+                newest = Some(out.len());
+                out.push(envelope);
+            }
+            None => {
+                newest = Some(out.len());
+                out.push(envelope);
+            }
+        }
     }
-    Ok(records)
+    Ok(out)
+}
+
+fn proposal_round(envelope: &Envelope) -> u64 {
+    match &envelope.message {
+        Message::Propose { vertex, .. } => vertex.round,
+        _ => 0,
+    }
+}
+
+/// The vote envelope that restores a proposal's own slot: `(round, author)`
+/// voted for its digest. Never sent; it carries no signature.
+fn own_slot(envelope: &Envelope) -> Envelope {
+    let Message::Propose { vertex, .. } = &envelope.message else {
+        return envelope.clone();
+    };
+    Envelope {
+        epoch: envelope.epoch,
+        from: vertex.author,
+        to: vertex.author,
+        message: Message::Vote {
+            digest: vertex.digest(),
+            round: vertex.round,
+            voter: vertex.author,
+            signature: Vec::new(),
+        },
+    }
+}
+
+/// Makes a newly created entry in `dir` durable. A file's fsync covers its
+/// contents, not the directory entry that names it, so a new epoch log could
+/// otherwise vanish on power loss after its first vote was sent. std cannot
+/// open a directory for flushing on Windows; there this does nothing.
+fn sync_dir(dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    File::open(dir)
+        .and_then(|d| d.sync_all())
+        .map_err(|e| io_err("fsync", dir, &e))?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
 
 /// Reads one `len:u64 frame` record from a stream. `None` at the end, or at
-/// a torn tail as [`read_records`] treats it.
+/// a torn tail (a record cut short by a crash).
 fn next_record(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
     let mut len = [0_u8; 8];
     if !read_full(reader, &mut len)? {
@@ -476,17 +533,16 @@ impl SafetyStore {
     /// what it claims to be, and guessing past it could forget a vote.
     pub fn open(root: &Path, epoch: u64) -> Result<(Self, Recovered)> {
         let dir = root.join(format!("epoch-{epoch}"));
+        let new_dir = !dir.exists();
         std::fs::create_dir_all(&dir).map_err(|e| io_err("create", &dir, &e))?;
         let safety_path = dir.join(SAFETY_LOG);
+        let new_log = !safety_path.exists();
         let certs_path = dir.join(CERTS_LOG);
         // Before anything reads or appends: a torn tail left by a crash must
         // not sit in front of the next record (see `repair_torn_tail`).
         let torn_bytes = repair_torn_tail(&safety_path, |r| Envelope::decode(r).is_ok(), true)?
             + repair_torn_tail(&certs_path, |r| decode_certificate(r).is_ok(), false)?;
-        let safety = read_records(&safety_path)?
-            .iter()
-            .map(|r| Envelope::decode(r))
-            .collect::<Result<Vec<_>>>()?;
+        let safety = read_own_messages(&safety_path)?;
         // Certificates are not loaded here: a restart streams them with
         // `for_each_certificate`, so an epoch's worth never sits in memory.
         let store = Self {
@@ -494,6 +550,14 @@ impl SafetyStore {
             certs: BufWriter::new(open_append(&certs_path)?),
             dir,
         };
+        // The safety guard trusts this file's presence, so its directory
+        // entry must survive a crash as surely as the first vote in it.
+        if new_log {
+            sync_dir(&store.dir)?;
+        }
+        if new_dir {
+            sync_dir(root)?;
+        }
         Ok((store, Recovered { safety, torn_bytes }))
     }
 
@@ -593,6 +657,55 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    fn propose(round: u64) -> Envelope {
+        Envelope {
+            epoch: 0,
+            from: 2,
+            to: super::super::wire::BROADCAST,
+            message: Message::Propose {
+                vertex: Vertex {
+                    epoch: 0,
+                    round,
+                    author: 2,
+                    timestamp_ms: round,
+                    parents: Vec::new(),
+                    batch: vec![vec![7; 1024]],
+                },
+                signature: vec![round.to_le_bytes()[0]; 8],
+            },
+        }
+    }
+
+    #[test]
+    fn a_restart_keeps_the_newest_proposal_whole_and_older_ones_as_their_slots() {
+        let root = dir("compact");
+        {
+            let (mut store, _) = SafetyStore::open(&root, 0).unwrap();
+            for message in [propose(1), propose(2), vote(2), propose(3)] {
+                store.record_own(&message).unwrap();
+            }
+        }
+        let (_, recovered) = SafetyStore::open(&root, 0).unwrap();
+        let slot = |e: &Envelope| match &e.message {
+            Message::Propose { vertex, .. } => (vertex.round, e.to, vertex.digest()),
+            Message::Vote { round, digest, .. } => (*round, e.to, *digest),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(recovered.safety.len(), 4);
+        assert_eq!(recovered.safety[3], propose(3), "the newest stays whole");
+        assert_eq!(recovered.safety[2], vote(2));
+        for (i, round) in [(0, 1), (1, 2)] {
+            let Message::Propose { vertex, .. } = propose(round).message else {
+                unreachable!()
+            };
+            assert!(
+                matches!(recovered.safety[i].message, Message::Vote { .. }),
+                "proposal {round} is kept as its slot"
+            );
+            assert_eq!(slot(&recovered.safety[i]), (round, 2, vertex.digest()));
+        }
     }
 
     #[test]

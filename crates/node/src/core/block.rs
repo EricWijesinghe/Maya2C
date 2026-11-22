@@ -170,6 +170,10 @@ const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
 /// account leaf from the state tree, which shares the internal-node rule.
 const TX_LEAF_CONTEXT: &str = "custom-l1-node tx leaf v1";
 
+/// Domain for the leaf of a multisig (v8) transaction. Its id leaves the
+/// approvals out on purpose, so its leaf also hashes the whole wire frame.
+const TX_LEAF_WITNESS_CONTEXT: &str = "custom-l1-node tx leaf witness v1";
+
 /// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32 + 1.
 pub const HEADER_LEN: usize = 145;
 
@@ -177,8 +181,47 @@ pub const HEADER_LEN: usize = 145;
 ///
 /// Zero today. It is reserved so a later header can be told apart by its own
 /// bytes rather than guessed from its length, and any other value is refused
-/// until a build that understands it exists.
+/// until a build that understands it exists. It is the layout nibble of the
+/// version byte; the high nibble is the [`HashId`], also 0.
 pub const HEADER_VERSION: u8 = 0;
+
+/// The bits of the version byte that are the layout; the high nibble is the
+/// [`HashId`] (CON-16, ADR-143).
+const HEADER_LAYOUT_MASK: u8 = 0x0F;
+
+/// The hash a header's block id, proof-of-work seed, `tx_root` and
+/// `state_root` are computed under: the high nibble of its version byte.
+///
+/// Closed, like `SuiteId` (invariant 29): an unknown id is a decode error,
+/// never a fallback, because a hash some nodes know and others do not is a
+/// fork. A migration off BLAKE3 (`docs/CRYPTO_WATCH.md` §4) defines a new id
+/// and schedules it; it never changes what 0 means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HashId {
+    /// BLAKE3, the only hash this build computes.
+    Blake3 = 0,
+}
+
+impl HashId {
+    /// The id named by `byte`.
+    ///
+    /// # Errors
+    ///
+    /// The byte itself, when it names no hash this build computes.
+    pub const fn from_byte(byte: u8) -> std::result::Result<Self, u8> {
+        match byte {
+            0 => Ok(Self::Blake3),
+            other => Err(other),
+        }
+    }
+
+    /// The id's byte value.
+    #[must_use]
+    pub const fn to_byte(self) -> u8 {
+        self as u8
+    }
+}
 
 /// Byte the header version occupies in a serialized header.
 ///
@@ -224,12 +267,22 @@ pub struct BlockHeader {
     /// keeps the value it arrived with, so that `Chain::insert_block` can refuse
     /// a body that disagrees.
     pub tx_root: [u8; HASH_LEN],
-    /// Header layout version (ADR-063). [`HEADER_VERSION`] today; a header with
+    /// Header version byte: `hash_id << 4 | layout` (ADR-063, ADR-143).
+    /// [`HEADER_VERSION`] today (layout 0, [`HashId::Blake3`]); a header with
     /// any other value is refused.
     pub version: u8,
 }
 
 impl BlockHeader {
+    /// The hash this header names in its version byte's high nibble.
+    ///
+    /// # Errors
+    ///
+    /// The nibble, when it names no hash this build computes.
+    pub const fn hash_id(&self) -> std::result::Result<HashId, u8> {
+        HashId::from_byte(self.version >> 4)
+    }
+
     /// Canonical fixed-width header encoding.
     ///
     /// Every field has a constant size, so the layout is unambiguous without
@@ -261,11 +314,18 @@ impl BlockHeader {
             version: reader.read_u8()?,
         };
         // Strict: a header of a layout this build does not know is not read as
-        // if it were one it does (ADR-063).
-        if header.version != HEADER_VERSION {
+        // if it were one it does (ADR-063). Layout first, so a byte wrong in
+        // both nibbles keeps the error CON-10's vectors name.
+        if header.version & HEADER_LAYOUT_MASK != HEADER_VERSION {
             return Err(crate::error::NodeError::Decode(format!(
                 "unsupported header version {}",
                 header.version
+            )));
+        }
+        // Nor under a hash it does not compute (CON-16, ADR-143).
+        if let Err(id) = header.hash_id() {
+            return Err(crate::error::NodeError::Decode(format!(
+                "unknown header hash id {id}"
             )));
         }
         Ok(header)
@@ -403,6 +463,24 @@ pub fn transaction_leaf(txid: &[u8; HASH_LEN]) -> [u8; HASH_LEN] {
     *hasher.finalize().as_bytes()
 }
 
+/// A transaction's leaf in the block's `tx_root` tree.
+///
+/// For every frame but v8 this is [`transaction_leaf`] of the txid, which
+/// already hashes the signatures. A v8 id leaves its approvals out, so its
+/// leaf also commits to the whole wire frame; otherwise a body with other
+/// approvals would pass `check_tx_root` under the honest header (invariant 24).
+#[must_use]
+pub fn block_leaf(transaction: &Transaction) -> [u8; HASH_LEN] {
+    let txid = transaction.txid();
+    if transaction.multisig.is_none() {
+        return transaction_leaf(&txid);
+    }
+    let mut hasher = blake3::Hasher::new_derive_key(TX_LEAF_WITNESS_CONTEXT);
+    hasher.update(&txid);
+    hasher.update(blake3::hash(&transaction.to_bytes()).as_bytes());
+    *hasher.finalize().as_bytes()
+}
+
 impl Block {
     /// Builds a block from a header and its transactions, committing the header
     /// to them.
@@ -426,18 +504,16 @@ impl Block {
     ///
     /// The tree is `state::merkle`'s: tagged internal nodes and a promoted,
     /// never duplicated, odd node, so two different transaction lists cannot
-    /// share a root (the CVE-2012-2459 shape). Each txid covers the whole
-    /// transaction, signatures included. An empty block roots to all zeros.
+    /// share a root (the CVE-2012-2459 shape). Each leaf ([`block_leaf`])
+    /// covers the whole transaction, signatures and v8 approvals included. An
+    /// empty block roots to all zeros.
     #[must_use]
     pub fn tx_root(&self) -> [u8; HASH_LEN] {
         Self::root_of(&self.transactions)
     }
 
     fn leaves(transactions: &[Transaction]) -> Vec<[u8; HASH_LEN]> {
-        transactions
-            .iter()
-            .map(|transaction| transaction_leaf(&transaction.txid()))
-            .collect()
+        transactions.iter().map(block_leaf).collect()
     }
 
     fn root_of(transactions: &[Transaction]) -> [u8; HASH_LEN] {
@@ -447,8 +523,10 @@ impl Block {
     /// Inclusion path for the transaction at `index`, against the header's
     /// `tx_root`.
     ///
-    /// Check it with `state::merkle::verify_path(&transaction_leaf(&txid), &path)`,
-    /// which must reproduce `tx_root`. Returns `None` if `index` is out of range.
+    /// Check it with `state::merkle::verify_path(&block_leaf(&tx), &path)`,
+    /// which must reproduce `tx_root`; for a v8 transaction the prover needs
+    /// the whole frame, not only its id. Returns `None` if `index` is out of
+    /// range.
     #[must_use]
     pub fn tx_inclusion_path(&self, index: usize) -> Option<Vec<PathStep>> {
         merkle_path(&Self::leaves(&self.transactions), index)
@@ -471,12 +549,14 @@ impl Block {
         Ok(())
     }
 
-    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072).
+    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072),
+    /// and returns that wire length otherwise, so a caller that also needs it
+    /// does not encode the block a second time.
     ///
     /// # Errors
     ///
     /// Returns [`NodeError::BlockTooLarge`] if it is.
-    pub fn check_size(&self) -> Result<()> {
+    pub fn check_size(&self) -> Result<u64> {
         let bytes = block_wire_len(self.transactions.iter().map(|tx| tx.to_bytes().len()));
         if bytes > MAX_BLOCK_BYTES {
             return Err(NodeError::BlockTooLarge {
@@ -484,7 +564,7 @@ impl Block {
                 cap: MAX_BLOCK_BYTES,
             });
         }
-        Ok(())
+        Ok(bytes)
     }
 
     /// Encodes the block for the wire.

@@ -11,7 +11,7 @@ against a live server on its own.
 |---|---|---|
 | `bft.mining` (ADR-044), funded keyless reserve | mining has never run on the live testnet | `cargo xtask mining-localnet` |
 | Security council 2-of-3 (ADR-050) | the old genesis has none | `genesis-ceremony council ...` |
-| wasmtime 48.0.7 | consensus-VM bump, a hard fork | #190, vm tests |
+| wasmtime 48.0.10 | consensus-VM bump, a hard fork; gas unchanged from 48.0.8 | `crates/vm/tests/gas_golden_tests.rs`, `the_wasmtime_version_pin_has_not_drifted` (manifest and lock) |
 | Staking record v3, stake added in an epoch earns from the next | state format change | PR for `fix/reward-sniping` |
 | ML-DSA-87 validator keys (ADR-051 option 3) | key type is fixed in genesis | built (feat/validator-mldsa87, spec CRY-4); every key must be regenerated with the new binary |
 | 20% per-operator cap, 7+ validators | policy | `cargo xtask genesis-check FILE` |
@@ -30,7 +30,7 @@ against a live server on its own.
    no premine (only the keyless reserve is funded); `protocol_upgrades` empty; timestamp
    within 365 days old and 90 days ahead; tail above zero; reserve exactly the lifetime
    emission; at least 7 validators; `anchor_timeout_ms` at least 500; staking floors set
-   (1,000 coins self-bond, 1 coin delegation); every bond equal to `min_self_bond`; no
+   (1,000 coins self-bond, 1 coin delegation); every bond equal to the genesis bond, `min_self_bond` plus 10.6% (ADR-070 amendment 2026-11-22); no
    operator above 20%; shielded pool off; stake-weighted; proof of work; fee floor 10^6;
    stake above zero. It does **not** read `suite_deprecations`: check that by hand.
    Also confirm `maya-mainnet` is registered in `Network::for_chain_id`
@@ -49,7 +49,10 @@ against a live server on its own.
 
 1. One validator key per validator: `maya2c-node --generate-validator-key PATH
    --validator-passphrase-file F` on the machine that will run it. Sealed from
-   creation; the passphrase file lives off the repo drive.
+   creation; the passphrase file lives off the repo drive. On Linux or macOS
+   it must be mode 0600 (`umask 077` or `chmod 600`) on a filesystem that keeps
+   Unix permissions, not FAT, exFAT or NTFS removable media: the node and the
+   ceremony tool refuse a passphrase file group or others can read.
 2. Three council keys on three devices: `genesis-ceremony council key --label L
    --passphrase-file F`. Copy only `*.council.public` into the council folder;
    the tool refuses a folder holding a `.sealed` file.
@@ -77,14 +80,17 @@ or the check refuses it. Rehearse all of this first with `cargo xtask ceremony-r
 `address_text`; the rehearsal's address check fails on purpose to keep the step visible.
 
 `--supply 0` is the mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds only the
-keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-bond = 7,000 coins at 1,000 each; DECISIONS 2026-11-08). The ceremony
+keyless mining reserve and the disclosed validator bonds (7 x the genesis bond = 7,742 coins at 1,106 each: min_self_bond plus 10.6%;
+ADR-070 amendment 2026-11-22, pending Eric). The ceremony
 refuses any other supply on `maya-mainnet`, and writes no root key and no treasury. Amounts are base
 units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
 `--mining-reserve` + the sum of the bonds**, and nothing else. `--mining-reserve` is the
-lifetime emission (`deploy/genesis/mainnet/README.md`), not cap - supply - bonds. Every bond is
-exactly `--min-self-bond`, which is 1,000 coins (`1000000000000000000000000000` base units; the genesis-check floor). `validators.txt` lines are `label key operator bond`.
+lifetime emission (`deploy/genesis/mainnet/README.md`), not cap - supply - bonds. `--min-self-bond`
+is 1,000 coins (`1000000000000000000000000000` base units; the genesis-check floor), and every
+bond is exactly the genesis bond above it, 1,106 coins (`1106000000000000000000000000`; ADR-070
+amendment 2026-11-22, pending Eric). `validators.txt` lines are `label key operator bond`.
 Check the printed `total supply` line before signing: it must equal the reserve plus
-(validators × min-self-bond). Then `cargo xtask genesis-check out/genesis.json`, commit the
+(validators × the genesis bond). Then `cargo xtask genesis-check out/genesis.json`, commit the
 file, and have Eric sign it (`genesis/<chain>.json.sig`). **APPROVED: sign genesis.**
 
 ## 4. Start (testnet) **APPROVED: re-genesis**
@@ -121,11 +127,12 @@ chain-id.
   constant stays 1 so test genesis files keep working.
 - **Supply:** there is no protocol-wide cap. Total supply is exactly what genesis allocates:
   `--mining-reserve` + bonds (`--supply 0`: no premine; genesis holds only the keyless mining
-  reserve and the disclosed minimum validator bonds, 7 x min-self-bond = 7,000 coins), printed as `total supply` before
-  signing. The four
-  halving eras issue 19,687,500 coins in total; the tail then pays forever (ADR-068), so the
+  reserve and the disclosed validator bonds, 7 x the genesis bond = 7,742 coins at 1,106 each: min_self_bond plus
+  10.6%; ADR-070 amendment 2026-11-22, pending Eric), printed as `total supply` before
+  signing. The schedule for the
+  four halving eras totals 19,687,500 coins (at most that is paid); the tail then pays forever (ADR-068), so the
   reserve holds the lifetime emission (about 1.23 × 10^17 coins) and the total is far above
-  21M by design. Check both printed lines before `APPROVED: sign genesis`.
+  the 19,687,500-coin halving-era issuance by design. Check both printed lines before `APPROVED: sign genesis`.
 - Tail (DECISIONS 2026-10-29): `tail_epoch_reward` = 1% of 21M coins a year divided by
   epochs per year at the mainnet epoch length, in base units (10^24 per coin). That 1% holds
   only at one block a second: issuance is 23.96 coins × epochs per year, so it is 210,000

@@ -120,3 +120,15 @@ fn supply_change_is_reported_without_overflow() {
     assert!(last < first);
     assert!(r.supply_change_ppm() < 0);
 }
+
+#[test]
+fn the_draft_burns_the_whole_base_fee_as_the_node_does() {
+    // The node compiles `treasury_bps: 0` into every fee genesis
+    // (`FeesGenesis::record`), so the whole base fee burns (ADR-029,
+    // DECISIONS B-16). A SIM that paid a treasury would model another chain.
+    let p = EconParams::DRAFT;
+    assert_eq!(p.fees.treasury_bps, 0);
+    let r = run(&p, &find("baseline"), 5);
+    assert!(r.days.iter().all(|d| d.treasury == 0));
+    assert!(r.days.iter().any(|d| d.burned > 0));
+}

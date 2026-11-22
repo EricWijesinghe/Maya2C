@@ -22,11 +22,26 @@ const MIN_VALIDATORS: usize = 7;
 /// Lowest mainnet base fee per byte: 1 unit at 18 decimals, 10^6 at 24.
 const MIN_BASE_FEE: u128 = 1_000_000;
 /// Mainnet staking floors (24 decimals): 1,000 coins to register a validator
-/// and 1 coin per delegation, decided 2026-10-30 (DECISIONS.md) under Eric's
-/// delegation; changing either is one line here. The devnet defaults (1,000 and
-/// 10 base units) are dust: a free validator seat, a free delegation.
+/// (decided 2026-10-30, DECISIONS.md) and 100 coins per delegation (decision
+/// brief 2 option A, 2026-11-22, pending Eric); changing either is one line
+/// here. Every staking position is created holding at least this floor, so it
+/// prices the position ceilings (spec STK-7, STK-9): 16,384 positions close one
+/// validator to new delegators (1,638,400 coins at 100, 16,384 at 1 coin) and
+/// 131,072 close the chain (13,107,200 coins at 100). The devnet defaults (1,000
+/// and 10 base units) are dust: a free validator seat, a free delegation.
 pub(crate) const MIN_SELF_BOND: u128 = 1_000 * COIN;
-const MIN_DELEGATION: u128 = COIN;
+pub(crate) const MIN_DELEGATION: u128 = 100 * COIN;
+/// Genesis bond margin above `min_self_bond` (ADR-070 amendment 2026-11-22,
+/// option B, pending Eric): every seat bonds `min_self_bond` plus 10.6%. The
+/// node's downtime slash is 1% and a genesis file cannot change it, so a bond of
+/// exactly the minimum falls below it on one outage and cannot return from jail
+/// without a top-up; with the margin it stays eligible through
+/// [`MARGIN_OUTAGES`] of them (1,106 coins leave 1,000.25 after ten). 10.6% is the
+/// least margin in tenths of a percent that does (1,105 coins leave 999.34).
+pub(crate) const BOND_MARGIN_BPS: u128 = 1_060;
+/// Downtime slashes a genesis bond outlasts at or above `min_self_bond`.
+pub(crate) const MARGIN_OUTAGES: u32 = 10;
+const BPS: u128 = 10_000;
 const COIN: u128 = maya_amount::ONE_COIN;
 
 /// The keyless mining reserve's address: the ASCII tag below, zero-padded to 32
@@ -72,11 +87,22 @@ const fn default_anchor_timeout_ms() -> u64 {
     1_000
 }
 
+/// The node's `CANONICAL_ROUND_INTERVAL_MS` (crates/node/src/genesis.rs): one
+/// block per second, the rate every block-counted governance window assumes.
+/// Also the node's default, so an absent field passes.
+const CANONICAL_ROUND_INTERVAL_MS: u64 = 500;
+
+const fn default_round_interval_ms() -> u64 {
+    CANONICAL_ROUND_INTERVAL_MS
+}
+
 #[derive(Deserialize)]
 struct Bft {
     validators: Vec<String>,
     #[serde(default = "default_anchor_timeout_ms")]
     anchor_timeout_ms: u64,
+    #[serde(default = "default_round_interval_ms")]
+    round_interval_ms: u64,
     staking: Staking,
     #[serde(default)]
     fees: Option<Fees>,
@@ -142,6 +168,16 @@ struct Bond {
     operator: String,
     #[serde(deserialize_with = "units")]
     bond: u128,
+}
+
+/// The one bond every mainnet seat holds: `min_self_bond` plus
+/// [`BOND_MARGIN_BPS`], rounded down; `None` past `u128`.
+pub(crate) const fn genesis_bond(min_self_bond: u128) -> Option<u128> {
+    // `const` so a generator can derive its bond at compile time (proving.rs).
+    match min_self_bond.checked_mul(BPS + BOND_MARGIN_BPS) {
+        Some(x) => Some(x / BPS),
+        None => None,
+    }
 }
 
 /// The reserve address as genesis writes it: lowercase hex, no `0x`.
@@ -326,6 +362,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
             g.bft.anchor_timeout_ms
         ));
     }
+    if g.bft.round_interval_ms != CANONICAL_ROUND_INTERVAL_MS {
+        out.push(format!(
+            "bft.round_interval_ms {} is not {CANONICAL_ROUND_INTERVAL_MS}: the governance and migration windows are counted at one block per second",
+            g.bft.round_interval_ms
+        ));
+    }
     if g.bft.validators.len() != g.bft.staking.bonds.len() {
         out.push("validators and bonds differ in number".to_string());
     }
@@ -346,16 +388,25 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
             )),
         }
     }
-    // The tiny bond (Eric 2026-11-07): every seat bonds exactly the minimum,
-    // so the ceremony's disclosed bonds are the whole of the stake.
+    // The tiny bond (Eric 2026-11-07): every seat bonds one disclosed amount, so
+    // the ceremony's bonds are the whole of the stake. Since the ADR-070
+    // amendment 2026-11-22 (option B, pending Eric) that amount is the genesis
+    // bond, the minimum plus a margin, not the minimum itself.
     if let Some(floor) = g.bft.staking.min_self_bond {
-        for b in &g.bft.staking.bonds {
-            if b.bond != floor {
-                out.push(format!(
-                    "operator {}… bonds {} but min_self_bond is {floor}: mainnet bonds are exactly the minimum",
-                    &b.operator[..b.operator.len().min(12)],
-                    b.bond
-                ));
+        match genesis_bond(floor) {
+            None => out.push(format!(
+                "staking.min_self_bond {floor} leaves no genesis bond below 2^128"
+            )),
+            Some(want) => {
+                for b in g.bft.staking.bonds.iter().filter(|b| b.bond != want) {
+                    out.push(format!(
+                        "operator {}… bonds {} but the genesis bond is {want} (min_self_bond {floor} plus {}.{}%): every mainnet bond is exactly that",
+                        &b.operator[..b.operator.len().min(12)],
+                        b.bond,
+                        BOND_MARGIN_BPS / 100,
+                        BOND_MARGIN_BPS % 100 / 10
+                    ));
+                }
             }
         }
     }
@@ -453,16 +504,18 @@ mod tests {
         g.replace(&mining(), "")
     }
 
-    /// The minimum self-bond every fixture bonds: mainnet bonds are exactly it.
+    /// The minimum self-bond every fixture sets.
     const FLOOR: &str = "1000000000000000000000000000";
+    /// The genesis bond every fixture bonds: `FLOOR` plus the 10.6% margin.
+    const BOND: &str = "1106000000000000000000000000";
 
-    /// Each seat bonds the floor; the value in `bonds` only names the operator's
-    /// seats, since a bond above the floor is refused on its own.
+    /// Each seat bonds the genesis bond; the value in `bonds` only names the
+    /// operator's seats, since any other bond is refused on its own.
     fn genesis(difficulty: u32, weighted: bool, bonds: &[(&str, u128)]) -> String {
         let validators = vec!["\"k\""; bonds.len()].join(",");
         let bonds = bonds
             .iter()
-            .map(|(o, _)| format!("{{\"operator\":\"{o}\",\"bond\":\"{FLOOR}\"}}"))
+            .map(|(o, _)| format!("{{\"operator\":\"{o}\",\"bond\":\"{BOND}\"}}"))
             .collect::<Vec<_>>()
             .join(",");
         let reserve = allocation(&mining_reserve_address(), RESERVE);
@@ -473,7 +526,7 @@ mod tests {
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\"epoch_blocks\":3600,\
              \"min_self_bond\":\"{FLOOR}\",\
-             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
+             \"min_delegation\":\"{MIN_DELEGATION}\",\"bonds\":[{bonds}]}}}}}}"
         )
     }
 
@@ -511,6 +564,30 @@ mod tests {
             assert!(check(&with(accepted)).unwrap().is_empty(), "{accepted}");
         }
         // Absent means the node's default, 1000 ms.
+        assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_round_interval_off_one_block_per_second_is_refused_and_the_default_passes() {
+        let with = |ms: u64| {
+            genesis(20, true, &EVEN).replace(
+                "\"bft\":{",
+                &format!("\"bft\":{{\"round_interval_ms\":{ms},"),
+            )
+        };
+        for refused in [0, 499, 501, 1_000, 15_000] {
+            let found = check(&with(refused)).unwrap();
+            assert!(
+                found.iter().any(|p| p.contains("round_interval_ms")),
+                "{refused}: {found:?}"
+            );
+        }
+        assert!(
+            check(&with(CANONICAL_ROUND_INTERVAL_MS))
+                .unwrap()
+                .is_empty()
+        );
+        // Absent means the node's default, which is the canonical rate.
         assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
     }
 
@@ -587,7 +664,7 @@ mod tests {
             "{found:?}"
         );
         let unset = genesis(20, true, &EVEN)
-            .replace("\"min_delegation\":\"1000000000000000000000000\",", "");
+            .replace(&format!("\"min_delegation\":\"{MIN_DELEGATION}\","), "");
         let found = check(&unset).unwrap();
         assert!(
             found.iter().any(|p| p.contains("min_delegation is unset")),
@@ -595,20 +672,74 @@ mod tests {
         );
     }
 
+    /// ADR-070 amendment 2026-11-22 (option B, pending Eric): a bond of exactly
+    /// the minimum, the tiny-bond rule before it, is refused, and so is any bond
+    /// above the genesis bond.
     #[test]
-    fn a_bond_above_the_minimum_is_refused_and_named() {
-        let over = genesis(20, true, &EVEN).replacen(
-            &format!("\"bond\":\"{FLOOR}\""),
-            "\"bond\":\"2000000000000000000000000000\"",
-            1,
+    fn a_bond_other_than_the_genesis_bond_is_refused_and_named() {
+        for other in [FLOOR, "2000000000000000000000000000"] {
+            let found = check(&genesis(20, true, &EVEN).replacen(
+                &format!("\"bond\":\"{BOND}\""),
+                &format!("\"bond\":\"{other}\""),
+                1,
+            ))
+            .unwrap();
+            assert!(
+                found
+                    .iter()
+                    .any(|p| p.contains("the genesis bond") && p.contains("aaaaaaaaaaaa")),
+                "{other}: {found:?}"
+            );
+        }
+    }
+
+    /// One downtime slash on the node, `bond − ⌊bond × bps / 10 000⌋`, at the
+    /// rate a genesis file cannot change (`StakingGenesis::params` keeps it).
+    fn slashed(bond: Amount) -> Amount {
+        let bps = Amount::from_u64(u64::from(maya_staking::Params::DEVNET.downtime_slash_bps));
+        bond.checked_sub(bond.mul_div(bps, Amount::from_u64(10_000)).unwrap())
+            .unwrap()
+    }
+
+    /// The margin is the least, in tenths of a percent, that keeps a genesis
+    /// bond at or above the minimum through `MARGIN_OUTAGES` downtime slashes.
+    #[test]
+    fn the_genesis_bond_outlasts_ten_downtime_slashes_and_a_smaller_margin_does_not() {
+        for min in [MIN_SELF_BOND, 3 * MIN_SELF_BOND, 7 * COIN + 1] {
+            let mut left = Amount::from_u128(genesis_bond(min).unwrap());
+            for _ in 0..MARGIN_OUTAGES {
+                left = slashed(left);
+            }
+            assert!(left >= Amount::from_u128(min), "{min}: {left:?}");
+        }
+        let mut thinner =
+            Amount::from_u128(MIN_SELF_BOND / 10_000 * (10_000 + BOND_MARGIN_BPS - 10));
+        for _ in 0..MARGIN_OUTAGES {
+            thinner = slashed(thinner);
+        }
+        assert!(thinner < Amount::from_u128(MIN_SELF_BOND));
+        assert_eq!(genesis_bond(MIN_SELF_BOND), Some(1_106 * COIN));
+        assert_eq!(genesis_bond(u128::MAX), None);
+    }
+
+    #[test]
+    fn a_one_coin_delegation_floor_fails() {
+        // Decision brief 2 option A (pending Eric): at 1 coin, 16,384 minimum
+        // delegations (16,384 coins) close one validator to new delegators
+        // and 131,072 coins close the chain; the floor is 100 coins.
+        assert_eq!(MIN_DELEGATION, 100 * COIN);
+        let one_coin = genesis(20, true, &EVEN).replace(
+            &format!("\"min_delegation\":\"{MIN_DELEGATION}\""),
+            &format!("\"min_delegation\":\"{COIN}\""),
         );
-        let found = check(&over).unwrap();
+        let found = check(&one_coin).unwrap();
         assert!(
             found
                 .iter()
-                .any(|p| p.contains("exactly the minimum") && p.contains("aaaaaaaaaaaa")),
+                .any(|p| p.contains(&format!("min_delegation {COIN} is below"))),
             "{found:?}"
         );
+        assert!(check(&genesis(20, true, &EVEN)).unwrap().is_empty());
     }
 
     fn with_allocation(address: &str, balance: &str) -> String {

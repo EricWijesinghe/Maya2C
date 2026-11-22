@@ -1978,7 +1978,8 @@ paths = "`crates/node/src/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/malleability_tests.rs"]
+tests = ["crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/malleability_tests.rs", "crates/node/tests/signed_header_tests.rs"]
+note = "ADR-143: every signed message names its wire version and suite after the chain tag (TX-6), so a v5 signature never verifies a v7 suite-0x30 frame or the reverse."
 
 [[subsystem]]
 id = "ethash-style-dag-proof-of-work"
@@ -1999,6 +2000,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/chaos_simulator.rs", "crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs"]
+note = "ADR-142 amendment 5 (2026-11-21): the contracts layer of every non-full root comes from an in-memory cache of its leaves (state/contracts_root.rs), equal to the full fold, which stays the reference (state_root, check_declared_root); unit tests in crates/node/src/state/contracts_root_tests.rs. Still one pass over all contract leaves per contract-writing block; contract-state growth is unbounded and unpriced (open, Eric)."
 
 [[subsystem]]
 id = "undo-journal-and-reorg-safety"
@@ -2018,7 +2020,7 @@ paths = "`crates/vm`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
+tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/node/tests/vm_gas_tests.rs", "crates/node/tests/sealed_tests.rs", "crates/vm/tests/gas_pricing_tests.rs", "crates/vm/tests/gas_hardening_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/gas_golden_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
 
 [[subsystem]]
 id = "historical-pruning-archive-bootstrap"
@@ -2039,17 +2041,18 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs", "crates/dex/tests/price_scale_tests.rs"]
-note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01)."
+note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01). ADR-144: a governed protocol rate a pool cannot carry refunds its batch and makes a route through it a no-op instead of failing the block; book fills take the governed protocol rate and never the LP rate (dex_tests.rs a_governed_rate_*, a_route_through_a_pool_that_cannot_carry_the_governed_rate_is_a_no_op)."
 
 [[subsystem]]
 id = "governance-lifecycle-and-bounds"
 name = "Governance lifecycle and bounds"
 domain = "Consensus and execution"
+note = "Block-validity parameters (tags 2-8, 17, 18) bind MIN_UPGRADE_LEAD_BLOCKS after execution via g:pending:<tag> (ADR-082 amendment 2026-11-15; governance_tests.rs a_block_validity_parameter_takes_effect_only_at_its_scheduled_height, a_later_passed_change_to_a_waiting_validity_rule_replaces_it, a_replacement_executed_the_block_before_activation_keeps_the_old_value_out, a_mixed_proposal_applies_its_price_at_once_and_waits_for_its_ceiling, a_waiting_change_is_under_the_state_root_and_one_out_of_range_is_dropped; for the ADR-142 gas caps a_passed_block_gas_cap_binds_only_after_the_validity_rule_lead, a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped). Tags 5-8 (shielded per-block cap, VM memory pages, module bytes, default gas) have no reader in crates/node/src yet, so their lead governs no behaviour today."
 paths = "`crates/governance`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/treasury_tests.rs"]
+tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/governance_due_tests.rs", "crates/node/tests/treasury_tests.rs"]
 
 [[subsystem]]
 id = "amount-256"
@@ -2077,11 +2080,12 @@ note = "Live where genesis sets bft.fees (ADR-029). ADR-071 (Proposed on master)
 id = "neural-base-fee-gain"
 name = "Neural base-fee gain"
 domain = "Consensus and execution"
-paths = "`crates/fee-market/src/model/`, `crates/node/src/neural_gas/`, `bins/neural-gas-trainer`"
+paths = "`crates/neural-fee`, `bins/neural-gas-trainer`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-neural-gas-trainer", "bins/neural-gas-trainer/tests/evaluation_tests.rs", "crates/node/tests/neural_fee_tests.rs"]
+tests = ["crate:maya-neural-fee", "crate:maya-neural-gas-trainer", "bins/neural-gas-trainer/tests/evaluation_tests.rs", "crates/node/tests/fee_market_tests.rs"]
+note = "Not linked by the node (ADR-029 amendment 2026-11-14, Eric: founder audit Q19 A). Model + rule moved out of maya-fee-market; the node's feature extractor was deleted. Guard: fee_market_tests::the_launch_binary_carries_no_neural_fee_model walks Cargo.lock from custom-l1-node and maya2c-node. `cargo tree -e normal,build -i maya-neural-fee` on both: not in the graph (2026-11-14). Trainer `-- --check` drift predates the move (same at 3735252d). Reviving it is a hard fork."
 
 [[subsystem]]
 id = "multi-shard-asynchronous-dag-narwhal-tusk"
@@ -2128,11 +2132,12 @@ note = "Retired 2026-09-21 with crates/zkml and crates/zkml-prover: halo2/KZG ov
 id = "stateless-transfer-verification"
 name = "Stateless transfer verification"
 domain = "Consensus and execution"
-paths = "`crates/stateless-core`, `crates/node/src/state/stateless.rs`, `crates/light-client/src/stateless.rs`"
+paths = "`crates/stateless-core`, `crates/node/src/state/stateless.rs`, `crates/node/src/state/root_cache.rs`, `crates/light-client/src/stateless.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs"]
+tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs", "crates/node/tests/root_cache_chain_tests.rs"]
+note = "ADR-062a (2026-11-14, revised after the PR #540 review): the sparse accounts root is maintained incrementally from a local-only `smt:` cache of branches (N - 1 entries for N accounts, whatever the addresses), equal to the full rebuild; unit tests in crates/node/src/state/root_cache_tests.rs, chain-level test named above. Dark with the sparse tree: at genesis accounts are the dense tree and no cache is kept, so mainnet per-block accounts cost is unchanged until STATELESS activates. Accounts layer only; record layers are still rebuilt each block."
 
 [[subsystem]]
 id = "universal-evm-svm-move-transpilation"
@@ -2347,7 +2352,7 @@ tier = "extended"
 class = "RESEARCH"
 status = "planned"
 tests = []
-note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim kind 1 is unassigned, no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
+note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim carries a WorkKind byte since 2026-11-15 but kind 1 is undefined (refused at decode), no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
 
 [[subsystem]]
 id = "hub-gpu-auto-tuner"
@@ -3042,8 +3047,8 @@ paths = "`crates/node/src/state/mining.rs`, `crates/node/src/state/mining_exec.r
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
-note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
+tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs", "crates/node/tests/mempool_resubmission_tests.rs"]
+note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. Every share and work claim starts with a closed WorkKind byte (0 = DAG PoW; any other byte refused at decode, MINE-11, ADR-044 amendment 2026-11-15). Work claims never switch on while the compiled WORK_CLAIM_ADR_ACCEPTED = false: bit 4 is outside FeatureSet::IMPLEMENTED (a genesis naming it is refused at boot, a governance entry halts the node at its activation), and the mempool refuses the transaction. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet. A share is base-fee exempt only with no inputs and no outputs (spec FEE-7, ADR-144), one predicate for executor and mempool."
 
 [[subsystem]]
 id = "maya2c-hub"
@@ -3087,8 +3092,8 @@ paths = "`bins/genesis-ceremony/src/main.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crates/node/tests/genesis_tests.rs"]
-note = "Multi-party genesis key ceremony, distinct from the genesis file writer."
+tests = ["crates/node/tests/genesis_tests.rs", "crate:genesis-ceremony"]
+note = "Multi-party genesis key ceremony, distinct from the genesis file writer. A value-bearing chain needs at least 7 validators, the same floor as genesis-check (Eric 2026-11-14 MCQ, ADR-047 amendment; mainnet_needs_seven_validators_a_testnet_does_not), and a value-bearing ceremony without --validators is refused (a_mainnet_without_a_committee_is_refused_and_a_testnet_may_omit_one)."
 
 [[subsystem]]
 id = "benchmark-suite"
@@ -3158,7 +3163,7 @@ paths = "`crates/crypto-pq/src/envelope.rs`, `crates/crypto-pq/src/agility/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs", "crates/node/tests/verify_differential_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
 note = "Wire v7, live from genesis (ADR-013): consensus verifies under crypto::suites::verification_policy() (genesis schedule, mainnet rules, no state read); the mempool reads DefaultSignatureSuite. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
 
 [[subsystem]]
@@ -3235,8 +3240,8 @@ paths = "`crates/dag-bft`, `crates/node/src/consensus/bft/`, `bins/maya2c-node/s
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/dag-bft/tests/adversarial_schedules.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs", "crates/node/tests/block_bytes_tests.rs"]
-note = "ADR-015. Node vote signatures are ML-DSA-87 validator signatures over VOTE_DOMAIN (ADR-051 option 3; crates/node/src/consensus/bft/auth.rs). Block byte cap (ADR-072, Proposed): MAX_BLOCK_BYTES 5 MiB, block_bytes_tests.rs. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs. Adversarial schedules (adversarial_schedules.rs): the real engine against a network that reorders, drops and duplicates, and a Byzantine seat that equivocates and certifies any quorum it harvests; agreement, certificate uniqueness and post-GST liveness checked, three engine mutations shown caught (2026-10-28). Bounded random search, not a proof."
+tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/dag-bft/tests/adversarial_schedules.rs", "crates/dag-bft/tests/commit_determinism.rs", "crates/dag-bft/tests/admission_window_tests.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs", "crates/node/tests/block_bytes_tests.rs"]
+note = "ADR-015. Node vote signatures are ML-DSA-87 validator signatures over VOTE_DOMAIN (ADR-051 option 3; crates/node/src/consensus/bft/auth.rs). Block byte cap (ADR-072, Proposed): MAX_BLOCK_BYTES 5 MiB, block_bytes_tests.rs. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs. Adversarial schedules (adversarial_schedules.rs): the real engine against a network that reorders, drops and duplicates, and a Byzantine seat that equivocates and certifies any quorum it harvests; agreement, certificate uniqueness and post-GST liveness checked, three engine mutations shown caught (2026-10-28). Bounded random search, not a proof. ADR-150 (2026-11-21): the ordering cutoff follows the committed anchor sequence, so step batching cannot change a sub-DAG (commit_determinism.rs, failed before the fix: 57 vs 61 certificates under one anchor); proposals and certificates outside the round window or listing more parents than members are dropped before any signature check, and fetch replies share one budget (admission_window_tests.rs); the safety log records each own message once (bft_node_tests.rs)."
 
 [[subsystem]]
 id = "vm-execution-tiers"
@@ -3324,7 +3329,7 @@ tier = "core"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/smart-account/tests/account_tests.rs"]
-note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type. Recovery corrected 2026-11-10 (ADR-086 §4 F1-F6, see ADR-056 Corrections): queued guardian changes, bounded sets, per-key requests with WithdrawApproval, finish drops every key and cancels pending transfers; a proptest pins below-threshold guardians and value conservation. F7 (policy day length) open."
+note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type. Recovery corrected 2026-11-10 (ADR-086 §4 F1-F6, see ADR-056 Corrections): queued guardian changes, bounded sets, per-key requests with WithdrawApproval, finish drops every key and cancels pending transfers; a proptest pins below-threshold guardians and value conservation. F7 (policy day length) decided: BLOCKS_PER_DAY = 86,400 (Eric 2026-11-14 MCQ, ADR-082 amendment 2026-11-15), pinned by policy_day_is_one_day_at_one_block_per_second."
 
 [[subsystem]]
 id = "data-availability"
@@ -3379,8 +3384,8 @@ paths = "`crates/node/tests/hash_migration_rehearsal.rs`, `docs/CRYPTO_WATCH.md`
 tier = "core"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/node/tests/hash_migration_rehearsal.rs"]
-note = "Master Prompt 15 §6. Re-commitment at an epoch boundary with a dual-hash bridge record; the node implements no second hash."
+tests = ["crates/node/tests/hash_migration_rehearsal.rs", "crates/node/tests/signed_header_tests.rs"]
+note = "Master Prompt 15 §6. Re-commitment at an epoch boundary with a dual-hash bridge record; the node implements no second hash. The header reserves a hash id (high nibble of the version byte, CON-16, ADR-143): 0 = BLAKE3, refused otherwise; that check is REAL, the migration stays RESEARCH."
 
 [[subsystem]]
 id = "performance-regression-gate"
@@ -3401,7 +3406,7 @@ paths = "`crates/signer`, `bins/maya2c-signer`, `crates/node/src/consensus/bft/r
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
+tests = ["crates/signer/tests/signer_tests.rs", "crates/signer/tests/hardening_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
 note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed. Held at working (P2 red team, 2026-11-14): `maya2c-signer export`/`import` carry vertex and vote history only; the block-attestation database (ADR-038) has no interchange entries, so moving a key to a new signer machine drops its once-per-height record. The fix touches crates/signer, which the node links, so it waits for the post-genesis branch."
 
 [[subsystem]]
@@ -3562,22 +3567,23 @@ note = "Master Prompt 30 §1. Four apps compose existing crates and pass their u
 id = "staking-and-slashing"
 name = "Staking, delegation, committee selection and slashing (ADR-028)"
 domain = "Consensus and execution"
-paths = "`crates/staking`, `crates/node/src/state/staking.rs`, `crates/node/src/state/staking_exec.rs`"
+paths = "`crates/staking`, `crates/node/src/state/staking.rs`, `crates/node/src/state/staking_records.rs`, `crates/node/src/state/staking_store/` (mod.rs, commit.rs), `crates/node/src/state/staking_exec.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs"]
-note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. Not an external audit."
+tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/staking/tests/golden_end_epoch.rs", "crates/node/tests/bft_staking_tests.rs", "crates/node/tests/bft_follower_tests.rs", "crate:custom-l1-node"]
+note = "ADR-062b (2026-11-15): one record per validator, delegation, unbonding entry and owed payout. A staking transaction reads its own records only; delegators' epoch rewards are owed and paid on touch or by a 1,024-a-block pass, matching the single-record rules on randomized histories (staking_store_tests.rs). Store unit tests are in the node lib (state::staking_store_tests, staking_vectors_tests against spec/tests/staking.json, scan_bounds_tests), hence crate:custom-l1-node. Both ceilings count positions (delegation records plus unbonding entries, an entry held until released), so a delegate-and-leave churn frees nothing: 131,072 chain-wide, 16,384 per validator; top-ups and exits are never refused. A slash reads the offender's positions (two key ranges), at most 16,384 plus its operator's own entries; evidence against a tombstoned validator is refused before any key read or signature check. PARTIAL: per-block cost is independent of total delegations for execution only; the staking layer's root still folds every record each block (test profile: 139.5 ms at 131,072 delegations, 238.6 ms with every position an unbonding entry; node at opt-level 3 without LTO 103.0 and 167.2 ms; release profile MISSING), and the boundary releasing every position at once took 797.9 ms (test profile; 367.6 ms at opt-level 3). PARTIAL, pending Eric (DECISIONS.md 2026-11-22, ADR-062 amendment 062c): the proposed 100-coin mainnet floor prices closing one validator at 1,638,400 coins locked and the chain at 13,107,200 (16,384 and 131,072 at 1 coin; staking_store_tests::filling_a_ceiling_at_the_proposed_floor_locks_this_much). Operators' own unbonds pass the ceiling only into a 16,384-position reserve (spec STK-12, staking_store_tests::operator_entries_stop_at_the_reserve_above_the_ceiling), and a full operator exit of at least min_self_bond is exempt (staking_store_tests::a_full_operator_exit_of_at_least_the_minimum_bond_passes_a_full_reserve), so an operator can always leave and positions are bounded by capital whatever the validator count; registration itself still has no record ceiling, limited only by min_self_bond. Self-run pre-audit 2026-10-29 (S-001, S-006) findings still hold. S-033 committee floor (ADR-070, amended 2026-11-21 for the re-freeze): counted before the downtime slash, and a kept validator is not slashed below min_self_bond, so the floor holds at mainnet bonds (docs/audit/FINDINGS.md). Proposed, pending Eric (amendment 2026-11-22): genesis bonds of min_self_bond plus 10.6%, checked by xtask genesis-check, not the node. Not an external audit."
 
 [[subsystem]]
 id = "security-council-pause"
-name = "Security council bounded module pause"
+name = "Security council bounded module pause and key rotation"
 domain = "Governance"
 paths = "`crates/node/src/state/council.rs`, `crates/node/src/core/council_payload.rs`"
 tier = "core"
 class = "REAL"
-status = "verified"
+status = "working"
 tests = ["crates/node/tests/council_pause_tests.rs"]
+note = "ADR-050, ADR-082 amendment 2026-11-14 (founder audit Q7 A + cooldown, Q8 A; Eric 2026-11-14): Governance is not council-pausable; a council pause is refused within COUNCIL_RENEWAL_COOLDOWN_BLOCKS (86,400) after the last council pause of that module ends, a council sunset within the same after the last; a genesis max_pause_blocks above MAX_COUNCIL_PAUSE_BLOCKS (86,400) is refused; CouncilKind::Rotate, with an acceptance signed by every new member, hands over to a new strict-majority key set no sooner than COUNCIL_ROTATION_LEAD_BLOCKS (86,400), and needs a live quorum. Status working, not verified, until CI is green on PR #544: local runs are in reports/sessions/2026-11-14-council-hardening.md. Holders are still one operator's devices (audit Q9, open)."
 
 [[subsystem]]
 id = "eth-beacon-light-client"

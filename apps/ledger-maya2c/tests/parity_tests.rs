@@ -78,6 +78,33 @@ fn the_review_refuses_what_it_cannot_honestly_show() {
     let (public, _) = suite::keypair_from_chain_key(&f.chain_key);
     // The domain, then the genesis the signature commits to (ADR-036).
     let domain = review::TX_DOMAIN_SUITE.len() + review::GENESIS_LEN;
+    // Then the signed header: wire version, suite (ADR-143).
+    let body = domain + review::SIGNED_HEADER_LEN;
+
+    // Another wire version in the signed header.
+    let mut v8 = f.signing_bytes.clone();
+    v8[domain] = 8;
+    assert_eq!(
+        review::review(&v8, &public),
+        Err(ReviewError::NotATransaction)
+    );
+
+    // Another suite in the signed header.
+    let mut header_suite = f.signing_bytes.clone();
+    header_suite[domain + 1] = 0x30;
+    assert_eq!(
+        review::review(&header_suite, &public),
+        Err(ReviewError::WrongSuite(0x30))
+    );
+
+    // The pre-ADR-143 layout: no header, under the old domain.
+    let mut headerless = b"custom-l1-node.tx.suite.v2".to_vec();
+    headerless.extend_from_slice(&f.signing_bytes[review::TX_DOMAIN_SUITE.len()..domain]);
+    headerless.extend_from_slice(&f.signing_bytes[body..]);
+    assert_eq!(
+        review::review(&headerless, &public),
+        Err(ReviewError::NotATransaction)
+    );
 
     // Another key's transaction: the device will not sign for it.
     let (other, _) = suite::keypair_from_chain_key(&[0x99; 32]);
@@ -119,7 +146,7 @@ fn the_review_refuses_what_it_cannot_honestly_show() {
     assert_eq!(review::review(cut, &public), Err(ReviewError::Truncated));
 
     // More outputs than fit on screen: the count is read before any output.
-    let outputs_at = domain + 8 + 36; // one input
+    let outputs_at = body + 8 + 36; // one input
     let mut many = f.signing_bytes.clone();
     many[outputs_at..outputs_at + 8].copy_from_slice(&((MAX_OUTPUTS + 1) as u64).to_le_bytes());
     assert_eq!(review::review(&many, &public), Err(ReviewError::TooMany));

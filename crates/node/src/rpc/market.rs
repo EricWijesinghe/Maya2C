@@ -79,15 +79,118 @@ pub struct SupplyReport {
 
 /// Computes supply from committed state.
 ///
+/// The account walk runs outside the chain lock: block apply and DAG-BFT
+/// commit take that mutex, and holding it for a walk over every account
+/// stalled them for as long as the walk took. The walk reads a `RocksDB`
+/// snapshot taken under the lock with the tip ([`StateDB::view`]), so it is
+/// consistent with that tip however many blocks land while it runs, and it
+/// never retries or falls back to walking under the lock.
+///
+/// [`StateDB::view`]: crate::state::StateDB::view
+///
 /// # Errors
 ///
 /// Propagates storage failures from the account scan.
 pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
-    let chain = chain
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let state = chain.state();
+    supply_at(chain).map(|cached| cached.report)
+}
 
+/// [`supply`], with the tip it describes.
+fn supply_at(chain: &Arc<Mutex<Chain>>) -> Result<Cached> {
+    supply_at_with(chain, || {})
+}
+
+/// [`supply_at`], calling `during_walk` once the walk's view is fixed and the
+/// chain lock is released: where a test advances the tip mid-walk.
+fn supply_at_with(chain: &Arc<Mutex<Chain>>, mut during_walk: impl FnMut()) -> Result<Cached> {
+    let guard = lock(chain);
+    let (state, height, tip) = (Arc::clone(guard.state()), guard.height(), guard.tip());
+    let view = state.view();
+    drop(guard);
+    during_walk();
+    Ok(Cached {
+        height,
+        tip,
+        report: supply_of(&view)?,
+    })
+}
+
+fn lock(chain: &Mutex<Chain>) -> std::sync::MutexGuard<'_, Chain> {
+    chain
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A supply report and the tip it was computed at.
+#[derive(Clone, Copy, Debug)]
+struct Cached {
+    height: u64,
+    tip: [u8; 32],
+    report: SupplyReport,
+}
+
+/// The supply report for the newest tip asked about, computed once per tip.
+///
+/// Supply walks every account, the most expensive read the node offers, and
+/// it cannot change while the tip stands still, so caching on the tip trades
+/// no freshness. Single-flight: a caller that arrives while a walk runs waits
+/// for it and takes its result, so N requests after a block cost one walk,
+/// not N. Every public surface (`get_supply`, the market endpoints) reads
+/// through one of these.
+#[derive(Debug, Default)]
+pub struct SupplyCache {
+    last: Mutex<Option<Cached>>,
+    scan: Mutex<()>,
+}
+
+impl SupplyCache {
+    /// The supply at the current tip, from the cache when it is current.
+    ///
+    /// # Errors
+    ///
+    /// Propagates storage failures from the account scan.
+    pub fn get(&self, chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
+        let (height, tip) = {
+            let chain = lock(chain);
+            (chain.height(), chain.tip())
+        };
+        if let Some(report) = self.hit(height, tip) {
+            return Ok(report);
+        }
+        let _scan = self
+            .scan
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Whoever held the scan before us may have just stored this tip.
+        if let Some(report) = self.hit(height, tip) {
+            return Ok(report);
+        }
+        let fresh = supply_at(chain)?;
+        let mut last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Walks are serialized by `scan` and each reads the chain when it
+        // starts, so the newest walk is the current tip, even a lower one
+        // after a heaviest-work reorg: always replace.
+        *last = Some(fresh);
+        Ok(fresh.report)
+    }
+
+    fn hit(&self, height: u64, tip: [u8; 32]) -> Option<SupplyReport> {
+        let last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Exact match only: a cached height above the chain's is another
+        // branch after a reorg, not a newer view of this one.
+        last.filter(|old| old.height == height && old.tip == tip)
+            .map(|old| old.report)
+    }
+}
+
+/// Supply from one consistent view of committed state, read without any lock.
+fn supply_of(state: &crate::state::db::StateView<'_>) -> Result<SupplyReport> {
     let mut transparent = U256::zero();
     let mut burned = U256::zero();
 
@@ -102,8 +205,7 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
     // Bonds, delegations and unbonding funds were debited from accounts but
     // still exist; genesis counts them in total supply, so this must too.
     let staked = state
-        .committed_staking()?
-        .and_then(|r| r.staking.held())
+        .staking_held()?
         .map_or(U256::zero(), maya_stateless_core::amount::to_u256);
     let total = transparent.saturating_add(shielded).saturating_add(staked);
 
@@ -250,6 +352,118 @@ impl MarketFeed {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_tip_that_moves_during_every_walk_never_puts_the_walk_under_the_lock() {
+        use crate::consensus::ChainConfig;
+        use crate::core::{Block, BlockHeader};
+        use crate::state::{Account, StateDB};
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDB::open(dir.path()).unwrap());
+        let fund = |balance: u64| {
+            let account = Account {
+                balance: U256::from(balance),
+                nonce: 0,
+            };
+            state.put_account(&[1; 32], &account).unwrap();
+        };
+        fund(1_000);
+        let genesis = Block::new(
+            BlockHeader {
+                version: 0,
+                prev_hash: [0; 32],
+                state_root: [0; 32],
+                timestamp: 1_700_000_000,
+                nonce: 0,
+                difficulty_target: crate::crypto::pow::target_from_leading_zero_bits(6),
+                tx_root: [0; 32],
+            },
+            Vec::new(),
+        );
+        let chain = Arc::new(Mutex::new(
+            Chain::open(
+                Arc::clone(&state),
+                genesis,
+                ChainConfig::without_pow_verification(),
+            )
+            .unwrap(),
+        ));
+        let (start_height, start_tip) = {
+            let c = lock(&chain);
+            (c.height(), c.tip())
+        };
+        let start = supply_at(&chain).unwrap().report;
+
+        // Every walk sees a new block land and a balance change behind it.
+        let mut walks = 0_u64;
+        let got = supply_at_with(&chain, || {
+            walks += 1;
+            let mut c = chain
+                .try_lock()
+                .expect("the walk must not hold the chain lock");
+            let timestamp = 1_700_000_000 + c.height() + 1;
+            let block = c.candidate_block(timestamp, Vec::new()).unwrap();
+            c.insert_block(block).unwrap();
+            fund(1_000 + walks * 7);
+        })
+        .unwrap();
+        // The report is the one consistent view taken with the tip it names.
+        assert_eq!((got.height, got.tip), (start_height, start_tip));
+        assert_eq!(got.report.total, start.total);
+        assert_eq!(walks, 1, "one walk, never a retry ending under the lock");
+        // And the next walk sees the blocks and the balance that landed.
+        let after = supply_at(&chain).unwrap();
+        assert_eq!(after.height, start_height + 1);
+        assert_eq!(after.report.total, U256::from(1_007));
+    }
+
+    #[test]
+    fn a_reorg_to_a_lower_height_recomputes_the_supply() {
+        // Why: fork choice is heaviest work, so a reorg can leave the chain
+        // lower than the cached height. A cache that served any newer height
+        // kept the left branch's supply until the chain grew past it.
+        use crate::consensus::ChainConfig;
+        use crate::core::{Block, BlockHeader};
+        use crate::state::{Account, StateDB};
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDB::open(dir.path()).unwrap());
+        let account = Account {
+            balance: U256::from(1_000_u64),
+            nonce: 0,
+        };
+        state.put_account(&[1; 32], &account).unwrap();
+        let genesis = Block::new(
+            BlockHeader {
+                version: 0,
+                prev_hash: [0; 32],
+                state_root: [0; 32],
+                timestamp: 1_700_000_000,
+                nonce: 0,
+                difficulty_target: crate::crypto::pow::target_from_leading_zero_bits(6),
+                tx_root: [0; 32],
+            },
+            Vec::new(),
+        );
+        let chain = Arc::new(Mutex::new(
+            Chain::open(state, genesis, ChainConfig::without_pow_verification()).unwrap(),
+        ));
+        let now = supply_at(&chain).unwrap();
+        // The cache holds a report from a branch above the chain's height.
+        let left_branch = Cached {
+            height: now.height + 5,
+            tip: [0xAB; 32],
+            report: SupplyReport {
+                total: U256::from(7_u64),
+                ..now.report
+            },
+        };
+        let cache = SupplyCache::default();
+        *cache.last.lock().unwrap() = Some(left_branch);
+        assert_eq!(cache.get(&chain).unwrap().total, now.report.total);
+        // And the cache now holds the chain's own tip, so the next call hits.
+        let held = cache.last.lock().unwrap().unwrap();
+        assert_eq!((held.height, held.tip), (now.height, now.tip));
+    }
 
     fn quote(pair: &str) -> MarketQuote {
         MarketQuote {

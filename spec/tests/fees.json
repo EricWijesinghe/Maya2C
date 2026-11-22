@@ -79,6 +79,136 @@
       "treasury_bps": "20000"
     },
     {
+      "expect": {
+        "exempt": true
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-0-0",
+      "inputs": "0",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "expect": {
+        "exempt": false
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-1-0",
+      "inputs": "1",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "expect": {
+        "exempt": false
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-0-1",
+      "inputs": "0",
+      "outputs": "1",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "expect": {
+        "exempt": false
+      },
+      "fn": "share_exempt",
+      "id": "share-exempt-1-1",
+      "inputs": "1",
+      "outputs": "1",
+      "rules": [
+        "FEE-7"
+      ]
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "due": "0",
+        "result": "ok"
+      },
+      "fn": "share_fee",
+      "id": "share-fee-0-0-0",
+      "inputs": "0",
+      "offered": "0",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ],
+      "size_bytes": "100"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "due": "1000",
+        "error": "FeeTooLow",
+        "result": "error"
+      },
+      "fn": "share_fee",
+      "id": "share-fee-1-0-0",
+      "inputs": "1",
+      "offered": "0",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ],
+      "size_bytes": "100"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "due": "1000",
+        "result": "ok"
+      },
+      "fn": "share_fee",
+      "id": "share-fee-1-0-1000",
+      "inputs": "1",
+      "offered": "1000",
+      "outputs": "0",
+      "rules": [
+        "FEE-7"
+      ],
+      "size_bytes": "100"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "due": "1000",
+        "error": "FeeTooLow",
+        "result": "error"
+      },
+      "fn": "share_fee",
+      "id": "share-fee-0-1-999",
+      "inputs": "0",
+      "offered": "999",
+      "outputs": "1",
+      "rules": [
+        "FEE-7"
+      ],
+      "size_bytes": "100"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "due": "1000",
+        "result": "ok"
+      },
+      "fn": "share_fee",
+      "id": "share-fee-0-1-1000",
+      "inputs": "0",
+      "offered": "1000",
+      "outputs": "1",
+      "rules": [
+        "FEE-7"
+      ],
+      "size_bytes": "100"
+    },
+    {
       "ceiling": "7567158531971244797",
       "denominator": "8",
       "expect": "1000",

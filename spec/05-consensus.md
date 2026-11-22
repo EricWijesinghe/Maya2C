@@ -11,17 +11,17 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 
 - **CON-1** A header is 145 bytes: `prev_hash[32] ‖ state_root[32] ‖ timestamp_u64 ‖ nonce_u64 ‖ difficulty_target[32] ‖ tx_root[32] ‖ version_u8`. *(positive only: defines a value)*
 - **CON-2** A block's id is BLAKE3 in derive-key mode with context `"custom-l1-node header id v1"` over the 145 header bytes. *(positive only: defines a value)*
-- **CON-3** `tx_root` is ROOT-3's tree over leaves `blake3_derive_key("custom-l1-node tx leaf v1", txid)`; a block whose header disagrees is invalid.
+- **CON-3** `tx_root` is ROOT-3's tree over one leaf per transaction: `blake3_derive_key("custom-l1-node tx leaf v1", txid)`, except for a v8 (multisig) frame, whose id omits its approvals: its leaf is `blake3_derive_key("custom-l1-node tx leaf witness v1", txid ‖ blake3(wire_frame))`. A block whose header disagrees is invalid.
 - **CON-4** A block's declared `state_root` must equal the root its execution produces (invariant 24); otherwise it is invalid and nothing is written.
-- **CON-5** The declared difficulty target must equal the retarget rule's output for that height (every 100 blocks, 15 s target spacing), the window measured between the median times (CON-11's median) of its last and first blocks, not between two single timestamps; otherwise invalid.
+- **CON-5** The declared difficulty target must equal the retarget rule's output for that height (every 100 blocks, 15 s target spacing; the 15 s is the PoW retarget spacing only, inert under DAG-BFT per CON-9, which makes about one block a second), the window measured between the median times (CON-11's median) of its last and first blocks, not between two single timestamps; otherwise invalid.
 - **CON-6** The proof-of-work hash for the block's height must meet its target; otherwise invalid.
 - **CON-7** The active chain is the one with the greatest cumulative work, a target's work being `2^256 ÷ (target + 1)`. *(positive only: a choice between valid branches, never a refusal)*
 - **CON-8** A block at or below the prune horizon is refused.
 - **CON-9** Under DAG-BFT a block's `difficulty_target` equals its parent's, so every block carries the genesis target; otherwise invalid. A DAG-BFT genesis must declare `difficulty_bits` and `pow_limit_bits` of 0 (the unlimited target). There is no retarget and no activation pin: the target certifies nothing here, and a retarget on one-second blocks drove cumulative work to 2^256 − 1 within about 12,500 blocks, which stopped the chain (ADR-035).
-- **CON-10** A header's `version` is 0; any other value is invalid, and a header of another length is not a header (ADR-063).
+- **CON-10** A header's `version` byte is `hash_id << 4 | layout`; its layout (low nibble) is 0, any other layout is invalid, and a header of another length is not a header (ADR-063). The layout is judged before the hash id (CON-16).
 - **CON-11** On a chain whose target is retargeted (CON-5), a block's timestamp is later than the median of the timestamps of its parent and up to ten earlier ancestors (the upper middle when fewer than eleven exist); otherwise invalid. A DAG-BFT chain (CON-9) does not apply this rule: it has no retarget to steer, and its blocks can come faster than once a second (ADR-063).
-- **CON-12** A block's wire size is `145 + 8 + Σ(8 + len)` bytes, where `len` is each transaction's encoding, and it is at most `MAX_BLOCK_BYTES` = 5 MiB (5,242,880) (ADR-072, provisional). A block over the cap is invalid, whoever built it. A builder admits transactions first-fit, in order: one that would take the block over the cap is passed over and the ones after it are still considered; a transaction that does not execute costs no room. The admitted indices are a function of the order and the cap alone, so every node makes the same cut. *(provisional value: pending measurement on the launch host)*
-- **CON-13** *(positive only: CON-13 selects payloads and never refuses one; a refusal is CON-12's `BlockTooLarge`)* A DAG-BFT builder decodes a committed sub-DAG's batch payloads within `DECODE_BUDGET` = 3/2 × `MAX_BLOCK_BYTES` (7,864,320), shared fairly among authors by deficit round-robin.
+- **CON-12** A block's wire size is `145 + 8 + Σ(8 + len)` bytes, where `len` is each transaction's encoding, and it is at most `MAX_BLOCK_BYTES` = 5 MiB (5,242,880) (ADR-072, provisional). A block over the cap is invalid, whoever built it. A builder admits transactions first-fit, in order: one that would take the block over the cap is passed over and the ones after it are still considered; a transaction that does not execute costs no room, and a contract transaction is tried or passed over by the contract-work budget of GAS-9 (spec/10-vm-gas.md), which is part of this cut. The admitted indices are a function of the order, the cap, the state the block builds on and GAS-9 alone, so every node makes the same cut. *(provisional value: pending measurement on the launch host)*
+- **CON-13** *(positive only: CON-13 selects payloads and never refuses one; a refusal is CON-12's `BlockTooLarge`)* A DAG-BFT builder decodes a committed sub-DAG's batch payloads within `DECODE_BUDGET` = 3/2 × `MAX_BLOCK_BYTES` (7,864,320), shared fairly among authors by deficit round-robin. The decoded order is then cut by CON-12 and GAS-9.
   - Each author's queue is its payloads in commit order. Authors are taken in ascending `ValidatorId` (the committee index in each vertex).
   - Every turn adds `Q = max(1, DECODE_BUDGET / n)` to each author still waiting, where `n` is the committee size. The divisor is the committee size, not the number of active authors, so an honest author's first-turn credit does not depend on how many authors are active.
   - An author admits payloads from the front of its queue while the next one fits both its deficit and the budget left. A payload identical to one already admitted is skipped without a charge or a decode.
@@ -31,17 +31,55 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
+- **CON-14** An upgrade-schedule entry that names a version is admitted whatever feature bits it carries, subject to the lead, the horizon, strictly increasing versions and heights, and the suite rules (ADR-082). A sunset-only entry that carries any feature bit is refused. *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+- **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, zkML while it has no verifier, or the work-claim bit `0x10` while `WORK_CLAIM_ADR_ACCEPTED` is false, ADR-044 amendment 2026-11-15; negative case `work_claim_halts_this_binary_at_activation_until_its_adr_is_accepted`). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+- **CON-16** The high nibble of a header's `version` byte is its hash id: the hash its block id (CON-2), proof-of-work seed, `tx_root` (CON-3) and `state_root` (CON-4) are computed under. 0 is BLAKE3, the only hash defined; a header naming any other hash id is invalid (`UnknownHashId`). A later hash is a scheduled upgrade that defines a new id, never a change to what 0 means (ADR-143).
+- **CON-17** A passed governance change to a block-validity parameter (`ParameterKey::is_validity_rule`: tags 2 to 8 and 17 to 20, the DEX fill and order ceilings, the oracle and shielded per-block caps, the VM memory, module and default-gas bounds, the per-transaction and per-block contract gas caps of ADR-142, and the proposed contract-state bounds CSTATE-1 and CSTATE-2) is not in force at its proposal's execution height `E`. It is held in `g:pending:<tag>` and is in force from height `E + MIN_UPGRADE_LEAD_BLOCKS` (2,592,000): the end-of-block pass of height `E + MIN_UPGRADE_LEAD_BLOCKS − 1` writes it into `g:params`, so the committed table at that tip is the one the activation block is judged by. At most one change waits per key; a later passed change to the same key replaces it. Tags 1, 9 and 10 (protocol fee, proposal deposit, default suite) are in force from `E + 1` as before. A change whose value is outside its key's range at `E` expires the proposal and the block is valid; a waiting value outside the range at promotion is deleted and never applied. `g:params` is written at execution only when a key in force from `E + 1` changed, and at promotion only when a value was promoted (ADR-082 amendment 2026-11-15). *(external vectors: crates/node/tests/governance_tests.rs)*
+
 ## Vectors and gaps
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
-not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
+not) and CON-5 to CON-8, CON-10, CON-11, CON-12 and CON-16 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
-(`argonblake-pow`) has no language-neutral vector.
+(`argonblake-pow`) has no language-neutral vector. CON-14 and CON-15 are
+pinned by the node's own tests (`upgrade_schedule_tests.rs`, positive and
+negative cases), not by language-neutral vectors: the schedule lives in typed
+governance payloads, which `crates/spec-ref` does not model.
+
+CON-17 has no language-neutral vector: it is a rule over the governance
+layer's records, pinned by `crates/node/tests/governance_tests.rs` (the
+activation boundary, a replacement at `E + MIN_UPGRADE_LEAD_BLOCKS - 1`, a
+mixed proposal, a dropped out-of-range value, and the record being under the
+state root).
+
+What a committed DAG-BFT sub-DAG holds is a function of the committed anchor
+sequence alone (ADR-150). When anchor `A` is committed after anchor `P` (the
+previous committed anchor, round 0 before any), its sub-DAG is every
+certificate in `A`'s causal history not ordered before and of round at least
+`P.round − GC_DEPTH` (`GC_DEPTH` = 50, saturating at 0), sorted by
+`(round, author)` and ending with `A`. The cutoff never depends on how many
+anchors a node committed in one step or on what its local DAG still holds.
+Before ADR-150 it was the node's own collection horizon, so two honest nodes
+that batched commits differently derived different blocks for one anchor.
+Pinned by `crates/dag-bft/tests/commit_determinism.rs`. A node that resumed
+after round `S` through an attested catch-up (ADR-038) holds no DAG history
+below `S`, so for it this holds only once `P.round − GC_DEPTH > S`: until then
+it imports attested blocks and builds none, and it builds the anchor after `P`
+only when its tip is `P`'s block (ADR-150 item 1). No rule ID and no
+language-neutral vector: the commit rule has no reference model in
+`crates/spec-ref` (gap, below).
 
 DAG construction, the commit rule, finality and fork choice under DAG-BFT
 are specified only by the node's code and `crates/dag-bft`, and have no rule
 IDs yet.
+
+Attestation collection is node-local, not a validity rule: a node counts one
+attestation per `(epoch, height, validator)`, refuses one of another epoch than
+its collector's and one that does not verify against the epoch's committee, and
+ignores a repeat naming the block already
+counted without verifying it again (ADR-147). No rule IDs, no vectors. Node:
+`crates/node/src/consensus/bft/attest.rs`.
 
 Catch-up by certificate replay (ADR-052) is specified by its ADR and the node,
 with no rule IDs and no conformance vectors yet. Its wire rule: `get_certificates`

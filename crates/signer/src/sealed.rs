@@ -31,10 +31,10 @@ pub const MIN_PASSPHRASE_LEN: usize = 12;
 /// in the tag, so these bounds are not about forgery: they stop a crafted
 /// file making the host hash for minutes (above) or the KDF refuse with an
 /// internal error (below). Sealing always uses 64 MiB and 3 passes.
-const MIN_KDF_MEMORY_KIB: u32 = 8 * 1024;
-const MAX_KDF_MEMORY_KIB: u32 = 256 * 1024;
-const MIN_KDF_PASSES: u32 = 1;
-const MAX_KDF_PASSES: u32 = 10;
+pub(crate) const MIN_KDF_MEMORY_KIB: u32 = 8 * 1024;
+pub(crate) const MAX_KDF_MEMORY_KIB: u32 = 256 * 1024;
+pub(crate) const MIN_KDF_PASSES: u32 = 1;
+pub(crate) const MAX_KDF_PASSES: u32 = 10;
 
 #[derive(Serialize, Deserialize)]
 struct SealedFile {
@@ -76,9 +76,15 @@ impl SealedFile {
 ///
 /// # Errors
 ///
-/// [`KeystoreError::Io`] when the file cannot be read.
+/// [`KeystoreError::Io`] when the file cannot be read, or on Unix when it is
+/// readable by its group or others (mode must be 0600 or tighter).
 pub fn read_passphrase_file(path: &std::path::Path) -> Result<Zeroizing<Vec<u8>>, KeystoreError> {
-    let mut bytes = Zeroizing::new(std::fs::read(path)?);
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    // Checked on the open handle, so the mode checked is the mode read.
+    check_private(&file)?;
+    let mut bytes = Zeroizing::new(Vec::new());
+    file.read_to_end(&mut bytes)?;
     let trailing = if bytes.ends_with(b"\r\n") {
         2
     } else {
@@ -87,6 +93,26 @@ pub fn read_passphrase_file(path: &std::path::Path) -> Result<Zeroizing<Vec<u8>>
     let keep = bytes.len() - trailing;
     bytes.truncate(keep);
     Ok(bytes)
+}
+
+/// Refuses a passphrase file that group or others can read. Windows ACLs are
+/// not inspected here (shortcut: DACL check, when the Windows key path gets one).
+#[cfg(unix)]
+fn check_private(file: &std::fs::File) -> Result<(), KeystoreError> {
+    use std::os::unix::fs::PermissionsExt;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        return Err(KeystoreError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "passphrase file is readable by group or others; set mode 0600 \
+             (FAT, exFAT and NTFS volumes mounted on Unix cannot keep that mode)",
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_private(_file: &std::fs::File) -> Result<(), KeystoreError> {
+    Ok(())
 }
 
 /// Whether `text` is a sealed file rather than a legacy plaintext hex key.
@@ -293,6 +319,12 @@ mod tests {
         for (i, (raw, want)) in cases.iter().enumerate() {
             let path = dir.join(i.to_string());
             std::fs::write(&path, raw).unwrap();
+            // The reader refuses a passphrase file readable by group or others.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
             assert_eq!(read_passphrase_file(&path).unwrap().as_slice(), *want);
         }
         std::fs::remove_dir_all(&dir).unwrap();

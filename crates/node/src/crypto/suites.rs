@@ -250,7 +250,8 @@ mod tests {
     use super::*;
 
     const ANNOUNCED: u64 = 100;
-    const WINDOW: u64 = 1_000_000;
+    // The shortest ordinary window the policy admits, so the test tracks the floor.
+    const WINDOW: u64 = maya_crypto_pq::agility::MIN_MIGRATION_WINDOW;
 
     fn sunset(suite: SuiteId) -> SuiteSunset {
         SuiteSunset {

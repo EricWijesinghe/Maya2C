@@ -23,6 +23,13 @@ use crate::network::sim::{DelayStream, LatencyDial};
 use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 use crate::state::StateDB;
 
+/// Deadline for a connection's whole upgrade: Noise, the post-quantum
+/// exchange and yamux. Stated here rather than inherited from libp2p's
+/// builder default (10 s in 0.57) so a dependency bump cannot lengthen how
+/// long a stalled handshake holds one of the pending slots
+/// (`behaviour::MAX_PENDING`); `ip_limits` caps how many one source holds.
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Which transport a node is built on.
 ///
 /// Named `TransportKind` rather than `Transport` because libp2p''s `Transport`
@@ -327,6 +334,7 @@ impl Node {
                 })
                 .map_err(|e| NodeError::Network(format!("behaviour: {e}")))?
                 .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(IDLE_CONNECTION_TIMEOUT))
+                .with_connection_timeout(CONNECTION_TIMEOUT)
                 .build(),
 
             TransportKind::Tcp => builder
@@ -363,6 +371,7 @@ impl Node {
                 })
                 .map_err(|e| NodeError::Network(format!("behaviour: {e}")))?
                 .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(IDLE_CONNECTION_TIMEOUT))
+                .with_connection_timeout(CONNECTION_TIMEOUT)
                 .build(),
         };
         // Subscribe up front so a peer connecting immediately still sees us as

@@ -149,7 +149,7 @@ fn a_node_never_answers_for_two_different_survivor_sets() {
 fn a_tampered_seed_share_is_caught_by_the_commitment() {
     let (mut participants, mut aggregator) = setup(5, DIMENSION);
     let updates = random_updates(5);
-    for (index, participant) in participants.iter().enumerate() {
+    for (index, participant) in participants.iter_mut().enumerate() {
         aggregator
             .submit(participant.masked_input(&updates[index]).expect("mask"))
             .expect("submit");
@@ -172,7 +172,7 @@ fn a_tampered_seed_share_is_caught_by_the_commitment() {
 
 #[test]
 fn a_masked_input_hides_its_update_and_no_sample_bytes_leave_a_node() {
-    let (participants, _) = setup(6, 64);
+    let (mut participants, _) = setup(6, 64);
     let update = vec![0i64; 64];
     let masked = participants[0].masked_input(&update).expect("mask");
     // A zero update masked: every coordinate uniform, none still zero.

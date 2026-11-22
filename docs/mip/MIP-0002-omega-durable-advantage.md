@@ -118,7 +118,7 @@ Controllers that exist or are designed:
 | Controller | Measured | Actuator | Status |
 |---|---|---|---|
 | Base fee | fullness | fee | REAL (ADR-076 clamp) |
-| Neural gas | fee-market features | fee | RESEARCH (quantized integer network; `bins/neural-gas-trainer`) |
+| Neural gas | fee-market features | fee | RESEARCH (quantized integer network; `crates/neural-fee` + `bins/neural-gas-trainer`, not linked by the node since 2026-11-14, ADR-029 amendment) |
 | Decentralization tilt | Nakamoto coefficient, HHI | reward split | planned (ADR-069 #3) |
 | SRN thresholds | false-positive rate of quarantines | `S1`–`S3` | planned (MIP-0001) |
 | Block byte cap | apply time per MiB against the interval | cap | candidate (measured apply cost: `reports/bench/2026-11-01-apply-per-mib.md`) |

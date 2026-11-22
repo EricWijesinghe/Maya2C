@@ -25,6 +25,7 @@ use crate::error::{NodeError, Result};
 use crate::network::behaviour::{NodeBehaviour, NodeBehaviourEvent};
 use crate::network::mempool::{Mempool, TxHash};
 use crate::network::peer_health::{GuardConfig, Offence, PeerHealth, PeerReport};
+use crate::network::pq::rotation::{MIN_SESSION_AGE_SWEEPS, SessionStart};
 use crate::network::pq::{EpochClock, SessionStats};
 use crate::network::sync::RateLimiter;
 use crate::network::topics::{blocks_topic, txs_topic};
@@ -437,6 +438,15 @@ impl Node {
         self.allow_private_addresses = true;
     }
 
+    /// Exempts `peer` from the connection caps, inbound and outbound. For the
+    /// operator's pinned bootnodes: an inbound flood must not refuse the links
+    /// the node was told to keep (`network::ip_limits`).
+    pub fn reserve_peer(&mut self, peer: PeerId) {
+        let behaviour = self.swarm.behaviour_mut();
+        behaviour.limits.bypass_peer_id(&peer);
+        behaviour.ip_limits.reserve(peer);
+    }
+
     /// The clock driving session rotation.
     ///
     /// Cloneable, and the handle carries the same one. Whatever applies blocks
@@ -510,6 +520,7 @@ impl Node {
             links: links::LinkBook::default(),
             convicted: HashSet::new(),
             allow_private_addresses: self.allow_private_addresses,
+            recent_blocks: guard::RecentBlocks::default(),
         };
         tokio::spawn(driver.run(command_rx));
 
@@ -528,12 +539,12 @@ struct NodeDriver {
     rotation_check: Duration,
     /// Counters the metrics exporter samples.
     stats: SessionStats,
-    /// The rotation epoch each live connection was established in.
+    /// When, and in which rotation epoch, each live connection was established.
     ///
     /// Keyed by [`ConnectionId`] rather than [`PeerId`] because a peer may hold
     /// several connections opened at different times, and rotating one must not
     /// be mistaken for rotating them all.
-    sessions: HashMap<ConnectionId, u64>,
+    sessions: HashMap<ConnectionId, SessionStart>,
     /// Block store, for answering sync requests.
     state: Arc<StateDB>,
     /// Evidence and quarantines (`network::peer_health`).
@@ -552,6 +563,8 @@ struct NodeDriver {
     convicted: HashSet<PeerId>,
     /// Copied from [`Node`]: keep non-routable learned addresses (local network only).
     allow_private_addresses: bool,
+    /// Blocks already accepted from gossip (`node::guard`).
+    recent_blocks: guard::RecentBlocks,
 }
 
 impl NodeDriver {
@@ -592,17 +605,19 @@ impl NodeDriver {
     /// negotiated with the peer, and nothing breaks if the peer disagrees about
     /// what epoch it is: see [`crate::network::pq::rotation`].
     fn rotate_stale_sessions(&mut self) {
-        let stale: Vec<ConnectionId> = self
-            .sessions
-            .iter()
-            .filter(|(_, established)| self.epoch.is_stale(**established))
-            .map(|(id, _)| *id)
-            .collect();
+        let min_age = self.rotation_check.saturating_mul(MIN_SESSION_AGE_SWEEPS);
+        let due = self.epoch.due(
+            self.sessions.iter().map(|(id, start)| (*id, *start)),
+            min_age,
+            std::time::Instant::now(),
+        );
 
-        for connection in stale {
+        for connection in due {
             // The entry is dropped here rather than waiting for
             // `ConnectionClosed`, so a connection that refuses to die is not
-            // re-closed on every tick.
+            // re-closed on every tick. `false` from `close_connection` means
+            // the connection is no longer established, and its keys went with
+            // it: there is nothing to retry.
             self.sessions.remove(&connection);
             self.stats.record_rotated();
             let _ = self.swarm.close_connection(connection);
@@ -711,15 +726,19 @@ impl NodeDriver {
                 }
                 // Note the epoch this session's ML-KEM keys were derived in, so
                 // the rotation sweep can tell when they have aged out.
-                self.sessions.insert(connection_id, self.epoch.current());
+                self.sessions.insert(
+                    connection_id,
+                    self.epoch.session_start(std::time::Instant::now()),
+                );
                 self.stats.record_established();
 
-                // Tell gossipsub explicitly: on memory transport there is no
-                // discovery protocol to introduce peers to each other.
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .add_explicit_peer(&peer_id);
+                // Explicit on memory transport only (`Transport::gossip_explicit`).
+                if Transport::of(endpoint.get_remote_address()).gossip_explicit() {
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .add_explicit_peer(&peer_id);
+                }
                 self.emit(NodeEvent::PeerConnected(peer_id));
             }
             SwarmEvent::ConnectionClosed {

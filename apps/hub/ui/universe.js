@@ -1,6 +1,7 @@
 // Every app and field of the Maya2C ecosystem, with an honest status.
-// "live" means running on the public testnet today; nothing is labelled live
-// because it is planned. Update a status here when it changes in features.toml.
+// "live" means built and run on the public testnet, which has been paused since
+// 2026-10-28 and returns with the next genesis, so the chip says "Built
+// (testnet paused)"; nothing is labelled live because it is planned. Update a status here when it changes in features.toml.
 "use strict";
 
 const UNIVERSE = [

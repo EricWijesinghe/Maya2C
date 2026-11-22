@@ -17,7 +17,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use custom_l1_node::core::mining_payload::MiningShare;
+use custom_l1_node::core::mining_payload::{MiningShare, WorkKind};
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::{ChainTag, Transaction};
 use custom_l1_node::crypto::dag::cache::Cache;
@@ -503,6 +503,7 @@ impl Session {
                 let tx_nonce = account.nonce.max(self.next_nonce.get());
                 let mut tx = Transaction::new(vec![], vec![], tx_nonce);
                 tx.kind = TxKind::MiningShare(MiningShare {
+                    kind: WorkKind::DagPow,
                     epoch: work.epoch,
                     nonce,
                 });

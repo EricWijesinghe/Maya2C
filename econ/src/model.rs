@@ -29,8 +29,9 @@ pub const SAMPLED_BLOCKS: u64 = 288;
 
 /// A fiat willingness-to-pay per transaction; demand thins above it.
 const WILLINGNESS_FIAT: f64 = 0.05;
-/// Validators never fall below this many (the set's BFT floor for f = 1).
-const MIN_VALIDATORS: u32 = 4;
+/// Validators never fall below this many: the genesis floor of seven
+/// (n = 7, f = 2; Eric 2026-11-14 MCQ, ADR-047 amendment 2026-11-16).
+const MIN_VALIDATORS: u32 = 7;
 
 /// One simulated day.
 #[derive(Clone, Copy, Debug)]

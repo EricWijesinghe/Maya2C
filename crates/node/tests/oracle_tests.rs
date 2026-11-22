@@ -33,7 +33,8 @@ use custom_l1_node::oracle::feed::{FEED_NAME_LEN, derive_feed_id, observation_by
 use custom_l1_node::oracle::registry::{OracleAuthority, OracleRegistry};
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_vrf::ecvrf::prove;
-use maya_vrf::keys::VrfSecretKey;
+use maya_vrf::keys::{VrfPublicKey, VrfSecretKey};
+use maya_vrf::scheme::VrfScheme;
 use tempfile::TempDir;
 
 mod common;
@@ -322,6 +323,34 @@ fn a_duplicate_authority_is_refused() {
         },
     ];
     assert!(OracleRegistry::new(authorities, 2, 0).is_err());
+}
+
+/// The identity point with the sign bit set: decompression accepts it, but it
+/// is not the canonical encoding (spec CRY-5) and the point has small order.
+fn unusable_vrf_key() -> VrfPublicKey {
+    let mut bytes = [0u8; 32];
+    bytes[0] = 0x01;
+    bytes[31] = 0x80;
+    VrfPublicKey::new(VrfScheme::Ed25519Sha512Tai, bytes)
+}
+
+#[test]
+fn a_registry_refuses_a_vrf_key_no_proof_can_verify_under() {
+    // Accepted, such a key would leave that authority's beacon slots on the
+    // fallback forever; the registry refuses it at genesis and rotation instead.
+    let mut authorities: Vec<OracleAuthority> = (0..3u8)
+        .map(|index| OracleAuthority {
+            address: [index; 32],
+            vrf_key: VrfSecretKey::from_seed([index + 1; 32]).public_key(),
+        })
+        .collect();
+    assert!(OracleRegistry::new(authorities.clone(), 2, 0).is_ok());
+
+    authorities[1].vrf_key = unusable_vrf_key();
+    assert!(matches!(
+        OracleRegistry::new(authorities, 2, 0),
+        Err(NodeError::InvalidOracleRegistry { reason }) if reason.contains("VRF key")
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -807,6 +836,53 @@ fn a_rotation_to_the_wrong_epoch_is_refused() {
         fixture.apply(vec![tx], 1).unwrap_err(),
         NodeError::InvalidOracleRegistry { .. }
     ));
+}
+
+#[test]
+fn a_rotation_to_a_vrf_key_no_proof_can_verify_under_is_refused() {
+    // Signed by the full outgoing quorum and for the right epoch, so the key is
+    // the only thing wrong with it.
+    let fixture = fixture();
+    let newcomer = generate_signing_key().expect("key");
+    let incoming: Vec<(Address, [u8; 33])> = fixture
+        .authorities
+        .iter()
+        .take(2)
+        .map(|authority| (authority.address, authority.vrf.public_key().encode()))
+        .chain(std::iter::once((
+            newcomer.address(),
+            unusable_vrf_key().encode(),
+        )))
+        .collect();
+
+    let message = OracleRegistry::rotation_bytes(1, 2, &incoming);
+    let approvals = fixture
+        .authorities
+        .iter()
+        .take(QUORUM as usize)
+        .map(|authority| {
+            (
+                Box::new(authority.signing.public_key()),
+                Box::new(authority.signing.sign(&message).expect("sign")),
+            )
+        })
+        .collect();
+
+    let tx = signed(
+        TxKind::RotateAuthorities(Box::new(RegistryRotation {
+            epoch: 1,
+            authorities: incoming,
+            quorum: 2,
+            approvals,
+        })),
+        0,
+        &fixture.authorities[0].signing,
+    );
+    assert!(matches!(
+        fixture.apply(vec![tx], 1).unwrap_err(),
+        NodeError::InvalidOracleRegistry { reason } if reason.contains("VRF key")
+    ));
+    assert_eq!(fixture.registry().epoch, 0, "the set was not rotated");
 }
 
 // ---------------------------------------------------------------------------

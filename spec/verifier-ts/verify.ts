@@ -148,7 +148,8 @@ function encoding(): number {
     check(f !== null, `${c.id}: rejected a valid frame`);
     if (!f) continue;
     const body = concat(f.io, f.pk, le64(f.nonce));
-    const signing = concat(text("custom-l1-node.tx.v4"), fromHex(c.chain_tag), body); // TX-3, TX-5
+    // TX-3, TX-5, TX-6: domain ‖ chain_tag ‖ wire version 5 ‖ suite 0x30 ‖ body.
+    const signing = concat(text("custom-l1-node.tx.v5"), fromHex(c.chain_tag), new Uint8Array([5, 0x30]), body);
     check(toHex(blake3(signing)) === c.expect.signing_bytes_blake3, `${c.id}: signing bytes`);
     check(toHex(txid(body, f.sig)) === c.expect.txid, `${c.id}: txid`); // ENC-8
     check(toHex(blake3(concat(text("custom-l1-node.address.v3"), f.pk))) === c.expect.sender, `${c.id}: sender`);
@@ -164,6 +165,14 @@ function fees(): number {
     if (c.fn === "admit") {
       const ok = BigInt(c.max_fee) >= BigInt(c.base_fee) * BigInt(c.size_bytes); // FEE-5
       check(ok === (c.expect.result === "ok"), `${c.id}`);
+    } else if (c.fn === "share_exempt") {
+      const exempt = BigInt(c.inputs) === 0n && BigInt(c.outputs) === 0n; // FEE-7
+      check(exempt === c.expect.exempt, `${c.id}`);
+    } else if (c.fn === "share_fee") {
+      const exempt = BigInt(c.inputs) === 0n && BigInt(c.outputs) === 0n; // FEE-7
+      const due = exempt ? 0n : BigInt(c.base_fee) * BigInt(c.size_bytes);
+      check(due === BigInt(c.expect.due), `${c.id} due`);
+      check((BigInt(c.offered) >= due) === (c.expect.result === "ok"), `${c.id}`);
     } else if (c.fn === "split") {
       const bps = BigInt(c.treasury_bps) < 10000n ? BigInt(c.treasury_bps) : 10000n;
       const treasury = (BigInt(c.base_fee_paid) * bps) / 10000n;
@@ -336,6 +345,11 @@ function mining(): number {
     } else if (c.fn === "meets_target") {
       const met = bigOf("0x" + c.digest) <= bigOf("0x" + c.target);
       check(met === (c.expect.result === "ok"), `${c.id}: meets target`);
+    } else if (c.fn === "work_payload") {
+      // MINE-11: kind 0 only, exact length (kind ‖ epoch ‖ nonce, or kind ‖ beneficiary).
+      const p = fromHex(c.payload);
+      const len = c.payload_type === "mining_share" ? 1 + 8 + 8 : 1 + 32;
+      check((p.length === len && p[0] === 0) === (c.expect.result === "ok"), `${c.id}: work payload`);
     } else check(false, `${c.id}: unknown fn ${c.fn}`);
   }
   return doc.cases.length;

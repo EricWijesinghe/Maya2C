@@ -40,10 +40,22 @@ fn to_be(limbs: &Limbs) -> [u8; 32] {
 /// CON-11: blocks the median is taken over.
 pub const MEDIAN_TIME_SPAN: usize = 11;
 
-/// CON-10: the only header version defined is 0.
-#[must_use]
-pub const fn header_version_ok(version: u8) -> bool {
-    version == 0
+/// CON-10 and CON-16: the header's version byte is `hash_id << 4 | layout`.
+/// The only layout defined is 0 and the only hash id is 0 (BLAKE3). The layout
+/// is judged first, so a byte wrong in both is an unsupported version.
+///
+/// # Errors
+///
+/// `UnsupportedHeaderVersion` for a layout other than 0, `UnknownHashId` for
+/// a hash id other than 0.
+pub const fn header_version(version: u8) -> Result<(), &'static str> {
+    if version & 0x0F != 0 {
+        Err("UnsupportedHeaderVersion")
+    } else if version >> 4 != 0 {
+        Err("UnknownHashId")
+    } else {
+        Ok(())
+    }
 }
 
 /// CON-12: the largest block, in wire bytes (ADR-072, provisional). Mirrors

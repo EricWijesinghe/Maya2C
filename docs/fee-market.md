@@ -31,22 +31,22 @@ built, so including it is the producer's error, not a surprise.
 **Split.** On the live chain the whole base fee burns. The node sets `treasury_bps: 0`
 (`crates/node/src/genesis.rs`) and calls no treasury split, so the 20% treasury share
 in `crates/fee-market/src/execute.rs` is not wired. Owner decision 2026-11-02: that 20%
-stays burned until a treasury exists. The tip goes whole to the claimant. A block with
-no claim burns its tips. Where the split is wired, the treasury share rounds **down** and
+stays burned until a treasury exists (spec FEE-1, v0.1.1). On the node the tip stays in
+the fee collector and becomes the staking reward pool at the epoch boundary
+(`take_fee_pool`). In the library's own `apply_block_fees`, which the node does not call,
+the tip goes to the block's claimant and a block with no claim burns it. Where the split is wired, the treasury share rounds **down** and
 the remainder burns, so no unit is ever created or lost.
 
 **Supply.** `MAX_SUPPLY` is `Amount::MAX`, 2²⁵⁶ − 1 base units, the width of a balance
 (`crates/fee-market/src/supply.rs`). One coin is 10²⁴ base units (`maya_amount::ONE_COIN`).
-The four halving eras issue 19,687,500 coins (ADR-068); the tail then pays forever. There is no
+The schedule for the four halving eras totals 19,687,500 coins, at most that is paid (ADR-068); the tail then pays forever. There is no
 protocol cap. `MAX_SUPPLY` is the width of a balance, so changing it is a hard fork once a
 value-bearing chain checks it.
 
-**Neural gain.** A second, independently switched rule scales the base fee's
-step by a gain from a compiled-in integer network. The gain is one-sided — it
-may only speed a rise or slow a fall — so the fee is never below what the linear
-rule would set, whatever features a producer writes.
-`neural_activation_height` is `u64::MAX` in both shipped configurations, so
-`apply_block_fees` charges exactly what it did before — see
+**No neural gain.** A second rule that scaled the step by a gain from an
+integer network sat here at activation `u64::MAX` until 2026-11-14. It moved
+to `crates/neural-fee`, which the node does not link (ADR-029 amendment), so
+the linear step is the only base-fee rule in the binary — see
 [neural-gas.md](neural-gas.md).
 
 ## The bounds no configuration may escape

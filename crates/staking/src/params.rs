@@ -60,6 +60,9 @@ impl Params {
             && self.max_validators > 0
             && self.unbonding_epochs > 0
             && !self.min_self_bond.is_zero()
+            // A zero floor admits `delegate(0)`: a zero delegation, which
+            // the node's per-record store cannot hold (ADR-062b).
+            && !self.min_delegation.is_zero()
     }
 }
 
@@ -84,5 +87,15 @@ mod tests {
         let mut p = Params::DEVNET;
         p.unbonding_epochs = 0;
         assert!(!p.is_valid());
+    }
+
+    #[test]
+    fn a_zero_minimum_delegation_is_not_a_valid_parameter_set() {
+        // `delegate(0)` would store a zero delegation record, which the node
+        // refuses to decode: every later read of that validator would halt.
+        let mut p = Params::DEVNET;
+        p.min_delegation = Amount::ZERO;
+        assert!(!p.is_valid());
+        assert!(crate::Staking::new(p).is_err());
     }
 }

@@ -32,16 +32,23 @@ const VALIDATORS: u16 = 7;
 const RPC_BASE: u16 = 35_000;
 const P2P_BASE: u16 = 35_300;
 const CHAIN_ID: &str = "maya-proving-1";
-const COIN: u128 = 1_000_000_000_000_000_000_000_000;
-/// Every bond is exactly the mainnet floor, as `genesis-check` requires of a
-/// mainnet genesis; 1/7 of the stake each.
-const BOND: u128 = crate::genesis_check::MIN_SELF_BOND;
+/// The mainnet minimum self-bond, passed as `--min-self-bond`.
+const MIN_SELF_BOND: u128 = crate::genesis_check::MIN_SELF_BOND;
+/// Every bond is exactly the genesis bond (the floor plus the margin,
+/// ADR-070 amendment 2026-11-22), as `genesis-check` requires of any genesis
+/// that sets `min_self_bond`; 1/7 of the stake each.
+const BOND: u128 = crate::genesis_check::genesis_bond(MIN_SELF_BOND)
+    .expect("the genesis bond of the mainnet floor fits in u128");
+const _: () = assert!(
+    BOND > MIN_SELF_BOND,
+    "the genesis bond sits above the floor"
+);
 /// No premine (ADR-044): only the keyless mining reserve is funded.
 const SUPPLY: u128 = 0;
 /// `MiningRecord::lifetime_emission` of the mainnet schedule (README beside it).
 const RESERVE: &str = "122753829695359067419575633036805965021648";
-const MIN_SELF_BOND: u128 = BOND;
-const MIN_DELEGATION: u128 = COIN;
+/// The mainnet floor, as `genesis-check` requires of a mainnet genesis.
+const MIN_DELEGATION: u128 = crate::genesis_check::MIN_DELEGATION;
 /// Eric, 2026-11-02: the 7-day soak is done; any later test network runs one day at most.
 const DEFAULT_HOURS: u64 = 24;
 const CHECK_EVERY: Duration = Duration::from_secs(60);
@@ -125,7 +132,7 @@ fn setup(work: &Path, root: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(&council).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&keys).map_err(|e| e.to_string())?;
     let pass = work.join("council-pass");
-    std::fs::write(&pass, PASSWORD).map_err(|e| e.to_string())?;
+    devnet::write_private(&pass, PASSWORD)?;
     for label in ["c1", "c2", "c3"] {
         devnet::output(
             Command::new(devnet::bin("genesis-ceremony"))
@@ -364,5 +371,16 @@ mod tests {
         assert_eq!(RESERVE_ADDRESS.len(), 64);
         assert!(RESERVE_ADDRESS.starts_with(&tag));
         assert!(RESERVE_ADDRESS[tag.len()..].chars().all(|c| c == '0'));
+    }
+
+    /// `setup` hands its genesis to `genesis_check::run`, which refuses a seat
+    /// bonded at anything but the genesis bond of `--min-self-bond`.
+    #[test]
+    fn every_seat_bonds_the_genesis_bond_of_the_floor() {
+        assert_eq!(MIN_SELF_BOND, crate::genesis_check::MIN_SELF_BOND);
+        assert_eq!(
+            Some(BOND),
+            crate::genesis_check::genesis_bond(MIN_SELF_BOND)
+        );
     }
 }
