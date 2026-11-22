@@ -23,9 +23,11 @@
 //! keygen. So every window also has a budget per peer in bytes
 //! ([`PEER_RESPONSE_BYTES_PER_WINDOW`]) and one shared by all peers, in
 //! requests ([`GLOBAL_REQUESTS_PER_WINDOW`]) and in bytes
-//! ([`GLOBAL_RESPONSE_BYTES_PER_WINDOW`]). Serving runs on the swarm task, so
-//! the shared budget is also what bounds the block-store reads a burst of
-//! requests can put in front of gossip and BFT frames. A response is cut to
+//! ([`GLOBAL_RESPONSE_BYTES_PER_WINDOW`]), of which a quarter is kept for
+//! peers this node dialed, so inbound identities cannot starve them. Serving
+//! runs on the swarm task, so the shared budget is also what bounds the
+//! block-store reads a burst of requests can put in front of gossip and BFT
+//! frames. A response is cut to
 //! what is left of either byte budget; with nothing left it is empty, which a
 //! requester reads as "the relay lacks it".
 
@@ -74,6 +76,17 @@ pub const GLOBAL_REQUESTS_PER_WINDOW: u32 = 1_024;
 
 /// Response bytes sent per window across all peers: 256 MiB, about 26 MiB/s.
 pub const GLOBAL_RESPONSE_BYTES_PER_WINDOW: usize = 256 * 1024 * 1024;
+
+/// Of [`GLOBAL_REQUESTS_PER_WINDOW`], how many only peers this node dialed
+/// may use. Why: identities are free, so inbound peers alone can spend a
+/// first-come budget every window; a quarter is kept for the peers the node
+/// chose (its bootnodes and the peers it dialed), which a flood of inbound
+/// identities cannot become.
+pub const DIALED_REQUESTS_PER_WINDOW: u32 = GLOBAL_REQUESTS_PER_WINDOW / 4;
+
+/// Of [`GLOBAL_RESPONSE_BYTES_PER_WINDOW`], how many only peers this node
+/// dialed may use, for the same reason: 64 MiB.
+pub const DIALED_RESPONSE_BYTES_PER_WINDOW: usize = GLOBAL_RESPONSE_BYTES_PER_WINDOW / 4;
 
 /// Inbound plus outbound sync streams one connection may hold at once. An
 /// honest node runs at most a few ancestor walks, each one request at a time;
@@ -261,8 +274,11 @@ pub struct RateLimiter {
 impl RateLimiter {
     /// Whether `peer` may make another request at `now`, counting it if so,
     /// and the most response bytes it may then be sent. `None` when a request
-    /// budget is spent or nothing is left of a byte budget.
-    pub fn admit(&mut self, peer: PeerId, now: Instant) -> Option<usize> {
+    /// budget is spent or nothing is left of a byte budget. A peer this node
+    /// did not dial (`dialed` false) is held to the global budgets less the
+    /// share kept for dialed peers ([`DIALED_REQUESTS_PER_WINDOW`],
+    /// [`DIALED_RESPONSE_BYTES_PER_WINDOW`]); a dialed peer may use all of it.
+    pub fn admit(&mut self, peer: PeerId, now: Instant, dialed: bool) -> Option<usize> {
         if self.windows.len() >= MAX_LIMITED_PEERS && !self.windows.contains_key(&peer) {
             self.windows
                 .retain(|_, w| now.saturating_duration_since(w.start) < REQUEST_WINDOW);
@@ -274,12 +290,20 @@ impl RateLimiter {
         global.roll(now);
         let window = self.windows.entry(peer).or_insert_with(|| Window::new(now));
         window.roll(now);
-        if window.requests >= REQUESTS_PER_WINDOW || global.requests >= GLOBAL_REQUESTS_PER_WINDOW {
+        let (requests, bytes) = if dialed {
+            (GLOBAL_REQUESTS_PER_WINDOW, GLOBAL_RESPONSE_BYTES_PER_WINDOW)
+        } else {
+            (
+                GLOBAL_REQUESTS_PER_WINDOW - DIALED_REQUESTS_PER_WINDOW,
+                GLOBAL_RESPONSE_BYTES_PER_WINDOW - DIALED_RESPONSE_BYTES_PER_WINDOW,
+            )
+        };
+        if window.requests >= REQUESTS_PER_WINDOW || global.requests >= requests {
             return None;
         }
         let budget = MAX_RESPONSE_PAYLOAD
             .min(PEER_RESPONSE_BYTES_PER_WINDOW.saturating_sub(window.bytes))
-            .min(GLOBAL_RESPONSE_BYTES_PER_WINDOW.saturating_sub(global.bytes));
+            .min(bytes.saturating_sub(global.bytes));
         if budget == 0 {
             return None;
         }
@@ -399,24 +423,24 @@ mod tests {
         let mut limiter = RateLimiter::default();
         let (peer, now) = (PeerId::random(), Instant::now());
         for _ in 0..REQUESTS_PER_WINDOW {
-            assert!(limiter.admit(peer, now).is_some());
+            assert!(limiter.admit(peer, now, false).is_some());
         }
-        assert!(limiter.admit(peer, now).is_none());
-        assert!(limiter.admit(PeerId::random(), now).is_some());
-        assert!(limiter.admit(peer, now + REQUEST_WINDOW).is_some());
+        assert!(limiter.admit(peer, now, false).is_none());
+        assert!(limiter.admit(PeerId::random(), now, false).is_some());
+        assert!(limiter.admit(peer, now + REQUEST_WINDOW, false).is_some());
     }
 
     #[test]
     fn a_peer_is_sent_at_most_its_byte_budget_per_window() {
         let mut limiter = RateLimiter::default();
         let (peer, now) = (PeerId::random(), Instant::now());
-        assert_eq!(limiter.admit(peer, now), Some(MAX_RESPONSE_PAYLOAD));
+        assert_eq!(limiter.admit(peer, now, false), Some(MAX_RESPONSE_PAYLOAD));
         limiter.spend(peer, PEER_RESPONSE_BYTES_PER_WINDOW - 1);
-        assert_eq!(limiter.admit(peer, now), Some(1));
+        assert_eq!(limiter.admit(peer, now, false), Some(1));
         limiter.spend(peer, 1);
-        assert_eq!(limiter.admit(peer, now), None);
+        assert_eq!(limiter.admit(peer, now, false), None);
         assert_eq!(
-            limiter.admit(peer, now + REQUEST_WINDOW),
+            limiter.admit(peer, now + REQUEST_WINDOW, false),
             Some(MAX_RESPONSE_PAYLOAD)
         );
     }
@@ -430,25 +454,61 @@ mod tests {
         let (mut admitted, mut sent) = (0u32, 0usize);
         for _ in 0..(GLOBAL_REQUESTS_PER_WINDOW + 300) {
             let peer = PeerId::random();
-            if let Some(budget) = limiter.admit(peer, now) {
+            if let Some(budget) = limiter.admit(peer, now, false) {
                 admitted += 1;
                 sent += budget;
                 limiter.spend(peer, budget);
             }
         }
         assert!(admitted <= GLOBAL_REQUESTS_PER_WINDOW);
-        assert_eq!(sent, GLOBAL_RESPONSE_BYTES_PER_WINDOW);
-        assert!(limiter.admit(PeerId::random(), now).is_none());
+        // Inbound identities reach the shared part only; the rest is kept
+        // for dialed peers.
+        assert_eq!(
+            sent,
+            GLOBAL_RESPONSE_BYTES_PER_WINDOW - DIALED_RESPONSE_BYTES_PER_WINDOW
+        );
+        assert!(limiter.admit(PeerId::random(), now, false).is_none());
 
         let mut requests_only = RateLimiter::default();
         let admitted = (0..(GLOBAL_REQUESTS_PER_WINDOW + 300))
-            .filter(|_| requests_only.admit(PeerId::random(), now).is_some())
+            .filter(|_| requests_only.admit(PeerId::random(), now, false).is_some())
             .count();
-        assert_eq!(admitted, GLOBAL_REQUESTS_PER_WINDOW as usize);
+        assert_eq!(
+            admitted,
+            (GLOBAL_REQUESTS_PER_WINDOW - DIALED_REQUESTS_PER_WINDOW) as usize
+        );
         assert!(
             requests_only
-                .admit(PeerId::random(), now + REQUEST_WINDOW)
+                .admit(PeerId::random(), now + REQUEST_WINDOW, false)
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn a_flood_of_inbound_identities_leaves_the_share_kept_for_peers_this_node_dialed() {
+        // Identities are free, so 64 of them can spend every shared budget in
+        // a window. A peer this node dialed (its bootnodes, the peers it chose)
+        // must still be served inside that window.
+        let mut limiter = RateLimiter::default();
+        let now = Instant::now();
+        let mut flood = || {
+            let peer = PeerId::random();
+            let mut admitted = false;
+            while let Some(budget) = limiter.admit(peer, now, false) {
+                limiter.spend(peer, budget);
+                admitted = true;
+            }
+            admitted
+        };
+        for _ in 0..64 {
+            flood();
+        }
+        assert!(!flood(), "the flood did not spend the inbound share");
+        let dialed = PeerId::random();
+        assert_eq!(
+            limiter.admit(dialed, now, true),
+            Some(MAX_RESPONSE_PAYLOAD),
+            "a peer this node dialed was starved by inbound identities"
         );
     }
 
@@ -483,7 +543,7 @@ mod tests {
             limiter.windows.insert(PeerId::random(), Window::new(now));
         }
         assert!(
-            limiter.admit(PeerId::random(), now).is_some(),
+            limiter.admit(PeerId::random(), now, false).is_some(),
             "a full table must not refuse a newcomer"
         );
         assert_eq!(limiter.windows.len(), MAX_LIMITED_PEERS);

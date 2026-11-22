@@ -151,6 +151,19 @@ the lines this ADR changes; the rest of that review is ADR-151.
   smaller of 24 MiB and what is left. The table still forgets its oldest window to
   admit a newcomer; the global budgets are what bound a flood of fresh identities.
   One connection holds at most 8 sync streams (the request-response default was 100).
+- **A quarter of the shared budget is kept for peers this node dialed** (256 requests
+  and 64 MiB per window). Why: first come, first served, 32 fresh inbound identities
+  spend the request budget and about 6 the byte budget every window, and every
+  honest ancestor walk then gets an empty answer. Inbound peers use the other three
+  quarters; a peer whose first live connection this node opened (its bootnodes, the
+  peers it chose) may use all of it. Known availability trade, accepted: the inbound
+  share can still be exhausted by fresh identities, which costs an inbound honest
+  peer this node's answers for the rest of the window. An empty answer ends that one
+  ancestor walk (`walk_ancestors`); the block is asked for again when the next
+  descendant arrives from any relay, or comes through BFT catch-up. Per-source
+  accounting by address was not added: the request handler sees a peer id, not an
+  address, and #655 (ADR-151) caps established inbound connections per source.
+  Added 2026-11-22 after review of #589.
 - **RPC refunds reach IPv6 clients.** A refund looked up the full address while
   buckets are kept per IPv6 /64 (and IPv4-mapped addresses per IPv4), so the unused
   part of a certificate-page reservation was never returned to those clients.

@@ -246,7 +246,7 @@ impl NodeDriver {
                 let budget = if self.health.is_quarantined(&peer, now) {
                     None
                 } else {
-                    self.sync_limits.admit(peer, now)
+                    self.sync_limits.admit(peer, now, self.links.dialed(&peer))
                 };
                 let response = match budget {
                     Some(budget) => {

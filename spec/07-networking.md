@@ -17,8 +17,8 @@ it is buffered. When the pool is full, a block a buffered orphan waits on
 displaces the newest orphan nothing waits on. The block-sync request table and the RPC per-address
 rate table evict their oldest entry at their ceiling rather than refusing a
 newcomer or growing. Block-sync serving sends one peer at most 48 MiB and all
-peers 256 MiB and 1,024 requests per 10 s window, over at most 8 streams per
-connection. The market HTTP server serves at most 256 live connections, closes
+peers 256 MiB and 1,024 requests per 10 s window, a quarter of each kept for
+peers the node dialed, over at most 8 streams per connection. The market HTTP server serves at most 256 live connections, closes
 one whose request head takes longer than 10 s or that lives past 60 s, and
 answers one non-loopback address at most 5 requests a second (burst 20).
 
