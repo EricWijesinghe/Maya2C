@@ -1019,3 +1019,24 @@ A sweep of the apply path after PR #500's governance index measured every end-of
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+### 2026-11-22 — Staking dust floor and operator-entry reserve (decision brief 2, review R-7), pending Eric
+
+Built as a draft `[needs-eric]` PR stacked on #555; nothing here is decided until Eric chooses.
+
+- **Proposed (brief 2 option A):** mainnet `min_delegation` = 100 coins (10^26 base units), up from
+  the 1 coin decided 2026-10-30. Closing one validator to new delegators then locks 1,638,400 coins
+  (16,384 positions), closing the chain 13,107,200 (131,072), against 16,384 and 131,072 at 1 coin.
+  Era 1 issues about 2,625,000 coins a year at one block a second. Cost of the choice: a holder under
+  100 coins needs a pool. One line in `xtask/src/genesis_check.rs`; no record format change.
+- **Proposed (R-7):** an operator unbond that would open a new unbonding entry is refused once
+  positions reach the ceiling plus `OPERATOR_ENTRY_RESERVE` = 16,384 (spec STK-12). Positions are then
+  bounded whatever the number of validators. Filling the reserve takes 2,341 validators at 1,000
+  coins, refilled every epoch, and only delays operators' new entries.
+- **Not done, for Eric:** a registration ceiling (needs a validator count in the meta record, a
+  layout change); option B (evict the smallest position at a full ceiling), suggested after genesis.
+- **Audit claims checked:** brief 2's ceilings (131,072 and 16,384) and the 1-coin floor are right;
+  R-7's "operator Unbond skips the ceiling" and "registration is uncapped" are right. The brief's
+  "total supply MISSING" is filled from `deploy/genesis/mainnet/README.md` (19,687,500 coins over the
+  halving eras).
+

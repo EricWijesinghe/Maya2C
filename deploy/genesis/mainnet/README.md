@@ -98,7 +98,7 @@ cargo xtask genesis-check out/genesis.json
   - **Validators:** at least 7, and one bond per validator.
   - **Anchor timeout:** `bft.anchor_timeout_ms` is at least 500.
   - **Staking floors:** `min_self_bond` is set and at least 1,000 coins; `min_delegation` is set
-    and at least 1 coin.
+    and at least 100 coins (proposed 2026-11-22, pending Eric; it was 1 coin, ADR-062 amendment 062c).
   - **Bonds:** every bond equals `min_self_bond` exactly.
   - **Operator cap:** no operator holds more than 20% of the bonded stake.
   - **Shielded pool:** off (`shielded_activation_height` = `u64::MAX`, ADR-037).

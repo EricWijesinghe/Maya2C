@@ -219,7 +219,10 @@ fn ceremony(work: &Path, validators: &Path, bond: u128) -> Result<String> {
             ])
             .args(["--council-max-pause-blocks", MAX_PAUSE_BLOCKS])
             .args(["--min-self-bond", &bond.to_string()])
-            .args(["--min-delegation", &maya_amount::ONE_COIN.to_string()])
+            .args([
+                "--min-delegation",
+                &crate::genesis_check::MIN_DELEGATION.to_string(),
+            ])
             .args([
                 "--timestamp",
                 &now.to_string(),
