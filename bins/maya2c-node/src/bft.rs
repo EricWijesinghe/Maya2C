@@ -997,7 +997,8 @@ async fn act(
     // execute (stale nonce, a run whose head is gone, a spent share) is
     // removed rather than proposed again, fee-free, next round (independent
     // audit CT-01). State reads only, no signature or proof of work, so it
-    // stays cheap on this task (`Mempool::settle_round`).
+    // stays cheap on this task (`Mempool::settle_round`). The two pools are
+    // linked in `main`, so a run split across them is not taken for a gap.
     for pool in pools {
         pool.settle_round(&step.included, &dropped);
     }

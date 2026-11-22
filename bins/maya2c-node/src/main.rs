@@ -947,6 +947,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pq_stats = p2p.session_stats();
     let pq_epoch = p2p.epoch_clock();
     let network = p2p.spawn();
+    // Both pools feed consensus, so each counts the other's nonces as pooled:
+    // a wallet's nonce n through gossip and n + 1 over RPC is no gap.
+    if !rpc_pool.link_sibling(network.mempool()) {
+        eprintln!("mempool: the RPC and gossip pools were already linked elsewhere");
+    }
     // Consensus tasks, watched below: one ending stops the node (S-022).
     let mut critical = tokio::task::JoinSet::new();
     tokio::spawn(rotation_height_loop(Arc::clone(&chain), pq_epoch.clone()));

@@ -189,11 +189,12 @@ fn pruning_dropped_entries_does_not_verify_signatures_again() {
     assert!(pool.contains(&tx.txid()));
 }
 
-/// The round's bookkeeping in one call, so its order is tested where the BFT
-/// loop uses it: the included entries leave first, then a dropped entry whose
-/// run lost its head goes too (CT-01).
+/// The round's bookkeeping in one call, as the BFT loop uses it: the included
+/// entries leave, and a dropped entry the commit made stale goes too (CT-01).
+/// A behaviour test, not an order test: the driver reports `included` after
+/// the block committed, so either call order gives this result (review of #653).
 #[test]
-fn settling_a_round_removes_included_then_prunes_dropped() {
+fn settling_a_round_removes_included_and_prunes_dropped() {
     let dir = TempDir::new().unwrap();
     let state = funded(&dir);
     let pool = Mempool::new(Arc::clone(&state));
@@ -217,4 +218,59 @@ fn settling_a_round_removes_included_then_prunes_dropped() {
         "a stale dropped entry is pruned"
     );
     assert!(pool.contains(&next.txid()), "nonce 1 still executes");
+}
+
+/// Two pools on one node, as `main` links the gossip and RPC pools: a wallet
+/// that sent nonce 0 to one node and nonce 1 to another has them in different
+/// pools here, and nonce 1 is no gap (review of #653).
+fn linked_pools(dir: &TempDir) -> (Mempool, Mempool) {
+    let state = funded(dir);
+    let (gossip, rpc) = (Mempool::new(Arc::clone(&state)), Mempool::new(state));
+    assert!(rpc.link_sibling(&gossip));
+    (gossip, rpc)
+}
+
+#[test]
+fn a_nonce_whose_predecessor_is_in_the_sibling_pool_is_admitted() {
+    let dir = TempDir::new().unwrap();
+    let (gossip, rpc) = linked_pools(&dir);
+    assert!(gossip.insert(pay(0, 1)).unwrap());
+    assert!(
+        rpc.insert(pay(1, 1)).unwrap(),
+        "nonce 0 is pooled next door"
+    );
+    // And the other way round.
+    assert!(gossip.insert(pay(2, 1)).unwrap());
+    // A real gap is still a gap across both.
+    let err = rpc.insert(pay(4, 1)).unwrap_err();
+    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+}
+
+#[test]
+fn a_dropped_entry_whose_predecessor_is_in_the_sibling_pool_is_kept() {
+    let dir = TempDir::new().unwrap();
+    let (gossip, rpc) = linked_pools(&dir);
+    let (first, second) = (pay(0, 1), pay(1, 1));
+    assert!(rpc.insert(first.clone()).unwrap());
+    assert!(gossip.insert(second.clone()).unwrap());
+
+    assert_eq!(gossip.settle_round(&[], &[second.txid()]), 0);
+    assert!(
+        gossip.contains(&second.txid()),
+        "nonce 0 is pooled next door"
+    );
+
+    // Once the predecessor leaves without executing, the run lost its head.
+    assert_eq!(rpc.remove_all(&[first.txid()]), 1);
+    assert_eq!(gossip.settle_round(&[], &[second.txid()]), 1);
+}
+
+#[test]
+fn a_pool_links_to_one_sibling_only() {
+    let dir = TempDir::new().unwrap();
+    let (gossip, rpc) = linked_pools(&dir);
+    let other_dir = TempDir::new().unwrap();
+    let third = Mempool::new(funded(&other_dir));
+    assert!(!third.link_sibling(&gossip), "gossip is already linked");
+    assert!(!rpc.link_sibling(&third));
 }

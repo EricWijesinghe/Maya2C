@@ -27,14 +27,20 @@
 //!
 //! A pooled entry the executor drops pays no fee, and the BFT feed proposes
 //! whatever is pooled, so an entry that can never execute would be ordered
-//! and dropped every round. Two rules keep the pool to entries that can run:
+//! and dropped every round. Two rules keep stale, gapped and unaffordable
+//! entries out of the pool:
 //!
 //! - A nonce is admitted only when every nonce from the account's up to it is
-//!   already pooled ([`Mempool::validate`]), so no gap can be created; and
-//!   [`Mempool::prune_invalid`] removes a dropped entry that committed state
-//!   has made stale, or whose run lost its head.
+//!   already pooled, here or in the node's other pool ([`Mempool::link_sibling`]),
+//!   so no gap can be created; and [`Mempool::prune_invalid`] removes a dropped
+//!   entry that committed state has made stale, or whose run lost its head.
 //! - A fee-free mining share is pooled once per piece of work: the same work
 //!   under another transaction nonce could never be paid twice.
+//!
+//! Not covered: an entry that passes every state check here but fails on its
+//! payload when staged (a cancel of an unknown order, a swap on a missing
+//! pool) is still re-proposed each round. Pruning it needs the builder to
+//! tell a staging failure from an entry left out for block room; BACKLOG.md.
 
 use primitive_types::U256;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -67,7 +73,14 @@ pub struct Mempool {
     /// its cheapest per byte without re-encoding everything it holds. Changed
     /// only under the pool's write lock.
     fees: Arc<std::sync::Mutex<HashMap<TxHash, (U256, usize)>>>,
+    /// The other local pool's sender tally, once linked: a node feeds both
+    /// its gossip pool and its RPC pool to consensus, so a nonce pooled in
+    /// either one is no gap ([`Mempool::link_sibling`]).
+    sibling: Arc<std::sync::OnceLock<Senders>>,
 }
+
+/// Per-sender tallies of one pool.
+type Senders = Arc<std::sync::Mutex<HashMap<Address, Pending>>>;
 
 /// What one sender has pooled.
 #[derive(Clone, Debug, Default)]
@@ -112,7 +125,22 @@ impl Mempool {
             max_bytes: DEFAULT_MAX_BYTES,
             senders: Arc::default(),
             fees: Arc::default(),
+            sibling: Arc::default(),
         }
+    }
+
+    /// Lets this pool and `other` each count the other's pooled nonces in the
+    /// gap rule. A node runs a gossip pool and an RPC pool and proposes from
+    /// both, so a wallet that sends nonce `n` to one node and `n + 1` to
+    /// another has them in different pools here; unlinked, `n + 1` would be
+    /// refused as a gap. Only nonces are shared: the per-sender cap and the
+    /// affordability sum stay per pool. Returns `false` when either pool was
+    /// already linked, and then that pool keeps its first link.
+    #[must_use]
+    pub fn link_sibling(&self, other: &Self) -> bool {
+        let here = self.sibling.set(Arc::clone(&other.senders)).is_ok();
+        let there = other.sibling.set(Arc::clone(&self.senders)).is_ok();
+        here && there
     }
 
     /// The same pool with a byte budget of `max_bytes` instead of the default.
@@ -193,21 +221,39 @@ impl Mempool {
     /// transactions at exact nonces only, so an entry past a gap would be
     /// ordered and dropped, fee-free, every round until the gap filled.
     ///
+    /// A nonce pooled in the linked sibling pool counts ([`Mempool::link_sibling`]),
+    /// so a sender who used two RPC endpoints is not refused here.
+    ///
     /// Cost: a sender whose nonces reach this node out of order over gossip
-    /// has the early arrivals refused here; the node they were sent to, and
-    /// peers that saw them in order, still hold them.
+    /// has the early arrivals refused here, and gossip does not redeliver
+    /// them; the node they were sent to, and peers that saw them in order,
+    /// still hold them.
     fn check_no_gap(&self, sender: &Address, account_nonce: u64, tx_nonce: u64) -> Result<()> {
         if tx_nonce > account_nonce.saturating_add(MAX_NONCE_AHEAD) {
             return Err(NodeError::MempoolRejected(format!(
                 "nonce {tx_nonce} is more than {MAX_NONCE_AHEAD} past the account's {account_nonce}"
             )));
         }
-        let senders = self.lock_senders();
-        let pooled = senders.get(sender).map(|p| &p.nonces);
-        // At most MAX_NONCE_AHEAD lookups, by the window check above.
-        let missing = (account_nonce..tx_nonce)
-            .find(|nonce| pooled.is_none_or(|nonces| !nonces.contains_key(nonce)));
-        if let Some(missing) = missing {
+        // At most MAX_NONCE_AHEAD lookups, by the window check above. The two
+        // tallies are locked one after the other, never together, so two
+        // linked pools checking at once cannot deadlock.
+        let absent = |tally: &HashMap<Address, Pending>, nonces: &mut Vec<u64>| {
+            let pooled = tally.get(sender).map(|p| &p.nonces);
+            nonces.retain(|nonce| pooled.is_none_or(|n| !n.contains_key(nonce)));
+        };
+        let mut missing: Vec<u64> = (account_nonce..tx_nonce).collect();
+        absent(&self.lock_senders(), &mut missing);
+        if let Some(sibling) = self.sibling.get()
+            && !missing.is_empty()
+        {
+            absent(
+                &sibling
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                &mut missing,
+            );
+        }
+        if let Some(&missing) = missing.first() {
             return Err(NodeError::MempoolRejected(format!(
                 "nonce {tx_nonce} leaves a gap: nonce {missing} is not pooled"
             )));
@@ -702,9 +748,10 @@ impl Mempool {
     }
 
     /// A committed round's bookkeeping: removes `included`, then prunes the
-    /// `dropped` entries that can never execute. The order matters: the gap
-    /// check must see the nonces the round committed. Returns how many dropped
-    /// entries were pruned.
+    /// `dropped` entries that can never execute. Returns how many dropped
+    /// entries were pruned. The driver reports `included` only after the block
+    /// committed, so the gap check already starts past those nonces and the
+    /// two calls give the same result in either order.
     pub fn settle_round(&self, included: &[TxHash], dropped: &[TxHash]) -> usize {
         self.remove_all(included);
         self.prune_invalid(dropped)
@@ -719,10 +766,10 @@ impl Mempool {
     /// proof of work ([`Mempool::still_executable`]), so it can run on the
     /// consensus task with a full pool.
     ///
-    /// Call it after the round's included entries were removed. Entries are
-    /// taken in nonce order per sender and removed one at a time, so removing
-    /// nonce `n` makes `n + 1` fail the gap check in the same pass. As in
-    /// [`Mempool::revalidate`], a state read failure also removes the entry.
+    /// Entries are taken in nonce order per sender and removed one at a
+    /// time, so removing nonce `n` makes `n + 1` fail the gap check in the
+    /// same pass. As in [`Mempool::revalidate`], a state read failure also
+    /// removes the entry.
     pub fn prune_invalid(&self, hashes: &[TxHash]) -> usize {
         let mut dropped: Vec<(Address, u64, TxHash, Transaction)> = hashes
             .iter()

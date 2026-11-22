@@ -48,6 +48,24 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
 - **Packed state words:** balance (about 104 bits) + nonce + flags in one 256-bit leaf,
   for fewer reads and smaller proofs (ADR-062 territory).
 
+## P2 — pool entries that fail on their payload (review of #653, 2026-11-22, MEDIUM)
+
+- **Bound re-proposal of payload-failing entries (CT-01 residual).** #653
+  prunes stale, gapped and unaffordable entries after each BFT round.
+  `Mempool::still_executable` checks only state rules, so an entry that
+  passes them but always fails `stage_transaction` on its payload stays
+  pooled and is ordered, staged and dropped fee-free every round, up to
+  `MAX_PER_SENDER` per account (pre-existing; not a consensus result).
+  A plain per-entry strike counter is not safe: `Step.dropped`
+  (`release_unincluded`, `consensus/bft/driver.rs`) also holds entries the
+  builder left out for block room (ADR-072 first-fit), so under sustained
+  load it would evict valid transactions. Needed first: the builder reports
+  which own entries failed staging and which were left out for room; then
+  evict an entry after a small named number of staging failures while its
+  sender's committed nonce did not move, with a red-then-green test (a
+  `CancelOrder` of an unknown id). Touches the BFT driver output, so it is a
+  node change: post-genesis or the next re-freeze.
+
 ## P2 — found in the 2026-11-01 hardening wave (post-freeze)
 
 - **Pay the lint ratchet back from 844 to 790 or below (after genesis).** It rose by 54 between
