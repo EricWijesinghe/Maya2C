@@ -5,6 +5,14 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "allow-defaults",
+    "allow-node-snapshot",
+    "allow-watch-balances",
+    "allow-gpu-telemetry",
+    "allow-miner-start",
+    "allow-miner-stop",
+    "allow-miner-state",
+    "allow-notify-set",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "maya2c-wallet://open" }, { "url": "maya2c-chat://open" }]

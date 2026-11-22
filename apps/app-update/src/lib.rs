@@ -51,7 +51,8 @@ fn pubkey<R: Runtime, M: Manager<R>>(app: &M) -> Option<String> {
 /// What the app must do before an update replaces it, such as stopping the
 /// processes it started. Installing ends the process without closing its
 /// windows (`std::process::exit` on Windows, [`AppHandle::restart`]
-/// elsewhere), so window-close handlers never run.
+/// elsewhere), so window-close handlers never run. If the install then fails,
+/// the hook is not undone: the error the user sees says so.
 pub type BeforeExit<R> = fn(&AppHandle<R>);
 
 struct BeforeExitHook<R: Runtime>(BeforeExit<R>);
@@ -72,10 +73,18 @@ pub fn start<R: Runtime>(
         app.manage(BeforeExitHook(hook));
     }
     if pubkey(app).is_some() {
-        app.handle()
-            .plugin(tauri_plugin_updater::Builder::new().build())?;
+        // Set in code, so it holds even when the config sets `allowDowngrades`.
+        let builder = tauri_plugin_updater::Builder::new()
+            .default_version_comparator(|current, release| is_newer(&release.version, &current));
+        app.handle().plugin(builder.build())?;
     }
     Ok(())
+}
+
+/// Whether an offered release is strictly newer than the running one. Equal
+/// and older releases are refused, so a manifest cannot roll an app back.
+fn is_newer<V: PartialOrd>(offered: &V, current: &V) -> bool {
+    offered > current
 }
 
 /// The app command. A module because a `pub` Tauri command at a crate root
@@ -187,9 +196,10 @@ async fn install_offered<R: Runtime>(
     pubkey: String,
     update: tauri_plugin_updater::Update,
 ) -> Result<String, BoxError> {
-    // The plugin also checks the signature here and in install(); the gate
-    // below is the stricter second check (no legacy signatures, and the
-    // signed version must be the announced one).
+    // The plugin (2.14.1, the minimum Cargo.toml allows) also checks the
+    // signature here and in install(); the gate below is the stricter second
+    // check (no legacy signatures, and the signed version must be the
+    // announced one).
     let bytes = update.download(|_, _| {}, || {}).await?;
     let version = update.version.clone();
     let shown = version.clone();
@@ -219,10 +229,19 @@ async fn install_offered<R: Runtime>(
                 .blocking_show()
             },
             |bytes| {
-                if let Some(hook) = handle.try_state::<BeforeExitHook<R>>() {
+                let hook = handle.try_state::<BeforeExitHook<R>>();
+                if let Some(hook) = &hook {
                     (hook.0)(&handle);
                 }
-                update.install(bytes).map_err(Into::into)
+                update.install(bytes).map_err(|error| -> BoxError {
+                    // The hook already ran (the Hub's stops its miners) and
+                    // nothing undoes it, so say so rather than fail silently.
+                    if hook.is_some() {
+                        format!("{error}. Work stopped for the update was not restarted; start it again.").into()
+                    } else {
+                        error.into()
+                    }
+                })
             },
         )
     })
@@ -235,7 +254,7 @@ async fn install_offered<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::Running;
+    use super::{Running, is_newer};
 
     /// `start` runs on every launch, so it must never reach the network or
     /// the install path. Source-level: a check needs a running app.
@@ -258,5 +277,19 @@ mod tests {
         assert!(Running::begin().is_none());
         drop(first);
         assert!(Running::begin().is_some());
+    }
+
+    // Tuples stand in for semver here: their order matches the numeric core.
+
+    #[test]
+    fn updater_refuses_older_version() {
+        assert!(!is_newer(&(0, 1, 4), &(0, 1, 5)));
+        assert!(!is_newer(&(0, 1, 5), &(0, 1, 5)));
+    }
+
+    #[test]
+    fn updater_accepts_newer_version_compared_numerically() {
+        assert!(is_newer(&(0, 1, 10), &(0, 1, 9)));
+        assert!(!is_newer(&(0, 1, 9), &(0, 1, 10)));
     }
 }

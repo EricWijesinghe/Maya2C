@@ -39,7 +39,6 @@ tauri-plugin-dialog = "2"
 # pins; DepScout 2026-11-10: no OSV advisories, Apache-2.0 OR MIT. The
 # single-instance `deep-link` feature forwards a second launch's URL here.
 tauri-plugin-deep-link = "=2.6.3"
-tauri-plugin-single-instance = { version = "=2.5.5", features = ["deep-link"] }
 # In-app updates: check, ask, verify against the signing key, install.
 maya-app-update = { path = "../../app-update" }
 serde = { version = "1", features = ["derive"] }
@@ -47,6 +46,12 @@ serde_json = "1"
 base64 = "0.22"
 hex = "0.4"
 zeroize = "1"
+
+# Desktop only: the crate is empty on Android and iOS (its lib.rs is
+# `#![cfg(not(any(target_os = "android", target_os = "ios")))]`), where the OS
+# already keeps one instance per app.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = { version = "=2.5.5", features = ["deep-link"] }
 
 [features]
 # Enabled by `tauri dev` to allow devtools.

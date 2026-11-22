@@ -252,7 +252,7 @@ D:\Maya2C\reports\attacknet\runs\<date>\<scenario-id>\
 ## Monitoring
 
 - **Prometheus**: http://127.0.0.1:35310
-- **Grafana**: http://127.0.0.1:35311 (admin/lab)
+- **Grafana**: http://127.0.0.1:35311 (user admin; set `GRAFANA_ADMIN_PASSWORD` in `infra/monitoring/.env` before `up`)
 - **Alertmanager**: http://127.0.0.1:35312
 - **Vector logs**: http://127.0.0.1:35313
 

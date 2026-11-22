@@ -13,6 +13,10 @@
 #      only Cloudflare's own rewrites (email obfuscation, Web Analytics beacon);
 #   4. on any difference: uploads the differing bodies, opens or updates an
 #      issue labelled `site-integrity`, and fails the run.
+#
+# Limit: every fetch uses one fixed User-Agent from GitHub's runner network.
+# The check detects origin drift only; an edge that answers differently by
+# user agent or by IP would look clean here. It is not proof of edge honesty.
 name: site-integrity
 
 on:
@@ -98,6 +102,18 @@ jobs:
             mkdir -p "live/$(dirname "$rel")"
             # No -L: a redirect is a difference to report, not to follow.
             curl -sS -m 30 -A "$UA" -o "live/$rel" "$url" || echo "fetch failed: $url"
+          done
+
+      # An erased email-decode tag names a Cloudflare script outside the manifest.
+      # Fetch each one the live pages reference, so the check can read it.
+      - name: Fetch the email-decode scripts the live pages reference
+        if: steps.fresh.outputs.skip == 'false'
+        run: |
+          set -uo pipefail
+          grep -rhoE 'src="/cdn-cgi/scripts/[0-9a-f]+/cloudflare-static/email-decode\.min\.js"' live --include='*.html' \
+            | sed -E 's/^src="//; s/"$//' | sort -u | while read -r p; do
+            mkdir -p "live/$(dirname "${p#/}")"
+            curl -sS -m 30 -A "$UA" -o "live/${p#/}" "https://maya2c.dev$p" || echo "fetch failed: $p"
           done
 
       - name: Compare the live bodies with the deployed build

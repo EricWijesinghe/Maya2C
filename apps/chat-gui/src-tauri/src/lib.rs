@@ -34,6 +34,11 @@ const PREKEY_TTL: u64 = 30 * 24 * 3_600;
 const DEFAULT_RELAY: &str =
     "/dns4/chat.maya2c.dev/tcp/443/wss/p2p/12D3KooWE2G9to26wVuq5znjrE4BQkFrH7YjLypjudtsW8Myi86T";
 const HISTORY_LIMIT: usize = 5_000;
+/// Text bytes the history may hold. The line count alone let long messages
+/// grow the profile far past what the window can load.
+const HISTORY_BYTES: usize = 16 << 20;
+/// Text bytes of one message, sent or received.
+const MESSAGE_BYTES: usize = 16 << 10;
 /// The welcome contact on that relay (`maya-chat bot`), written to during
 /// first run so a new user sees a sealed reply before they know anyone.
 /// Empty while no bot runs, which skips that step; `MAYA_CHAT_WELCOME`
@@ -89,7 +94,8 @@ fn address(hex_text: &str) -> Result<[u8; 32], String> {
 fn why(e: &ChatError) -> String {
     match e {
         ChatError::NoSession => {
-            "they have not published a key on this relay yet; ask them to open Maya Chat once".into()
+            "they have not published a key on this relay yet; ask them to open Maya Chat once"
+                .into()
         }
         other => other.to_string(),
     }
@@ -115,7 +121,8 @@ impl App {
         };
         let mut profile = files.profile(&seed)?;
         if profile.relay.is_empty() {
-            profile.relay = std::env::var("MAYA_CHAT_RELAY").unwrap_or_else(|_| DEFAULT_RELAY.into());
+            profile.relay =
+                std::env::var("MAYA_CHAT_RELAY").unwrap_or_else(|_| DEFAULT_RELAY.into());
         }
         let mut session = Session {
             seed,
@@ -198,7 +205,11 @@ async fn publish(app: State<'_, Arc<App>>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn add_contact(app: State<'_, Arc<App>>, name: String, addr: String) -> Result<Vec<Contact>, String> {
+async fn add_contact(
+    app: State<'_, Arc<App>>,
+    name: String,
+    addr: String,
+) -> Result<Vec<Contact>, String> {
     let mut guard = app.session.lock().await;
     let s = guard.as_mut().ok_or("create an identity first")?;
     let addr = hex::encode(address(&addr)?);
@@ -207,7 +218,10 @@ async fn add_contact(app: State<'_, Arc<App>>, name: String, addr: String) -> Re
         return Err("give the contact a name".into());
     }
     s.profile.contacts.retain(|c| c.address != addr);
-    s.profile.contacts.push(Contact { name, address: addr });
+    s.profile.contacts.push(Contact {
+        name,
+        address: addr,
+    });
     app.save(s)?;
     Ok(s.profile.contacts.clone())
 }
@@ -216,13 +230,26 @@ async fn add_contact(app: State<'_, Arc<App>>, name: String, addr: String) -> Re
 async fn history(app: State<'_, Arc<App>>, peer: String) -> Result<Vec<Line>, String> {
     let guard = app.session.lock().await;
     let s = guard.as_ref().ok_or("create an identity first")?;
-    Ok(s.profile.history.iter().filter(|l| l.peer == peer).cloned().collect())
+    Ok(s.profile
+        .history
+        .iter()
+        .filter(|l| l.peer == peer)
+        .cloned()
+        .collect())
 }
 
 fn remember(profile: &mut Profile, line: Line) {
     profile.history.push(line);
     let over = profile.history.len().saturating_sub(HISTORY_LIMIT);
     profile.history.drain(..over);
+    // The newest line always stays, even alone over the budget.
+    let mut bytes: usize = profile.history.iter().map(|l| l.text.len()).sum();
+    let mut stale = 0;
+    while bytes > HISTORY_BYTES && stale + 1 < profile.history.len() {
+        bytes -= profile.history[stale].text.len();
+        stale += 1;
+    }
+    profile.history.drain(..stale);
 }
 
 #[tauri::command]
@@ -233,6 +260,9 @@ async fn send(app: State<'_, Arc<App>>, peer: String, text: String) -> Result<Li
     // A NUL would let typed text pose as a sticker or pack message.
     if text.contains('\0') {
         return Err("a message cannot contain a NUL character".into());
+    }
+    if text.len() > MESSAGE_BYTES {
+        return Err(format!("a message is at most {} KB", MESSAGE_BYTES >> 10));
     }
     let at = now();
     let sent = sticker_cmds::deliver(&app, s, &peer, text.as_bytes(), at).await?;
@@ -263,6 +293,9 @@ async fn poll(app: State<'_, Arc<App>>) -> Result<Vec<Line>, String> {
     for r in results.into_iter().filter_map(Result::ok) {
         let line = if stickers::is_structured(&r.text) {
             sticker_cmds::receive(&app, s, &mut incoming, r.from, &r.text).await
+        } else if r.text.len() > MESSAGE_BYTES {
+            // Too long to keep, so dropped, as a malformed sticker is.
+            None
         } else {
             Some(Line {
                 peer: hex::encode(r.from),
@@ -332,4 +365,35 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maya Chat");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(text: &str) -> Line {
+        Line {
+            peer: "p".into(),
+            mine: false,
+            text: text.into(),
+            at: 1,
+            sticker: None,
+            outbox: None,
+        }
+    }
+
+    #[test]
+    fn history_keeps_the_newest_lines_within_its_byte_budget() {
+        let mut profile = Profile::default();
+        let big = "x".repeat(MESSAGE_BYTES);
+        for _ in 0..(HISTORY_BYTES / MESSAGE_BYTES + 8) {
+            remember(&mut profile, line(&big));
+        }
+        let kept: usize = profile.history.iter().map(|l| l.text.len()).sum();
+        assert!(kept <= HISTORY_BYTES, "{kept} bytes kept");
+        assert!(
+            profile.history.last().is_some_and(|l| l.text == big),
+            "the newest line stays"
+        );
+    }
 }

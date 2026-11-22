@@ -18,7 +18,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
-use tokio::sync::broadcast;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::error::{ExplorerError, Result};
@@ -58,6 +58,50 @@ pub struct AppState {
     /// a mounted route over a missing directory would only make the failure
     /// harder to find.
     pub assets: Option<PathBuf>,
+    /// Upgraded live-feed sockets open at once, across both feeds.
+    ///
+    /// A socket holds a task and a broadcast receiver until its peer goes
+    /// away, and the feed never reads from it, so the count is the cost.
+    pub live_sockets: Arc<Semaphore>,
+    /// Node RPC calls in flight at once.
+    ///
+    /// Each account or validators visit makes one or two node calls, and the
+    /// node limits calls per client address. The explorer shares one address,
+    /// so this bounds how much of that budget a crowd of visitors can take.
+    pub node_calls: Arc<Semaphore>,
+}
+
+/// Upgraded live-feed sockets open at once. See [`AppState::live_sockets`].
+pub const MAX_LIVE_SOCKETS: usize = 256;
+
+/// Node RPC calls in flight at once. See [`AppState::node_calls`].
+pub const MAX_NODE_CALLS: usize = 16;
+
+impl AppState {
+    /// A state with the default concurrency limits.
+    #[must_use]
+    pub fn new(
+        store: Arc<dyn BlockStore>,
+        events: broadcast::Sender<IndexEvent>,
+        node_rpc: Option<String>,
+        assets: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            store,
+            events,
+            node_rpc,
+            assets,
+            live_sockets: Arc::new(Semaphore::new(MAX_LIVE_SOCKETS)),
+            node_calls: Arc::new(Semaphore::new(MAX_NODE_CALLS)),
+        }
+    }
+}
+
+/// A node-call slot, or a refusal when [`MAX_NODE_CALLS`] are already in use.
+fn node_permit(state: &AppState) -> Result<OwnedSemaphorePermit> {
+    Arc::clone(&state.node_calls)
+        .try_acquire_owned()
+        .map_err(|_| ExplorerError::NodeRpc("too many node calls in flight".to_string()))
 }
 
 /// Renders an HTML response.
@@ -88,12 +132,30 @@ impl IntoResponse for ExplorerError {
             // caller's, so it must not be reported as a client error.
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (
-            status,
-            Json(serde_json::json!({ "error": self.to_string() })),
-        )
-            .into_response()
+        let message = match &self {
+            Self::Store(_) | Self::NodeRpc(_) => {
+                log_failure(&self);
+                PUBLIC_FAILURE.to_string()
+            }
+            _ => self.to_string(),
+        };
+        (status, Json(serde_json::json!({ "error": message }))).into_response()
     }
+}
+
+/// What a visitor sees when a store or node call fails. The detail goes to the
+/// log: database and transport text can name internal hosts and wording.
+const PUBLIC_FAILURE: &str = "The explorer could not complete this request.";
+
+/// Writes a store or node failure to the log, where the operator reads it.
+fn log_failure(error: &ExplorerError) {
+    eprintln!("explorer: {error}");
+}
+
+/// The visitor-facing sentence for a failed node call; the detail is logged.
+fn node_unavailable(error: &ExplorerError, sentence: &str) -> String {
+    log_failure(error);
+    sentence.to_string()
 }
 
 /// Builds the router.
@@ -308,6 +370,8 @@ async fn lookup_account(state: &AppState, input: String) -> Result<Response> {
         .transactions_by_sender(&hex_id, LIST_LIMIT)
         .await?;
 
+    // Held across the node calls below; released when the page is built.
+    let _node_slot = node_permit(state)?;
     // Balance comes from the node, live. A balance as of the last indexed
     // block would be presented as current and quietly be wrong.
     let (balance, nonce, balance_error, network, network_error) = match &state.node_rpc {
@@ -317,7 +381,10 @@ async fn lookup_account(state: &AppState, input: String) -> Result<Response> {
                 // A hex address names no network; the node's chain id does.
                 None => match fetch_network(url).await {
                     Ok(network) => (network, None),
-                    Err(error) => (None, Some(format!("Bech32m form unavailable: {error}"))),
+                    Err(error) => (
+                        None,
+                        Some(node_unavailable(&error, "Bech32m form unavailable.")),
+                    ),
                 },
             };
             match fetch_account(url, &hex_id).await {
@@ -325,7 +392,7 @@ async fn lookup_account(state: &AppState, input: String) -> Result<Response> {
                 Err(error) => (
                     None,
                     None,
-                    Some(format!("Node unavailable: {error}")),
+                    Some(node_unavailable(&error, "Node unavailable.")),
                     network,
                     network_error,
                 ),
@@ -371,7 +438,7 @@ fn parse_address(input: &str) -> std::result::Result<([u8; 32], Option<Network>)
 
 /// The network the node serves, from its chain id. `None` for a chain id that
 /// has no registered text form.
-async fn fetch_network(url: &str) -> Result<Option<Network>> {
+pub async fn fetch_network(url: &str) -> Result<Option<Network>> {
     use jsonrpsee::core::client::ClientT;
     use jsonrpsee::http_client::HttpClientBuilder;
     use jsonrpsee::rpc_params;
@@ -396,6 +463,7 @@ async fn mining(State(state): State<AppState>) -> Result<Response> {
 /// The validator set, live from the node: a stale committee would be shown as
 /// current and quietly be wrong.
 async fn validators(State(state): State<AppState>) -> Result<Response> {
+    let _node_slot = node_permit(&state)?;
     let (info, error) = match &state.node_rpc {
         Some(url) => match fetch_validators(url).await {
             Ok(Some(info)) => (Some(info), None),
@@ -405,8 +473,9 @@ async fn validators(State(state): State<AppState>) -> Result<Response> {
             ),
             Err(error) => (
                 None,
-                Some(format!(
-                    "Node unavailable or too old to list validators: {error}"
+                Some(node_unavailable(
+                    &error,
+                    "Node unavailable or too old to list validators.",
                 )),
             ),
         },
@@ -418,6 +487,7 @@ async fn validators(State(state): State<AppState>) -> Result<Response> {
 async fn api_validators(
     State(state): State<AppState>,
 ) -> Result<Json<Option<custom_l1_node::rpc::validators::ValidatorsInfo>>> {
+    let _node_slot = node_permit(&state)?;
     let url = state
         .node_rpc
         .as_deref()
@@ -521,11 +591,26 @@ async fn health() -> &'static str {
 // ---------------------------------------------------------------------------
 
 async fn ws_blocks(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| stream_events(socket, state.events.subscribe(), Feed::Blocks))
+    let Some(slot) = live_slot(&state) else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    ws.on_upgrade(move |socket| stream_events(socket, state.events.subscribe(), Feed::Blocks, slot))
 }
 
 async fn ws_txs(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| stream_events(socket, state.events.subscribe(), Feed::Transactions))
+    let Some(slot) = live_slot(&state) else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    ws.on_upgrade(move |socket| {
+        stream_events(socket, state.events.subscribe(), Feed::Transactions, slot)
+    })
+}
+
+/// A live-feed socket slot, or `None` when [`MAX_LIVE_SOCKETS`] are open.
+///
+/// Checked before the upgrade: after the 101 there is no status to refuse with.
+fn live_slot(state: &AppState) -> Option<OwnedSemaphorePermit> {
+    Arc::clone(&state.live_sockets).try_acquire_owned().ok()
 }
 
 /// Which events a socket wants.
@@ -540,6 +625,8 @@ async fn stream_events(
     mut socket: WebSocket,
     mut events: broadcast::Receiver<IndexEvent>,
     feed: Feed,
+    // Held for the socket's lifetime, so the slot frees when the socket ends.
+    _slot: OwnedSemaphorePermit,
 ) {
     loop {
         match events.recv().await {
@@ -620,4 +707,103 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
         address: bound,
         handle,
     })
+}
+
+#[cfg(test)]
+mod parse_address_tests {
+    use super::parse_address;
+    use maya_address::Network;
+
+    const HEX: &str = "0707070707070707070707070707070707070707070707070707070707070707";
+
+    #[test]
+    fn hex_is_taken_as_it_was_typed() {
+        assert_eq!(parse_address(HEX), Ok(([7u8; 32], None)));
+    }
+
+    #[test]
+    fn a_text_address_resolves_to_the_same_account_and_network() {
+        let text = maya_address::encode(Network::Testnet, &[7u8; 32]);
+        assert_eq!(
+            parse_address(&text),
+            Ok(([7u8; 32], Some(Network::Testnet)))
+        );
+    }
+
+    #[test]
+    fn a_mistyped_text_address_is_refused() {
+        let mut text = maya_address::encode(Network::Testnet, &[7u8; 32]).into_bytes();
+        let last = text.len() - 1;
+        text[last] = if text[last] == b'q' { b'p' } else { b'q' };
+        let text = String::from_utf8(text).unwrap();
+        assert!(parse_address(&text).is_err());
+    }
+
+    #[test]
+    fn short_hex_and_free_text_are_refused() {
+        assert!(parse_address("nothex").is_err());
+        assert!(parse_address(&HEX[..62]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod error_response_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_store_failure_does_not_show_its_detail_to_a_visitor() {
+        let response = ExplorerError::Store("password=marker".to_string()).into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let text = String::from_utf8_lossy(&body);
+        assert!(!text.contains("marker"), "{text}");
+        assert!(text.contains(PUBLIC_FAILURE), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_client_error_still_says_what_was_wrong() {
+        let response = ExplorerError::BadRequest("height".to_string()).into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        assert!(String::from_utf8_lossy(&body).contains("bad request: height"));
+    }
+}
+
+#[cfg(test)]
+mod concurrency_limit_tests {
+    use super::*;
+    use crate::store::memory::MemoryStore;
+
+    fn state() -> AppState {
+        let (events, _) = broadcast::channel(4);
+        AppState::new(Arc::new(MemoryStore::new()), events, None, None)
+    }
+
+    #[test]
+    fn node_calls_past_the_cap_are_refused_not_queued() {
+        // A queue would hold every visitor behind a slow node for as long as
+        // the node takes; a refusal says the node is busy and frees the rest.
+        let state = state();
+        let held: Vec<_> = (0..MAX_NODE_CALLS)
+            .map(|_| node_permit(&state).expect("under the cap"))
+            .collect();
+        assert!(node_permit(&state).is_err());
+        drop(held);
+        assert!(node_permit(&state).is_ok());
+    }
+
+    #[test]
+    fn live_sockets_past_the_cap_are_refused_before_the_upgrade() {
+        let state = state();
+        let held: Vec<_> = (0..MAX_LIVE_SOCKETS)
+            .map(|_| live_slot(&state).expect("under the cap"))
+            .collect();
+        assert!(live_slot(&state).is_none());
+        drop(held);
+        assert!(live_slot(&state).is_some());
+    }
 }

@@ -37,6 +37,9 @@ const REPORT_EVERY: Duration = Duration::from_secs(2);
 const REFRESH_EVERY: Duration = Duration::from_secs(3);
 /// How long to wait while mining has not opened.
 const IDLE_WAIT: Duration = Duration::from_secs(15);
+/// Largest JSON-RPC reply the miner will buffer. Real replies are a few hundred
+/// bytes; the cap stops a broken or hostile node from growing the miner's memory.
+const MAX_RPC_REPLY: u64 = 1 << 20;
 
 /// What the miner was asked to do.
 pub struct ShareArgs<'a> {
@@ -160,18 +163,34 @@ struct Session {
 impl Rpc {
     fn call<T: for<'de> Deserialize<'de>>(&self, method: &str, params: Value) -> Result<T, String> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        let reply: Value = self
+        let response = self
             .http
             .post(&self.url)
             .json(&body)
             .send()
-            .and_then(reqwest::blocking::Response::json)
             .map_err(|e| format!("{method}: {e}"))?;
+        let bytes = read_capped(response, MAX_RPC_REPLY).map_err(|e| format!("{method}: {e}"))?;
+        let reply: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{method}: {e}"))?;
         if let Some(error) = reply.get("error") {
             return Err(format!("{method}: {}", error["message"]));
         }
         serde_json::from_value(reply["result"].clone()).map_err(|e| format!("{method}: {e}"))
     }
+}
+
+/// Reads at most `limit` bytes. One byte past the limit is read so an oversized
+/// reply is detected rather than silently truncated into invalid JSON.
+fn read_capped(reader: impl std::io::Read, limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("reply is larger than {limit} bytes"));
+    }
+    Ok(bytes)
 }
 
 /// Emits one event: a JSON line, or a readable line for a person.
@@ -195,10 +214,41 @@ fn load_or_create_seed(path: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     }
     getrandom::fill(seed.as_mut()).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        create_private_dir(dir)?;
     }
-    std::fs::write(path, Zeroizing::new(hex::encode(seed.as_ref()))).map_err(|e| e.to_string())?;
+    let text = Zeroizing::new(hex::encode(seed.as_ref()));
+    write_new_private(path, text.as_str())?;
     Ok(seed)
+}
+
+/// Creates the data directory owner-only on Unix, so the umask cannot leave the
+/// payout key's folder traversable by other local users.
+fn create_private_dir(dir: &Path) -> Result<(), String> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir).map_err(|e| e.to_string())
+}
+
+/// Creates the key file exclusively, owner-only on Unix. The mode is set at
+/// creation rather than chmod-ed afterwards, so the file is never readable by
+/// others even briefly, and `create_new` refuses to overwrite a file that
+/// appeared between the existence check and the write.
+fn write_new_private(path: &Path, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|e| e.to_string())?;
+    file.write_all(text.as_bytes()).map_err(|e| e.to_string())
 }
 
 fn decode32(value: &str, what: &str) -> Result<[u8; 32], String> {
@@ -489,6 +539,28 @@ mod tests {
         assert_eq!(*first, *again);
         assert_ne!(*first, [0u8; 32]);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_key_file_is_owner_only_whatever_the_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("maya-miner-mode-{}", std::process::id()));
+        let path = dir.join("miner.key");
+        load_or_create_seed(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "key file is readable by group or others: {mode:o}"
+        );
+    }
+
+    #[test]
+    fn an_oversized_rpc_reply_is_refused_before_it_is_parsed() {
+        assert_eq!(read_capped(&b"{}"[..], 8).unwrap(), b"{}".to_vec());
+        assert!(read_capped(&[b' '; 9][..], 8).is_err());
     }
 
     #[test]

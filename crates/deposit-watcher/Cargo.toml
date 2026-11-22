@@ -8,6 +8,7 @@ rust-version.workspace = true
 description = "Exchange deposit reference service: credits finalized deposits to watched addresses exactly once across crashes"
 
 [dependencies]
+maya-amount = { path = "../amount" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true

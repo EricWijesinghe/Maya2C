@@ -301,7 +301,7 @@ impl Session {
             ))]);
         }
 
-        let key = match parse_user_identity(identity) {
+        let key = match parse_user_identity(identity, state.config.network) {
             Ok(key) => key,
             Err(error) => {
                 // The miner's own mistake, and one they can fix — so it names
