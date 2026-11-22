@@ -13,18 +13,66 @@ for Eric; the other two are engineering.
 - **G1 — a failing contract call is free and censors every call after it.**
   A failing plaintext call is never included (STF-8): no fee, no nonce bump,
   and the DAG-BFT driver keeps it pooled, so it is proposed again every block.
-  Its gas counts in selection (GAS-2), so one call naming the cap from one
-  funded sender leaves every contract call after it in the sub-DAG out, every
-  block. PR #549 limits selection to one failing trial per sender per block
-  (the same nonce re-signed with other inputs is not tried again) and counts
-  calls refused below their upfront price; neither closes it. A separate
-  budget for failed work was considered and not taken: a call is only known
-  to fail once it has run, so a bounded failure budget is the same lever and
-  an unbounded one is unbounded builder time. **Fix: include a failed contract
-  call with its fee and a nonce bump (STF-8 change, Eric's decision);** a
-  pool eviction of transactions that failed in a committed block helps but
-  does not close it (the sender re-signs). Pinned today by
-  `a_call_that_fails_while_the_block_is_built_still_spends_its_gas`.
+  Since ADR-142 amendment 3 failed work has its own builder count, so one
+  call naming the cap no longer leaves the calls after it out
+  (`a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies`). The
+  builder still stops trying contract work once applied and failed work reach
+  `2 × vm.max_block_gas + 1,536,000`: two failing calls at the cap, from two
+  funded senders, get there, every block, for nothing
+  (`failed_work_past_the_builder_budget_stops_contract_trials`). PR #549 also
+  limits selection to one failing trial per sender per block and counts calls
+  refused below their upfront price. Any finite budget leaves this lever,
+  because a call is only known to fail once it has run. **Fix: include a
+  failed contract call with its fee and a nonce bump (STF-8 change, Eric's
+  decision);** a pool eviction of transactions that failed in a committed
+  block helps but does not close it (the sender re-signs).
+- **G4 — the stack-overflow boundary belongs to each binary (re-freeze review R-6). A genesis blocker, Eric's decision.**
+  Where deep recursion overflows the 512 KiB guest stack depends on the
+  validator's binary, not only on its ISA. Measured with one recursion shape
+  on one CPU (ADR-142 amendment 6): the deepest completing depth is 10,915 in
+  an x86_64-pc-windows-msvc release build and 10,919 in an
+  x86_64-unknown-linux-gnu release build (10,901 and 10,909 in dev). A
+  contract call recursing to depth 10,916–10,919 applies on the Linux node and
+  fails on the Windows one: different state roots, and under DAG-BFT
+  different derived blocks (GAS-9). Any sender who can pay a fee can send it.
+  Not measured: aarch64 (CI's `vm-gas-aarch64` now prints its depth), and the
+  shipped `maya2c-node` binaries themselves (the figures are the maya-vm test
+  binary in each profile). No vector can pin a boundary; a 5,000-deep vector
+  pins gas short of every one seen.
+  Done in PR #549: Cranelift's ISA flags are no longer inferred from the host
+  CPU (`maya_vm::config` names the build's target), so one binary on two CPUs
+  compiles a contract alike. What holds only if operated so: **every validator
+  runs the same published release binary, one target triple.** "x86-64 only"
+  is not enough: Windows and Linux x86-64 are two binaries.
+  `release-binaries.yml` publishes five node binaries (x86-64 and aarch64
+  Linux, x86-64 Windows, two macOS), and a Windows PC validator beside Linux
+  hosts is the mixed case measured above. Nothing enforces one binary today.
+  Options:
+  (a) operate one binary: every genesis validator runs the
+  x86_64-unknown-linux-gnu release binary (a Windows PC under WSL2 or a VM),
+  written into the genesis runbook, with the other targets published as
+  non-validator builds until (b) lands;
+  (b) a deterministic call-depth bound: instrument each function's entry and
+  exits with a counter charged a per-function stack cost, limited far enough
+  below the native stack that no binary reaches its own limit first, so a call
+  that is too deep fails identically everywhere. Prior art: parity's
+  `wasm-instrument` stack limiter (formerly `pwasm-utils` `stack_height`),
+  which Substrate's contracts pallet applied to every module for this reason.
+  Needs a module rewriter in the VM (a new dependency, which is Eric's call,
+  or one hand-written beside the hand-written shape scan in `shape.rs`),
+  vectors, and re-measured compile prices; a hard fork if it lands after
+  genesis;
+  (c) consensus execution on the fixed-frame Pulley tier `crates/vm/src/tier.rs`
+  already builds: one bytecode for every host, about an order of magnitude
+  slower (`reports/05-vm.md`), so every ADR-142 price is re-calibrated, and
+  Pulley's fuel already differs from Cranelift's on Windows (the FINDING in
+  `crates/vm/tests/tier_differential_tests.rs`, re-seen 2026-11-22), which
+  must be understood first.
+- **G1b — producer time at the gas ceiling.** The two-cap builder budget puts
+  a producer's worst case at about 978 ms of priced work at the 300 M
+  `VM_GAS_CEILING` (816 ms at the 250 M default), at 1 ns/unit. Lower the
+  ceiling, or keep it and accept the margin: a governance-bound decision,
+  Eric's.
 - **G2 — the contracts layer of the state root is folded over all contract
   state every block** (ROOT-5, `state/commitments.rs` `merged_contracts`). No
   gas price bounds it: measured 533 ms at 400,000 entries (dev), reachable in

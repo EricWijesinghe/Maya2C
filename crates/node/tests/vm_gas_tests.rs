@@ -379,6 +379,19 @@ fn the_spec_vectors_hold() {
                 };
                 (error, Some(execution.gas_used))
             }
+            "builder_select" => {
+                let (kept, passed_over) = replay_selection(input);
+                let expected: Vec<usize> = expect["kept"]
+                    .as_array()
+                    .expect("kept")
+                    .iter()
+                    .map(|index| usize::try_from(num(index)).unwrap())
+                    .collect();
+                if kept != expected {
+                    wrong.push(format!("{id}: kept {kept:?}, expected {expected:?}"));
+                }
+                (passed_over.then_some("PassedOver"), None)
+            }
             "param" => {
                 let key =
                     ParameterKey::from_tag(u16::try_from(num(&input["tag"])).unwrap()).unwrap();
@@ -403,6 +416,65 @@ fn the_spec_vectors_hold() {
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A `builder_select` vector (GAS-9): deploys `contracts` at height 1, each
+/// from a key of its own, then selects `txs` at height 2. Returns the indices
+/// kept and whether a call to `writer`, which applies whenever it is tried,
+/// was left out.
+fn replay_selection(input: &serde_json::Value) -> (Vec<usize>, bool) {
+    let num = |v: &serde_json::Value| -> u64 { v.as_str().unwrap().parse().unwrap() };
+    let contracts = input["contracts"].as_object().expect("contracts");
+    let txs = input["txs"].as_array().expect("txs");
+    let senders = txs
+        .iter()
+        .map(|tx| usize::try_from(num(&tx["sender"])).unwrap() + 1)
+        .max()
+        .unwrap_or(0);
+    let deployers = keys(contracts.len());
+    let senders = keys(senders);
+    let funded: Vec<Address> = deployers
+        .iter()
+        .chain(&senders)
+        .map(HybridSigningKey::address)
+        .collect();
+    let (db, _dir) = open_state(&funded);
+    let codes: Vec<Vec<u8>> = contracts
+        .values()
+        .map(|wat| wasm(wat.as_str().unwrap()))
+        .collect();
+    let ids = deploy_all(&db, &deployers.iter().collect::<Vec<_>>(), &codes);
+    let id_of: std::collections::BTreeMap<&str, [u8; 32]> =
+        contracts.keys().map(String::as_str).zip(ids).collect();
+    let order: Vec<Transaction> = txs
+        .iter()
+        .map(|tx| {
+            call(
+                id_of[tx["contract"].as_str().unwrap()],
+                num(&tx["gas_limit"]),
+                num(&tx["nonce"]),
+                &senders[usize::try_from(num(&tx["sender"])).unwrap()],
+            )
+        })
+        .collect();
+    let block = db
+        .select_applicable(
+            order.clone(),
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    let kept: Vec<usize> = order
+        .iter()
+        .enumerate()
+        .filter(|(_, tx)| block.contains(tx))
+        .map(|(index, _)| index)
+        .collect();
+    let passed_over = txs
+        .iter()
+        .enumerate()
+        .any(|(index, tx)| tx["contract"] == "writer" && !kept.contains(&index));
+    (kept, passed_over)
 }
 
 #[test]
@@ -452,11 +524,24 @@ fn deploy_all(db: &StateDB, keys: &[&HybridSigningKey], codes: &[Vec<u8>]) -> Ve
         .collect()
 }
 
+/// What an out-of-gas call to `FOREVER_WAT` reports: its limit and its one
+/// page (GAS-2, GAS-7).
+fn spin_gas(limit: u64) -> u64 {
+    limit + maya_vm::gas::MEMORY_PAGE_FUEL
+}
+
+/// The builder's budget for applied and failed contract work together.
+fn builder_budget() -> u64 {
+    use custom_l1_node::state::vm_exec::{BUILDER_GAS_CAPS, BUILDER_GAS_SLACK};
+    BUILDER_GAS_CAPS * block_cap() + BUILDER_GAS_SLACK
+}
+
 #[test]
-fn a_call_that_fails_while_the_block_is_built_still_spends_its_gas() {
-    // Before: the builder trial-ran a failing call on a copy of the overlay
-    // and threw the copy away, gas included, so N failing calls of 250 M gas
-    // cost every validator N x ~250 ms and counted for nothing.
+fn a_failing_call_at_the_cap_does_not_crowd_out_a_call_that_applies() {
+    // Before (PR #549 review): a failed trial's gas stayed on the counter the
+    // applied calls are admitted against. The failing call is never included,
+    // so it pays nothing and stays pooled: one at the cap, early in the
+    // sub-DAG, left every contract call after it out, every block.
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
     let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
@@ -466,24 +551,56 @@ fn a_call_that_fails_while_the_block_is_built_still_spends_its_gas() {
         &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
     );
     let spin = call(ids[0], block_cap(), 1, &attacker);
-    let after = call(ids[1], block_cap() / 2, 1, &honest);
+    let after = call(ids[1], block_cap(), 1, &honest);
     let kept = db
         .select_applicable(
-            vec![spin, after],
+            vec![spin, after.clone()],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    // The spin ran to the cap and failed; what it burned is gone from the
-    // block, so the next call no longer fits and is left for a later block.
-    //
-    // This is also the open hole the PR #549 review named: the spin pays no
-    // fee, stays pooled, and does this every block. Counting failed work on
-    // a counter of its own does not close it (a call is only known to fail
-    // once it has run, so a bounded failure budget is the same lever, and an
-    // unbounded one is unbounded builder time). Closing it needs failed
-    // calls included with their fee and a nonce bump (STF-8), an economics
-    // decision: a genesis blocker in ADR-142 and BACKLOG.md.
+    assert_eq!(kept, vec![after.clone()]);
+    // And the block it builds is valid: the failed work was never the block's.
+    db.apply_block(&block_of(kept), BlockContext::at_height(2))
+        .expect("the builder's block validates");
+}
+
+#[test]
+fn failed_work_past_the_builder_budget_stops_contract_trials() {
+    // The bound on the builder: failed work keeps its own count, and once
+    // applied and failed work reach the budget no more contract work is
+    // tried. Two failing calls at the cap, from two senders, get there; that
+    // remaining lever is ADR-142 G1, closed only by charging failed calls.
+    let spinners = [
+        generate_signing_key().unwrap(),
+        generate_signing_key().unwrap(),
+    ];
+    let honest = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[
+        spinners[0].address(),
+        spinners[1].address(),
+        honest.address(),
+    ]);
+    let ids = deploy_all(
+        &db,
+        &[&spinners[0], &honest],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    // Above the slack: a call this small would still fit after them.
+    let limit = 2_000_000;
+    let after = call(ids[1], limit, 1, &honest);
+    let kept = db
+        .select_applicable(
+            vec![
+                call(ids[0], block_cap(), 1, &spinners[0]),
+                call(ids[0], block_cap(), 0, &spinners[1]),
+                after,
+            ],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert!(2 * spin_gas(block_cap()) + limit > builder_budget());
     assert!(kept.is_empty(), "{} kept", kept.len());
 }
 
@@ -499,9 +616,8 @@ fn one_sender_gets_one_failed_contract_trial_per_block() {
         &[&attacker, &honest],
         &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
     );
-    let third = block_cap() / 3;
-    let spin = call(ids[0], third, 1, &attacker);
-    let again = call(ids[0], third + 1, 1, &attacker);
+    let spin = call(ids[0], block_cap(), 1, &attacker);
+    let again = call(ids[0], block_cap() - 1, 1, &attacker);
     let after = call(ids[1], block_cap() / 2, 1, &honest);
     let kept = db
         .select_applicable(
@@ -510,8 +626,184 @@ fn one_sender_gets_one_failed_contract_trial_per_block() {
             target_from_leading_zero_bits(0),
         )
         .unwrap();
-    // The second version is not tried, so two thirds of the budget are left.
+    // The second version is not tried. Tried, the two would fill the
+    // builder's budget and the honest call would not be.
+    assert!(spin_gas(block_cap()) + spin_gas(block_cap() - 1) + block_cap() / 2 > builder_budget());
     assert_eq!(kept, vec![after]);
+}
+
+/// One failing call at the cap from `attacker`, first, then calls from each
+/// of `honest`: the first at the cap, the rest at 1,000,000. `nonce` is the
+/// honest senders' (the attacker's call is never included, so it keeps 1).
+fn attack_order(
+    ids: &[[u8; 32]],
+    attacker: &HybridSigningKey,
+    honest: &[HybridSigningKey],
+    nonce: u64,
+) -> (Transaction, Vec<Transaction>) {
+    let spin = call(ids[0], block_cap(), 1, attacker);
+    let calls = honest
+        .iter()
+        .enumerate()
+        .map(|(i, key)| {
+            // The deployer of the writer used nonce 0 for it.
+            let nonce = if i == 0 { nonce + 1 } else { nonce };
+            let limit = if i == 0 { block_cap() } else { 1_000_000 };
+            call(ids[1], limit, nonce, key)
+        })
+        .collect();
+    (spin, calls)
+}
+
+fn keys(n: usize) -> Vec<HybridSigningKey> {
+    (0..n).map(|_| generate_signing_key().unwrap()).collect()
+}
+
+#[test]
+fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_produced_block() {
+    // 09 R-2, producer path: the failing call is admitted (pooled), placed
+    // first in every block's order, never included and never charged, and
+    // the honest calls after it are included in each block regardless.
+    let attacker = generate_signing_key().unwrap();
+    let honest = keys(3);
+    let mut funded: Vec<Address> = honest.iter().map(HybridSigningKey::address).collect();
+    funded.push(attacker.address());
+    let (db, _dir) = open_state(&funded);
+    let db = Arc::new(db);
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &honest[0]],
+        &[wasm(FOREVER_WAT), wasm(WRITER_WAT)],
+    );
+    let pool = Mempool::new(Arc::clone(&db));
+    for height in 2..4 {
+        let (spin, calls) = attack_order(&ids, &attacker, &honest, height - 2);
+        if height == 2 {
+            assert_eq!(
+                pool.insert(spin.clone()),
+                Ok(true),
+                "admission checks only the caps"
+            );
+        }
+        let mut order = vec![spin];
+        order.extend(calls.iter().cloned());
+        let kept = db
+            .select_applicable(
+                order,
+                BlockContext::at_height(height),
+                target_from_leading_zero_bits(0),
+            )
+            .unwrap();
+        assert_eq!(kept, calls, "height {height}");
+        db.apply_block(&block_of(kept), BlockContext::at_height(height))
+            .expect("the builder's block validates");
+        // Never included: no fee, no nonce bump, so it is pooled again.
+        assert_eq!(db.get_account(&attacker.address()).unwrap().nonce, 1);
+    }
+}
+
+/// A DAG-BFT chain whose tip has `ids` deployed: FOREVER by `attacker`, the
+/// writer by `honest[0]`, at height 1.
+fn bft_chain(
+    attacker: &HybridSigningKey,
+    honest: &[HybridSigningKey],
+) -> (
+    custom_l1_node::consensus::chain::Chain,
+    Vec<[u8; 32]>,
+    TempDir,
+) {
+    use custom_l1_node::consensus::chain::ChainConfig;
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    let mut genesis = block_of(Vec::new());
+    genesis.header.timestamp = 1_000_000;
+    let mut chain = common::open_chain(state, genesis, ChainConfig::dag_bft()).unwrap();
+    for address in honest
+        .iter()
+        .map(HybridSigningKey::address)
+        .chain([attacker.address()])
+    {
+        chain
+            .state()
+            .put_account(
+                &address,
+                &Account {
+                    balance: primitive_types::U256::from(1_000_000u64),
+                    nonce: 0,
+                },
+            )
+            .unwrap();
+    }
+    let codes = [wasm(FOREVER_WAT), wasm(WRITER_WAT)];
+    let deploys = [attacker, &honest[0]]
+        .iter()
+        .zip(&codes)
+        .map(|(key, code)| {
+            signed(
+                TxKind::DeployContract(ContractDeploy { code: code.clone() }),
+                0,
+                key,
+            )
+        })
+        .collect();
+    let block = chain.candidate_block(1_000_001, deploys).unwrap();
+    chain.insert_block(block).unwrap();
+    let ids = [attacker, &honest[0]]
+        .iter()
+        .zip(&codes)
+        .map(|(key, code)| derive_contract_id(&key.address(), 0, code))
+        .collect();
+    (chain, ids, dir)
+}
+
+/// A one-vertex sub-DAG at `round` carrying `txs` in order.
+fn sub_dag_of(round: u64, txs: &[Transaction]) -> maya_dag_bft::SubDag {
+    use maya_dag_bft::{Certificate, Vertex};
+    let anchor = Certificate {
+        vertex: Vertex {
+            epoch: 0,
+            round,
+            author: 0,
+            timestamp_ms: (1_000_001 + round) * 1_000,
+            parents: Vec::new(),
+            batch: txs.iter().map(Transaction::to_bytes).collect(),
+        },
+        votes: Vec::new(),
+        signatures: Vec::new(),
+    };
+    maya_dag_bft::SubDag {
+        anchor: anchor.clone(),
+        certificates: vec![anchor],
+    }
+}
+
+#[test]
+fn a_pooled_failing_call_at_the_cap_leaves_honest_calls_in_every_bft_block() {
+    // 09 R-2, DAG-BFT path: every validator derives the block from the
+    // committed order, the failing call first, through `build_block`.
+    let attacker = generate_signing_key().unwrap();
+    let honest = keys(3);
+    let (mut chain, ids, _dir) = bft_chain(&attacker, &honest);
+    for round in 2..4 {
+        let (spin, calls) = attack_order(&ids, &attacker, &honest, round - 2);
+        let mut order = vec![spin];
+        order.extend(calls.iter().cloned());
+        let block =
+            custom_l1_node::consensus::bft::build_block(&chain, &sub_dag_of(round, &order), 1)
+                .unwrap();
+        assert_eq!(block.transactions, calls, "round {round}");
+        chain
+            .insert_block(block)
+            .expect("the derived block imports");
+        assert_eq!(
+            chain
+                .state()
+                .get_account(&attacker.address())
+                .unwrap()
+                .nonce,
+            1
+        );
+    }
 }
 
 #[test]
@@ -540,15 +832,33 @@ fn a_call_below_its_upfront_price_still_counts_its_code_read_and_scan() {
     // Refused before the compile, but after a read of the code and a scan of
     // its shape: before the PR #549 review fix it counted nothing, so a pool
     // of them was builder work outside GAS-2's bound.
+    // Seen at the edge of the builder's budget: two failing calls fill most
+    // of it first, so the honest call fits only in what the refused one left.
+    let spinners = [
+        generate_signing_key().unwrap(),
+        generate_signing_key().unwrap(),
+    ];
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let (db, _dir) = open_state(&[
+        spinners[0].address(),
+        spinners[1].address(),
+        attacker.address(),
+        honest.address(),
+    ]);
     let code = wasm(WRITER_WAT);
-    let ids = deploy_all(&db, &[&attacker], std::slice::from_ref(&code));
+    let ids = deploy_all(
+        &db,
+        &[&attacker, &spinners[0]],
+        &[code.clone(), wasm(FOREVER_WAT)],
+    );
     let counted = maya_vm::gas::CALL_BASE_FUEL + code.len() as u64;
+    let half = block_cap() / 2;
     let select = |honest_limit: u64| {
         db.select_applicable(
             vec![
+                call(ids[1], block_cap(), 1, &spinners[0]),
+                call(ids[1], half, 0, &spinners[1]),
                 call(ids[0], 1, 1, &attacker),
                 call(ids[0], honest_limit, 0, &honest),
             ],
@@ -558,9 +868,10 @@ fn a_call_below_its_upfront_price_still_counts_its_code_read_and_scan() {
         .unwrap()
         .len()
     };
-    // The honest call fits only in what the refused one left.
-    assert_eq!(select(block_cap() - counted), 1);
-    assert_eq!(select(block_cap() - counted + 1), 0);
+    let left = builder_budget() - spin_gas(block_cap()) - spin_gas(half) - counted;
+    assert!(left < block_cap());
+    assert_eq!(select(left), 1);
+    assert_eq!(select(left + 1), 0);
 }
 
 #[test]
@@ -599,19 +910,24 @@ fn a_deployment_above_the_deploy_price_is_refused_at_admission() {
 fn a_failed_call_spends_the_gas_it_used_not_the_gas_it_named() {
     // A call that traps on its first instruction ran almost nothing; charging
     // it its whole limit would let one transaction void the block's budget.
+    // A spin at the cap first, so the trap is seen against the builder's
+    // budget: charged its limit, it would leave no room for the honest call.
+    let spinner = generate_signing_key().unwrap();
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let (db, _dir) = open_state(&[spinner.address(), attacker.address(), honest.address()]);
     let ids = deploy_all(
         &db,
-        &[&attacker, &honest],
-        &[wasm(TRAP_WAT), wasm(WRITER_WAT)],
+        &[&attacker, &honest, &spinner],
+        &[wasm(TRAP_WAT), wasm(WRITER_WAT), wasm(FOREVER_WAT)],
     );
+    let spin = call(ids[2], block_cap(), 1, &spinner);
     let trap = call(ids[0], block_cap(), 1, &attacker);
     let after = call(ids[1], block_cap() / 2, 1, &honest);
+    assert!(spin_gas(block_cap()) + block_cap() + block_cap() / 2 > builder_budget());
     let kept = db
         .select_applicable(
-            vec![trap, after.clone()],
+            vec![spin, trap, after.clone()],
             BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
@@ -634,9 +950,14 @@ fn bad_import_module_of_len(len: usize) -> Vec<u8> {
 fn a_deployment_that_fails_validation_still_spends_its_compile() {
     // Before: the compile ran inside `validate` and the gas was added only
     // after it passed, so a module with one unknown import compiled for free.
+    // Seen against the builder's budget, after a spin at the cap: counted,
+    // the bad compile leaves no room for the good one.
+    let spinner = generate_signing_key().unwrap();
     let attacker = generate_signing_key().unwrap();
     let honest = generate_signing_key().unwrap();
-    let (db, _dir) = open_state(&[attacker.address(), honest.address()]);
+    let (db, _dir) = open_state(&[spinner.address(), attacker.address(), honest.address()]);
+    let forever = deploy(&db, &spinner, &wasm(FOREVER_WAT));
+    let spin = call(forever, block_cap(), 1, &spinner);
     let len = usize::try_from(block_cap() * 3 / 5 / maya_vm::gas::CODE_BYTE_FUEL).unwrap();
     let bad = signed(
         TxKind::DeployContract(ContractDeploy {
@@ -654,12 +975,21 @@ fn a_deployment_that_fails_validation_still_spends_its_compile() {
     );
     let kept = db
         .select_applicable(
-            vec![bad, good],
-            BlockContext::at_height(1),
+            vec![spin.clone(), bad, good.clone()],
+            BlockContext::at_height(2),
             target_from_leading_zero_bits(0),
         )
         .unwrap();
     assert!(kept.is_empty(), "{} kept", kept.len());
+    // Without the bad deployment the good one is tried and applies.
+    let kept = db
+        .select_applicable(
+            vec![spin, good.clone()],
+            BlockContext::at_height(2),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    assert_eq!(kept, vec![good]);
 }
 
 #[test]

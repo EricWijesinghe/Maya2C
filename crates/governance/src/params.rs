@@ -312,12 +312,13 @@ impl ParameterKey {
                 default: Amount::from_u64(250_000_000),
             },
             // 250 M is ~250 ms of the slowest priced work on the measuring
-            // machine. A block can spend it twice over and a quarter more
-            // (plaintext calls, then revealed sealed actions on their own
-            // quarter, GAS-2), and a producer stages its plaintext twice, so
-            // the ceiling is 300 M: ~375 ms to validate, ~675 ms to produce,
-            // inside the 1 s block time (PR #549 review: 500 M would have
-            // been ~1.1 s for the producer).
+            // machine. A block spends at most the cap on plaintext calls and
+            // a quarter of it more on revealed sealed actions (GAS-2: 1.25 x
+            // the cap), and a producer's selection may also try up to the cap
+            // again of failed calls before it stages the block (3.25 x the
+            // cap in all). At the 300 M ceiling that is ~375 ms to validate
+            // and ~978 ms to produce at 1 ns a unit: inside the 1 s block
+            // time, only just (ADR-142 amendments 3 and 4).
             Self::VmMaxBlockGas => Bounds {
                 min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
                 max: Amount::from_u64(VM_GAS_CEILING),
