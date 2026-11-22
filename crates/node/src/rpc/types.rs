@@ -366,7 +366,9 @@ pub struct SuiteKeyInfo {
 
 impl From<&Transaction> for TransactionInfo {
     fn from(tx: &Transaction) -> Self {
-        let described = crate::core::describe::describe(tx);
+        // A block record: the node verified every sponsorship on import, so
+        // the sponsor may be stated as the payer.
+        let described = crate::core::describe::describe_with_checked_sponsor(tx);
         Self {
             txid: hex::encode(tx.txid()),
             sender: hex::encode(tx.sender()),
@@ -389,11 +391,7 @@ impl From<&Transaction> for TransactionInfo {
                     amount: output.amount,
                 })
                 .collect(),
-            signed: match (&tx.multisig, &tx.suite_auth) {
-                (Some(auth), _) => auth.approvals().len() >= auth.policy().threshold(),
-                (None, Some(auth)) => auth.signature.is_some(),
-                (None, None) => tx.signature.is_some(),
-            },
+            signed: tx.is_authorized(),
             suite: tx.suite_auth.as_ref().map(|auth| SuiteKeyInfo {
                 id: auth.suite.to_byte(),
                 public_key: hex::encode(&auth.public_key),

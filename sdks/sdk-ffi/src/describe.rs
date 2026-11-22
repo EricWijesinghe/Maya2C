@@ -9,7 +9,7 @@
 
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::describe::{Description, Review, describe, describe_kind};
-use custom_l1_node::core::{Transaction, TxKind};
+use custom_l1_node::core::{ChainTag, Transaction, TxKind};
 
 use crate::SdkError;
 
@@ -33,11 +33,23 @@ pub struct TxDescription {
     pub careful: bool,
     /// The values the sentence refers to, in full and in payload order.
     pub details: Vec<Detail>,
-    /// The fee payer of a wire-v13 sponsored frame, hex; `None` otherwise.
+    /// The account a wire-v13 frame names as its fee payer, hex; `None`
+    /// otherwise. A claim unless `sponsor_verified` is `true`.
     pub sponsor: Option<String>,
+    /// Whether the sponsor's signature holds over the signed frame on the
+    /// chain asked about. `summary` and `details` never mention the sponsor:
+    /// a valid sponsorship can still be stripped after signing. A binding
+    /// shows a verified `sponsor` as an offer to pay, an unverified one as a
+    /// claim, and neither as the payer.
+    pub sponsor_verified: bool,
 }
 
-fn record(kind: &TxKind, d: Description, sponsor: Option<String>) -> TxDescription {
+fn record(
+    kind: &TxKind,
+    d: Description,
+    sponsor: Option<String>,
+    sponsor_verified: bool,
+) -> TxDescription {
     TxDescription {
         kind: kind.label().to_owned(),
         summary: d.summary,
@@ -51,6 +63,7 @@ fn record(kind: &TxKind, d: Description, sponsor: Option<String>) -> TxDescripti
             })
             .collect(),
         sponsor,
+        sponsor_verified,
     }
 }
 
@@ -69,19 +82,33 @@ pub fn describe_payload(payload: Vec<u8>) -> Result<TxDescription, SdkError> {
     let mut reader = ByteReader::new(&payload);
     let kind = TxKind::decode(&mut reader).map_err(malformed)?;
     reader.finish().map_err(malformed)?;
-    Ok(record(&kind, describe_kind(&kind), None))
+    Ok(record(&kind, describe_kind(&kind), None, false))
 }
 
-/// Describes a whole wire frame (any version the node decodes, v13 included).
+/// Describes a whole wire frame (any version the node decodes, v13 included)
+/// as it would apply on the chain whose genesis id is `genesis_id`. A
+/// sponsor is checked against that chain (`Transaction::sponsor_holds`) and
+/// reported in `sponsor_verified`; the words never state it as the payer.
 ///
 /// # Errors
 ///
-/// [`SdkError::Malformed`] when the node's decoder refuses the frame.
+/// [`SdkError::Malformed`] when the node's decoder refuses the frame, or
+/// `genesis_id` is not 32 bytes.
 #[uniffi::export]
-pub fn describe_transaction(frame: Vec<u8>) -> Result<TxDescription, SdkError> {
+pub fn describe_transaction(
+    frame: Vec<u8>,
+    genesis_id: Vec<u8>,
+) -> Result<TxDescription, SdkError> {
+    let genesis = <[u8; 32]>::try_from(genesis_id).map_err(|_| SdkError::Malformed {
+        what: "genesis id".to_string(),
+    })?;
     let tx = Transaction::from_bytes(&frame).map_err(|_| SdkError::Malformed {
         what: "transaction".to_string(),
     })?;
+    let verified = tx.sponsor_holds(&ChainTag::from_genesis(genesis));
+    // Never stated in the words: even a valid sponsorship can be stripped
+    // after the sender signs, so it is an offer, carried in `sponsor`.
+    let described = describe(&tx);
     let sponsor = tx.sponsor.as_ref().map(|s| hex::encode(s.address()));
-    Ok(record(&tx.kind, describe(&tx), sponsor))
+    Ok(record(&tx.kind, described, sponsor, verified))
 }

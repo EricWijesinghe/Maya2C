@@ -25,7 +25,7 @@ fn vectors() -> Vec<Value> {
 #[test]
 fn every_v4_vector_is_described_as_the_node_describes_it() {
     let all = vectors();
-    assert_eq!(all.len(), 16);
+    assert_eq!(all.len(), 17);
     for v in all {
         let payload = hex::decode(v["payload"].as_str().unwrap()).unwrap();
         let d = describe_payload(payload.clone()).expect("decodes");
@@ -41,7 +41,7 @@ fn every_v4_vector_is_described_as_the_node_describes_it() {
             .map(|p| (p[0].as_str().unwrap().into(), p[1].as_str().unwrap().into()))
             .collect();
         assert_eq!(details, want, "{}", d.kind);
-        assert!(d.sponsor.is_none());
+        assert!(d.sponsor.is_none() && !d.sponsor_verified);
         // Trailing bytes are refused, never ignored.
         let mut long = payload;
         long.push(0);
@@ -68,12 +68,40 @@ fn a_sponsored_frame_names_its_sponsor() {
     tx.sponsor_with::<MlDsa87>(&sponsor, U256::from(9_000), 77, &chain)
         .unwrap();
 
-    let d = describe_transaction(tx.to_bytes()).expect("v13 decodes");
+    let d = describe_transaction(tx.to_bytes(), vec![0x5A; 32]).expect("v13 decodes");
     assert_eq!(d.kind, "mint_asset");
     assert_eq!(d.sponsor, Some(hex::encode(payer)));
-    assert!(d.summary.contains("paid by sponsor"), "{}", d.summary);
+    assert!(d.sponsor_verified);
+    // Even a valid sponsorship can be stripped after signing: the words never
+    // state who pays; the binding shows `sponsor` as an offer.
+    assert!(!d.summary.contains("sponsor"), "{}", d.summary);
+    assert!(d.details.iter().all(|x| !x.label.contains("sponsor")));
+
+    // Another chain: the sponsor's signature does not hold there, so it is a
+    // claim only and the words do not state it.
+    let elsewhere = describe_transaction(tx.to_bytes(), vec![0x5B; 32]).unwrap();
+    assert_eq!(elsewhere.sponsor, Some(hex::encode(payer)));
+    assert_unverified(&elsewhere);
+
+    // A forged ceiling the sponsor never signed: a claim only.
+    let mut forged = tx.clone();
+    if let Some(s) = forged.sponsor.as_mut() {
+        s.max_fee = U256::from(9_001);
+    }
+    assert_unverified(&describe_transaction(forged.to_bytes(), vec![0x5A; 32]).unwrap());
+
     assert!(matches!(
-        describe_transaction(vec![0x0D, 0, 0]),
+        describe_transaction(vec![0x0D, 0, 0], vec![0x5A; 32]),
         Err(SdkError::Malformed { .. })
     ));
+    assert!(matches!(
+        describe_transaction(tx.to_bytes(), vec![0x5A; 31]),
+        Err(SdkError::Malformed { .. })
+    ));
+}
+
+fn assert_unverified(d: &maya_sdk_ffi::TxDescription) {
+    assert!(!d.sponsor_verified);
+    assert!(!d.summary.contains("sponsor"), "{}", d.summary);
+    assert!(d.details.iter().all(|x| !x.label.contains("sponsor")));
 }

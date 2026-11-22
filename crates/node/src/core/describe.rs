@@ -95,6 +95,12 @@ fn short(bytes: &[u8]) -> String {
     }
 }
 
+/// The `mint authority` value of an asset nobody may mint more of.
+pub const NO_MINT_AUTHORITY: &str = "none: nobody can mint more";
+
+/// The `warning` detail of a `RegisterCapped` whose symbol apply refuses.
+pub const REFUSED_SYMBOL: &str = "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)";
+
 /// Detail labels whose value is an account address. A reader shows those in
 /// its own address form; the rest (asset, pool, channel, proposal ids) are
 /// identifiers, not something a person pays, and stay hex.
@@ -164,14 +170,27 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     }
 }
 
-/// Describes `tx`: the native transfer's outputs, or its payload.
+/// Describes `tx`: the native transfer's outputs, or its payload. A wire-v13
+/// sponsor is not mentioned: nothing here checks its signature, and an
+/// unchecked "the fee is paid by" is what a forged or later-stripped
+/// sponsorship would count on the signer believing (ADR-135 amendment 2026-11-19).
+/// [`describe_with_checked_sponsor`] adds it once it has been checked.
 #[must_use]
 pub fn describe(tx: &Transaction) -> Description {
-    let described = if matches!(tx.kind, TxKind::Transfer) {
+    if matches!(tx.kind, TxKind::Transfer) {
         describe_transfer(tx)
     } else {
         describe_kind(&tx.kind)
-    };
+    }
+}
+
+/// [`describe`], plus who pays the fee, stated as fact. Only for a frame whose
+/// sponsorship has been checked: one the node accepted into a block (import
+/// verifies every sponsorship), or one for which
+/// [`Transaction::sponsor_holds`] returned `true`.
+#[must_use]
+pub fn describe_with_checked_sponsor(tx: &Transaction) -> Description {
+    let described = describe(tx);
     match &tx.sponsor {
         Some(sponsorship) => with_sponsor(described, sponsorship),
         None => described,
@@ -685,21 +704,39 @@ fn describe_asset_mint(action: &crate::core::asset_mint_payload::AssetMintAction
             total_supply,
             cap,
             authority,
-        } => Description::new(
-            format!(
-                "Register an asset with {} units now, all credited to you, and at most {} ever.",
-                group_digits(*total_supply),
-                group_digits(*cap)
-            ),
-            Careful,
-        )
-        .with(
-            "symbol",
-            String::from_utf8_lossy(symbol)
-                .trim_end_matches('\0')
-                .to_owned(),
-        )
-        .with("mint authority", full(authority)),
+        } => {
+            let described = Description::new(
+                format!(
+                    "Register an asset with {} units now, all credited to you, and at most {} ever.",
+                    group_digits(*total_supply),
+                    group_digits(*cap)
+                ),
+                Careful,
+            )
+            .with(
+                "symbol",
+                String::from_utf8_lossy(symbol)
+                    .trim_end_matches('\0')
+                    .to_owned(),
+            )
+            // All zeros means nobody may mint (`state::asset::NO_AUTHORITY`); shown
+            // as an address it would read as an account that controls the supply.
+            .with(
+                "mint authority",
+                if *authority == crate::state::asset::NO_AUTHORITY {
+                    NO_MINT_AUTHORITY.to_owned()
+                } else {
+                    full(authority)
+                },
+            );
+            // The decoder admits any 8 bytes; apply refuses all but 1-8 of
+            // A-Z, 0-9. A preview says so rather than show a doomed form.
+            if crate::state::asset::validate_symbol(symbol).is_err() {
+                described.with("warning", REFUSED_SYMBOL.to_owned())
+            } else {
+                described
+            }
+        }
         A::Mint { asset, to, amount } => Description::new(
             format!(
                 "Create {} new units of an asset for {}.",
@@ -1043,5 +1080,76 @@ mod tests {
             assert!(d.summary.ends_with('.'), "{}: {}", kind.label(), d.summary);
             assert!(d.summary.len() > 10, "{}", kind.label());
         }
+    }
+
+    #[test]
+    fn an_unchecked_sponsor_is_never_stated_as_the_payer() {
+        use crate::core::sponsor_tx::Sponsorship;
+        let mut tx = Transaction::with_kind(TxKind::CancelOrder([4; 32]), 0);
+        let alone = describe(&tx);
+        tx.sponsor = Some(Box::new(Sponsorship {
+            suite: maya_crypto_pq::suite::SuiteId::MlDsa87,
+            public_key: vec![7; 8],
+            max_fee: U256::from(9_000),
+            valid_until: 5,
+            // Not a signature at all: `describe` must not care, and must not say.
+            signature: Vec::new(),
+        }));
+        let unchecked = describe(&tx);
+        assert_eq!(unchecked, alone, "describe ignores the sponsor");
+        assert!(
+            !unchecked.summary.contains("sponsor"),
+            "{}",
+            unchecked.summary
+        );
+        assert!(
+            unchecked
+                .details
+                .iter()
+                .all(|(l, _)| !l.contains("sponsor"))
+        );
+
+        let checked = describe_with_checked_sponsor(&tx);
+        assert!(
+            checked.summary.contains("The fee is paid by sponsor")
+                && checked.summary.contains("9,000 base units"),
+            "{}",
+            checked.summary
+        );
+        assert_eq!(checked.review, alone.review);
+    }
+
+    #[test]
+    fn an_asset_nobody_may_mint_names_no_authority_account() {
+        use crate::core::asset_mint_payload::AssetMintAction;
+        let register = |authority| {
+            describe_kind(&TxKind::AssetMint(AssetMintAction::RegisterCapped {
+                symbol: *b"GOLD\0\0\0\0",
+                total_supply: U256::from(1),
+                cap: U256::from(1),
+                authority,
+            }))
+        };
+        let none = register(crate::state::asset::NO_AUTHORITY);
+        assert!(
+            none.details
+                .contains(&("mint authority", NO_MINT_AUTHORITY.to_owned()))
+        );
+        // A reader's address rewrite leaves it alone: it is not an account.
+        let (_, rewritten) = rewrite_addresses(none.summary, none.details, |_| "ADDR".into());
+        assert!(rewritten.iter().all(|(_, v)| v != "ADDR"));
+        let some = register([0xA1; 32]);
+        assert!(some.details.contains(&("mint authority", "a1".repeat(32))));
+        assert!(some.details.iter().all(|(l, _)| *l != "warning"));
+        let odd = describe_kind(&TxKind::AssetMint(AssetMintAction::RegisterCapped {
+            symbol: [b'g', b'o', b'l', b'd', 0, 0, 0, 0],
+            total_supply: U256::from(1),
+            cap: U256::from(1),
+            authority: [0xA1; 32],
+        }));
+        assert!(
+            odd.details
+                .contains(&("warning", REFUSED_SYMBOL.to_owned()))
+        );
     }
 }

@@ -204,8 +204,11 @@ async fn block(
 /// `a-z0-9-`, no edge or double `-`; `crates/node/src/core/name_payload.rs`)
 /// applied here so a malformed label is a 400 and never reaches the node.
 /// The gateway does not link the node, so the rule is restated, not imported.
-pub(crate) fn parse_label(input: &str) -> Result<&str, GatewayError> {
-    let label = input.strip_suffix(".maya").unwrap_or(input);
+/// Input is lowercased first, as the explorer does: names are case-blind to a
+/// person, and the chain stores only lowercase.
+pub(crate) fn parse_label(input: &str) -> Result<String, GatewayError> {
+    let lower = input.trim().to_ascii_lowercase();
+    let label = lower.strip_suffix(".maya").unwrap_or(&lower);
     let ok = (3..=63).contains(&label.len())
         && label
             .bytes()
@@ -214,7 +217,7 @@ pub(crate) fn parse_label(input: &str) -> Result<&str, GatewayError> {
         && !label.ends_with('-')
         && !label.contains("--");
     if ok {
-        Ok(label)
+        Ok(label.to_owned())
     } else {
         Err(GatewayError::BadRequest(
             "a name is 3-63 characters of a-z, 0-9 and '-'".to_string(),
@@ -238,7 +241,7 @@ async fn name(
     State(state): State<Arc<AppState>>,
     Path(label): Path<String>,
 ) -> Result<Json<serde_json::Value>, GatewayError> {
-    let record = state.node.get_name(parse_label(&label)?).await?;
+    let record = state.node.get_name(&parse_label(&label)?).await?;
     // A lapsed record stays in state until someone registers the name again;
     // to a client it is as free as a name never registered.
     if record.is_null() || record["status"] == "lapsed" {

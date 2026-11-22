@@ -11,6 +11,10 @@
         [
           "mint authority",
           "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "warning",
+          "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)"
         ]
       ],
       "fields": {
@@ -33,6 +37,10 @@
         [
           "mint authority",
           "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "warning",
+          "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)"
         ]
       ],
       "fields": {
@@ -55,6 +63,10 @@
         [
           "mint authority",
           "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "warning",
+          "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)"
         ]
       ],
       "fields": {
@@ -77,6 +89,10 @@
         [
           "mint authority",
           "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        ],
+        [
+          "warning",
+          "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)"
         ]
       ],
       "fields": {
@@ -498,6 +514,28 @@
       "label": "cancel_schedule",
       "payload": "44a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
       "summary": "Cancel a scheduled payment. What it has not paid yet comes back to you."
+    },
+    {
+      "careful": true,
+      "details": [
+        [
+          "symbol",
+          "FIXED"
+        ],
+        [
+          "mint authority",
+          "none: nobody can mint more"
+        ]
+      ],
+      "fields": {
+        "authority": "0000000000000000000000000000000000000000000000000000000000000000",
+        "cap": "21",
+        "symbol": "FIXED",
+        "total_supply": "21"
+      },
+      "label": "register_capped_asset",
+      "payload": "374649584544000000150000000000000000000000000000000000000000000000000000000000000015000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "summary": "Register an asset with 21 units now, all credited to you, and at most 21 ever."
     }
   ]
 }

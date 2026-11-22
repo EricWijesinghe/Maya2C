@@ -3,14 +3,18 @@
 //! indexed block would be shown as current and quietly be wrong after a
 //! transfer, so none of these come from the index.
 
+use axum::Extension;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::response::Response;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use std::sync::Arc;
 
-use super::{AppState, html, html_status};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+
+use super::{html, html_status};
 use crate::error::{ExplorerError, Result};
 use crate::ui;
 
@@ -55,23 +59,42 @@ fn id_hex(input: &str, what: &str) -> std::result::Result<String, String> {
     }
 }
 
+/// How long one v4 read may hold a node connection. The pages are public and
+/// unauthenticated; the client's 60 s default would let each one pin a slow
+/// node for a minute.
+const NODE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The one node client every v4 read shares, built with the router, or why
+/// there is none.
+#[derive(Clone)]
+pub(super) struct V4Node(Arc<std::result::Result<HttpClient, String>>);
+
+impl V4Node {
+    pub(super) fn new(url: Option<&str>) -> Self {
+        let client = match url {
+            None => Err("No node endpoint configured.".to_string()),
+            Some(url) => HttpClientBuilder::default()
+                .request_timeout(NODE_READ_TIMEOUT)
+                .build(url)
+                .map_err(|e| format!("Node unavailable: {e}")),
+        };
+        Self(Arc::new(client))
+    }
+}
+
 /// One read from the node: `(record, error)` as a page shows them.
 async fn read<T: DeserializeOwned + Send>(
-    state: &AppState,
+    node: &V4Node,
     method: &str,
     params: jsonrpsee::core::params::ArrayParams,
 ) -> (Option<T>, Option<String>) {
     use jsonrpsee::core::client::ClientT;
-    use jsonrpsee::http_client::HttpClientBuilder;
 
-    let Some(url) = state.node_rpc.as_deref() else {
-        return (None, Some("No node endpoint configured.".to_string()));
+    let client = match node.0.as_ref() {
+        Ok(client) => client,
+        Err(why) => return (None, Some(why.clone())),
     };
-    let answer = match HttpClientBuilder::default().build(url) {
-        Ok(client) => client.request::<Option<T>, _>(method, params).await,
-        Err(e) => return (None, Some(format!("Node unavailable: {e}"))),
-    };
-    match answer {
+    match client.request::<Option<T>, _>(method, params).await {
         Ok(record) => (record, None),
         Err(e) => (
             None,
@@ -84,7 +107,7 @@ async fn read<T: DeserializeOwned + Send>(
 
 /// `/name?label=`.
 pub(super) async fn name_lookup(
-    State(state): State<AppState>,
+    Extension(node): Extension<V4Node>,
     Query(query): Query<NameQuery>,
 ) -> Result<Response> {
     let input = query.label.unwrap_or_default();
@@ -100,25 +123,30 @@ pub(super) async fn name_lookup(
             ));
         }
     };
-    let (info, error) = read(&state, "get_name", jsonrpsee::rpc_params![&label]).await;
+    let (info, error) = read(&node, "get_name", jsonrpsee::rpc_params![&label]).await;
     Ok(html(ui::name_page(format!("{label}.maya"), info, error)))
 }
 
 /// `/api/name/{label}`: the node's answer, status included.
 pub(super) async fn api_name(
-    State(state): State<AppState>,
+    Extension(node): Extension<V4Node>,
     Path(label): Path<String>,
 ) -> Result<Json<Option<custom_l1_node::rpc::NameInfo>>> {
     let label = name_label(&label).map_err(ExplorerError::BadRequest)?;
-    match read(&state, "get_name", jsonrpsee::rpc_params![&label]).await {
-        (info, None) => Ok(Json(info)),
+    match read::<custom_l1_node::rpc::NameInfo>(&node, "get_name", jsonrpsee::rpc_params![&label])
+        .await
+    {
+        // As the gateway answers (docs/sdk.md): to a program a lapsed name is
+        // free, so it reads as one never registered. The `/name` page still
+        // shows the record, with its "does not resolve" banner.
+        (info, None) => Ok(Json(info.filter(|i| i.status != "lapsed"))),
         (_, Some(error)) => Err(ExplorerError::NodeRpc(error)),
     }
 }
 
 /// `/asset?id=`.
 pub(super) async fn asset_lookup(
-    State(state): State<AppState>,
+    Extension(node): Extension<V4Node>,
     Query(query): Query<IdQuery>,
 ) -> Result<Response> {
     let input = query.id.unwrap_or_default();
@@ -131,7 +159,7 @@ pub(super) async fn asset_lookup(
             ui::asset_page(input, None, Some(message)),
         )),
         Ok(id) => {
-            let (info, error) = read(&state, "get_asset", jsonrpsee::rpc_params![&id]).await;
+            let (info, error) = read(&node, "get_asset", jsonrpsee::rpc_params![&id]).await;
             Ok(html(ui::asset_page(id, info, error)))
         }
     }
@@ -139,7 +167,7 @@ pub(super) async fn asset_lookup(
 
 /// `/schedule?id=`.
 pub(super) async fn schedule_lookup(
-    State(state): State<AppState>,
+    Extension(node): Extension<V4Node>,
     Query(query): Query<IdQuery>,
 ) -> Result<Response> {
     let input = query.id.unwrap_or_default();
@@ -152,7 +180,7 @@ pub(super) async fn schedule_lookup(
             ui::schedule_page(input, None, Some(message)),
         )),
         Ok(id) => {
-            let (info, error) = read(&state, "get_schedule", jsonrpsee::rpc_params![&id]).await;
+            let (info, error) = read(&node, "get_schedule", jsonrpsee::rpc_params![&id]).await;
             Ok(html(ui::schedule_page(id, info, error)))
         }
     }
@@ -160,7 +188,7 @@ pub(super) async fn schedule_lookup(
 
 /// `/nft?collection=&index=`: the collection, and one item when an index is given.
 pub(super) async fn nft_lookup(
-    State(state): State<AppState>,
+    Extension(node): Extension<V4Node>,
     Query(query): Query<NftQuery>,
 ) -> Result<Response> {
     let input = query.collection.unwrap_or_default();
@@ -184,9 +212,9 @@ pub(super) async fn nft_lookup(
             ));
         }
     };
-    let (collection, error) = read(&state, "get_nft_collection", jsonrpsee::rpc_params![&id]).await;
+    let (collection, error) = read(&node, "get_nft_collection", jsonrpsee::rpc_params![&id]).await;
     let (item, item_error) = match (&collection, index) {
-        (Some(_), Some(i)) => read(&state, "get_nft_item", jsonrpsee::rpc_params![&id, i]).await,
+        (Some(_), Some(i)) => read(&node, "get_nft_item", jsonrpsee::rpc_params![&id, i]).await,
         _ => (None, None),
     };
     let found = collection.map(|c| (c, item));

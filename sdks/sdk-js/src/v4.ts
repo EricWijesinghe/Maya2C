@@ -160,6 +160,12 @@ export function decodePayload(payload: Uint8Array): [string, Fields] {
   return [label, fields];
 }
 
+/** The `mint authority` value of an asset nobody may mint more of (core::describe::NO_MINT_AUTHORITY). */
+export const NO_MINT_AUTHORITY = "none: nobody can mint more";
+
+/** The `warning` detail of a register_capped_asset whose symbol the chain refuses (core::describe::REFUSED_SYMBOL). */
+export const REFUSED_SYMBOL = "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)";
+
 /** `1234567` reads `1,234,567`, as core::describe::group_digits. */
 export function groupDigits(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -199,7 +205,9 @@ export function describePayload(label: string, f: Fields): Description {
     case "register_capped_asset":
       return d(`Register an asset with ${n("total_supply")} units now, all credited to you, and at most ${n("cap")} ever.`, true, [
         ["symbol", at("symbol")],
-        ["mint authority", at("authority")],
+        ["mint authority", at("authority") === "00".repeat(32) ? NO_MINT_AUTHORITY : at("authority")],
+        // The decoder admits any 8 bytes; apply refuses this symbol.
+        ...(/^[A-Z0-9]{1,8}$/.test(at("symbol")) ? [] : [["warning", REFUSED_SYMBOL] as [string, string]]),
       ]);
     case "mint_asset":
       return d(`Create ${n("amount")} new units of an asset for ${short(at("to"))}.`, true, [

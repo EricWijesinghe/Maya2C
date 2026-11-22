@@ -365,7 +365,10 @@ fn a_council_sunset_has_no_emergency_window_so_no_path_exits_a_frozen_vault_earl
 fn a_council_pause_of_a_dark_v4_module_is_refused() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir);
-    for (i, module) in [Module::Nft, Module::Names].into_iter().enumerate() {
+    for (i, module) in [Module::Nft, Module::Names, Module::Scheduled]
+        .into_iter()
+        .enumerate()
+    {
         let pause = council(
             CouncilKind::Pause {
                 module: module.tag(),

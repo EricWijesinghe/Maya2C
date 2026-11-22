@@ -200,6 +200,20 @@ def group_digits(value: int) -> str:
     return f"{value:,}"
 
 
+#: The ``mint authority`` value of an asset nobody may mint more of
+#: (``core::describe::NO_MINT_AUTHORITY``).
+NO_MINT_AUTHORITY = "none: nobody can mint more"
+
+#: The ``warning`` detail of a register_capped_asset whose symbol the chain
+#: refuses (``core::describe::REFUSED_SYMBOL``).
+REFUSED_SYMBOL = "the chain will refuse this symbol (1 to 8 of A-Z, 0-9)"
+
+
+def _authority(hex_text: str) -> str:
+    """All zeros means nobody may mint: never shown as an account."""
+    return NO_MINT_AUTHORITY if hex_text == "00" * 32 else hex_text
+
+
 def _short(hex_text: str) -> str:
     return f"{hex_text[:4]}…{hex_text[-4:]}"
 
@@ -225,7 +239,9 @@ def describe(label: str, fields: Fields) -> tuple[str, bool, list[tuple[str, str
             f"Register an asset with {n('total_supply')} units now, all credited to you, "
             f"and at most {n('cap')} ever.",
             True,
-            [("symbol", f["symbol"]), ("mint authority", f["authority"])],
+            [("symbol", f["symbol"]), ("mint authority", _authority(f["authority"]))]
+            # The decoder admits any 8 bytes; apply refuses this symbol.
+            + ([] if _SYMBOL.fullmatch(f["symbol"]) else [("warning", REFUSED_SYMBOL)]),
         )
     if label == "mint_asset":
         return (

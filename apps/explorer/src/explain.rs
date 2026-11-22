@@ -14,6 +14,8 @@
 
 use custom_l1_node::core::describe::rewrite_addresses;
 use custom_l1_node::rpc::TransactionInfo;
+use custom_l1_node::state::fees::FEE_COLLECTOR;
+use custom_l1_node::state::shielded::FEE_SINK;
 use maya_clear_sign::{Effect, Network, render};
 
 use crate::model::{IndexedBlock, IndexedTx};
@@ -96,8 +98,14 @@ pub fn explain_tx(tx: &TransactionInfo, network: Network) -> String {
         } else {
             format!(" Details: {}.", details.join("; "))
         };
+        // A sponsored frame's sentence already names the sponsor (the node
+        // states it for block records); otherwise the fee outputs say it.
+        let fee = match &tx.sponsor {
+            Some(_) => String::new(),
+            None => format!(" {}", fee_line(tx)),
+        };
         return format!(
-            "{} signed: {summary}{details} {}",
+            "{} signed: {summary}{details}{fee} {}",
             short_hash(&tx.sender),
             signatures(tx)
         );
@@ -116,19 +124,39 @@ pub fn explain_tx(tx: &TransactionInfo, network: Network) -> String {
         0 => String::new(),
         n => format!(" {n} output(s) had a recipient the explorer could not read."),
     };
-    let fee = match &tx.sponsor {
-        Some(s) => format!(
+    format!(
+        "{} signed: {moves}.{skipped} {} {}",
+        short_hash(&tx.sender),
+        fee_line(tx),
+        signatures(tx)
+    )
+}
+
+/// The fee, as far as the record shows it: the sponsor's ceiling, or the
+/// outputs a payload frame pays to the fee collector or the burn sink
+/// (`state::settlement`). A transfer's fee outputs are already rendered as
+/// sends, so for a transfer the node reports no separate fee.
+fn fee_line(tx: &TransactionInfo) -> String {
+    if let Some(s) = &tx.sponsor {
+        return format!(
             "Fee: paid by sponsor {}, at most {} base units.",
             short_hash(&s.address),
             crate::plain::group_digits(s.max_fee)
-        ),
-        None => "Fee: not reported by the node.".to_string(),
-    };
-    format!(
-        "{} signed: {moves}.{skipped} {fee} {}",
-        short_hash(&tx.sender),
-        signatures(tx)
-    )
+        );
+    }
+    let fee_addresses = [hex::encode(FEE_COLLECTOR), hex::encode(FEE_SINK)];
+    let mut fee_outputs = tx
+        .outputs
+        .iter()
+        .filter(|o| fee_addresses.contains(&o.recipient.to_ascii_lowercase()))
+        .peekable();
+    if matches!(tx.kind.as_str(), "" | "transfer") || fee_outputs.peek().is_none() {
+        return "Fee: not reported by the node.".to_string();
+    }
+    let paid = fee_outputs.fold(primitive_types::U256::zero(), |sum, o| {
+        sum.saturating_add(o.amount)
+    });
+    format!("Fee: {} base units.", crate::plain::group_digits(paid))
 }
 
 /// One sentence summarising `block` from its indexed transactions.
@@ -310,6 +338,35 @@ mod tests {
             let short = format!("{:02x}{:02x}\u{2026}", account[0], account[1]);
             assert!(!text.contains(&short), "{text}");
         }
+    }
+
+    #[test]
+    fn a_payload_frame_states_the_fee_it_pays() {
+        use custom_l1_node::core::Transaction;
+        use custom_l1_node::core::asset_mint_payload::AssetMintAction;
+        use custom_l1_node::core::payload::TxKind;
+        let kind = TxKind::AssetMint(AssetMintAction::Burn {
+            asset: [0xB2; 32],
+            amount: U256::from(7),
+        });
+        let mut info = TransactionInfo::from(&Transaction::with_kind(kind, 0));
+        assert!(
+            explain_tx(&info, Network::Devnet).contains("Fee: not reported by the node."),
+            "no fee output: said so, never left out"
+        );
+        info.outputs = vec![
+            OutputInfo {
+                recipient: hex::encode(FEE_COLLECTOR),
+                amount: U256::from(1_200),
+            },
+            OutputInfo {
+                recipient: hex::encode(FEE_SINK),
+                amount: U256::from(300),
+            },
+        ];
+        let text = explain_tx(&info, Network::Devnet);
+        assert!(text.contains("Fee: 1,500 base units."), "{text}");
+        assert!(!text.contains("not reported"), "{text}");
     }
 
     #[test]

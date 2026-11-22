@@ -19,7 +19,9 @@
 
 use custom_l1_node::core::asset_mint_payload::AssetMintAction;
 use custom_l1_node::core::codec::ByteReader;
-use custom_l1_node::core::describe::{Review, describe, describe_kind};
+use custom_l1_node::core::describe::{
+    Review, describe, describe_kind, describe_with_checked_sponsor,
+};
 use custom_l1_node::core::name_payload::{NameAction, NameUpdate};
 use custom_l1_node::core::nft_payload::NftAction;
 use custom_l1_node::core::schedule_payload::ScheduleAction;
@@ -181,6 +183,18 @@ fn samples() -> Vec<(&'static str, TxKind, Value)> {
             "cancel_schedule",
             TxKind::Schedule(ScheduleAction::Cancel { schedule_id: a }),
             json!({"schedule_id": h(&a)}),
+        ),
+        // No authority: nobody may mint more, and no account is named for it.
+        // Last, so the indexes other tests use stay put.
+        (
+            "register_capped_asset",
+            TxKind::AssetMint(AssetMintAction::RegisterCapped {
+                symbol: symbol("FIXED"),
+                total_supply: U256::from(21_u64),
+                cap: U256::from(21_u64),
+                authority: [0; 32],
+            }),
+            json!({"symbol": "FIXED", "total_supply": "21", "cap": "21", "authority": h(&[0; 32])}),
         ),
     ]
 }
@@ -399,7 +413,14 @@ fn a_sponsored_frame_names_the_sponsor_that_pays_and_its_ceiling() {
 
     let wire = Transaction::from_bytes(&tx.to_bytes()).expect("v13 decodes");
     assert_eq!(wire, tx, "the v13 frame round-trips");
-    let d = describe(&wire);
+    // Unchecked, the sponsor is not mentioned; checked, it is stated.
+    assert_eq!(
+        describe(&wire),
+        alone,
+        "describe never states an unchecked sponsor"
+    );
+    assert!(wire.sponsor_holds(&chain));
+    let d = describe_with_checked_sponsor(&wire);
     assert!(d.summary.starts_with(&alone.summary), "{}", d.summary);
     assert!(
         d.summary.contains("paid by sponsor") && d.summary.contains("9,000 base units"),

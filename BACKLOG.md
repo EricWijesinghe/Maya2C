@@ -185,6 +185,25 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   (`an_honest_seller_with_a_real_bound_is_refunded_not_crushed`), both in
   `crates/node/tests/dex_tests.rs` (#308). No user path sends a swap at
   launch: `compose_swap` has no GUI or Tauri caller.
+- [ ] **V4-I7/I8 follow-ups (#551, post-genesis; the v4 features are dark).**
+  What #551 does not deliver, so it is not lost:
+  - Sponsored fees (v13) in the Python and TypeScript SDKs: they encode and
+    decode payloads only, not frames; deriving the sponsor's address needs
+    BLAKE3, outside both standard libraries. Rust has it (`sdk-ffi`
+    `describe_transaction`, wallet core, node RPC).
+  - Encode/decode of the v4 payloads and v13 frames in `sdk-ffi` (I7 names it):
+    it exports only `describe_payload` and `describe_transaction`, so a
+    Kotlin/Swift binding can preview a v4 transaction but not build one.
+  - Wallet-core composers for each v4 kind (`payment.rs` builds none): the
+    wallet reviews v4 frames but cannot build them. Each needs a round-trip
+    test against `spec/tests/v4-client-vectors.json`.
+  - Explorer JSON routes for asset, NFT and schedule (only `/api/name/{label}`
+    exists), a nav link to the v4 pages, and a sponsored-fee view beyond the
+    payer line.
+  - Go SDK v4 codec (plan I7 names it). `sdk-wasm` v4 codec: open gap;
+    dropping it is a proposal awaiting Eric.
+  - The desktop wallet reading `NameBaseFee3/4/5` and `ScheduleRunFee` from
+    the node (`confirmation_with_fees` has no caller outside tests).
 
 ## P5 — differentiators
 

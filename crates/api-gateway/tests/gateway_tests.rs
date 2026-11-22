@@ -279,7 +279,12 @@ async fn a_malformed_address_never_reaches_the_node() {
 #[tokio::test]
 async fn a_name_is_served_with_or_without_its_suffix_and_a_free_one_is_a_404() {
     let node = Arc::new(MockNode::default());
-    for uri in ["/v1/names/alice", "/v1/names/alice.maya"] {
+    // Lowercased first, as the explorer does.
+    for uri in [
+        "/v1/names/alice",
+        "/v1/names/alice.maya",
+        "/v1/names/Alice.MAYA",
+    ] {
         let (status, body) = get(app_with(Arc::clone(&node)), uri).await;
         assert_eq!(status, StatusCode::OK, "{uri}");
         assert_eq!(body["label"], "alice");
@@ -298,12 +303,28 @@ async fn a_name_in_grace_carries_its_status_and_a_lapsed_one_is_a_404() {
         body.get("target").is_none(),
         "a name in grace does not resolve: {body}"
     );
-    let (status, _) = get(app_with(node), "/v1/names/carol").await;
+    let (status, _) = get(app_with(Arc::clone(&node)), "/v1/names/carol").await;
     assert_eq!(
         status,
         StatusCode::NOT_FOUND,
         "a lapsed name is as free as a new one"
     );
+    // JSON-RPC agrees with REST: a lapsed name is `null`, as a free one is.
+    let (status, rpc) = post(
+        app_with(Arc::clone(&node)),
+        "/rpc",
+        rpc_request("get_name", serde_json::json!(["carol"])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(rpc["result"].is_null(), "{rpc}");
+    let (_, rpc) = post(
+        app_with(node),
+        "/rpc",
+        rpc_request("get_name", serde_json::json!(["dave"])),
+    )
+    .await;
+    assert_eq!(rpc["result"]["status"], "grace", "{rpc}");
 }
 
 #[tokio::test]
@@ -362,7 +383,7 @@ async fn a_block_passes_details_and_the_sponsor_through_untouched() {
 #[tokio::test]
 async fn a_label_the_chain_could_never_hold_never_reaches_the_node() {
     let node = Arc::new(MockNode::default());
-    for bad in ["ab", "Alice", "-ab", "ab-", "a--b", "a_b", &"a".repeat(64)] {
+    for bad in ["ab", "-ab", "ab-", "a--b", "a_b", &"a".repeat(64)] {
         let (status, _) = get(app_with(Arc::clone(&node)), &format!("/v1/names/{bad}")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
     }

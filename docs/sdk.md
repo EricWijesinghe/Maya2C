@@ -170,16 +170,18 @@ clients do with the v4 forms, and where each claim is pinned:
 
 | Piece | What it does | Pinned by |
 |---|---|---|
-| `spec/tests/v4-client-vectors.json` | one payload per form (16 vectors, 14 forms): fields, bytes, summary, review level, details; plus `decode_only` (symbols outside `[A-Z0-9]`, read as `describe` reads them), `refused_payloads` and `refused_fields` | written by `crates/node/tests/v4_client_vectors.rs` from the node's codec and `core::describe`; the test fails when the file is stale |
-| `core::describe` | v13 frames add the sponsor, its ceiling and its expiry; names add `name target` / `new owner` in full; `rewrite_addresses` turns its hex into a reader's Bech32m | `v4_client_vectors.rs`, the module's unit tests |
+| `spec/tests/v4-client-vectors.json` | one payload per form (17 vectors, 14 forms; one is a capped asset with no mint authority): fields, bytes, summary, review level, details; plus `decode_only` (symbols outside `[A-Z0-9]`, read as `describe` reads them, with a `warning` detail that the chain will refuse them), `refused_payloads` and `refused_fields` | written by `crates/node/tests/v4_client_vectors.rs` from the node's codec and `core::describe`; the test fails when the file is stale |
+| `core::describe` | `describe` never mentions a v13 sponsor; `describe_with_checked_sponsor` states it, its ceiling and its expiry, for block records only (import verified it and the fee was paid); an asset with no mint authority shows `none: nobody can mint more`; names add `name target` / `new owner` in full; `rewrite_addresses` turns its hex into a reader's Bech32m | `v4_client_vectors.rs`, the module's unit tests |
 | RPC `TransactionInfo` | adds `details` and `sponsor` (both omitted when empty, so older readers parse it) | `v4_client_vectors.rs` |
 | RPC `get_name(label)` | the committed `nm:` record with `status` (`active` / `grace` / `lapsed`) judged at the tip plus one, and `target` only while active | `crates/node/tests/rpc_tests.rs` |
 | RPC `get_asset(id)`, `get_nft_collection(id)`, `get_nft_item(id, index)`, `get_schedule(id)` | one committed record each, `null` when absent | `crates/node/tests/rpc_tests.rs` |
-| wallet core confirm | v4 accounts in Bech32m; a burn, an item burn, a schedule's whole escrow and a name fee reviewed as spends, name hand-over, re-pointing and mint renounce as control changes; a governed fee the wallet has not read is said to be unshown; a sponsor is "claimed (unverified)" unless its signature holds | `apps/wallet-gui/core/tests/v4_confirm_tests.rs` |
-| explorer | payload kinds explained in the node's words, addresses in Bech32m; sponsored transfers say who pays; `/name` (with a "does not resolve" banner once expired), `/asset`, `/nft`, `/schedule`, `/api/name/{label}` | `apps/explorer/src/explain.rs`, `src/ui/v4.rs`, `tests/server_tests.rs` |
-| gateway | `/v1/names/{label}` (404 once lapsed), `/v1/assets/{id}`, `/v1/nfts/{collection}`, `/v1/nfts/{collection}/{index}`, `/v1/schedules/{id}`, the same reads over `/rpc`; block JSON passes `details` and `sponsor` through | `crates/api-gateway/tests/gateway_tests.rs` |
-| `sdk-ffi` | `describe_payload`, `describe_transaction` (any frame the node decodes, v13 included) | `sdks/sdk-ffi/tests/describe_tests.rs` |
+| wallet core confirm | v4 accounts in Bech32m; a burn, an item burn, a schedule's whole escrow and a name fee reviewed as spends, name hand-over, re-pointing and mint renounce as control changes; a governed fee the wallet has not read is said to be unshown; a sponsor is named once, in the dialog and never in the description: as an offer once the sender has signed and the sponsor's signature holds, otherwise as "claimed (unverified)" (so before signing it is always a claim: a sponsor signs after the sender) | `apps/wallet-gui/core/tests/v4_confirm_tests.rs` |
+| explorer | payload kinds explained in the node's words, addresses in Bech32m; sponsored transfers say who pays; `/name` (with a "does not resolve" banner once expired), `/asset`, `/nft`, `/schedule`, `/api/name/{label}` (`null` once lapsed, as the gateway); one node client with a 5 s request timeout serves every v4 read | `apps/explorer/src/explain.rs`, `src/ui/v4.rs`, `tests/server_tests.rs` |
+| gateway | `/v1/names/{label}` (404 once lapsed; input lowercased, `.maya` optional, as the explorer), `/v1/assets/{id}`, `/v1/nfts/{collection}`, `/v1/nfts/{collection}/{index}`, `/v1/schedules/{id}`, the same reads over `/rpc` (`get_name` answers `null` for a lapsed name, as REST answers 404); block JSON passes `details` and `sponsor` through | `crates/api-gateway/tests/gateway_tests.rs` |
+| `sdk-ffi` | `describe_payload`, `describe_transaction(frame, genesis_id)` (any frame the node decodes, v13 included; the sponsor in its own field, `sponsor_verified` saying whether its signature holds on that chain; the words never name it, since even a valid sponsorship can be stripped after signing) | `sdks/sdk-ffi/tests/describe_tests.rs` |
 | Python `maya2c_sdk.v4`, TypeScript `src/v4.ts` | encode, decode and describe the 14 payload forms; `describe_bytes` / `describeBytes` preview from the bytes that get signed | `test_v4_vectors.py`, `v4-vectors.test.ts`, against the node's vectors, in `sdks.yml` |
+
+**Lapsed names, one policy.** Every client surface answers "is this name free" the same way: a lapsed record (`status: lapsed`) reads as a name never registered: gateway REST 404, gateway `/rpc` and explorer `/api/name` `null`. A name in `grace` is returned with its status and no `target`. Only the node's own `get_name` and the explorer's human `/name` page show a lapsed record, labelled as such.
 
 Python and TypeScript are a second and third copy of a consensus encoding, so
 they read and preview payloads only; frames and signatures stay in Rust. The
@@ -188,12 +190,17 @@ in the language that drifted. Preview from bytes: `describe(label, fields)`
 trusts its fields, so a preview built from anything but `decode` output can
 disagree with what is signed.
 
-Not done: no Go v4 codec (plan I7 names Go; not built); `sdk-wasm` has no v4
-codec, by decision (the TypeScript one serves the same runtimes; a fourth copy
-adds drift with no new reader); the Python/TS codecs do not parse v13 frames
-(deriving the sponsor's address needs BLAKE3, outside the standard library);
-the committed `sdk-ffi` Python binding file is not regenerated; the wallet does
-not yet read the governed name and run fees from the node.
+Not done (tracked in BACKLOG.md, P4): the wallet core reviews the v4 kinds but cannot build them (`payment.rs` has no v4 composer); encode/decode outside Rust is the Python/TS payload codecs. No Go v4 codec (plan I7 names Go; not built). `sdk-wasm` has no v4
+codec: an open gap. Dropping it (the TypeScript codec serves the same runtimes,
+and `sdk-wasm` cannot link the node, so it would be a fourth hand-written copy)
+is Claude's proposed scope reduction, for Eric to confirm; not a decision.
+Sponsored fees (v13) are encoded and decoded in Rust only (`sdk-ffi`, wallet
+core, node RPC); the Python/TS codecs do not parse v13 frames (deriving the
+sponsor's address needs BLAKE3, outside the standard library). The committed
+`sdk-ffi` Python binding file is not regenerated. The desktop wallet does not
+yet read the governed name fee (`NameBaseFee3/4/5`, by label length) or
+`ScheduleRunFee` from the node: `confirmation_with_fees` has no caller outside
+the tests, so the app says those fees apply and are not shown.
 
 ---
 

@@ -943,6 +943,22 @@ async fn an_expired_name_is_shown_as_not_resolving_and_its_api_carries_the_statu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lapsed_name_reads_as_free_through_the_api_as_through_the_gateway() {
+    let node = fake_node(vec![(
+        "get_name",
+        serde_json::json!({
+            "label": "carol", "owner": "aa".repeat(32), "registered_at": 0,
+            "expires_at": 0, "status": "lapsed", "checked_at": 99
+        }),
+    )])
+    .await;
+    let (base, _server) = harness_with_node(node).await;
+    let (status, body) = get(&format!("{base}/api/name/Carol.maya")).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body.trim(), "null", "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_asset_nft_and_schedule_pages_read_the_node() {
     let node = fake_node(vec![
         (

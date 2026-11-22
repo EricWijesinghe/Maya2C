@@ -38,9 +38,12 @@ pub const RUN_FEE_NOT_SHOWN: &str =
 /// fee applies and that its amount is not shown, instead of showing none.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GovernedFees {
-    /// The name fee for one period at this transaction's label length
-    /// (`NameBaseFee3` / `NameBaseFee4` / `NameBaseFee5`).
-    pub name_fee_per_period: Option<U256>,
+    /// `NameBaseFee3`: one period's fee for a 3-character label.
+    pub name_base_fee_3: Option<U256>,
+    /// `NameBaseFee4`: one period's fee for a 4-character label.
+    pub name_base_fee_4: Option<U256>,
+    /// `NameBaseFee5`: one period's fee for a label of 5 or more characters.
+    pub name_base_fee_5: Option<U256>,
     /// `ScheduleRunFee`, prepaid into the escrow once per run.
     pub schedule_run_fee: Option<U256>,
 }
@@ -85,8 +88,12 @@ pub struct Confirmation {
     pub sponsor: Option<String>,
     /// Wire-v13 frames only: the most the sponsor pays, in display units.
     pub sponsor_max_fee: Option<String>,
-    /// Whether the sponsor's signature holds over this transaction on this
-    /// chain. `false` means the sponsor is only claimed.
+    /// Whether the sponsor's signature holds over this transaction, already
+    /// signed by its sender, on this chain (`Transaction::sponsor_holds`).
+    /// `false` means the sponsor is only claimed. `description` and `details`
+    /// never mention a sponsor either way. Before the sender signs it is always
+    /// `false`: a suite signature is part of what the sponsor signs, so a
+    /// sponsor can only sign, and be checked, after the sender has.
     pub sponsor_verified: bool,
 }
 
@@ -116,6 +123,11 @@ pub fn confirmation_with_fees(
 ) -> Confirmation {
     let chain_id = hex::encode(chain.as_bytes());
     let network = networks::address_network(&chain_id);
+    let sponsor_verified = tx.sponsor_holds(chain);
+    // The description never names the sponsor, verified or not: even a valid
+    // sponsorship can be stripped after the sender signs, so "the fee is paid
+    // by" is never a fact from here. `approval_message` names it once, as an
+    // offer or as a claim.
     let described = describe(tx);
     let transfer = match (&tx.kind, tx.outputs.split_first()) {
         (TxKind::Transfer, Some((first, rest))) => {
@@ -165,10 +177,7 @@ pub fn confirmation_with_fees(
         warnings,
         sponsor: tx.sponsor.as_ref().map(|s| grouped(network, &s.address())),
         sponsor_max_fee: tx.sponsor.as_ref().map(|s| format_display(s.max_fee)),
-        sponsor_verified: tx
-            .sponsor
-            .as_ref()
-            .is_some_and(|s| s.signature_holds(tx, chain)),
+        sponsor_verified,
     }
 }
 
@@ -199,9 +208,9 @@ fn native(to: [u8; 32], amount: U256) -> Effect {
 /// and the lines to show for a governed fee whose amount was not read.
 fn effects_of(tx: &Transaction, fees: &GovernedFees) -> (Vec<Effect>, Vec<&'static str>) {
     match &tx.kind {
-        TxKind::Name(NameAction::Register { periods, .. } | NameAction::Renew { periods, .. }) => {
-            name_fee_effects(*periods, fees)
-        }
+        TxKind::Name(
+            NameAction::Register { label, periods, .. } | NameAction::Renew { label, periods },
+        ) => name_fee_effects(label.len(), *periods, fees),
         TxKind::Schedule(ScheduleAction::Create {
             payee,
             amount,
@@ -213,10 +222,20 @@ fn effects_of(tx: &Transaction, fees: &GovernedFees) -> (Vec<Effect>, Vec<&'stat
 }
 
 /// A registration or renewal burns `fee x periods` from the sender
-/// (`state::names` `charge_and_burn`). The payload carries no ceiling, so the
+/// (`state::names` `charge_and_burn`), the fee picked by label length as the
+/// node's `base_fee_key` picks it. The payload carries no ceiling, so the
 /// amount shown is the fee at the time it was read, not a bound.
-fn name_fee_effects(periods: u8, fees: &GovernedFees) -> (Vec<Effect>, Vec<&'static str>) {
-    match fees.name_fee_per_period {
+fn name_fee_effects(
+    label_len: usize,
+    periods: u8,
+    fees: &GovernedFees,
+) -> (Vec<Effect>, Vec<&'static str>) {
+    let per_period = match label_len {
+        3 => fees.name_base_fee_3,
+        4 => fees.name_base_fee_4,
+        _ => fees.name_base_fee_5,
+    };
+    match per_period {
         Some(per) => (
             vec![native(FEE_SINK, per.saturating_mul(U256::from(periods)))],
             Vec::new(),

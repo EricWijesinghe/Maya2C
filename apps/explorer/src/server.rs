@@ -144,7 +144,10 @@ pub fn router(state: AppState) -> Router {
     // there are no credentials, and it is how maya2c.dev shows the network live.
     // GET only. `MAYA2C_CORS_ALLOWED_ORIGINS` locks it to listed origins.
     let cors = maya_web_security::cors_from_env([axum::http::Method::GET]);
-    let router = router.merge(maya_web_security::security_txt()).layer(cors);
+    let router = router
+        .merge(maya_web_security::security_txt())
+        .layer(axum::Extension(v4::V4Node::new(state.node_rpc.as_deref())))
+        .layer(cors);
     maya_web_security::secure(router, CONTENT_SECURITY_POLICY).with_state(state)
 }
 

@@ -256,7 +256,13 @@ async fn dispatch(
             let [Value::String(label)] = params else {
                 return Err(RpcError::new(INVALID_PARAMS, "expected [label]"));
             };
-            Ok(node.get_name(parse_label(label)?).await?)
+            let record = node.get_name(&parse_label(label)?).await?;
+            // As REST `/v1/names/{label}` answers 404: a lapsed name is free.
+            Ok(if record["status"] == "lapsed" {
+                Value::Null
+            } else {
+                record
+            })
         }
         // v4 record reads (ADR-135 I8): one 32-byte id, checked here so a
         // malformed one costs the node nothing.

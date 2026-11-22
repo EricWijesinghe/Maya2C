@@ -696,3 +696,65 @@ activation. It is being fixed in the genesis binary (re-freeze PR "fix:
 admit unknown upgrade bits", branch `fix/upgrade-admit-unknown-bits`), so a
 v4 proposal is admissible on pre-v4 nodes and only activation needs the new
 binary.
+
+## Amendment (2026-11-19): client rules (I7/I8, #551)
+
+The client work (wallet core, explorer, gateway, `sdk-ffi`, the Python and
+TypeScript payload codecs) had to settle five rules that touch what a signer
+believes. None changes a validity rule; each is pinned by a test.
+
+- **A name is judged at tip + 1.** `get_name` returns `status` (`active`,
+  `grace`, `lapsed`) as `NameRecord::status_at(tip + 1)`, the height the next
+  transaction lands at, and a `target` only while `active`. An expired record
+  stays in state until someone registers the name again, so a reader that
+  resolved the stored target would pay a name nobody holds. The apply paths
+  read the same `status_at`, so a lookup and a transaction cannot disagree.
+  The gateway answers a lapsed name with 404; the explorer says "does not
+  resolve". Pinned: `crates/node/tests/rpc_tests.rs`,
+  `crates/api-gateway/tests/gateway_tests.rs`, `apps/explorer/tests/server_tests.rs`.
+- **Fees and escrow are reviewed as spends.** A schedule's whole escrow,
+  `(amount + ScheduleRunFee) x runs`, is one outflow to the payee, and a name
+  `Register` / `Renew` burns `fee x periods`. The drain and look-alike checks
+  see them. A governed fee the wallet has not read is said to apply and not
+  be shown, never shown as zero. Handing a name over, re-pointing it and
+  renouncing a mint are control changes. Pinned:
+  `apps/wallet-gui/core/tests/v4_confirm_tests.rs`. The desktop app does not
+  read the governed fees from the node yet (features.toml `v4-client-support`).
+- **A sponsor is stated as the payer only in a block record.**
+  `core::describe::describe` never mentions a sponsor.
+  `describe_with_checked_sponsor` adds "The fee is paid by sponsor ..." and is
+  called only for block records (block import verifies every sponsorship, and
+  the fee was paid). From the sender's side a sponsorship is never a fact: the
+  sender's signature does not cover it, so even a valid one can be stripped
+  after signing and the sender's own balance pays. The wallet and `sdk-ffi`
+  therefore never put the sponsor in the description or its details. The
+  wallet's dialog names it once: "Sponsor: ... offers to pay the fee ... Your
+  signature does not depend on it." when `Transaction::sponsor_holds(chain)`
+  is true (the sender's authorization is on the frame and the sponsor's
+  signature holds over it on that chain), and "Claimed sponsor (unverified)"
+  otherwise. `sdk-ffi` `describe_transaction(frame, genesis_id)` returns the
+  sponsor in its own field with `sponsor_verified`. A suite signature is
+  hashed into `inner_txid`, which is what the sponsor signs, so **a sponsor
+  signs after the sender**; at the wallet's confirmation, before signing, a
+  sponsor is therefore always a claim. Pinned: `v4_confirm_tests.rs`
+  (`a_sponsored_frame_names_the_sponsor_once_as_an_offer`,
+  `a_sponsor_attached_before_the_sender_signs_is_only_a_claim`, the forged
+  ceiling, another chain), `sdks/sdk-ffi/tests/describe_tests.rs`,
+  `crates/node/tests/v4_client_vectors.rs`, the `describe` unit tests.
+- **An asset nobody may mint names no account.** `RegisterCapped` with the
+  all-zero authority (`NO_AUTHORITY`) shows `mint authority` as
+  `none: nobody can mint more`, not as an address that a reader would turn
+  into Bech32m. Pinned by a vector in `spec/tests/v4-client-vectors.json`.
+- **A symbol the chain will refuse is flagged.** The decoders admit any 8
+  symbol bytes, as the node's does; apply runs `validate_symbol`. `describe`
+  adds `warning: the chain will refuse this symbol (1 to 8 of A-Z, 0-9)`, and
+  the Python and TypeScript copies match it through the `decode_only` vectors.
+  The gateway's JSON-RPC `get_name` answers `null` for a lapsed name, as REST
+  answers 404 (`gateway_tests.rs`).
+
+**Claude proposes, Eric to confirm:** no v4 codec in `sdk-wasm`. The
+`sdk-wasm` crate cannot link the node (RocksDB does not build for
+wasm32-unknown-unknown), so a v4 codec there would be a fourth hand-written
+copy of the payload encoding, next to the Python and TypeScript copies that
+serve the same browser and Node runtimes. Until Eric decides, it is an open
+gap of I7, not a cut.

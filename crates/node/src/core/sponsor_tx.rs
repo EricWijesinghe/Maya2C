@@ -212,6 +212,33 @@ pub(crate) fn verify(
 }
 
 impl Transaction {
+    /// Whether the frame carries its sender's authorization: a hybrid
+    /// signature, a suite signature, or a multisig quorum of approvals.
+    #[must_use]
+    pub fn is_authorized(&self) -> bool {
+        match (&self.multisig, &self.suite_auth) {
+            (Some(auth), _) => auth.approvals().len() >= auth.policy().threshold(),
+            (None, Some(auth)) => auth.signature.is_some(),
+            (None, None) => self.signature.is_some(),
+        }
+    }
+
+    /// Whether a reader may show this frame's sponsor as the one paying: the
+    /// sender's authorization is already on the frame, and the sponsor's
+    /// signature holds over it on `chain`. Before the sender signs, nothing
+    /// can be checked: a suite signature is hashed into
+    /// [`Transaction::inner_txid`], which is what the sponsor signs, so a
+    /// sponsorship made over the unsigned frame breaks the moment the sender
+    /// signs it. A sponsor signs after the sender (ADR-135 amendment 2026-11-19).
+    #[must_use]
+    pub fn sponsor_holds(&self, chain: &ChainTag) -> bool {
+        self.is_authorized()
+            && self
+                .sponsor
+                .as_ref()
+                .is_some_and(|s| s.signature_holds(self, chain))
+    }
+
     /// Sponsors this (already signed) transaction under suite `S`: the
     /// sponsor will pay `required(outer_len)`, at most `max_fee`, at heights
     /// up to `valid_until`.

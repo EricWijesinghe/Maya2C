@@ -796,3 +796,21 @@ fn the_activation_run_fee_is_the_nonzero_default() {
     assert_eq!(balance(&f, &PAYEE), U256::from(AMOUNT));
     assert_eq!(balance(&f, &FEE_COLLECTOR) - collector_before, fee);
 }
+
+/// The schedule's height for bit 46 reaches the block context through
+/// `with_features`, the builder block import uses; a5bd0a09 moved the field
+/// there from `with_sponsored_fees_activation`, where it did not compile.
+#[test]
+fn the_upgrade_schedule_turns_scheduled_payments_on_at_its_height() {
+    let features = custom_l1_node::upgrade::FeatureActivations {
+        scheduled: 7,
+        ..Default::default()
+    };
+    let ctx = |height| BlockContext::at_height(height).with_features(features);
+    assert!(!ctx(6).scheduled_active());
+    assert!(ctx(7).scheduled_active());
+    assert!(
+        !BlockContext::at_height(7).scheduled_active(),
+        "dark by default"
+    );
+}

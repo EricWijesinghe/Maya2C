@@ -221,9 +221,20 @@ fn a_name_fee_is_reviewed_as_a_burn_or_said_to_be_unshown() {
             "form {i}"
         );
     }
+    // The fee is picked by label length, as the node picks it: a 3-character
+    // fee read is not this 5-character label's fee, so it is still unshown.
+    let other_tier = GovernedFees {
+        name_base_fee_3: Some(U256::from(10)),
+        name_base_fee_4: Some(U256::from(10)),
+        ..GovernedFees::default()
+    };
+    assert_eq!(
+        warnings_with(forms().remove(9).1, &Context::default(), &other_tier),
+        vec![NAME_FEE_NOT_SHOWN.to_string()]
+    );
     // Read: 10 per period x 1 period burns all of a balance of 10.
     let fees = GovernedFees {
-        name_fee_per_period: Some(U256::from(10)),
+        name_base_fee_5: Some(U256::from(10)),
         ..GovernedFees::default()
     };
     let ctx = Context {
@@ -337,7 +348,7 @@ fn burning_nearly_all_of_an_asset_is_flagged_as_a_drain() {
 }
 
 #[test]
-fn a_sponsored_frame_says_who_pays_the_fee_in_the_native_dialog() {
+fn a_sponsored_frame_names_the_sponsor_once_as_an_offer() {
     let sender = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([1; 32]));
     let sponsor = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([2; 32]));
     let payer = suite_address(SuiteId::MlDsa87, &MlDsa87::public_key(&sponsor));
@@ -363,7 +374,14 @@ fn a_sponsored_frame_says_who_pays_the_fee_in_the_native_dialog() {
         )),
         "{dialog}"
     );
-    assert!(shown.description.contains(&full), "{}", shown.description);
+    // Named once, as an offer: even a valid sponsorship can be stripped after
+    // signing, so the description never states who pays.
+    assert!(
+        !shown.description.contains(&full) && !shown.description.contains("sponsor"),
+        "{}",
+        shown.description
+    );
+    assert!(shown.details.iter().all(|(l, _)| !l.contains("sponsor")));
     assert!(!dialog.contains(&hex::encode(payer)), "{dialog}");
     // The sponsor does not change what the sender signed.
     assert_eq!(shown.signing_hash, unsponsored.signing_hash);
@@ -383,7 +401,53 @@ fn a_sponsored_frame_says_who_pays_the_fee_in_the_native_dialog() {
         )),
         "{dialog}"
     );
+    // ... and only as a claim: nothing else on the screen says it pays.
+    assert_claim_only(&claimed);
     // The same sponsorship on another chain does not hold either.
     let elsewhere = ChainTag::from_genesis([0x5B; 32]);
-    assert!(!confirmation(&tx, &elsewhere).sponsor_verified);
+    let other = confirmation(&tx, &elsewhere);
+    assert!(!other.sponsor_verified);
+    assert_claim_only(&other);
+}
+
+/// An unverified sponsor is named once, as a claim, and never as the payer.
+fn assert_claim_only(shown: &maya_wallet_core::confirm::Confirmation) {
+    assert!(
+        !shown.description.contains("paid by sponsor"),
+        "{}",
+        shown.description
+    );
+    assert!(shown.details.iter().all(|(l, _)| !l.contains("sponsor")));
+    let dialog = approval_message(shown);
+    assert!(!dialog.contains("paid by sponsor"), "{dialog}");
+    assert!(!dialog.contains("\nSponsor: "), "{dialog}");
+    assert!(
+        dialog.contains("Claimed sponsor (unverified): "),
+        "{dialog}"
+    );
+}
+
+#[test]
+fn a_sponsor_attached_before_the_sender_signs_is_only_a_claim() {
+    // The wallet builds its confirmation before signing. A sponsorship made
+    // over the unsigned frame looks valid there, but the sender's suite
+    // signature is hashed into what the sponsor signed, so signing breaks it.
+    let sender = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([1; 32]));
+    let sponsor = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([2; 32]));
+    let mut tx = Transaction::with_kind(forms().remove(1).1, 0);
+    tx.sponsor_with::<MlDsa87>(&sponsor, U256::from(9_000), 77, &CHAIN)
+        .unwrap();
+    assert!(
+        tx.sponsor.as_ref().unwrap().signature_holds(&tx, &CHAIN),
+        "the sponsor's signature does hold over the unsigned frame"
+    );
+
+    let before = confirmation(&tx, &CHAIN);
+    assert!(!before.sponsor_verified, "unsigned: nothing to check yet");
+    assert_claim_only(&before);
+
+    // Signing proves the point: that sponsorship no longer holds.
+    tx.sign_with_suite::<MlDsa87>(&sender, &CHAIN).unwrap();
+    assert!(!tx.sponsor.as_ref().unwrap().signature_holds(&tx, &CHAIN));
+    assert!(!confirmation(&tx, &CHAIN).sponsor_verified);
 }
