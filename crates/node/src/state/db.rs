@@ -667,6 +667,38 @@ impl StateDB {
         Ok(out)
     }
 
+    /// At most `limit` key/value pairs under `prefix` whose key, past the
+    /// prefix, sorts strictly after `after`, in key order. Seeks straight to
+    /// the page, so a page costs `limit` reads however many keys precede it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn scan_prefix_page(
+        &self,
+        prefix: &[u8],
+        after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let start = [prefix, after.unwrap_or_default()].concat();
+        let mode = IteratorMode::From(&start, rocksdb::Direction::Forward);
+        let mut out = Vec::new();
+        for item in self.db.iterator(mode) {
+            if out.len() >= limit {
+                break;
+            }
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) {
+                break;
+            }
+            if after.is_some() && *key == *start {
+                continue;
+            }
+            out.push((key.to_vec(), value.to_vec()));
+        }
+        Ok(out)
+    }
+
     /// Reads every channel record in identifier order.
     ///
     /// # Errors
@@ -705,30 +737,18 @@ impl StateDB {
     /// Returns [`NodeError::Storage`] on an iteration failure, or
     /// [`NodeError::InvalidLength`] if a stored record is corrupt.
     pub fn all_accounts(&self) -> Result<Vec<(Address, Account)>> {
-        let mode = IteratorMode::From(ACCOUNT_PREFIX, rocksdb::Direction::Forward);
-        let mut accounts = Vec::new();
+        decode_accounts(self.db.iterator(account_scan()))
+    }
 
-        for item in self.db.iterator(mode) {
-            let (key, value) = item.map_err(storage_err)?;
-
-            // Seeking positions the cursor at the prefix; stop once past it.
-            if !key.starts_with(ACCOUNT_PREFIX) {
-                break;
-            }
-
-            let raw = &key[ACCOUNT_PREFIX.len()..];
-            let Ok(address) = <Address>::try_from(raw) else {
-                return Err(NodeError::InvalidLength {
-                    what: "account key",
-                    expected: ACCOUNT_PREFIX.len() + 32,
-                    actual: key.len(),
-                });
-            };
-
-            accounts.push((address, Account::decode(&value)?));
+    /// A point-in-time view of committed state (a `RocksDB` snapshot), for a
+    /// long read that must not hold the chain lock. Taken while the caller
+    /// holds that lock, it describes exactly the tip the lock shows: a block
+    /// commits in one write batch, so later blocks are invisible to it.
+    #[must_use]
+    pub fn view(&self) -> StateView<'_> {
+        StateView {
+            snapshot: self.db.snapshot(),
         }
-
-        Ok(accounts)
     }
 
     /// Computes the Merkle state root of the committed state.
@@ -2193,4 +2213,78 @@ impl StateDB {
             RootSource::Cache
         }
     }
+}
+
+/// Committed state as of one moment ([`StateDB::view`]).
+pub struct StateView<'a> {
+    snapshot: rocksdb::Snapshot<'a>,
+}
+
+impl StateView<'_> {
+    /// [`StateDB::all_accounts`] as of this view.
+    ///
+    /// # Errors
+    ///
+    /// As [`StateDB::all_accounts`].
+    pub fn all_accounts(&self) -> Result<Vec<(Address, Account)>> {
+        decode_accounts(self.snapshot.iterator(account_scan()))
+    }
+
+    /// [`StateDB::stored_pool`] as of this view.
+    ///
+    /// # Errors
+    ///
+    /// A storage failure or a pool record that does not decode.
+    pub fn stored_pool(&self) -> Result<crate::state::shielded::ShieldedPool> {
+        use crate::state::shielded::ShieldedPool;
+        self.get(POOL_KEY)?
+            .map_or_else(|| Ok(ShieldedPool::new()), |b| ShieldedPool::decode(&b))
+    }
+
+    /// [`StateDB::committed_staking`] as of this view.
+    ///
+    /// # Errors
+    ///
+    /// A storage failure or a staking record that does not decode.
+    pub fn committed_staking(&self) -> Result<Option<crate::state::staking::StakingRecord>> {
+        self.get(crate::state::staking::STATE_KEY)?
+            .map(|b| crate::state::staking::StakingRecord::decode(&b))
+            .transpose()
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.snapshot.get(key).map_err(storage_err)
+    }
+}
+
+/// Where a scan of every account starts.
+fn account_scan() -> IteratorMode<'static> {
+    IteratorMode::From(ACCOUNT_PREFIX, rocksdb::Direction::Forward)
+}
+
+/// The accounts an iterator from [`account_scan`] yields, in address order.
+///
+/// `RocksDB` iterates lexicographically, and the shared prefix preserves that
+/// order over raw addresses, so no explicit sort is needed.
+fn decode_accounts(
+    items: impl Iterator<Item = std::result::Result<(Box<[u8]>, Box<[u8]>), rocksdb::Error>>,
+) -> Result<Vec<(Address, Account)>> {
+    let mut accounts = Vec::new();
+    for item in items {
+        let (key, value) = item.map_err(storage_err)?;
+        // Seeking positions the cursor at the prefix; stop once past it.
+        if !key.starts_with(ACCOUNT_PREFIX) {
+            break;
+        }
+        let raw = &key[ACCOUNT_PREFIX.len()..];
+        let Ok(address) = <Address>::try_from(raw) else {
+            return Err(NodeError::InvalidLength {
+                what: "account key",
+                expected: ACCOUNT_PREFIX.len() + 32,
+                actual: key.len(),
+            });
+        };
+        accounts.push((address, Account::decode(&value)?));
+    }
+    Ok(accounts)
 }

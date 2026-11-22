@@ -33,6 +33,7 @@ use libp2p::{PeerId, allow_block_list, connection_limits, identify, kad};
 use crate::error::{NodeError, Result};
 use crate::network::evidence_tap::EvidenceTap;
 use crate::network::gossip_score;
+use crate::network::ip_limits;
 use crate::network::relay_key::{
     MAX_MESSAGE_BYTES as MAX_RELAY_KEY_BYTES, RELAY_KEY_PROTOCOL, RelayKeyRequest, RelayKeyResponse,
 };
@@ -48,6 +49,11 @@ const MAX_CONNECTIONS_PER_PEER: u32 = 2;
 /// Established connections in total. Identities are free and sockets are not,
 /// so this — not peer scoring — is what bounds a flood of fresh identities.
 const MAX_ESTABLISHED: u32 = 256;
+
+/// Of those, how many inbound connections may hold. The rest are kept for this
+/// node's own dials, so an inbound flood cannot refuse its redials to its
+/// bootnodes and its discovery dials.
+const MAX_ESTABLISHED_INCOMING: u32 = 192;
 
 /// Handshakes in flight, each direction. Generous for honest churn, small
 /// enough that a slow-handshake flood cannot hold the node's resources.
@@ -80,6 +86,9 @@ pub struct NodeBehaviour {
     pub block_list: allow_block_list::Behaviour<allow_block_list::BlockedPeers>,
     /// Per-peer and total connection caps.
     pub limits: connection_limits::Behaviour,
+    /// Per-source caps on inbound handshakes and connections
+    /// (`network::ip_limits`).
+    pub ip_limits: ip_limits::Behaviour,
     /// Fetching missing parents by id (`network::sync`).
     pub sync: request_response::cbor::Behaviour<BlockRequest, BlockResponse>,
     /// Block relay key agreement (`network::relay_key`). On every node; one
@@ -144,6 +153,7 @@ impl NodeBehaviour {
             connection_limits::ConnectionLimits::default()
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER))
                 .with_max_established(Some(MAX_ESTABLISHED))
+                .with_max_established_incoming(Some(MAX_ESTABLISHED_INCOMING))
                 // Half-open handshakes (TCP, or a WebSocket upgrade, then
                 // Noise and the post-quantum layer) hold resources too; a
                 // slow-handshake flood must not exhaust them.
@@ -185,6 +195,7 @@ impl NodeBehaviour {
         Ok(Self {
             block_list: allow_block_list::Behaviour::default(),
             limits,
+            ip_limits: ip_limits::Behaviour::default(),
             sync,
             relay_key,
             gossipsub,

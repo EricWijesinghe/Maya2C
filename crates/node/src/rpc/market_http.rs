@@ -100,16 +100,14 @@ pub struct MarketState {
     chain: Arc<Mutex<Chain>>,
     /// Operator-supplied quotes, if any.
     feed: MarketFeed,
-    /// Last computed supply, and the height it was computed at.
+    /// Supply, computed once per tip and shared by concurrent requests
+    /// ([`market::SupplyCache`]).
     ///
     /// Supply is a full scan of every account (see [`market::supply`]), which is
     /// the most expensive read the node offers. An aggregator polling it every
     /// minute is fine; a public endpoint being scraped by anyone is a free way
     /// to make every node behind the load balancer walk its whole account set.
-    /// The figure cannot change without the height changing, so caching on
-    /// height is exact rather than approximate — this trades no freshness at
-    /// all.
-    cache: Mutex<Option<(u64, SupplyReport)>>,
+    cache: market::SupplyCache,
 }
 
 impl MarketState {
@@ -119,16 +117,8 @@ impl MarketState {
         Self {
             chain,
             feed,
-            cache: Mutex::new(None),
+            cache: market::SupplyCache::default(),
         }
-    }
-
-    /// Current tip height.
-    fn height(&self) -> u64 {
-        self.chain
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .height()
     }
 
     /// Returns the supply report, recomputing only when the tip has moved.
@@ -137,37 +127,7 @@ impl MarketState {
     ///
     /// Propagates storage failures from the account scan.
     fn supply(&self) -> crate::error::Result<SupplyReport> {
-        let height = self.height();
-
-        {
-            let cache = self
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some((cached_height, report)) = *cache
-                && cached_height == height
-            {
-                return Ok(report);
-            }
-        }
-
-        // Computed outside the cache lock. Holding it across a full account scan
-        // would serialise every concurrent request behind the first one, which
-        // turns a slow endpoint into a stalled one.
-        let report = market::supply(&self.chain)?;
-
-        let mut cache = self
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // A concurrent request may have stored a newer height meanwhile. Keep
-        // whichever is further along rather than moving the cache backwards.
-        let newer = cache.is_some_and(|(cached_height, _)| cached_height > height);
-        if !newer {
-            *cache = Some((height, report));
-        }
-
-        Ok(report)
+        self.cache.get(&self.chain)
     }
 }
 

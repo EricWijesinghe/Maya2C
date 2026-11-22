@@ -51,6 +51,7 @@ use libp2p::Multiaddr;
 // gone.
 mod bft;
 mod bootnode_fallback;
+mod bootnode_policy;
 mod import;
 mod power_guard;
 mod pruning;
@@ -218,6 +219,9 @@ struct Args {
     catch_up_from: Vec<String>,
     /// Keep private and loopback peer addresses (a local devnet only).
     allow_private_peers: bool,
+    /// Accept bootnodes that pin no peer id at public or DNS addresses
+    /// (`bootnode_policy`). Devnets only.
+    allow_unpinned_bootnodes: bool,
     /// Start a validator on a power plan that may sleep the PC (Windows).
     allow_sleep: bool,
     /// DAG-BFT: never propose a validator registration bonding less than
@@ -291,6 +295,7 @@ impl Default for Args {
             never_signed: false,
             catch_up_from: Vec::new(),
             allow_private_peers: false,
+            allow_unpinned_bootnodes: false,
             allow_sleep: false,
             min_register_bond: 0,
             validator_key: None,
@@ -321,6 +326,8 @@ fn print_usage() {
          /ip4/127.0.0.1/tcp/31101/ws behind a tunnel; repeatable\n  \
          --bootnode <ADDR>    peer multiaddr to dial (TCP, or\n                           \
          /dns4/<host>/tcp/443/wss/p2p/<id>); repeatable\n  \
+         --allow-unpinned-bootnodes  accept --bootnode addresses with no\n                           \
+         /p2p/<id> outside a local network (devnets)\n  \
          --sync-from <URL>    peer JSON-RPC endpoint to backfill history from\n  \
          --dual-kem <MODE>    HQC alongside ML-KEM: off (default), preferred,\n  \
          \x20                    or required. See docs/pq-transport.md\n  \
@@ -444,6 +451,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--i-know-this-validator-never-signed" => args.never_signed = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
+            "--allow-unpinned-bootnodes" => args.allow_unpinned_bootnodes = true,
             "--allow-sleep" => args.allow_sleep = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
@@ -835,6 +843,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     for entry in &node_config.network.bootnodes {
         args.bootnodes.push(entry.parse()?);
     }
+    for bootnode in &args.bootnodes {
+        bootnode_policy::check_pinned(bootnode, args.allow_unpinned_bootnodes)?;
+    }
     // A validator on a plan that sleeps the PC refuses to start (Windows).
     power_guard::guard(
         args.validator_key.is_some() || args.remote_signer.is_some(),
@@ -930,6 +941,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut p2p = Node::new_tcp_with_identity_and_pq(Arc::clone(&state), identity, pq)?;
     if args.allow_private_peers {
         p2p.allow_private_peer_addresses();
+    }
+    // Pinned bootnodes are exempt from the connection caps: an inbound flood
+    // must not refuse the links this node was told to keep.
+    for peer in args
+        .bootnodes
+        .iter()
+        .filter_map(bootnode_policy::pinned_peer)
+    {
+        p2p.reserve_peer(peer);
     }
     // Logged unconditionally, including the default. An operator debugging a
     // connection failure between two nodes needs to know which side offered
@@ -1242,9 +1262,9 @@ async fn terminated() {
 /// How often a node short of peers dials its bootnodes again.
 const REDIAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Dials the configured bootnodes again while this node has fewer peers than
-/// it has bootnodes. A dial made before the other node was listening fails
-/// once and is never retried by libp2p; discovery only reaches peers through
+/// Dials the configured bootnodes again while any of them is missing
+/// (`bootnode_policy::bootnodes_satisfied`). A dial made before the other
+/// node was listening fails once and is never retried by libp2p; discovery only reaches peers through
 /// peers already connected. The attacknet found seven validators started
 /// together left in fragments, no quorum anywhere, for good. A bootnode
 /// whose address names its peer id is skipped once connected. With no peer
@@ -1279,7 +1299,7 @@ async fn redial_bootnodes(
             println!("bootnodes:   none reachable; dialing the built-in fallback list");
         }
         fallback_active = use_fallback;
-        if !use_fallback && connected.len() >= bootnodes.len() {
+        if !use_fallback && bootnode_policy::bootnodes_satisfied(&bootnodes, &connected) {
             continue;
         }
         let extra: &[Multiaddr] = if use_fallback { &fallback } else { &[] };
