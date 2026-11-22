@@ -6,8 +6,13 @@ import itertools
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Callable
+
+# A reply is read into memory whole; a block at the 5 MiB cap is about 10 MiB as
+# hex, so 32 MiB leaves room while a hostile endpoint cannot exhaust memory.
+MAX_REPLY_BYTES = 32 * 1024 * 1024
 
 
 class RpcError(Exception):
@@ -23,6 +28,9 @@ class Client:
     """A node's JSON-RPC endpoint, e.g. ``http://127.0.0.1:8545``."""
 
     def __init__(self, url: str, timeout: float = 10.0) -> None:
+        # urlopen also reads file:// and ftp:// URLs; only a node's http(s) endpoint is meant.
+        if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+            raise ValueError(f"{url!r} is not an http(s) URL")
         self.url = url
         self.timeout = timeout
         self._ids = itertools.count(1)
@@ -33,9 +41,14 @@ class Client:
         request = urllib.request.Request(self.url, data=body, headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                reply = json.load(response)
+                raw = response.read(MAX_REPLY_BYTES + 1)
+            if len(raw) > MAX_REPLY_BYTES:
+                raise RpcError(method, f"reply larger than {MAX_REPLY_BYTES} bytes")
+            reply = json.loads(raw)
         except (urllib.error.URLError, TimeoutError, ValueError) as error:
             raise RpcError(method, error) from error
+        if not isinstance(reply, dict):
+            raise RpcError(method, f"reply is not a JSON-RPC object: {type(reply).__name__}")
         if "error" in reply:
             raise RpcError(method, reply["error"])
         return reply.get("result")

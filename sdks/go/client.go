@@ -12,11 +12,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"sync/atomic"
 	"time"
 )
+
+// MaxReplyBytes caps a reply read into memory. A block at the 5 MiB cap is
+// about 10 MiB as hex; 32 MiB leaves room while a hostile endpoint cannot
+// exhaust memory.
+const MaxReplyBytes = 32 << 20
 
 // RPCError is a JSON-RPC error from the node, or a failure to reach it.
 type RPCError struct {
@@ -52,11 +58,21 @@ func (c *Client) Call(method string, params []any, out any) error {
 		return &RPCError{method, err.Error()}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return &RPCError{method, "HTTP " + resp.Status}
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxReplyBytes+1))
+	if err != nil {
+		return &RPCError{method, err.Error()}
+	}
+	if len(raw) > MaxReplyBytes {
+		return &RPCError{method, fmt.Sprintf("reply larger than %d bytes", MaxReplyBytes)}
+	}
 	var reply struct {
 		Result json.RawMessage `json:"result"`
 		Error  json.RawMessage `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&reply); err != nil {
+	if err := json.Unmarshal(raw, &reply); err != nil {
 		return &RPCError{method, err.Error()}
 	}
 	if len(reply.Error) > 0 && string(reply.Error) != "null" {
