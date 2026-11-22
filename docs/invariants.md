@@ -280,7 +280,8 @@ phase that did it.
     pending rotation; its handover advances the council's nonce, so no
     approval given before it counts after it, and keeps both cooldowns. A
     genesis council's `max_pause_blocks` is 1 to `MAX_COUNCIL_PAUSE_BLOCKS`
-    (86,400), or the cooldown bounds nothing. The
+    (86,400), or the cooldown bounds nothing. Not covered: a council resume
+    can still lift an automatic invariant trip on a module until #627. The
     three constants are compiled in `crates/governance/src/limits.rs`.
     Pinned by `crates/node/tests/upgrade_schedule_tests.rs`
     (`a_schedule_upgrade_one_block_short_of_the_lead_is_refused_at_proposal`,

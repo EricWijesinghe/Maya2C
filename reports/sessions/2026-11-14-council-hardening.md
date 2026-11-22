@@ -172,3 +172,36 @@ licences", the three report-only advisories jobs and cargo vet. Neither
 CodeQL (4 s) nor cargo-deny was compared against master. The cargo-deny log
 on the PR is from 2026-11-17: a toolchain-not-installed error plus duplicate
 warnings. `features.toml` stays `working`.
+
+## Review fixes 2026-11-23, at head 7e52c2fb (after the master merge)
+
+Re-run through cargo-slot on Windows, at 7e52c2fb (docs-only edits on top):
+
+- `cargo test -p custom-l1-node --test council_pause_tests`: 20 passed, 0 failed.
+- `cargo test -p custom-l1-node --lib state::council`: 3 passed, 0 failed, 545 filtered out.
+- `cargo test -p genesis-ceremony council`: 12 passed, 0 failed, 22 filtered out.
+
+**Conformance vectors: NOT MET.** CNL-1 to CNL-4 change consensus behaviour
+and have no vectors in `spec/tests/`; `spec-ref` has no council model. Every
+`spec-coverage --strict` "0 gaps" line in this report counts them as covered
+only through the `(external vectors: crates/node/tests/council_pause_tests.rs)`
+label. It is not evidence that the vector requirement is met (BACKLOG P2).
+
+NOT VERIFIED at 7e52c2fb: `cargo xtask coverage --verify-targets` (agent
+rules forbid it locally since 2026-11-12; CI's reality-ledger check runs it).
+The entry `security-council-pause` names `crates/node/tests/council_pause_tests.rs`,
+which exists. `--lib describe` and clippy were not re-run at this head.
+
+Docs: ADR-082 amendment records two residuals (a rotation may shrink the
+council down to 1-of-1; the rotation lead gives visibility, no veto), and
+invariant 34 says an automatic trip can still be lifted by a council resume
+until #627. The founder-brief audit file named in the task
+(`founder-brief-audit-2026-11-13.md` in an old scratchpad) no longer exists;
+Q7 A / Q8 A were checked against DECISIONS.md (2026-11-14 entry) only.
+
+`cargo xtask claims-check` at this head: NOT VERIFIED. xtask does not
+compile: `error[E0433]: cannot find module or crate chrono` at
+`xtask/src/devlog.rs:84` and `:212`. That file is identical to origin/master,
+where #539 uses `chrono` after #632 removed the dependency, so master's xtask
+is broken the same way; not from this PR. The added lines were scanned by
+hand for the claims words.

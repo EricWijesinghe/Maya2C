@@ -311,6 +311,17 @@ sunsets (`docs/invariants.md` invariant 34, `crates/node/src/state/council.rs`):
    keys are lost than the threshold allows (two of three, today), there is no
    on-chain recovery, and re-genesis remains the only path. Rotation recovers
    from a lost or compromised key while a quorum still holds.
+   *Residual, review of PR #544 (2026-11-23):* a rotation is bounded only by
+   the genesis rule, so it may shrink the set or the threshold, down to
+   1-of-1. A 2-of-3 quorum can hand the council to one key, which can act
+   alone one lead later. Genesis accepts 1-of-1 as well, so no floor is
+   compiled; a floor (no weaker than the council in force, or a compiled
+   minimum) is a later decision.
+   *The lead gives visibility, not recourse:* nothing can veto or cancel a
+   pending rotation except a later rotation by the same quorum. A
+   compromised quorum can rotate to its own keys and the honest minority
+   cannot stop it. A governance veto would be a later design decision, not a
+   re-freeze item.
 
 **Record format.** The council record gains a version 2 that adds
 `last_sunset_at`, `pending` and `last_pause_end` (module tags ascending,
