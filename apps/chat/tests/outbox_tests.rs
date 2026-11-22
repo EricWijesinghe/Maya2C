@@ -251,6 +251,25 @@ fn the_outbox_refuses_entry_1001_and_evicts_nothing() {
 }
 
 #[test]
+fn a_large_message_carries_the_postage_its_size_needs() {
+    let mut relay = Relay::new(ONE_BIT);
+    let mut a = Client::new(alice());
+    // Each send has a fresh stamp; several make a lucky short one unlikely
+    // to hide a client that mints only the base.
+    for n in 0..4u8 {
+        let id = queue(&mut a, &vec![n; 100_000], NOW);
+        let envelope = a.envelope_for_send(&id, ONE_BIT).unwrap();
+        assert!(envelope.postage(ONE_BIT).unwrap() > ONE_BIT);
+        assert!(
+            envelope
+                .stamped(envelope.postage(ONE_BIT).unwrap())
+                .unwrap()
+        );
+        relay.deposit(envelope, NOW).unwrap();
+    }
+}
+
+#[test]
 fn an_oversized_message_is_refused_and_leaves_no_session_behind() {
     let mut a = Client::new(alice());
     let bundle = bob().prekey_bundle(1, NOW + DAY).unwrap();
