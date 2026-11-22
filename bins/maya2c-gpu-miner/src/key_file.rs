@@ -1,12 +1,122 @@
-//! Owner-only creation of the payout key file.
+//! Owner-only creation and checked reading of the payout key file.
 //!
 //! The same pattern as `bins/l1-wallet/src/keystore.rs` (`create_owner_only`,
 //! `restrict_permissions`): the system's own `whoami` and `icacls` on Windows
 //! rather than a new dependency on the Windows security API.
+//!
+//! Reading is as strict as writing: the miner runs without the Hub's folder
+//! checks, so a key planted by another account (a plain file or a link to a
+//! seed they know) must be refused here, or shares pay an address they spend.
 
 use std::fs;
-use std::io::{self, Write as _};
+use std::io::{self, Read as _, Write as _};
 use std::path::Path;
+
+use zeroize::Zeroizing;
+
+/// Longest key file accepted: 64 hex characters plus a line ending and spaces.
+const KEY_FILE_MAX: usize = 128;
+
+/// Reads an existing key file, refusing a link, a non-regular file, and on Unix
+/// a file another account owns or that group or others can open.
+pub fn read_existing(path: &Path) -> io::Result<Zeroizing<Vec<u8>>> {
+    let file = open_existing(path)?;
+    // Sized up front so the buffer never reallocates and leaves key bytes behind.
+    let mut bytes = Zeroizing::new(Vec::with_capacity(KEY_FILE_MAX + 1));
+    file.take(KEY_FILE_MAX as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > KEY_FILE_MAX {
+        return Err(refused(path, "is larger than a key"));
+    }
+    Ok(bytes)
+}
+
+/// Refuses a key folder another account owns or can write into: whoever can
+/// write there can swap the key file. Same rule as the Hub's `folder_open_to_others`.
+#[cfg(unix)]
+pub fn check_folder(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    let meta = fs::metadata(dir)?;
+    if meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & 0o022 != 0 {
+        return Err(refused(
+            dir,
+            "is owned by another account or writable by group or others (chmod go-w)",
+        ));
+    }
+    Ok(())
+}
+
+// shortcut: no folder DACL check on Windows (the Hub has one, `key_acl.rs`, on
+// the `windows` crate); port it here if the standalone miner ships for Windows users.
+#[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
+pub fn check_folder(_dir: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn open_existing(path: &Path) -> io::Result<fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    use std::os::unix::fs::MetadataExt;
+    // NOFOLLOW: a link at the key path fails to open instead of being read
+    // through. NONBLOCK: a planted FIFO cannot stall start-up.
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let fd = rustix::fs::open(path, flags, Mode::empty()).map_err(|e| {
+        refused(
+            path,
+            &format!("could not be opened without following links: {e}"),
+        )
+    })?;
+    let file = fs::File::from(fd);
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(refused(path, "is not a regular file"));
+    }
+    if meta.uid() != rustix::process::getuid().as_raw() {
+        return Err(refused(path, "is owned by another account"));
+    }
+    if meta.mode() & 0o077 != 0 {
+        return Err(refused(
+            path,
+            "can be opened by group or others (chmod 600)",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_existing(path: &Path) -> io::Result<fs::File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    // Opens a link itself rather than its target, so the attribute check sees it.
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 || !meta.is_file() {
+        return Err(refused(path, "is a link or not a regular file"));
+    }
+    Ok(file)
+}
+
+/// No way to refuse links is known here; refuse rather than read through one.
+#[cfg(not(any(unix, windows)))]
+fn open_existing(path: &Path) -> io::Result<fs::File> {
+    Err(refused(path, "cannot be checked on this platform"))
+}
+
+fn refused(path: &Path, why: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("refusing key path {}: it {why}", path.display()),
+    )
+}
 
 /// Writes `bytes` to a new file at `path` that only this account can open.
 ///

@@ -209,6 +209,7 @@ fn load_or_create_seed(path: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     getrandom::fill(seed.as_mut()).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
         create_private_dir(dir)?;
+        crate::key_file::check_folder(dir).map_err(|e| e.to_string())?;
     }
     // Create-or-fail, not check-then-write: whatever is already at the path
     // (an existing key, or a link) is read, never replaced or followed on write.
@@ -218,7 +219,8 @@ fn load_or_create_seed(path: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(e.to_string()),
     }
-    let text = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| e.to_string())?);
+    let bytes = crate::key_file::read_existing(path).map_err(|e| e.to_string())?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "key file is not 64 hex characters")?;
     hex::decode_to_slice(text.trim(), seed.as_mut())
         .map_err(|_| "key file is not 64 hex characters".to_string())?;
     Ok(seed)
@@ -576,5 +578,79 @@ mod tests {
         assert!(load_or_create_seed(&path).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "not hex");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder only this account can use, holding a valid key the "attacker" knows.
+    fn dir_with_known_key(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("maya-miner-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        create_private_dir(&dir).unwrap();
+        let known = dir.join("known.key");
+        crate::key_file::write_new(&known, "ab".repeat(32).as_bytes()).unwrap();
+        (dir, known)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_link_to_a_known_key_is_refused_not_loaded() {
+        let (dir, known) = dir_with_known_key("planted-link");
+        let path = dir.join("miner.key");
+        std::os::unix::fs::symlink(&known, &path).unwrap();
+        let result = load_or_create_seed(&path);
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(
+            result.is_err(),
+            "a key read through a planted link was loaded"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_planted_link_to_a_known_key_is_refused_not_loaded() {
+        let (dir, known) = dir_with_known_key("planted-link");
+        let path = dir.join("miner.key");
+        if let Err(e) = std::os::windows::fs::symlink_file(&known, &path) {
+            // Creating links needs Developer Mode or admin; nothing to check without one.
+            eprintln!("skipped: cannot create a symlink here: {e}");
+            std::fs::remove_dir_all(dir).unwrap();
+            return;
+        }
+        let result = load_or_create_seed(&path);
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(
+            result.is_err(),
+            "a key read through a planted link was loaded"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_key_others_can_read_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, known) = dir_with_known_key("open-key");
+        std::fs::set_permissions(&known, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let result = load_or_create_seed(&known);
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(result.is_err(), "a group-readable key was accepted");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_folder_others_can_write_into_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, known) = dir_with_known_key("open-dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o770)).unwrap();
+        let existing = load_or_create_seed(&known);
+        let fresh = load_or_create_seed(&dir.join("fresh.key"));
+        let created = dir.join("fresh.key").exists();
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(
+            existing.is_err(),
+            "a key in a group-writable folder was accepted"
+        );
+        assert!(
+            fresh.is_err() && !created,
+            "a key was created in a group-writable folder"
+        );
     }
 }

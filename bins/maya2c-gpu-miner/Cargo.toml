@@ -26,6 +26,11 @@ hex.workspace = true
 getrandom.workspace = true
 zeroize.workspace = true
 
+# O_NOFOLLOW open and getuid for reading an existing payout key (key_file.rs);
+# already in the lock (async-io, polling), and the Hub uses it for the same check.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+
 [features]
 # Forwarded, so `cargo build -p maya2c-gpu-miner --features gpu` reaches the
 # device without anybody having to know which crate owns the feature.
