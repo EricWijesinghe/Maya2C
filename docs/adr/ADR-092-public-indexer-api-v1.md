@@ -60,13 +60,23 @@ cannot take that prefix.
    `--trust-proxy-header` is passed, and warns on socket mode over loopback.
    Since the merge with #576 the shared limiter believes a header only from a
    loopback peer (a proxy on this host), so a direct client cannot pick its
-   own key even with that flag;
-   `infra/hybrid-testnet/start-testnet.ps1` runs `--api-client-ip cf` on
-   127.0.0.1. An IPv6 client is keyed on its /64 (an IPv4-mapped address
+   own key even with that flag. The live explorer behind the Cloudflare
+   Tunnel needs `--api-client-ip cf` in
+   `infra/hybrid-testnet/start-testnet.ps1`; that edit is a deployment step,
+   left out of this change, made with the binary that understands the flag.
+   An IPv6 client is keyed on its /64 (an IPv4-mapped address
    stays IPv4), in `maya-web-security`, so the gateway counts the same way.
+   The refill period is set in nanoseconds, so the configured rate is the
+   rate enforced (milliseconds turned 700/s into 1,000/s); a rate above
+   10^9/s is refused.
    Node calls from `/api/v1` hold one of the explorer's 16 node slots
    (shared with the legacy pages, a 2 s wait for one) and time out after 10 s;
-   `/status` is cached for the live TTL.
+   `/status` is cached for the live TTL. Index reads use their own pool with
+   a 2 s acquire timeout and a 5 s server-side `statement_timeout`, so clients
+   that together hold every read connection get a fast `index_behind` (503)
+   rather than a 30 s queue. Account routes answer `node_unavailable` until
+   the node has named its network, rather than guessing which network an
+   address belongs to, and echo the canonical lower-case address.
 7. **Caching.** A block or transaction at or below the finalized height
    (`get_checkpoint`) is `Cache-Control: public, max-age=31536000, immutable`
    only if the node also answered for the chain's network (so no address in

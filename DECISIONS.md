@@ -906,7 +906,19 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 
 Under Eric's general approval ("I approve everything, proceed", Eric 2026-11-14), the explorer's public indexer API (ADR-092) goes forward as a normal, non-node PR: `/api/v1` is read-only and rate limited, cursors only page the list that issued them, and every list is an index range read whatever the client sends, because an address with no history used to cost a walk of the whole `transactions` table. The ADR stays Proposed until the PR merges. Deploying it resets the explorer index (generation 3 to 4), so it goes out against an archive node or at re-genesis, never against a pruned node, which could not rebuild the history it lost.
 
-Merging master into #414 (2026-11-21) brought #576, which makes the gateway believe `CF-Connecting-IP` / `X-Forwarded-For` only from a loopback peer. The limiter now lives in `maya-web-security`, so the rule moved there and covers the explorer too (Eric 2026-11-14 approval). The explorer's `--trust-proxy-header` stays as a start-up opt-in; it no longer lets a direct client choose its own key, and a proxy on another host counts as one client.
+## 2026-11-21 — #414 adopts master's loopback-only header trust (#576)
+
+Merging master into #414 brought #576 (merged to master 2026-11-18, its own change and review, not part of the 2026-11-14 approval), which makes the gateway believe `CF-Connecting-IP` / `X-Forwarded-For` only from a loopback peer. The limiter now lives in `maya-web-security`, so #576's rule moved there unchanged and covers the explorer too. The explorer's `--trust-proxy-header` stays as a start-up opt-in; it no longer lets a direct client choose its own key, and a proxy on another host counts as one client.
+
+## 2026-11-23 — #414 changes what the gateway counts as a client, and bounds the read pool
+
+Under Eric's general approval (Eric 2026-11-14), fixes from the #414 review:
+
+- **Gateway behaviour change.** Moving the limiter into `maya-web-security` also changed `api-gateway`: an IPv6 client is now one bucket per /64 (it used to be one per address, so a single subscriber had 2^64 buckets), and an IPv4-mapped address counts as its IPv4 address. The refill period is now nanoseconds, so `--rate-per-second` is the rate enforced: with milliseconds, 700/s became 1,000/s and 400/s became 500/s, and anything above 1,000/s was silently capped. A rate above 10^9/s is refused at start-up. The gateway's default rate is unaffected.
+- **Read pool.** The explorer's public reads use a pool with a 2 s acquire timeout and a 5 s `statement_timeout`, so clients that together hold every read connection get a quick 503 rather than a 30 s queue. The indexer's pool is separate and unbounded by these, so a large block still indexes.
+- **Unknown network.** Account routes answer `node_unavailable` until the node names its chain, rather than accepting any network's address and answering with this chain's data.
+- **Launch script.** `--api-client-ip cf` for the live explorer is not in this PR. Without it, every visitor through the Cloudflare Tunnel shares one /api/v1 bucket (the explorer prints a warning saying so). Adding it to `infra/hybrid-testnet/start-testnet.ps1` is a deployment step for Eric, made with the binary that understands the flag; the current live binary would refuse to start with it.
+
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
