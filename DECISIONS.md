@@ -1339,3 +1339,12 @@ Branch `refreeze/integration` merges every re-freeze PR onto master to prove the
 - **Kept:** `WASMTIME_VERSION` corrected to the pinned `48.0.8`; the pin test now reads `crates/vm/Cargo.toml` and `Cargo.lock` instead of comparing the constant with itself; `config_digest` hashes the constant instead of a stale `48.0.1` literal (module-cache key only, held in memory, never in a state root).
 - **Dropped from #577, because #549 (ADR-142) already does them:** sizes checked before guest copies, an event topic cap (#549 sets 256 bytes; #577 had proposed 128), and one contract VM per `StateDB`. Two values for one consensus cap would contradict each other, so #549's stands.
 - **Dropped:** the comment rewrites in `runtime.rs`, `host.rs`, `vm_exec.rs` and `contracts.rs`. #549 rewrites those functions (host failures trap, storage reads lazily), so the rewritten comments would be wrong once it merges.
+## 2026-11-17 — State and fee rule hardening joins re-freeze bundle 3 (Claude, under Eric 2026-11-17 pre-approval)
+
+Eric pre-approved Claude's recommendation (2026-11-17) to move PR #584 into re-freeze bundle 3. Recorded in [ADR-144](docs/adr/ADR-144-state-and-fee-rule-hardening.md).
+
+- **Fee-free shares carry nothing (spec FEE-7):** a mining share is exempt from the base fee only with no inputs and no outputs; one predicate (`state::fee_exec::is_free_share`) serves the executor and the mempool. No fee level or parameter changes.
+- **Governed DEX rate:** a pool that cannot carry the governed protocol rate refunds its batch, and a route through it is a no-op, instead of failing the block (invariant 7); book fills take the governed protocol rate and never the LP rate, as `docs/dex.md` states (invariant 17), so a book is priced on the protocol rate alone and keeps matching. The governed default is 0 bps, so genesis behaviour is unchanged.
+- **FEE-7 vectors** now include refused cases (`share_fee`, `FeeTooLow`) replayed against the node's `required_fee`; the rule is no longer tagged positive-only. A fee-free share's auth bytes stay bounded by `MAX_SIGNERS` and the share and block caps, not by the fee (recorded in ADR-144).
+- **Confidential-AI** participants refuse a second share set and a second masked input per instance (RESEARCH crate, not consensus).
+- **Dropped from #584 as duplicates or conflicts:** the settlement range recheck is carried by #575; the work-claim schedule refusal conflicts with #570/#506, which make unimplemented bits halt at activation rather than refuse at construction.

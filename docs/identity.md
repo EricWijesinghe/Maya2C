@@ -57,10 +57,10 @@ encode identically and two addresses share a DID.
 The brief asked for "post-quantum lattice proofs". ML-DSA-65 **is** a lattice
 signature and every transaction carries one.
 
-A rotation transaction sent from the subject's own address is, by construction,
-signed by the key the document currently names — the address is the hash of that
-pair. So the old key authorises the new one, and the proof is the signature that
-already had to be there. A second proof system alongside would be another thing
+A rotation transaction sent from the subject's own address is signed by that
+address's key. Rotation is authorised by the address key, not by the document's
+verification key, and the document key is recorded at registration without a
+proof of possession, so the two are not necessarily the same key. A second proof system alongside would be another thing
 to get wrong for nothing.
 
 Three details that are decisions:

@@ -172,6 +172,11 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   bound (#278).
 - **macOS Hub sidecar hash check** on the first tagged release that ships macOS.
 - **Kani `exact_out_never_undercharges`** stalls the nightly (ledger B40).
+- **RWA eligibility proof (needs Eric, found in #584 review).** `RecordEligibility`
+  carries no disclosure proof, so the record it writes is the sender's own claim
+  (`crates/node/src/state/rwa_exec.rs`). Options: gate it behind an activation height of
+  `u64::MAX` until the proof is carried and checked against the chain's roots, or carry
+  the proof before genesis.
 
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 

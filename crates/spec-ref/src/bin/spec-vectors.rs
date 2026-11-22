@@ -305,6 +305,26 @@ fn fee_vectors() -> Value {
         let (burned, treasury) = fees::split(base, bps);
         cases.push(json!({"id": format!("split-{base}-{bps}"), "rules": ["FEE-1"], "fn": "split", "base_fee_paid": base.to_string(), "treasury_bps": bps.to_string(), "expect": {"burned": burned.to_string(), "treasury": treasury.to_string()}}));
     }
+    for (inputs, outputs) in [(0usize, 0usize), (1, 0), (0, 1), (1, 1)] {
+        let exempt = fees::share_fee_exempt(inputs, outputs);
+        cases.push(json!({"id": format!("share-exempt-{inputs}-{outputs}"), "rules": ["FEE-7"], "fn": "share_exempt", "inputs": inputs.to_string(), "outputs": outputs.to_string(), "expect": {"exempt": exempt}}));
+    }
+    // (inputs, outputs, offered to the fee collector) at base fee 10, 100 bytes.
+    for (inputs, outputs, offered) in [
+        (0usize, 0usize, 0u128),
+        (1, 0, 0),
+        (1, 0, 1_000),
+        (0, 1, 999),
+        (0, 1, 1_000),
+    ] {
+        let due = fees::share_fee_due(inputs, outputs, 10, 100);
+        let expect = if offered >= due {
+            json!({"result": "ok", "due": due.to_string()})
+        } else {
+            json!({"result": "error", "error": "FeeTooLow", "due": due.to_string()})
+        };
+        cases.push(json!({"id": format!("share-fee-{inputs}-{outputs}-{offered}"), "rules": ["FEE-7"], "fn": "share_fee", "inputs": inputs.to_string(), "outputs": outputs.to_string(), "base_fee": "10", "size_bytes": "100", "offered": offered.to_string(), "expect": expect}));
+    }
     let steps = [
         (
             "at-target",

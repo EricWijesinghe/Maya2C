@@ -15,3 +15,9 @@ Reference: `crates/spec-ref/src/{wire,stf}.rs`. Node: `Transaction::verify`,
 - TX-4's vectors (`consensus.json`) state the path, not the frame bytes: the reference does not re-implement signatures, so the node builds real v7 (ML-DSA-87) and v8 (2-of-3) frames and checks which call accepts them.
 - TX-6's cross-version refusal is pinned by real signatures in `crates/node/tests/signed_header_tests.rs`, not by `spec/tests/`: the reference does not re-implement signatures. The header's bytes are in `encoding.json`'s `signing_bytes_blake3`.
 - Typed payloads (channels, DEX, governance) are specified only by the node's code today.
+  For DEX this includes the ADR-144 settlement rules: a batch on a pool that
+  cannot carry the governed `DexProtocolFeeBps` is refunded, a route through
+  it is a no-op, and a book fill pays the governed protocol rate on the
+  taker's output (the LP rate never applies to a book trade). These are pinned
+  by `crates/node/tests/dex_tests.rs` and `docs/dex.md`, with no rule ID or
+  vector yet.

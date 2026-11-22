@@ -268,7 +268,7 @@ impl Mempool {
         // pay right now: right epoch, not yet spent, work meeting the target.
         // Those run first because they are cheaper than the signature.
         if let crate::core::TxKind::MiningShare(share) = &tx.kind
-            && tx.outputs.is_empty()
+            && is_share(tx)
         {
             return self.validate_share(tx, share);
         }
@@ -649,7 +649,7 @@ fn fee_of(tx: &Transaction) -> U256 {
 
 /// A fee-free mining share (ADR-044), which moves nothing.
 fn is_share(tx: &Transaction) -> bool {
-    matches!(tx.kind, crate::core::TxKind::MiningShare(_)) && tx.outputs.is_empty()
+    crate::state::fee_exec::is_free_share(tx)
 }
 
 /// The sum of `tx`'s outputs.

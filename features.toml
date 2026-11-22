@@ -2041,7 +2041,7 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs", "crates/dex/tests/price_scale_tests.rs"]
-note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01)."
+note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01). ADR-144: a governed protocol rate a pool cannot carry refunds its batch and makes a route through it a no-op instead of failing the block; book fills take the governed protocol rate and never the LP rate (dex_tests.rs a_governed_rate_*, a_route_through_a_pool_that_cannot_carry_the_governed_rate_is_a_no_op)."
 
 [[subsystem]]
 id = "governance-lifecycle-and-bounds"
@@ -3048,7 +3048,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
-note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. Every share and work claim starts with a closed WorkKind byte (0 = DAG PoW; any other byte refused at decode, MINE-11, ADR-044 amendment 2026-11-15). Work claims never switch on while the compiled WORK_CLAIM_ADR_ACCEPTED = false: bit 4 is outside FeatureSet::IMPLEMENTED (a genesis naming it is refused at boot, a governance entry halts the node at its activation), and the mempool refuses the transaction. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
+note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. Every share and work claim starts with a closed WorkKind byte (0 = DAG PoW; any other byte refused at decode, MINE-11, ADR-044 amendment 2026-11-15). Work claims never switch on while the compiled WORK_CLAIM_ADR_ACCEPTED = false: bit 4 is outside FeatureSet::IMPLEMENTED (a genesis naming it is refused at boot, a governance entry halts the node at its activation), and the mempool refuses the transaction. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet. A share is base-fee exempt only with no inputs and no outputs (spec FEE-7, ADR-144), one predicate for executor and mempool."
 
 [[subsystem]]
 id = "maya2c-hub"
