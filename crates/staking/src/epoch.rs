@@ -199,32 +199,36 @@ impl Staking {
         // Pre-audit S-033: jailing may not shrink the eligible set below
         // MIN_COMMITTEE. A halted chain reaches no epoch boundary, so a jailed
         // validator could never return, and a committee jailed down to three
-        // seats halts for good on one more failure. Kept members are seated and
-        // can restart; every down validator is still slashed. The worst
-        // participation is jailed first, ties by id (`judge_downtime`).
-        // Slash first, then count: a slash can drop a thin bond below
-        // `min_self_bond`, and the floor must hold for the set that is left.
-        for (id, _, _) in &down {
-            let burned = self.slash(*id, self.params.downtime_slash_bps)?;
-            out.effects.push(Effect::Burn(burned));
-            unpaid.push(*id);
-        }
-        let allowed = self.ranked().len().saturating_sub(MIN_COMMITTEE);
-        let mut spent = 0;
+        // seats halts for good on one more failure. The worst participation is
+        // jailed first, ties by id (`judge_downtime`), so the floor keeps the
+        // best of the down validators that are eligible now.
+        let eligible_down: Vec<ValidatorId> = down
+            .iter()
+            .map(|d| d.0)
+            .filter(|id| self.validators.get(id).is_some_and(|v| self.is_eligible(v)))
+            .collect();
+        let others = self.ranked().len().saturating_sub(eligible_down.len());
+        let keep = MIN_COMMITTEE
+            .saturating_sub(others)
+            .min(eligible_down.len());
+        let kept = &eligible_down[eligible_down.len() - keep..];
         for (id, _, _) in down {
-            // Jailing an ineligible validator costs the committee nothing, so
-            // only eligible ones draw on the budget; the ineligible are always
-            // jailed, so a top-up cannot skip the term.
-            let eligible = self
-                .validators
-                .get(&id)
-                .is_some_and(|v| self.is_eligible(v));
-            if eligible {
-                if spent >= allowed {
-                    continue;
+            // Rewards skip every down validator, jailed or kept by the floor.
+            unpaid.push(id);
+            if kept.contains(&id) {
+                // ADR-070 amendment 2026-11-21: a kept validator is slashed only
+                // if it stays eligible. Mainnet bonds equal `min_self_bond`, so
+                // any slash would unseat it and the floor would keep no one.
+                if self.slash_keeps_eligible(&id) {
+                    let burned = self.slash(id, self.params.downtime_slash_bps)?;
+                    out.effects.push(Effect::Burn(burned));
                 }
-                spent += 1;
+                continue;
             }
+            // Jailed: eligible ones beyond the floor, and the ineligible always,
+            // so a top-up cannot skip the term.
+            let burned = self.slash(id, self.params.downtime_slash_bps)?;
+            out.effects.push(Effect::Burn(burned));
             // Never overwrite a tombstone: jailing would let a retired key return.
             if let Some(v) = self.validators.get_mut(&id)
                 && v.status != Status::Tombstoned
@@ -234,8 +238,17 @@ impl Staking {
             jailed.push(id);
         }
         out.jailed = jailed;
-        // Rewards skip every down validator, jailed or kept by the floor.
         Ok(unpaid)
+    }
+
+    /// Whether the downtime slash leaves `id`'s self bond at or above
+    /// `min_self_bond`.
+    fn slash_keeps_eligible(&self, id: &ValidatorId) -> bool {
+        self.validators.get(id).is_some_and(|v| {
+            v.self_bond
+                .checked_sub(bps_of(v.self_bond, self.params.downtime_slash_bps))
+                .is_some_and(|left| left >= self.params.min_self_bond)
+        })
     }
 
     /// Pays the epoch's rewards. With `deferred`, each active validator's

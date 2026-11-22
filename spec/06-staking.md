@@ -1,4 +1,4 @@
-# 6. Staking and slashing — v0.1.0
+# 6. Staking and slashing — v0.1.1
 
 Staking is built (ADR-028): bonding, delegation, committee selection,
 downtime and double-sign slashing, epoch rewards. Reference: `crates/staking`
@@ -23,6 +23,15 @@ the state root (ROOT-5, invariant 25). Amounts are 256-bit little-endian
 - **STK-8** Native coin held by staking is the sum, over its records, of each validator's self bond, each delegation, each unbonding entry and each payout still owed; the conservation check folds exactly these. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-9** The operations STK-7 refuses chain-wide are refused for one validator once its record counts `MAX_DELEGATIONS_PER_VALIDATOR` = 16,384 positions (`MAX_DELEGATION_RECORDS / 8`), with the same exemptions. It bounds what one double-sign slash or one downtime boundary reads, settles and rewrites at 16,384 positions plus `unbonding_epochs` operator entries. Eight validators full to this ceiling fill the chain-wide one exactly; seven leave room. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
 - **STK-10** Committing an operation rewrites a delegation record only when its meaning changed: its amount, its pending part in the current epoch, or its `next_payout_epoch`; and a validator record only when its rules record, its pending parts in the current epoch, its counts or its unbonding sum changed, so a boundary that changes no validator writes none. Settling a delegation that owes no open payout leaves `next_payout_epoch` as it was (no payout for an earlier epoch can be created later). A slash or a downtime boundary that cuts nothing from a delegation writes nothing for it. *(external vectors: crates/node/src/state/staking_store_tests.rs)*
+
+## Downtime and the committee floor
+
+- **STK-11** At an epoch boundary a seated validator is down when it authored fewer than `downtime_threshold_bps` of the anchor slots it led (authored × 10,000 < threshold × expected, in integers); a validator with no slots is never down, and one still serving a jail term is unpaid but not punished again. Down validators that are eligible now are ordered worst first (authored ÷ expected, compared as authored_a × expected_b against authored_b × expected_a), ties by id. The floor keeps the last `min(down eligible, max(0, MIN_COMMITTEE − (eligible validators not down)))` of them, `MIN_COMMITTEE` = 4, counted **before** any slash. A kept validator is unpaid and not jailed, and is slashed `downtime_slash_bps` of its self bond only when what is left is at or above `min_self_bond`. Every other down validator is slashed and jailed; one already ineligible is always jailed. (ADR-070 and its amendments 2026-11-21 and 2026-11-22.) *(external vectors: crates/staking/tests/scenario.rs)*
+
+The genesis bond margin (every mainnet seat bonds `min_self_bond` plus 10.6%,
+ADR-070 amendment 2026-11-22) is a launch policy checked by
+`cargo xtask genesis-check`, not a consensus rule: the node does not check
+the margin.
 
 ## Record layouts
 

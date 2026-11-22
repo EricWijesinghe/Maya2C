@@ -930,6 +930,45 @@ graph), a `Cargo.lock` walk in `fee_market_tests`, and the fee-market,
 neural-fee, trainer and node fee test runs recorded in the ADR-029 amendment.
 The trainer's weight-drift check fails, as it already did at `3735252d`.
 
+## 2026-11-22 — S-033 at mainnet bonds: option A + B (decision brief 1) — PENDING ERIC
+
+Not decided. Claude's recommendation, built as a `[needs-eric]` draft PR stacked on #524, from
+owner decision brief 1 of the independent AI audit (2026-11-19; an AI review, not an external audit).
+
+- **Option A** (count the floor before the slash; a floor-kept validator stays eligible) is
+  #524's rule, unchanged (entry of 2026-11-21 below).
+- **Option B, proposed:** every mainnet seat bonds exactly the genesis bond, `min_self_bond`
+  plus 10.6% (1,106 coins at the 1,000-coin floor), enforced by `genesis-check` and the ceremony.
+  It replaces "every bond exactly the minimum" of 2026-11-07 / 2026-11-08 if Eric takes it.
+  Why: at bonds of exactly the minimum a floor-kept validator can never be slashed, and a
+  jailed one cannot return without a top-up; with the margin both hold for ten outages.
+- **What changes at genesis:** 7,742 coins of bonds instead of 7,000; the node is unchanged.
+- **Not taken:** C (no slash while the floor binds) and D (accept); reasons in ADR-070
+  amendment 2026-11-22.
+- **Eric decides:** A + B, A alone (#524 as is), or another option.
+
+## 2026-11-21 — S-033 committee floor holds at mainnet bonds (Eric 2026-11-14)
+
+Founder-brief audit question 17. Eric 2026-11-14 ("I approve everything, proceed") took the
+recommended option A, "merge the fix before the freeze".
+
+- **The merged floor did not protect a mainnet validator.** #246 (46a97a61, in the freeze
+  bb4e0940) counted the floor after the 1% downtime slash, and mainnet bonds equal
+  `min_self_bond` exactly (`xtask genesis-check`), so a down validator fell below the
+  minimum and was jailed whatever the floor said. The brief assumed a fix only needed
+  merging; it needed a rule change (Standing Order 9: reported in PR #524).
+- **Chosen: option (a)** of the ADR-070 amendment 2026-11-21. The floor is counted before
+  the slash; a kept validator is unpaid but slashed only if it stays at or above
+  `min_self_bond`. Not (b), which removes the downtime slash for everyone at mainnet bonds,
+  and not (c), which reverses the tiny-bond decision. Consensus-visible, so re-freeze work:
+  PR #524 is retitled `[re-freeze]` and waits for Eric's merge with the re-genesis.
+- **Economics note for Eric:** at mainnet bonds a kept validator loses its epoch reward but
+  no bond. This is the one place the change touches economics; say so if you want (b) or
+  (c) instead.
+- **Beyond any fix**: more than f seated validators gone for good leaves no quorum to reseat
+  anyone (the 2f + 1 rule); recovery is the social re-genesis (`docs/audit/KNOWN_ISSUES.md` #18).
+- **Not decided here**: `cargo xtask go-no-go` counts every self-run `high` row that is not
+  `closed` as a NO-GO; S-033 is `fixed`, not `closed`.
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.

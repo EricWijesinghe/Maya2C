@@ -1315,22 +1315,32 @@ mod mining_tests {
     }
 
     #[test]
-    fn a_mainnet_bond_must_be_exactly_the_minimum() {
+    fn a_mainnet_bond_must_be_exactly_the_genesis_bond() {
+        // ADR-070 amendment 2026-11-22 (option B, pending Eric): the floor plus 10.6%.
         let floor = primitive_types::U256::from(1_000_000);
-        assert!(committee::check_tiny_bonds(&members(), floor).is_ok());
-        let mut over = members();
-        over[0].bond = Some((
-            hex::encode([9u8; 32]),
-            primitive_types::U256::from(2_000_000),
-        ));
-        let err = committee::check_tiny_bonds(&over, floor)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            err.contains("op1") && err.contains("exactly the minimum"),
-            "{err}"
-        );
-        let mut unbonded = members();
+        let bonded = |amount: u64| -> Vec<committee::Member> {
+            members()
+                .into_iter()
+                .map(|mut m| {
+                    m.bond = m
+                        .bond
+                        .map(|(op, _)| (op, primitive_types::U256::from(amount)));
+                    m
+                })
+                .collect()
+        };
+        assert!(committee::check_tiny_bonds(&bonded(1_106_000), floor).is_ok());
+        // Exactly the minimum, the rule before the amendment, and anything above.
+        for other in [1_000_000, 2_000_000] {
+            let err = committee::check_tiny_bonds(&bonded(other), floor)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("op1") && err.contains("genesis bond 1106000"),
+                "{err}"
+            );
+        }
+        let mut unbonded = bonded(1_106_000);
         unbonded[1].bond = None;
         assert!(committee::check_tiny_bonds(&unbonded, floor).is_err());
     }

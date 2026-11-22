@@ -8,7 +8,8 @@
 //!    addresses, three council keys (`genesis-ceremony council key`).
 //! 2. `genesis-ceremony` on `maya-mainnet` with `--supply 0`, the mining
 //!    reserve priced from `mining.json` by the rule `genesis-check` applies,
-//!    and every bond exactly `--min-self-bond`.
+//!    and every bond exactly the genesis bond, `--min-self-bond` plus the
+//!    margin in `genesis_check.rs` (ADR-070 amendment 2026-11-22).
 //! 3. `cargo xtask genesis-check` on the output.
 //! 4. Seven validators from that genesis, and the checks: one chain with
 //!    blocks committed, `get_chain_info` names `maya-mainnet`, `get_supply`
@@ -21,7 +22,8 @@
 //! directory (default `$TEMP/ceremony-rehearsal`) is wiped on the next run.
 //!
 //! Options: `--work DIR`, `--no-mining`, `--mining-timeout-mins N` (default
-//! 150), `--bond-coins N` (default: the mainnet floor in `genesis_check.rs`).
+//! 150), `--bond-coins N` (the minimum self-bond in coins; default: the mainnet
+//! floor in `genesis_check.rs`; each seat bonds the genesis bond above it).
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -140,10 +142,9 @@ fn path(p: &Path) -> String {
 }
 
 /// Keys, addresses and council halves; returns the `validators.txt` path.
-fn keys(work: &Path, opts: &Opts) -> Result<PathBuf> {
+fn keys(work: &Path, bond: u128) -> Result<PathBuf> {
     let pass = work.join("passphrase");
     devnet::write_private(&pass, PASSPHRASE)?;
-    let bond = opts.bond_coins * maya_amount::ONE_COIN;
     let mut lines = vec!["# label key operator bond".to_owned()];
     for i in 0..VALIDATORS {
         let dir = work.join(format!("v{i}"));
@@ -191,7 +192,7 @@ fn keys(work: &Path, opts: &Opts) -> Result<PathBuf> {
 }
 
 /// `genesis-ceremony` with the decided mainnet values; returns the reserve.
-fn ceremony(work: &Path, validators: &Path, bond: u128) -> Result<String> {
+fn ceremony(work: &Path, validators: &Path, min_self_bond: u128) -> Result<String> {
     let mining = devnet::root().join("deploy/genesis/mainnet/mining.json");
     let text =
         std::fs::read_to_string(&mining).map_err(|e| format!("{}: {e}", mining.display()))?;
@@ -218,7 +219,7 @@ fn ceremony(work: &Path, validators: &Path, bond: u128) -> Result<String> {
                 "2",
             ])
             .args(["--council-max-pause-blocks", MAX_PAUSE_BLOCKS])
-            .args(["--min-self-bond", &bond.to_string()])
+            .args(["--min-self-bond", &min_self_bond.to_string()])
             .args(["--min-delegation", &maya_amount::ONE_COIN.to_string()])
             .args([
                 "--timestamp",
@@ -345,9 +346,11 @@ fn rehearse(opts: &Opts) -> Result<()> {
         std::fs::remove_dir_all(work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
     }
     std::fs::create_dir_all(work).map_err(|e| format!("{}: {e}", work.display()))?;
-    let bond = opts.bond_coins * maya_amount::ONE_COIN;
-    let validators = keys(work, opts)?;
-    let reserve = ceremony(work, &validators, bond)?;
+    let min_self_bond = opts.bond_coins * maya_amount::ONE_COIN;
+    let bond = genesis_check::genesis_bond(min_self_bond)
+        .ok_or("--bond-coins: the genesis bond overflows")?;
+    let validators = keys(work, bond)?;
+    let reserve = ceremony(work, &validators, min_self_bond)?;
     let genesis = path(&work.join("out/genesis.json"));
     genesis_check::run(std::slice::from_ref(&genesis))?;
 
