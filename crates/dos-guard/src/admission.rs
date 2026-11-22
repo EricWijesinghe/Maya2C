@@ -3,7 +3,8 @@
 //! - At most [`Policy::per_sender`] pending transactions per sender.
 //! - A transaction with the same `(sender, nonce)` as one pending replaces it
 //!   only if its fee is at least [`Policy::bump_percent`] higher — otherwise
-//!   re-broadcasting at +1 unit would be free spam.
+//!   re-broadcasting at +1 unit would be free spam — and pays at least as
+//!   much per byte, so a replacement cannot grow the pool's bytes for free.
 //! - When full, the transaction with the lowest fee **per byte** is evicted,
 //!   and a newcomer is admitted only if it pays more per byte than that one.
 //!   Pricing by byte is what makes a 13 KB post-quantum transaction pay for
@@ -98,7 +99,9 @@ impl Pool {
     pub fn admit(&mut self, tx: Pending) -> Result<Admitted, Refusal> {
         if let Some(old) = self.txs.get(&(tx.sender, tx.nonce)) {
             let needed = u128::from(old.fee) * u128::from(100 + self.policy.bump_percent);
-            if u128::from(tx.fee) * 100 < needed {
+            // The per-byte price may not fall either: capacity counts
+            // transactions, so a bigger replacement must pay for its bytes.
+            if u128::from(tx.fee) * 100 < needed || cheaper(&tx, old) {
                 return Err(Refusal::UnderpricedReplacement);
             }
             self.txs.insert((tx.sender, tx.nonce), tx);

@@ -28,7 +28,8 @@
 //!    data moved aside, bootstrapped from a peer's snapshot, caught up.
 //!
 //! `--rounds N` repeats the whole sequence; `--weighted` runs a
-//! stake-weighted genesis (ADR-040). Results go to stdout and to
+//! stake-weighted genesis (ADR-040). `--netfault latency|loss` relays every
+//! p2p link through a shaped TCP relay for the whole run (ADR-097). Results go to stdout and to
 //! `reports/attacknet/<date>.md`.
 //!
 //! What this is not: an incentivised testnet, independent operators, or an
@@ -37,7 +38,7 @@
 //! own network; it is a floor, not a substitute.
 
 use std::io::Write as _;
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
@@ -45,6 +46,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::devnet::{self, Procs, Result};
+use crate::netfault::{self, Relay};
 
 /// n = 7 tolerates f = 2.
 const VALIDATORS: u16 = 7;
@@ -250,6 +252,8 @@ struct Net {
     procs: Procs,
     /// What each attack showed, for the report.
     log: Vec<String>,
+    /// Set by `--netfault`: every p2p link goes through this relay (ADR-097).
+    route: Option<Relay>,
 }
 
 impl Net {
@@ -263,7 +267,7 @@ impl Net {
     }
 
     fn start(&self, i: u16, catch_up: Option<u16>) -> Result<Child> {
-        start_node(&self.work, i, catch_up, false)
+        start_node(&self.work, i, catch_up, false, self.route.as_ref())
     }
 
     fn restart(&mut self, i: u16, catch_up: Option<u16>) -> Result<()> {
@@ -274,14 +278,14 @@ impl Net {
 
     /// Restarts `i` catching up from `sources` without a trusted block (S-009).
     fn restart_untrusted(&mut self, i: u16, sources: &[u16]) -> Result<()> {
-        let child = start_untrusted(&self.work, i, sources)?;
+        let child = start_untrusted(&self.work, i, sources, self.route.as_ref())?;
         self.procs.replace(usize::from(i), child);
         Ok(())
     }
 
     /// Restarts `i` from a peer's snapshot (ADR-043 decision 3).
     fn rebootstrap(&mut self, i: u16, from: u16) -> Result<()> {
-        let child = start_node(&self.work, i, Some(from), true)?;
+        let child = start_node(&self.work, i, Some(from), true, self.route.as_ref())?;
         self.procs.replace(usize::from(i), child);
         Ok(())
     }
@@ -332,8 +336,14 @@ fn setup(work: &Path, weighted: bool) -> Result<()> {
         .map_err(|e| format!("writing genesis: {e}"))
 }
 
-fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Result<Child> {
-    let mut cmd = node_command(work, i);
+fn start_node(
+    work: &Path,
+    i: u16,
+    catch_up: Option<u16>,
+    bootstrap: bool,
+    route: Option<&Relay>,
+) -> Result<Child> {
+    let mut cmd = node_command(work, i, route)?;
     if let Some(from) = catch_up {
         let url = format!("http://{}", rpc_addr(from));
         // B49: every catch-up restart passes a trusted block from the peer it
@@ -356,16 +366,22 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Re
 /// the only startup that runs certificate sync (`main.rs` skips it when a
 /// trusted block is given), so only this path reaches the S-009 refusal in
 /// `certsync::peer_not_behind`.
-fn start_untrusted(work: &Path, i: u16, sources: &[u16]) -> Result<Child> {
-    let mut cmd = node_command(work, i);
+fn start_untrusted(work: &Path, i: u16, sources: &[u16], route: Option<&Relay>) -> Result<Child> {
+    let mut cmd = node_command(work, i, route)?;
     for from in sources {
         cmd.args(["--catch-up-from", &format!("http://{}", rpc_addr(*from))]);
     }
     spawn_logged(work, i, cmd)
 }
 
-/// The arguments every validator is started with, bootnodes included.
-fn node_command(work: &Path, i: u16) -> Command {
+/// The arguments every validator is started with, bootnodes included. With a
+/// relay, each bootnode is the relay's address for the link from `i`.
+///
+/// # Errors
+///
+/// A relay with no link from `i` to a peer: starting without it would dial
+/// the peer directly and skip the faults.
+fn node_command(work: &Path, i: u16, route: Option<&Relay>) -> Result<Command> {
     let dir = work.join(format!("v{i}"));
     let mut cmd = Command::new(devnet::bin("maya2c-node"));
     cmd.arg("--genesis")
@@ -385,16 +401,26 @@ fn node_command(work: &Path, i: u16) -> Command {
             &SNAPSHOT_BLOCKS.to_string(),
             "--snapshot-depth",
             &SNAPSHOT_BLOCKS.to_string(),
-        ])
-        // Every validator here is on 127.0.0.1; discovery needs its private addresses.
-        .arg("--allow-private-peers");
-    for peer in (0..VALIDATORS).filter(|p| *p != i) {
-        cmd.args([
-            "--bootnode",
-            &format!("/ip4/127.0.0.1/tcp/{}", P2P_BASE + peer),
         ]);
+    // Every validator here is on 127.0.0.1; discovery needs its private
+    // addresses. A relayed run leaves that off so no direct link is learned
+    // (see `localnet::start_with`, ADR-097).
+    if route.is_none() {
+        cmd.arg("--allow-private-peers");
     }
-    cmd
+    for peer in (0..VALIDATORS).filter(|p| *p != i) {
+        let bootnode = match route {
+            Some(relay) => {
+                let addr = relay
+                    .listen(i, peer)
+                    .ok_or_else(|| format!("no relay link from validator {i} to {peer}"))?;
+                netfault::multiaddr(addr)
+            }
+            None => format!("/ip4/127.0.0.1/tcp/{}", P2P_BASE + peer),
+        };
+        cmd.args(["--bootnode", &bootnode]);
+    }
+    Ok(cmd)
 }
 
 /// Spawns `cmd` with its output appended to the validator's `node.log`.
@@ -890,6 +916,29 @@ fn write_report(net: &Net, weighted: bool, outcome: &Result<()>) -> Result<PathB
     Ok(path)
 }
 
+/// `--netfault NAME`: a relay for every p2p link, shaped by that profile
+/// (`latency` or `loss`; the partition needs `cargo xtask netfault`).
+///
+/// # Errors
+///
+/// A missing or unknown profile name, or a relay that cannot start.
+fn relay_from_args(args: &[String]) -> Result<Option<(String, Relay)>> {
+    let Some(p) = args.iter().position(|a| a == "--netfault") else {
+        return Ok(None);
+    };
+    let name = args
+        .get(p + 1)
+        .ok_or("--netfault needs a profile: latency or loss")?;
+    let shape = netfault::profile(name)?;
+    // The stolen-key twin is a source too: it dials through the relay as well.
+    let sources: Vec<u16> = (0..=VALIDATORS).collect();
+    let links = netfault::mesh(&sources, VALIDATORS, |to| {
+        SocketAddr::from(([127, 0, 0, 1], P2P_BASE + to))
+    });
+    let relay = netfault::start(&links, shape, netfault::DEFAULT_SEED)?;
+    Ok(Some((name.clone(), relay)))
+}
+
 /// Runs the attacknet in `target/attacknet`.
 ///
 /// # Errors
@@ -925,11 +974,20 @@ pub fn attacknet(args: &[String]) -> Result<()> {
     devnet::build(&["maya2c-node", "l1-wallet"])?;
     let work = devnet::root().join("target").join("attacknet");
     setup(&work, weighted)?;
+    let relayed = relay_from_args(args)?;
     let mut net = Net {
         work: work.clone(),
         procs: Procs::default(),
         log: Vec::new(),
+        route: None,
     };
+    if let Some((name, relay)) = relayed {
+        net.say(format!(
+            "netfault profile {name}: every p2p link relayed, seed {}",
+            netfault::DEFAULT_SEED
+        ));
+        net.route = Some(relay);
+    }
     for i in 0..VALIDATORS {
         let child = net.start(i, None)?;
         net.procs.push(child);

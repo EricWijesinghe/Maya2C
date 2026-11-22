@@ -7,6 +7,7 @@
 use std::cell::Cell;
 use std::collections::BTreeSet;
 
+use maya_amount::Amount;
 use maya_deposit_watcher::{BlockSource, Transfer, WatchError, Watcher};
 
 fn watched() -> BTreeSet<String> {
@@ -30,7 +31,7 @@ impl BlockSource for Source {
         Ok(vec![Transfer {
             txid: format!("tx{h}"),
             to: "addr".into(),
-            amount: 10,
+            amount: Amount::from_u64(10),
         }])
     }
 }
@@ -85,7 +86,7 @@ fn a_source_failure_leaves_the_cursor_and_the_journal_where_they_were() {
     );
     // Blocks 1 and 2 are committed; 3 is not.
     assert_eq!(w.cursor(), 2);
-    assert_eq!(w.balances()["addr"], 20);
+    assert_eq!(w.balances()["addr"], Amount::from_u64(20));
     assert_eq!(w.credited(), 2);
     let len = std::fs::metadata(&path).unwrap().len();
 
@@ -103,6 +104,9 @@ fn a_source_failure_leaves_the_cursor_and_the_journal_where_they_were() {
     assert_eq!(w.cursor(), 2);
     src.fail_at.set(None);
     assert_eq!(w.poll(&src).unwrap(), 3);
-    assert_eq!((w.cursor(), w.credited(), w.balances()["addr"]), (5, 5, 50));
+    assert_eq!(
+        (w.cursor(), w.credited(), w.balances()["addr"]),
+        (5, 5, Amount::from_u64(50))
+    );
     assert_eq!(w.poll(&src).unwrap(), 0, "nothing is credited twice");
 }

@@ -258,7 +258,7 @@ fn run(root: &Path, work: &Path, hours: u64, gpu: bool) -> Result<()> {
         "maya2c-gpu-miner",
     ])?;
     let genesis = setup(work, root)?;
-    let date = chrono_date();
+    let date = crate::stamp::date(crate::stamp::utc_now());
     let dir = root.join("reports").join("proving");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut report = Report {
@@ -351,25 +351,6 @@ fn run(root: &Path, work: &Path, hours: u64, gpu: bool) -> Result<()> {
     Ok(())
 }
 
-/// Today's date, UTC, as `YYYY-MM-DD`, from the system clock (a report name,
-/// not a consensus input).
-fn chrono_date() -> String {
-    let days = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() / 86_400);
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = i64::try_from(days).unwrap_or(0) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,12 +364,5 @@ mod tests {
         assert_eq!(RESERVE_ADDRESS.len(), 64);
         assert!(RESERVE_ADDRESS.starts_with(&tag));
         assert!(RESERVE_ADDRESS[tag.len()..].chars().all(|c| c == '0'));
-    }
-
-    #[test]
-    fn the_report_date_is_a_civil_date() {
-        let d = chrono_date();
-        assert_eq!(d.len(), 10);
-        assert!(d.starts_with("20"));
     }
 }
