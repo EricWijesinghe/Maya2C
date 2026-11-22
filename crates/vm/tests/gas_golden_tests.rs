@@ -13,6 +13,15 @@
 //! back-edges, not after every instruction, so a call can finish on a little
 //! less than it costs (it then reports its whole limit as used). Where those
 //! checks sit decides which calls run out, so it is part of the schedule too.
+//!
+//! Re-recorded 2026-11-22 for ADR-142 (PR #549), which is a deliberate gas
+//! schedule change: native work (the module compile by length and shape,
+//! linear memory, host calls) is now charged in fuel, so every figure moved
+//! and each vector's boundary now equals its cost. Recorded on the re-freeze
+//! integration branch twice, with wasmtime pinned to 48.0.8 and to 48.0.10:
+//! the seven costs, boundaries and outputs were identical on both, so the
+//! 48.0.10 bump still moves nothing under the new schedule. The figures before
+//! ADR-142 (master's schedule) are in the history of this file.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -23,15 +32,15 @@ const CONTRACT: [u8; 32] = [5u8; 32];
 const AMPLE_GAS: u64 = 50_000_000;
 
 /// (name, WAT, gas, least sufficient gas limit, output) recorded on wasmtime
-/// 48.0.8, Cranelift. Each module returns its result as 8 little-endian output
+/// 48.0.8 and 48.0.10 under ADR-142's schedule, Cranelift. Each module returns its result as 8 little-endian output
 /// bytes at address 0, so the value it computed is pinned with what it cost.
 const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
     (
         "empty",
         r#"(module (memory (export "memory") 1)
           (func (export "invoke") (param i32) (result i64) (i64.const 8)))"#,
-        2,
-        2,
+        210_302,
+        210_302,
         0,
     ),
     (
@@ -45,8 +54,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i64.add (local.get $i) (i64.const 1)))
               (br_if $l (i64.lt_u (local.get $i) (i64.const 5000))))
             (i64.store (i32.const 0) (local.get $acc)) (i64.const 8)))"#,
-        80_005,
-        79_986,
+        382_595,
+        382_595,
         0x0f9f_1e3e,
     ),
     (
@@ -64,8 +73,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
           (func (export "invoke") (param i32) (result i64)
             (i64.store (i32.const 0) (call $double (call $fib (i64.const 15))))
             (i64.const 8)))"#,
-        19_737,
-        19_733,
+        639_637,
+        639_637,
         0x4c4,
     ),
     (
@@ -82,8 +91,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 3000))))
             (i64.store (i32.const 0) (i64.extend_i32_u (global.get $g))) (i64.const 8)))"#,
-        46_006,
-        45_990,
+        516_426,
+        516_426,
         0x5,
     ),
     (
@@ -100,8 +109,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 2000))))
             (i64.store (i32.const 0) (i64.load (i32.const 800))) (i64.const 8)))"#,
-        172_016,
-        171_996,
+        500_386,
+        500_386,
         0x0909_0909_0909_090a,
     ),
     (
@@ -115,8 +124,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 500))))
             (i64.store (i32.const 0) (i64.reinterpret_f64 (local.get $x))) (i64.const 8)))"#,
-        7_508,
-        7_489,
+        319_548,
+        319_548,
         0x7ff8_0000_0000_0000,
     ),
     (
@@ -135,8 +144,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 8))))
             (i64.const 8)))"#,
-        4_283,
-        4_260,
+        695_169,
+        695_169,
         0x756c_6176_3779_656b,
     ),
 ];
