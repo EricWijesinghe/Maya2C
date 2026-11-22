@@ -67,6 +67,19 @@ fn encode_signature(signature: &HybridSignature) -> Vec<u8> {
     buf
 }
 
+/// Domain prefixed to every message [`SigningKey::sign`] signs (APP-06).
+///
+/// Every transaction preimage the node checks starts with `custom-l1-node.tx`,
+/// so a byte string under this prefix is never one of them. Without it, a
+/// wallet's "sign message" feature handed a transaction preimage would return
+/// a valid transaction signature.
+const MESSAGE_DOMAIN: &[u8] = b"maya2c.sdk-ffi.signed-message.v1\0";
+
+/// The bytes actually signed for `message`: `MESSAGE_DOMAIN || message`.
+fn message_preimage(message: &[u8]) -> Vec<u8> {
+    [MESSAGE_DOMAIN, message].concat()
+}
+
 uniffi::setup_scaffolding!();
 
 /// Bytes in a hybrid public key.
@@ -173,21 +186,29 @@ impl SigningKey {
         Some(maya_address::encode(network, &self.inner.address()))
     }
 
-    /// Signs `message`, returning the 11,165-byte hybrid signature.
+    /// Signs `message` under the signed-message domain, returning the
+    /// 11,165-byte hybrid signature. Check it with [`verify`].
+    ///
+    /// The signed bytes are `MESSAGE_DOMAIN || message`, so the result can
+    /// never be a valid transaction signature, whatever `message` holds.
     ///
     /// # Errors
     ///
     /// [`SdkError::Malformed`] if signing fails, which on a well-formed key
     /// means the OS refused entropy for the randomised half.
     pub fn sign(&self, message: Vec<u8>) -> Result<Vec<u8>, SdkError> {
-        let signature = self.inner.sign(&message).map_err(|_| SdkError::Malformed {
-            what: "signing operation".to_string(),
-        })?;
+        let signature =
+            self.inner
+                .sign(&message_preimage(&message))
+                .map_err(|_| SdkError::Malformed {
+                    what: "signing operation".to_string(),
+                })?;
         Ok(encode_signature(&signature))
     }
 }
 
-/// Verifies a hybrid signature.
+/// Verifies a hybrid signature made by [`SigningKey::sign`], over the same
+/// signed-message domain. A raw or transaction signature does not verify here.
 ///
 /// Both halves must verify — the lattice one under FIPS 204 and the hash-based
 /// one under FIPS 205. There is no mode in which one suffices, which is the
@@ -229,7 +250,7 @@ pub fn verify(public_key: Vec<u8>, message: Vec<u8>, signature: Vec<u8>) -> Resu
     })?;
 
     verifying
-        .verify(&message, &sig)
+        .verify(&message_preimage(&message), &sig)
         .map_err(|_| SdkError::VerificationFailed)
 }
 
@@ -310,6 +331,22 @@ mod tests {
 
         assert_eq!(signature.len(), SIGNATURE_BYTES as usize);
         verify(signer.public_key(), message, signature).expect("verify");
+    }
+
+    #[test]
+    fn a_message_signature_never_verifies_as_a_transaction() {
+        // APP-06: a host app's "sign message" button handed a transaction
+        // preimage must not return a signature the chain accepts for it.
+        use custom_l1_node::core::transaction::{ChainTag, Transaction};
+        let signer = key();
+        let chain = ChainTag([3u8; 32]);
+        let preimage = Transaction::new(vec![], vec![], 1).signing_bytes(&chain);
+        let signature = signer.sign(preimage.clone()).expect("sign");
+
+        let sig = HybridSignature::decode(&mut ByteReader::new(&signature)).unwrap();
+        let verifying = signer.inner.verifying_key();
+        assert!(verifying.verify(&preimage, &sig).is_err());
+        verify(signer.public_key(), preimage, signature).expect("still a valid message signature");
     }
 
     #[test]

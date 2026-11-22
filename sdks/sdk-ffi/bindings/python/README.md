@@ -39,6 +39,12 @@ byte-identical. This is load-bearing, not incidental: a transaction id hashes
 the signature, so a hedged signature would give one transaction two identities.
 It also means re-signing and re-broadcasting is safe.
 
+**`sign()` signs messages, not transactions.** It signs
+`maya2c.sdk-ffi.signed-message.v1\0 || message`, and `verify()` checks the same
+form. A signature from `sign()` is never a valid transaction signature, even
+when `message` holds a transaction's signing bytes, so a "sign message" feature
+built on it cannot be used to authorise a transfer.
+
 **The secret key never leaves the object.** `SigningKey` exposes `public_key()`,
 `address()` and `sign()` — there is no accessor for the secret half, by design.
 A key that can be read out is a key that ends up in a log.
