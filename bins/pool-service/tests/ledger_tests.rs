@@ -277,6 +277,36 @@ fn creating_a_batch_debits_it_and_reversing_it_gives_the_credits_back() {
 }
 
 #[test]
+fn a_batch_paying_more_than_is_owed_is_refused_and_changes_nothing() {
+    // A saturating debit floored `unpaid` at zero while `paid` rose by the
+    // full amount: an accounting bug upstream became money paid out unseen.
+    both(|ledger| {
+        ledger
+            .record_block(
+                &found_block("block-a", 100, 0, 1_000),
+                &[entry(ALICE, 600), entry(BOB, 100)],
+            )
+            .unwrap();
+        ledger.mature_block("block-a").unwrap();
+
+        let payout = batch(
+            0,
+            0,
+            PayoutState::Signed,
+            vec![entry(ALICE, 600), entry(BOB, 101)],
+        );
+        assert!(ledger.create_batch(&payout).is_err());
+
+        for (miner, owed) in [(ALICE, 600), (BOB, 100)] {
+            let balance = ledger.balance(&miner).unwrap();
+            assert_eq!(balance.unpaid, primitive_types::U256::from(owed));
+            assert_eq!(balance.paid, primitive_types::U256::from(0));
+        }
+        assert!(ledger.batch(0).unwrap().is_none(), "no batch recorded");
+    });
+}
+
+#[test]
 fn a_repeated_batch_creation_debits_once() {
     // The reason creation and the debit are one write: a resumed daemon
     // re-runs the creation of a batch it already wrote down, and debiting a

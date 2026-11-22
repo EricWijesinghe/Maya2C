@@ -17,7 +17,7 @@ use custom_l1_node::state::Address;
 use crate::error::{PoolError, Result};
 use crate::model::{PayoutBatch, PayoutEntry, PayoutState, ShareRecord};
 
-use super::{BlockState, FoundBlock, MinerBalance, ShareLedger, WindowSlice, accumulate};
+use super::{BlockState, FoundBlock, MinerBalance, ShareLedger, WindowSlice, accumulate, debit};
 
 /// Everything the ledger holds.
 #[derive(Debug, Default)]
@@ -222,11 +222,19 @@ impl ShareLedger for MemoryLedger {
             return Ok(());
         }
 
+        // Staged, so a refused entry leaves every balance as it was.
+        let mut staged: BTreeMap<Address, MinerBalance> = BTreeMap::new();
         for entry in &batch.entries {
-            let balance = inner.balances.entry(entry.miner).or_default();
-            balance.unpaid = balance.unpaid.saturating_sub(entry.amount);
-            balance.paid = balance.paid.saturating_add(entry.amount);
+            let balance = staged.entry(entry.miner).or_insert_with(|| {
+                inner
+                    .balances
+                    .get(&entry.miner)
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            debit(balance, entry.amount)?;
         }
+        inner.balances.extend(staged);
         inner.batches.insert(batch.id, batch.clone());
         Ok(())
     }
