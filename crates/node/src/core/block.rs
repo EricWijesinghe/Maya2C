@@ -170,6 +170,10 @@ const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
 /// account leaf from the state tree, which shares the internal-node rule.
 const TX_LEAF_CONTEXT: &str = "custom-l1-node tx leaf v1";
 
+/// Domain for the leaf of a multisig (v8) transaction. Its id leaves the
+/// approvals out on purpose, so its leaf also hashes the whole wire frame.
+const TX_LEAF_WITNESS_CONTEXT: &str = "custom-l1-node tx leaf witness v1";
+
 /// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32 + 1.
 pub const HEADER_LEN: usize = 145;
 
@@ -459,6 +463,24 @@ pub fn transaction_leaf(txid: &[u8; HASH_LEN]) -> [u8; HASH_LEN] {
     *hasher.finalize().as_bytes()
 }
 
+/// A transaction's leaf in the block's `tx_root` tree.
+///
+/// For every frame but v8 this is [`transaction_leaf`] of the txid, which
+/// already hashes the signatures. A v8 id leaves its approvals out, so its
+/// leaf also commits to the whole wire frame; otherwise a body with other
+/// approvals would pass `check_tx_root` under the honest header (invariant 24).
+#[must_use]
+pub fn block_leaf(transaction: &Transaction) -> [u8; HASH_LEN] {
+    let txid = transaction.txid();
+    if transaction.multisig.is_none() {
+        return transaction_leaf(&txid);
+    }
+    let mut hasher = blake3::Hasher::new_derive_key(TX_LEAF_WITNESS_CONTEXT);
+    hasher.update(&txid);
+    hasher.update(blake3::hash(&transaction.to_bytes()).as_bytes());
+    *hasher.finalize().as_bytes()
+}
+
 impl Block {
     /// Builds a block from a header and its transactions, committing the header
     /// to them.
@@ -482,18 +504,16 @@ impl Block {
     ///
     /// The tree is `state::merkle`'s: tagged internal nodes and a promoted,
     /// never duplicated, odd node, so two different transaction lists cannot
-    /// share a root (the CVE-2012-2459 shape). Each txid covers the whole
-    /// transaction, signatures included. An empty block roots to all zeros.
+    /// share a root (the CVE-2012-2459 shape). Each leaf ([`block_leaf`])
+    /// covers the whole transaction, signatures and v8 approvals included. An
+    /// empty block roots to all zeros.
     #[must_use]
     pub fn tx_root(&self) -> [u8; HASH_LEN] {
         Self::root_of(&self.transactions)
     }
 
     fn leaves(transactions: &[Transaction]) -> Vec<[u8; HASH_LEN]> {
-        transactions
-            .iter()
-            .map(|transaction| transaction_leaf(&transaction.txid()))
-            .collect()
+        transactions.iter().map(block_leaf).collect()
     }
 
     fn root_of(transactions: &[Transaction]) -> [u8; HASH_LEN] {
@@ -503,8 +523,10 @@ impl Block {
     /// Inclusion path for the transaction at `index`, against the header's
     /// `tx_root`.
     ///
-    /// Check it with `state::merkle::verify_path(&transaction_leaf(&txid), &path)`,
-    /// which must reproduce `tx_root`. Returns `None` if `index` is out of range.
+    /// Check it with `state::merkle::verify_path(&block_leaf(&tx), &path)`,
+    /// which must reproduce `tx_root`; for a v8 transaction the prover needs
+    /// the whole frame, not only its id. Returns `None` if `index` is out of
+    /// range.
     #[must_use]
     pub fn tx_inclusion_path(&self, index: usize) -> Option<Vec<PathStep>> {
         merkle_path(&Self::leaves(&self.transactions), index)

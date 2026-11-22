@@ -11,7 +11,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 
 - **CON-1** A header is 145 bytes: `prev_hash[32] ‖ state_root[32] ‖ timestamp_u64 ‖ nonce_u64 ‖ difficulty_target[32] ‖ tx_root[32] ‖ version_u8`. *(positive only: defines a value)*
 - **CON-2** A block's id is BLAKE3 in derive-key mode with context `"custom-l1-node header id v1"` over the 145 header bytes. *(positive only: defines a value)*
-- **CON-3** `tx_root` is ROOT-3's tree over leaves `blake3_derive_key("custom-l1-node tx leaf v1", txid)`; a block whose header disagrees is invalid.
+- **CON-3** `tx_root` is ROOT-3's tree over one leaf per transaction: `blake3_derive_key("custom-l1-node tx leaf v1", txid)`, except for a v8 (multisig) frame, whose id omits its approvals: its leaf is `blake3_derive_key("custom-l1-node tx leaf witness v1", txid ‖ blake3(wire_frame))`. A block whose header disagrees is invalid.
 - **CON-4** A block's declared `state_root` must equal the root its execution produces (invariant 24); otherwise it is invalid and nothing is written.
 - **CON-5** The declared difficulty target must equal the retarget rule's output for that height (every 100 blocks, 15 s target spacing; the 15 s is the PoW retarget spacing only, inert under DAG-BFT per CON-9, which makes about one block a second), the window measured between the median times (CON-11's median) of its last and first blocks, not between two single timestamps; otherwise invalid.
 - **CON-6** The proof-of-work hash for the block's height must meet its target; otherwise invalid.
