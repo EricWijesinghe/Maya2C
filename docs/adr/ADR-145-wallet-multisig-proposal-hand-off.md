@@ -6,8 +6,9 @@
 [ADR-013](ADR-013-suite-envelope-activation.md) (wire v8 live from
 genesis), [ADR-029](ADR-029-fee-market-live.md) (per-byte base fee),
 [ADR-036](ADR-036-chain-bound-signatures.md) (chain-bound signing bytes),
-ADR-117 (per-family approval floor; claimed by another lane, not written on
-`master`). Item P-16 in the 90-day roadmap; PR #545.
+[ADR-117](ADR-117-multisig-suite-diversity.md) (per-family approval floor;
+Proposed 2026-11-12, post-genesis `postgen/v4`, wire v12, dark until
+scheduled). Item P-16 in the 90-day roadmap; PR #545.
 
 Nothing here touches the node, the wire format, consensus or state. The wallet
 uses the v8 frame and the `maya-crypto-pq` policy exactly as the node verifies
@@ -107,8 +108,9 @@ host. Rule 6 says which of those are accepted.
 - A proposal of any other kind (contract call, staking, vault) from a shared
   account is not supported in the wallet. Adding one means a full confirm
   screen for that kind first.
-- The ADR-117 per-family approval floor is not built; it must be written
-  before it is implemented.
+- The ADR-117 per-family approval floor is not built: ADR-117 is Proposed,
+  post-genesis, wire v12, dark until scheduled (activation `u64::MAX`), so
+  the wallet cannot apply the floor before consensus does.
 - No state is stored: the account and proposal are text the person keeps.
 
 ## Alternatives considered

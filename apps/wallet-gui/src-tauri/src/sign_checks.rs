@@ -46,7 +46,7 @@ pub fn resolve_chat(
     given: Option<&ChatRequest>,
     recipient: &[u8; 32],
 ) -> Result<Option<ChatRequest>, String> {
-    let for_recipient = opened.iter().filter(|o| &o.recipient == recipient);
+    let mut for_recipient = opened.iter().filter(|o| &o.recipient == recipient);
     match given {
         Some(given) => for_recipient
             .clone()
@@ -56,7 +56,7 @@ pub fn resolve_chat(
                 "this payment request was not opened from a link to this recipient; nothing was signed"
                     .to_string()
             }),
-        None => Ok(for_recipient.last().map(|o| o.chat.clone())),
+        None => Ok(for_recipient.next_back().map(|o| o.chat.clone())),
     }
 }
 

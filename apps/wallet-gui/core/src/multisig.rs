@@ -18,8 +18,10 @@
 //! a member's proposal ([`Proposal::from_hex`], then [`Proposal::merge`]): one
 //! no longer than a hybrid signature (an ML-DSA-65 `0x10`) is accepted, a
 //! longer one is refused because the fee was not priced for it (ADR-145 rule
-//! 6). The per-family approval floor proposed in ADR-117 is not built
-//! (ADR-117 is not written on `master`).
+//! 6). The per-family approval floor proposed in ADR-117 is not built:
+//! ADR-117 is Proposed (2026-11-12, `postgen/v4`): post-genesis, wire v12,
+//! dark until scheduled (activation `u64::MAX`), so the wallet cannot apply
+//! the floor before consensus does.
 //!
 //! # Fees
 //!

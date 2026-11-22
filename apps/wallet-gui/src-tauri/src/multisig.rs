@@ -13,6 +13,8 @@ use maya_wallet_core::multisig::{
 use maya_wallet_core::payment::SignedTransfer;
 use maya_wallet_core::wallet::SignTerms;
 
+use maya_clear_sign::Context;
+
 use crate::commands::{
     DialogSlot, FeeTerms, Session, native_ok, parse_amount_arg, parse_genesis, priced_fee_terms,
 };
@@ -47,8 +49,17 @@ pub fn multisig_create(
     genesis: String,
     session: tauri::State<'_, Session>,
 ) -> Result<AccountView, String> {
-    let account = MultisigAccount::new(threshold, &members).map_err(|e| e.to_string())?;
-    account_view(&account, &genesis, &session)
+    create(threshold, &members, &genesis, &session)
+}
+
+fn create(
+    threshold: usize,
+    members: &[MemberKey],
+    genesis: &str,
+    session: &Session,
+) -> Result<AccountView, String> {
+    let account = MultisigAccount::new(threshold, members).map_err(|e| e.to_string())?;
+    account_view(&account, genesis, session)
 }
 
 /// Opens an account another member shared.
@@ -92,19 +103,47 @@ pub fn multisig_propose(
     base_fee: String,
     session: tauri::State<'_, Session>,
 ) -> Result<ProposalView, String> {
-    let base_fee = parse_amount_arg("base fee", &base_fee)?;
-    let account = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
-    let chain = parse_genesis(&genesis)?;
-    let amount = parse_amount_arg("amount", &amount)?;
-    let terms = SignTerms {
-        fee: parse_amount_arg("fee", &fee)?,
+    let spend = Spend {
+        recipient: &recipient,
+        amount: &amount,
+        fee: &fee,
         fee_to: fee_to.as_deref(),
         nonce,
+    };
+    propose(index, &account_hex, &spend, &genesis, &base_fee, &session)
+}
+
+/// The spend a proposal asks for, as the screen typed it.
+struct Spend<'a> {
+    recipient: &'a str,
+    amount: &'a str,
+    fee: &'a str,
+    fee_to: Option<&'a str>,
+    nonce: u64,
+}
+
+fn propose(
+    index: u32,
+    account_hex: &str,
+    spend: &Spend<'_>,
+    genesis: &str,
+    base_fee: &str,
+    session: &Session,
+) -> Result<ProposalView, String> {
+    let base_fee = parse_amount_arg("base fee", base_fee)?;
+    let account = MultisigAccount::from_hex(account_hex).map_err(|e| e.to_string())?;
+    let chain = parse_genesis(genesis)?;
+    let amount = parse_amount_arg("amount", spend.amount)?;
+    let recipient = spend.recipient;
+    let terms = SignTerms {
+        fee: parse_amount_arg("fee", spend.fee)?,
+        fee_to: spend.fee_to,
+        nonce: spend.nonce,
         chain: &chain,
         allow_high_fee: false,
     };
     session.with(|w| {
-        w.propose_multisig(index, &account, &recipient, amount, &terms, base_fee)
+        w.propose_multisig(index, &account, recipient, amount, &terms, base_fee)
             .map(|p| proposal_view(&p))
             .map_err(|e| e.to_string())
     })
@@ -132,12 +171,23 @@ pub fn multisig_preview(
     genesis: String,
     session: tauri::State<'_, Session>,
 ) -> Result<Confirmation, String> {
-    let chain = parse_genesis(&genesis)?;
-    let open = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
-    let proposal = Proposal::from_hex(&proposal_hex, &chain).map_err(|e| e.to_string())?;
     let ctx = session.review_context(&app)?;
+    preview(index, &account_hex, &proposal_hex, &genesis, &ctx, &session)
+}
+
+fn preview(
+    index: u32,
+    account_hex: &str,
+    proposal_hex: &str,
+    genesis: &str,
+    ctx: &Context,
+    session: &Session,
+) -> Result<Confirmation, String> {
+    let chain = parse_genesis(genesis)?;
+    let open = MultisigAccount::from_hex(account_hex).map_err(|e| e.to_string())?;
+    let proposal = Proposal::from_hex(proposal_hex, &chain).map_err(|e| e.to_string())?;
     session.with(|w| {
-        w.confirm_multisig(index, &open, &proposal, &chain, &ctx)
+        w.confirm_multisig(index, &open, &proposal, &chain, ctx)
             .map_err(|e| e.to_string())
     })
 }
@@ -160,35 +210,84 @@ pub async fn multisig_approve(
     session: tauri::State<'_, Session>,
 ) -> Result<ProposalView, String> {
     let _slot = DialogSlot::take(session.dialog_open())?;
-    let chain = parse_genesis(&genesis)?;
-    let base_fee = parse_amount_arg("base fee", &base_fee)?;
-    let open = MultisigAccount::from_hex(&account_hex).map_err(|e| e.to_string())?;
-    let proposal = Proposal::from_hex(&proposal_hex, &chain).map_err(|e| e.to_string())?;
     let ctx = session.review_context(&app)?;
-    let shown = session.with(|w| {
-        w.confirm_multisig(index, &open, &proposal, &chain, &ctx)
-            .map_err(|e| e.to_string())
-    })?;
+    let request = ApprovalRequest {
+        index,
+        account_hex: &account_hex,
+        proposal_hex: &proposal_hex,
+        genesis: &genesis,
+        base_fee: &base_fee,
+    };
+    let shown = approval_to_show(&request, &confirmed_hash, &ctx, &session)?;
+    let message = approval_message(&shown);
+    if !native_ok(&app, &window, "Approve multisig spend", message, "Approve").await? {
+        return Err("cancelled on the native confirm screen; nothing was signed".to_string());
+    }
+    approve_shown(&request, &shown, &session)
+}
+
+/// One member's approval of one proposal, as the screen sent it.
+struct ApprovalRequest<'a> {
+    index: u32,
+    account_hex: &'a str,
+    proposal_hex: &'a str,
+    genesis: &'a str,
+    base_fee: &'a str,
+}
+
+/// Everything before the native dialog: the confirm content, refused when it
+/// is not what the screen showed (`confirmed_hash`) or when the core would
+/// refuse the approval afterwards, so a person is never asked to approve what
+/// the core would not sign.
+fn approval_to_show(
+    request: &ApprovalRequest<'_>,
+    confirmed_hash: &str,
+    ctx: &Context,
+    session: &Session,
+) -> Result<Confirmation, String> {
+    let base_fee = parse_amount_arg("base fee", request.base_fee)?;
+    let shown = preview(
+        request.index,
+        request.account_hex,
+        request.proposal_hex,
+        request.genesis,
+        ctx,
+        session,
+    )?;
     if shown.signing_hash != confirmed_hash {
         return Err(
             "the proposal differs from the one on the confirm screen; nothing was signed"
                 .to_string(),
         );
     }
-    // Every refusal the core would give after the dialog, given before it:
-    // a person is never asked to approve what the core would not sign.
+    let chain = parse_genesis(request.genesis)?;
+    let proposal = Proposal::from_hex(request.proposal_hex, &chain).map_err(|e| e.to_string())?;
     session.with(|w| {
-        w.check_multisig_approval(index, &proposal, base_fee)
+        w.check_multisig_approval(request.index, &proposal, base_fee)
             .map_err(|e| e.to_string())
     })?;
-    let message = approval_message(&shown);
-    if !native_ok(&app, &window, "Approve multisig spend", message, "Approve").await? {
-        return Err("cancelled on the native confirm screen; nothing was signed".to_string());
-    }
+    Ok(shown)
+}
+
+/// After the person pressed Approve on the native dialog showing `shown`.
+fn approve_shown(
+    request: &ApprovalRequest<'_>,
+    shown: &Confirmation,
+    session: &Session,
+) -> Result<ProposalView, String> {
+    let base_fee = parse_amount_arg("base fee", request.base_fee)?;
+    let chain = parse_genesis(request.genesis)?;
+    let proposal = Proposal::from_hex(request.proposal_hex, &chain).map_err(|e| e.to_string())?;
     session.with(|w| {
-        w.approve_multisig(index, &proposal, &chain, &shown.signing_hash, base_fee)
-            .map(|p| proposal_view(&p))
-            .map_err(|e| e.to_string())
+        w.approve_multisig(
+            request.index,
+            &proposal,
+            &chain,
+            &shown.signing_hash,
+            base_fee,
+        )
+        .map(|p| proposal_view(&p))
+        .map_err(|e| e.to_string())
     })
 }
 
@@ -215,3 +314,7 @@ pub fn multisig_finish(proposal_hex: String, genesis: String) -> Result<SignedTr
         .and_then(|p| p.finish(&chain))
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "multisig_tests.rs"]
+mod tests;

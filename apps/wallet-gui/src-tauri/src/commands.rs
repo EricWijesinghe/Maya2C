@@ -98,7 +98,7 @@ impl Session {
     }
 
     /// Opens a session over `wallet`, stored under `name`.
-    fn open(&self, name: &str, wallet: Wallet) {
+    pub(crate) fn open(&self, name: &str, wallet: Wallet) {
         *self.wallet.lock().unwrap_or_else(|p| p.into_inner()) = Some(wallet);
         *self.name.lock().unwrap_or_else(|p| p.into_inner()) = Some(name.to_string());
     }

@@ -33,31 +33,36 @@ const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon ab
                       abandon abandon abandon about";
 const RECIPIENT: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 
-type LedgerKey = <MlDsa65 as SignatureSuite>::SigningKey;
+type SoftwareMlDsaKey = <MlDsa65 as SignatureSuite>::SigningKey;
 
 fn wallet() -> Wallet {
     Wallet::from_mnemonic(PHRASE, "").expect("phrase")
 }
 
-/// An ML-DSA-65 key (the Ledger app's suite) signing on the host, not on a
-/// device: the device cannot sign v8 bytes yet.
-fn ledger_key() -> LedgerKey {
+/// An ML-DSA-65 key (the Ledger app's suite) from a fixed seed, signing on
+/// the host. Not device evidence: no Ledger is involved anywhere in this
+/// file, and the device cannot sign v8 bytes yet. Its approvals reach a
+/// proposal through the outside-approval import path
+/// (`Proposal::with_approval`, and `Proposal::from_hex` / `merge` for a copy
+/// carrying one), which accepts a `0x10` approval because it is no longer
+/// than the hybrid signature the fee priced.
+fn software_mldsa_key() -> SoftwareMlDsaKey {
     MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0x11; 32]))
 }
 
-fn ledger_member() -> MemberKey {
+fn software_mldsa_member() -> MemberKey {
     MemberKey {
         suite: SuiteId::MlDsa65.to_byte(),
-        public_key: hex::encode(MlDsa65::public_key(&ledger_key())),
+        public_key: hex::encode(MlDsa65::public_key(&software_mldsa_key())),
     }
 }
 
-/// Wallet accounts 0 and 1, then the Ledger key: 2 of 3.
+/// Wallet accounts 0 and 1, then the software ML-DSA-65 key: 2 of 3.
 fn account(w: &Wallet) -> MultisigAccount {
     let members = [
         w.member_key(0).expect("0"),
         w.member_key(1).expect("1"),
-        ledger_member(),
+        software_mldsa_member(),
     ];
     MultisigAccount::new(2, &members).expect("2-of-3")
 }
@@ -99,10 +104,10 @@ fn approve_at(
     w.approve_multisig(index, p, &CHAIN, &shown.signing_hash, base_fee)
 }
 
-fn ledger_approval(p: &Proposal, index: u8) -> Approval {
+fn software_mldsa_approval(p: &Proposal, index: u8) -> Approval {
     Approval {
         index,
-        signature: MlDsa65::sign(&ledger_key(), &p.signing_bytes(&CHAIN)).expect("sign"),
+        signature: MlDsa65::sign(&software_mldsa_key(), &p.signing_bytes(&CHAIN)).expect("sign"),
     }
 }
 
@@ -121,8 +126,8 @@ fn a_mixed_suite_quorum_produces_a_spend_the_node_accepts() {
     let shared = Proposal::from_hex(&first.to_hex(), &CHAIN).expect("read back");
     assert_eq!(shared, first);
     let done = shared
-        .with_approval(ledger_approval(&shared, 2), &CHAIN)
-        .expect("ledger approval");
+        .with_approval(software_mldsa_approval(&shared, 2), &CHAIN)
+        .expect("software ML-DSA-65 approval");
     assert!(done.is_complete());
     assert_eq!(done.approved_by(), [0, 2]);
 
@@ -151,7 +156,7 @@ fn members_can_approve_in_parallel_and_merge() {
     let draft = propose(&w);
     let a = approve(&mut w, 1, &draft);
     let b = draft
-        .with_approval(ledger_approval(&draft, 2), &CHAIN)
+        .with_approval(software_mldsa_approval(&draft, 2), &CHAIN)
         .expect("b");
     let merged = a.merge(&b, &CHAIN).expect("merge");
     assert_eq!(merged.approved_by(), [1, 2]);
@@ -239,16 +244,23 @@ fn a_non_member_or_a_repeat_approval_is_refused() {
 fn a_forged_or_misplaced_approval_is_refused() {
     let w = wallet();
     let p = propose(&w);
-    // The Ledger's signature under member 1's index.
-    assert!(p.with_approval(ledger_approval(&p, 1), &CHAIN).is_err());
+    // The software ML-DSA-65 signature under member 1's index.
+    assert!(
+        p.with_approval(software_mldsa_approval(&p, 1), &CHAIN)
+            .is_err()
+    );
     // A signature over another chain's bytes.
     let other = Approval {
         index: 2,
-        signature: MlDsa65::sign(&ledger_key(), &p.signing_bytes(&OTHER_CHAIN)).expect("sign"),
+        signature: MlDsa65::sign(&software_mldsa_key(), &p.signing_bytes(&OTHER_CHAIN))
+            .expect("sign"),
     };
     assert!(p.with_approval(other, &CHAIN).is_err());
     // An index past the policy.
-    assert!(p.with_approval(ledger_approval(&p, 7), &CHAIN).is_err());
+    assert!(
+        p.with_approval(software_mldsa_approval(&p, 7), &CHAIN)
+            .is_err()
+    );
 }
 
 #[test]
@@ -274,7 +286,10 @@ fn a_quorum_cannot_be_exceeded_or_finished_short() {
     assert!(one.finish(&CHAIN).is_err(), "1 of 2 is not a spend");
     let two = approve(&mut w, 1, &one);
     // A spare approval would give one spend two encodings.
-    assert!(two.with_approval(ledger_approval(&two, 2), &CHAIN).is_err());
+    assert!(
+        two.with_approval(software_mldsa_approval(&two, 2), &CHAIN)
+            .is_err()
+    );
     assert!(two.finish(&CHAIN).is_ok());
 }
 
@@ -319,12 +334,12 @@ fn a_policy_needing_an_approval_this_wallet_cannot_give_is_refused() {
     let w = wallet();
     let me = w.member_key(0).expect("0");
     assert!(matches!(
-        MultisigAccount::new(2, &[me.clone(), ledger_member()]),
+        MultisigAccount::new(2, &[me.clone(), software_mldsa_member()]),
         Err(WalletError::Multisig(_))
     ));
     // As many approvals as hybrid members is spendable; other suites may sit
     // in the policy as spare members.
-    assert!(MultisigAccount::new(1, &[me, ledger_member()]).is_ok());
+    assert!(MultisigAccount::new(1, &[me, software_mldsa_member()]).is_ok());
 }
 
 #[test]
@@ -337,7 +352,7 @@ fn a_proposal_carrying_more_approvals_than_the_threshold_is_refused_when_read() 
     let two = approve(&mut w, 1, &one);
     let auth = two.transaction().multisig.as_deref().expect("v8");
     let mut approvals = auth.approvals().to_vec();
-    approvals.push(ledger_approval(&two, 2));
+    approvals.push(software_mldsa_approval(&two, 2));
     let mut tx = two.transaction().clone();
     tx.multisig = Some(Box::new(
         MultisigAuth::new(auth.policy().clone(), approvals).expect("shape"),
@@ -416,11 +431,11 @@ fn a_read_proposal_reports_its_own_progress() {
     );
 }
 
-/// A 2-of-2 of a wallet key and a Ledger key, encoded as another tool would
+/// A 2-of-2 of a wallet key and an ML-DSA-65 (Ledger-suite) key, encoded as another tool would
 /// share it: `MultisigAccount::new` refuses to build it, so only an outside
 /// encoder can produce the text.
-fn ledger_bound_policy_hex(w: &Wallet) -> String {
-    let keys = [w.member_key(0).expect("0"), ledger_member()]
+fn mldsa_bound_policy_hex(w: &Wallet) -> String {
+    let keys = [w.member_key(0).expect("0"), software_mldsa_member()]
         .iter()
         .map(|m| m.to_policy_key().expect("key"))
         .collect();
@@ -431,7 +446,7 @@ fn ledger_bound_policy_hex(w: &Wallet) -> String {
 fn an_account_shared_from_elsewhere_that_no_wallet_quorum_can_spend_is_refused() {
     let w = wallet();
     assert!(matches!(
-        MultisigAccount::from_hex(&ledger_bound_policy_hex(&w)),
+        MultisigAccount::from_hex(&mldsa_bound_policy_hex(&w)),
         Err(WalletError::Multisig(_))
     ));
 }
@@ -455,7 +470,7 @@ fn the_account_card_marks_this_wallets_members_and_flags_a_stranger() {
     );
     assert_eq!(
         ledger.public_key,
-        ledger_member().public_key,
+        software_mldsa_member().public_key,
         "the full key"
     );
 
@@ -467,8 +482,11 @@ fn the_account_card_marks_this_wallets_members_and_flags_a_stranger() {
     )
     .expect("phrase");
     stranger.account(0).expect("derive");
-    let theirs = MultisigAccount::new(1, &[stranger.member_key(0).expect("0"), ledger_member()])
-        .expect("1-of-2");
+    let theirs = MultisigAccount::new(
+        1,
+        &[stranger.member_key(0).expect("0"), software_mldsa_member()],
+    )
+    .expect("1-of-2");
     let opened = MultisigAccount::from_hex(&theirs.to_hex()).expect("read");
     let card = w.multisig_view(&opened, GENESIS).expect("view");
     assert!(!card.holds_member);
@@ -582,7 +600,7 @@ fn a_single_signature_frame_is_not_read_as_a_proposal() {
     let p = propose(&w);
     let text = reshaped(&p, |tx| {
         tx.multisig = None;
-        tx.sign_with_suite::<MlDsa65>(&ledger_key(), &CHAIN)
+        tx.sign_with_suite::<MlDsa65>(&software_mldsa_key(), &CHAIN)
             .expect("sign");
     });
     assert!(refused(&text));
@@ -775,7 +793,7 @@ fn a_proposal_for_an_account_this_wallet_refuses_to_open_is_refused_when_read() 
     // proposal naming a policy no hybrid quorum can spend is not approved.
     let w = wallet();
     let p = propose(&w);
-    let bytes = hex::decode(ledger_bound_policy_hex(&w)).expect("hex");
+    let bytes = hex::decode(mldsa_bound_policy_hex(&w)).expect("hex");
     let (policy, _) = MultisigPolicy::decode(&bytes).expect("policy");
     let text = reshaped(&p, |tx| {
         tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy)));

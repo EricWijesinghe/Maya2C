@@ -190,13 +190,20 @@ pub fn Multisig() -> impl IntoView {
             state.fail("set up or open an account first");
             return;
         };
-        let (text, index) = (proposal.get_untracked(), state.selected.get_untracked());
+        let (text, index, node) = (
+            proposal.get_untracked(),
+            state.selected.get_untracked(),
+            state.node_url.get_untracked(),
+        );
         spawn_local(async move {
-            let genesis = state.genesis();
             // The progress line and Finish describe the proposal in the box,
             // read from its own text, never one handled earlier. The core
             // refuses a proposal spending from another account than this one.
             let result = async {
+                // The genesis the fee terms return has passed the impostor
+                // check (a node claiming mainnet without the pinned genesis is
+                // refused there); the header's network status has not.
+                let genesis = bridge::fee_options(&node, index, 0).await?.genesis;
                 let shown = ms::preview(index, &a.account_hex, &text, &genesis).await?;
                 Ok::<_, String>((shown, ms::status(&text, &genesis).await?))
             }
@@ -225,14 +232,15 @@ pub fn Multisig() -> impl IntoView {
             // The core refuses to approve a fee the finished spend would be
             // refused for; the per-byte rate is the node's.
             let result = async {
-                let base_fee = bridge::fee_options(&node, index, 0).await?.base_fee;
+                // Genesis from the impostor-checked fee terms, as in preview.
+                let terms = bridge::fee_options(&node, index, 0).await?;
                 ms::approve(
                     index,
                     &a.account_hex,
                     &text,
-                    &state.genesis(),
+                    &terms.genesis,
                     &shown.signing_hash,
-                    &base_fee,
+                    &terms.base_fee,
                 )
                 .await
             }
