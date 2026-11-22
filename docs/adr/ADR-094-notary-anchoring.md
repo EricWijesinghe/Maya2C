@@ -38,10 +38,28 @@ finality. The node's RPC is not extended.
 - Verify is linear in chain length, because there is no lookup by txid. A
   `get_transaction` RPC would remove that cost. It is a post-genesis change.
 - Finality trusts the node's checkpoint. Verifying committee signatures is the
-  next step and is not in this change.
-- The chain tag the signature is checked against comes from the node's
-  `get_chain_info`; verify does not pin a genesis.
+  next step and is not in this change. Verify counts a checkpoint only when
+  the block it is served at the checkpoint's height has the id the checkpoint
+  names, so a node on another branch does not report `final`.
+- Block time under DAG-BFT is the median of the ordered sub-DAG's vertex
+  times, never earlier than the parent's; it is honest only under the BFT
+  assumption.
+- `setup` and `stamp` report success only once the sender's nonce has passed
+  the one they used (two-minute limit), so back-to-back calls do not share a
+  nonce.
+- Verify pins the genesis (`--genesis`, follow-up PR #620), so the chain tag
+  the signature is checked against is no longer the node's word.
+- The block time and height are the node's word: a dishonest node can place a
+  real stamp in an invented block with an earlier time. Until checkpoint
+  signatures and the `prev_hash` chain from the stamp block up to the
+  checkpoint are verified, use a node you run. That check is the fix, and it
+  comes with the committee-signature step above.
 - One earlier manual run (before the devnet test existed) never saw the stamp
-  in a block. It was not reproduced and its cause is unknown; the status rests
-  on the devnet test runs recorded in PR #449.
+  in a block. It was not reproduced; the likely cause, found by reading the
+  code, is the back-to-back nonce reuse fixed above. The status rests on CI:
+  job 132953260484 (`PASS [49.961s]`) and run 44011408863 on master's merge
+  commit e06afef2, job 133801563810 (`PASS [50.993s]
+  maya2c-cli::notary_devnet_tests
+  a_stamp_lands_in_a_block_and_verifies_with_a_receipt`), plus 10 of 10 local
+  runs on 2026-11-21 (PR #620, DECISIONS.md).
 - BLAKE3 is plain (not domain-separated), so standard tools reproduce the hash.

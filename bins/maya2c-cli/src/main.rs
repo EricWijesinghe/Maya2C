@@ -10,7 +10,7 @@
 //! maya2c custody-report <ADDR>... --from H --to H [--csv]
 //! ```
 
-use std::io::{BufRead as _, Write as _};
+use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
 
 use anyhow::Context as _;
@@ -155,6 +155,9 @@ enum NotaryCommand {
         /// Expected genesis block id (hex), required unless the chain is a pinned network.
         #[arg(long)]
         genesis: Option<String>,
+        /// Sign without the confirmation prompt (needed when there is no terminal).
+        #[arg(long)]
+        yes: bool,
     },
     /// Anchor the file's hash in a transaction. Prints the txid.
     Stamp {
@@ -169,6 +172,9 @@ enum NotaryCommand {
         /// Expected genesis block id (hex), as for `setup`.
         #[arg(long)]
         genesis: Option<String>,
+        /// Sign without the confirmation prompt, as for `setup`.
+        #[arg(long)]
+        yes: bool,
     },
     /// Recompute the file's hash, find the stamp, and print a receipt as JSON.
     Verify {
@@ -180,6 +186,9 @@ enum NotaryCommand {
         /// Node JSON-RPC.
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc: String,
+        /// Expected genesis block id (hex), as for `setup`.
+        #[arg(long)]
+        genesis: Option<String>,
         /// First block to scan.
         #[arg(long, default_value_t = 1)]
         from: u64,
@@ -272,6 +281,21 @@ fn notary_password() -> anyhow::Result<zeroize::Zeroizing<String>> {
     ))
 }
 
+/// The wallet's consent step: a stamp or a DID signs and pays a fee, so ask first.
+fn confirm_signing(what: &str, yes: bool) -> anyhow::Result<()> {
+    if !yes {
+        eprintln!(
+            "about to sign and broadcast {what}; the fee is capped at the wallet default (one MAYA)"
+        );
+    }
+    l1_wallet::guard::require_confirmation(
+        yes,
+        std::io::stdin().is_terminal(),
+        &mut std::io::stdin().lock(),
+        &mut std::io::stderr(),
+    )
+}
+
 async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
     use maya2c_cli::notary;
     match action {
@@ -279,7 +303,9 @@ async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
             keystore,
             rpc,
             genesis,
+            yes,
         } => {
+            confirm_signing("a register_did transaction", yes)?;
             let password = notary_password()?;
             let txid = Box::pin(notary::setup(
                 &keystore,
@@ -295,7 +321,9 @@ async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
             keystore,
             rpc,
             genesis,
+            yes,
         } => {
+            confirm_signing(&format!("a notary stamp of {}", file.display()), yes)?;
             let password = notary_password()?;
             let txid = Box::pin(notary::stamp(
                 &keystore,
@@ -306,14 +334,19 @@ async fn notary(action: NotaryCommand) -> anyhow::Result<()> {
             ))
             .await?;
             println!("txid: {txid}");
+            // shortcut: no get_transaction RPC yet, so verify scans; a known height saves it.
+            eprintln!(
+                "the stamp is in a block; keep the txid, run verify once and keep the receipt's height to pass as --from later"
+            );
         }
         NotaryCommand::Verify {
             file,
             tx,
             rpc,
+            genesis,
             from,
         } => {
-            let receipt = notary::verify(&file, &tx, &rpc, from).await?;
+            let receipt = notary::verify(&file, &tx, &rpc, genesis.as_deref(), from).await?;
             println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
     }

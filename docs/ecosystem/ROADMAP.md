@@ -74,11 +74,11 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 
 **J. Trust you can verify (research 2026-11-10)**
 
-- `release-log-anchor`: A swapped or back-dated release is caught even if GitHub or Rekor is compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust release`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
+- `release-log-anchor`: A swapped or back-dated release is caught even if GitHub or Rekor is compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust release`; prints the anchor to submit, checks one on chain; trust-log does not call the notary, and `maya2c notary stamp` anchors only its own `notary-v1` file hash, so submit this anchor by hand**
 - `public-invariant-monitor`: Anyone can watch for a conservation break or halt without trusting the foundation's watcher
-- `signed-incidents`: Outages and attacks recorded so the foundation cannot quietly edit them later. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust incident`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
+- `signed-incidents`: Outages and attacks recorded so the foundation cannot quietly edit them later. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust incident`; prints the anchor to submit, checks one on chain; trust-log does not call the notary, and `maya2c notary stamp` anchors only its own `notary-v1` file hash, so submit this anchor by hand**
 - `validator-ledger`: Validator behaviour (signing, missed rounds, equivocation, stake concentration) public and derived only from signed consensus data
-- `foundation-canary`: Users learn if the foundation is compelled or compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust canary`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
+- `foundation-canary`: Users learn if the foundation is compelled or compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust canary`; prints the anchor to submit, checks one on chain; trust-log does not call the notary, and `maya2c notary stamp` anchors only its own `notary-v1` file hash, so submit this anchor by hand**
 
 **K. Protection for people (research 2026-11-10)**
 

@@ -1,12 +1,26 @@
 //! Notary: hashing, anchoring, tamper detection and receipts, without a node.
 
 use custom_l1_node::core::identity_payload::AnchorAttestation;
-use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
+use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind};
+use custom_l1_node::crypto::generate_signing_key;
 use custom_l1_node::rpc::types::BlockInfo;
 use maya2c_cli::notary::{
-    Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match, decode_block, finality,
-    hash_reader, next_height,
+    CheckpointRef, Finality, Placement, SCHEMA, anchored_hash, build_receipt, check_match,
+    checkpoint_on_chain, decode_block, finality, find_stamp, hash_reader, next_height,
 };
+
+#[test]
+fn a_checkpoint_counts_only_for_the_block_this_verifier_was_served() {
+    let served = [7u8; 32];
+    let on = |block: String| checkpoint_on_chain(&CheckpointRef { height: 5, block }, &served);
+    assert!(on(hex::encode(served)));
+    assert!(on(format!("0x{}", hex::encode(served).to_uppercase())));
+    assert!(
+        !on(hex::encode([8u8; 32])),
+        "a checkpoint on another branch"
+    );
+    assert!(!on(String::new()));
+}
 
 /// A transaction carrying a notary anchor for `root` under `schema`.
 fn anchor_tx(schema: &str, root: [u8; 32]) -> Transaction {
@@ -159,4 +173,28 @@ fn next_height_refuses_a_batch_that_does_not_advance() {
     assert!(next_height(&[at(3), at(3)], 3).is_err());
     assert!(next_height(&[at(4)], 3).is_err());
     assert!(next_height(&[], 3).is_err());
+}
+
+#[test]
+fn find_stamp_refuses_a_stamp_whose_signature_does_not_verify() {
+    let chain = ChainTag::from_genesis([3; 32]);
+    let key = generate_signing_key().expect("keygen");
+    let mut honest = anchor_tx(SCHEMA, [1; 32]);
+    honest.sign(&key, &chain).expect("sign");
+    // The same signature over a different root: what a node forging a stamp serves.
+    let mut tampered = honest.clone();
+    tampered.kind = anchor_tx(SCHEMA, [2; 32]).kind;
+    let block = Block::new(header(1), vec![honest.clone(), tampered.clone()]);
+
+    let found = find_stamp(&block, &honest.txid(), &chain).expect("honest stamp");
+    assert_eq!(found, Some(&honest));
+    let refused = format!(
+        "{:#}",
+        find_stamp(&block, &tampered.txid(), &chain).expect_err("refused")
+    );
+    assert!(refused.contains("signature does not verify"), "{refused}");
+    // Signed for another chain: refused too.
+    let other = ChainTag::from_genesis([4; 32]);
+    assert!(find_stamp(&block, &honest.txid(), &other).is_err());
+    assert_eq!(find_stamp(&block, &[0; 32], &chain).expect("absent"), None);
 }
