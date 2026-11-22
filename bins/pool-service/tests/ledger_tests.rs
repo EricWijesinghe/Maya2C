@@ -307,6 +307,47 @@ fn a_batch_paying_more_than_is_owed_is_refused_and_changes_nothing() {
 }
 
 #[test]
+fn a_miner_listed_twice_in_one_batch_is_debited_for_both_entries() {
+    // Rocks read each entry's balance from the DB, so the second put of a
+    // repeated miner overwrote the first and only one debit landed.
+    both(|ledger| {
+        ledger
+            .record_block(&found_block("block-a", 100, 0, 1_000), &[entry(ALICE, 600)])
+            .unwrap();
+        ledger.mature_block("block-a").unwrap();
+
+        let fits = batch(
+            0,
+            0,
+            PayoutState::Signed,
+            vec![entry(ALICE, 300), entry(ALICE, 300)],
+        );
+        ledger.create_batch(&fits).unwrap();
+        let alice = ledger.balance(&ALICE).unwrap();
+        assert_eq!(alice.unpaid, primitive_types::U256::from(0));
+        assert_eq!(alice.paid, primitive_types::U256::from(600));
+    });
+    both(|ledger| {
+        ledger
+            .record_block(&found_block("block-a", 100, 0, 1_000), &[entry(ALICE, 600)])
+            .unwrap();
+        ledger.mature_block("block-a").unwrap();
+
+        let over = batch(
+            0,
+            0,
+            PayoutState::Signed,
+            vec![entry(ALICE, 400), entry(ALICE, 400)],
+        );
+        assert!(ledger.create_batch(&over).is_err(), "800 against 600 owed");
+        let alice = ledger.balance(&ALICE).unwrap();
+        assert_eq!(alice.unpaid, primitive_types::U256::from(600));
+        assert_eq!(alice.paid, primitive_types::U256::from(0));
+        assert!(ledger.batch(0).unwrap().is_none(), "no batch recorded");
+    });
+}
+
+#[test]
 fn a_repeated_batch_creation_debits_once() {
     // The reason creation and the debit are one write: a resumed daemon
     // re-runs the creation of a batch it already wrote down, and debiting a
