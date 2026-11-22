@@ -2,11 +2,15 @@
 //!
 //! # What a new pruned node downloads
 //!
-//! 1. **Every header**, genesis to tip. 145 bytes each, fully validated: the
-//!    exact retarget rule, proof of work, cumulative work.
+//! 1. **Every header**, genesis to tip (to the trusted block, when one is
+//!    given). 145 bytes each, fully validated: the exact retarget rule, proof
+//!    of work, cumulative work.
 //! 2. **The state at a height `H` at least K below the tip**, as a snapshot:
 //!    every key/value under a committed prefix, in chunks.
-//! 3. **The bodies above `H`**, applied with full validation.
+//! 3. **The bodies above `H`**, applied with full validation, up to the tip
+//!    or the trusted block. Above a trusted block nothing the source sends is
+//!    vouched for, so the node stops there and takes the rest from
+//!    checkpoint-verified catch-up.
 //!
 //! Nothing below `H` but headers. That is the whole saving.
 //!
@@ -80,6 +84,16 @@ const _: () = assert!(
     2 * MAX_CHUNK_BYTES + RPC_ENVELOPE_BYTES <= RPC_RESPONSE_LIMIT as usize,
     "a maximal chunk, hex-encoded with its envelope, must fit one RPC response"
 );
+
+/// Most bytes of chunks one snapshot import writes before giving up.
+///
+/// Chunks are written as they arrive and the state root can only be checked
+/// once all of them are in, while the manifest that says how many there are
+/// comes from the same untrusted source. Without a bound, a source could make
+/// a new node write until its disk is full before the root check refused the
+/// import. A node-local limit, not a consensus rule: raise it in a release
+/// when committed state approaches it.
+pub const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 
 /// Bytes [`encode_chunk`] spends on the entry count.
 const CHUNK_HEADER_BYTES: usize = 8;
@@ -347,20 +361,30 @@ fn sync_headers(
 }
 
 /// Downloads, checks and imports the snapshot, then requires its root to be
-/// the one the header at its height committed to.
+/// the one the header at its height committed to. Refuses a chunk that would
+/// take the bytes written past `max_bytes`, before writing it.
 fn import_snapshot(
     state: &StateDB,
     source: &dyn BootstrapSource,
     manifest: &SnapshotManifest,
     expected_root: &[u8; 32],
+    max_bytes: u64,
 ) -> Result<()> {
     let mut previous: Option<Vec<u8>> = None;
+    let mut written: u64 = 0;
     for (index, expected_hash) in manifest.chunks.iter().enumerate() {
         let chunk = source.snapshot_chunk(index)?;
         if chunk.len() > MAX_CHUNK_BYTES {
             return Err(NodeError::Network(format!(
                 "snapshot chunk {index} is {} bytes, over the {MAX_CHUNK_BYTES}-byte cap",
                 chunk.len()
+            )));
+        }
+        written = written.saturating_add(chunk.len() as u64);
+        if written > max_bytes {
+            return Err(NodeError::Network(format!(
+                "the snapshot passes {max_bytes} bytes at chunk {index} of {}, over the import cap",
+                manifest.chunks.len()
             )));
         }
         if chunk_hash(&chunk) != *expected_hash {
@@ -448,6 +472,13 @@ pub struct TrustedBlock {
 /// As [`bootstrap_pruned`], additionally refusing a source whose best chain
 /// does not contain `anchor` (when given).
 ///
+/// With an anchor the bootstrap ends at it: headers and bodies are taken only
+/// up to the trusted block. A block id commits to its ancestors, not to its
+/// descendants, so above the anchor the source could serve any
+/// self-consistent tail. The node continues from the anchor through
+/// catch-up, which imports only blocks under a checkpoint signed by a quorum
+/// of the committee in the node's own state.
+///
 /// # Errors
 ///
 /// As [`bootstrap_pruned`]; plus [`NodeError::Network`] when the trusted block
@@ -488,7 +519,10 @@ fn bootstrap_into(
     anchor: Option<TrustedBlock>,
 ) -> Result<Chain> {
     let tip = source.tip_height()?;
-    let ids = sync_headers(&mut chain, source, tip)?;
+    // Where the bootstrap ends: the anchor, when one is given (a trusted
+    // block above the tip is refused just below, as not on the source's chain).
+    let end = anchor.map_or(tip, |trusted| trusted.height.min(tip));
+    let ids = sync_headers(&mut chain, source, end)?;
     if let Some(trusted) = anchor {
         // Height 0 is the genesis this node already has: it proves nothing
         // about the source.
@@ -535,19 +569,19 @@ fn bootstrap_into(
         .map(|record| record.header.state_root)
         .ok_or_else(|| NodeError::Network("snapshot header missing".to_string()))?;
 
-    import_snapshot(state, source, &manifest, &expected_root)?;
+    import_snapshot(state, source, &manifest, &expected_root, MAX_SNAPSHOT_BYTES)?;
 
     chain.adopt_snapshot(&ids[..=height as usize])?;
     // Fetched a window at a time with several requests in flight, inserted
     // strictly in order: every body is still fully validated.
     let mut next = height + 1;
-    super::prefetch::for_each_prefetched(height + 1, tip, &|h| source.block(h), |block| {
+    super::prefetch::for_each_prefetched(height + 1, end, &|h| source.block(h), |block| {
         // Each body must extend the header chain already verified, so a source
-        // cannot swap in a different fork above the snapshot; the tip's own id
-        // is checked once (computing an id costs a proof-of-work hash).
+        // cannot swap in a different fork above the snapshot; the last body's
+        // own id is checked once (computing an id costs a proof-of-work hash).
         let verified_parent = ids[next as usize - 1];
         if block.header.prev_hash != verified_parent
-            || (next == tip && block.header.id() != ids[next as usize])
+            || (next == end && block.header.id() != ids[next as usize])
         {
             return Err(NodeError::Network(format!(
                 "the body served for height {next} is not the block its header chain names"
@@ -702,6 +736,14 @@ mod tests {
         entries: &[(Vec<u8>, Vec<u8>)],
         root: &[u8; 32],
     ) -> (Result<()>, StateDB, tempfile::TempDir) {
+        import_capped(entries, root, MAX_SNAPSHOT_BYTES)
+    }
+
+    fn import_capped(
+        entries: &[(Vec<u8>, Vec<u8>)],
+        root: &[u8; 32],
+        max_bytes: u64,
+    ) -> (Result<()>, StateDB, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("dir");
         let target = StateDB::open(dir.path()).expect("open");
         let chunks: Vec<Vec<u8>> = entries.chunks(2).map(encode_chunk).collect();
@@ -710,7 +752,7 @@ mod tests {
             block_id: [0; 32],
             chunks: chunks.iter().map(|c| chunk_hash(c)).collect(),
         };
-        let result = import_snapshot(&target, &Chunks(chunks), &manifest, root);
+        let result = import_snapshot(&target, &Chunks(chunks), &manifest, root, max_bytes);
         (result, target, dir)
     }
 
@@ -784,11 +826,43 @@ mod tests {
         };
         let dir = tempfile::tempdir().expect("dir");
         let target = StateDB::open(dir.path()).expect("open");
-        let result = import_snapshot(&target, &Chunks(vec![chunk]), &manifest, &[0; 32]);
+        let result = import_snapshot(
+            &target,
+            &Chunks(vec![chunk]),
+            &manifest,
+            &[0; 32],
+            MAX_SNAPSHOT_BYTES,
+        );
         assert!(
             matches!(&result, Err(NodeError::Network(msg)) if msg.contains("cap")),
             "an oversized chunk was not refused by the cap: {result:?}"
         );
+    }
+
+    #[test]
+    fn a_snapshot_over_the_import_cap_stops_before_the_chunk_that_crosses_it() {
+        // Two chunks of two entries, each chunk valid and matching its hash:
+        // only the running total can refuse them.
+        let entries: Vec<(Vec<u8>, Vec<u8>)> = b"abcd"
+            .iter()
+            .map(|k| ([b"acct:".as_slice(), &[*k]].concat(), vec![7; 64]))
+            .collect();
+        let first = encode_chunk(&entries[..2]).len() as u64;
+        let held = |db: &StateDB| db.scan_prefix(b"acct:").expect("scan").len();
+
+        let (result, target, _dir) = import_capped(&entries, &[0; 32], first - 1);
+        assert!(
+            matches!(&result, Err(NodeError::Network(m)) if m.contains("import cap")),
+            "{result:?}"
+        );
+        assert_eq!(held(&target), 0, "a chunk past the cap was written");
+
+        let (result, target, _dir) = import_capped(&entries, &[0; 32], first + 1);
+        assert!(
+            matches!(&result, Err(NodeError::Network(m)) if m.contains("import cap")),
+            "{result:?}"
+        );
+        assert_eq!(held(&target), 2, "only the chunk within the cap is written");
     }
 
     #[test]

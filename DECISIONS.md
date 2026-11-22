@@ -1367,3 +1367,26 @@ Eric 2026-11-17 pre-approval put PR #596 into re-freeze bundle 3.
 - **The oracle registry refuses an unusable VRF key when it is installed** (genesis or a signed rotation), not only when a proof under it is verified (CRY-5, ADR-024 amendment, Eric 2026-11-17 pre-approval). It changes which rotations are valid; no value-bearing chain has an oracle registry, so no stored state is affected.
 - **The release smoke test writes its passphrase file under `umask 077`**, and the runbooks say passphrase files on Unix must be 0600 on a filesystem that keeps permissions.
 - **Not decided here:** replay protection and downgrade policy in the crypto-agility migration engine (an `Account` layout change), and an operator-confirmed floor on slashing-database import. Both stay open.
+## 2026-11-21 — DAG-BFT ordering cutoff from the anchor sequence, and node-local BFT bounds (Claude, under Eric's 2026-11-17 pre-approval)
+
+An independent AI review (2026-11-19) replayed two honest engines that batched
+commits differently and derived different blocks for one anchor (57 against 61
+certificates). The ordering cutoff is now `previous committed anchor round −
+GC_DEPTH`, common to every honest node and equal to what a node committing one
+anchor per step already used, so only the batched case changes, to match. In
+the same change: the commit rule runs only after an insertion or a resume;
+proposals and certificates outside the round window or with more parents than
+members are dropped before any signature check; fetch replies share one budget;
+the safety log records each own message once and opens in bounded memory; the
+anchored bootstrap ends at the trusted block and a snapshot import is capped at
+64 GiB; rejoin recency uses the epoch that signed the trusted block. Every
+finding was checked against the code first. The ones that need an owner
+decision (equivocation punishment, weight cap, minimum active set, unconfirmed
+time-old tip) are listed in ADR-150, not changed. ADR-150, ADR-060 amendment.
+
+Follow-up from review of that PR (2026-11-22): a follower that resumed at round
+`S` builds again only when the previous committed anchor `P` satisfies
+`P − GC_DEPTH > S`, not merely when the anchor being built is past
+`S + GC_DEPTH + 2`. With skipped anchors the old window opened while the
+cutoff still reached below `S`, where the follower holds no history. Without
+skips both gates open at the same anchor. ADR-150 item 1, spec/05.

@@ -490,6 +490,41 @@ fn a_validator_restarted_from_its_safety_log_rejoins_without_equivocating() {
     );
 }
 
+/// Records in member `i`'s epoch-0 safety log (`len:u64 frame` each).
+fn safety_records(mesh: &Mesh, i: usize) -> usize {
+    let path = mesh.members[i].bft_dir.join("epoch-0").join("safety.log");
+    let bytes = std::fs::read(path).unwrap_or_default();
+    let mut rest = bytes.as_slice();
+    let mut count = 0;
+    while let Some((len, tail)) = rest.split_first_chunk::<8>() {
+        let len = usize::try_from(u64::from_le_bytes(*len)).unwrap();
+        rest = &tail[len.min(tail.len())..];
+        count += 1;
+    }
+    count
+}
+
+#[test]
+fn re_sending_a_pending_proposal_does_not_grow_the_safety_log() {
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(3);
+    let before: Vec<usize> = (0..VALIDATORS).map(|i| safety_records(&mesh, i)).collect();
+    // A partition: nothing is delivered, so each validator's next proposal
+    // stays pending and is re-sent every resend interval (500 ms).
+    for _ in 0..40 {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.queue.clear();
+    }
+    for (i, was) in before.iter().enumerate() {
+        let now = safety_records(&mesh, i);
+        assert!(
+            now <= was + 1,
+            "validator {i}: {was} -> {now} records over ~20 re-sends of one proposal"
+        );
+    }
+}
+
 /// ADR-082: the launch binary is the one that will be old at the first
 /// upgrade, so what it does at the halt height is fixed for good. It stops at
 /// `HALT_AT - 1`, says so once, signs nothing more, and idles; the three

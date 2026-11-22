@@ -60,3 +60,20 @@ Self-run security review (pre-audit, not independent) found the first version
 weaker than this ADR then claimed: no ordering rule between anchor and snapshot,
 no header linkage check, bodies above the snapshot unbound, a silently ignored
 flag. Each is fixed with a failing test first (`pruned_node_tests`: 17 pass).
+
+## Amendment 2026-11-21 (ADR-150): the anchored bootstrap ends at the anchor
+A block id commits to its ancestors, not to its descendants, so the trusted
+block vouches for nothing above it. Before this amendment an anchored bootstrap
+still synced headers and applied bodies from the source up to the source's tip,
+so a source (or anyone on an `http://` path to it) could serve any
+self-consistent tail above the anchor. Now headers and bodies are taken only up
+to `min(trusted height, source tip)`; the node continues from the anchor through
+catch-up (`--catch-up-from`), which imports only blocks under a checkpoint signed
+by a quorum of the committee in the node's own state. Without an anchor nothing
+changes (production builds refuse that case). Separately, one snapshot import
+writes at most `MAX_SNAPSHOT_BYTES` (64 GiB, node-local) of chunks: the root can
+only be checked once every chunk is in, and the chunk count comes from the same
+source. Tests: `nothing_above_the_trusted_block_is_taken_from_the_source`
+(`pruned_node_tests`, failed before the change) and
+`a_snapshot_over_the_import_cap_stops_before_the_chunk_that_crosses_it`
+(`state_pruner::snapshot`).
