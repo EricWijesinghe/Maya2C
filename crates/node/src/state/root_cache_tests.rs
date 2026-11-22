@@ -447,7 +447,7 @@ const OUTPUT_BYTES: u64 = 64;
 
 /// A full block's worth of outputs to `(x, x ^ 1)` pairs at random `x`.
 fn neighbour_pairs(rng: &mut ChaCha20Rng) -> Overlay {
-    let outputs = maya_fee_market::limits::MAX_BLOCK_BYTES / OUTPUT_BYTES;
+    let outputs = crate::state::fees::MAX_BLOCK_BYTES / OUTPUT_BYTES;
     let mut overlay = Overlay::new();
     for _ in 0..outputs / 2 {
         let mut x = [0; 32];
