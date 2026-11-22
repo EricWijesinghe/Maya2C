@@ -13,6 +13,7 @@ pub mod deeplink;
 pub mod sign_checks;
 
 use commands::Session;
+use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
 
 /// wry's own WebView2 arguments (the mini menu and SmartScreen off), kept
@@ -56,6 +57,15 @@ pub fn run() {
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 deeplink::handle(app.handle(), &urls);
             }
+            // Zeroizes an idle wallet's seed even when no command arrives.
+            let idle = app.handle().clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(commands::IDLE_CHECK_EVERY);
+                    idle.state::<Session>()
+                        .lock_if_idle(std::time::Instant::now());
+                }
+            });
             Ok(maya_app_update::start(app)?)
         })
         .manage(Session::default())

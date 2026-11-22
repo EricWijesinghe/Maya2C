@@ -171,6 +171,14 @@ fn App() -> impl IntoView {
             return;
         }
         leptos::task::spawn_local(async move {
+            // The core locks an idle wallet on its own; follow it to Unlock
+            // rather than leave a screen whose every action would be refused.
+            if let Ok(false) = bridge::is_unlocked().await {
+                state.accounts.set(Vec::new());
+                state.screen.set(Screen::Unlock);
+                state.inform("Locked after 5 minutes without use.");
+                return;
+            }
             // A refused link (wrong network, expired) is dropped, as the OS
             // handler drops a malformed one.
             if let Ok(Some(request)) = bridge::take_pending_pay(&state.genesis()).await {
