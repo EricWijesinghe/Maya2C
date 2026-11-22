@@ -82,6 +82,48 @@ mod tests {
     }
 
     #[test]
+    fn publish_triggers_only_on_semver_tags() {
+        let on = block(PUBLISH_SDK, "on:");
+        assert!(on.contains(r#"- "v[0-9]+.[0-9]+.[0-9]+*""#), "{on}");
+        assert!(!on.contains(r#"- "v*""#), "any v* tag would publish");
+    }
+
+    #[test]
+    fn wheel_build_installs_a_checksummed_rustup() {
+        let wheels = block(PUBLISH_SDK, "  wheels:");
+        assert!(!wheels.contains("sh.rustup.rs"), "rustup script piped to sh");
+        assert!(wheels.contains("static.rust-lang.org/rustup/archive/"));
+        assert!(wheels.contains("sha256sum -c"));
+    }
+
+    #[test]
+    fn wheel_package_dir_exists() {
+        let wheels = block(PUBLISH_SDK, "  wheels:");
+        let dir = wheels
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("package-dir: "))
+            .expect("no package-dir");
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(dir)
+            .join("pyproject.toml");
+        assert!(manifest.exists(), "{} missing", manifest.display());
+    }
+
+    #[test]
+    fn wheel_version_must_match_the_tag() {
+        assert!(block(PUBLISH_SDK, "  wheels:").contains("sdks/sdk-ffi/pyproject.toml"));
+    }
+
+    #[test]
+    fn pypi_wheels_get_build_provenance() {
+        let pypi = block(PUBLISH_SDK, "  pypi:");
+        assert!(pypi.contains("attestations: write"));
+        assert!(pypi.contains("uses: actions/attest-build-provenance@"));
+        assert!(pypi.contains("subject-path: dist/*.whl"));
+    }
+
+    #[test]
     fn build_checkouts_do_not_persist_the_token() {
         for job in ["  build:", "  wallet:", "  chat:", "  hub:"] {
             assert!(
