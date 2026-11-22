@@ -415,6 +415,32 @@ async fn account_reads_live_balance_and_history_from_index() {
 }
 
 #[tokio::test]
+async fn an_account_echoes_its_canonical_address() {
+    let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
+    let upper = get(
+        &app,
+        &format!("/api/v1/accounts/{}", bech(1).to_ascii_uppercase()),
+    )
+    .await;
+    let lower = get(&app, &format!("/api/v1/accounts/{}", bech(1))).await;
+    assert_eq!(upper.body["address"], bech(1));
+    assert_eq!(upper.headers["etag"], lower.headers["etag"]);
+}
+
+#[tokio::test]
+async fn accounts_are_not_guessed_while_the_network_is_unknown() {
+    let node = Arc::new(FakeNode::default());
+    node.chain_down.store(true, Ordering::SeqCst);
+    let app = build_app(seeded(3).await, node);
+    for uri in [
+        format!("/api/v1/accounts/{}", bech(1)),
+        format!("/api/v1/accounts/{}/transactions", bech(1)),
+    ] {
+        assert_eq!(get(&app, &uri).await.code(), "node_unavailable", "{uri}");
+    }
+}
+
+#[tokio::test]
 async fn validators_are_no_staking_on_a_proof_of_work_chain() {
     let app = build_app(seeded(1).await, Arc::new(FakeNode::default()));
     assert_eq!(get(&app, "/api/v1/validators").await.code(), "no_staking");

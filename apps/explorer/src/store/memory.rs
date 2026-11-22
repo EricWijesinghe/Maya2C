@@ -3,6 +3,11 @@
 //! Backs the tests, and doubles as a runnable explorer with no database — which
 //! is what makes the ingestion loop, deduplication, and reorg handling testable
 //! at all on a machine without PostgreSQL.
+//!
+//! shortcut: a txid lookup and an address with no history scan every indexed
+//! transaction under the read lock. A public deployment with real traffic uses
+//! `--database-url` (ADR-092); add a txid -> height map here if this store is
+//! ever served publicly at scale.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -73,9 +78,11 @@ fn tx_page(
     keep: impl Fn(&IndexedTx) -> bool,
 ) -> Vec<(Seek, IndexedTx)> {
     let limit = limit.max(0) as usize;
+    // Start at the cursor's height rather than walking down from the tip.
+    let top = before.map_or(i64::MAX, |seek| seek.height);
     inner
         .transactions
-        .iter()
+        .range(..=top)
         .rev()
         .flat_map(|(height, txs)| {
             txs.iter().enumerate().rev().map(move |(position, tx)| {

@@ -130,7 +130,7 @@ pub async fn account(
     State(state): State<ApiState>,
     ApiPath(raw): ApiPath<String>,
 ) -> Result<Response, ApiError> {
-    let id = address::parse(&raw, network_of(&state).await)?;
+    let (id, canonical) = address::parse(&raw, network_of(&state).await)?;
     let id_hex = hex::encode(id);
     let fetch = || async { state.node.account(&id_hex).await };
     let (info, source) = state
@@ -140,7 +140,7 @@ pub async fn account(
         .await
         .map_err(|e| node_error(&e))?;
     let body = Account {
-        address: raw,
+        address: canonical,
         balance: info.balance.to_string(),
         nonce: info.nonce,
     };

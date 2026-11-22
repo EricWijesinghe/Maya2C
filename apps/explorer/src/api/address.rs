@@ -9,15 +9,20 @@ use crate::api::problem::{ApiError, Code};
 
 /// Parses an address the caller supplied.
 ///
-/// `expected` is the network this node serves when it is known. When it is
-/// not (the node has not answered yet), any known network's address is
-/// accepted and the caller's query runs against the index unchanged.
+/// `expected` is the network this node serves, `None` until the node has named
+/// its chain. A well-formed address is then refused as `node_unavailable`
+/// rather than guessed at: a mainnet address would otherwise be answered with
+/// testnet history and a testnet balance.
+///
+/// Returns the id and its canonical (lower-case) text form, so equal accounts
+/// always echo the same string and carry the same `ETag`.
 ///
 /// # Errors
 ///
 /// [`Code::InvalidAddress`] for hex or a malformed Bech32m string;
-/// [`Code::WrongNetwork`] for a valid address on another network.
-pub fn parse(text: &str, expected: Option<Network>) -> Result<[u8; 32], ApiError> {
+/// [`Code::WrongNetwork`] for a valid address on another network;
+/// [`Code::NodeUnavailable`] while the node's network is unknown.
+pub fn parse(text: &str, expected: Option<Network>) -> Result<([u8; 32], String), ApiError> {
     if text.starts_with("0x") || (text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit())) {
         return Err(ApiError::new(
             Code::InvalidAddress,
@@ -34,7 +39,11 @@ pub fn parse(text: &str, expected: Option<Network>) -> Result<[u8; 32], ApiError
                     wanted.hrp()
                 ),
             )),
-            _ => Ok(id),
+            Some(wanted) => Ok((id, encode(wanted, &id))),
+            None => Err(ApiError::new(
+                Code::NodeUnavailable,
+                "the node has not named its network yet",
+            )),
         },
         Err(AddressError::UnknownNetwork(prefix)) => Err(ApiError::new(
             Code::WrongNetwork,
@@ -69,8 +78,29 @@ mod tests {
     #[test]
     fn bech32m_round_trips_on_its_own_network() {
         let (id, text_form) = sample();
-        assert_eq!(parse(&text_form, Some(Network::Testnet)).unwrap(), id);
-        assert_eq!(parse(&text_form, None).unwrap(), id);
+        assert_eq!(
+            parse(&text_form, Some(Network::Testnet)).unwrap(),
+            (id, text_form.clone())
+        );
+    }
+
+    #[test]
+    fn upper_case_input_echoes_the_canonical_form() {
+        let (id, text_form) = sample();
+        let upper = text_form.to_ascii_uppercase();
+        assert_eq!(
+            parse(&upper, Some(Network::Testnet)).unwrap(),
+            (id, text_form)
+        );
+    }
+
+    #[test]
+    fn an_unknown_network_is_not_guessed() {
+        let (_, text_form) = sample();
+        assert_eq!(
+            parse(&text_form, None).unwrap_err().code,
+            Code::NodeUnavailable
+        );
     }
 
     #[test]

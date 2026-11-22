@@ -126,6 +126,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "node_unavailable: the node has not named its network, so the address cannot be checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
           }
         }
       }

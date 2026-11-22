@@ -242,7 +242,14 @@ pub async fn transaction(
     };
     // The transaction is only as final as the block the index holds it in,
     // read with it (see `BlockStore::transaction_placed`).
-    let fresh = freshness(&state, tx.height, &block_id).await;
+    // `outputs_of` is a second read: a repair between the two can leave the
+    // outputs short, and a short list must never be cached as final.
+    let complete = i32::try_from(outputs.len()).is_ok_and(|n| n == tx.output_count);
+    let fresh = if complete {
+        freshness(&state, tx.height, &block_id).await
+    } else {
+        Freshness::Short
+    };
     let meta = meta_for(&state, indexed_height(&state).await?).await;
     Ok(respond::json(&body, fresh, meta))
 }
@@ -261,6 +268,7 @@ pub async fn transaction(
     responses(
         (status = 200, description = "A page of the address's transactions.", body = Page<Transaction>),
         (status = 400, description = "invalid_address, wrong_network, invalid_param or invalid_cursor", body = crate::api::openapi::Problem),
+        (status = 503, description = "node_unavailable: the node has not named its network, so the address cannot be checked", body = crate::api::openapi::Problem),
     )
 )]
 pub async fn account_transactions(
@@ -269,7 +277,7 @@ pub async fn account_transactions(
     ApiQuery(params): ApiQuery<ListParams>,
 ) -> Result<Response, ApiError> {
     let network = network_of(&state).await;
-    let id = address::parse(&raw, network)?;
+    let (id, _) = address::parse(&raw, network)?;
     let limit = query::limit(params.limit.as_deref())?;
     let direction = query::direction(params.direction.as_deref())?;
     let before = query::cursor(CursorKind::Transactions, params.cursor.as_deref())?;
