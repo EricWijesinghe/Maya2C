@@ -757,7 +757,7 @@ mod tests {
         chain.put_block(100, "block-a");
         chain.set_height(103);
         let fees = ChainFees {
-            collector: [0xC0; 32],
+            collector: custom_l1_node::state::fees::FEE_COLLECTOR,
             base_fee: primitive_types::U256::from(1),
         };
         chain.state.lock().unwrap().fees = Some(fees);
@@ -774,6 +774,56 @@ mod tests {
                 .any(|output| output.recipient == fees.collector && !output.amount.is_zero()),
             "the payout pays the chain's fee collector"
         );
+    }
+
+    #[tokio::test]
+    async fn fee_terms_that_name_a_foreign_collector_or_break_the_cap_broadcast_nothing() {
+        let honest = custom_l1_node::state::fees::FEE_COLLECTOR;
+        let cases = [
+            (
+                "foreign collector",
+                [0xC0; 32],
+                primitive_types::U256::from(1),
+            ),
+            (
+                "inflated base fee",
+                honest,
+                primitive_types::U256::from(1_000_000),
+            ),
+        ];
+        for (case, collector, base_fee) in cases {
+            let ledger = Arc::new(MemoryLedger::new());
+            for _ in 0..5 {
+                ledger.append_share(&ALICE, "rig", 100, 0).unwrap();
+                ledger.append_share(&BOB, "rig", 100, 0).unwrap();
+            }
+            let chain = Arc::new(FakeChain::with(100, u64::MAX));
+            let capped = PoolConfig {
+                // Far above an honest fee on a ~kB signed batch, far below the inflated one.
+                max_batch_value: primitive_types::U256::from(1_000_000_000u64),
+                ..config()
+            };
+            let engine = engine(Arc::clone(&ledger), Arc::clone(&chain), capped);
+            let tip = ledger.tip_sequence().unwrap().unwrap();
+            engine
+                .credit_block(
+                    "block-a",
+                    100,
+                    tip,
+                    ALICE,
+                    &target_from_leading_zero_bits(8),
+                )
+                .unwrap();
+            chain.put_block(100, "block-a");
+            chain.set_height(103);
+            chain.state.lock().unwrap().fees = Some(ChainFees {
+                collector,
+                base_fee,
+            });
+
+            assert!(engine.settle().await.is_err(), "{case}: batch refused");
+            assert!(chain.broadcasts().is_empty(), "{case}: nothing broadcast");
+        }
     }
 
     #[tokio::test]

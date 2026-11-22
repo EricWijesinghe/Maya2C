@@ -289,6 +289,13 @@ fn fees_from(info: &FeeInfo) -> Result<Option<crate::treasury::ChainFees>> {
         .ok()
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
         .ok_or_else(|| PoolError::NodeRpc("get_fee_info collector is not 32 bytes".into()))?;
+    // The node serves a compiled-in constant; any other answer is not this chain.
+    if collector != custom_l1_node::state::fees::FEE_COLLECTOR {
+        return Err(PoolError::NodeRpc(format!(
+            "get_fee_info collector {} is not the protocol fee collector",
+            info.collector
+        )));
+    }
     Ok(Some(crate::treasury::ChainFees {
         collector,
         base_fee,
@@ -325,13 +332,14 @@ mod tests {
             base_fee: base_fee.to_string(),
             collector: collector.to_string(),
         };
-        let collector = hex::encode([0xC0u8; 32]);
+        let pinned = custom_l1_node::state::fees::FEE_COLLECTOR;
+        let collector = hex::encode(pinned);
 
         assert_eq!(fees_from(&info(false, "0", &collector)).unwrap(), None);
         assert_eq!(
             fees_from(&info(true, "7", &collector)).unwrap(),
             Some(crate::treasury::ChainFees {
-                collector: [0xC0; 32],
+                collector: pinned,
                 base_fee: primitive_types::U256::from(7),
             })
         );
@@ -339,6 +347,9 @@ mod tests {
         // would sign a payout the mempool refuses.
         assert!(fees_from(&info(true, "seven", &collector)).is_err());
         assert!(fees_from(&info(true, "7", "c0c0")).is_err());
+        // A well-formed but foreign collector would let the node pick where
+        // the treasury's fee goes.
+        assert!(fees_from(&info(true, "7", &hex::encode([0xC0u8; 32]))).is_err());
     }
 
     #[test]

@@ -14,7 +14,10 @@
 //! with a public mining port. That is a real exposure and it is not resolved by
 //! being careful. What is here instead is a bound on the damage:
 //!
-//! - [`PoolConfig::max_batch_value`] caps what one batch can move;
+//! - [`PoolConfig::max_batch_value`] caps what one batch can move, the
+//!   chain's fee included;
+//! - the fee output only ever pays the protocol's compiled-in fee collector,
+//!   so the node the pool reads fee terms from cannot name a recipient;
 //! - the balance floor check refuses to sign against an account that cannot
 //!   cover the batch, so a drained treasury fails loudly rather than emitting
 //!   transactions the mempool will reject;
@@ -43,6 +46,7 @@ use std::path::Path;
 use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use custom_l1_node::state::Address;
+use custom_l1_node::state::fees::FEE_COLLECTOR;
 
 use crate::config::PoolConfig;
 use crate::error::{PoolError, Result};
@@ -215,13 +219,6 @@ impl Treasury {
             PoolError::Treasury("payout outputs overflow 256 bits in total".to_string())
         })?;
 
-        if total > config.max_batch_value {
-            return Err(PoolError::Treasury(format!(
-                "batch value {total} exceeds the per-batch cap of {}",
-                config.max_batch_value
-            )));
-        }
-
         let mut outputs: Vec<TxOutput> = entries
             .iter()
             .map(|entry| TxOutput {
@@ -237,6 +234,15 @@ impl Treasury {
         let needed = total.checked_add(fee).ok_or_else(|| {
             PoolError::Treasury("payout outputs and fee overflow 256 bits in total".to_string())
         })?;
+
+        // The fee terms come from the node over RPC, so the cap covers the fee
+        // too: an inflated base fee must not move more than one batch may.
+        if needed > config.max_batch_value {
+            return Err(PoolError::Treasury(format!(
+                "batch value {needed} ({total} to miners, {fee} in fees) exceeds                  the per-batch cap of {}",
+                config.max_batch_value
+            )));
+        }
 
         if needed > balance {
             return Err(PoolError::Treasury(format!(
@@ -264,6 +270,14 @@ impl Treasury {
         chain_tag: &ChainTag,
         fees: ChainFees,
     ) -> Result<primitive_types::U256> {
+        // The collector is a protocol constant; a node that names another
+        // address is not describing this chain's fee rule.
+        if fees.collector != FEE_COLLECTOR {
+            return Err(PoolError::Treasury(format!(
+                "fee collector {} is not the protocol fee collector",
+                hex::encode(fees.collector)
+            )));
+        }
         outputs.push(TxOutput {
             amount: primitive_types::U256::zero(),
             recipient: fees.collector,
@@ -434,7 +448,7 @@ mod tests {
     }
 
     const FEES: ChainFees = ChainFees {
-        collector: [0xC0; 32],
+        collector: FEE_COLLECTOR,
         base_fee: primitive_types::U256([3, 0, 0, 0]),
     };
 
@@ -487,6 +501,50 @@ mod tests {
                 &config(),
                 &test_tag(),
                 Some(FEES),
+            ),
+            Err(PoolError::Treasury(_))
+        ));
+    }
+
+    #[test]
+    fn a_fee_to_a_foreign_collector_is_refused() {
+        let foreign = ChainFees {
+            collector: [0xC0; 32],
+            ..FEES
+        };
+        assert!(matches!(
+            treasury().sign_payout(
+                &entries(&[10, 20]),
+                0,
+                primitive_types::U256::from(u64::MAX),
+                &config(),
+                &test_tag(),
+                Some(foreign),
+            ),
+            Err(PoolError::Treasury(_))
+        ));
+    }
+
+    #[test]
+    fn the_fee_counts_against_the_batch_cap() {
+        // Payouts of 30 fit a cap of 1,000; a base fee inflated so the fee
+        // alone exceeds it must not be signed, however much the treasury holds.
+        let capped = PoolConfig {
+            max_batch_value: primitive_types::U256::from(1_000),
+            ..config()
+        };
+        let inflated = ChainFees {
+            base_fee: primitive_types::U256::from(1_000),
+            ..FEES
+        };
+        assert!(matches!(
+            treasury().sign_payout(
+                &entries(&[10, 20]),
+                0,
+                primitive_types::U256::MAX,
+                &capped,
+                &test_tag(),
+                Some(inflated),
             ),
             Err(PoolError::Treasury(_))
         ));
