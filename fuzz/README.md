@@ -36,6 +36,7 @@ cargo fuzz run tx_decode
 | `sealed_payload_decode` | `SealedEnvelope`, `RevealShare`, `maya_mev::SealedPayload`, `ShareProof` | no panic; an accepted input re-encodes to its bytes |
 | `pow_target` | `crypto::pow` target rules and `below_prune_horizon` | the digest-meets-target law holds for any digest and bit count; a stricter count never raises the target; refusal at a horizon is monotone |
 | `reorg_prune` | `consensus::difficulty` work and retarget, `below_prune_horizon` | work is non-increasing in the target; cumulative work is order-independent and never falls on extension; a retarget stays in [1, limit]; refusal at a horizon is monotone in height |
+| `vm_tier_differential` | `maya_vm::Vm::execute` on Cranelift (cold and cached) and Pulley, over `wasm-smith` contract-shaped modules | output, gas, events, trap code and final state identical in every tier |
 
 The DEX, oracle, governance, identity, RWA and sealed-mempool sections are also
 reached through `payload_decode`, but only after a one-byte tag selects them.

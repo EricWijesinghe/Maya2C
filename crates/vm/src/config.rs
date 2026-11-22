@@ -21,6 +21,7 @@
 //! | Setting | Without it |
 //! |---|---|
 //! | `consume_fuel` | contracts can loop forever |
+//! | `memory_init_cow` off | data-segment gas depends on the host OS and page size (2 on Linux, 4,099 on Windows for one 16-byte segment) |
 //! | `cranelift_nan_canonicalization` | NaN bit patterns differ between CPUs |
 //! | `wasm_simd` off | SIMD lowering varies by host feature detection |
 //! | `wasm_threads` off | shared memory makes execution order observable |
@@ -66,6 +67,15 @@ pub fn deterministic_config() -> Result<Config> {
 
     // Metering. Without fuel a contract can simply not terminate.
     config.consume_fuel(true);
+
+    // Data segments are copied by a fuel-metered startup function. With the
+    // copy-on-write memory image on, whether that copy runs, and how many
+    // bytes it copies (the image is padded to the compiler's page size),
+    // depends on the host: Linux mapped the image and charged nothing,
+    // Windows copied a 4 KiB page on Cranelift and 64 KiB on Pulley. Off, every
+    // host copies exactly the segments' bytes, so their gas is the module's.
+    // Pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`.
+    config.memory_init_cow(false);
 
     // Cranelift, explicitly: the compilation strategy affects the fuel schedule,
     // so it must not be left to autodetection.
@@ -150,6 +160,7 @@ pub fn config_digest() -> [u8; 32] {
     // Every value `deterministic_config` sets, in the order it sets them.
     hasher.update(&[
         1, // consume_fuel
+        0, // memory_init_cow
         1, // Strategy::Cranelift
         1, // cranelift_nan_canonicalization
         0, // wasm_simd
@@ -186,9 +197,9 @@ mod digest_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
-    /// Settings `config_digest` accounts for: the ten flags in its byte
+    /// Settings `config_digest` accounts for: the eleven flags in its byte
     /// array, plus the three limits and the two version strings hashed after.
-    const SETTINGS_COVERED: usize = 11;
+    const SETTINGS_COVERED: usize = 12;
 
     #[test]
     fn the_digest_covers_every_setting_the_config_makes() {

@@ -909,3 +909,10 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-23 — VM data-segment gas made host-independent: copy-on-write memory images off (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Finding:** the V3-P3 tier work traced the Windows "Pulley +61,440 fuel" result to wasmtime's copy-on-write memory image. Linux maps a module's data segments for free; Windows copies the page-padded image through metered code. One 16-byte segment cost 2 gas on Linux and 4,099 on Windows **on Cranelift**, the tier the node runs, so validators on two operating systems could split on any call whose gas limit falls in the gap.
+- **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23). Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`.
+- **Takes effect at mainnet genesis.** Gas changes for contracts with data segments, so testnet validators move together or re-genesis. Node-changing, so the PR is a `[re-freeze]` one.
+- **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector; the schedule stays defined by the wasmtime pin plus `deterministic_config`, as before.
