@@ -37,9 +37,10 @@ An interval is left out, with the shares found inside it, when:
   same (ignoring case and padding). wgpu numbers every adapter on every
   backend, integrated GPUs included, so on a machine with more than one
   adapter the two lists often differ, and then no figure is shown;
-- the miner has sent nothing for 10 s (`MAX_GAP_MS`): it reports a hash rate
-  every 2 s, so a hung kernel or a driver reset stops the meter before the
-  60 s stall kill does;
+- the miner has sent no `work` or `hashrate` event for 10 s (`MAX_GAP_MS`):
+  it reports a hash rate every 2 s, so a hung kernel or a driver reset stops
+  the meter before the 60 s stall kill does, even if the miner still writes
+  log or stderr lines;
 - two readings are more than 10 s apart (`MAX_GAP_MS`). Intervals are timed
   on a monotonic clock, so a wall-clock step (NTP, Windows time sync) never
   stretches one.

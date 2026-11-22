@@ -220,6 +220,22 @@ pub struct PinnedMiner {
     _scratch: Scratch,
 }
 
+#[cfg(test)]
+impl PinnedMiner {
+    /// A stand-in for tests that need a `Running` child; checks nothing and
+    /// is compiled out of every real build.
+    pub fn unchecked_for_test(path: PathBuf) -> Self {
+        Self {
+            #[cfg(not(unix))]
+            _file: File::open(&path).expect("open the test binary"),
+            // Never created, so the drop's remove is a no-op.
+            #[cfg(unix)]
+            _scratch: Scratch(path.with_extension("maya-hub-test-none")),
+            path,
+        }
+    }
+}
+
 /// The private folder holding the Unix copy; removed when the miner is dropped.
 #[cfg(unix)]
 #[derive(Debug)]

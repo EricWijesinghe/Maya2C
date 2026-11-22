@@ -114,6 +114,11 @@ pub struct MinerState {
     /// the miner numbers wgpu adapters and the Hub reads nvidia-smi's list.
     #[serde(skip)]
     adapter: Option<String>,
+    /// Time of the last `work` or `hashrate` event. The energy meter's
+    /// freshness check reads this, not `last_event_ms`, so a hung kernel whose
+    /// miner still writes log or stderr lines is not metered.
+    #[serde(skip)]
+    last_work_ms: u64,
 }
 
 /// What an alert is about. The notifier rate-limits on this, and toasts only
@@ -242,6 +247,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             state.share_reward = units(&event["share_reward"]);
             state.status = "mining".into();
             state.in_work = true;
+            state.last_work_ms = t_ms;
         }
         "idle" => {
             state.in_work = false;
@@ -255,6 +261,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             state.total_hashes = event["total"].as_u64().unwrap_or(state.total_hashes);
             state.hashing = true;
             state.in_work = true;
+            state.last_work_ms = t_ms;
             push(&mut state.rates, RateSample { t_ms, hps }, RATE_HISTORY);
             return;
         }
@@ -290,6 +297,11 @@ fn lock_state(state: &Mutex<MinerState>) -> std::sync::MutexGuard<'_, MinerState
 
 /// A new process: nothing it says is known yet, so it is not on work and its
 /// adapter is unnamed until its own `start` event.
+///
+/// shortcut: the old process's reader threads can still apply a buffered
+/// `start` or `work` line after this reset, marking the new process on work
+/// early; the restart backoff (2 s or more) after the pipes close makes that
+/// unlikely. Upgrade to a launch-generation tag on each reader if it shows.
 fn on_launch(st: &mut MinerState, now: u64) {
     st.running = true;
     st.hashing = false;
@@ -617,6 +629,21 @@ impl Miner {
         }
     }
 
+    /// One supervision round with a GPU reading: the watchdog first, so a
+    /// process that died since the last round is reaped (and its metered
+    /// stretch broken) before its card's idle watts could be charged, then
+    /// the energy meter. `temps` and `powers` come from the same reading.
+    pub fn step(
+        &self,
+        (wall_ms, mono_ms): (u64, u64),
+        temps: &[(u32, f64)],
+        powers: &[(u32, &str, f64)],
+    ) -> Vec<Alert> {
+        let raised = self.tick(wall_ms, temps);
+        self.meter(wall_ms, mono_ms, powers);
+        raised
+    }
+
     /// True when a GPU worker runs or is held hot, so the supervisor keeps
     /// reading temperatures. A held worker has no process, and it still needs
     /// a reading to know when it may restart.
@@ -660,9 +687,10 @@ fn meter_one(
 
 /// The watts a GPU worker's meter is given: the reading at its device index,
 /// only when nvidia-smi names that card as the adapter the miner opened, and
-/// only while its process runs, is on work and has spoken within
-/// `MAX_GAP_MS` (the miner sends a hash rate every 2 s, so a hung kernel or a
-/// driver reset stops the meter before the stall kill does). Anything else
+/// only while its process runs, is on work and has sent a `work` or
+/// `hashrate` event within `MAX_GAP_MS` (the miner sends a hash rate every
+/// 2 s, so a hung kernel or a driver reset stops the meter before the stall
+/// kill does, even while the miner still writes log lines). Anything else
 /// is `None`, which ends the metered stretch.
 fn metered_watts(
     st: &MinerState,
@@ -672,7 +700,7 @@ fn metered_watts(
     powers: &[(u32, &str, f64)],
 ) -> Option<f64> {
     let live =
-        running && st.in_work && wall_ms.saturating_sub(st.last_event_ms) <= energy::MAX_GAP_MS;
+        running && st.in_work && wall_ms.saturating_sub(st.last_work_ms) <= energy::MAX_GAP_MS;
     let adapter = st.adapter.as_deref()?;
     let &(_, _, watts) = powers
         .iter()
@@ -838,7 +866,16 @@ mod tests {
                 .workers
                 .insert("cpu".into(), Worker::new(plan(None), "cpu".into()));
             let gpu = Worker::new(plan(Some(0)), "gpu0".into());
-            lock_state(&gpu.state).accepted = 3;
+            {
+                // Named adapter, on work, fresh: no process is the only
+                // reason left for it to meter nothing.
+                let mut st = lock_state(&gpu.state);
+                *st = MinerState {
+                    device: st.device.clone(),
+                    accepted: 3,
+                    ..on_work("RTX A")
+                };
+            }
             inner.workers.insert("gpu0".into(), gpu);
         }
         // No process: these readings must not be charged to the shares.
@@ -915,6 +952,50 @@ mod tests {
             None,
             "a hung kernel sends no hash rate; its watts are not charged"
         );
+        // Log or stderr lines are not hashing: they do not keep it fresh.
+        let mut chatty = on_work("RTX A");
+        ingest(&mut chatty, "warn: device lost, retrying", at_limit);
+        ingest(&mut chatty, r#"{"event":"debug","message":"x"}"#, at_limit);
+        assert_eq!(metered_watts(&chatty, true, at_limit + 1, 0, &POWERS), None);
+    }
+
+    /// A worker holding a child that has already exited but not been reaped,
+    /// as one is between its death and the next watchdog tick.
+    fn with_dead_child(state: MinerState) -> Worker {
+        let exe = std::env::current_exe().expect("test binary path");
+        let mut child = Command::new(&exe)
+            .arg("--list")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn a short-lived child");
+        child.wait().expect("child exits");
+        let mut worker = Worker::new(plan(Some(0)), "gpu0".into());
+        *lock_state(&worker.state) = state;
+        worker.child = Some(Running {
+            child,
+            _miner: PinnedMiner::unchecked_for_test(exe),
+        });
+        worker
+    }
+
+    #[test]
+    fn a_dead_process_is_reaped_before_its_cards_watts_are_metered() {
+        let miner = Miner::default();
+        let worker = with_dead_child(on_work("RTX A"));
+        let state = Arc::clone(&worker.state);
+        miner
+            .inner
+            .lock()
+            .unwrap()
+            .workers
+            .insert("gpu0".into(), worker);
+        // A good reading while the process was still alive starts a stretch.
+        miner.meter(0, 0, &POWERS);
+        // It dies; the next round must not charge the 3 s since at idle watts.
+        miner.step((3_000, 3_000), &[], &POWERS);
+        let st = lock_state(&state);
+        assert_eq!(st.energy.as_ref().expect("GPU worker").metered_ms, 0);
     }
 
     #[test]
@@ -923,7 +1004,7 @@ mod tests {
         // Wall clock jumps 7 s forward inside a 3 s interval: the meter
         // integrates the monotonic 3 s, not 10 s.
         meter_one(&mut s, true, 0, (0, 0), &POWERS);
-        s.last_event_ms = 10_000;
+        s.last_work_ms = 10_000;
         s.accepted = 1;
         meter_one(&mut s, true, 0, (10_000, 3_000), &POWERS);
         let e = s.energy.as_ref().expect("metered");

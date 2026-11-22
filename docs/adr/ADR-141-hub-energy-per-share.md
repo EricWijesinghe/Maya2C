@@ -39,8 +39,9 @@ the honest measurement, but it costs money (option B) and is not done.
      integrated GPUs included; nvidia-smi numbers NVIDIA cards only. The two
      are assumed to agree only when the names do, and between two cards of
      the same model the index order is assumed outright;
-   - the miner's last event is older than `MAX_GAP_MS` (a hung kernel or a
-     driver reset sends no hash rate);
+   - the miner's last `work` or `hashrate` event is older than `MAX_GAP_MS`
+     (a hung kernel or a driver reset sends no hash rate; log and stderr lines
+     do not count);
    - the readings are more than `MAX_GAP_MS` (10 s) apart, or out of order.
 5. **Label.** Every figure carries "GPU-reported, not wall-measured,
    unverified" and its source, in the UI and in the `miner_state` report

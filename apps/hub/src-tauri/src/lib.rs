@@ -161,20 +161,23 @@ fn supervise(app: tauri::AppHandle) {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
         let miner = app.state::<Miner>();
-        let temps = if tick.is_multiple_of(3) && miner.gpu_running() {
+        let raised = if tick.is_multiple_of(3) && miner.gpu_running() {
             let report = gpu::read();
             // The same reading feeds the energy meter, so watts and shares
             // are sampled together every third second. Stamped after the
             // read returns, so a slow nvidia-smi does not shift the interval;
             // intervals are measured on `epoch`, so a clock step cannot
-            // stretch one.
+            // stretch one. `step` ticks before it meters, so a process that
+            // died since the last round is reaped first.
             let mono = u64::try_from(epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
-            miner.meter(miner::now_ms(), mono, &gpu::powers(&report));
-            gpu::temperatures(&report)
+            miner.step(
+                (miner::now_ms(), mono),
+                &gpu::temperatures(&report),
+                &gpu::powers(&report),
+            )
         } else {
-            Vec::new()
+            miner.tick(miner::now_ms(), &[])
         };
-        let raised = miner.tick(miner::now_ms(), &temps);
         let notifier = app.state::<Mutex<Notifier>>();
         for alert in &raised {
             if notify::lock(&notifier).admit(alert) {
