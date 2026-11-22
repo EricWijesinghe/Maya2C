@@ -601,6 +601,42 @@ fn at_mainnet_bonds_downtime_never_shrinks_the_committee_below_four_seats() {
     }
 }
 
+/// ADR-070 amendment 2026-11-22 (brief 1, option A + B, pending Eric): at the
+/// genesis bond, `min_self_bond` plus 10.6%, the validator the floor keeps is
+/// still slashed, because the slash leaves it eligible. Four seats, one down
+/// for ten epochs in a row: it keeps its seat and loses 1% each time.
+#[test]
+fn at_the_genesis_bond_a_validator_kept_by_the_floor_is_still_slashed() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    // xtask genesis_check::genesis_bond at the devnet floor of 1,000 units.
+    let bond = a(1_106);
+    for n in 1..=4 {
+        s.register(account(n), id(n), bond, 0).unwrap();
+    }
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    let mut expected = bond;
+    for epoch in 1..=10 {
+        let authored = BTreeMap::from([(id(1), 0), (id(2), 100), (id(3), 100), (id(4), 100)]);
+        let out = s
+            .end_epoch(
+                &Participation {
+                    rounds: 100,
+                    authored,
+                    ..Participation::default()
+                },
+                Amount::ZERO,
+            )
+            .unwrap();
+        // 1% of the bond, rounded down: 1,106 -> 1,095 -> 1,085 ... -> 1,005.
+        expected = Amount::from_u128(wide(expected) - wide(expected) / 100);
+        assert!(out.jailed.is_empty(), "epoch {epoch}: {:?}", out.jailed);
+        assert_eq!(out.active.len(), staking_min_committee(), "epoch {epoch}");
+        assert_eq!(s.validators[&id(1)].self_bond, expected, "epoch {epoch}");
+        assert!(expected >= Params::DEVNET.min_self_bond, "epoch {epoch}");
+    }
+}
+
 /// Pre-audit S-030: a validator the node's empty-committee fallback keeps
 /// seated while it is still jailed is not slashed again, and its term is not
 /// restarted, each epoch it stays down.

@@ -173,25 +173,36 @@ pub fn check_launch_size(value_bearing: bool, members: &[Member]) -> Result<(), 
     Ok(())
 }
 
-/// Every validator on a value-bearing chain bonds exactly the minimum
-/// self-bond (Eric 2026-11-07, the tiny bond). Genesis already refuses a bond
-/// below the floor; this refuses one above it, so the bonds are the disclosed
-/// seats and nothing more.
+/// Genesis bond margin above `--min-self-bond`, in basis points: the same
+/// value as `BOND_MARGIN_BPS` in `xtask/src/genesis_check.rs`, which explains
+/// it; `cargo xtask ceremony-rehearsal` runs this tool and that check on one
+/// genesis, so the two cannot drift apart unnoticed.
+const BOND_MARGIN_BPS: u64 = 1_060;
+
+/// Every validator on a value-bearing chain bonds exactly the genesis bond,
+/// `floor` plus [`BOND_MARGIN_BPS`] rounded down (Eric 2026-11-07, the tiny
+/// bond; ADR-070 amendment 2026-11-22, option B, pending Eric). One amount for
+/// every seat, so the bonds are the disclosed seats and nothing more, and the
+/// margin keeps a bond eligible through ten downtime slashes.
 ///
 /// # Errors
 ///
-/// A member without a bond, or a bond that is not `floor`.
+/// A member without a bond, or a bond that is not the genesis bond.
 pub fn check_tiny_bonds(
     members: &[Member],
     floor: primitive_types::U256,
 ) -> Result<(), Box<dyn Error>> {
+    let want = floor
+        .checked_mul(primitive_types::U256::from(10_000 + BOND_MARGIN_BPS))
+        .ok_or("--min-self-bond leaves no genesis bond below 2^256")?
+        / primitive_types::U256::from(10_000);
     for member in members {
         let Some((_, bond)) = &member.bond else {
             return Err(format!("{}: a mainnet validator must bond", member.label).into());
         };
-        if *bond != floor {
+        if *bond != want {
             return Err(format!(
-                "{}: bond {bond} is not --min-self-bond {floor}; mainnet bonds are exactly the minimum",
+                "{}: bond {bond} is not the genesis bond {want} (--min-self-bond {floor} plus 10.6%); every mainnet bond is exactly that",
                 member.label
             )
             .into());
@@ -300,8 +311,9 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_bonds_must_be_exactly_the_floor() {
-        let floor = primitive_types::U256::from(10);
+    fn mainnet_bonds_must_be_exactly_the_genesis_bond() {
+        // ADR-070 amendment 2026-11-22: the floor 1,000 plus 10.6% is 1,106.
+        let floor = primitive_types::U256::from(1_000);
         let staked = |bonds: &[u64]| -> Vec<Member> {
             let lines = bonds
                 .iter()
@@ -313,10 +325,11 @@ mod tests {
                 });
             parse(&lines).expect("parse")
         };
-        assert!(check_tiny_bonds(&staked(&[10, 10, 10]), floor).is_ok());
-        let err = check_tiny_bonds(&staked(&[10, 11, 10]), floor).unwrap_err();
-        assert!(err.to_string().starts_with("b: bond 11"), "{err}");
-        assert!(check_tiny_bonds(&staked(&[9]), floor).is_err());
+        assert!(check_tiny_bonds(&staked(&[1_106, 1_106, 1_106]), floor).is_ok());
+        let err = check_tiny_bonds(&staked(&[1_106, 1_000, 1_106]), floor).unwrap_err();
+        assert!(err.to_string().starts_with("b: bond 1000"), "{err}");
+        assert!(check_tiny_bonds(&staked(&[1_107]), floor).is_err());
+        assert!(check_tiny_bonds(&staked(&[999]), floor).is_err());
         let unbonded = parse(&format!("a {}\n", key('a'))).expect("parse");
         let err = check_tiny_bonds(&unbonded, floor).unwrap_err();
         assert!(err.to_string().contains("must bond"), "{err}");

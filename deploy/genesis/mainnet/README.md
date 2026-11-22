@@ -66,15 +66,16 @@ cargo xtask genesis-check out/genesis.json
 - `--council-max-pause-blocks 21600` is ADR-050's 6 hours of blocks at one block a second.
   Recompute it if the block rate is not about one a second.
 - `--supply 0` is the only mainnet path (ADR-044, Eric 2026-11-07): no premine; genesis holds
-  only the keyless mining reserve and the disclosed minimum validator bonds (7 x
-  min-self-bond = 7 × 1,000 = 7,000 coins, about 0.036% of the 19.69M era issuance; DECISIONS
-  2026-11-08). The bonds are minted value, which is why they are disclosed. The ceremony
+  only the keyless mining reserve and the disclosed validator bonds (7 x the
+  genesis bond = 7 × 1,106 = 7,742 coins, 0.0393% of the 19,687,500-coin era issuance;
+  ADR-070 amendment 2026-11-22, pending Eric; bond floor DECISIONS 2026-11-08). The bonds are minted value, which is why they are disclosed. The ceremony
   refuses any other supply on `maya-mainnet`, and writes no root key and no treasury.
   `genesis-check` refuses any allocation that is not the reserve, and a reserve that is not
   exactly the schedule's `lifetime_emission`.
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
   validators and no operator above 20% of the bonded stake. Every bond is exactly
-  `--min-self-bond` (1,000 coins, DECISIONS 2026-11-08); the ceremony and `genesis-check` both
+  the genesis bond, `--min-self-bond` (1,000 coins, DECISIONS 2026-11-08) plus 10.6%: 1,106
+  coins (ADR-070 amendment 2026-11-22, pending Eric); the ceremony and `genesis-check` both
   refuse any other amount. Stake concentration is therefore the seat count, which the 20% cap
   already bounds.
 - The check counts payout addresses. At launch every validator is run by one person

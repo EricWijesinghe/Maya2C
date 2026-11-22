@@ -9,7 +9,7 @@ because the shielded-pool circuit is unaudited (`bins/genesis-ceremony`).
 
 1. **Freeze the inputs.** A signed parameter file: chain id, timestamp,
    difficulty, `--supply 0` (no premine), the keyless mining reserve, the
-   disclosed bonds (7 × `min_self_bond` = 7,000 coins at 1,000 each, one per genesis validator),
+   disclosed bonds (7 × the genesis bond = 7,742 coins at 1,106 each, `min_self_bond` plus 10.6%, one per genesis validator; ADR-070 amendment 2026-11-22, pending Eric),
    protocol-upgrade schedule (empty at launch), genesis validators with their
    signer public keys. Every participant signs the file's BLAKE3 digest.
 2. **Run** `genesis-ceremony` with those inputs on an offline machine. It
