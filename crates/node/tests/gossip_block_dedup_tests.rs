@@ -169,10 +169,13 @@ async fn a_copy_with_other_approvals_does_not_shut_the_original_out() {
     let (a, _b, mut events) = pair().await;
     let honest = multisig_block(false);
     let tampered = multisig_block(true);
-    assert_eq!(
+    // Draft #654 (audit CT-03) commits v8 approvals in `tx_root`, so the two
+    // copies no longer share a header; de-duplication by message bytes must
+    // keep the honest copy either way.
+    assert_ne!(
         honest.header.id(),
         tampered.header.id(),
-        "approvals are outside the txid, so the header is shared"
+        "approvals are committed in tx_root (CT-03), so the header differs"
     );
     assert_ne!(honest.to_bytes(), tampered.to_bytes());
 
