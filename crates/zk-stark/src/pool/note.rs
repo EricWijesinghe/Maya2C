@@ -3,7 +3,7 @@
 //! ```text
 //! address = compress(sk, KEY)
 //! cm      = compress(compress(lo, hi, 0.. ‖ address), rho ‖ rand)
-//! nf      = compress(sk, NULLIFIER, rho, 0, 0, 0)
+//! nf      = compress(sk, NULLIFIER, cm[0..7])
 //! ```
 //!
 //! Values are two 27-bit limbs, so a note holds less than `2^54` (about
@@ -11,10 +11,13 @@
 //! to four limbs in one equation and every such sum must stay below the
 //! `BabyBear` modulus, `p ≈ 15·2^27` — see `joinsplit.rs`.
 //!
-//! `rho` (4 elements, ~124 bits) makes every note unique, so every nullifier
-//! is; `rand` hides the commitment. The nullifier needs `sk`, so only the
-//! owner can compute it, and it is a function of the note, so spending a note
-//! twice publishes the same nullifier twice.
+//! `rho` (4 elements, ~124 bits) makes an honest note unique; `rand` hides the
+//! commitment. The nullifier needs `sk`, so only the owner can compute it, and
+//! it is a function of the note, so spending a note twice publishes the same
+//! nullifier twice. It hashes the commitment rather than `rho` alone: `rho` is
+//! chosen by whoever creates the note, and two notes sharing a `rho` must not
+//! share a nullifier. Seven of the commitment's eight elements fit beside the
+//! domain tag (~217 bits).
 
 use p3_field::PrimeCharacteristicRing as _;
 
@@ -151,7 +154,7 @@ impl Note {
 
     /// The nullifier under `sk`.
     pub fn nullifier(&self, sk: &Digest) -> Digest {
-        compress(sk, &nullifier_right(&self.rho))
+        compress(sk, &nullifier_right(&self.commitment()))
     }
 }
 
@@ -164,9 +167,9 @@ pub fn value_digest(value: u64) -> Digest {
     d
 }
 
-/// `NULLIFIER, rho, 0, 0, 0`.
-pub fn nullifier_right(rho: &[F; NONCE]) -> Digest {
+/// `NULLIFIER, cm[0..7]`.
+pub fn nullifier_right(cm: &Digest) -> Digest {
     let mut d = domain(Domain::Nullifier);
-    d[1..=NONCE].copy_from_slice(rho);
+    d[1..].copy_from_slice(&cm[..DIGEST - 1]);
     d
 }

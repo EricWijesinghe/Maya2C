@@ -27,7 +27,7 @@ use crate::hash::{DIGEST, Digest, F, WIDTH};
 pub enum Domain {
     /// `pk = compress(sk, KEY)`.
     Key = 0x6b_6579,
-    /// `nf = compress(sk, NULLIFIER ‖ rho)`.
+    /// `nf = compress(sk, NULLIFIER ‖ cm[0..7])`.
     Nullifier = 0x6e_756c,
     /// An association-set deposit leaf, `compress(s, DEPOSIT)`
     /// (`crate::association`).
