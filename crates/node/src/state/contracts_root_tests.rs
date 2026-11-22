@@ -434,3 +434,42 @@ fn the_contracts_root_at_400_000_entries_before_and_after() {
     eprintln!("TIMING   after, warm, 245 x 4 KiB new           {warm_heavy:>9.1} ms");
     eprintln!("TIMING   after, warm, 245 x 4 KiB root + commit {block:>9.1} ms");
 }
+
+#[test]
+#[ignore = "timing: run with --ignored --nocapture; figures go in ADR-142 amendment 8 (proposed)"]
+fn the_contracts_root_at_the_contract_state_default_and_ceiling() {
+    // CSTATE-2's default and ceiling in the smallest entries (4-byte key,
+    // 1-byte value), the most entries each allows: the one pass over all
+    // leaves a contract-writing block still costs (amendment 5), against the
+    // full fold it replaced.
+    use crate::state::contract_bound::entry_size;
+    use maya_governance::params::ParameterKey;
+
+    let small = entry_size(7 + 32 + 4, 1);
+    let bounds = ParameterKey::VmMaxContractStateBytes.bounds();
+    for (label, bytes) in [
+        ("default", bounds.default.saturating_to_u64()),
+        ("ceiling", bounds.max.saturating_to_u64()),
+    ] {
+        let entries = u32::try_from(bytes / small).unwrap();
+        let dir = TempDir::new().unwrap();
+        let db = StateDB::open(dir.path()).unwrap();
+        let mut batch = WriteBatch::default();
+        for i in 0..entries {
+            batch.put(contract_storage_key(&[9; 32], &i.to_be_bytes()), [1]);
+        }
+        db.write_batch(batch).unwrap();
+        assert!(db.contract_state_size_scan().unwrap() <= bytes);
+        let one = fresh_writes(0x01, 1, 1);
+        let full = median_ms(|| {
+            db.contracts_root_full(&one).unwrap();
+        });
+        db.contracts_root_cached(&one).unwrap();
+        let warm = median_ms(|| {
+            db.contracts_root_cached(&one).unwrap();
+        });
+        eprintln!(
+            "TIMING contracts root at the CSTATE-2 {label} ({bytes} B, {entries} entries of {small} B): full fold {full:.1} ms, kept leaves {warm:.1} ms"
+        );
+    }
+}

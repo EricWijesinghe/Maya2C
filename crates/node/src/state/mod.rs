@@ -19,6 +19,7 @@ pub mod blocks;
 pub mod channel;
 pub mod commitments;
 pub mod context;
+pub mod contract_bound;
 pub mod contracts;
 pub(crate) mod contracts_root;
 pub mod council;

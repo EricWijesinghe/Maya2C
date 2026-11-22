@@ -89,6 +89,12 @@ pub enum ParameterKey {
     /// Most contract gas one block may spend, calls and deployments together
     /// (ADR-142).
     VmMaxBlockGas,
+    /// Most distinct contract entries (code and storage keys) one block may
+    /// write (ADR-142 amendment 8, CSTATE-1).
+    VmMaxBlockContractWrites,
+    /// Most committed contract state, in bytes with a per-entry overhead
+    /// (ADR-142 amendment 8, CSTATE-2): what bounds the contracts root fold.
+    VmMaxContractStateBytes,
 }
 
 /// Every key, in tag order.
@@ -108,6 +114,8 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::DefaultSignatureSuite,
     ParameterKey::VmMaxTxGas,
     ParameterKey::VmMaxBlockGas,
+    ParameterKey::VmMaxBlockContractWrites,
+    ParameterKey::VmMaxContractStateBytes,
 ];
 
 /// Blocks between a passed change to a block-validity rule executing and
@@ -131,6 +139,15 @@ const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
 
 /// Most either contract gas cap may be voted to (ADR-142).
 const VM_GAS_CEILING: u64 = 300_000_000;
+
+/// Most contract entries a block may be voted to write: `VM_GAS_CEILING` over
+/// the cheapest write's 5,240 gas (57,251), rounded up to a power of two.
+const CONTRACT_WRITES_CEILING: u64 = 65_536;
+
+/// Contract state ceilings (CSTATE-2), in bytes with a per-entry overhead.
+const CONTRACT_STATE_FLOOR: u64 = 8 * 1024 * 1024;
+const CONTRACT_STATE_DEFAULT: u64 = 64 * 1024 * 1024;
+const CONTRACT_STATE_CEILING: u64 = 128 * 1024 * 1024;
 
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +187,8 @@ impl ParameterKey {
             // the next free tags (ADR-142).
             Self::VmMaxTxGas => 17,
             Self::VmMaxBlockGas => 18,
+            Self::VmMaxBlockContractWrites => 19,
+            Self::VmMaxContractStateBytes => 20,
         }
     }
 
@@ -200,6 +219,8 @@ impl ParameterKey {
             10 => Ok(Self::DefaultSignatureSuite),
             17 => Ok(Self::VmMaxTxGas),
             18 => Ok(Self::VmMaxBlockGas),
+            19 => Ok(Self::VmMaxBlockContractWrites),
+            20 => Ok(Self::VmMaxContractStateBytes),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -324,6 +345,31 @@ impl ParameterKey {
                 max: Amount::from_u64(VM_GAS_CEILING),
                 default: Amount::from_u64(250_000_000),
             },
+            // ADR-142 amendment 8. Each entry a block writes is a read when
+            // it is staged, an undo record and a batch write, and a new one
+            // grows the contracts fold for every later block. The cheapest
+            // write (5,240 gas) lets 250 M of gas stage ~47,700. The bound
+            // holds whatever the gas prices become: the default is about two
+            // thirds of that, the ceiling above what 300 M could stage, and
+            // the floor leaves room for many ordinary calls in a block.
+            Self::VmMaxBlockContractWrites => Bounds {
+                min: Amount::from_u64(1_024),
+                max: Amount::from_u64(CONTRACT_WRITES_CEILING),
+                default: Amount::from_u64(32_768),
+            },
+            // ADR-142 amendment 8 (proposed, Eric's decision). What this
+            // bounds: the one pass over every contract leaf a contract-writing
+            // block costs (amendment 5), the memory for the leaves, and disk.
+            // Measured (dev profile, smallest entries): 11.7 ms at the
+            // default and 21.0 ms at the ceiling with the leaves kept, against
+            // 92.2 ms and 179.0 ms for the full fold. Past the ceiling needs a
+            // different contracts layer format, not a vote; the floor keeps
+            // one largest module deployable.
+            Self::VmMaxContractStateBytes => Bounds {
+                min: Amount::from_u64(CONTRACT_STATE_FLOOR),
+                max: Amount::from_u64(CONTRACT_STATE_CEILING),
+                default: Amount::from_u64(CONTRACT_STATE_DEFAULT),
+            },
         }
     }
 
@@ -347,7 +393,11 @@ impl ParameterKey {
             | Self::VmDefaultGasLimit
             // ADR-142's caps refuse a call or a block outright (GAS-1, GAS-2).
             | Self::VmMaxTxGas
-            | Self::VmMaxBlockGas => true,
+            | Self::VmMaxBlockGas
+            // The proposed contract-state bounds refuse a block (CSTATE-1,
+            // CSTATE-2; ADR-142 amendment 8).
+            | Self::VmMaxBlockContractWrites
+            | Self::VmMaxContractStateBytes => true,
             // A rate and a deposit change what a valid transaction pays, not
             // whether it is valid. The default suite chooses what wallets
             // sign with; it does not decide what verifies (invariant 31).
@@ -373,6 +423,8 @@ impl ParameterKey {
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
             Self::VmMaxTxGas => "vm.max_tx_gas",
             Self::VmMaxBlockGas => "vm.max_block_gas",
+            Self::VmMaxBlockContractWrites => "vm.max_block_contract_writes",
+            Self::VmMaxContractStateBytes => "vm.max_contract_state_bytes",
         }
     }
 
@@ -450,7 +502,7 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 12);
+        assert_eq!(count, 14);
     }
 
     #[test]
@@ -508,7 +560,7 @@ mod tests {
             .filter(|key| key.is_validity_rule())
             .map(|key| key.tag())
             .collect();
-        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18]);
+        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18, 19, 20]);
         assert_eq!(
             VALIDITY_RULE_LEAD_BLOCKS,
             crate::limits::MIN_UPGRADE_LEAD_BLOCKS

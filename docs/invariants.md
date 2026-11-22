@@ -342,7 +342,7 @@ phase that did it.
     `an_automatic_trip_does_not_reset_the_council_renewal_cooldown`
     — ADR-082.
     A passed change to a block-validity `ParameterKey` (`is_validity_rule`,
-    tags 2-8, 17, 18) is held under `g:pending:` and binds `VALIDITY_RULE_LEAD_BLOCKS`
+    tags 2-8, 17-20) is held under `g:pending:` and binds `VALIDITY_RULE_LEAD_BLOCKS`
     (= `MIN_UPGRADE_LEAD_BLOCKS`) after its proposal executes, so a per-block
     ceiling moves on the notice a version gets (ADR-082 amendment 2026-11-15; pinned by
     `crates/node/tests/governance_tests.rs`
