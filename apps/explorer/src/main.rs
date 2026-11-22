@@ -159,8 +159,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     {
         Some(url) => {
             println!("index:  postgres");
-            let reads = Arc::new(PostgresStore::connect(url, args.max_connections).await?);
+            // Writes first: that pool applies the schema the reads depend on.
             let writes = Arc::new(PostgresStore::connect(url, INDEXER_CONNECTIONS).await?);
+            let reads = Arc::new(PostgresStore::connect_reads(url, args.max_connections).await?);
             (reads, writes)
         }
         None => {

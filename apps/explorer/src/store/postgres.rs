@@ -22,9 +22,19 @@
 //! block in the index is worse than none: the explorer would show a block whose
 //! transaction list is silently short.
 
+use std::str::FromStr;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use sqlx::Row;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+
+/// How long a public read waits for a pooled connection before answering 503.
+pub const READ_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Server-side cap on one public read statement. Every read is an index range
+/// stopped at a page limit, so a statement this slow is a fault, not a page.
+pub const READ_STATEMENT_TIMEOUT_MS: u32 = 5_000;
 
 use crate::error::{ExplorerError, Result};
 use crate::model::{Direction, IndexedBlock, IndexedOutput, IndexedTx};
@@ -235,6 +245,33 @@ impl PostgresStore {
 
         rebuild_if_stale(&pool).await?;
 
+        Ok(Self { pool })
+    }
+
+    /// Connects the public read pool, with the bounds a public endpoint needs.
+    ///
+    /// Many clients, each under its own rate limit, can still together hold
+    /// every read connection. Without a short acquire timeout every further
+    /// request would queue for sqlx's 30 s default; with it the request fails
+    /// fast as `index_behind` (503). The server-side `statement_timeout` stops
+    /// one slow query from holding a connection indefinitely. Applies no
+    /// schema: call [`Self::connect`] (the indexer's pool) first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExplorerError::Store`] if the URL is invalid or the database
+    /// is unreachable.
+    pub async fn connect_reads(url: &str, max_connections: u32) -> Result<Self> {
+        // The URL carries the password, so neither message repeats it.
+        let options = PgConnectOptions::from_str(url)
+            .map_err(|_| ExplorerError::Store("invalid --database-url".to_owned()))?
+            .options([("statement_timeout", READ_STATEMENT_TIMEOUT_MS.to_string())]);
+        let pool = PgPoolOptions::new()
+            .max_connections(max_connections)
+            .acquire_timeout(READ_ACQUIRE_TIMEOUT)
+            .connect_with(options)
+            .await
+            .map_err(|e| ExplorerError::Store(format!("connecting to the database: {e}")))?;
         Ok(Self { pool })
     }
 

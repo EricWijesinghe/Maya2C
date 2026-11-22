@@ -787,3 +787,31 @@ async fn postgres_restart_keeps_the_index_and_a_stale_generation_rebuilds_it() {
     store.pool().close().await;
     db.drop_db().await;
 }
+
+/// The public read pool carries a server-side statement timeout, so one slow
+/// read cannot hold a connection that every other client is waiting for.
+#[tokio::test]
+async fn postgres_read_pool_bounds_every_statement() {
+    let Some(db) = PgDb::create("reads").await else {
+        return;
+    };
+    let writes = db.store().await;
+    let reads = PostgresStore::connect_reads(&db.url, 2)
+        .await
+        .expect("read pool");
+    let timeout: String = sqlx::query("SHOW statement_timeout")
+        .fetch_one(reads.pool())
+        .await
+        .unwrap()
+        .try_get(0)
+        .unwrap();
+    assert_eq!(timeout, "5s");
+    let slow = sqlx::query("SELECT pg_sleep(10)")
+        .execute(reads.pool())
+        .await
+        .expect_err("a statement past the timeout is cancelled");
+    assert!(slow.to_string().contains("statement timeout"), "{slow}");
+    reads.pool().close().await;
+    writes.pool().close().await;
+    db.drop_db().await;
+}
