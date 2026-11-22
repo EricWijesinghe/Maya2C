@@ -11,20 +11,30 @@
 //! - fee bypass: a relay editing the outer frame, a swapped sponsor key,
 //!   M1 (padding, quorum swap); P-5 in `sponsored_fee_tests.rs`.
 //! - replay: a sponsorship moved to a re-signed inner at the same nonce;
-//!   a cached frame after its sponsor suite's sunset; P-1 and P-12 there.
+//!   a cached frame after its sponsor suite's sunset. Replay of an applied
+//!   frame and under another chain tag are in `sponsored_fee_tests.rs`:
+//!   `a_sponsorship_applied_to_a_second_inner_with_the_same_txid_fails_on_the_nonce`
+//!   (P-1) and `a_sponsorship_signed_under_another_chain_tag_is_refused` (P-3).
 //! - squatting: no namespace, but an inner's one pool slot can be squatted.
 //!   `a_smaller_sponsorship_that_will_not_apply_cannot_displace_an_honest_frame`
 //!   (first seen kept; a vault cannot pool more than its window takes) and
 //!   the limit-0 vault test there. Residual: a race in which an attacker's
-//!   frame reaches a node before the honest one (spec 02, Open residuals).
+//!   frame reaches a node before the honest one (spec 02, Open residuals);
+//!   the honest submitter gets "already sponsored", not a silent duplicate.
 //! - unbounded per-block work: validity side,
-//!   `a_full_block_of_sponsored_frames_asks_no_more_verifications_per_byte_than_plain_frames`
-//!   (the byte cap bounds signature checks); builder side, M3, staged in
+//!   `frame_sizes_bound_sponsored_signature_checks_per_block_by_the_plain_frame_count`
+//!   (a formula over the smallest frame sizes, not a count of verify calls:
+//!   a sponsored frame carries both its signatures' bytes, so the byte cap
+//!   allows no more checks than plain frames); builder side,
+//!   `a_sponsor_cannot_pool_sponsorships_its_own_pooled_spend_leaves_unpaid`
+//!   and M3, staged in
 //!   place for sponsored transfers, pinned by `the_builder_undoes_*` there
 //!   and measured by `examples/builder_copy_cost.rs`. M3 is still open for
 //!   every other v4 form (BACKLOG, v4 activation blockers).
 //! - X1 (sponsor around account authority, with #548): open, no test on
-//!   this branch, a blocker for the postgen/v4 integration. NOT VERIFIED.
+//!   this branch (its `ka:a:` / `ka:w:` records are on #548), a blocker for
+//!   the postgen/v4 integration. NOT VERIFIED. Held in code: a schedule
+//!   entry naming bit 44 is refused (`state::upgrades`, X1/M3).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -157,6 +167,13 @@ fn sponsored(mut tx: Transaction, key: &SponsorKey, max_fee: u64) -> Transaction
 
 fn required(tx: &Transaction) -> U256 {
     U256::from(BASE_FEE) * U256::from(tx.to_bytes().len())
+}
+
+fn inner_taken(err: &NodeError) {
+    assert!(
+        matches!(err, NodeError::MempoolRejected(m) if m.contains("already sponsored")),
+        "{err:?}"
+    );
 }
 
 fn sponsor_signature_refused(err: &NodeError) {
@@ -393,12 +410,9 @@ fn a_smaller_sponsorship_that_will_not_apply_cannot_displace_an_honest_frame() {
     for squat in squats {
         assert_eq!(squat.inner_txid(), by_honest.inner_txid(), "one inner");
         assert!(squat.to_bytes().len() < by_honest.to_bytes().len());
-        assert!(
-            !pool
-                .insert(squat)
-                .expect("a second sponsorship is no error"),
-            "the first sponsorship seen keeps the inner"
-        );
+        // Refused by name, not Ok(false) like a duplicate, so the
+        // submitter knows to resubmit after the pooled frame is evicted.
+        inner_taken(&pool.insert(squat).unwrap_err());
     }
     assert_eq!(pool.len(), 1);
     assert!(pool.contains(&by_honest.txid()), "the honest frame stays");
@@ -412,6 +426,40 @@ fn a_smaller_sponsorship_that_will_not_apply_cannot_displace_an_honest_frame() {
     let err = fresh.insert(second).unwrap_err();
     assert!(matches!(err, NodeError::Vault(_)), "{err:?}");
     assert_eq!(fresh.len(), 1);
+}
+
+// Builder work through the pool: a sponsor pools its own spend of almost
+// all its balance, then sponsorships whose max_fee only the spent balance
+// covered. Counted apart, both passed and the builder verified and staged
+// frames that fail at apply. The sponsor's pooled spends count against its
+// sponsored max_fees.
+#[test]
+fn a_sponsor_cannot_pool_sponsorships_its_own_pooled_spend_leaves_unpaid() {
+    let alice = user(0xAC);
+    let (key, payer) = ml87(0xAD);
+    let dir = TempDir::new().unwrap();
+    let (c, height) = live_chain(&dir, &[alice.address(), payer]);
+    let spend = |fee: U256| {
+        let mut tx = Transaction::new(vec![], outputs(FUNDS - GENEROUS), 0);
+        tx.outputs.push(TxOutput {
+            amount: fee,
+            recipient: FEE_COLLECTOR,
+        });
+        tx.sign_with_suite::<MlDsa87>(&key, &common::test_chain())
+            .unwrap();
+        tx
+    };
+    let drain = spend(required(&spend(U256::zero())));
+
+    let pool = Mempool::new(Arc::clone(c.state()));
+    assert!(pool.insert(drain).expect("the sponsor's own spend"));
+    let frame = sponsored_87(inner(&alice, 0, 1), &key, height + 100);
+    let err = pool.insert(frame).unwrap_err();
+    assert!(
+        matches!(err, NodeError::InsufficientBalance { .. }),
+        "{err:?}"
+    );
+    assert_eq!(pool.len(), 1);
 }
 
 // Value creation: a block of sponsored frames from two senders, one
@@ -461,7 +509,7 @@ const ML_DSA_65_SIGNATURE_LEN: usize = 3_309;
 // costs more than an ML-DSA one, sponsored or not. The cap is a governance
 // parameter (5 MiB at genesis); the bound scales with it.
 #[test]
-fn a_full_block_of_sponsored_frames_asks_no_more_verifications_per_byte_than_plain_frames() {
+fn frame_sizes_bound_sponsored_signature_checks_per_block_by_the_plain_frame_count() {
     let user_key = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0xA8; 32]));
     let sponsor = MlDsa65::signing_key_from_seed(&MasterSeed::from_bytes([0xA9; 32]));
     // The smallest frames: an empty ML-DSA-65 inner, an ML-DSA-65 sponsor.

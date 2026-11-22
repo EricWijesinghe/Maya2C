@@ -55,6 +55,7 @@ pub const ASSET_MINT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// transfers, open for the other v4 forms) and X1 (a sponsor
 /// against ADR-086 Rule A / AA-9, cross-feature with #548) are open; spec 02,
 /// "Open residuals". M1 closed when SP-2 began signing `inner_len`.
+/// Held in code: [`EffectiveSchedule::admit`] refuses an entry naming bit 44.
 pub const SPONSORED_FEES_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// Prefix of every upgrade-schedule record. A committed layer
@@ -169,6 +170,16 @@ impl EffectiveSchedule {
         }
         if request.version.is_none() && request.features.0 != 0 {
             return refuse("a sunset-only entry cannot switch features on".into());
+        }
+        // Held in code, as zkML is in `UpgradeSchedule::new`: while X1 (a
+        // sponsor around ADR-086 Rule A / AA-9) and M3 (the builder's overlay
+        // copy for the other v4 forms) are open, no entry may switch v13 on
+        // (spec 02, "Open residuals"). Removed in the change that closes both.
+        // Genesis is not covered: its schedule is a reviewed file, not a vote.
+        if request.features.contains(FeatureSet::SPONSORED_FEES) {
+            return refuse(
+                "sponsored fees (bit 44) cannot be scheduled while X1 and M3 are open".into(),
+            );
         }
         // Heights are bounded above as well as below. Without a horizon one far
         // entry would fix the floor for every later entry of its kind.
@@ -454,6 +465,28 @@ mod tests {
                 emergency: false,
             }],
         }
+    }
+
+    #[test]
+    fn a_schedule_entry_cannot_switch_sponsored_fees_on_while_x1_and_m3_are_open() {
+        let at = NOW + MIN_UPGRADE_LEAD_BLOCKS;
+        for features in [
+            FeatureSet::SPONSORED_FEES,
+            FeatureSet::SPONSORED_FEES | FeatureSet::DVP,
+        ] {
+            let request = ScheduleRequest {
+                features: FeatureSet(features),
+                ..version_at(at)
+            };
+            let refused = empty().admit(&request, NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT);
+            assert!(
+                matches!(&refused, Err(NodeError::Governance { reason }) if reason.contains("X1")),
+                "{refused:?}"
+            );
+        }
+        empty()
+            .admit(&version_at(at), NOW, MIN_UPGRADE_LEAD_BLOCKS, DEFAULT)
+            .expect("the same entry without bit 44 is admitted");
     }
 
     #[test]

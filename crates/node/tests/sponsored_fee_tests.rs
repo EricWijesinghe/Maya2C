@@ -657,9 +657,10 @@ fn the_mempool_keeps_one_sponsored_frame_per_inner() {
     let by_a = sponsored(inner(&alice, 0, 1), &a, GENEROUS, height + 100);
     let by_b = sponsored(inner(&alice, 0, 1), &b, GENEROUS, height + 100);
     assert!(pool.insert(by_a.clone()).expect("A admitted"));
+    let err = pool.insert(by_b).unwrap_err();
     assert!(
-        !pool.insert(by_b).expect("B is not an error"),
-        "an equal-size second sponsorship of the pooled inner is not kept"
+        matches!(&err, NodeError::MempoolRejected(m) if m.contains("already sponsored")),
+        "an equal-size second sponsorship of the pooled inner is refused by name: {err:?}"
     );
     assert_eq!(pool.len(), 1);
     assert!(pool.contains(&by_a.txid()));
@@ -707,11 +708,10 @@ fn a_sponsor_whose_vault_window_refuses_the_fee_cannot_squat_an_inner() {
 
     let pool = Mempool::new(Arc::clone(c.state()));
     assert!(pool.insert(by_honest.clone()).expect("honest admitted"));
+    let err = pool.insert(squat.clone()).unwrap_err();
     assert!(
-        !pool
-            .insert(squat.clone())
-            .expect("a second sponsorship is no error"),
-        "the first sponsorship seen keeps the inner"
+        matches!(&err, NodeError::MempoolRejected(m) if m.contains("already sponsored")),
+        "the first sponsorship seen keeps the inner: {err:?}"
     );
     assert_eq!(pool.len(), 1);
     assert!(

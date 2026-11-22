@@ -217,8 +217,9 @@ impl Mempool {
 
     /// Refuses a sponsored `tx` when its sponsor already has
     /// [`MAX_SPONSORED_PENDING_PER_SPONSOR`] frames pooled, or when their
-    /// `max_fee`s plus this one's would pass `sponsor_balance` (ADR-135 P-4,
-    /// threat model P-6). Admission policy only: the newest is the one
+    /// `max_fee`s plus this one's plus the sponsor's own pooled spends would
+    /// pass `sponsor_balance` (ADR-135 P-4, threat model P-6). The reverse
+    /// (a spend pooled after the sponsorships) is not checked. Admission policy only: the newest is the one
     /// dropped, and a block holding more is still valid if every frame applies.
     fn check_sponsor_room(&self, tx: &Transaction, sponsor_balance: U256) -> Result<()> {
         let Some(sponsorship) = &tx.sponsor else {
@@ -235,8 +236,18 @@ impl Mempool {
                 "sponsor already holds {MAX_SPONSORED_PENDING_PER_SPONSOR} pooled sponsored frames"
             )));
         }
+        // The sponsor's own pooled spends come out of the same balance, or
+        // the builder verifies and stages frames that fail at apply.
+        let spending = self
+            .lock_senders()
+            .get(&payer)
+            .map_or(U256::zero(), |p| p.outputs);
         // Checked, not saturating: a sum past 2^256 is "cannot cover".
-        match pending.outputs.checked_add(sponsorship.max_fee) {
+        match pending
+            .outputs
+            .checked_add(spending)
+            .and_then(|t| t.checked_add(sponsorship.max_fee))
+        {
             Some(total) if total <= sponsor_balance => Ok(()),
             total => Err(NodeError::InsufficientBalance {
                 address: hex::encode(payer),
@@ -272,14 +283,21 @@ impl Mempool {
         })
     }
 
-    /// Whether a sponsored frame for the same inner as `tx` is already pooled
+    /// Refuses `tx` when a sponsored frame for the same inner as `tx` is already pooled
     /// (threat model P-12). The first one seen is kept, whatever its size:
     /// a "smaller frame replaces" rule let any sponsor on a smaller suite
     /// displace an honest frame and then make sure its own never applied
     /// (V4-V1 review: an expiring `valid_until`, a sponsor that spends to
     /// zero, a vault window that fits one fee of many).
-    fn holds_sponsorship(&self, tx: &Transaction) -> bool {
-        tx.sponsor.is_some() && self.lock_inners().contains_key(&tx.inner_txid())
+    /// Refused by name rather than `Ok(false)`, so a paymaster whose frame
+    /// lost the slot knows to resubmit once the pooled one is evicted.
+    fn check_inner_free(&self, tx: &Transaction) -> Result<()> {
+        if tx.sponsor.is_some() && self.lock_inners().contains_key(&tx.inner_txid()) {
+            return Err(NodeError::MempoolRejected(
+                "inner already sponsored by another pooled frame".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Refuses a sponsored `tx` when its sponsor's vault window cannot take
@@ -683,9 +701,7 @@ impl Mempool {
         }
         let ranked = self.ranking_of(&tx, size)?;
         let fee = ranked.fee;
-        if self.holds_sponsorship(&tx) {
-            return Ok(false);
-        }
+        self.check_inner_free(&tx)?;
         self.victims(
             self.len(),
             self.pooled_bytes.load(Ordering::Relaxed),
@@ -702,9 +718,10 @@ impl Mempool {
         let mut pool = self.write_pool();
         // One sponsored frame per inner (P-12), first seen kept: re-checked
         // here because another insert may have pooled one since.
-        if pool.contains_key(&hash) || self.holds_sponsorship(&tx) {
+        if pool.contains_key(&hash) {
             return Ok(false);
         }
+        self.check_inner_free(&tx)?;
         self.check_sender_room(&tx, balance)?;
         self.check_sponsor_room(&tx, sponsor_balance)?;
         // Every mutation holds the write lock, so this read cannot race an add.

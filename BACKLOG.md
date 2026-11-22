@@ -168,7 +168,9 @@ band; move an item to PROGRESS.md when it starts.
 No v4 activation height is written until these close. Sponsored fees
 (#501) carry their own V4-V1 slice: spec 02 SP-1..SP-6, `spec/tests/sponsored.json`,
 `crates/node/tests/v4_redteam_sponsored.rs`; M1 and the P-12 squat closed,
-M3 closed for sponsored transfers.
+M3 closed for sponsored transfers. **The fork-level V4-V1 item is open**:
+#501 is the I4 (sponsored fees) slice only. Until X1 and M3 close, a
+schedule entry naming bit 44 is refused in code (`state::upgrades`).
 
 - [ ] **M3 for the other v4 forms.** Token mint policy (#487), NFTs and
   names (#493), scheduled payments (#502) and smart-account actions (#548)
@@ -181,7 +183,9 @@ M3 closed for sponsored transfers.
   red-team file; not checked from #501.
 - [ ] **X1, sponsor around account authority** (#501 with #548): on the
   postgen/v4 integration, refuse a sponsor with a `ka:a:` record or a
-  `ka:w:` row, one test each (spec 02 residuals).
+  `ka:w:` row, one test each (spec 02 residuals). Remove the bit-44
+  schedule refusal in `state::upgrades` in the same change that closes X1
+  and M3.
 
 ## P5 — differentiators
 
