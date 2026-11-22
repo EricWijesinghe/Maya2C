@@ -14,7 +14,7 @@ order, and the first rule that fails is the result:
 - **STF-5** Each recipient, in output order, is credited; a balance is 256 bits (ADR-046), and a credit past `2^256 − 1` is `BalanceOverflow`.
 - **STF-6** The debit is written before any credit is read, so a self-transfer nets to zero and cannot mint. *(positive only: no input is rejected by this rule)*
 - **STF-7** An address with no record reads as balance 0, nonce 0; a credit creates the record.
-- **STF-8** A block applies all its transactions in order, each seeing the effects of those before it, or it applies none: one failing transaction makes the block invalid and leaves state untouched.
+- **STF-8** A block applies all its transactions in order, each seeing the effects of those before it, or it applies none: one failing transaction makes the block invalid and leaves state untouched. A contract call or deployment that fails in the VM is not a failing transaction in this sense: it is applied as GAS-8 states.
 
 ## State root
 

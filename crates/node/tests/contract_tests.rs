@@ -131,11 +131,17 @@ fn an_invalid_module_is_rejected_at_deploy_time() {
     );
 
     // Rejecting here means one transaction pays for the mistake, rather than
-    // every future caller discovering it.
-    assert!(matches!(
-        db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1)),
-        Err(NodeError::Vm(_))
-    ));
+    // every future caller discovering it. Under GAS-8 it is included, its
+    // nonce moves, and no code is stored.
+    db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1))
+        .expect("a failed deployment is included (GAS-8)");
+    assert_eq!(db.get_account(&address_of(&deployer)).unwrap().nonce, 1);
+    let id = custom_l1_node::core::payload::derive_contract_id(
+        &address_of(&deployer),
+        0,
+        b"this is not webassembly",
+    );
+    assert_eq!(db.get_code(&id).unwrap(), None);
 }
 
 #[test]
@@ -153,14 +159,14 @@ fn a_module_using_a_disabled_proposal_is_rejected() {
     );
 
     let tx = signed(
-        TxKind::DeployContract(ContractDeploy { code: simd }),
+        TxKind::DeployContract(ContractDeploy { code: simd.clone() }),
         0,
         &deployer,
     );
-    assert!(matches!(
-        db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1)),
-        Err(NodeError::Vm(_))
-    ));
+    db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1))
+        .expect("a failed deployment is included (GAS-8)");
+    let id = custom_l1_node::core::payload::derive_contract_id(&address_of(&deployer), 0, &simd);
+    assert_eq!(db.get_code(&id).unwrap(), None, "it never deploys");
 }
 
 #[test]
@@ -267,11 +273,10 @@ fn gas_exhaustion_writes_nothing_to_the_database() {
         &caller,
     );
 
-    // The contract writes before it loops. That write must not survive.
-    assert!(matches!(
-        db.apply_block(&block_of(vec![call]), BlockContext::at_height(2)),
-        Err(NodeError::Vm(_))
-    ));
+    // The contract writes before it loops. That write must not survive,
+    // though the call is included (GAS-8).
+    db.apply_block(&block_of(vec![call]), BlockContext::at_height(2))
+        .expect("a failed call is included (GAS-8)");
 
     assert_eq!(
         db.get_contract_storage(&contract, b"k").expect("read"),
@@ -281,7 +286,7 @@ fn gas_exhaustion_writes_nothing_to_the_database() {
 }
 
 #[test]
-fn a_failed_call_aborts_the_whole_block() {
+fn a_failed_call_is_included_beside_the_rest_of_its_block() {
     let caller = generate_signing_key().expect("keygen");
     let other = generate_signing_key().expect("keygen");
     let (db, _dir) = open_state(&[(address_of(&caller), 1_000), (address_of(&other), 500)]);
@@ -307,23 +312,22 @@ fn a_failed_call_aborts_the_whole_block() {
         &caller,
     );
 
-    assert!(
-        db.apply_block(&block_of(vec![transfer, call]), BlockContext::at_height(2))
-            .is_err()
-    );
-
-    // Block atomicity holds across the VM boundary: the unrelated transfer is
-    // discarded too.
+    // GAS-8: a call that fails in the VM is included rather than voiding
+    // the block, so the unrelated transfer applies and the caller's nonce
+    // moves. Every other failing transaction still voids its block (STF-8).
+    db.apply_block(&block_of(vec![transfer, call]), BlockContext::at_height(2))
+        .expect("the block applies");
     assert_eq!(
         db.get_account(&address_of(&other))
             .map(|a| u64::try_from(a.balance).expect("fits u64")),
-        Ok(500)
+        Ok(400)
     );
     assert_eq!(
         db.get_account(&[3u8; 32])
             .map(|a| u64::try_from(a.balance).expect("fits u64")),
-        Ok(0)
+        Ok(100)
     );
+    assert_eq!(db.get_account(&address_of(&caller)).unwrap().nonce, 2);
 }
 
 #[test]
