@@ -732,12 +732,13 @@ impl NodeDriver {
                 );
                 self.stats.record_established();
 
-                // Tell gossipsub explicitly: on memory transport there is no
-                // discovery protocol to introduce peers to each other.
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .add_explicit_peer(&peer_id);
+                // Explicit on memory transport only (`Transport::gossip_explicit`).
+                if Transport::of(endpoint.get_remote_address()).gossip_explicit() {
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .add_explicit_peer(&peer_id);
+                }
                 self.emit(NodeEvent::PeerConnected(peer_id));
             }
             SwarmEvent::ConnectionClosed {

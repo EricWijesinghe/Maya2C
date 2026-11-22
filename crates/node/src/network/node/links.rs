@@ -53,6 +53,19 @@ impl Transport {
         }
         seen
     }
+
+    /// Whether a peer on this transport is made an explicit gossipsub peer.
+    ///
+    /// Memory transport only: it has no discovery protocol to introduce
+    /// peers to each other. Everywhere else gossipsub builds its own mesh. An
+    /// explicit peer sits outside the mesh: every message is pushed to it
+    /// whatever its score, and it is redialed every minute until removed, so
+    /// making every connection explicit turned gossip into flooding and let
+    /// throwaway identities grow the redial set without bound.
+    #[must_use]
+    pub fn gossip_explicit(self) -> bool {
+        self == Self::Memory
+    }
 }
 
 /// One connected peer, as the dashboard shows it.
@@ -199,6 +212,14 @@ mod tests {
         assert!(!book.dialed(&PeerId::random()));
         book.closed(out, 0);
         assert!(!book.dialed(&out), "a gone peer is not dialed");
+    }
+
+    #[test]
+    fn only_memory_peers_become_explicit_gossip_peers() {
+        assert!(Transport::Memory.gossip_explicit());
+        for transport in [Transport::Tcp, Transport::WebSocket, Transport::Other] {
+            assert!(!transport.gossip_explicit(), "{}", transport.as_str());
+        }
     }
 
     #[test]
