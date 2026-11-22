@@ -1258,32 +1258,31 @@ pub async fn block_loop(
         let block = share::block_for(&job, share.nonce, share.ntime);
         let id = hex::encode(block.header.id());
 
-        if let Err(error) = node.submit_block(&block).await {
-            // The share is already credited, which is right: the miner did the
-            // work. What is lost is the block, and that must be loud.
+        // Recorded before it is submitted; see `PayoutEngine::land_block`.
+        let landed = engine
+            .land_block(
+                &id,
+                job.height,
+                share.sequence,
+                share.key.miner,
+                &job.network_target,
+                || node.submit_block(&block),
+            )
+            .await;
+        if let Err(error) = landed {
+            // The share is credited, which is right: the miner did the work.
+            // The block's credits stay immature until the maturity check
+            // orphans them, in case the node took it and the answer was lost.
             eprintln!("pool: the chain refused a block the pool verified: {error}");
             continue;
         }
 
         state.metrics.record_block_found();
         state.publish(PoolEvent::Block {
-            id: id.clone(),
+            id,
             height: job.height,
             finder: hex::encode(share.key.miner),
         });
-
-        if let Err(error) = engine.credit_block(
-            &id,
-            job.height,
-            share.sequence,
-            share.key.miner,
-            &job.network_target,
-        ) {
-            // The block is on the chain and its credits are not in the ledger.
-            // Nothing here can fix that automatically, so it is reported in the
-            // strongest terms the daemon has.
-            eprintln!("pool: BLOCK {id} WAS SUBMITTED BUT NOT CREDITED: {error}");
-        }
     }
 }
 
