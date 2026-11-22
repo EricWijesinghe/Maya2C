@@ -437,7 +437,9 @@ async fn forward(
     _slot: StreamSlot,
 ) {
     let (mut sink, mut incoming) = socket.split();
-    let mut ping = tokio::time::interval(STREAM_PING);
+    // The first tick of `interval` is immediate; a ping at connect time would
+    // reach the client ahead of the first event, and it proves nothing yet.
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + STREAM_PING, STREAM_PING);
     let mut last_heard = tokio::time::Instant::now();
     loop {
         tokio::select! {

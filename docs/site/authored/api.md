@@ -146,7 +146,9 @@ it is the TCP peer (`socket`). Behind Cloudflare, it is `CF-Connecting-IP`,
 which Cloudflare's edge overwrites (`cf-connecting-ip`; this is how the public
 testnet runs). Behind another reverse proxy, it is the **last**
 `X-Forwarded-For` entry (`x-forwarded-for-last`): a client can prepend entries
-to that header but cannot remove the one the proxy in front appends. Set
+to that header but cannot remove the one the proxy in front appends. The
+header is believed only when the request comes from a loopback peer (the proxy
+on the same host); from any other peer the socket address is the client. Set
 `--rate-per-second` and `--rate-burst` to change the limits.
 
 ## Event subscriptions

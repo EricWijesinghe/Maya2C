@@ -110,6 +110,15 @@ jobs:
       - name: Guide commands
         run: cargo xtask guides-check
 
+      # The public roadmap is generated from the ecosystem catalog's waves;
+      # a catalog edit without a regenerated roadmap fails here.
+      - name: Roadmap matches the catalog
+        run: cargo xtask devlog roadmap --check
+
+      # The README's status table is generated from features.toml.
+      - name: README counts match the ledger
+        run: cargo xtask devlog counts --check
+
       # Every relative link in a tracked Markdown file names an existing file
       # (issue #530; ADR-081 and ADR-082 shipped two renamed targets).
       - name: Markdown links

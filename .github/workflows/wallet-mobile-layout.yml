@@ -1,0 +1,39 @@
+# Phone-width layout of the wallet UI (P-10, apps/wallet-gui/ANDROID.md).
+# Builds the Leptos frontend with trunk and runs ui/tests/overflow.mjs: every
+# screen at 360 and 390 CSS px, no horizontal overflow. Path-filtered, so it
+# costs a runner only when the wallet UI or the check itself changes.
+name: wallet-mobile-layout
+
+on:
+  pull_request:
+    paths:
+      - 'apps/wallet-gui/ui/**'
+      - 'crates/amount/**'
+      - '.github/workflows/wallet-mobile-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  overflow:
+    name: wallet 360 px layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
+        with:
+          toolchain: nightly-2026-07-15
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
+        with:
+          tool: trunk
+      - name: Build the wallet UI
+        working-directory: apps/wallet-gui
+        run: trunk build --config ui/Trunk.toml
+      - name: Install the matching Playwright package
+        run: npm install --no-save --prefix apps/wallet-gui/ui/tests playwright@1.56.1
+      - name: No horizontal overflow at 360 and 390 px
+        run: node apps/wallet-gui/ui/tests/overflow.mjs

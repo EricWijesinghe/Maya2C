@@ -71,8 +71,11 @@ fn write_bootstrap(work: &Path) -> Result<(), String> {
         .map(|a| {
             json!({
                 "account_identifier": { "address": a["address"] },
-                "currency": { "symbol": "MAYA", "decimals": 0 },
-                "value": a["balance"].to_string(),
+                // Must equal what maya2c-mesh reports, or mesh-cli sees two currencies.
+                "currency": { "symbol": "MAYA", "decimals": maya_amount::COIN_DECIMALS },
+                // A genesis amount may be a JSON number or a decimal string (ADR-046);
+                // `to_string` on a string would keep its quotes.
+                "value": a["balance"].as_str().map_or_else(|| a["balance"].to_string(), str::to_string),
             })
         })
         .collect();
