@@ -64,10 +64,12 @@ const _: () = assert!(8 * MAX_DELEGATIONS_PER_VALIDATOR == MAX_DELEGATION_RECORD
 /// ceiling, so a crowd of delegators cannot trap a validator's bond; but
 /// operator entries counted only against `registered validators ×
 /// unbonding_epochs`, which no rule bounds. Past `ceiling + reserve` an
-/// operator unbond that would open a new entry is refused too, so the
-/// positions one boundary releases have a bound whatever the number of
-/// validators. One validator's worth, so the slash and boundary bounds stay
-/// the ones `MAX_DELEGATIONS_PER_VALIDATOR` already states.
+/// operator's partial unbond that would open a new entry is refused too. A
+/// full exit of at least `min_self_bond` never is, so an operator can always
+/// leave; each such entry locks `min_self_bond` until it releases, so capital
+/// bounds them. The positions one boundary releases then have a bound
+/// whatever the number of validators. One validator's worth, so the slash and
+/// boundary bounds stay the ones `MAX_DELEGATIONS_PER_VALIDATOR` already states.
 pub(crate) const OPERATOR_ENTRY_RESERVE: u64 = MAX_DELEGATIONS_PER_VALIDATOR;
 
 /// Most positions a chain with epochs of `epoch_blocks` blocks may hold:
@@ -703,10 +705,24 @@ impl StateDB {
                 if let Some(release) = release {
                     self.load_unbonding(overlay, view, (validator, release, *sender))?;
                     // Folding into this release epoch's entry adds no position.
-                    if matches!(
+                    // A full exit of at least the minimum bond is exempt: an
+                    // operator can always leave, and the minimum it locks per
+                    // entry bounds such entries by capital. Below the minimum
+                    // it is not, or a one-unit top-up could exit every epoch.
+                    let opens_entry = matches!(
                         view.unbonding.get(&(validator, release, *sender)),
                         Some(None)
-                    ) {
+                    );
+                    let full_exit =
+                        view.record
+                            .staking
+                            .validators
+                            .get(&validator)
+                            .is_some_and(|v| {
+                                amount == v.self_bond
+                                    && amount >= view.record.staking.params.min_self_bond
+                            });
+                    if opens_entry && !full_exit {
                         view.refuse_operator_entry()?;
                     }
                 }

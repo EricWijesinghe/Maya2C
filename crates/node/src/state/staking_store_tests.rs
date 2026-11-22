@@ -1245,6 +1245,86 @@ fn operator_entries_stop_at_the_reserve_above_the_ceiling() {
 }
 
 #[test]
+fn a_full_operator_exit_of_at_least_the_minimum_bond_passes_a_full_reserve() {
+    // Spec STK-12: an operator can always leave. A full exit (nothing left
+    // bonded) of at least `min_self_bond` is exempt from the reserve, so the
+    // entries past it are bounded by capital (staked coins / `min_self_bond`).
+    // A full exit below the minimum is not exempt (otherwise one validator
+    // could top up one base unit and exit again every epoch), but a top-up
+    // to the minimum, never refused, makes it exempt.
+    let epoch_blocks = 2;
+    let ceiling = crate::state::staking_store::max_delegation_records(epoch_blocks);
+    let bound = ceiling + OPERATOR_ENTRY_RESERVE;
+    let mut pair = Pair::new(4, epoch_blocks);
+    let release_epoch = pair.reference.epoch + Params::DEVNET.unbonding_epochs;
+    for i in 0..bound {
+        pair.reference.unbonding.push(maya_staking::Unbonding {
+            owner: addr(0xE0, i),
+            validator: validator(i % 2),
+            amount: amount(1),
+            release_epoch,
+        });
+    }
+    // Validator 3 as a downtime slash leaves it: under the minimum bond.
+    let min = Params::DEVNET.min_self_bond;
+    pair.reference
+        .validators
+        .get_mut(&validator(3))
+        .unwrap()
+        .self_bond = min.checked_sub(amount(1)).unwrap();
+    store_reference(&mut pair, epoch_blocks);
+    pair.fund(operator(3));
+    let unbond = |v, n| StakeOp::Unbond {
+        validator: v,
+        amount: n,
+    };
+    let partial = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(2),
+            unbond(validator(2), amount(100)),
+        )
+        .expect_err("a partial operator exit at the full reserve");
+    assert!(partial.to_string().contains("reserve"), "{partial}");
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(2),
+            unbond(validator(2), amount(12_000)),
+        )
+        .expect("a full operator exit passes the full reserve");
+    let small = pair
+        .db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(3),
+            unbond(validator(3), min.checked_sub(amount(1)).unwrap()),
+        )
+        .expect_err("a full exit under the minimum bond is not exempt");
+    assert!(small.to_string().contains("reserve"), "{small}");
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(3),
+            StakeOp::BondMore {
+                validator: validator(3),
+                amount: amount(1),
+            },
+        )
+        .expect("a top-up is never refused");
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &operator(3), unbond(validator(3), min))
+        .expect("topped up to the minimum, the full exit passes");
+    let (_, all) = entries(&pair, &validator(0));
+    assert_eq!(
+        all,
+        bound + 2,
+        "the two full exits are the only positions past the bound"
+    );
+}
+
+#[test]
 fn filling_a_ceiling_at_the_proposed_floor_locks_this_much() {
     // Decision brief 2 option A, pending Eric: `min_delegation` = 100 coins
     // (xtask/src/genesis_check.rs `MIN_DELEGATION`; xtask does not link the

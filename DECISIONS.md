@@ -1031,8 +1031,12 @@ Built as a draft `[needs-eric]` PR stacked on #555; nothing here is decided unti
   100 coins needs a pool. One line in `xtask/src/genesis_check.rs`; no record format change.
 - **Proposed (R-7):** an operator unbond that would open a new unbonding entry is refused once
   positions reach the ceiling plus `OPERATOR_ENTRY_RESERVE` = 16,384 (spec STK-12). Positions are then
-  bounded whatever the number of validators. Filling the reserve takes 2,341 validators at 1,000
-  coins, refilled every epoch, and only delays operators' new entries.
+  bounded whatever the number of validators. A full operator exit of at least `min_self_bond` is
+  exempt, so an operator can always leave (a slashed one tops up to the minimum first); each exempt
+  entry holds at least `min_self_bond`, so capital bounds them (positions at most 167,143 at the
+  1,000-coin bond with every coin issued bonded). Filling the reserve takes 2,341 validators at
+  1,000 coins, kept refilled at every boundary; while it is kept up, operators' partial unbonds are
+  refused, not merely delayed. An earlier draft refused full exits too; review caught it.
 - **Not done, for Eric:** a registration ceiling (needs a validator count in the meta record, a
   layout change); option B (evict the smallest position at a full ceiling), suggested after genesis.
 - **Audit claims checked:** brief 2's ceilings (131,072 and 16,384) and the 1-coin floor are right;

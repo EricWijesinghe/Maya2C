@@ -244,12 +244,22 @@ count cap, so positions exceeded the ceiling by up to registered validators ×
 unbond that would open a new entry is refused once positions reach
 `ceiling + OPERATOR_ENTRY_RESERVE` (16,384, one validator's worth), spec
 STK-12; folding into its own entry for the same release epoch is never
-refused. Positions are now bounded by `ceiling + 16,384` whatever the number
-of validators, which bounds what one boundary releases. Delegators are
-refused at the ceiling, so only operators reach the reserve. Filling it takes
-2,341 validators (16,384 / 7 unbonding epochs) at 1,000 coins each, 2,341,000
-coins kept refilled every epoch, and then only delays operators' new entries
-until entries release. Not done: a registration ceiling (it needs a validator
+refused, and neither is a full exit (nothing left bonded) of at least
+`min_self_bond`, so an operator can always leave; one a slash took under the
+minimum tops up to it first (a top-up is never refused). A full exit under
+the minimum is not exempt, or one validator could top up one base unit and
+exit again every epoch. Each exempt entry holds at least `min_self_bond`
+until it releases, so positions are bounded by `ceiling + 16,384 + staked
+coins / min_self_bond` (at most 167,143 at the 1,000-coin bond with every
+coin the halving eras issue bonded) whatever the number of validators, which
+bounds what one boundary releases. Delegators are refused at the ceiling, so
+only operators reach the reserve. Filling it takes 2,341 validators (16,384 /
+7 unbonding epochs) at 1,000 coins each, 2,341,000 coins kept refilled at
+every boundary. For as long as the fill is kept up, operators' partial
+unbonds are refused, not merely delayed (the attacker can take a freed slot
+first in the next block); full exits still pass. The first draft of this
+amendment refused full exits too and said the fill "only delays"; review of
+the draft found that wrong, and the exemption replaced it. Not done: a registration ceiling (it needs a validator
 count in the meta record, a layout change); validator records stay bounded by
 `min_self_bond` alone, at most 2,625 in the first year and 19,687 over the
 halving eras if every coin issued were bonded.
