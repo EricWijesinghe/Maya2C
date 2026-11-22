@@ -624,6 +624,12 @@ fn crowded_with(crowd: u64, epoch_blocks: u64, spread: u64) -> Pair {
             .delegate(addr(0xD0, i), validator(i % spread), min)
             .unwrap();
     }
+    store_reference(&mut pair, epoch_blocks);
+    pair
+}
+
+/// Writes the reference, its pending delegations settled, straight into state.
+fn store_reference(pair: &mut Pair, epoch_blocks: u64) {
     pair.reference.pending_delegations.clear();
     let view = StakingRecord {
         staking: pair.reference.clone(),
@@ -636,7 +642,6 @@ fn crowded_with(crowd: u64, epoch_blocks: u64, spread: u64) -> Pair {
         pair.db.raw_put_for_test(&key, &value).unwrap();
     }
     pair.fund(delegator(0));
-    pair
 }
 
 #[test]
@@ -1076,6 +1081,24 @@ fn a_delegate_and_undelegate_churn_frees_no_slot_until_its_entry_releases() {
     assert_eq!(joined, ceiling, "each churned position holds its slot");
     assert_eq!(refused, 16);
     assert_eq!(all, ceiling, "entries never pass the ceiling");
+    // The root folds every `k:` record: at most two per position, plus the
+    // validators, open payouts and the meta record (STK-7).
+    let records = pair.records();
+    let meta =
+        crate::state::staking::Meta::decode(&records[crate::state::staking::STATE_KEY]).unwrap();
+    assert_eq!(meta.unbonding_records, all);
+    let released = records
+        .keys()
+        .filter(|k| k.starts_with(crate::state::staking_records::RELEASE_PREFIX))
+        .count() as u64;
+    assert_eq!(released, all, "one release-index entry per unbonding entry");
+    // The fee record shares the `k:` prefix but is not a staking record.
+    let folded = records.keys().filter(|k| k.as_slice() != FEE_KEY).count() as u64;
+    let bound = 2 * ceiling + 4 + pair.open_payouts() as u64 + 1;
+    assert!(
+        folded <= bound,
+        "{folded} staking records fold, bound {bound}"
+    );
     // A slash reads the offender's positions, so the ceiling bounds it.
     let (reads, _, ok) = measured(|| {
         pair.db.apply_stake_op(
@@ -1169,6 +1192,96 @@ fn at_the_ceiling_a_full_exit_and_an_operator_unbond_pass_and_a_partial_exit_doe
         )
         .expect_err("still full");
     assert!(fresh.to_string().contains("ceiling"), "{fresh}");
+}
+
+#[test]
+fn unbonding_entries_fill_one_validators_ceiling_and_bound_its_slash() {
+    // Long epochs: the chain-wide ceiling (131,072) is far away, so only the
+    // per-validator one can refuse. Validator 0 holds its ceiling in
+    // positions, all but four of them entries a delegate-and-leave churn left.
+    let epoch_blocks = 3_600;
+    assert_eq!(
+        crate::state::staking_store::max_delegation_records(epoch_blocks),
+        crate::state::staking_store::MAX_DELEGATION_RECORDS
+    );
+    let staying = 4;
+    let min = Params::DEVNET.min_delegation;
+    let mut pair = Pair::new(4, epoch_blocks);
+    let release_epoch = pair.reference.epoch + Params::DEVNET.unbonding_epochs;
+    // The first stayer holds twice the minimum, so a partial exit is legal.
+    pair.reference
+        .delegate(addr(0xD3, 0), validator(0), min)
+        .unwrap();
+    for i in 0..MAX_DELEGATIONS_PER_VALIDATOR {
+        let owner = addr(0xD3, i);
+        if i < staying {
+            pair.reference.delegate(owner, validator(0), min).unwrap();
+        } else {
+            // What a full undelegation leaves: an entry and no delegation.
+            pair.reference.unbonding.push(maya_staking::Unbonding {
+                owner,
+                validator: validator(0),
+                amount: min,
+                release_epoch,
+            });
+        }
+    }
+    store_reference(&mut pair, epoch_blocks);
+    // A slash reads the offender's positions and its operator's entries.
+    let (reads, _, ok) = measured(|| {
+        pair.db.apply_stake_op(
+            &mut Overlay::new(),
+            &addr(0xEE, 0),
+            StakeOp::Slash(validator(0)),
+        )
+    });
+    ok.unwrap();
+    let bound = MAX_DELEGATIONS_PER_VALIDATOR + Params::DEVNET.unbonding_epochs + 8;
+    assert!(
+        reads <= bound,
+        "a slash read {reads} records, bound {bound}"
+    );
+    let delegate = |v| StakeOp::Delegate {
+        validator: v,
+        amount: min,
+    };
+    let undelegate = |amount| StakeOp::Undelegate {
+        validator: validator(0),
+        amount,
+    };
+    let refused = pair
+        .db
+        .apply_stake_op(&mut pair.overlay, &delegator(0), delegate(validator(0)))
+        .expect_err("a new delegation record at the validator's ceiling");
+    assert!(refused.to_string().contains("per-validator"), "{refused}");
+    pair.fund(addr(0xD3, 0));
+    let refused = pair
+        .db
+        .apply_stake_op(&mut pair.overlay, &addr(0xD3, 0), undelegate(min))
+        .expect_err("a partial exit that opens a new entry at the ceiling");
+    assert!(refused.to_string().contains("per-validator"), "{refused}");
+    // Top-ups, full exits and the operator's unbond still pass.
+    pair.fund(addr(0xD3, 1));
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &addr(0xD3, 1), delegate(validator(0)))
+        .expect("a top-up");
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &addr(0xD3, 2), undelegate(min))
+        .expect("a full exit");
+    pair.db
+        .apply_stake_op(
+            &mut pair.overlay,
+            &operator(0),
+            StakeOp::Unbond {
+                validator: validator(0),
+                amount: amount(100),
+            },
+        )
+        .expect("an operator unbond");
+    // Every other validator still takes new delegators.
+    pair.db
+        .apply_stake_op(&mut pair.overlay, &delegator(0), delegate(validator(1)))
+        .expect("another validator is open");
 }
 
 #[test]

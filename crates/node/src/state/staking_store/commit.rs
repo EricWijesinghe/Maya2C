@@ -253,7 +253,10 @@ impl Commit<'_> {
             let c = self.changes.entry(key.0).or_default();
             if let Some(old) = loaded {
                 c.unbonding_old = add(c.unbonding_old, *old)?;
-                c.entries_old += 1;
+                c.entries_old = c
+                    .entries_old
+                    .checked_add(1)
+                    .ok_or_else(|| corrupt("unbonding entry count"))?;
             }
             // An entry a slash cut to zero is deleted: releasing it credits
             // nothing and the rules' retain already ignores it (STK-2), and a
@@ -261,7 +264,10 @@ impl Commit<'_> {
             match now.get(key).filter(|amount| !amount.is_zero()) {
                 Some(amount) => {
                     c.unbonding_new = add(c.unbonding_new, *amount)?;
-                    c.entries_new += 1;
+                    c.entries_new = c
+                        .entries_new
+                        .checked_add(1)
+                        .ok_or_else(|| corrupt("unbonding entry count"))?;
                     if loaded.as_ref() != Some(amount) {
                         let mut value = Vec::new();
                         crate::state::staking::put_amount(&mut value, *amount);
@@ -269,7 +275,10 @@ impl Commit<'_> {
                     }
                     if loaded.is_none() {
                         self.records.push((release_key(key), Some(Vec::new())));
-                        self.unbonding_records += 1;
+                        self.unbonding_records = self
+                            .unbonding_records
+                            .checked_add(1)
+                            .ok_or_else(|| corrupt("unbonding entry count"))?;
                     }
                 }
                 None if loaded.is_some() => {

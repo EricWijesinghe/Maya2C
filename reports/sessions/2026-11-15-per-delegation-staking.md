@@ -273,3 +273,52 @@ assertions and overflow checks off for the node): optimised, but no LTO and
   pull requests by design (`security-audit.yml`); the staking vectors run in
   the node lib tests above.
 - Two human reviewers for a consensus change: not available to this session.
+
+## Review round 3 (2026-11-18, Eric 2026-11-17 pre-approval, re-freeze bundle 3)
+
+Tests and docs only; no rule, layout or vector change.
+
+- New `unbonding_entries_fill_one_validators_ceiling_and_bound_its_slash`:
+  3,600-block epochs (chain ceiling 131,072, so only the per-validator one can
+  fire), validator 0 at 16,384 positions, 16,380 of them unbonding entries.
+  Asserts a fresh delegation and a partial exit are refused "per-validator",
+  a top-up, a full exit and an operator unbond pass, another validator stays
+  open, and a slash reads at most 16,384 + `unbonding_epochs` + 8 records.
+- The churn test now asserts `Meta.unbonding_records` and the release-index
+  count equal the entries, and that the staking records the root folds are at
+  most 2 × ceiling + validators + payouts + meta.
+- Entry counters use checked arithmetic (`commit.rs`, `to_records`).
+- `a_reveal_height_holds_at_most_its_cap` takes its account nonces from the
+  attempt index (CodeQL flagged the literal nonces in this test fixture).
+- Spec STK-7 and Gaps: positions exceed the ceiling by at most registered
+  validators × `unbonding_epochs`; the validator count is limited only by
+  `min_self_bond`. PARTIAL, open for Eric (DECISIONS.md 2026-11-18).
+
+Red, with `.saturating_add(v.unbonding_entries)` removed from
+`refuse_new_position` (and the first draft of the root bound, which counted
+the `k:fee` record):
+
+```
+---- state::staking_store_tests::a_delegate_and_undelegate_churn_frees_no_slot_until_its_entry_releases stdout ----
+churn: 1024 joined, 16 refused, 1024 unbonding entries
+panicked at crates\node\src\state\staking_store_tests.rs:1097:5:
+2054 staking records fold, bound 2053
+---- state::staking_store_tests::unbonding_entries_fill_one_validators_ceiling_and_bound_its_slash stdout ----
+panicked at crates\node\src\state\staking_store_tests.rs:1248:10:
+a new delegation record at the validator's ceiling: ()
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 567 filtered out; finished in 0.34s
+```
+
+The churn failure was the test's own bound (the fee record shares `k:`); it
+now excludes `FEE_KEY`. Green, check restored:
+`cargo test -p custom-l1-node --lib -- state::staking state::scan_bounds`
+
+```
+test state::staking_store_tests::unbonding_entries_fill_one_validators_ceiling_and_bound_its_slash ... ok
+test state::scan_bounds_tests::a_reveal_height_holds_at_most_its_cap ... ok
+test result: ok. 34 passed; 0 failed; 6 ignored; 0 measured; 530 filtered out; finished in 2.08s
+```
+
+Still PARTIAL, open for Eric: the dust lockout (16,384 / 131,072 coins locked
+at the 1-coin floor), the per-block root cost and one-block release, and the
+validator count bounded only by `min_self_bond`.
