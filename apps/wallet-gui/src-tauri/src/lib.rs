@@ -56,7 +56,7 @@ pub fn run() {
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 deeplink::handle(app.handle(), &urls);
             }
-            Ok(maya_app_update::start(app)?)
+            Ok(maya_app_update::start(app, None)?)
         })
         .manage(Session::default())
         .manage(deeplink::PendingPay::default())
@@ -89,6 +89,7 @@ pub fn run() {
             commands::export_contacts,
             commands::import_contacts,
             commands::check_recipient,
+            maya_app_update::command::check_for_updates,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");

@@ -105,6 +105,21 @@ keyless signature described here, and the updater does not check the build
 provenance. To verify provenance of an installer you downloaded yourself, run
 the steps above.
 
+The updaters run only when you press **Check for updates** (ADR-080,
+amendment 2026-11-14). The update dialog shows the publisher key fingerprint,
+SHA-256 of the update public key, in `sha256sum`'s format (64 lower-case hex
+digits). Compare it with this one:
+
+- Update public key fingerprint: **not published yet**. No update key
+  exists (`apps/updater-pubkey.txt` is absent), so no build offers updates.
+  If this line lists no fingerprint, do not install an update.
+
+A matching fingerprint shows the app trusts the expected key; it does not
+prove the update is genuine if that key was stolen. Before you press
+**Install now**, find the download's SHA-256, which the second dialog shows,
+in this release's `SHA256SUMS`, checked as above. That file is signed by the
+release workflow, not by the update key.
+
 ## For the maintainer: what is still missing
 
 - **Authenticode.** Add the certificate as the `WINDOWS_CODESIGN_PFX_BASE64`

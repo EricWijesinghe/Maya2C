@@ -186,7 +186,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             thread::spawn(move || supervise(handle));
-            Ok(maya_app_update::start(app)?)
+            // Installing an update exits without destroying the window, so
+            // the Destroyed handler below would never stop the miners.
+            Ok(maya_app_update::start(app, Some(stop_miners))?)
         })
         .manage(Miner::default())
         .manage(Mutex::new(Notifier::default()))
@@ -198,7 +200,8 @@ pub fn run() {
             miner_start,
             miner_stop,
             miner_state,
-            notify_set
+            notify_set,
+            maya_app_update::command::check_for_updates
         ])
         .on_window_event(|window, event| {
             // A miner left running after the window closes would be a miner
@@ -209,4 +212,28 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the Maya2C Hub");
+}
+
+fn stop_miners(app: &tauri::AppHandle) {
+    app.state::<Miner>().stop(None);
+}
+
+#[cfg(test)]
+mod update_tests {
+    /// Source-level: the install path needs a running app and a signed build.
+    #[test]
+    fn an_update_install_stops_the_miners_first() {
+        // Only the code above this module, so these literals cannot match.
+        let source = include_str!("lib.rs")
+            .split("mod update_tests")
+            .next()
+            .expect("non-empty");
+        assert!(source.contains("maya_app_update::start(app, Some(stop_miners))"));
+        let hook = source
+            .split("fn stop_miners(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("stop_miners exists");
+        assert!(hook.contains("state::<Miner>().stop(None)"));
+    }
 }

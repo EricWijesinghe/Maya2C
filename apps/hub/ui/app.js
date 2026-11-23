@@ -658,6 +658,21 @@ function wireSettings(defaults, gpus) {
   if (!isPreview) call("notify_set", { on: Boolean(s.notify) }).catch((e) => setText("s-msg", `Notifications: ${e}`));
   renderDevicePicks(gpus.devices);
   $("s-save").addEventListener("click", saveSettingsForm);
+  $("s-update").addEventListener("click", checkForUpdates);
+}
+
+// Manual only (ADR-080 amendment 2026-11-14): the Rust side asks before it installs.
+async function checkForUpdates() {
+  const button = $("s-update");
+  button.disabled = true;
+  setText("s-update-msg", "Checking…");
+  try {
+    setText("s-update-msg", await call("check_for_updates"));
+  } catch (e) {
+    setText("s-update-msg", `Update check failed: ${e}`);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function main() {

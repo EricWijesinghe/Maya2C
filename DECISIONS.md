@@ -902,6 +902,20 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
 
+## 2026-11-14 — In-app updates are manual until update manifests are k-of-n signed (Eric 2026-11-14)
+
+Founder-brief audit question 23, option A, chosen by Eric 2026-11-14 ("I
+approve everything, proceed"). One key signs the update payloads, so a
+stolen key would reach every installed Hub, Wallet and Chat at once. The
+apps no longer check on start: `apps/app-update` only registers the updater,
+and a **Check for updates** button runs the check. The dialog shows the
+publisher key's SHA-256 fingerprint, and the download must pass
+`maya_app_update::verify::verify_confirm_install` (signature, then a second
+dialog showing the download's SHA-256 to compare with the cosign-signed
+`SHA256SUMS`, then install) before it installs. Until k-of-n the manual
+check trusts one key; the `SHA256SUMS` comparison is the only check
+independent of it. Automatic checks come back only with k-of-n manifest
+signing (ADR-080, amendment 2026-11-14).
 ## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
 
 - **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.

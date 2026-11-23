@@ -340,7 +340,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let state = App::open(Files::new(dir)?)?;
             app.manage(Arc::new(state));
-            maya_app_update::start(app)?;
+            maya_app_update::start(app, None)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -360,7 +360,8 @@ pub fn run() {
             sticker_cmds::create_pack,
             sticker_cmds::remove_pack,
             sticker_cmds::send_sticker,
-            sticker_cmds::request_pack
+            sticker_cmds::request_pack,
+            maya_app_update::command::check_for_updates
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maya Chat");
