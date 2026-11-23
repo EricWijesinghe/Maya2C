@@ -114,6 +114,32 @@ RPC:
     blocking thread and outside the chain lock, so paging through N indicators costs
     O(N) reads in total rather than one full scan per page.
 
+Amended 2026-11-24 (branch `sec/rpc-1124`, which carries #655 merged onto master):
+
+16. **Connections time out.** Each RPC connection is served by hyper directly with a
+    timer: 10 s to send (or wait for) the head of each request, the first included,
+    so an idle keep-alive socket is closed. jsonrpsee's `serve_with_graceful_shutdown`
+    sets no timer, so after one request a socket held its slot for good. A connection
+    is served for at most 300 s, then finishes its request in flight within 60 s.
+17. **One socket peer holds at most 64 connections** (an IPv6 peer by its /64) of the
+    global 1,024. Loopback and trusted proxies are exempt, since every client behind
+    them shares their address; the timeouts above bound them instead.
+18. **Block reads leave the chain lock.** `get_block_by_height`,
+    `get_blocks_by_height_range` and `get_balance_changes` run on blocking threads and
+    hold the chain lock only to copy the state handle. An archive fetch of a pruned
+    body runs one at a time across all clients (a second caller is refused, not
+    queued), costs half a read burst, and a range answer makes at most one; after it,
+    a pruned height ends the answer short. A range answer also stops once it carries a
+    quarter of the response cap in hex-encoded blocks, always serving the first.
+19. **The market endpoints** (merged from #589): 256 connections, 10 s head timeout,
+    60 s lifetime, 5 requests/s (burst 20) per client, handlers on blocking threads,
+    and a fixed error text. A loopback peer's `cf-connecting-ip` / `x-forwarded-for`
+    names the client, so tunnelled clients get a bucket each; a non-loopback proxy
+    (a k8s ingress) still puts its clients in one bucket.
+20. **The RPC limiter table has a hard cap** (merged from #589): when a sweep frees
+    nothing, the least recently used 1/16 is evicted, and a refund reaches an IPv6
+    client's /64 bucket.
+
 ## Not done here
 
 - Explicit gossipsub peers on every transport (audit P2P-01): changing it changes how
@@ -121,7 +147,10 @@ RPC:
 - Signature checks for DAG-BFT frames at the gossip layer, the source peer carried to
   the engine, IP-level quarantine, DHT address filtering, and incremental supply
   counters in state (a state-format change).
-- The read budget and catch-up cap are set, not measured against a disk.
+- The read budget and catch-up cap are set, not measured against a disk. So are the
+  archive-fetch cost, the connection timeouts and the per-peer connection cap.
+- Total buffered request bodies can still reach 1,024 connections × the body cap;
+  a global in-flight byte budget is a follow-up.
 
 ## Consequences
 

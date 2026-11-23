@@ -15,7 +15,9 @@ use custom_l1_node::core::{Block, BlockHeader};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::network::Mempool;
 use custom_l1_node::rpc::limit::RateLimiter;
-use custom_l1_node::rpc::server::{BODY_READ_DEADLINE, MAX_REQUEST_BODY, READ_BUDGET_EXHAUSTED};
+use custom_l1_node::rpc::server::{
+    BODY_READ_DEADLINE, HEADER_READ_TIMEOUT, MAX_REQUEST_BODY, READ_BUDGET_EXHAUSTED,
+};
 use custom_l1_node::rpc::{RpcContext, RpcServer, serve};
 use custom_l1_node::state::{Account, Address, StateDB};
 
@@ -229,4 +231,47 @@ async fn a_deep_balance_walk_is_charged_by_the_reads_it_makes() {
         refused.to_string().contains(READ_BUDGET_EXHAUSTED),
         "{refused}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_connection_is_closed_after_the_header_deadline() {
+    // One socket that sends nothing, one that is answered once and then kept
+    // open without another request. Before the deadline the second held its
+    // slot for good, and 1024 of them locked every client out.
+    let node = start(&[], |c| c).await;
+    let patience = HEADER_READ_TIMEOUT + Duration::from_secs(10);
+
+    let silent = tokio::net::TcpStream::connect(node.server.address)
+        .await
+        .expect("connect");
+    let mut kept = tokio::net::TcpStream::connect(node.server.address)
+        .await
+        .expect("connect");
+    let body = br#"{"jsonrpc":"2.0","id":1,"method":"get_chain_info","params":[]}"#;
+    let head = format!(
+        "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n",
+        body.len()
+    );
+    kept.write_all(head.as_bytes()).await.expect("head");
+    kept.write_all(body).await.expect("body");
+    let mut first = [0u8; 64];
+    let read = tokio::time::timeout(Duration::from_secs(30), kept.read(&mut first))
+        .await
+        .expect("an answer")
+        .expect("read");
+    assert!(
+        String::from_utf8_lossy(&first[..read]).starts_with("HTTP/1.1 200"),
+        "the request was not served"
+    );
+
+    let closed = |mut stream: tokio::net::TcpStream| async move {
+        let mut rest = Vec::new();
+        tokio::time::timeout(patience, stream.read_to_end(&mut rest))
+            .await
+            .is_ok()
+    };
+    let (silent_closed, kept_closed) = tokio::join!(closed(silent), closed(kept));
+    assert!(silent_closed, "a socket that never sent a request was kept");
+    assert!(kept_closed, "an idle keep-alive socket was kept");
 }

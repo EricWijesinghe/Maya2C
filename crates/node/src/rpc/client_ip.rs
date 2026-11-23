@@ -42,7 +42,7 @@ pub fn client_ip(
         .unwrap_or(peer)
 }
 
-fn is_trusted(address: IpAddr, trusted: &[IpAddr]) -> bool {
+pub(crate) fn is_trusted(address: IpAddr, trusted: &[IpAddr]) -> bool {
     address.is_loopback() || trusted.iter().any(|t| t.to_canonical() == address)
 }
 

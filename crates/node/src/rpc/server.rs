@@ -5,8 +5,10 @@
 //! blocking pool would cost more in scheduling than it saves. The exceptions
 //! run on blocking threads: `submit_block`, which verifies proof of work (a
 //! 32 MiB Argon2id pass that would stall the reactor), and the reads that walk
-//! many records (`get_supply`, `get_balance_at_height`, `get_certificates` and
-//! the bootstrap reads), which would otherwise hold a runtime worker each.
+//! many records or load whole blocks (`get_supply`, `get_balance_at_height`,
+//! `get_certificates`, `get_block_by_height`, `get_blocks_by_height_range`,
+//! `get_balance_changes` and the bootstrap reads), which would otherwise hold
+//! a runtime worker each.
 //!
 //! The chain sits behind a `Mutex` because fork choice mutates it and the reorg
 //! path must be serialized — two concurrent reorgs would interleave undo
@@ -44,12 +46,35 @@ const NOT_FOUND: i32 = -32_001;
 /// one call walk further before failing.
 const MAX_BALANCE_REWIND: u64 = crate::state_pruner::PRUNE_DEPTH;
 
-/// The block at `height` as the RPC reports it: from the canonical index, or
-/// fetched back from the archive when pruned here. Shared by
-/// `get_block_by_height` and `get_blocks_by_height_range`.
-fn block_info_at(ctx: &RpcContext, height: u64) -> Result<BlockInfo, ErrorObjectOwned> {
-    let chain = ctx.chain();
-    let state = chain.state();
+/// Archive fetches running at once, across all clients. A fetch may read and
+/// decode a 512 MiB archive or wait minutes on a remote gateway, so a second
+/// caller is refused rather than queued.
+static COLD_FETCHES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
+/// What one archive fetch costs against [`RpcContext::reads`]: half a burst,
+/// so one client gets two back to back and then about three a second at most.
+/// Not measured: a fetch is one archive read, priced far above an index read.
+pub const COLD_FETCH_READS: u64 = READ_BURST as u64 / 2;
+
+/// The refusal a client gets while another archive fetch is running.
+pub const COLD_FETCH_BUSY: &str = "an archive fetch is already running; retry later";
+
+/// The block at `height` as the RPC reports it, and whether it came from the
+/// archive: from the canonical index, or, if `cold_allowed`, fetched back
+/// from the archive when pruned here. Shared by `get_block_by_height` and
+/// `get_blocks_by_height_range`.
+///
+/// The chain lock is held only to copy the state handle. Block apply and
+/// commit take the same lock, and a block load (or an archive fetch over the
+/// network) under it stalled both for every caller. A body is immutable by
+/// id, so reading it unlocked cannot see it torn.
+fn block_info_at(
+    ctx: &RpcContext,
+    client: IpAddr,
+    height: u64,
+    cold_allowed: bool,
+) -> Result<(BlockInfo, bool), ErrorObjectOwned> {
+    let state = Arc::clone(ctx.chain().state());
 
     // The canonical index, not a walk from the tip: one read instead of
     // one per block of history.
@@ -57,30 +82,55 @@ fn block_info_at(ctx: &RpcContext, height: u64) -> Result<BlockInfo, ErrorObject
         .canonical_id(height)
         .map_err(internal)?
         .ok_or_else(|| not_found(format!("no block at height {height}")))?;
-    let block = match state.load_block(&id).map_err(internal)? {
-        Some(block) => block,
-        // Pruned here: fetched back from the archive and verified
-        // against the header this node kept, or refused.
-        None => ctx
-            .cold
-            .as_ref()
-            .ok_or_else(|| not_found(format!("height {height} is pruned on this node")))?
-            .fetch(state, height)
-            .map_err(|e| {
-                // The detail names stores and CIDs: the operator's log,
-                // not a public caller's business.
-                eprintln!("rpc: cold fetch of height {height} failed: {e}");
-                not_found(format!(
-                    "height {height} is pruned and no archived copy verified"
-                ))
-            })?,
+    if let Some(block) = state.load_block(&id).map_err(internal)? {
+        return Ok((BlockInfo::new(height, &block), false));
+    }
+    // Pruned here: fetched back from the archive and verified against the
+    // header this node kept, or refused.
+    let pruned = || not_found(format!("height {height} is pruned on this node"));
+    let cold = ctx
+        .cold
+        .as_ref()
+        .filter(|_| cold_allowed)
+        .ok_or_else(pruned)?;
+    let Ok(_fetching) = COLD_FETCHES.try_acquire() else {
+        return Err(rejected(COLD_FETCH_BUSY));
     };
+    if !ctx.reads.charge(client, COLD_FETCH_READS) {
+        return Err(rejected(READ_BUDGET_EXHAUSTED));
+    }
+    let block = cold.fetch(&state, height).map_err(|e| {
+        // The detail names stores and CIDs: the operator's log, not a public
+        // caller's business.
+        eprintln!("rpc: cold fetch of height {height} failed: {e}");
+        not_found(format!(
+            "height {height} is pruned and no archived copy verified"
+        ))
+    })?;
+    Ok((BlockInfo::new(height, &block), true))
+}
 
-    Ok(BlockInfo::new(height, &block))
+/// The client a method call is charged to.
+fn client_of(extensions: &hyper::http::Extensions) -> IpAddr {
+    extensions
+        .get::<ClientAddr>()
+        .map_or(UNKNOWN_CLIENT, |c| c.0)
 }
 
 /// Most blocks `get_blocks_by_height_range` returns in one answer.
 const MAX_RANGE_BLOCKS: u64 = 32;
+
+/// Most hex-encoded block bytes one `get_blocks_by_height_range` answer
+/// carries before it stops short. A quarter of the response cap: each block
+/// is sent hex-encoded and again as decoded transactions. One block is always
+/// served, so a maximal block still has a way out.
+pub const MAX_RANGE_RAW_HEX: usize = RPC_RESPONSE_LIMIT as usize / 4;
+
+/// Whether a block of `next` hex bytes still fits an answer already holding
+/// `held` bytes.
+fn range_has_room(held: usize, next: usize) -> bool {
+    held == 0 || held.saturating_add(next) <= MAX_RANGE_RAW_HEX
+}
 
 /// Most indicators one `threat_indicators` answer carries. One per author is
 /// a few hundred bytes of JSON, so a page stays far below the response cap
@@ -392,6 +442,77 @@ pub const PAGE_BUSY: &str = "one certificate page at a time per client";
 /// a flood of idle sockets never reaches the limiter. Enforced by the accept loop
 /// in [`serve_metered`]; jsonrpsee's own accept loop is not used there.
 pub const MAX_RPC_CONNECTIONS: u32 = 1024;
+
+/// Connections one socket peer may hold at once (an IPv6 peer by its /64), so
+/// one host cannot take every slot of [`MAX_RPC_CONNECTIONS`]. Loopback and
+/// trusted proxies are exempt: every client behind them shares their address,
+/// and the global cap still holds there.
+pub const MAX_CONNECTIONS_PER_PEER: usize = 64;
+
+/// How long a connection may wait for, or take to send, the head of its next
+/// request, the first one included. Hyper enforces it only with a timer set.
+/// Without it a socket that sent one request and then went idle held its slot
+/// for good, and 1024 such sockets locked every client out.
+pub const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long one connection is served, however busy. A client that keeps one
+/// open longer reconnects, which costs it a handshake and frees the slot for
+/// a moment; one that never reads its answers is cut off.
+pub const CONNECTION_LIFETIME: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How long a connection past its lifetime (or at shutdown) may take to finish
+/// the request it is on before it is dropped. Room for a maximal response to a
+/// slow reader.
+const CONNECTION_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Open connections per socket peer, bounded by [`MAX_CONNECTIONS_PER_PEER`].
+#[derive(Debug, Default)]
+struct PeerConnections {
+    open: Mutex<std::collections::HashMap<IpAddr, usize>>,
+}
+
+/// One connection's place in [`PeerConnections`]; released on drop.
+#[derive(Debug)]
+struct PeerSlot {
+    table: Arc<PeerConnections>,
+    key: IpAddr,
+}
+
+impl PeerConnections {
+    /// A slot for `peer`, or `None` if it already holds the most it may.
+    fn claim(table: &Arc<Self>, peer: IpAddr) -> Option<PeerSlot> {
+        let key = crate::rpc::limit::bucket_key(peer);
+        let mut open = table
+            .open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let count = open.entry(key).or_insert(0);
+        if *count >= MAX_CONNECTIONS_PER_PEER {
+            return None;
+        }
+        *count += 1;
+        Some(PeerSlot {
+            table: Arc::clone(table),
+            key,
+        })
+    }
+}
+
+impl Drop for PeerSlot {
+    fn drop(&mut self) {
+        let mut open = self
+            .table
+            .open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(count) = open.get_mut(&self.key) {
+            *count -= 1;
+            if *count == 0 {
+                open.remove(&self.key);
+            }
+        }
+    }
+}
 
 fn server_config() -> jsonrpsee::server::ServerConfig {
     jsonrpsee::server::ServerConfig::builder()
@@ -770,10 +891,11 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_balance_changes", |params, ctx, _| {
+        .register_blocking_method("get_balance_changes", |params, ctx, _| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            let chain = ctx.chain();
-            let state = chain.state();
+            // Lock held only to copy the handle: a block's changes are a
+            // whole block's worth of reads and encoding.
+            let state = Arc::clone(ctx.chain().state());
             let id = state
                 .canonical_id(height)
                 .map_err(internal)?
@@ -843,9 +965,9 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_block_by_height", |params, ctx, _| {
+        .register_blocking_method("get_block_by_height", |params, ctx, extensions| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            block_info_at(ctx, height)
+            block_info_at(&ctx, client_of(&extensions), height, true).map(|(info, _)| info)
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -854,7 +976,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     // Stops at the first height this node lacks, so a short answer means "that
     // is all I have", which the caller treats as an error, never a gap.
     module
-        .register_method("get_blocks_by_height_range", |params, ctx, _| {
+        .register_blocking_method("get_blocks_by_height_range", |params, ctx, extensions| {
             let (from, count): (u64, u64) =
                 params.parse().map_err(|e| invalid_params(e.to_string()))?;
             if count == 0 || count > MAX_RANGE_BLOCKS {
@@ -862,10 +984,22 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                     "count must be 1..={MAX_RANGE_BLOCKS}"
                 )));
             }
+            let client = client_of(&extensions);
             let mut out = Vec::new();
+            let mut held = 0usize;
+            // At most one archive fetch per answer: after it, a pruned height
+            // ends the answer short, as a missing one does.
+            let mut cold_allowed = true;
             for height in from..from.saturating_add(count) {
-                match block_info_at(ctx, height) {
-                    Ok(info) => out.push(info),
+                match block_info_at(&ctx, client, height, cold_allowed) {
+                    Ok((info, cold)) => {
+                        if !range_has_room(held, info.raw.len()) {
+                            break;
+                        }
+                        held += info.raw.len();
+                        cold_allowed &= !cold;
+                        out.push(info);
+                    }
                     Err(_) if !out.is_empty() => break,
                     Err(e) => return Err(e),
                 }
@@ -1153,6 +1287,7 @@ pub async fn serve_metered(
     check_peer_exposure(address, context.peers.is_some())?;
     let trusted: Arc<[std::net::IpAddr]> = trusted_proxies.into();
     let connections = Arc::new(tokio::sync::Semaphore::new(MAX_RPC_CONNECTIONS as usize));
+    let per_peer = Arc::new(PeerConnections::default());
     let module =
         build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
     let known: std::sync::Arc<std::collections::BTreeSet<String>> =
@@ -1190,15 +1325,23 @@ pub async fn serve_metered(
                 },
                 () = stop.clone().shutdown() => break,
             };
-            // Over the cap, the socket is dropped unanswered: a 429 would still
-            // cost a task and a parse for every excess connection.
+            // Over either cap, the socket is dropped unanswered: a 429 would
+            // still cost a task and a parse for every excess connection.
+            let peer_slot =
+                if crate::rpc::client_ip::is_trusted(remote.ip().to_canonical(), &trusted) {
+                    None
+                } else {
+                    let Some(slot) = PeerConnections::claim(&per_peer, remote.ip().to_canonical())
+                    else {
+                        drop(socket);
+                        continue;
+                    };
+                    Some(slot)
+                };
             let Ok(permit) = Arc::clone(&connections).try_acquire_owned() else {
                 drop(socket);
                 continue;
             };
-            // Shared, because the per-connection service is cloned; the last
-            // clone drops with the connection and releases the slot.
-            let permit = Arc::new(permit);
             let (builder, methods, stop2, limiter, trusted) = (
                 builder.clone(),
                 methods.clone(),
@@ -1208,9 +1351,6 @@ pub async fn serve_metered(
             );
             let service =
                 tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
-                    // The service owns the permit and is dropped with the
-                    // connection, so the cap counts live sockets.
-                    let _held = &permit;
                     let headers = request.headers();
                     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
                     let client = crate::rpc::client_ip::client_ip(
@@ -1235,10 +1375,14 @@ pub async fn serve_metered(
                         tower::Service::call(&mut inner, request).await
                     }
                 });
-            tokio::spawn(jsonrpsee::server::serve_with_graceful_shutdown(
+            // Passed straight to `spawn`, not awaited inside an `async` block:
+            // held across an await there, the connection's type cannot be
+            // proved `Send` (a higher-ranked lifetime on its error bound).
+            tokio::spawn(serve_connection(
                 socket,
                 service,
                 stop.clone().shutdown(),
+                (permit, peer_slot),
             ));
         }
     });
@@ -1247,6 +1391,47 @@ pub async fn serve_metered(
         address: local_address,
         handle,
     })
+}
+
+/// Serves one connection with [`HEADER_READ_TIMEOUT`] and
+/// [`CONNECTION_LIFETIME`]; at the lifetime or when `stopped` resolves, the
+/// request in flight gets [`CONNECTION_GRACE`] to finish.
+///
+/// jsonrpsee's own `serve_with_graceful_shutdown` builds hyper without a timer,
+/// so hyper's header timeout is off, and after the first request it waits on a
+/// connection forever. `_slots` (the connection caps' claims) are held until
+/// the connection ends, so the caps count live sockets.
+async fn serve_connection<S, B>(
+    socket: tokio::net::TcpStream,
+    service: S,
+    stopped: impl std::future::Future<Output = ()>,
+    _slots: impl Send,
+) where
+    S: tower::Service<hyper::Request<hyper::body::Incoming>, Response = hyper::Response<B>>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send,
+    S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    B: hyper::body::Body<Data = hyper::body::Bytes> + Send + 'static,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    let connection = hyper::server::conn::http1::Builder::new()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(HEADER_READ_TIMEOUT)
+        .serve_connection(
+            hyper_util::rt::TokioIo::new(socket),
+            hyper_util::service::TowerToHyperService::new(service),
+        );
+    tokio::pin!(connection);
+    tokio::select! {
+        // Done, a slow head refused, or the client hung up.
+        _ = &mut connection => return,
+        () = stopped => {}
+        () = tokio::time::sleep(CONNECTION_LIFETIME) => {}
+    }
+    connection.as_mut().graceful_shutdown();
+    let _ = tokio::time::timeout(CONNECTION_GRACE, connection).await;
 }
 
 /// Reads `request`'s whole body within [`BODY_READ_DEADLINE`] and
@@ -1337,5 +1522,41 @@ mod tests {
         assert!(check_peer_exposure(local, true).is_ok());
         assert!(check_peer_exposure(local_v6, true).is_ok());
         assert!(check_peer_exposure(public, false).is_ok());
+    }
+
+    #[test]
+    fn one_peer_cannot_hold_more_than_its_share_of_connections() {
+        let table = Arc::new(PeerConnections::default());
+        let host: IpAddr = "203.0.113.7".parse().expect("address");
+        let other: IpAddr = "203.0.113.8".parse().expect("address");
+        let mut held: Vec<_> = (0..MAX_CONNECTIONS_PER_PEER)
+            .map(|_| PeerConnections::claim(&table, host).expect("within the cap"))
+            .collect();
+        assert!(
+            PeerConnections::claim(&table, host).is_none(),
+            "one past the cap"
+        );
+        assert!(
+            PeerConnections::claim(&table, other).is_some(),
+            "another host is unaffected"
+        );
+        // Another address in the same IPv6 /64 is the same host.
+        let v6: IpAddr = "2001:db8::1".parse().expect("address");
+        let v6_same: IpAddr = "2001:db8::2".parse().expect("address");
+        let _v6: Vec<_> = (0..MAX_CONNECTIONS_PER_PEER)
+            .map(|_| PeerConnections::claim(&table, v6).expect("within the cap"))
+            .collect();
+        assert!(PeerConnections::claim(&table, v6_same).is_none());
+        // A closed connection frees its slot.
+        held.pop();
+        assert!(PeerConnections::claim(&table, host).is_some());
+    }
+
+    #[test]
+    fn a_range_answer_stops_at_its_byte_budget_but_always_serves_one_block() {
+        assert!(range_has_room(0, MAX_RANGE_RAW_HEX * 2), "the first block");
+        assert!(range_has_room(1, MAX_RANGE_RAW_HEX - 1));
+        assert!(!range_has_room(1, MAX_RANGE_RAW_HEX));
+        assert!(!range_has_room(usize::MAX, 1), "no overflow");
     }
 }

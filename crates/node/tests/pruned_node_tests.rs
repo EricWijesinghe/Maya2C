@@ -25,7 +25,7 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::{NodeError, Result};
 use custom_l1_node::network::Mempool;
 use custom_l1_node::rpc::bootstrap::{RpcBootstrapSource, SnapshotService};
-use custom_l1_node::rpc::server::{RPC_RESPONSE_LIMIT, RpcContext, serve};
+use custom_l1_node::rpc::server::{COLD_FETCH_BUSY, RPC_RESPONSE_LIMIT, RpcContext, serve};
 use custom_l1_node::state::account::Account;
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state_pruner::archive::{Archiver, prune_round};
@@ -688,6 +688,132 @@ fn a_pruned_node_archives_prunes_and_serves_verified_cold_blocks() {
         cold.fetch(state, 65).is_err(),
         "a substituted archive was accepted"
     );
+}
+
+/// A local store whose reads wait until the test opens a gate, to hold an
+/// archive fetch in flight.
+struct GatedStore {
+    inner: LocalDirStore,
+    entered: std::sync::mpsc::Sender<()>,
+    gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+}
+
+impl ArchiveStore for GatedStore {
+    fn kind(&self) -> &'static str {
+        self.inner.kind()
+    }
+
+    fn put(&self, archive: &maya_archive::Archive) -> maya_archive::Result<Locator> {
+        self.inner.put(archive)
+    }
+
+    fn get(&self, locator: &Locator, root: &maya_archive::Cid) -> maya_archive::Result<Vec<u8>> {
+        let _ = self.entered.send(());
+        let (open, opened) = &*self.gate;
+        let mut open = open.lock().expect("gate");
+        while !*open {
+            open = opened.wait(open).expect("gate");
+        }
+        drop(open);
+        self.inner.get(locator, root)
+    }
+}
+
+/// A pruned node whose bodies 51..=80 live only in the archive at the
+/// returned directory.
+fn fully_pruned() -> (ArchiveNode, Mutex<Chain>, TempDir, TempDir) {
+    let mut archive = archive_node(70);
+    let (pruned, dir) = pruned_follower(&mut archive, 30);
+    let archive_dir = TempDir::new().expect("dir");
+    let archiver = Archiver::new(
+        "maya-test",
+        vec![Box::new(
+            LocalDirStore::new(archive_dir.path()).expect("store"),
+        )],
+    );
+    while prune_round(&pruned, &prune_config(), Some(&archiver))
+        .expect("round")
+        .is_some()
+    {}
+    assert_eq!(pruned.lock().expect("lock").prune_horizon(), 80);
+    (archive, pruned, dir, archive_dir)
+}
+
+/// The RPC module over `pruned`, fetching pruned bodies through `store`.
+fn cold_module(
+    pruned: Mutex<Chain>,
+    store: Box<dyn ArchiveStore>,
+) -> (Arc<Mutex<Chain>>, Arc<jsonrpsee::RpcModule<RpcContext>>) {
+    let state = Arc::clone(pruned.lock().expect("lock").state());
+    let chain = Arc::new(pruned);
+    let context = RpcContext::new(Arc::clone(&chain), Mempool::new(state))
+        .with_cold_blocks(Arc::new(ColdBlocks::new(vec![store])));
+    let module = custom_l1_node::rpc::build_module(context).expect("module");
+    (chain, Arc::new(module))
+}
+
+#[test]
+fn an_archive_fetch_runs_outside_the_chain_lock_and_one_at_a_time() {
+    let (archive, pruned, _dir, archive_dir) = fully_pruned();
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let store = GatedStore {
+        inner: LocalDirStore::new(archive_dir.path()).expect("store"),
+        entered: entered_tx,
+        gate: Arc::clone(&gate),
+    };
+    let (chain, module) = cold_module(pruned, Box::new(store));
+    let runtime = Arc::new(tokio::runtime::Runtime::new().expect("runtime"));
+
+    let first =
+        {
+            let (module, runtime) = (Arc::clone(&module), Arc::clone(&runtime));
+            std::thread::spawn(move || {
+                runtime.block_on(module.call::<_, serde_json::Value>(
+                    "get_block_by_height",
+                    jsonrpsee::rpc_params![65u64],
+                ))
+            })
+        };
+    entered
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the archive fetch started");
+
+    // Block apply and commit take this lock; an archive read must not hold it.
+    assert!(
+        chain.try_lock().is_ok(),
+        "the chain lock was held through an archive fetch"
+    );
+    let second = runtime.block_on(
+        module.call::<_, serde_json::Value>("get_block_by_height", jsonrpsee::rpc_params![66u64]),
+    );
+    let refused = second.expect_err("a second archive fetch must not start");
+    assert!(refused.to_string().contains(COLD_FETCH_BUSY), "{refused}");
+
+    let (open, opened) = &*gate;
+    *open.lock().expect("gate") = true;
+    opened.notify_all();
+    let served = first.join().expect("thread").expect("served");
+    assert_eq!(served["raw"], hex::encode(archive.block(65).to_bytes()));
+}
+
+#[test]
+fn a_range_answer_fetches_at_most_one_archived_block() {
+    let (archive, pruned, _dir, archive_dir) = fully_pruned();
+    let store = LocalDirStore::new(archive_dir.path()).expect("store");
+    let (_chain, module) = cold_module(pruned, Box::new(store));
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+
+    // Ten pruned heights asked for in one call: before the bound, ten
+    // archive fetches for one rate-limit token.
+    let served: Vec<serde_json::Value> = runtime
+        .block_on(module.call(
+            "get_blocks_by_height_range",
+            jsonrpsee::rpc_params![61u64, 10u64],
+        ))
+        .expect("served");
+    assert_eq!(served.len(), 1, "more than one archive fetch in one answer");
+    assert_eq!(served[0]["raw"], hex::encode(archive.block(61).to_bytes()));
 }
 
 // ---------------------------------------------------------------------------

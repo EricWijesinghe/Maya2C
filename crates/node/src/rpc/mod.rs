@@ -10,7 +10,7 @@
 //! | `send_raw_transaction` | `[tx_hex]` | [`types::SubmitTransactionResult`] |
 //! | `get_block_by_height` | `[height]` | [`types::BlockInfo`] |
 //! | `get_validators` | `[]` | [`validators::ValidatorsInfo`], or `null` without staking |
-//! | `get_blocks_by_height_range` | `[from, count<=32]` | `[`types::BlockInfo`]`, short at the tip (catch-up) |
+//! | `get_blocks_by_height_range` | `[from, count<=32]` | `[`types::BlockInfo`]`, short at the tip, after one archived block, or at 8 MiB of hex (catch-up) |
 //! | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |
 //! | `submit_block` | `[block_hex]` | [`types::SubmitBlockResult`] |
 //! | `get_supply` | `[]` | [`market::SupplyReport`] |
