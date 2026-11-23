@@ -1086,11 +1086,53 @@ fn an_attestation_double_sign_is_kept_as_evidence() {
     );
     assert_eq!(
         custom_l1_node::consensus::bft::evidence::attestation_file_name(a),
-        format!("attestation-e{epoch}-h{height}-v1.hex")
+        format!("attestation-e{epoch}-v1.hex")
     );
     assert!(
         step.notices.iter().all(|n| !n.contains("evidence held")),
         "the notice still claims the evidence is held: {:?}",
         step.notices
+    );
+}
+
+#[test]
+fn a_validator_that_double_signs_at_every_height_leaves_one_evidence_file() {
+    // One file per height let a Byzantine member grow every node's evidence
+    // directory for as long as the chain ran; double attestations are not
+    // slashable yet, so nothing deterred it.
+    use custom_l1_node::consensus::bft::evidence::save_attestation;
+
+    let root = TempDir::new().unwrap();
+    let dir = root.path().join("evidence");
+    let (keys, _) = signers();
+    let tag = custom_l1_node::core::ChainTag::from_genesis([7; 32]);
+    let pair = |height: u64| {
+        let first = Attestation::sign(&keys[1], 1, &tag, 0, height, [0xa1; 32]).unwrap();
+        let second = Attestation::sign(&keys[1], 1, &tag, 0, height, [0xb2; 32]).unwrap();
+        (first, second)
+    };
+    let (first, second) = pair(5);
+    let kept = save_attestation(&dir, &first, &second).unwrap();
+    assert!(kept.is_some(), "the first pair was not written");
+    let text = std::fs::read_to_string(kept.unwrap()).unwrap();
+
+    for height in 6..40 {
+        let (a, b) = pair(height);
+        assert_eq!(
+            save_attestation(&dir, &a, &b).unwrap(),
+            None,
+            "a later double-sign by the same validator wrote a file"
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(&dir).unwrap().count(),
+        1,
+        "files piled up"
+    );
+    let path = dir.join(custom_l1_node::consensus::bft::evidence::attestation_file_name(&first));
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        text,
+        "a later pair overwrote the first"
     );
 }

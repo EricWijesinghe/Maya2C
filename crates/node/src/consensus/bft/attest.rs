@@ -13,7 +13,7 @@
 //! Engine-free and transport-free, like the rest of `consensus::bft`'s pure
 //! parts: the driver signs and gossips, the node fetches and imports.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use maya_dag_bft::Committee;
 
@@ -347,6 +347,10 @@ pub struct Collector {
     pending: BTreeMap<(u64, u64, [u8; 32]), Signatures>,
     /// The first block each validator attested at each pending height.
     seen: BTreeMap<(u64, u64, u16), [u8; 32]>,
+    /// Slots already reported as double-signed. A repeat is ignored before
+    /// verification: the conflicting frame is signed, so anyone can replay
+    /// it, and each copy used to cost an ML-DSA check and a disk write.
+    reported: BTreeSet<(u64, u64, u16)>,
     newest: Option<Checkpoint>,
     /// The epoch whose committee this collector is given, when bound. The
     /// driver routes by epoch; binding it here keeps an attestation of
@@ -377,7 +381,8 @@ impl Collector {
     /// # Errors
     ///
     /// As [`Attestation::verify`]: a bad attestation is refused, never
-    /// counted. A repeat of the block already counted for its slot returns
+    /// counted. A repeat of the block already counted for its slot, or any
+    /// attestation for a slot already reported as an equivocation, returns
     /// [`Collected::Ignored`] without being verified again (ADR-147).
     /// [`NodeError::Decode`] for an attestation of another epoch than the one
     /// a [`Collector::for_epoch`] collector is bound to, before any check.
@@ -404,7 +409,7 @@ impl Collector {
         let slot = (attestation.epoch, attestation.height, attestation.validator);
         // A repeat of the block already counted is dropped before the ML-DSA
         // check, so replayed frames cost no signature verification.
-        if self.seen.get(&slot) == Some(&attestation.block) {
+        if self.seen.get(&slot) == Some(&attestation.block) || self.reported.contains(&slot) {
             return Ok(Collected::Ignored);
         }
         attestation.verify(chain, committee)?;
@@ -414,6 +419,7 @@ impl Collector {
                 signature: self.pending[&(slot.0, slot.1, *first)][&slot.2].clone(),
                 ..attestation.clone()
             };
+            self.reported.insert(slot);
             return Ok(Collected::Equivocation(Box::new((earlier, attestation))));
         }
         self.forget_stale(attestation.epoch, attestation.height);
@@ -441,6 +447,7 @@ impl Collector {
         self.pending
             .retain(|&(e, h, _), _| (e, h) > (epoch, height));
         self.seen.retain(|&(e, h, _), _| (e, h) > (epoch, height));
+        self.reported.retain(|&(e, h, _)| (e, h) > (epoch, height));
     }
 
     /// Bounds memory when no quorum forms: partial sets more than
@@ -450,6 +457,7 @@ impl Collector {
         let fresh = |e: u64, h: u64| e > epoch || (e == epoch && h >= floor);
         self.pending.retain(|&(e, h, _), _| fresh(e, h));
         self.seen.retain(|&(e, h, _), _| fresh(e, h));
+        self.reported.retain(|&(e, h, _)| fresh(e, h));
     }
 }
 
@@ -578,6 +586,40 @@ mod tests {
         assert_eq!((pair.0.block, pair.1.block), ([1; 32], [2; 32]));
         pair.0.verify(&CHAIN, &committee).unwrap();
         pair.1.verify(&CHAIN, &committee).unwrap();
+    }
+
+    #[test]
+    fn a_replayed_double_sign_is_reported_once_and_never_verified_again() {
+        let (signing, committee) = keys(4);
+        let mut collector = Collector::default();
+        collector
+            .add(attest(&signing, 1, 8, 1), &CHAIN, &committee, None)
+            .unwrap();
+        let conflicting = attest(&signing, 1, 8, 2);
+        assert!(matches!(
+            collector
+                .add(conflicting.clone(), &CHAIN, &committee, None)
+                .unwrap(),
+            Collected::Equivocation(_)
+        ));
+        // A damaged copy proves the repeat never reaches ML-DSA verification.
+        let mut replay = conflicting;
+        replay.signature[0] ^= 1;
+        assert_eq!(
+            collector.add(replay, &CHAIN, &committee, None).unwrap(),
+            Collected::Ignored,
+            "a replayed double-sign was checked and reported again"
+        );
+        // The rules that forget the slot forget the report with it.
+        collector
+            .add(
+                attest(&signing, 0, 8 + PENDING_HEIGHTS + 1, 1),
+                &CHAIN,
+                &committee,
+                None,
+            )
+            .unwrap();
+        assert!(collector.reported.is_empty(), "a stale report was kept");
     }
 
     #[test]

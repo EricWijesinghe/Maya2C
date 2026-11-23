@@ -52,10 +52,13 @@ const MAX_ORPHANS_PER_PARENT: usize = 8;
 /// leading the node down a chain nobody else has.
 const MAX_SYNC_DEPTH: usize = 64;
 
-/// Buffered blocks one peer may answer for, so filling the pool takes many
-/// identities rather than one. A walk buffers at most [`MAX_SYNC_DEPTH`] blocks
-/// from its responder, so an honest walk fits. The operator's `--sync-from`
-/// source (`None`) is not a network peer and has no share.
+/// Buffered blocks one connected peer may hold places for, so filling the pool
+/// takes many connections rather than one. Counted against the relay, never
+/// the gossip author: an author is any key the sender cares to generate, so a
+/// share per author let one connection fill the pool, while connections are
+/// capped by the connection limits. A walk buffers at most [`MAX_SYNC_DEPTH`]
+/// blocks from its responder, so an honest walk fits. The operator's
+/// `--sync-from` source (`None`) is not a network peer and has no share.
 const MAX_ORPHANS_PER_SOURCE: usize = MAX_SYNC_DEPTH;
 const _: () = assert!(MAX_ORPHANS >= 8 * MAX_ORPHANS_PER_SOURCE);
 
@@ -65,9 +68,8 @@ const _: () = assert!(MAX_ORPHANS >= 8 * MAX_ORPHANS_PER_SOURCE);
 /// so a walk's blocks are not expired while it is still fetching below them.
 const ORPHAN_TTL_IMPORTS: u64 = 2 * MAX_SYNC_DEPTH as u64;
 
-/// Buffered blocks waiting on a parent, keyed by that parent, with the peer to
-/// blame if each proves invalid: a gossiped block's author, a fetched block's
-/// responder — never a relay (see `NodeEvent::BlockReceived`).
+/// Buffered blocks waiting on a parent, keyed by that parent, each with its
+/// [`Origin`].
 ///
 /// Keeps running block and byte totals so both pool bounds are checked
 /// without a scan. Looked up by key only; its iteration order is never used.
@@ -78,10 +80,41 @@ pub(super) struct Orphans {
     bytes: u64,
     /// Order of arrival, so eviction picks one victim whatever the map order.
     next_seq: u64,
-    /// Blocks each network peer answers for ([`MAX_ORPHANS_PER_SOURCE`]).
+    /// Places each relay holds ([`MAX_ORPHANS_PER_SOURCE`]).
     per_source: HashMap<PeerId, usize>,
     /// Chain extensions so far, the clock [`ORPHAN_TTL_IMPORTS`] runs on.
     imports: u64,
+}
+
+/// Who stands behind a block on its way into the chain.
+#[derive(Clone, Copy)]
+pub(super) struct Origin {
+    /// The peer to blame if the block proves invalid: a gossiped block's
+    /// author, a fetched block's responder — never a relay (see
+    /// `NodeEvent::BlockReceived`).
+    blame: Option<PeerId>,
+    /// The connection it arrived on, whose orphan-pool share it uses
+    /// ([`MAX_ORPHANS_PER_SOURCE`]).
+    relay: Option<PeerId>,
+}
+
+impl Origin {
+    /// A block one peer both answers for and holds a place for: a fetched
+    /// block's responder, or no peer at all for the operator's source.
+    pub(super) const fn peer(peer: Option<PeerId>) -> Self {
+        Self {
+            blame: peer,
+            relay: peer,
+        }
+    }
+
+    /// A gossiped block: blamed on its author, counted against its relay.
+    pub(super) const fn gossip(author: Option<PeerId>, relay: PeerId) -> Self {
+        Self {
+            blame: author,
+            relay: Some(relay),
+        }
+    }
 }
 
 /// One buffered block, with its id and wire size so lookups and removal need
@@ -89,7 +122,7 @@ pub(super) struct Orphans {
 struct Orphan {
     block: Block,
     id: [u8; 32],
-    source: Option<PeerId>,
+    origin: Origin,
     bytes: u64,
     seq: u64,
     /// `Orphans::imports` when it was buffered.
@@ -117,13 +150,7 @@ impl Orphans {
     /// backfill or an ancestor walk do not use up the parent's share. The id
     /// alone identifies a block here because `import_block` checks `tx_root`
     /// before buffering.
-    fn buffer(
-        &mut self,
-        parent: [u8; 32],
-        block: Block,
-        source: Option<PeerId>,
-        bytes: u64,
-    ) -> bool {
+    fn buffer(&mut self, parent: [u8; 32], block: Block, origin: Origin, bytes: u64) -> bool {
         let id = block.header.id();
         let held = self
             .by_parent
@@ -132,7 +159,7 @@ impl Orphans {
         if held {
             return true;
         }
-        let source_full = source.is_some_and(|peer| {
+        let source_full = origin.relay.is_some_and(|peer| {
             self.per_source.get(&peer).copied().unwrap_or(0) >= MAX_ORPHANS_PER_SOURCE
         });
         if source_full || !self.share_has_room(&parent) || !self.make_room(&id, bytes) {
@@ -141,13 +168,13 @@ impl Orphans {
         self.blocks += 1;
         self.bytes += bytes;
         self.next_seq += 1;
-        if let Some(peer) = source {
+        if let Some(peer) = origin.relay {
             *self.per_source.entry(peer).or_default() += 1;
         }
         self.by_parent.entry(parent).or_default().push(Orphan {
             block,
             id,
-            source,
+            origin,
             bytes,
             seq: self.next_seq,
             at: self.imports,
@@ -159,7 +186,7 @@ impl Orphans {
     fn forget(&mut self, gone: &Orphan) {
         self.blocks -= 1;
         self.bytes -= gone.bytes;
-        if let Some(peer) = gone.source
+        if let Some(peer) = gone.origin.relay
             && let Some(count) = self.per_source.get_mut(&peer)
         {
             *count -= 1;
@@ -255,12 +282,12 @@ impl Orphans {
 
     /// Removes and returns the blocks waiting on `parent`, releasing their
     /// share of the pool totals.
-    fn take_children(&mut self, parent: &[u8; 32]) -> Vec<(Block, Option<PeerId>)> {
+    fn take_children(&mut self, parent: &[u8; 32]) -> Vec<(Block, Origin)> {
         let children = self.by_parent.remove(parent).unwrap_or_default();
         for child in &children {
             self.forget(child);
         }
-        children.into_iter().map(|o| (o.block, o.source)).collect()
+        children.into_iter().map(|o| (o.block, o.origin)).collect()
     }
 }
 
@@ -288,16 +315,16 @@ pub(super) struct ImportReport {
 pub(super) fn import_block(
     chain: &Mutex<Chain>,
     block: Block,
-    source: Option<PeerId>,
+    origin: Origin,
     orphans: &mut Orphans,
     metrics: &Metrics,
 ) -> ImportReport {
     let mut report = ImportReport::default();
     let first = block.header.id();
-    let mut pending = vec![(block, source)];
+    let mut pending = vec![(block, origin)];
     let mut extensions = 0;
 
-    while let Some((block, source)) = pending.pop() {
+    while let Some((block, origin)) = pending.pop() {
         let id = block.header.id();
         let parent = block.header.prev_hash;
         let header_timestamp = block.header.timestamp;
@@ -316,7 +343,7 @@ pub(super) fn import_block(
             let bytes = match checked {
                 Ok(bytes) => bytes,
                 Err(error) => {
-                    refuse(&mut report, metrics, source, &error);
+                    refuse(&mut report, metrics, origin.blame, &error);
                     continue;
                 }
             };
@@ -325,7 +352,7 @@ pub(super) fn import_block(
             }
             // Cap the buffer: an unbounded orphan pool is a memory-exhaustion
             // vector for any peer willing to send junk.
-            if !orphans.buffer(parent, block, source, bytes) {
+            if !orphans.buffer(parent, block, origin, bytes) {
                 metrics.record_rejection("orphan_buffer_full");
             }
             continue;
@@ -353,7 +380,7 @@ pub(super) fn import_block(
                 pending.extend(orphans.take_children(&id));
             }
             Ok(_) => pending.extend(orphans.take_children(&id)),
-            Err(error) => refuse(&mut report, metrics, source, &error),
+            Err(error) => refuse(&mut report, metrics, origin.blame, &error),
         }
     }
     // After the loop, so a cascade's children are taken before anything ages.
@@ -461,8 +488,10 @@ pub(super) async fn block_import_loop(
         tokio::select! {
             event = events.recv() => match event {
                 Ok(NodeEvent::BlockReceived { block, source, author }) => {
-                    // Blame the author, never the relay: see `NodeEvent::BlockReceived`.
-                    let report = import_block(&chain, *block, author, &mut orphans, &metrics);
+                    // Blame the author, never the relay (see
+                    // `NodeEvent::BlockReceived`); count its place against the relay.
+                    let origin = Origin::gossip(author, source);
+                    let report = import_block(&chain, *block, origin, &mut orphans, &metrics);
                     report_offences(&network, report.offences).await;
                     // One walk per relay, a few at a time: a relay that keeps
                     // sending orphans cannot fan out walks.
@@ -491,7 +520,8 @@ pub(super) async fn block_import_loop(
                 // A served block is the responder's to answer for: an honest
                 // responder serves only blocks its own chain accepted.
                 Fetched::Block { source, block } => {
-                    let report = import_block(&chain, block, Some(source), &mut orphans, &metrics);
+                    let origin = Origin::peer(Some(source));
+                    let report = import_block(&chain, block, origin, &mut orphans, &metrics);
                     report_offences(&network, report.offences).await;
                 }
                 Fetched::Done(source) => {
@@ -540,7 +570,7 @@ pub(super) async fn backfill_loop(chain: Arc<Mutex<Chain>>, url: String, metrics
                     let before = lock_chain(&chain).height();
                     // No peer to blame or ask: the RPC source is trusted for
                     // availability only, and a refused block is still refused.
-                    let _ = import_block(&chain, block, None, &mut orphans, &metrics);
+                    let _ = import_block(&chain, block, Origin::peer(None), &mut orphans, &metrics);
                     let after = lock_chain(&chain).height();
                     if after == before {
                         // Made no progress; avoid hammering the peer.
@@ -613,7 +643,7 @@ mod tests {
         source: Option<PeerId>,
         orphans: &mut Orphans,
     ) -> ImportReport {
-        import_block(chain, block, source, orphans, &Metrics::new())
+        import_block(chain, block, Origin::peer(source), orphans, &Metrics::new())
     }
 
     #[test]
@@ -718,8 +748,8 @@ mod tests {
     fn taking_children_releases_their_share_of_both_totals() {
         let mut orphans = Orphans::default();
         let parent = [7u8; 32];
-        assert!(orphans.buffer(parent, orphan(parent, 0, 0), None, 1_000));
-        assert!(orphans.buffer(parent, orphan(parent, 1, 0), None, 2_000));
+        assert!(orphans.buffer(parent, orphan(parent, 0, 0), Origin::peer(None), 1_000));
+        assert!(orphans.buffer(parent, orphan(parent, 1, 0), Origin::peer(None), 2_000));
         assert_eq!(orphans.take_children(&parent).len(), 2);
         assert_eq!(
             (orphans.blocks, orphans.bytes),
@@ -827,10 +857,15 @@ mod tests {
         let awaited = ancestor.header.id();
         // Its own child fills most of the budget and is never a victim; the one
         // other orphan is too small to make room.
-        assert!(orphans.buffer(awaited, orphan(awaited, 1, 0), None, MAX_ORPHAN_BYTES - 20));
-        assert!(orphans.buffer([2u8; 32], orphan([2u8; 32], 2, 0), None, 10));
+        assert!(orphans.buffer(
+            awaited,
+            orphan(awaited, 1, 0),
+            Origin::peer(None),
+            MAX_ORPHAN_BYTES - 20
+        ));
+        assert!(orphans.buffer([2u8; 32], orphan([2u8; 32], 2, 0), Origin::peer(None), 10));
 
-        assert!(!orphans.buffer([1u8; 32], ancestor, None, 100));
+        assert!(!orphans.buffer([1u8; 32], ancestor, Origin::peer(None), 100));
         assert_eq!(orphans.blocks, 2, "an orphan was dropped for nothing");
     }
 
@@ -844,7 +879,7 @@ mod tests {
             parent[..8].copy_from_slice(&parent_index.to_be_bytes());
             for nonce in 0..MAX_ORPHANS_PER_PARENT as u64 {
                 let block = orphan(parent, parent_index * 8 + nonce, 0);
-                assert!(orphans.buffer(parent, block, None, 1));
+                assert!(orphans.buffer(parent, block, Origin::peer(None), 1));
             }
         }
         assert_eq!(
@@ -868,7 +903,7 @@ mod tests {
         // One peer sends a pool's worth of orphans under unknown parents.
         for index in 0..MAX_ORPHANS as u64 {
             let (parent, block) = junk(index);
-            orphans.buffer(parent, block, flooder, 1);
+            orphans.buffer(parent, block, Origin::peer(flooder), 1);
         }
         assert!(
             orphans.blocks <= MAX_ORPHANS_PER_SOURCE,
@@ -880,9 +915,35 @@ mod tests {
             orphans.buffer(
                 honest_parent,
                 orphan(honest_parent, 0, 0),
-                Some(PeerId::random()),
+                Origin::peer(Some(PeerId::random())),
                 1
             ),
+            "an honest out-of-order child was refused"
+        );
+    }
+
+    #[test]
+    fn one_relay_cannot_fill_the_pool_by_signing_each_orphan_with_a_new_author() {
+        let dir = tempfile::tempdir().unwrap();
+        let local = chain(dir.path());
+        let mut orphans = Orphans::default();
+        let relay = PeerId::random();
+        // Gossip proves only that some key signed each message, so one
+        // connection can sign every junk orphan with a key made for it.
+        for index in 0..MAX_ORPHANS as u64 {
+            let (_, block) = junk(index);
+            let origin = Origin::gossip(Some(PeerId::random()), relay);
+            import_block(&local, block, origin, &mut orphans, &Metrics::new());
+        }
+        assert_eq!(
+            orphans.blocks, MAX_ORPHANS_PER_SOURCE,
+            "one relay holds {} of {MAX_ORPHANS} places",
+            orphans.blocks
+        );
+        let honest_parent = [0x55; 32];
+        let honest = Origin::gossip(Some(PeerId::random()), PeerId::random());
+        assert!(
+            orphans.buffer(honest_parent, orphan(honest_parent, 0, 0), honest, 1),
             "an honest out-of-order child was refused"
         );
     }
@@ -915,7 +976,7 @@ mod tests {
         assert_eq!(orphans.bytes, 0, "expiry left bytes counted");
         let (parent, block) = junk(u64::MAX);
         assert!(
-            orphans.buffer(parent, block, Some(PeerId::random()), 1),
+            orphans.buffer(parent, block, Origin::peer(Some(PeerId::random())), 1),
             "the pool stayed full after expiry"
         );
     }

@@ -183,16 +183,26 @@ Closes the open item in Consequences ("Orphans still never expire").
   happened, it is dropped. A halted chain expires nothing, which costs nothing:
   no honest children arrive while it is halted. The sweep runs after an import's
   cascade, so children taken by that cascade are never aged out first.
-- **One network peer answers for at most `MAX_ORPHANS_PER_SOURCE` (64) orphans.**
-  The source is the gossip author, or a walk's responder; a walk buffers at most
-  `MAX_SYNC_DEPTH` blocks from its responder, so an honest walk fits. Filling the
-  512-block pool now takes at least eight identities. The operator's
-  `--sync-from` RPC source (`None`) is not a network peer and has no share.
+- **One connected peer holds at most `MAX_ORPHANS_PER_SOURCE` (64) places.**
+  The share is counted against the relay (the connection a gossiped block
+  arrived on) or a walk's responder, never the gossip author. Blame still goes
+  to the author (see `NodeEvent::BlockReceived`). The first version counted the
+  share against the author as well, but gossip only proves that *some* key
+  signed a message, so one connection could sign each orphan with a new key and
+  fill the pool alone; blocks from the request-response relay path had no
+  author and so no share at all. Connections are capped by the connection
+  limits and cost something to hold. A walk buffers at most `MAX_SYNC_DEPTH`
+  blocks from its responder, so an honest walk fits. Filling the 512-block pool
+  takes at least eight connections. The operator's `--sync-from` RPC source
+  (`None`) is not a network peer and has no share.
 - Tests (`import::tests`): `one_source_cannot_fill_the_pool_and_an_honest_child_still_buffers`,
-  `orphans_nothing_claims_expire_after_enough_imports` (both failed before the change).
-- Left: identities are free, so a flood from many fresh identities can still fill
-  the pool for up to 128 imports at a time; while it does, honest out-of-order
-  blocks fall back to backfill and certificate replay as before. Consensus is
+  `orphans_nothing_claims_expire_after_enough_imports` (both failed before the change),
+  `one_relay_cannot_fill_the_pool_by_signing_each_orphan_with_a_new_author`.
+- Left: honest nodes relay an orphan on stateless checks, so junk sent to one
+  node reaches others through honest relays, each with its own share. A node
+  with eight or more relays carrying such a flood can still see its pool fill
+  for up to 128 imports at a time; while it does, honest out-of-order blocks
+  fall back to backfill and certificate replay as before. Consensus is
   unaffected. Node-local memory only; no invariant is touched.
 - **Gossiped transactions are checked off the swarm task (BFT-06).** The mempool
   check (state reads and post-quantum signature verification) ran inline on the
@@ -205,9 +215,23 @@ Closes the open item in Consequences ("Orphans still never expire").
   `a_stuck_check_does_not_hold_up_the_caller`, `a_full_backlog_refuses_instead_of_growing`,
   `the_backlog_is_bounded_in_bytes`. Not measured: frame latency under a real
   flood (no multi-node load run).
-- **Attestation double-signs are kept (CON-05, node-local part).** The pair is
-  written to `<data-dir>/evidence/attestation-e<epoch>-h<height>-v<index>.hex`
-  (two hex frames) instead of being dropped after an "evidence held" notice.
-  The chain still cannot slash it; that is an owner decision (#680). Operator
-  text now says that a double *proposal* is slashed. Test:
-  `bft_node_tests::an_attestation_double_sign_is_kept_as_evidence`.
+- **Attestation double-signs are kept (CON-05, node-local part).** The first
+  pair per validator and epoch is written to
+  `<data-dir>/evidence/attestation-e<epoch>-v<index>.hex` (two hex frames)
+  instead of being dropped after an "evidence held" notice. One pair is all a
+  report needs. The file is opened with `create_new`, so a later double-sign by
+  the same validator in that epoch neither adds a file nor overwrites the
+  first. A file per height, as first written, let one committee member who
+  double-signs at every height grow every node's disk without limit, and
+  nothing deters that while the chain cannot slash it (an owner decision,
+  #680). Operator text now says that a double *proposal* is slashed. Tests:
+  `bft_node_tests::an_attestation_double_sign_is_kept_as_evidence`,
+  `bft_node_tests::a_validator_that_double_signs_at_every_height_leaves_one_evidence_file`.
+- **A reported double-sign is not checked again.** The collector records each
+  slot `(epoch, height, validator)` it has reported as an equivocation and
+  ignores any later attestation for that slot before ML-DSA verification. The
+  record is cleared by the same rules that clear the slot (`forget_through`,
+  `forget_stale`). Before, a replay of the conflicting attestation, which anyone
+  holding the frame can resend under a new gossip author, was verified,
+  reported and written to disk again on every copy. Test:
+  `attest::tests::a_replayed_double_sign_is_reported_once_and_never_verified_again`.
