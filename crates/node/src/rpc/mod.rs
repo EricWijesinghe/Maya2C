@@ -14,9 +14,9 @@
 //! | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |
 //! | `submit_block` | `[block_hex]` | [`types::SubmitBlockResult`] |
 //! | `get_supply` | `[]` | [`market::SupplyReport`] |
-//! | `threat_indicators` | `[]` | `Vec<`[`types::ThreatIndicatorInfo`]`>` |
+//! | `threat_indicators` | `[]` or `[after, limit]` | `Vec<`[`types::ThreatIndicatorInfo`]`>`: one page in author order, at most [`server::MAX_INDICATOR_PAGE`], authors after hex `after` |
 //! | `threat_peer_addresses` | `[]` | `Vec<`[`types::PeerAddressInfo`]`>` — only with [`RpcContext::with_peers`] |
-//! | `get_peers` | `[]` | [`peers::NetworkView`]: this node's peer id and its connected peers, no addresses — only with [`RpcContext::with_network_view`] |
+//! | `get_peers` | `[]` | [`peers::NetworkView`]: this node's peer id and its connected peers, no addresses; direction, score and quarantine only where [`RpcContext::with_peers`] is wired too (loopback) — only with [`RpcContext::with_network_view`] |
 //!
 //! `submit_block` is the counterpart to `get_mining_candidate`: a candidate a
 //! miner can fetch but never return is not a usable interface, and the

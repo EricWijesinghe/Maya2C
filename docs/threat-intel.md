@@ -200,7 +200,8 @@ The worker polls one co-located node:
 
 1. `get_tip_height`;
 2. `threat_indicators`, which reports every indicator by author, never by
-   address;
+   address, one page of up to 256 at a time (`[after, limit]`; the worker
+   pages until a short page);
 3. `threat_peer_addresses`, which reports the address of each peer's most recent
    connection **to this node**. The node remembers up to 4,096 peers past
    disconnection, because the peer guard disconnects an offender immediately.

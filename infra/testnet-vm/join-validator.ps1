@@ -37,7 +37,9 @@
     whose hash does not match.
 
 .PARAMETER Bootnode
-    The seed's libp2p address, e.g. /ip4/203.0.113.7/tcp/31100 .
+    The seed's libp2p address with its peer id, e.g.
+    /ip4/203.0.113.7/tcp/31100/p2p/<peer id> . The node refuses an unpinned
+    public bootnode (ADR-151).
 
 .PARAMETER ReleaseTag
     Which tagged release to install the node binary from. Defaults to the
@@ -76,7 +78,7 @@
 .EXAMPLE
     # From an elevated PowerShell, on each machine the operator owns:
     .\join-validator.ps1 -GenesisUrl https://testnet.maya2c.dev/genesis.json `
-        -GenesisSha256 <hash> -Bootnode /ip4/<seed-ip>/tcp/31100
+        -GenesisSha256 <hash> -Bootnode /ip4/<seed-ip>/tcp/31100/p2p/<peer id>
 
 .NOTES
     Not code-signed, so SmartScreen may warn about an unknown publisher: that is
@@ -621,7 +623,8 @@ if ($Update) {
 if (-not $GenesisUrl)    { Die 'join mode needs -GenesisUrl, where the seed operator published genesis.json' }
 if (-not $GenesisSha256) { Die 'join mode needs -GenesisSha256, the hash the seed operator published with it' }
 if ($Offline) { $Bootnode = ''; $Bootstrap = '' }
-elseif (-not $Bootnode) { Die 'join mode needs -Bootnode, the seed address /ip4/<ip>/tcp/31100' }
+elseif (-not $Bootnode) { Die 'join mode needs -Bootnode, the seed address /ip4/<ip>/tcp/31100/p2p/<peer id>' }
+elseif ($Bootnode -notmatch '/p2p/[^/]+$') { Die '-Bootnode must end in /p2p/<peer id> (the seed prints it at start): the node refuses an unpinned public bootnode' }
 
 Show-Consent
 if ($DryRun) { Write-Host 'DryRun: nothing was changed.' -ForegroundColor Green; exit 0 }

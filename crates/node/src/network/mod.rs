@@ -6,6 +6,7 @@ mod bus;
 pub mod evidence_tap;
 pub mod gossip_score;
 pub mod identity;
+pub mod ip_limits;
 pub mod mempool;
 pub mod node;
 pub mod peer_health;
