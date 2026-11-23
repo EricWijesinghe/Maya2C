@@ -58,9 +58,6 @@ func (c *Client) Call(method string, params []any, out any) error {
 		return &RPCError{method, err.Error()}
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return &RPCError{method, "HTTP " + resp.Status}
-	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxReplyBytes+1))
 	if err != nil {
 		return &RPCError{method, err.Error()}
@@ -72,10 +69,21 @@ func (c *Client) Call(method string, params []any, out any) error {
 		Result json.RawMessage `json:"result"`
 		Error  json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(raw, &reply); err != nil {
-		return &RPCError{method, err.Error()}
+	decodeErr := json.Unmarshal(raw, &reply)
+	hasError := decodeErr == nil && len(reply.Error) > 0 && string(reply.Error) != "null"
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		// jsonrpsee sends 400 and 413 with a JSON-RPC error body; keep its
+		// message. A proxy's 502 or the limiter's 429 has none, and a result
+		// in a non-2xx body is never taken as one.
+		if hasError {
+			return &RPCError{method, "HTTP " + resp.Status + ": " + string(reply.Error)}
+		}
+		return &RPCError{method, "HTTP " + resp.Status}
 	}
-	if len(reply.Error) > 0 && string(reply.Error) != "null" {
+	if decodeErr != nil {
+		return &RPCError{method, decodeErr.Error()}
+	}
+	if hasError {
 		return &RPCError{method, string(reply.Error)}
 	}
 	if out == nil {

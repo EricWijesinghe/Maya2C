@@ -134,6 +134,10 @@ while the full check runs. Anything that decides to **spend** must use
 `verify_hybrid`. Checking only the lattice half would accept exactly the forgery
 the hybrid scheme exists to prevent.
 
+It takes exactly the 1,952-byte ML-DSA-65 public key and the 3,309-byte
+signature, not the hybrid buffers: any other length returns `false`, including
+a full hybrid key or signature that older versions silently truncated.
+
 ---
 
 ## 4. The TypeScript client

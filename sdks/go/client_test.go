@@ -31,6 +31,17 @@ func TestANonSuccessStatusIsAnRPCError(t *testing.T) {
 	}
 }
 
+// jsonrpsee answers an oversized or malformed request with 413 or 400 and a
+// JSON-RPC error body; the node's message must reach the caller.
+func TestANonSuccessStatusKeepsTheNodesJSONRPCError(t *testing.T) {
+	body := `{"jsonrpc":"2.0","id":null,"error":{"code":-32007,"message":"Request is too big"}}`
+	err := serve(t, http.StatusRequestEntityTooLarge, body).Call("x", nil, nil)
+	var rpc *RPCError
+	if !errors.As(err, &rpc) || !strings.Contains(rpc.Detail, "413") || !strings.Contains(rpc.Detail, "Request is too big") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // The body is decoded into memory; a hostile endpoint must not exhaust it.
 func TestAReplyLargerThanTheCapIsAnRPCError(t *testing.T) {
 	var out string
