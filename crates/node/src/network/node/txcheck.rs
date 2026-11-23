@@ -168,7 +168,10 @@ mod tests {
         for _ in 0..TX_CHECK_WORKERS + MAX_TX_CHECKS_WAITING {
             assert!(checks.submit(job(vec![0])));
         }
-        assert!(!checks.submit(job(vec![0])), "the backlog grew past its count");
+        assert!(
+            !checks.submit(job(vec![0])),
+            "the backlog grew past its count"
+        );
     }
 
     #[tokio::test]
@@ -182,6 +185,9 @@ mod tests {
         for _ in 0..4 {
             assert!(checks.submit(job(vec![0; big])));
         }
-        assert!(!checks.submit(job(vec![0; 1])), "the backlog grew past its bytes");
+        assert!(
+            !checks.submit(job(vec![0; 1])),
+            "the backlog grew past its bytes"
+        );
     }
 }

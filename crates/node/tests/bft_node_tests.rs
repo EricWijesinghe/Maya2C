@@ -1068,9 +1068,15 @@ fn an_attestation_double_sign_is_kept_as_evidence() {
     let first = Attestation::sign(&keys[1], 1, &tag, epoch, height, [0xa1; 32]).unwrap();
     let second = Attestation::sign(&keys[1], 1, &tag, epoch, height, [0xb2; 32]).unwrap();
     driver.on_frame(&mut m.chain, now, &first.encode()).unwrap();
-    let step = driver.on_frame(&mut m.chain, now, &second.encode()).unwrap();
+    let step = driver
+        .on_frame(&mut m.chain, now, &second.encode())
+        .unwrap();
 
-    assert_eq!(step.attestation_equivocations.len(), 1, "the pair was dropped");
+    assert_eq!(
+        step.attestation_equivocations.len(),
+        1,
+        "the pair was dropped"
+    );
     let (a, b) = &step.attestation_equivocations[0];
     assert_eq!((a.block, b.block), ([0xa1; 32], [0xb2; 32]));
     let text = custom_l1_node::consensus::bft::evidence::attestation_to_text(a, b);

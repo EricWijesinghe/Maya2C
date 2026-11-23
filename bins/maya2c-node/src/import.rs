@@ -903,9 +903,15 @@ mod tests {
         // The chain keeps growing from blocks that arrive in order.
         for i in 0..=ORPHAN_TTL_IMPORTS {
             let report = import(&local, next_block(&source, 2 + i), None, &mut orphans);
-            assert!(report.missing_parent.is_none(), "an in-order block was orphaned");
+            assert!(
+                report.missing_parent.is_none(),
+                "an in-order block was orphaned"
+            );
         }
-        assert_eq!(orphans.blocks, 0, "stale orphans outlived the import window");
+        assert_eq!(
+            orphans.blocks, 0,
+            "stale orphans outlived the import window"
+        );
         assert_eq!(orphans.bytes, 0, "expiry left bytes counted");
         let (parent, block) = junk(u64::MAX);
         assert!(

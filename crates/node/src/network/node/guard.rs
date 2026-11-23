@@ -146,7 +146,13 @@ impl NodeDriver {
             Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
         }
         self.report(job.source, &job.id, verdict);
-        self.attest(verdict, job.author, job.sequence_number, &job.signature, data);
+        self.attest(
+            verdict,
+            job.author,
+            job.sequence_number,
+            &job.signature,
+            data,
+        );
     }
 
     pub(super) fn gossiped_block(
