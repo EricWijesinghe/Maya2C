@@ -31,13 +31,19 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
+- **CON-14** An upgrade-schedule entry that names a version is admitted whatever feature bits it carries, subject to the lead, the horizon, strictly increasing versions and heights, and the suite rules (ADR-082). A sunset-only entry that carries any feature bit is refused. *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+- **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, or zkML while it has no verifier). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+
 ## Vectors and gaps
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
 not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
-(`argonblake-pow`) has no language-neutral vector.
+(`argonblake-pow`) has no language-neutral vector. CON-14 and CON-15 are
+pinned by the node's own tests (`upgrade_schedule_tests.rs`, positive and
+negative cases), not by language-neutral vectors: the schedule lives in typed
+governance payloads, which `crates/spec-ref` does not model.
 
 DAG construction, the commit rule, finality and fork choice under DAG-BFT
 are specified only by the node's code and `crates/dag-bft`, and have no rule

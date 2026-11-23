@@ -59,10 +59,22 @@ impl FeatureSet {
     /// Every bit this binary defines. A bit outside it names no feature.
     pub const KNOWN: u64 = (1 << 8) - 1;
 
-    /// Whether every bit names a defined feature.
+    /// Every bit this binary can execute: the known bits less zkML, which
+    /// stays unimplemented until `zkml::verdict` is a real verifier (M3).
+    pub const IMPLEMENTED: u64 = Self::KNOWN & !Self::ZKML;
+
+    /// Whether every bit names a feature this binary defines. An entry
+    /// carrying any other bit is still valid: it is unsupported here, and this
+    /// binary halts at its height (ADR-082 amendment).
     #[must_use]
     pub const fn is_known(self) -> bool {
         self.0 & !Self::KNOWN == 0
+    }
+
+    /// The bits this binary cannot execute: undefined ones, and zkML.
+    #[must_use]
+    pub const fn unimplemented(self) -> u64 {
+        self.0 & !Self::IMPLEMENTED
     }
 
     /// Whether `bit` is set.
@@ -127,6 +139,18 @@ pub struct ProtocolUpgrade {
     pub features: FeatureSet,
 }
 
+impl ProtocolUpgrade {
+    /// Whether a binary implementing versions up to `supported`, with this
+    /// binary's feature bits, can execute this entry. An entry with a bit this
+    /// binary does not implement is unsupported however low its version.
+    /// Support is a property of the binary, never of validity: every binary
+    /// admits the same entries, and each halts at the first it cannot execute.
+    #[must_use]
+    pub const fn is_supported_by(&self, supported: u32) -> bool {
+        self.version <= supported && self.features.unimplemented() == 0
+    }
+}
+
 /// A validated upgrade schedule, ordered by height.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UpgradeSchedule {
@@ -135,7 +159,12 @@ pub struct UpgradeSchedule {
 
 impl UpgradeSchedule {
     /// Validates `upgrades`: every version above 1, versions strictly
-    /// increasing with strictly increasing heights, no unknown feature bits.
+    /// increasing with strictly increasing heights. Feature bits are not
+    /// checked here: a bit this binary cannot execute (undefined, or zkML)
+    /// makes the entry unsupported ([`Self::first_unsupported`]), not invalid.
+    /// The rule must not depend on the binary, or an older and a newer node
+    /// would disagree on the block that writes the entry: a fork at the vote
+    /// instead of a halt at activation.
     ///
     /// # Errors
     ///
@@ -152,21 +181,6 @@ impl UpgradeSchedule {
                 return Err(NodeError::Decode(format!(
                     "protocol upgrade to version {} at height {} does not follow version {} at height {}",
                     u.version, u.activation_height, last.version, last.activation_height
-                )));
-            }
-            if !u.features.is_known() {
-                return Err(NodeError::Decode(format!(
-                    "protocol upgrade to version {} names unknown features {:#x}",
-                    u.version, u.features.0
-                )));
-            }
-            // zkML is refused until `zkml::verdict` is a real verifier: a
-            // schedule that switched it on would make the chain accept proofs
-            // nothing checks (ADR-082, M3).
-            if u.features.contains(FeatureSet::ZKML) {
-                return Err(NodeError::Decode(format!(
-                    "protocol upgrade to version {} schedules zkML, which is refused until its verifier exists",
-                    u.version
                 )));
             }
             last = *u;
@@ -196,16 +210,16 @@ impl UpgradeSchedule {
             .map_or(1, |u| u.version)
     }
 
-    /// The height each dark feature activates at: the earliest entry at or
-    /// below [`SUPPORTED_PROTOCOL_VERSION`] that switches it on. An entry above
-    /// it contributes nothing, because this binary halts at that entry's
+    /// The height each dark feature activates at: the earliest supported entry
+    /// (version at or below [`SUPPORTED_PROTOCOL_VERSION`], no unknown bits)
+    /// that switches it on. Any other entry contributes nothing, because this binary halts at that entry's
     /// height instead ([`Self::first_unsupported`]).
     #[must_use]
     pub fn features(&self) -> FeatureActivations {
         let at = |bit: u64, default: u64| {
             self.upgrades
                 .iter()
-                .find(|u| u.version <= SUPPORTED_PROTOCOL_VERSION && u.features.contains(bit))
+                .find(|u| u.is_supported_by(SUPPORTED_PROTOCOL_VERSION) && u.features.contains(bit))
                 .map_or(default, |u| u.activation_height)
         };
         let never = FeatureActivations::default();
@@ -221,20 +235,23 @@ impl UpgradeSchedule {
         }
     }
 
-    /// The first scheduled upgrade this binary does not implement, if any.
+    /// The first scheduled upgrade this binary does not implement, if any: a
+    /// version above [`SUPPORTED_PROTOCOL_VERSION`] or a feature bit outside
+    /// [`FeatureSet::IMPLEMENTED`].
     #[must_use]
     pub fn first_unsupported(&self) -> Option<ProtocolUpgrade> {
         self.first_unsupported_by(SUPPORTED_PROTOCOL_VERSION)
     }
 
     /// [`Self::first_unsupported`] for a binary implementing up to `supported`.
-    /// Lets a test model an older binary.
+    /// Lets a test model an older binary. The feature bits are always this
+    /// binary's, so it cannot model a binary that implements more of them.
     #[must_use]
     pub fn first_unsupported_by(&self, supported: u32) -> Option<ProtocolUpgrade> {
         self.upgrades
             .iter()
             .copied()
-            .find(|u| u.version > supported)
+            .find(|u| !u.is_supported_by(supported))
     }
 
     /// Refuses `height` if the version in force there is newer than this
@@ -261,6 +278,7 @@ pub fn refuse_unsupported(unsupported: Option<ProtocolUpgrade>, height: u64) -> 
             version: u.version,
             height: u.activation_height,
             supported: SUPPORTED_PROTOCOL_VERSION,
+            unimplemented_features: u.features.unimplemented(),
         }),
         _ => Ok(()),
     }
@@ -324,9 +342,13 @@ mod tests {
     }
 
     #[test]
-    fn unknown_feature_bits_are_rejected() {
-        let bad = with(2, 10, FeatureSet::KNOWN + 1);
-        assert!(UpgradeSchedule::new(vec![bad]).is_err());
+    fn unknown_feature_bits_make_an_entry_unsupported_not_invalid() {
+        let later = with(2, 10, FeatureSet::DVP | (FeatureSet::KNOWN + 1));
+        let s = UpgradeSchedule::new(vec![later]).unwrap();
+        assert_eq!(s.first_unsupported(), Some(later));
+        assert!(s.check(9).is_ok());
+        assert!(s.check(10).is_err());
+        assert_eq!(s.features(), FeatureActivations::default());
     }
 
     #[test]
@@ -344,9 +366,14 @@ mod tests {
     }
 
     #[test]
-    fn zkml_cannot_be_scheduled() {
-        let refused = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::ZKML)]);
-        assert!(refused.is_err(), "zkML has no verifier yet (M3)");
+    fn zkml_on_a_supported_version_is_valid_but_halts_and_never_activates() {
+        // M3: zkML has no verifier yet, so this binary cannot execute it. The
+        // entry is valid in every binary (no fork at the vote) and halts this
+        // one at its height; the feature never switches on here.
+        let s = UpgradeSchedule::new(vec![with(2, 10, FeatureSet::ZKML)]).unwrap();
+        assert!(s.check(9).is_ok());
+        assert!(s.check(10).is_err(), "zkML has no verifier yet (M3)");
+        assert_eq!(s.features().zkml, u64::MAX);
     }
 
     #[test]
