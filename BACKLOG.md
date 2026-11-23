@@ -5,6 +5,59 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — owner decisions from the 2026-11-24 security brief (vm, state, staking, mining)
+
+Each needs Eric's choice before genesis (economics, a security policy, or the
+genesis format), so none is implemented. Options, evidence and a
+recommendation; the figures are the audit's, not re-measured here.
+Fixed without a decision in PR #687: the gas caps (#549, NEW-VM-1) and the
+call-depth bound (R-6, GAS-10).
+
+- **R-3 — contract gas has no price.** A successful call pays only the byte
+  fee (FEE-5 prices bytes), so one sender can fill the block's contract gas
+  (`vm.max_block_gas`, 250 M under #549) every block for the cost of a few
+  transactions' bytes. This is the economic root of R-1 and R-2; #647 does
+  not close it. Options: (a) a per-gas fee, either a governed gas price or a
+  base fee per gas that moves with contract-gas use beside the byte base fee;
+  (b) a cap on one sender's share of a block's contract gas; (c) both.
+  **Recommendation: (a), a per-gas base fee, with (b) as the interim
+  backstop** until the price is calibrated; (b) alone is evaded by many
+  senders. Either is a consensus change: spec GAS/FEE text, vectors, an
+  ADR-142 amendment and a DECISIONS.md entry, after the choice.
+- **BRIEF-4 — the accounts root is a full fold every block.** The sparse
+  accounts tree is dark (`STATELESS_ACTIVATION_HEIGHT = u64::MAX`,
+  `crates/node/src/state/context.rs`), so the root costs O(accounts): about
+  1 s at about 2.1 M accounts in release, and accounts are cheap to create.
+  Options: (A) keep it dark and accept the growth; (B) merge #540, soak with
+  the cache on, then schedule an activation height through the upgrade
+  schedule (invariant 34); (B+) as (B), and also price account creation so
+  the window before activation is not cheap to abuse. **Recommendation:
+  (B+); Eric picks the height.**
+- **MINE-01 — the epoch share budget is first come, first served.**
+  `share_reward()` is zero once the epoch's budget is spent
+  (`crates/node/src/state/mining_exec.rs`), so mining becomes a latency race
+  to the proposer, and a proposer can order its own shares first. Options:
+  (a) pro-rata pull settlement: a per-miner, per-epoch share count
+  (`k:mcount`) and a claim transaction after the epoch (record v5), a genesis
+  format change; (b) launch as is and schedule (a) as an upgrade; (c) a
+  per-miner cap per block, which blunts proposer self-priority but keeps the
+  race. **Recommendation: (a) before genesis**, since it changes the record
+  format; decide together with MINE-03.
+- **MINE-03 — one PQ signature per share.** Every share is a full signed
+  transaction, about 79 MB a day of signatures at the share target; shares
+  are base-fee exempt (`is_free_share`, #584), so the cost lands on
+  bandwidth and storage, bounded only by `max_shares_per_block`. Options:
+  (a) a batched share transaction kind (several nonces under one signature,
+  keeping a seen record per nonce), then a higher `target_shares`; (b) keep
+  one share per transaction. **Recommendation: (a), designed with MINE-01's
+  pull settlement**, since both change the share format.
+
+Already open as drafts, unchanged here (merge order in each): R-2 failed
+calls pay their fee (#647, after #549); R-1 contract storage (#643 CPU side,
+#644 growth bounds or a per-byte state deposit); BRIEF-1 the S-033 committee
+floor (#524 option A, #656 option B); R-7 staking positions and the
+registration count (#658, after #555).
+
 ## P1 — frozen-node findings (CATALOG §M research, 2026-11-10)
 
 Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
