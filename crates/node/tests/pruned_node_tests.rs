@@ -829,14 +829,17 @@ fn a_second_archive_fetch_over_rpc_is_retried_and_then_served() {
         let waiting = scope.spawn(|| second.block(66));
         // Well inside the client's first back-off (500 ms).
         std::thread::sleep(std::time::Duration::from_millis(300));
-        assert!(
-            !waiting.is_finished(),
-            "the second fetch gave up instead of retrying: {:?}",
-            waiting.join().map(|r| r.map(|_| ()))
-        );
+        let gave_up = waiting.is_finished();
+        // Opened before any assertion: a failure must not leave `held`
+        // blocked on the gate, or the scope never returns.
         let (open, opened) = &*gate;
         *open.lock().expect("gate") = true;
         opened.notify_all();
+        assert!(
+            !gave_up,
+            "the second fetch gave up instead of retrying: {:?}",
+            waiting.join().map(|r| r.map(|_| ()))
+        );
         let first = held.join().expect("thread").expect("served");
         assert_eq!(first.to_bytes(), archive.block(65).to_bytes());
         let second = waiting
