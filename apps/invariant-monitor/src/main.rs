@@ -72,7 +72,7 @@ async fn run() -> Result<u8, String> {
         nodes.len()
     );
 
-    let http = reqwest::Client::new();
+    let http = notify::client(notify::SEND_TIMEOUT)?;
     let start = Instant::now();
     let mut detector = Detector::new(cfg.thresholds);
     let mut checks = PublicChecks::new();

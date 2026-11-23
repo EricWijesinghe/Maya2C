@@ -603,22 +603,25 @@ impl MetricsCollector {
 
     async fn collect(&self) -> Result<()> {
         // Collect validator metrics
+        let http = crate::validators::http_client();
         for validator in &self.config.validators {
             // Try to get metrics from validator's /metrics endpoint
-            if let Ok(resp) = reqwest::get(&validator.metrics_url()).await
+            if let Ok(resp) = http.get(validator.metrics_url()).send().await
                 && let Ok(text) = resp.text().await
             {
                 self.parse_prometheus_metrics(&validator.name, &text);
             }
 
             // Try to get health/status
-            if let Ok(resp) = reqwest::get(&validator.health_url()).await {
+            if let Ok(resp) = http.get(validator.health_url()).send().await {
                 if resp.status().is_success() {
                     self.metrics.set_validator_up(&validator.name, true);
 
                     // Get tip height
-                    if let Ok(tip_resp) =
-                        reqwest::get(&format!("{}/get_tip_height", validator.rpc_url())).await
+                    if let Ok(tip_resp) = http
+                        .get(format!("{}/get_tip_height", validator.rpc_url()))
+                        .send()
+                        .await
                         && let Ok(json) = tip_resp.json::<serde_json::Value>().await
                         && let Some(height) = json.get("result").and_then(|r| r.as_u64())
                     {

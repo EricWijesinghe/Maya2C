@@ -700,6 +700,7 @@ sinks:
         let validators = self.config.validator_names();
         let timeout = Duration::from_secs(120);
         let start = std::time::Instant::now();
+        let http = crate::validators::http_client();
 
         while start.elapsed() < timeout {
             let mut all_healthy = true;
@@ -711,10 +712,12 @@ sinks:
                     continue;
                 };
 
-                if let Ok(resp) = reqwest::get(&format!("{}/health", v.health_url())).await
+                if let Ok(resp) = http.get(format!("{}/health", v.health_url())).send().await
                     && resp.status().is_success()
-                    && let Ok(tip_resp) =
-                        reqwest::get(&format!("{}/get_tip_height", v.rpc_url())).await
+                    && let Ok(tip_resp) = http
+                        .get(format!("{}/get_tip_height", v.rpc_url()))
+                        .send()
+                        .await
                     && let Ok(json) = tip_resp.json::<serde_json::Value>().await
                     && let Some(h) = json.get("result").and_then(|r| r.as_u64())
                 {

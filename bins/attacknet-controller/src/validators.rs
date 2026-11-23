@@ -365,13 +365,30 @@ pub fn trusted_flag(info: &serde_json::Value, block: &serde_json::Value) -> Opti
     well_formed.then(|| format!("{height}:{id}"))
 }
 
+/// Bound on every controller HTTP call: a validator frozen by a fault
+/// scenario must read as down, not hang the scenario that froze it.
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A client whose every request gives up after [`HTTP_TIMEOUT`].
+///
+/// # Panics
+///
+/// Where `reqwest::Client::new` would: the TLS backend failed to initialise.
+#[must_use]
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(HTTP_TIMEOUT)
+        .build()
+        .expect("the TLS backend initialises, as reqwest::Client::new assumes")
+}
+
 /// One attempt: the live node at `url` reports its tip, and the block there.
 ///
 /// Single-source is fine here: the controller runs against our own lab nodes on
 /// 127.0.0.1, so the block cannot come from an outside party. Public launchers
 /// require two sources to agree, or an operator override.
 async fn fetch_trusted_block(url: &str) -> Result<String> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let info = json_rpc(&client, url, "get_chain_info", serde_json::json!([])).await?;
     let height = info["height"]
         .as_u64()
@@ -435,6 +452,21 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn a_validator_that_accepts_but_never_answers_reads_as_down() {
+        // A SIGSTOPped node still accepts on its listen backlog; reqwest's
+        // default client then waited on it forever.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/health", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let held = listener.accept();
+            std::thread::sleep(HTTP_TIMEOUT * 3);
+            drop(held);
+        });
+        let reply = tokio::time::timeout(HTTP_TIMEOUT * 2, http_client().get(url).send()).await;
+        assert!(matches!(reply, Ok(Err(_))), "{reply:?}");
+    }
 
     fn id(digit: char) -> String {
         digit.to_string().repeat(64)
