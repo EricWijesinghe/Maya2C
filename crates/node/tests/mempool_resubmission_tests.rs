@@ -45,16 +45,100 @@ fn pay(nonce: u64, amount: u64) -> Transaction {
 }
 
 #[test]
-fn a_nonce_past_the_pooled_run_is_refused_until_the_gap_fills() {
+fn a_nonce_past_the_pooled_run_waits_unproposed_until_the_gap_fills() {
     let dir = TempDir::new().unwrap();
     let pool = Mempool::new(funded(&dir));
+    let third = pay(2, 1);
 
     assert!(pool.insert(pay(0, 1)).unwrap());
-    let err = pool.insert(pay(2, 1)).unwrap_err();
-    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    assert!(pool.insert(third.clone()).unwrap(), "it waits");
+    assert!(
+        !pool.contains(&third.txid()),
+        "a gapped entry is never proposed"
+    );
+    assert_eq!((pool.len(), pool.queued_len()), (1, 1));
+    assert!(
+        !pool.insert(third.clone()).unwrap(),
+        "a second copy is a duplicate"
+    );
 
     assert!(pool.insert(pay(1, 1)).unwrap());
-    assert!(pool.insert(pay(2, 1)).unwrap(), "the gap is filled now");
+    assert!(pool.contains(&third.txid()), "the gap is filled now");
+    assert_eq!((pool.len(), pool.queued_len()), (3, 0));
+}
+
+/// Gossip can deliver nonce n + 1 before n, and a mesh peer can hold n back
+/// on purpose. Refusing n + 1 lost it for good: gossip's seen-cache drops
+/// every later copy and nothing re-announces it (review of #653).
+#[test]
+fn a_successor_gossiped_before_its_predecessor_is_proposable_once_both_arrive() {
+    let dir = TempDir::new().unwrap();
+    let pool = Mempool::new(funded(&dir));
+    let (first, second) = (pay(0, 1), pay(1, 1));
+
+    assert!(
+        pool.insert_encoded(&second.to_bytes()).unwrap(),
+        "admitted to wait, so gossip relays it"
+    );
+    assert!(pool.snapshot().is_empty(), "nothing gapped is proposed");
+    assert!(pool.insert_encoded(&first.to_bytes()).unwrap());
+    assert!(pool.contains(&first.txid()));
+    assert!(
+        pool.contains(&second.txid()),
+        "promoted when its predecessor landed"
+    );
+}
+
+/// The missing nonce can reach a block through another validator and never
+/// pass this pool. The round's bookkeeping then promotes what waited.
+#[test]
+fn a_waiting_entry_whose_gap_a_commit_filled_is_pooled_at_the_next_round() {
+    let dir = TempDir::new().unwrap();
+    let state = funded(&dir);
+    let pool = Mempool::new(Arc::clone(&state));
+    let (second, stale) = (pay(1, 1), pay(2, 1));
+    assert!(pool.insert(second.clone()).unwrap());
+    assert!(pool.insert(stale.clone()).unwrap());
+    assert_eq!(pool.queued_len(), 2);
+
+    let sender = signing_key_from_seed(&SEED).unwrap().address();
+    let committed = Account {
+        balance: U256::from(999),
+        nonce: 1,
+    };
+    state.put_account(&sender, &committed).unwrap();
+    assert_eq!(pool.settle_round(&[], &[]), 0);
+    assert!(pool.contains(&second.txid()) && pool.contains(&stale.txid()));
+    assert_eq!(pool.queued_len(), 0);
+
+    // Both executed elsewhere: a queued copy that went stale is dropped.
+    let later = pay(4, 1);
+    assert!(pool.insert(later.clone()).unwrap());
+    let moved_on = Account {
+        balance: U256::from(990),
+        nonce: 5,
+    };
+    state.put_account(&sender, &moved_on).unwrap();
+    pool.settle_round(&[second.txid(), stale.txid()], &[]);
+    assert_eq!(
+        (pool.queued_len(), pool.contains(&later.txid())),
+        (0, false)
+    );
+}
+
+/// Waiting entries count toward the sender's share like pooled ones, so the
+/// queue cannot hold spends the account could not cover together.
+#[test]
+fn waiting_entries_count_toward_what_the_sender_can_afford() {
+    let dir = TempDir::new().unwrap();
+    let pool = Mempool::new(funded(&dir));
+    assert!(pool.insert(pay(1, 600)).unwrap());
+    let err = pool.insert(pay(2, 600)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::InsufficientBalance { .. }),
+        "{err:?}"
+    );
+    assert_eq!(pool.queued_len(), 1);
 }
 
 #[test]
@@ -241,9 +325,11 @@ fn a_nonce_whose_predecessor_is_in_the_sibling_pool_is_admitted() {
     );
     // And the other way round.
     assert!(gossip.insert(pay(2, 1)).unwrap());
-    // A real gap is still a gap across both.
-    let err = rpc.insert(pay(4, 1)).unwrap_err();
-    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    // A real gap is still a gap across both: it waits, unproposed.
+    let gapped = pay(4, 1);
+    assert!(rpc.insert(gapped.clone()).unwrap());
+    assert!(!rpc.contains(&gapped.txid()));
+    assert_eq!(rpc.queued_len(), 1);
 }
 
 #[test]
