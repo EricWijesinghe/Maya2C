@@ -13,8 +13,14 @@
 //!
 //! Setting `MAYA_VM_DUMP_WASM=<dir>` writes every generated module into
 //! `<dir>` as `<blake3>.wasm`. That is how the committed corpus in
-//! `crates/vm/tests/tier_corpus/` is produced from a minimised fuzz corpus,
-//! so CI replays real fuzzer finds without depending on `wasm-smith`.
+//! `crates/vm/tests/tier_corpus/` was produced from a merged fuzz corpus
+//! (selected by hash order under 4 KiB, not minimised), so CI replays real
+//! fuzzer finds without depending on `wasm-smith`.
+//!
+//! The host state is drawn from the same bytes: up to two oracle feeds (fresh,
+//! stale, or too wide for the 8-byte read) and the zkML verifier's answer, so
+//! the tiers are compared on the success path of those host calls too, not
+//! only on "absent".
 
 #![no_main]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -24,13 +30,21 @@ use std::sync::OnceLock;
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 use libfuzzer_sys::fuzz_target;
 use maya_vm::config::{MAX_MEMORY_PAGES, PAGE_SIZE};
-use maya_vm::{MemoryState, Tier, Vm, VmError};
+use maya_vm::host::OracleValue;
+use maya_vm::zkml::ZKML_MODEL_ID_LEN;
+use maya_vm::{
+    Address, Amount, ContractId, Event, HostState, MemoryState, Tier, Vm, VmError, ZkmlVerdict,
+};
 
 const CONTRACT: [u8; 32] = [9u8; 32];
 /// Pulley is roughly 19x slower than Cranelift; a larger ceiling spends the
 /// budget on a few long loops instead of many distinct modules.
 const MAX_GAS: u64 = 2_000_000;
 const MAX_INPUT: usize = 64;
+const HEIGHT: u64 = 7;
+/// Id 0 is what an unwritten guest pointer reads; id 1 needs the module to
+/// write it first.
+const FEED_IDS: [[u8; 32]; 2] = [[0u8; 32], [1u8; 32]];
 
 /// Every host function, with the signature `register_host_functions` gives it.
 const HOST_IMPORTS: &str = r#"(module
@@ -136,27 +150,113 @@ fn error_class(error: &VmError) -> String {
     }
 }
 
-fn state() -> MemoryState {
-    let mut state = MemoryState::at_height(7);
-    state.caller = Some([3u8; 32]);
-    state.randomness = Some([5u8; 32]);
-    state.set_balance([3u8; 32], 1_000_000);
-    state
+/// `MemoryState` plus a zkML verifier that answers what the input chose.
+#[derive(Clone, Debug)]
+struct FuzzHost {
+    inner: MemoryState,
+    zkml: ZkmlVerdict,
 }
 
-fn observe(vm: &Vm, code: &[u8], input: &[u8], gas: u64) -> Observed {
-    let exec = vm.execute(code, CONTRACT, input, gas, state());
-    Observed {
-        outcome: exec.outcome.map_err(|e| error_class(&e)),
-        state: (exec.state.storage, exec.state.events),
+impl HostState for FuzzHost {
+    fn balance_of(&self, address: &Address) -> Amount {
+        self.inner.balance_of(address)
+    }
+    fn caller(&self) -> Option<Address> {
+        self.inner.caller()
+    }
+    fn block_height(&self) -> u64 {
+        self.inner.block_height()
+    }
+    fn block_randomness(&self) -> Option<[u8; 32]> {
+        self.inner.block_randomness()
+    }
+    fn oracle_feed(&self, feed_id: &[u8; 32]) -> Option<OracleValue> {
+        self.inner.oracle_feed(feed_id)
+    }
+    fn verify_zkml(
+        &self,
+        _model_id: &[u8; ZKML_MODEL_ID_LEN],
+        _vk: &[u8],
+        _public: &[i64],
+        _proof: &[u8],
+    ) -> ZkmlVerdict {
+        self.zkml.clone()
+    }
+    fn storage_get(&self, contract: &ContractId, key: &[u8]) -> Option<Vec<u8>> {
+        self.inner.storage_get(contract, key)
+    }
+    fn storage_set(&mut self, contract: &ContractId, key: Vec<u8>, value: Vec<u8>) {
+        self.inner.storage_set(contract, key, value);
+    }
+    fn emit(&mut self, event: Event) {
+        self.inner.emit(event);
     }
 }
 
-fn dump(code: &[u8]) {
+fn host(u: &mut Unstructured<'_>) -> Result<FuzzHost> {
+    let mut inner = MemoryState::at_height(HEIGHT);
+    inner.caller = Some([3u8; 32]);
+    inner.randomness = Some([5u8; 32]);
+    inner.set_balance([3u8; 32], 1_000_000);
+    for id in FEED_IDS {
+        if u.arbitrary()? {
+            // A u64 price reads through both calls; a full 256-bit one makes
+            // the 8-byte call refuse it (-3).
+            let value = if u.arbitrary()? {
+                Amount::from_u64(u.arbitrary()?)
+            } else {
+                Amount::from_le_bytes(u.arbitrary()?)
+            };
+            let feed = OracleValue {
+                value,
+                // Up to two blocks ahead of the chain: the saturating age.
+                updated_height: u.int_in_range(0..=HEIGHT + 2)?,
+                round: u.arbitrary()?,
+                observations: u.arbitrary()?,
+            };
+            inner.feeds.insert(id, feed);
+        }
+    }
+    let zkml = match u.int_in_range(0..=3u8)? {
+        0 => ZkmlVerdict::Unavailable,
+        1 => ZkmlVerdict::Valid,
+        2 => ZkmlVerdict::Invalid,
+        _ => ZkmlVerdict::Malformed("fuzz".into()),
+    };
+    Ok(FuzzHost { inner, zkml })
+}
+
+fn observe(vm: &Vm, code: &[u8], input: &[u8], gas: u64, host: &FuzzHost) -> Observed {
+    let exec = vm.execute(code, CONTRACT, input, gas, host.clone());
+    Observed {
+        outcome: exec.outcome.map_err(|e| error_class(&e)),
+        state: (exec.state.inner.storage, exec.state.inner.events),
+    }
+}
+
+/// The dump directory, created once. A bad path stops the run here with a
+/// clear message, rather than panicking inside every exec, which libFuzzer
+/// would record as a crash and look like a tier divergence.
+fn dump_dir() -> Option<&'static std::path::Path> {
     static DIR: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
-    if let Some(dir) = DIR.get_or_init(|| std::env::var_os("MAYA_VM_DUMP_WASM").map(Into::into)) {
+    DIR.get_or_init(|| {
+        let dir = std::path::PathBuf::from(std::env::var_os("MAYA_VM_DUMP_WASM")?);
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            eprintln!("MAYA_VM_DUMP_WASM={}: {error}", dir.display());
+            std::process::exit(2);
+        }
+        Some(dir)
+    })
+    .as_deref()
+}
+
+fn dump(code: &[u8]) {
+    if let Some(dir) = dump_dir() {
         let name = format!("{}.wasm", blake3::hash(code).to_hex());
-        std::fs::write(dir.join(name), code).expect("dump module");
+        // A failed write loses one module from the dump, not the run.
+        if let Err(error) = std::fs::write(dir.join(name), code) {
+            eprintln!("dump module: {error}");
+        }
     }
 }
 
@@ -172,6 +272,9 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     let input = input.to_vec();
+    let Ok(host) = host(&mut u) else {
+        return;
+    };
     let Ok(config) = smith_config(&mut u) else {
         return;
     };
@@ -182,9 +285,15 @@ fuzz_target!(|data: &[u8]| {
     dump(&code);
 
     let (cranelift, pulley) = vms();
-    let cold = observe(cranelift, &code, &input, gas);
-    let cached = observe(cranelift, &code, &input, gas);
-    assert_eq!(cold, cached, "cranelift cold vs cached, gas {gas}");
-    let interpreted = observe(pulley, &code, &input, gas);
-    assert_eq!(cold, interpreted, "cranelift vs pulley, gas {gas}");
+    let cold = observe(cranelift, &code, &input, gas, &host);
+    let cached = observe(cranelift, &code, &input, gas, &host);
+    assert_eq!(
+        cold, cached,
+        "cranelift cold vs cached, gas {gas}, input {input:?}, host {host:?}"
+    );
+    let interpreted = observe(pulley, &code, &input, gas, &host);
+    assert_eq!(
+        cold, interpreted,
+        "cranelift vs pulley, gas {gas}, input {input:?}, host {host:?}"
+    );
 });

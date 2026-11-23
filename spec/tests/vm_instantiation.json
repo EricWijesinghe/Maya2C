@@ -1,0 +1,73 @@
+{
+  "cases": [
+    {
+      "expect": {
+        "gas_used": "2",
+        "result": "ok"
+      },
+      "gas_limit": "1000000",
+      "id": "no-data-segment",
+      "rules": [
+        "VMI-1"
+      ],
+      "wasm_hex": "0061736d0100000001060160017f017e030201000503010001071302066d656d6f7279020006696e766f6b6500000a0601040042000b",
+      "wat": "(module (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))"
+    },
+    {
+      "expect": {
+        "gas_used": "20",
+        "result": "ok"
+      },
+      "gas_limit": "1000000",
+      "id": "sixteen-byte-segment",
+      "rules": [
+        "VMI-1"
+      ],
+      "wasm_hex": "0061736d0100000001060160017f017e030201000503010001071302066d656d6f7279020006696e766f6b6500000a0601040042000b0b16010041000b106b65793076616c75652d30746f706963",
+      "wat": "(module (memory (export \"memory\") 1) (data (i32.const 0) \"key0value-0topic\") (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))"
+    },
+    {
+      "expect": {
+        "gas_used": "20",
+        "result": "ok"
+      },
+      "gas_limit": "20",
+      "id": "sixteen-byte-segment-at-exact-cost",
+      "rules": [
+        "VMI-1"
+      ],
+      "wasm_hex": "0061736d0100000001060160017f017e030201000503010001071302066d656d6f7279020006696e766f6b6500000a0601040042000b0b16010041000b106b65793076616c75652d30746f706963",
+      "wat": "(module (memory (export \"memory\") 1) (data (i32.const 0) \"key0value-0topic\") (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))"
+    },
+    {
+      "expect": {
+        "error": "OutOfGas",
+        "result": "error"
+      },
+      "gas_limit": "19",
+      "id": "sixteen-byte-segment-one-below-cost",
+      "rules": [
+        "VMI-1"
+      ],
+      "wasm_hex": "0061736d0100000001060160017f017e030201000503010001071302066d656d6f7279020006696e766f6b6500000a0601040042000b0b16010041000b106b65793076616c75652d30746f706963",
+      "wat": "(module (memory (export \"memory\") 1) (data (i32.const 0) \"key0value-0topic\") (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))"
+    },
+    {
+      "expect": {
+        "gas_used": "29",
+        "result": "ok"
+      },
+      "gas_limit": "1000000",
+      "id": "two-segments-on-two-pages",
+      "rules": [
+        "VMI-1"
+      ],
+      "wasm_hex": "0061736d0100000001060160017f017e030201000503010002071302066d656d6f7279020006696e766f6b6500000a0601040042000b0b25020041000b106b65793076616c75652d30746f7069630041f0a2040b0865696768742d6279",
+      "wat": "(module (memory (export \"memory\") 2) (data (i32.const 0) \"key0value-0topic\") (data (i32.const 70000) \"eight-by\") (func (export \"invoke\") (param i32) (result i64) (i64.const 0)))"
+    }
+  ],
+  "format": 1,
+  "generator": "hand-written; gas measured with maya-vm (wasmtime 48.0.8, memory_init_cow off) on Windows 11, checked on Linux by CI (ADR-034 amendment 2026-11-23)",
+  "spec": "spec/11-vm-instantiation.md",
+  "u64": "decimal strings"
+}

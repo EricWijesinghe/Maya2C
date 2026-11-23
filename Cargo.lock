@@ -6906,6 +6906,7 @@ dependencies = [
  "maya-contract-safety",
  "maya-zk-stark",
  "proptest",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "wasmtime",

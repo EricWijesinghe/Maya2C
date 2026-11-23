@@ -1,0 +1,24 @@
+integer_loop 5000 0 - 742ad91420bbdd8507d5f33ee3616a9c OutOfGas { limit: 5000 }
+integer_loop 50000 0 - b71c3bc9fbc9a56531168444c17da7ea OutOfGas { limit: 50000 }
+integer_loop 500000 0 280002 47867ee876555442a5cb079372290777 ok
+integer_loop 10000000 0 280002 47867ee876555442a5cb079372290777 ok
+storage_and_even 5000 0 204 2fe658c05df9eb3fd3bf22a6a2ac1e74 ok
+storage_and_even 50000 0 204 2fe658c05df9eb3fd3bf22a6a2ac1e74 ok
+storage_and_even 500000 0 204 2fe658c05df9eb3fd3bf22a6a2ac1e74 ok
+storage_and_even 10000000 0 204 2fe658c05df9eb3fd3bf22a6a2ac1e74 ok
+memory_grow_and_ 5000 0 - 742ad91420bbdd8507d5f33ee3616a9c OutOfGas { limit: 5000 }
+memory_grow_and_ 50000 0 - b71c3bc9fbc9a56531168444c17da7ea OutOfGas { limit: 50000 }
+memory_grow_and_ 500000 0 250012 9c3c0a136f699c11634091d296703de0 ok
+memory_grow_and_ 10000000 0 250012 9c3c0a136f699c11634091d296703de0 ok
+NaN_canonicalisa 5000 0 8 fc2be96d9c4dfa317b300408bf09f474 ok
+NaN_canonicalisa 50000 0 8 fc2be96d9c4dfa317b300408bf09f474 ok
+NaN_canonicalisa 500000 0 8 fc2be96d9c4dfa317b300408bf09f474 ok
+NaN_canonicalisa 10000000 0 8 fc2be96d9c4dfa317b300408bf09f474 ok
+trap:_divide_by_ 5000 0 - 6fbfb14ea219bd9384f1f07c9ba875e8 wasm trap: integer divide by zero
+trap:_divide_by_ 50000 0 - 6fbfb14ea219bd9384f1f07c9ba875e8 wasm trap: integer divide by zero
+trap:_divide_by_ 500000 0 - 6fbfb14ea219bd9384f1f07c9ba875e8 wasm trap: integer divide by zero
+trap:_divide_by_ 10000000 0 - 6fbfb14ea219bd9384f1f07c9ba875e8 wasm trap: integer divide by zero
+infinite_loop 5000 0 - 742ad91420bbdd8507d5f33ee3616a9c OutOfGas { limit: 5000 }
+infinite_loop 50000 0 - b71c3bc9fbc9a56531168444c17da7ea OutOfGas { limit: 50000 }
+infinite_loop 500000 0 - 822a34e7f2c37818e18d8d2014764961 OutOfGas { limit: 500000 }
+infinite_loop 10000000 0 - 6519717bf64fd7b5affed8c3ed7d061b OutOfGas { limit: 10000000 }

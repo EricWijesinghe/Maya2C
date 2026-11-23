@@ -85,6 +85,11 @@ jobs:
           - pow_target
           # Fork choice and reorg depth: work, retarget and the prune horizon.
           - reorg_prune
+          # Cranelift vs Pulley on generated contracts (V3-P3). Slow per exec
+          # (~14/s), so 60 s mostly replays the corpus; it is here so a PR
+          # that breaks the harness build (wasm-smith, wasmtime, a VM
+          # signature) fails on the PR, not overnight.
+          - vm_tier_differential
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -141,7 +146,7 @@ jobs:
             -- \
             -max_total_time=${{ steps.budget.outputs.seconds }} \
             -max_len=65536 \
-            -rss_limit_mb=2048 \
+            -rss_limit_mb=${{ matrix.target == 'vm_tier_differential' && 4096 || 2048 }} \
             -timeout=5 \
             -print_final_stats=1
 

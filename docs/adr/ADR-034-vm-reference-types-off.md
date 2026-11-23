@@ -86,7 +86,11 @@ config.wasm_features(
 
 ## Amendment 2026-11-23: copy-on-write memory images off
 
-**Status:** Accepted (Claude, under Eric's pre-approval, Eric 2026-11-14).
+**Status:** Proposed. Written by Claude under Eric's blanket "I approve
+everything, proceed" (Eric 2026-11-14). That text does not name gas-schedule
+changes, so it is cited as the reason the work was done, not as approval of
+this change. It moves to Accepted when two human reviewers and the
+rust-reviewer and security-reviewer passes are recorded on PR #674.
 
 **Finding.** The V3-P3 tier work explained the Windows "Pulley charges
 61,440 more fuel" result from 2026-09-27, and it was not about Pulley.
@@ -120,13 +124,34 @@ code, so data-segment gas is a function of the module alone. It is in
 
 - Gas changes for every contract with a data segment: on Linux it rises by
   about the segments' byte count, on Windows it falls by about one page. It
-  takes effect at mainnet genesis. Testnet nodes must move together (or
-  re-genesis); a mixed testnet would disagree on exactly the calls above.
+  takes effect at mainnet genesis, with no activation height, because it
+  lands before genesis.
+- **Testnet operational step.** A testnet binary carrying this change must
+  replace every validator's binary at once (stop all, upgrade all, start
+  all), or the testnet is re-genesised. A mixed testnet (old and new
+  binaries, or Linux and Windows nodes on the old binary) disagrees on
+  exactly the calls above. The same line is in the PR body for the release
+  notes.
 - Instantiation copies segment bytes instead of mapping them. Contracts are
   capped at `MAX_MODULE_BYTES` = 512 KiB, so the copy is bounded.
-- The three tier-differential tests that were ignored on Windows now run
-  there and pass; the Pulley tier stays off for its speed (19x slower), not
-  for a divergence.
+- On master before this change `tier_differential_tests.rs` had 2 tests,
+  both ignored on Windows. Both now run there and pass, and the file has 6:
+  the hand corpus, `token_swap` (its wasm is committed under `target-contracts/`;
+  the test now fails instead of skipping if it is missing), the fuzz corpus, the corpus file names, the pinned data
+  segment and the spec vectors. The Pulley tier stays off for its speed
+  (19x slower), not for a divergence.
+- **Spec and vectors.** Rule VMI-1 in `spec/11-vm-instantiation.md`, with
+  hand-written vectors in `spec/tests/vm_instantiation.json` (16-byte
+  segment: 20 gas, ok at `gas_limit` 20, `OutOfGas` at 19), replayed on
+  every tier by `the_vm_instantiation_vectors_hold_in_every_tier`.
+- **Golden values, not only tier agreement.** `tests/tier_corpus/golden.txt`
+  (fuzz corpus, 512 cells) and `hand_golden.txt` (hand corpus, 24 cells)
+  pin what every tier on every host must produce. They are regenerated
+  with `MAYA_VM_BLESS_TIER_GOLDEN=1` only for a deliberate gas-schedule or
+  wasmtime change, which needs an ADR or amendment citing the old and new
+  values. With `memory_init_cow(true)` restored on Linux, both tiers agree
+  and the hand golden fails (`storage and events`: 186 against 204): the
+  check this bug needed.
 - Lesson: "deterministic" has to be tested across the operating systems
-  validators run, not only across tiers on one machine. The pinned-number
-  test above fails on any host that charges differently.
+  validators run, not only across tiers on one machine. The pinned numbers
+  above fail on any host that charges differently.
