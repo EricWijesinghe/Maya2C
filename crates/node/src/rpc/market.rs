@@ -129,13 +129,17 @@ struct Cached {
     report: SupplyReport,
 }
 
+/// The refusal a supply caller gets while a walk for another tip runs.
+pub const SUPPLY_BUSY: &str = "supply is being computed for a new tip; retry later";
+
 /// The supply report for the newest tip asked about, computed once per tip.
 ///
 /// Supply walks every account, the most expensive read the node offers, and
 /// it cannot change while the tip stands still, so caching on the tip trades
-/// no freshness. Single-flight: a caller that arrives while a walk runs waits
-/// for it and takes its result, so N requests after a block cost one walk,
-/// not N. Every public surface (`get_supply`, the market endpoints) reads
+/// no freshness. Single-flight: one walk at a time, and a caller that arrives
+/// while a walk runs is refused ([`SUPPLY_BUSY`]) rather than parked, so N
+/// requests after a block cost one walk and no thread waits on it (each
+/// waiter held a blocking-pool thread for the length of the walk). Every public surface (`get_supply`, the market endpoints) reads
 /// through one of these.
 #[derive(Debug, Default)]
 pub struct SupplyCache {
@@ -144,26 +148,28 @@ pub struct SupplyCache {
 }
 
 impl SupplyCache {
-    /// The supply at the current tip, from the cache when it is current.
+    /// The supply at the current tip, from the cache when it is current, or
+    /// `None` while another caller's walk runs.
     ///
     /// # Errors
     ///
     /// Propagates storage failures from the account scan.
-    pub fn get(&self, chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
+    pub fn get(&self, chain: &Arc<Mutex<Chain>>) -> Result<Option<SupplyReport>> {
         let (height, tip) = {
             let chain = lock(chain);
             (chain.height(), chain.tip())
         };
         if let Some(report) = self.hit(height, tip) {
-            return Ok(report);
+            return Ok(Some(report));
         }
-        let _scan = self
-            .scan
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _scan = match self.scan.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+        };
         // Whoever held the scan before us may have just stored this tip.
         if let Some(report) = self.hit(height, tip) {
-            return Ok(report);
+            return Ok(Some(report));
         }
         let fresh = supply_at(chain)?;
         let mut last = self
@@ -174,7 +180,7 @@ impl SupplyCache {
         // starts, so the newest walk is the current tip, even a lower one
         // after a heaviest-work reorg: always replace.
         *last = Some(fresh);
-        Ok(fresh.report)
+        Ok(Some(fresh.report))
     }
 
     fn hit(&self, height: u64, tip: [u8; 32]) -> Option<SupplyReport> {
@@ -460,10 +466,18 @@ mod tests {
         };
         let cache = SupplyCache::default();
         *cache.last.lock().unwrap() = Some(left_branch);
-        assert_eq!(cache.get(&chain).unwrap().total, now.report.total);
+        assert_eq!(cache.get(&chain).unwrap().unwrap().total, now.report.total);
         // And the cache now holds the chain's own tip, so the next call hits.
         let held = cache.last.lock().unwrap().unwrap();
         assert_eq!((held.height, held.tip), (now.height, now.tip));
+
+        // A caller that misses while a walk runs is refused, not parked on
+        // it: each parked caller held a blocking-pool thread.
+        *cache.last.lock().unwrap() = None;
+        let walking = cache.scan.lock().unwrap();
+        assert_eq!(cache.get(&chain).unwrap(), None, "parked behind a walk");
+        drop(walking);
+        assert!(cache.get(&chain).unwrap().is_some());
     }
 
     fn quote(pair: &str) -> MarketQuote {

@@ -97,7 +97,10 @@ RPC:
     busiest. A cached report is served only for the exact (height, tip) it was walked
     at, and each walk replaces it: fork choice is heaviest work, so a reorg can lower
     the height, and a rule that served any newer cached height kept a branch's supply
-    the node had left (review of #655).
+    the node had left (review of #655). Amended 2026-11-24: a caller that misses
+    while a walk runs is refused (`SUPPLY_BUSY`, HTTP 503 on the market endpoints)
+    instead of waiting on it, since each waiter held a blocking-pool thread for the
+    length of the walk.
 11. **Request bodies are capped** at two maximal transactions plus 64 KiB and must
     arrive within 30 s.
 12. **Many-record reads run on blocking threads** (`get_supply`,
@@ -121,14 +124,24 @@ Amended 2026-11-24 (branch `sec/rpc-1124`, which carries #655 merged onto master
     so an idle keep-alive socket is closed. jsonrpsee's `serve_with_graceful_shutdown`
     sets no timer, so after one request a socket held its slot for good. A connection
     is served for at most 300 s, then finishes its request in flight within 60 s.
-17. **One socket peer holds at most 64 connections** (an IPv6 peer by its /64) of the
-    global 1,024. Loopback and trusted proxies are exempt, since every client behind
-    them shares their address; the timeouts above bound them instead.
+17. **One socket peer holds at most 32 connections** (an IPv6 peer by its /64), and
+    one network at most 128 (an IPv6 /48, an IPv4 /24), of the global 1,024.
+    Loopback and trusted proxies skip the shares, since every client behind them
+    shares their address. When the table is full, the newcomer is served and the
+    oldest connection of the network holding the most (the newcomer's own on a tie)
+    is told to close, with 5 s to finish its request; shed sockets still closing may
+    take the count at most an eighth over the cap, past which newcomers are dropped.
+    Refusing the newcomer let 16 hosts that re-sent a small request every few seconds
+    and reconnected at once keep every slot (amended 2026-11-24, review of #682).
 18. **Block reads leave the chain lock.** `get_block_by_height`,
     `get_blocks_by_height_range` and `get_balance_changes` run on blocking threads and
     hold the chain lock only to copy the state handle. An archive fetch of a pruned
     body runs one at a time across all clients (a second caller is refused, not
-    queued), costs half a read burst, and a range answer makes at most one; after it,
+    queued), costs half a read burst, and a range answer makes at most one. The slot
+    is shared in turns (`admission::ColdTurns`): a client served more recently than
+    one refused within the last 30 s, and not served since, yields to it, so one
+    client asking again the moment its fetch ends cannot hold the slot; a client
+    alone is never held back. After the one fetch,
     a pruned height ends the answer short. A range answer also stops once it carries a
     quarter of the response cap in hex-encoded blocks, always serving the first.
 19. **The market endpoints** (merged from #589): 256 connections, 10 s head timeout,
@@ -140,6 +153,22 @@ Amended 2026-11-24 (branch `sec/rpc-1124`, which carries #655 merged onto master
     nothing, the least recently used 1/16 is evicted, and a refund reaches an IPv6
     client's /64 bucket.
 
+Amended 2026-11-24 (review of #682):
+
+21. **Blocking handlers are bounded.** Every RPC method that runs on a blocking thread
+    first takes one of 32 slots across all clients (`admission::BLOCKING_SLOTS`), or
+    is refused at once with `RPC_BUSY` before it takes a pool thread. They share
+    tokio's blocking pool (512 threads) with block relay, BFT catch-up, the
+    engine-window and rejoin probes, pruning and DAG prepare, and a handler is not
+    cancelled when its client hangs up. Snapshot loads are single-flight: concurrent
+    misses for one height load it once.
+22. **"Retry later" is retried.** The node's bootstrap client (`RpcBootstrapSource`)
+    backs off and retries `COLD_FETCH_BUSY`, `READ_BUDGET_EXHAUSTED` and `RPC_BUSY` as
+    it does the certificate budget refusals. Before, a lagging node fetching pruned
+    heights failed outright whenever another client held the archive slot, and in
+    `within_engine_window` that failure answered "no" and sent the node down the
+    follower path.
+
 ## Not done here
 
 - Explicit gossipsub peers on every transport (audit P2P-01): changing it changes how
@@ -148,7 +177,11 @@ Amended 2026-11-24 (branch `sec/rpc-1124`, which carries #655 merged onto master
   the engine, IP-level quarantine, DHT address filtering, and incremental supply
   counters in state (a state-format change).
 - The read budget and catch-up cap are set, not measured against a disk. So are the
-  archive-fetch cost, the connection timeouts and the per-peer connection cap.
+  archive-fetch cost, the connection timeouts, the per-peer and per-network
+  connection caps, the blocking-slot count and the 30 s archive-turn memory.
+- No cache of the last decoded archive: one may be hundreds of MiB, and keeping it
+  resident trades the slot for memory. A client with many addresses still gets a
+  turn per address; turns are fair per /64, not per operator.
 - Total buffered request bodies can still reach 1,024 connections × the body cap;
   a global in-flight byte budget is a follow-up.
 

@@ -798,6 +798,57 @@ fn an_archive_fetch_runs_outside_the_chain_lock_and_one_at_a_time() {
 }
 
 #[test]
+fn a_second_archive_fetch_over_rpc_is_retried_and_then_served() {
+    // Why: a lagging node fetching pruned heights from a pruned peer failed
+    // outright whenever another client (a second joining node) held the one
+    // archive slot, because "busy, retry later" was not retried.
+    let (archive, pruned, _dir, archive_dir) = fully_pruned();
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let store = GatedStore {
+        inner: LocalDirStore::new(archive_dir.path()).expect("store"),
+        entered: entered_tx,
+        gate: Arc::clone(&gate),
+    };
+    let state = Arc::clone(pruned.lock().expect("lock").state());
+    let context = RpcContext::new(Arc::new(pruned), Mempool::new(state))
+        .with_cold_blocks(Arc::new(ColdBlocks::new(vec![Box::new(store)])));
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let server = runtime
+        .block_on(serve("127.0.0.1:0".parse().expect("addr"), context))
+        .expect("serve");
+    let url = format!("http://{}", server.address);
+    let first = RpcBootstrapSource::new(&url, runtime.handle().clone()).expect("client");
+    let second = RpcBootstrapSource::new(&url, runtime.handle().clone()).expect("client");
+
+    std::thread::scope(|scope| {
+        let held = scope.spawn(|| first.block(65));
+        entered
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the first archive fetch started");
+        let waiting = scope.spawn(|| second.block(66));
+        // Well inside the client's first back-off (500 ms).
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            !waiting.is_finished(),
+            "the second fetch gave up instead of retrying: {:?}",
+            waiting.join().map(|r| r.map(|_| ()))
+        );
+        let (open, opened) = &*gate;
+        *open.lock().expect("gate") = true;
+        opened.notify_all();
+        let first = held.join().expect("thread").expect("served");
+        assert_eq!(first.to_bytes(), archive.block(65).to_bytes());
+        let second = waiting
+            .join()
+            .expect("thread")
+            .expect("served after a retry");
+        assert_eq!(second.to_bytes(), archive.block(66).to_bytes());
+    });
+    drop(server);
+}
+
+#[test]
 fn a_range_answer_fetches_at_most_one_archived_block() {
     let (archive, pruned, _dir, archive_dir) = fully_pruned();
     let store = LocalDirStore::new(archive_dir.path()).expect("store");

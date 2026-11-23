@@ -20,7 +20,11 @@ use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
-use crate::rpc::server::{BUDGET_EXHAUSTED, PAGE_BUSY, RPC_RESPONSE_LIMIT, RpcContext, internal};
+use crate::rpc::admission::{RPC_BUSY, RegisterBounded};
+use crate::rpc::server::{
+    BUDGET_EXHAUSTED, COLD_FETCH_BUSY, PAGE_BUSY, READ_BUDGET_EXHAUSTED, RPC_RESPONSE_LIMIT,
+    RpcContext, internal,
+};
 use crate::rpc::types::BlockInfo;
 use crate::state_pruner::snapshot::{
     BootstrapSource, HEADER_BATCH, MAX_CHUNK_BYTES, SnapshotManifest, Snapshots,
@@ -52,6 +56,9 @@ pub struct SnapshotService {
     min_depth: u64,
     /// Most recently used last.
     cache: Mutex<Vec<Arc<Loaded>>>,
+    /// Held while a snapshot loads: concurrent misses for a new height each
+    /// loaded the whole snapshot at once, one blocking thread apiece.
+    loading: Mutex<()>,
 }
 
 impl SnapshotService {
@@ -62,6 +69,7 @@ impl SnapshotService {
             snapshots,
             min_depth,
             cache: Mutex::new(Vec::new()),
+            loading: Mutex::new(()),
         }
     }
 
@@ -86,6 +94,14 @@ impl SnapshotService {
             return Err(NodeError::Network(format!(
                 "no snapshot at height {height}"
             )));
+        }
+        let _loading = self
+            .loading
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Whoever loaded before us may have just cached this height.
+        if let Some(hit) = self.cached(height) {
+            return Ok(hit);
         }
         let loaded = Arc::new(self.snapshots.load(height)?);
         let mut cache = self.lock_cache();
@@ -137,7 +153,7 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> std::result::Result<(), E
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_headers", |params, ctx, _| {
+        .register_bounded("get_headers", |params, ctx, _| {
             let (from, to): (u64, u64) = params.parse().map_err(|e| rejected(e.to_string()))?;
             if to < from || to - from >= HEADER_BATCH {
                 return Err(rejected(format!("ask for at most {HEADER_BATCH} headers")));
@@ -165,7 +181,7 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> std::result::Result<(), E
 
     module
         // Both may load a whole snapshot from disk: blocking threads.
-        .register_blocking_method("get_snapshot_manifest", |_, ctx, _| {
+        .register_bounded("get_snapshot_manifest", |_, ctx, _| {
             let service = ctx
                 .snapshots
                 .as_ref()
@@ -182,7 +198,7 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> std::result::Result<(), E
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_snapshot_chunk", |params, ctx, _| {
+        .register_bounded("get_snapshot_chunk", |params, ctx, _| {
             let (height, index): (u64, usize) =
                 params.parse().map_err(|e| rejected(e.to_string()))?;
             let service = ctx
@@ -330,14 +346,12 @@ fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
     use jsonrpsee::core::ClientError;
     match e {
         ClientError::Transport(_) | ClientError::RequestTimeout => true,
-        // A certificate page refused for the caller's own budget or its one
-        // page in flight: the server answered, and the answer is "later". Back
-        // off with the same schedule as a lost connection.
-        ClientError::Call(err)
-            if err.message() == BUDGET_EXHAUSTED || err.message() == PAGE_BUSY =>
-        {
-            true
-        }
+        // A refusal whose answer is "later": the caller's own budget, its one
+        // page in flight, the one archive fetch, or every blocking slot busy.
+        // Back off with the same schedule as a lost connection. A catch-up
+        // fetch of a pruned height that failed on these instead pushed a
+        // lagging node onto the follower path.
+        ClientError::Call(err) if RETRY_LATER.contains(&err.message()) => true,
         // JSON-RPC "internal error": the server failed, it did not answer
         // about the data. The public gateway reports any upstream hiccup this
         // way ("upstream node error"); a joining Windows CI node died on one
@@ -347,6 +361,16 @@ fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
         _ => false,
     }
 }
+
+/// The refusals that mean "ask again later", matched by message so a node
+/// talks to peers of any version.
+const RETRY_LATER: [&str; 5] = [
+    BUDGET_EXHAUSTED,
+    PAGE_BUSY,
+    COLD_FETCH_BUSY,
+    READ_BUDGET_EXHAUSTED,
+    RPC_BUSY,
+];
 
 /// JSON-RPC 2.0 "Internal error".
 const INTERNAL_ERROR_CODE: i32 = -32603;
@@ -529,5 +553,15 @@ mod tests {
         assert!(is_transient(&upstream));
         let dead = ClientError::RestartNeeded(std::sync::Arc::new(ClientError::RequestTimeout));
         assert!(!is_transient(&dead), "a dead client is not retried");
+    }
+
+    #[test]
+    fn every_refusal_that_says_retry_later_is_retried() {
+        use crate::rpc::admission::RPC_BUSY;
+        use crate::rpc::server::{COLD_FETCH_BUSY, READ_BUDGET_EXHAUSTED};
+        for message in [COLD_FETCH_BUSY, READ_BUDGET_EXHAUSTED, RPC_BUSY] {
+            let later = ClientError::Call(ErrorObjectOwned::owned(-32_000, message, None::<()>));
+            assert!(is_transient(&later), "{message:?} was not retried");
+        }
     }
 }

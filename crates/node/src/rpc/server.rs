@@ -8,7 +8,9 @@
 //! many records or load whole blocks (`get_supply`, `get_balance_at_height`,
 //! `get_certificates`, `get_block_by_height`, `get_blocks_by_height_range`,
 //! `get_balance_changes` and the bootstrap reads), which would otherwise hold
-//! a runtime worker each.
+//! a runtime worker each. Those take a slot of
+//! [`crate::rpc::admission::BLOCKING_SLOTS`] first, so they cannot fill the
+//! blocking pool the node's own relay and catch-up work runs on.
 //!
 //! The chain sits behind a `Mutex` because fork choice mutates it and the reorg
 //! path must be serialized — two concurrent reorgs would interleave undo
@@ -21,6 +23,8 @@ use std::sync::{Arc, Mutex};
 
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
 use jsonrpsee::types::ErrorObjectOwned;
+
+use crate::rpc::admission::{Connections, RegisterBounded};
 
 use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, Transaction};
@@ -45,11 +49,6 @@ const NOT_FOUND: i32 = -32_001;
 /// the per-block changes are pruned anyway, so a deeper bound would only let
 /// one call walk further before failing.
 const MAX_BALANCE_REWIND: u64 = crate::state_pruner::PRUNE_DEPTH;
-
-/// Archive fetches running at once, across all clients. A fetch may read and
-/// decode a 512 MiB archive or wait minutes on a remote gateway, so a second
-/// caller is refused rather than queued.
-static COLD_FETCHES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 /// What one archive fetch costs against [`RpcContext::reads`]: half a burst,
 /// so one client gets two back to back and then about three a second at most.
@@ -93,7 +92,8 @@ fn block_info_at(
         .as_ref()
         .filter(|_| cold_allowed)
         .ok_or_else(pruned)?;
-    let Ok(_fetching) = COLD_FETCHES.try_acquire() else {
+    // One fetch at a time, in turns (`admission::ColdTurns`).
+    let Some(_turn) = ctx.cold_turns.claim(client) else {
         return Err(rejected(COLD_FETCH_BUSY));
     };
     if !ctx.reads.charge(client, COLD_FETCH_READS) {
@@ -317,6 +317,11 @@ pub struct RpcContext {
     pub reads: Arc<crate::rpc::limit::RateLimiter>,
     /// `get_supply`, computed once per tip and shared by every caller.
     pub supply: Arc<crate::rpc::market::SupplyCache>,
+    /// Blocking handlers running at once, bounded by
+    /// [`crate::rpc::admission::BLOCKING_SLOTS`].
+    pub blocking: Arc<tokio::sync::Semaphore>,
+    /// The one archive fetch at a time, shared in turns.
+    pub cold_turns: Arc<crate::rpc::admission::ColdTurns>,
 }
 
 /// Bytes of certificate pages one client may take per second, sustained.
@@ -443,12 +448,6 @@ pub const PAGE_BUSY: &str = "one certificate page at a time per client";
 /// in [`serve_metered`]; jsonrpsee's own accept loop is not used there.
 pub const MAX_RPC_CONNECTIONS: u32 = 1024;
 
-/// Connections one socket peer may hold at once (an IPv6 peer by its /64), so
-/// one host cannot take every slot of [`MAX_RPC_CONNECTIONS`]. Loopback and
-/// trusted proxies are exempt: every client behind them shares their address,
-/// and the global cap still holds there.
-pub const MAX_CONNECTIONS_PER_PEER: usize = 64;
-
 /// How long a connection may wait for, or take to send, the head of its next
 /// request, the first one included. Hyper enforces it only with a timer set.
 /// Without it a socket that sent one request and then went idle held its slot
@@ -465,54 +464,9 @@ pub const CONNECTION_LIFETIME: std::time::Duration = std::time::Duration::from_s
 /// slow reader.
 const CONNECTION_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Open connections per socket peer, bounded by [`MAX_CONNECTIONS_PER_PEER`].
-#[derive(Debug, Default)]
-struct PeerConnections {
-    open: Mutex<std::collections::HashMap<IpAddr, usize>>,
-}
-
-/// One connection's place in [`PeerConnections`]; released on drop.
-#[derive(Debug)]
-struct PeerSlot {
-    table: Arc<PeerConnections>,
-    key: IpAddr,
-}
-
-impl PeerConnections {
-    /// A slot for `peer`, or `None` if it already holds the most it may.
-    fn claim(table: &Arc<Self>, peer: IpAddr) -> Option<PeerSlot> {
-        let key = crate::rpc::limit::bucket_key(peer);
-        let mut open = table
-            .open
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let count = open.entry(key).or_insert(0);
-        if *count >= MAX_CONNECTIONS_PER_PEER {
-            return None;
-        }
-        *count += 1;
-        Some(PeerSlot {
-            table: Arc::clone(table),
-            key,
-        })
-    }
-}
-
-impl Drop for PeerSlot {
-    fn drop(&mut self) {
-        let mut open = self
-            .table
-            .open
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(count) = open.get_mut(&self.key) {
-            *count -= 1;
-            if *count == 0 {
-                open.remove(&self.key);
-            }
-        }
-    }
-}
+/// How long a connection shed for a newcomer (`admission::Connections`) may
+/// take to finish the request it is on. Short: the table is full.
+const SHED_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 fn server_config() -> jsonrpsee::server::ServerConfig {
     jsonrpsee::server::ServerConfig::builder()
@@ -552,6 +506,10 @@ impl RpcContext {
                 READ_BURST,
             )),
             supply: Arc::default(),
+            blocking: Arc::new(tokio::sync::Semaphore::new(
+                crate::rpc::admission::BLOCKING_SLOTS,
+            )),
+            cold_turns: Arc::default(),
         }
     }
 
@@ -752,7 +710,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_certificates", |params, ctx, extensions| {
+        .register_bounded("get_certificates", |params, ctx, extensions| {
             // `[epoch, offset, max]`: one bounded page of that epoch's
             // certificate log (ADR-052). The rate limiter gates every method;
             // the page bounds are the server's, whatever the caller asks.
@@ -825,7 +783,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_balance_at_height", |params, ctx, extensions| {
+        .register_bounded("get_balance_at_height", |params, ctx, extensions| {
             let (address_hex, height): (String, u64) =
                 params.parse().map_err(|e| invalid_params(e.to_string()))?;
             let address = decode_address_param(&ctx, &address_hex, "address")?;
@@ -891,7 +849,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_balance_changes", |params, ctx, _| {
+        .register_bounded("get_balance_changes", |params, ctx, _| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
             // Lock held only to copy the handle: a block's changes are a
             // whole block's worth of reads and encoding.
@@ -965,7 +923,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_block_by_height", |params, ctx, extensions| {
+        .register_bounded("get_block_by_height", |params, ctx, extensions| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
             block_info_at(&ctx, client_of(&extensions), height, true).map(|(info, _)| info)
         })
@@ -976,7 +934,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     // Stops at the first height this node lacks, so a short answer means "that
     // is all I have", which the caller treats as an error, never a gap.
     module
-        .register_blocking_method("get_blocks_by_height_range", |params, ctx, extensions| {
+        .register_bounded("get_blocks_by_height_range", |params, ctx, extensions| {
             let (from, count): (u64, u64) =
                 params.parse().map_err(|e| invalid_params(e.to_string()))?;
             if count == 0 || count > MAX_RANGE_BLOCKS {
@@ -1047,8 +1005,11 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_supply", |_params, ctx, _| {
-            ctx.supply.get(&ctx.chain).map_err(internal)
+        .register_bounded("get_supply", |_params, ctx, _| {
+            ctx.supply
+                .get(&ctx.chain)
+                .map_err(internal)?
+                .ok_or_else(|| rejected(crate::rpc::market::SUPPLY_BUSY))
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -1156,7 +1117,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("threat_indicators", |params, ctx, _| {
+        .register_bounded("threat_indicators", |params, ctx, _| {
             // Indicators, lifted ones included, judged at the tip, in author
             // order: optional `[after, limit]` pages through them (authors
             // strictly after the hex author `after`, at most `limit`, capped at
@@ -1286,8 +1247,7 @@ pub async fn serve_metered(
 ) -> crate::error::Result<RpcServer> {
     check_peer_exposure(address, context.peers.is_some())?;
     let trusted: Arc<[std::net::IpAddr]> = trusted_proxies.into();
-    let connections = Arc::new(tokio::sync::Semaphore::new(MAX_RPC_CONNECTIONS as usize));
-    let per_peer = Arc::new(PeerConnections::default());
+    let connections = Arc::new(Connections::new(MAX_RPC_CONNECTIONS as usize));
     let module =
         build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
     let known: std::sync::Arc<std::collections::BTreeSet<String>> =
@@ -1325,20 +1285,12 @@ pub async fn serve_metered(
                 },
                 () = stop.clone().shutdown() => break,
             };
-            // Over either cap, the socket is dropped unanswered: a 429 would
-            // still cost a task and a parse for every excess connection.
-            let peer_slot =
-                if crate::rpc::client_ip::is_trusted(remote.ip().to_canonical(), &trusted) {
-                    None
-                } else {
-                    let Some(slot) = PeerConnections::claim(&per_peer, remote.ip().to_canonical())
-                    else {
-                        drop(socket);
-                        continue;
-                    };
-                    Some(slot)
-                };
-            let Ok(permit) = Arc::clone(&connections).try_acquire_owned() else {
+            // Over a peer's or network's share, the socket is dropped
+            // unanswered: a 429 would still cost a task and a parse for every
+            // excess connection. A full table sheds an old connection instead.
+            let peer = remote.ip().to_canonical();
+            let exempt = crate::rpc::client_ip::is_trusted(peer, &trusted);
+            let Some(slot) = Connections::claim(&connections, peer, exempt) else {
                 drop(socket);
                 continue;
             };
@@ -1382,7 +1334,7 @@ pub async fn serve_metered(
                 socket,
                 service,
                 stop.clone().shutdown(),
-                (permit, peer_slot),
+                slot,
             ));
         }
     });
@@ -1395,17 +1347,18 @@ pub async fn serve_metered(
 
 /// Serves one connection with [`HEADER_READ_TIMEOUT`] and
 /// [`CONNECTION_LIFETIME`]; at the lifetime or when `stopped` resolves, the
-/// request in flight gets [`CONNECTION_GRACE`] to finish.
+/// request in flight gets [`CONNECTION_GRACE`] to finish, and when `slot` is
+/// shed for a newcomer, [`SHED_GRACE`].
 ///
 /// jsonrpsee's own `serve_with_graceful_shutdown` builds hyper without a timer,
 /// so hyper's header timeout is off, and after the first request it waits on a
-/// connection forever. `_slots` (the connection caps' claims) are held until
-/// the connection ends, so the caps count live sockets.
+/// connection forever. `slot` (the connection table's claim) is held until
+/// the connection ends, so the table counts live sockets.
 async fn serve_connection<S, B>(
     socket: tokio::net::TcpStream,
     service: S,
     stopped: impl std::future::Future<Output = ()>,
-    _slots: impl Send,
+    slot: crate::rpc::admission::ConnectionSlot,
 ) where
     S: tower::Service<hyper::Request<hyper::body::Incoming>, Response = hyper::Response<B>>
         + Clone
@@ -1424,14 +1377,15 @@ async fn serve_connection<S, B>(
             hyper_util::service::TowerToHyperService::new(service),
         );
     tokio::pin!(connection);
-    tokio::select! {
+    let grace = tokio::select! {
         // Done, a slow head refused, or the client hung up.
         _ = &mut connection => return,
-        () = stopped => {}
-        () = tokio::time::sleep(CONNECTION_LIFETIME) => {}
-    }
+        () = stopped => CONNECTION_GRACE,
+        () = tokio::time::sleep(CONNECTION_LIFETIME) => CONNECTION_GRACE,
+        () = slot.shed() => SHED_GRACE,
+    };
     connection.as_mut().graceful_shutdown();
-    let _ = tokio::time::timeout(CONNECTION_GRACE, connection).await;
+    let _ = tokio::time::timeout(grace, connection).await;
 }
 
 /// Reads `request`'s whole body within [`BODY_READ_DEADLINE`] and
@@ -1522,34 +1476,6 @@ mod tests {
         assert!(check_peer_exposure(local, true).is_ok());
         assert!(check_peer_exposure(local_v6, true).is_ok());
         assert!(check_peer_exposure(public, false).is_ok());
-    }
-
-    #[test]
-    fn one_peer_cannot_hold_more_than_its_share_of_connections() {
-        let table = Arc::new(PeerConnections::default());
-        let host: IpAddr = "203.0.113.7".parse().expect("address");
-        let other: IpAddr = "203.0.113.8".parse().expect("address");
-        let mut held: Vec<_> = (0..MAX_CONNECTIONS_PER_PEER)
-            .map(|_| PeerConnections::claim(&table, host).expect("within the cap"))
-            .collect();
-        assert!(
-            PeerConnections::claim(&table, host).is_none(),
-            "one past the cap"
-        );
-        assert!(
-            PeerConnections::claim(&table, other).is_some(),
-            "another host is unaffected"
-        );
-        // Another address in the same IPv6 /64 is the same host.
-        let v6: IpAddr = "2001:db8::1".parse().expect("address");
-        let v6_same: IpAddr = "2001:db8::2".parse().expect("address");
-        let _v6: Vec<_> = (0..MAX_CONNECTIONS_PER_PEER)
-            .map(|_| PeerConnections::claim(&table, v6).expect("within the cap"))
-            .collect();
-        assert!(PeerConnections::claim(&table, v6_same).is_none());
-        // A closed connection frees its slot.
-        held.pop();
-        assert!(PeerConnections::claim(&table, host).is_some());
     }
 
     #[test]

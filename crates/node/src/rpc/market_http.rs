@@ -121,12 +121,13 @@ impl MarketState {
         }
     }
 
-    /// Returns the supply report, recomputing only when the tip has moved.
+    /// Returns the supply report, recomputing only when the tip has moved,
+    /// or `None` while another request's walk runs.
     ///
     /// # Errors
     ///
     /// Propagates storage failures from the account scan.
-    fn supply(&self) -> crate::error::Result<SupplyReport> {
+    fn supply(&self) -> crate::error::Result<Option<SupplyReport>> {
         self.cache.get(&self.chain)
     }
 }
@@ -283,7 +284,12 @@ fn supply_response(
     match state.supply() {
         // A bare decimal with no newline, no JSON, no units suffix. Both
         // aggregators parse the whole body as a number.
-        Ok(report) => respond(StatusCode::OK, PLAIN, select(&report).to_string()),
+        Ok(Some(report)) => respond(StatusCode::OK, PLAIN, select(&report).to_string()),
+        Ok(None) => respond(
+            StatusCode::SERVICE_UNAVAILABLE,
+            PLAIN,
+            market::SUPPLY_BUSY.to_string(),
+        ),
         Err(error) => {
             eprintln!("market: supply read failed: {error}");
             respond(
@@ -340,7 +346,12 @@ fn route(
         // The structured form, for anyone who wants the breakdown rather than
         // one number. Not part of either aggregator's spec.
         "/api/v1/supply" => match state.supply() {
-            Ok(report) => json_response(&report),
+            Ok(Some(report)) => json_response(&report),
+            Ok(None) => respond(
+                StatusCode::SERVICE_UNAVAILABLE,
+                JSON,
+                error_json(market::SUPPLY_BUSY),
+            ),
             Err(error) => {
                 eprintln!("market: supply read failed: {error}");
                 respond(
