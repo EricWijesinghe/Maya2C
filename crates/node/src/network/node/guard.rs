@@ -18,12 +18,12 @@ use tokio::sync::oneshot;
 use super::{NodeDriver, NodeEvent};
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
-use crate::network::evidence_tap;
 use crate::network::peer_health::{
     Action, Offence, Verdict, classify_block_frame, classify_transaction,
 };
 use crate::network::sync::{self, BlockRequest, BlockResponse, MAX_BLOCKS_PER_REQUEST};
 use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
+use crate::network::{FrameCheck, evidence_tap};
 
 /// Largest DAG-BFT frame worth buffering: a proposal carries at most
 /// `MAX_BATCH_BYTES` (4 MiB) of payload plus its signature and parents, so
@@ -89,6 +89,24 @@ fn classify_bft_frame(data: &[u8]) -> Verdict {
     }
 }
 
+/// The gossip verdict on a held frame once the BFT loop has checked it.
+///
+/// A forgery is blamed only on a relay that also signed the gossip message,
+/// which is the one case where the frame came from the peer on the link.
+/// Never on the author alone: any keypair can sign a gossip message, and a
+/// frame an honest validator really signed can be replayed by anyone, so
+/// blaming the author let one peer get an honest validator blacklisted
+/// network-wide. Never on a relay forwarding another author's frame either: a
+/// node still on a version that relays frames on decoding alone forwards
+/// forgeries honestly.
+fn settled(check: FrameCheck, relay: PeerId, author: Option<PeerId>) -> Verdict {
+    match check {
+        FrameCheck::Authentic => Verdict::Accept,
+        FrameCheck::Forged if author == Some(relay) => Verdict::Reject(Offence::MalformedFrame),
+        FrameCheck::Forged | FrameCheck::Unjudged => Verdict::Ignore,
+    }
+}
+
 impl NodeDriver {
     /// Validates one gossiped message and tells gossipsub what to do with it.
     ///
@@ -121,7 +139,11 @@ impl NodeDriver {
         } else if message.topic == blocks_topic().hash() {
             self.gossiped_block_once(source, author, data, now)
         } else if message.topic == bft_topic().hash() {
-            self.gossiped_bft(author, data)
+            match self.gossiped_bft(source, id, author, data) {
+                Some(verdict) => verdict,
+                // Held: the BFT loop settles it (`NodeDriver::settle_frame`).
+                None => return,
+            }
         } else {
             Verdict::Ignore
         };
@@ -129,27 +151,50 @@ impl NodeDriver {
         self.attest(verdict, author, message.sequence_number, signature, data);
     }
 
-    /// Relays a DAG-BFT frame that decodes and hands it to whoever runs
-    /// consensus. Signatures are the engine's to check; the gossip layer
-    /// refuses what cannot be a frame (`consensus::bft` module note). It once
-    /// checked only the first byte, so every node relayed and buffered 5 MiB
-    /// of random bytes behind a valid version byte (pre-audit S-003). The
-    /// frame goes on with its gossip author, whom the engine's verdict is
-    /// blamed on (audit P2P-N1).
-    fn gossiped_bft(&mut self, author: Option<PeerId>, data: &[u8]) -> Verdict {
+    /// Hands a DAG-BFT frame that decodes to the BFT loop and holds its
+    /// verdict, returning `None`, until the loop has checked its signatures
+    /// (`consensus::bft::BftDriver::check_frame`). What cannot be a frame is
+    /// refused here. It once checked only the first byte, so every node
+    /// relayed and buffered 5 MiB of random bytes behind a valid version byte
+    /// (pre-audit S-003). Relayed on decoding alone, a forged frame reached
+    /// every node and could only be blamed on its gossip author, which costs
+    /// nothing to vary (audit P2P-N1).
+    fn gossiped_bft(
+        &mut self,
+        relay: PeerId,
+        id: &MessageId,
+        author: Option<PeerId>,
+        data: &[u8],
+    ) -> Option<Verdict> {
         let verdict = classify_bft_frame(data);
-        let frame = || {
-            std::sync::Arc::new(crate::network::Frame {
-                author,
-                bytes: data.to_vec(),
-            })
-        };
-        // Over the byte budget or the author's share: neither kept nor
-        // relayed, and not the relay's fault.
-        if verdict == Verdict::Accept && !self.events.emit_frame(frame()) {
-            return Verdict::Ignore;
+        if verdict != Verdict::Accept {
+            return Some(verdict);
         }
-        verdict
+        let frame = std::sync::Arc::new(crate::network::Frame {
+            author,
+            relay,
+            id: id.clone(),
+            bytes: data.to_vec(),
+        });
+        // Over the byte budget or a share of it, or no BFT loop to check it:
+        // neither kept nor relayed, and not the relay's fault.
+        if self.events.emit_frame(frame) {
+            None
+        } else {
+            Some(Verdict::Ignore)
+        }
+    }
+
+    /// Reports the BFT loop's check of a held frame to gossipsub, which
+    /// relays it only if it is authentic.
+    pub(super) fn settle_frame(
+        &mut self,
+        id: &MessageId,
+        relay: PeerId,
+        author: Option<PeerId>,
+        check: FrameCheck,
+    ) {
+        self.report(relay, id, settled(check, relay, author));
     }
 
     fn gossiped_transaction(&mut self, data: &[u8]) -> Verdict {
@@ -408,6 +453,31 @@ mod tests {
         assert_eq!(
             classify_bft_frame(&vec![WIRE_VERSION; MAX_BFT_FRAME_BYTES + 1]),
             Verdict::Ignore
+        );
+    }
+
+    #[test]
+    fn a_forged_frame_is_blamed_only_on_a_relay_that_signed_it() {
+        let (relay, author) = (PeerId::random(), PeerId::random());
+        // Replayed from another chain, or signed with a throwaway key: the
+        // author proves nothing and the relay may be forwarding honestly.
+        assert_eq!(
+            settled(FrameCheck::Forged, relay, Some(author)),
+            Verdict::Ignore
+        );
+        assert_eq!(settled(FrameCheck::Forged, relay, None), Verdict::Ignore);
+        assert_eq!(
+            settled(FrameCheck::Forged, relay, Some(relay)),
+            Verdict::Reject(Offence::MalformedFrame)
+        );
+        assert_eq!(
+            settled(FrameCheck::Unjudged, relay, Some(relay)),
+            Verdict::Ignore,
+            "what was not checked is neither relayed nor blamed"
+        );
+        assert_eq!(
+            settled(FrameCheck::Authentic, relay, Some(author)),
+            Verdict::Accept
         );
     }
 

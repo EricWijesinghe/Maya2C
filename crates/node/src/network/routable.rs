@@ -11,9 +11,20 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use libp2p::Multiaddr;
 use libp2p::multiaddr::Protocol;
 
+/// Whether `address` names a host by DNS name, which can resolve to an
+/// internal address at dial time.
+#[must_use]
+pub fn is_dns(address: &Multiaddr) -> bool {
+    address.iter().any(|protocol| {
+        matches!(
+            protocol,
+            Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Dnsaddr(_)
+        )
+    })
+}
+
 /// Whether `address` names a public IP. An address with no IP component (a
-/// DNS name, which the identify filter already drops) is not judged here and
-/// counts as routable.
+/// DNS name, see [`is_dns`]) is not judged here and counts as routable.
 #[must_use]
 pub fn is_routable(address: &Multiaddr) -> bool {
     address.iter().all(|protocol| match protocol {

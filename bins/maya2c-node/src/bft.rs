@@ -21,7 +21,7 @@ use custom_l1_node::core::block::decode_quantum;
 use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
-use custom_l1_node::network::{Mempool, NodeHandle, Offence};
+use custom_l1_node::network::{FrameCheck, Mempool, NodeHandle};
 use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
 use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
@@ -1138,18 +1138,19 @@ pub(super) async fn bft_loop(
         let step = tokio::select! {
             event = events.recv() => match event {
                 Ok(frame) => {
-                    let step = {
-                        let mut guard = lock_chain(&chain);
-                        driver.on_frame(&mut guard, now_ms(), &frame.bytes)
-                    };
-                    // Gossip relayed it once it decoded, so the forgery is the
-                    // author's, never the relay's (audit P2P-N1).
-                    if let (Ok(Step { forged: true, .. }), Some(author)) = (&step, frame.author)
-                        && let Err(error) = network.report_offence(author, Offence::MalformedFrame).await
-                    {
-                        eprintln!("bft: could not report a forged frame by {author}: {error}");
+                    // Checked before the chain lock and settled at once: gossip
+                    // relays a frame only after this, so a forgery stops at the
+                    // first honest node (audit P2P-N1).
+                    let check = driver.check_frame(&frame.bytes);
+                    if let Err(error) = network.settle_frame(&frame, check).await {
+                        eprintln!("bft: could not settle a gossiped frame: {error}");
                     }
-                    step
+                    // The engine would refuse it, or ignore its epoch, anyway.
+                    if check != FrameCheck::Authentic {
+                        continue;
+                    }
+                    let mut guard = lock_chain(&chain);
+                    driver.on_frame(&mut guard, now_ms(), &frame.bytes)
                 }
                 Err(RecvError::Lagged(lost)) => {
                     dropped.add(lost);

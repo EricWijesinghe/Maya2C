@@ -135,43 +135,84 @@ RPC:
   node, now get the fixed message and no such fields.
 - Wire format, block validity and state are unchanged; no conformance vectors change.
 
-## Amendment 2026-11-24 — frame attribution, source memory, DHT filter
+## Amendment 2026-11-24 — frames checked before relay, source memory, dial filter
 
 Still node-local: no wire format, validity rule, state root or consensus message
-changes, so no conformance vectors change. Four items from the 2026-11-24 p2p
-security pass, each with a test that fails without it:
+changes, so no conformance vectors change. Items from the 2026-11-24 p2p
+security pass and its review, each with a test that fails without it:
 
-16. **A forged DAG-BFT frame is blamed on its gossip author** (audit P2P-N1, the
-    frame half of P2P-02). Frames are still relayed once they decode, so the
-    engine is where a forgery shows. `MlDsaAuthenticator` counts the signatures
-    it refuses; the driver compares the count around one frame (the engine
-    verifies as it handles a frame, never later) and sets `Step::forged`, and
-    an attestation outside the committee, of the wrong length, or failing
-    ML-DSA sets it too. The binary then reports `Offence::MalformedFrame`
-    against the frame's gossip author, never the relay, as for blocks. A frame
-    for another epoch is not verified and is not judged. Tests:
-    `bft_forged_frame_tests`, `auth::every_refused_signature_is_counted_once_across_clones`.
-17. **The frame window is split by author.** One gossip author may hold an
-    eighth of the frame bytes (32 MiB) and of the slots (64), so one identity
-    can no longer fill the window and get honest frames refused. Test:
-    `bus::one_author_flooding_frames_cannot_crowd_out_another`.
+16. **A DAG-BFT frame is relayed only after its signatures verify** (audit
+    P2P-N1, the frame half of P2P-02). Gossipsub already runs with manual
+    validation, so the driver now holds its verdict on a frame that decodes and
+    hands the frame, its relay and its message id to the BFT loop. The loop runs
+    `BftDriver::check_frame` before it takes the chain lock and settles the
+    verdict at once (`NodeHandle::settle_frame`): **authentic** (every
+    signature verifies against the epoch's committee and chain tag; a
+    certificate must also be well formed, since an empty vote list verifies
+    vacuously) is relayed; **forged** or **unjudged** (an epoch this node has no
+    committee for) is dropped. The check reads only the frame and the committee,
+    never the engine's state, so an observer, a validator the frame is not
+    addressed to, and one that already holds the certificate all relay on the
+    same terms. A forgery now stops at the first honest node instead of reaching
+    every node. Tests: `bft_forged_frame_tests` (7).
+    - Blame: a forged frame is scored (`MalformedFrame`) only against a relay
+      that also signed the gossip message. Never against the author alone:
+      strict gossip signing makes the author any keypair, so a throwaway key per
+      frame escaped quarantine, and a frame an honest validator really signed
+      (for example on a testnet, with the node key reused) can be replayed by
+      anyone, so blaming the author let one peer get an honest validator
+      blacklisted by every node (review of #684). Never against a relay
+      forwarding another author's frame: a node on the previous version relays
+      frames on decoding alone. Test: `guard::a_forged_frame_is_blamed_only_on_a_relay_that_signed_it`.
+    - Cross-network replay needs no topic namespacing: every connection is
+      bound to one chain by the Noise prologue (`network_prologue`), so another
+      network's frame arrives only through a relay on this one, and fails the
+      chain tag in the check. Test: `a_proposal_signed_for_another_chain_is_forged`.
+    - A fetch carries no signature; one from a member's id is relayed as before.
+    - Cost: a certificate is verified twice by a node that inserts it (the check,
+      then the engine), and a node that already holds it now hashes and verifies
+      it once before relaying. Relaying waits for the BFT loop, so a lagging loop
+      delays what it relays. NOT MEASURED across machines; see below.
+17. **The frame window is split by author and by relay.** One gossip author may
+    hold an eighth of the frame bytes (32 MiB) and of the slots (64), and one
+    connected relay half (128 MiB, 256 slots), so a link that signs each frame
+    with a fresh key still takes at most half. Refusals are counted by reason
+    (budget, author share, relay share) in the rate-limited warning, so a
+    measurement can tell an attack from a slow reader. Tests:
+    `bus::one_author_flooding_frames_cannot_crowd_out_another`,
+    `bus::one_relay_signing_each_frame_with_a_fresh_key_cannot_fill_the_window`,
+    `bus::a_frame_nobody_will_check_is_refused`.
 18. **A quarantined peer's source is remembered** (audit P2P-05). Its IPv4 address
     or IPv6 /48 refuses handshakes until the quarantine ends, at most 1,024
     sources, the soonest-ending evicted first; loopback and reserved peers are
     never banned. Tests: `ip_limits::a_fresh_identity_from_a_quarantined_source_is_refused`
     and the three beside it.
-19. **DHT routing entries are filtered like identify claims** (P2P-03 residual):
-    on `RoutingUpdated`, non-routable addresses are removed from the table
-    unless `--allow-private-peers` is set.
+19. **Dials are filtered in the transport** (P2P-03 residual). Kademlia dials the
+    addresses in other peers' `FIND_NODE` answers while a query runs, before any
+    routing event, so filtering the table alone let a DHT peer make nodes probe
+    a private network. `network::dial_policy` wraps the TCP/WebSocket transport:
+    a dial to a private, loopback or link-local address needs
+    `--allow-private-peers`, and a DNS name is dialled only if the operator gave
+    that exact address (`NodeHandle::dial`, the bootnodes). `RoutingUpdated`
+    removes from the table what the policy would not dial. Tests:
+    `dial_policy::learned_private_and_dns_addresses_are_never_dialled` and the two
+    beside it.
+20. **A re-broadcast proposal always carries the validator's signature.** The
+    engine's resend took the signature with `unwrap_or_default`; the pending
+    proposal always holds it (both places that set it insert it), and a missing
+    one now sends nothing instead of a frame every peer refuses.
 
 Not done in this amendment, and why:
 
-- Eight fresh identities can still fill the frame window together until each
-  is quarantined. Reserving a share for committee members needs a
-  peer-id-to-validator map, which does not exist (the same gap as P2P-01).
-- Verifying a frame before it is relayed (deferred gossip validation) would stop
-  junk at the first hop; it changes when honest frames are relayed and needs a
-  multi-machine latency measurement first.
+- Relay latency of the held verdict across a multi-hop mesh is not measured: the
+  four-validator localnet is a full mesh on one machine. A multi-machine
+  attacknet run should count refusals by reason and compare finality latency
+  before and after.
+- Fetch replies (up to `4n` certificates per member per resend interval, each up
+  to a full batch) could pass a 32 MiB author share while the BFT loop lags, for
+  example verifying a quorum under the chain lock during catch-up. Plausible, not
+  measured; the warning now names the reason, which is what a measurement needs.
+  If confirmed, fetch replies move to request/response.
 - A node behind a tunnel (loopback listener) still gets no per-source caps
   (P2P-N2). The node now warns at start-up; keying the caps on the tunnel's
   client-IP header needs the WebSocket upgrade headers, which the libp2p
@@ -179,5 +220,3 @@ Not done in this amendment, and why:
   until then (changing the live tunnel config needs `APPROVED:`).
 - Block-sync reads still run on the swarm task (P2P-04 residual); moving them
   to a blocking worker changes the request/response flow and is a separate change.
-- A validator whose signer fails sends an empty signature, which now counts as a
-  forged frame against it. A signer that fails is already costing it every vote.

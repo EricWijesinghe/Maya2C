@@ -15,6 +15,7 @@ use libp2p::{Transport, kad, noise, yamux};
 use super::{IDLE_CONNECTION_TIMEOUT, Node, ROTATION_CHECK_INTERVAL};
 use crate::error::{NodeError, Result};
 use crate::network::behaviour::NodeBehaviour;
+use crate::network::dial_policy::{DialPolicy, Filtered};
 use crate::network::mempool::Mempool;
 use crate::network::peer_health::GuardConfig;
 use crate::network::pq::dual::DualKemPolicy;
@@ -288,6 +289,7 @@ impl Node {
         let stats = SessionStats::new();
         let pq = pq.with_stats(stats.clone());
         let prologue = network_prologue(&state);
+        let dial_policy = Arc::new(DialPolicy::default());
 
         let builder = libp2p::SwarmBuilder::with_existing_identity(keypair).with_tokio();
 
@@ -356,8 +358,11 @@ impl Node {
                     // once, so the dial falls through to TCP. The DNS
                     // transport answers every dial with a future and fails
                     // only later, so put first it would swallow `/ws` too.
+                    let tcp_or_ws = ws.or_transport(libp2p::dns::tokio::Transport::system(tcp())?);
+                    // Outermost, so no dial reaches DNS or a socket unchecked,
+                    // whichever behaviour asked for it (`network::dial_policy`).
                     Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
-                        ws.or_transport(libp2p::dns::tokio::Transport::system(tcp())?)
+                        Filtered::new(tcp_or_ws, Arc::clone(&dial_policy))
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
                             .apply(pq.clone())
@@ -402,6 +407,7 @@ impl Node {
             stats,
             relay: None,
             allow_private_addresses: false,
+            dial_policy,
         })
     }
 }

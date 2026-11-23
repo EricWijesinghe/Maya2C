@@ -47,10 +47,13 @@ verdict, which it does on every path:
 Before this, a node relayed every invalid block and transaction before refusing
 it, and nothing tied the refusal to the peer that sent it.
 
-DAG-BFT frames follow the same rule. They are relayed once they decode, and the
-engine checks their signatures afterwards; a frame that fails (or names a signer
-outside the committee) is reported as `MalformedFrame` against its gossip
-author. A quarantine also bans the peer's source address (IPv4, or IPv6 /48)
+DAG-BFT frames go further: a frame that decodes is held unrelayed until the BFT
+loop has verified every signature it carries against the epoch's committee, and
+only then relayed; a forged frame, or one for an epoch the node cannot check, is
+dropped. A forgery is scored as `MalformedFrame` only against a relay that also
+signed the gossip message itself, never against an author it merely names (any
+key can sign a gossip message, and an honest validator's frame can be replayed
+by anyone). A quarantine also bans the peer's source address (IPv4, or IPv6 /48)
 from new handshakes until it ends, so a fresh keypair from the same host is
 refused (ADR-151 items 16-18).
 

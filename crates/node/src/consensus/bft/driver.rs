@@ -33,6 +33,8 @@ use crate::core::{ChainTag, Transaction};
 use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
+mod check;
+
 /// Everything a node needs to run one epoch of DAG-BFT.
 #[derive(Clone)]
 pub struct BftSetup {
@@ -103,11 +105,6 @@ pub struct Step {
     /// logs that could not be removed. The node reports them; they cost
     /// disk, never a vote.
     pub notices: Vec<String>,
-    /// The frame carried a signature that does not verify against the
-    /// committee, or named a signer outside it. The gossip layer relays a
-    /// frame once it decodes, so this is the only place a forgery is seen;
-    /// the binary blames the frame's gossip author for it (audit P2P-N1).
-    pub forged: bool,
 }
 
 /// An epoch's committee keys and, on a stake-weighted chain, their weights.
@@ -188,8 +185,12 @@ fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
 /// One epoch's engine, its safety log, and the bookkeeping between them.
 pub struct BftDriver {
     engine: Validator<MlDsaAuthenticator>,
-    /// The engine authenticator's count of refused signatures (`Step::forged`).
-    refusals: Arc<std::sync::atomic::AtomicU64>,
+    /// The committee's keys for [`BftDriver::check_frame`], with no signer.
+    checker: MlDsaAuthenticator,
+    /// The engine's view of the committee, for a certificate's quorum.
+    checked_committee: Committee,
+    /// The chain every signature is bound to, for attestations.
+    tag: ChainTag,
     id: Option<ValidatorId>,
     epoch: u64,
     store: SafetyStore,
@@ -340,18 +341,21 @@ impl BftDriver {
         };
         let engine_params = Params { epoch, ..params };
         let tag = ChainTag::from_genesis(chain.genesis());
-        let auth = match (id, &signer) {
-            (Some(_), Some(key)) => {
-                MlDsaAuthenticator::validator(key.clone(), Arc::clone(committee), tag)
-            }
-            _ => MlDsaAuthenticator::observer(Arc::clone(committee), tag),
-        };
-        let refusals = auth.refusals();
-        let engine = match id {
-            Some(id) if signer.is_some() => {
-                Validator::with_auth(id, engine_committee, engine_params, auth)
-            }
-            _ => Validator::observer(engine_committee, engine_params, auth),
+        // Verifies, never signs: what gossip checks before relaying a frame.
+        let checker = MlDsaAuthenticator::observer(Arc::clone(committee), tag);
+        let checked_committee = engine_committee.clone();
+        let engine = match (id, &signer) {
+            (Some(id), Some(key)) => Validator::with_auth(
+                id,
+                engine_committee,
+                engine_params,
+                MlDsaAuthenticator::validator(key.clone(), Arc::clone(committee), tag),
+            ),
+            _ => Validator::observer(
+                engine_committee,
+                engine_params,
+                MlDsaAuthenticator::observer(Arc::clone(committee), tag),
+            ),
         };
         let (store, recovered) = SafetyStore::open(&dir, epoch)?;
         // Here, at every boot and every epoch switch, so the logs on disk
@@ -363,7 +367,9 @@ impl BftDriver {
         }
         let mut driver = Self {
             engine,
-            refusals,
+            checker,
+            checked_committee,
+            tag,
             id,
             epoch,
             store,
@@ -489,9 +495,6 @@ impl BftDriver {
             self.on_attestation(chain, bytes, &mut step);
             return Ok(step);
         }
-        // The engine verifies a frame's signatures as it handles it, never
-        // later, so a refusal counted in between is this frame's.
-        let refused = self.refusals.load(std::sync::atomic::Ordering::Relaxed);
         let Ok(envelope) = Envelope::decode(bytes) else {
             return Ok(step);
         };
@@ -504,7 +507,6 @@ impl BftDriver {
         // the engine inserted, so a forged certificate never takes a slot
         // in certs.log ahead of the real one.
         let out = self.engine.handle(now_ms, envelope.from, envelope.message);
-        step.forged = self.refusals.load(std::sync::atomic::Ordering::Relaxed) != refused;
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
     }
@@ -631,7 +633,6 @@ impl BftDriver {
         };
         let tag = ChainTag::from_genesis(chain.genesis());
         if attestation.epoch == self.epoch {
-            step.forged = attestation.is_malformed_for(&self.committee);
             if attestation.height <= chain.height().saturating_add(ATTEST_AHEAD) {
                 self.collect(attestation, &tag, step);
             }
@@ -644,15 +645,12 @@ impl BftDriver {
             // against that epoch's committee. A forged one is refused before
             // it counts, which is all an error here means; an equivocation is
             // reported like one in the live epoch.
-            step.forged = attestation.is_malformed_for(&closing.keys);
-            let added = closing.attestations.add(
+            if let Ok(Collected::Equivocation(pair)) = closing.attestations.add(
                 attestation,
                 &tag,
                 &closing.keys,
                 closing.weights.as_deref(),
-            );
-            step.forged |= matches!(added, Err(NodeError::SignatureVerification));
-            if let Ok(Collected::Equivocation(pair)) = added {
+            ) {
                 step.notices.push(format!(
                     "validator {} attested two blocks at height {} of epoch {} — evidence held",
                     pair.1.validator, pair.1.height, pair.1.epoch
@@ -664,11 +662,10 @@ impl BftDriver {
     fn collect(&mut self, attestation: Attestation, tag: &ChainTag, step: &mut Step) {
         // Counted, ignored, a new checkpoint, or a forged attestation refused
         // before it counted: only an equivocation is for the node to act on.
-        let added =
+        if let Ok(Collected::Equivocation(pair)) =
             self.attestations
-                .add(attestation, tag, &self.committee, self.weights.as_deref());
-        step.forged |= matches!(added, Err(NodeError::SignatureVerification));
-        if let Ok(Collected::Equivocation(pair)) = added {
+                .add(attestation, tag, &self.committee, self.weights.as_deref())
+        {
             step.notices.push(format!(
                 "validator {} attested two blocks at height {} — evidence held",
                 pair.1.validator, pair.1.height

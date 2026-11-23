@@ -32,7 +32,12 @@ Not interoperability rules: one node's limits, which a second client need not co
 A gossiped block message whose bytes this node already accepted from gossip
 is ignored rather than relayed again (keyed on the bytes, since a block id
 does not commit to multisig approvals); gossipsub message ids stay author plus
-sequence number. `/l1/bft` is scored like the other topics. At most 192 of
+sequence number. `/l1/bft` is scored like the other topics. A `/l1/bft` frame is
+relayed only after every signature it carries verifies against its epoch's
+committee and this chain's tag (a fetch, which carries none, when its sender id
+is a member); one for an epoch the node cannot check is dropped, not relayed.
+The node dials no private, loopback or link-local address unless started with
+`--allow-private-peers`, and no DNS name the operator did not configure. At most 192 of
 256 established connections are inbound, and one source (IPv4 address or
 IPv6 /48, loopback exempt) holds at most 8 established inbound connections and
 4 handshakes in flight; pinned bootnodes are exempt. A bootnode at a public or

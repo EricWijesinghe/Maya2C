@@ -105,14 +105,6 @@ impl Attestation {
         })
     }
 
-    /// Whether no member of `committee` could have signed this: the validator
-    /// is outside it, or the signature has the wrong length. Checked without
-    /// any cryptography, so a node can blame a forgery it never verified.
-    #[must_use]
-    pub fn is_malformed_for(&self, committee: &[VerifyingKey]) -> bool {
-        usize::from(self.validator) >= committee.len() || self.signature.len() != SIGNATURE_LENGTH
-    }
-
     /// Checks the signature against `committee[validator]`.
     ///
     /// # Errors

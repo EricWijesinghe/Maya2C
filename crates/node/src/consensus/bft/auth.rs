@@ -1,7 +1,6 @@
 //! ML-DSA-87 validator keys (CRY-4) behind the engine's [`Authenticator`].
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use maya_dag_bft::{Authenticator, Digest, SignContext, ValidatorId};
 
@@ -24,11 +23,6 @@ pub struct MlDsaAuthenticator {
     /// The chain every vote is bound to (pre-audit HIGH-4): a key reused on a
     /// testnet cannot have its testnet votes count, or slash, on mainnet.
     chain: ChainTag,
-    /// Signatures refused so far, shared by every clone. The engine keeps a
-    /// refusal to itself; the driver compares this count around one frame to
-    /// learn that the frame was forged (audit P2P-N1). Scoring only: it never
-    /// changes what verifies.
-    refused: Arc<AtomicU64>,
 }
 
 impl MlDsaAuthenticator {
@@ -44,7 +38,6 @@ impl MlDsaAuthenticator {
             signer: Some(signer.into()),
             committee,
             chain,
-            refused: Arc::default(),
         }
     }
 
@@ -55,14 +48,7 @@ impl MlDsaAuthenticator {
             signer: None,
             committee,
             chain,
-            refused: Arc::default(),
         }
-    }
-
-    /// The counter of signatures this authenticator and its clones refused.
-    #[must_use]
-    pub fn refusals(&self) -> Arc<AtomicU64> {
-        Arc::clone(&self.refused)
     }
 
     /// The committee, in validator-id order.
@@ -94,8 +80,7 @@ impl core::fmt::Debug for MlDsaAuthenticator {
         f.debug_struct("MlDsaAuthenticator")
             .field("signs", &self.signer.is_some())
             .field("committee", &self.committee.len())
-            .field("refused", &self.refused)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
@@ -118,14 +103,13 @@ impl Authenticator for MlDsaAuthenticator {
     }
 
     fn verify(&self, signer: ValidatorId, digest: &Digest, signature: &[u8]) -> bool {
-        let valid = self.committee.get(usize::from(signer)).is_some_and(|key| {
-            <&[u8; SIGNATURE_LENGTH]>::try_from(signature)
-                .is_ok_and(|sig| key.verify(&Self::message(&self.bound(digest)), sig).is_ok())
-        });
-        if !valid {
-            self.refused.fetch_add(1, Ordering::Relaxed);
-        }
-        valid
+        let Some(key) = self.committee.get(usize::from(signer)) else {
+            return false;
+        };
+        let Ok(sig) = <&[u8; SIGNATURE_LENGTH]>::try_from(signature) else {
+            return false;
+        };
+        key.verify(&Self::message(&self.bound(digest)), sig).is_ok()
     }
 }
 
@@ -165,25 +149,6 @@ mod tests {
         assert!(!observer.verify(1, &[8u8; 32], &sig), "another digest");
         assert!(!observer.verify(9, &digest, &sig), "outside the committee");
         assert!(!observer.verify(1, &digest, &sig[1..]), "truncated");
-    }
-
-    #[test]
-    fn every_refused_signature_is_counted_once_across_clones() {
-        let (signers, committee) = keys(2);
-        let auth = MlDsaAuthenticator::validator(Arc::clone(&signers[0]), committee, TAG);
-        let refused = auth.refusals();
-        let clone = auth.clone();
-        let sig = auth.sign(CTX, &[1; 32]);
-        assert!(clone.verify(0, &[1; 32], &sig));
-        assert_eq!(
-            refused.load(Ordering::Relaxed),
-            0,
-            "a valid signature is not counted"
-        );
-        assert!(!clone.verify(1, &[1; 32], &sig));
-        assert!(!auth.verify(7, &[1; 32], &sig));
-        assert!(!auth.verify(0, &[1; 32], &[]));
-        assert_eq!(refused.load(Ordering::Relaxed), 3);
     }
 
     #[test]

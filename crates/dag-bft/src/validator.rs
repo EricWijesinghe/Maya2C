@@ -421,14 +421,19 @@ impl<A: Authenticator> Validator<A> {
         if due {
             self.last_resend_ms = now_ms;
             if let Some((v, votes)) = &self.pending {
-                let signature = votes.get(&self.id).cloned().unwrap_or_default();
-                out.sends.push((
-                    Dest::All,
-                    Message::Propose {
-                        vertex: v.clone(),
-                        signature,
-                    },
-                ));
+                // Always there: `pending` is only ever set with this
+                // validator's own signature in it. Were it not, nothing is
+                // sent, rather than a frame with an empty signature that
+                // every peer would refuse.
+                if let Some(signature) = votes.get(&self.id) {
+                    out.sends.push((
+                        Dest::All,
+                        Message::Propose {
+                            vertex: v.clone(),
+                            signature: signature.clone(),
+                        },
+                    ));
+                }
             } else if let Some(c) = self.dag.get(self.round, self.id) {
                 out.sends.push((Dest::All, Message::Cert(c.clone())));
             }
