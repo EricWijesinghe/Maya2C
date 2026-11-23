@@ -134,3 +134,50 @@ RPC:
 - Clients that parsed internal error text, or `get_peers`' health fields from a public
   node, now get the fixed message and no such fields.
 - Wire format, block validity and state are unchanged; no conformance vectors change.
+
+## Amendment 2026-11-24 — frame attribution, source memory, DHT filter
+
+Still node-local: no wire format, validity rule, state root or consensus message
+changes, so no conformance vectors change. Four items from the 2026-11-24 p2p
+security pass, each with a test that fails without it:
+
+16. **A forged DAG-BFT frame is blamed on its gossip author** (audit P2P-N1, the
+    frame half of P2P-02). Frames are still relayed once they decode, so the
+    engine is where a forgery shows. `MlDsaAuthenticator` counts the signatures
+    it refuses; the driver compares the count around one frame (the engine
+    verifies as it handles a frame, never later) and sets `Step::forged`, and
+    an attestation outside the committee, of the wrong length, or failing
+    ML-DSA sets it too. The binary then reports `Offence::MalformedFrame`
+    against the frame's gossip author, never the relay, as for blocks. A frame
+    for another epoch is not verified and is not judged. Tests:
+    `bft_forged_frame_tests`, `auth::every_refused_signature_is_counted_once_across_clones`.
+17. **The frame window is split by author.** One gossip author may hold an
+    eighth of the frame bytes (32 MiB) and of the slots (64), so one identity
+    can no longer fill the window and get honest frames refused. Test:
+    `bus::one_author_flooding_frames_cannot_crowd_out_another`.
+18. **A quarantined peer's source is remembered** (audit P2P-05). Its IPv4 address
+    or IPv6 /48 refuses handshakes until the quarantine ends, at most 1,024
+    sources, the soonest-ending evicted first; loopback and reserved peers are
+    never banned. Tests: `ip_limits::a_fresh_identity_from_a_quarantined_source_is_refused`
+    and the three beside it.
+19. **DHT routing entries are filtered like identify claims** (P2P-03 residual):
+    on `RoutingUpdated`, non-routable addresses are removed from the table
+    unless `--allow-private-peers` is set.
+
+Not done in this amendment, and why:
+
+- Eight fresh identities can still fill the frame window together until each
+  is quarantined. Reserving a share for committee members needs a
+  peer-id-to-validator map, which does not exist (the same gap as P2P-01).
+- Verifying a frame before it is relayed (deferred gossip validation) would stop
+  junk at the first hop; it changes when honest frames are relayed and needs a
+  multi-machine latency measurement first.
+- A node behind a tunnel (loopback listener) still gets no per-source caps
+  (P2P-N2). The node now warns at start-up; keying the caps on the tunnel's
+  client-IP header needs the WebSocket upgrade headers, which the libp2p
+  transport does not expose. A rate rule at the tunnel is the operator's cap
+  until then (changing the live tunnel config needs `APPROVED:`).
+- Block-sync reads still run on the swarm task (P2P-04 residual); moving them
+  to a blocking worker changes the request/response flow and is a separate change.
+- A validator whose signer fails sends an empty signature, which now counts as a
+  forged frame against it. A signer that fails is already costing it every vote.

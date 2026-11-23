@@ -961,6 +961,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         p2p.listen_on(ws.clone())?;
         println!("p2p ws:      {ws}");
     }
+    if let Some(warning) =
+        bootnode_policy::tunnel_warning(&args.ws_listen, args.allow_private_peers)
+    {
+        eprintln!("{warning}");
+    }
     // Taken before `spawn` consumes the node. The epoch clock is also how the
     // block import loop tells the transport how far the chain has come, which
     // is what drives session rotation off chain height rather than the clock.

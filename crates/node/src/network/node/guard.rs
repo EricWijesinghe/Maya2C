@@ -121,7 +121,7 @@ impl NodeDriver {
         } else if message.topic == blocks_topic().hash() {
             self.gossiped_block_once(source, author, data, now)
         } else if message.topic == bft_topic().hash() {
-            self.gossiped_bft(data)
+            self.gossiped_bft(author, data)
         } else {
             Verdict::Ignore
         };
@@ -133,12 +133,20 @@ impl NodeDriver {
     /// consensus. Signatures are the engine's to check; the gossip layer
     /// refuses what cannot be a frame (`consensus::bft` module note). It once
     /// checked only the first byte, so every node relayed and buffered 5 MiB
-    /// of random bytes behind a valid version byte (pre-audit S-003).
-    fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
+    /// of random bytes behind a valid version byte (pre-audit S-003). The
+    /// frame goes on with its gossip author, whom the engine's verdict is
+    /// blamed on (audit P2P-N1).
+    fn gossiped_bft(&mut self, author: Option<PeerId>, data: &[u8]) -> Verdict {
         let verdict = classify_bft_frame(data);
-        // Over the byte budget: neither kept nor relayed, and not the sender's fault.
-        if verdict == Verdict::Accept && !self.events.emit_frame(std::sync::Arc::new(data.to_vec()))
-        {
+        let frame = || {
+            std::sync::Arc::new(crate::network::Frame {
+                author,
+                bytes: data.to_vec(),
+            })
+        };
+        // Over the byte budget or the author's share: neither kept nor
+        // relayed, and not the relay's fault.
+        if verdict == Verdict::Accept && !self.events.emit_frame(frame()) {
             return Verdict::Ignore;
         }
         verdict
@@ -229,17 +237,21 @@ impl NodeDriver {
 
     /// Records `offence` and quarantines `peer` if it crossed the line.
     ///
-    /// Quarantine is three things at once: gossipsub drops everything the peer
+    /// Quarantine is four things at once: gossipsub drops everything the peer
     /// relays or authored, it stops being an explicit peer that messages are
-    /// always pushed to, and the block list closes its connections and refuses
-    /// new ones.
+    /// always pushed to, the block list closes its connections and refuses
+    /// new ones, and its source refuses handshakes from a fresh identity
+    /// until the quarantine ends (`network::ip_limits`, audit P2P-05).
     pub(super) fn punish(&mut self, peer: PeerId, offence: Offence) {
-        let Action::Quarantine { strikes, until } =
-            self.health.record(peer, offence, Instant::now())
-        else {
+        let now = Instant::now();
+        let Action::Quarantine { strikes, until } = self.health.record(peer, offence, now) else {
             return;
         };
+        let ip = self.addresses.ip_of(&peer);
         let behaviour = self.swarm.behaviour_mut();
+        if let Some(ip) = ip {
+            behaviour.ip_limits.ban(peer, ip, until, now);
+        }
         behaviour.gossipsub.blacklist_peer(&peer);
         behaviour.gossipsub.remove_explicit_peer(&peer);
         behaviour.block_list.block_peer(peer);

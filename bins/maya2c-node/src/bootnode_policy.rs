@@ -53,10 +53,45 @@ pub(crate) fn bootnodes_satisfied(bootnodes: &[Multiaddr], connected: &[PeerId])
     !unpinned || connected.len() >= bootnodes.len()
 }
 
+/// A start-up warning for a node whose public P2P port is a loopback
+/// listener, the documented tunnel setup (audit P2P-N2). Every peer then
+/// arrives from 127.0.0.1, and the per-source caps exempt loopback, so one
+/// remote host could hold every inbound slot. Devnets on one machine pass
+/// `--allow-private-peers` and are not warned.
+pub(crate) fn tunnel_warning(listen: &[Multiaddr], allow_private: bool) -> Option<String> {
+    let loopback = listen.iter().find(|address| {
+        address.iter().any(|protocol| match protocol {
+            Protocol::Ip4(ip) => ip.is_loopback(),
+            Protocol::Ip6(ip) => ip.is_loopback(),
+            _ => false,
+        })
+    })?;
+    if allow_private {
+        return None;
+    }
+    Some(format!(
+        "warning: p2p listens on {loopback}, so peers behind a tunnel all arrive from \
+         loopback and the per-source connection caps do not apply to them; put a \
+         per-client rate limit on the tunnel's p2p hostname"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn a_loopback_listener_without_private_peers_is_warned_about() {
+        let tunnel: Multiaddr = "/ip4/127.0.0.1/tcp/31101/ws".parse().unwrap();
+        let public: Multiaddr = "/ip4/0.0.0.0/tcp/30333".parse().unwrap();
+        assert!(tunnel_warning(&[public.clone(), tunnel.clone()], false).is_some());
+        assert!(
+            tunnel_warning(&[tunnel], true).is_none(),
+            "a devnet opted in"
+        );
+        assert!(tunnel_warning(&[public], false).is_none());
+    }
 
     const PEER: &str = "12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB";
 

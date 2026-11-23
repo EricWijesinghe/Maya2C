@@ -233,7 +233,7 @@ impl NodeHandle {
     /// Subscribes to DAG-BFT frames from the consensus topic, on a channel of
     /// their own so other events cannot push them out (`network::bus`).
     #[must_use]
-    pub fn subscribe_frames(&self) -> broadcast::Receiver<std::sync::Arc<Vec<u8>>> {
+    pub fn subscribe_frames(&self) -> broadcast::Receiver<std::sync::Arc<super::Frame>> {
         self.events.subscribe_frames()
     }
 
@@ -830,7 +830,23 @@ impl NodeDriver {
                 }
                 self.emit(NodeEvent::RoutingUpdated(peer_id));
             }
-            NodeBehaviourEvent::Kademlia(kad::Event::RoutingUpdated { peer, .. }) => {
+            NodeBehaviourEvent::Kademlia(kad::Event::RoutingUpdated {
+                peer, addresses, ..
+            }) => {
+                // The identify filter above covers what a peer claims; this
+                // covers what the DHT learned another way (audit P2P-03), so
+                // the table never hands a private address on to others.
+                if !self.allow_private_addresses {
+                    for address in addresses
+                        .iter()
+                        .filter(|a| !super::routable::is_routable(a))
+                    {
+                        self.swarm
+                            .behaviour_mut()
+                            .kademlia
+                            .remove_address(&peer, address);
+                    }
+                }
                 self.emit(NodeEvent::RoutingUpdated(peer));
             }
             _ => {}

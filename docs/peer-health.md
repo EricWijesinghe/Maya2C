@@ -47,6 +47,13 @@ verdict, which it does on every path:
 Before this, a node relayed every invalid block and transaction before refusing
 it, and nothing tied the refusal to the peer that sent it.
 
+DAG-BFT frames follow the same rule. They are relayed once they decode, and the
+engine checks their signatures afterwards; a frame that fails (or names a signer
+outside the committee) is reported as `MalformedFrame` against its gossip
+author. A quarantine also bans the peer's source address (IPv4, or IPv6 /48)
+from new handshakes until it ends, so a fresh keypair from the same host is
+refused (ADR-151 items 16-18).
+
 Blocks are accepted on stateless checks only, so relaying stays cheap. Proof of
 work, execution and the state root are checked on import; a refusal there for a
 reason inside the block becomes an `InvalidBlock` offence against the block's

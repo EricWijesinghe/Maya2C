@@ -45,6 +45,11 @@ impl AddressBook {
         }
     }
 
+    /// The address `peer` last connected from, if remembered.
+    pub(super) fn ip_of(&self, peer: &PeerId) -> Option<IpAddr> {
+        self.addresses.get(peer).copied()
+    }
+
     /// Every remembered peer and address.
     pub(super) fn snapshot(&self) -> Vec<(PeerId, IpAddr)> {
         self.addresses

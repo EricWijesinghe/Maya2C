@@ -15,12 +15,20 @@
 //!
 //! Reserved peers (operator-pinned bootnodes) are exempt from the established
 //! cap: the node must always be able to keep the links it was told to keep.
+//!
+//! A source is also remembered when a peer connected from it is quarantined
+//! (audit P2P-05): quarantine is per peer id, and a fresh keypair costs
+//! nothing, so without this the host came straight back under a new identity.
+//! Its handshakes are refused until the quarantine would have ended. The table
+//! is bounded; when full, the entry that ends soonest makes room. A NAT shared
+//! with the offender shares the wait, which is the price of a per-IP rule.
 
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::net::{IpAddr, Ipv6Addr};
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use libp2p::core::transport::PortUse;
 use libp2p::core::{ConnectedPoint, Endpoint};
@@ -40,6 +48,9 @@ pub const MAX_PENDING_PER_SOURCE: usize = 4;
 /// operator with several nodes behind one address.
 pub const MAX_ESTABLISHED_PER_SOURCE: usize = 8;
 
+/// Sources remembered for a quarantined peer, at most.
+pub const MAX_BANNED_SOURCES: usize = 1024;
+
 /// Bits of an IPv6 address that name a source.
 const IPV6_SOURCE_SEGMENTS: usize = 3; // 3 × 16 = /48
 
@@ -49,9 +60,19 @@ const IPV6_SOURCE_SEGMENTS: usize = 3; // 3 × 16 = /48
 pub fn source_of(address: &Multiaddr) -> Option<IpAddr> {
     let ip = address.iter().find_map(|protocol| match protocol {
         Protocol::Ip4(v4) => Some(IpAddr::V4(v4)),
-        Protocol::Ip6(v6) => Some(v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4)),
+        Protocol::Ip6(v6) => Some(IpAddr::V6(v6)),
         _ => None,
     })?;
+    source_of_ip(ip)
+}
+
+/// [`source_of`] for a bare IP.
+#[must_use]
+pub fn source_of_ip(ip: IpAddr) -> Option<IpAddr> {
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        IpAddr::V4(_) => ip,
+    };
     if ip.is_loopback() {
         return None;
     }
@@ -77,6 +98,21 @@ pub struct SourceLimitExceeded {
     pub established: bool,
 }
 
+/// A handshake refused because a peer from its source is quarantined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceQuarantined {
+    /// The source, as counted.
+    pub source: IpAddr,
+}
+
+impl fmt::Display for SourceQuarantined {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is quarantined", self.source)
+    }
+}
+
+impl std::error::Error for SourceQuarantined {}
+
 impl fmt::Display for SourceLimitExceeded {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = if self.established {
@@ -100,12 +136,45 @@ pub struct Behaviour {
     reserved: HashSet<PeerId>,
     pending: HashMap<ConnectionId, IpAddr>,
     established: HashMap<ConnectionId, IpAddr>,
+    /// Sources refused until the time given. Looked up; iterated only to
+    /// pick an entry to evict, where order does not matter.
+    banned: HashMap<IpAddr, Instant>,
 }
 
 impl Behaviour {
     /// Exempts `peer` from the established cap.
     pub fn reserve(&mut self, peer: PeerId) {
         self.reserved.insert(peer);
+    }
+
+    /// Refuses handshakes from `ip`'s source until `until`, because `peer`,
+    /// connected from it, was quarantined. Loopback and reserved peers are
+    /// never banned: the first would refuse every tunnelled peer, the second
+    /// a link the operator told the node to keep.
+    pub fn ban(&mut self, peer: PeerId, ip: IpAddr, until: Instant, now: Instant) {
+        let Some(source) = source_of_ip(ip) else {
+            return;
+        };
+        if self.reserved.contains(&peer) {
+            return;
+        }
+        self.banned.retain(|_, end| *end > now);
+        if self.banned.len() >= MAX_BANNED_SOURCES && !self.banned.contains_key(&source) {
+            let soonest = self
+                .banned
+                .iter()
+                .min_by_key(|(_, end)| **end)
+                .map(|(s, _)| *s);
+            if let Some(soonest) = soonest {
+                self.banned.remove(&soonest);
+            }
+        }
+        let end = self.banned.entry(source).or_insert(until);
+        *end = (*end).max(until);
+    }
+
+    fn is_banned(&self, source: IpAddr, now: Instant) -> bool {
+        self.banned.get(&source).is_some_and(|end| *end > now)
     }
 
     fn count(table: &HashMap<ConnectionId, IpAddr>, source: IpAddr) -> usize {
@@ -142,6 +211,9 @@ impl NetworkBehaviour for Behaviour {
         let Some(source) = source_of(remote_addr) else {
             return Ok(());
         };
+        if self.is_banned(source, Instant::now()) {
+            return Err(ConnectionDenied::new(SourceQuarantined { source }));
+        }
         Self::check(&self.pending, source, MAX_PENDING_PER_SOURCE, false)?;
         self.pending.insert(connection_id, source);
         Ok(())
@@ -356,6 +428,95 @@ mod tests {
             .filter(|n| establish(&mut b, *n, PeerId::random(), &tunnel))
             .count();
         assert_eq!(admitted, 100);
+    }
+
+    #[test]
+    fn a_fresh_identity_from_a_quarantined_source_is_refused() {
+        // Audit P2P-05: quarantine was per peer id only.
+        let mut b = Behaviour::default();
+        let now = Instant::now();
+        let until = now + std::time::Duration::from_secs(600);
+        b.ban(PeerId::random(), "203.0.113.9".parse().unwrap(), until, now);
+        assert!(!establish(
+            &mut b,
+            1,
+            PeerId::random(),
+            &addr("/ip4/203.0.113.9/tcp/40001")
+        ));
+        // The same /48 is one source for IPv6 as well.
+        b.ban(
+            PeerId::random(),
+            "2001:db8:1:2::1".parse().unwrap(),
+            until,
+            now,
+        );
+        assert!(!establish(
+            &mut b,
+            2,
+            PeerId::random(),
+            &addr("/ip6/2001:db8:1:9::5/tcp/1")
+        ));
+        // Others are unaffected.
+        assert!(establish(
+            &mut b,
+            3,
+            PeerId::random(),
+            &addr("/ip4/198.51.100.1/tcp/1")
+        ));
+    }
+
+    #[test]
+    fn a_ban_ends_when_the_quarantine_would() {
+        let mut b = Behaviour::default();
+        let now = Instant::now();
+        let source: IpAddr = "203.0.113.9".parse().unwrap();
+        b.ban(PeerId::random(), source, now, now);
+        assert!(!b.is_banned(source, now));
+        b.ban(
+            PeerId::random(),
+            source,
+            now + std::time::Duration::from_secs(1),
+            now,
+        );
+        assert!(b.is_banned(source, now));
+        assert!(!b.is_banned(source, now + std::time::Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn loopback_and_reserved_peers_are_never_banned() {
+        let mut b = Behaviour::default();
+        let now = Instant::now();
+        let until = now + std::time::Duration::from_secs(600);
+        b.ban(PeerId::random(), "127.0.0.1".parse().unwrap(), until, now);
+        assert!(establish(
+            &mut b,
+            1,
+            PeerId::random(),
+            &addr("/ip4/127.0.0.1/tcp/1/ws")
+        ));
+        let bootnode = PeerId::random();
+        b.reserve(bootnode);
+        b.ban(bootnode, "198.51.100.7".parse().unwrap(), until, now);
+        assert!(establish(
+            &mut b,
+            2,
+            PeerId::random(),
+            &addr("/ip4/198.51.100.7/tcp/1")
+        ));
+    }
+
+    #[test]
+    fn the_ban_table_is_bounded() {
+        let mut b = Behaviour::default();
+        let now = Instant::now();
+        for n in 0..=u32::try_from(MAX_BANNED_SOURCES).unwrap() {
+            let ip = IpAddr::V4(std::net::Ipv4Addr::from(0x0b00_0000 + n));
+            let until = now + std::time::Duration::from_secs(u64::from(n) + 1);
+            b.ban(PeerId::random(), ip, until, now);
+        }
+        assert_eq!(b.banned.len(), MAX_BANNED_SOURCES);
+        // The one that would have ended soonest made room.
+        assert!(!b.is_banned(IpAddr::V4(std::net::Ipv4Addr::from(0x0b00_0000)), now));
     }
 
     #[test]

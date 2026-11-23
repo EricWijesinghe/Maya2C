@@ -21,7 +21,7 @@ use custom_l1_node::core::block::decode_quantum;
 use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
-use custom_l1_node::network::{Mempool, NodeHandle};
+use custom_l1_node::network::{Mempool, NodeHandle, Offence};
 use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
 use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
@@ -1138,8 +1138,18 @@ pub(super) async fn bft_loop(
         let step = tokio::select! {
             event = events.recv() => match event {
                 Ok(frame) => {
-                    let mut guard = lock_chain(&chain);
-                    driver.on_frame(&mut guard, now_ms(), &frame)
+                    let step = {
+                        let mut guard = lock_chain(&chain);
+                        driver.on_frame(&mut guard, now_ms(), &frame.bytes)
+                    };
+                    // Gossip relayed it once it decoded, so the forgery is the
+                    // author's, never the relay's (audit P2P-N1).
+                    if let (Ok(Step { forged: true, .. }), Some(author)) = (&step, frame.author)
+                        && let Err(error) = network.report_offence(author, Offence::MalformedFrame).await
+                    {
+                        eprintln!("bft: could not report a forged frame by {author}: {error}");
+                    }
+                    step
                 }
                 Err(RecvError::Lagged(lost)) => {
                     dropped.add(lost);
