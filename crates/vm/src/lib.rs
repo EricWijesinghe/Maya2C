@@ -36,6 +36,7 @@
 
 pub mod cache;
 pub mod config;
+pub mod depth;
 pub mod error;
 pub mod gas;
 pub mod host;
