@@ -195,3 +195,72 @@ fn remove_forgets_the_peer() {
     assert_eq!(l.verdict(1, 0), Verdict::Ok);
     l.remove(99); // unknown peer: no panic
 }
+
+// Red team (P2 verification): the defences must not become the lever.
+
+use maya_dos_guard::admission::{Admitted, Pending, Policy, Pool, Refusal};
+use maya_dos_guard::diversity::{Limits, Table};
+
+#[test]
+fn refused_inbound_attempts_leave_no_state_behind() {
+    // A full table must cost an attacker's rotating subnets nothing to refuse:
+    // an IPv6 /48 rotation is effectively free, so a record per refused subnet
+    // would be unbounded memory handed out by the defence itself.
+    let mut t = Table::new(Limits {
+        inbound: 4,
+        per_subnet: 1,
+        outbound: 0,
+    });
+    for i in 0..4u8 {
+        assert!(t.accept_inbound(Addr::V4([10, i, 0, 1])));
+    }
+    for i in 0..10_000u32 {
+        let [_, _, a, b] = i.to_be_bytes();
+        let mut v6 = [0u8; 16];
+        v6[..4].copy_from_slice(&[0x20, 0x01, a, b]);
+        assert!(!t.accept_inbound(Addr::V6(v6)), "table is full");
+    }
+    let (inbound, _) = t.connections();
+    assert_eq!(inbound.len(), 4, "only the accepted subnets are recorded");
+    assert!(inbound.iter().all(|(_, n)| *n == 1));
+}
+
+fn tx(sender: u8, fee: u64, size: u64) -> Pending {
+    Pending {
+        sender: [sender; 32],
+        nonce: 0,
+        fee,
+        size,
+    }
+}
+
+#[test]
+fn a_replacement_cannot_grow_the_transaction_without_paying_per_byte() {
+    // Pool capacity counts transactions, so pricing by byte is what stops a
+    // small transaction being swapped for a huge one for a 10% bump.
+    let mut p = Pool::new(Policy {
+        capacity: 8,
+        per_sender: 4,
+        bump_percent: 10,
+    });
+    assert_eq!(p.admit(tx(1, 100, 10)), Ok(Admitted::Added));
+    assert_eq!(
+        p.admit(tx(1, 110, 1_000)),
+        Err(Refusal::UnderpricedReplacement),
+        "100x the bytes for 10% more fee"
+    );
+    // Paying the bump and keeping the per-byte price is a replacement.
+    assert_eq!(p.admit(tx(1, 11_000, 1_000)), Ok(Admitted::Replaced));
+}
+
+#[test]
+fn a_tie_on_fee_per_byte_never_evicts() {
+    let mut p = Pool::new(Policy {
+        capacity: 1,
+        per_sender: 1,
+        bump_percent: 10,
+    });
+    assert_eq!(p.admit(tx(1, 100, 10)), Ok(Admitted::Added));
+    assert_eq!(p.admit(tx(2, 1_000, 100)), Err(Refusal::PoolFull));
+    assert_eq!(p.len(), 1);
+}
