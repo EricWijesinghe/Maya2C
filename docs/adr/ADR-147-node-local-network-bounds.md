@@ -194,3 +194,20 @@ Closes the open item in Consequences ("Orphans still never expire").
   the pool for up to 128 imports at a time; while it does, honest out-of-order
   blocks fall back to backfill and certificate replay as before. Consensus is
   unaffected. Node-local memory only; no invariant is touched.
+- **Gossiped transactions are checked off the swarm task (BFT-06).** The mempool
+  check (state reads and post-quantum signature verification) ran inline on the
+  one task that also delivers DAG-BFT frames, so a transaction flood delayed
+  votes. It now runs on the blocking pool, four at a time, with at most 1,024
+  waiting and 32 MiB of waiting wire bytes (`network::node::txcheck`). Gossipsub
+  validation is already deferred (`validate_messages`), so nothing is relayed
+  before its verdict, however late. A transaction that finds the backlog full is
+  ignored: not relayed by this node, not scored against its sender. Tests:
+  `a_stuck_check_does_not_hold_up_the_caller`, `a_full_backlog_refuses_instead_of_growing`,
+  `the_backlog_is_bounded_in_bytes`. Not measured: frame latency under a real
+  flood (no multi-node load run).
+- **Attestation double-signs are kept (CON-05, node-local part).** The pair is
+  written to `<data-dir>/evidence/attestation-e<epoch>-h<height>-v<index>.hex`
+  (two hex frames) instead of being dropped after an "evidence held" notice.
+  The chain still cannot slash it; that is an owner decision (#680). Operator
+  text now says that a double *proposal* is slashed. Test:
+  `bft_node_tests::an_attestation_double_sign_is_kept_as_evidence`.
