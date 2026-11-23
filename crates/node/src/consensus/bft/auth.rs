@@ -94,7 +94,8 @@ impl core::fmt::Debug for MlDsaAuthenticator {
         f.debug_struct("MlDsaAuthenticator")
             .field("signs", &self.signer.is_some())
             .field("committee", &self.committee.len())
-            .finish()
+            .field("refused", &self.refused)
+            .finish_non_exhaustive()
     }
 }
 
