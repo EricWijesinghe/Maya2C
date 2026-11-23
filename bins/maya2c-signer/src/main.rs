@@ -14,10 +14,11 @@
 //! dumps would see it. The channel identity is a second keystore, so the
 //! validator key never doubles as a transport key.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use maya_crypto_pq::suite::MasterSeed;
@@ -28,10 +29,60 @@ use maya_signer::protection::SlashingDb;
 use maya_signer::service::{Request, Service};
 use zeroize::Zeroizing;
 
-/// How long a connection may take to authenticate. The signer serves one
-/// connection at a time, so without a bound a peer that connects and sends
-/// nothing would hold the only slot and stop the validator signing.
+/// How long a connection may take to authenticate. Without a bound, a peer
+/// that connects and sends nothing would hold a worker for as long as it liked.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Connections held at once, in total. A stalled peer costs one of these for
+/// at most `HANDSHAKE_TIMEOUT`; past the cap, new connections are dropped.
+const MAX_CONNECTIONS: usize = 16;
+/// Connections held at once from one source address. The node keeps a single
+/// channel, so a few per address is ample, and one address cannot take them all.
+const MAX_PER_PEER: usize = 4;
+
+#[derive(Default)]
+struct Admission {
+    total: usize,
+    per_peer: HashMap<IpAddr, usize>,
+}
+
+/// Admits connections up to `MAX_CONNECTIONS` in total and `MAX_PER_PEER` per address.
+#[derive(Clone, Default)]
+struct Gate(Arc<Mutex<Admission>>);
+
+/// One held connection; releasing it on drop frees its share of the gate.
+struct Permit {
+    gate: Gate,
+    ip: IpAddr,
+}
+
+impl Gate {
+    fn admit(&self, ip: IpAddr) -> Option<Permit> {
+        let mut a = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = a.per_peer.get(&ip).copied().unwrap_or(0);
+        if a.total >= MAX_CONNECTIONS || held >= MAX_PER_PEER {
+            return None;
+        }
+        a.total += 1;
+        *a.per_peer.entry(ip).or_default() += 1;
+        Some(Permit {
+            gate: self.clone(),
+            ip,
+        })
+    }
+}
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        let mut a = self.gate.0.lock().unwrap_or_else(PoisonError::into_inner);
+        a.total = a.total.saturating_sub(1);
+        let held = a.per_peer.entry(self.ip).or_default();
+        *held = held.saturating_sub(1);
+        if *held == 0 {
+            a.per_peer.remove(&self.ip);
+        }
+    }
+}
 
 /// A stream with one deadline over every read, not a timeout per read: a
 /// per-read timeout restarts on each byte, so a peer sending one byte every
@@ -128,47 +179,86 @@ fn serve(f: &BTreeMap<String, String>) -> Result<(), String> {
     // and rounds are different counters, and must not share a floor.
     let attestations = SlashingDb::open(&protection.with_extension("attestations.jsonl"))
         .map_err(|e| e.to_string())?;
-    let mut service = Service::new(backend, db).with_attestations(attestations);
+    // Requests are still serialised through one protection database: each
+    // session takes the lock only for the duration of one `handle` call.
+    let service = Arc::new(Mutex::new(
+        Service::new(backend, db).with_attestations(attestations),
+    ));
+    let identity = Arc::new(identity);
+    let allowed = Arc::new(allowed);
     let listener = TcpListener::bind(flag(f, "listen")?).map_err(|e| e.to_string())?;
     eprintln!(
         "maya2c-signer: serving on {}",
         listener.local_addr().map_err(|e| e.to_string())?
     );
-    // One connection at a time: requests are serialised through one
-    // protection database, which is the point.
+    let gate = Gate::default();
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        // A write that blocks (a peer that stops reading) must not hold the
-        // slot either, during the handshake or after it.
-        if stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
-            continue;
-        }
-        let stream = Deadline {
-            stream,
-            until: Some(Instant::now() + HANDSHAKE_TIMEOUT),
-        };
-        let Ok(mut ch) = channel::server(stream, &identity, &allowed) else {
-            eprintln!("maya2c-signer: refused a connection that failed authentication");
+        // Over a cap, the connection is dropped at once rather than queued
+        // behind stalled peers.
+        let Ok(peer) = stream.peer_addr() else {
             continue;
         };
-        // An authenticated node may sit idle between requests.
-        if ch.stream_mut().clear().is_err() {
+        let Some(permit) = gate.admit(peer.ip()) else {
             continue;
-        }
-        while let Ok(frame) = ch.recv() {
-            let Ok(req) = serde_json::from_slice::<Request>(&frame) else {
-                break;
-            };
-            let resp = service.handle(&req);
-            if ch
-                .send(&serde_json::to_vec(&resp).map_err(|e| e.to_string())?)
-                .is_err()
-            {
-                break;
-            }
+        };
+        let (service, identity, allowed) = (
+            Arc::clone(&service),
+            Arc::clone(&identity),
+            Arc::clone(&allowed),
+        );
+        let spawned = std::thread::Builder::new().spawn(move || {
+            let _permit = permit;
+            session(stream, &identity, &allowed, &service);
+        });
+        if spawned.is_err() {
+            eprintln!("maya2c-signer: could not start a connection worker");
         }
     }
     Ok(())
+}
+
+/// Serves one node connection until it closes or sends a frame that does not parse.
+fn session(
+    stream: TcpStream,
+    identity: &Identity,
+    allowed: &[Vec<u8>],
+    service: &Mutex<Service<KeystoreBackend>>,
+) {
+    // A write that blocks (a peer that stops reading) must not hold the
+    // worker either, during the handshake or after it.
+    if stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT)).is_err() {
+        return;
+    }
+    let stream = Deadline {
+        stream,
+        until: Some(Instant::now() + HANDSHAKE_TIMEOUT),
+    };
+    let Ok(mut ch) = channel::server(stream, identity, allowed) else {
+        eprintln!("maya2c-signer: refused a connection that failed authentication");
+        return;
+    };
+    // An authenticated node may sit idle between requests.
+    if ch.stream_mut().clear().is_err() {
+        return;
+    }
+    while let Ok(frame) = ch.recv() {
+        let Ok(req) = serde_json::from_slice::<Request>(&frame) else {
+            break;
+        };
+        let resp = match service.lock() {
+            Ok(mut s) => s.handle(&req),
+            // A poisoned lock means an earlier request panicked mid-decision:
+            // stop signing rather than trust the state.
+            Err(_) => break,
+        };
+        let Ok(bytes) = serde_json::to_vec(&resp) else {
+            break;
+        };
+        if ch.send(&bytes).is_err() {
+            break;
+        }
+    }
 }
 
 fn main() -> Result<(), String> {
@@ -221,5 +311,49 @@ fn main() -> Result<(), String> {
             Ok(())
         }
         other => Err(format!("unknown command {other}")),
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    fn ip(last: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, last))
+    }
+
+    #[test]
+    fn one_address_cannot_take_more_than_its_share() {
+        let gate = Gate::default();
+        let _held: Vec<_> = (0..MAX_PER_PEER)
+            .map(|_| gate.admit(ip(1)).unwrap())
+            .collect();
+        assert!(gate.admit(ip(1)).is_none());
+        assert!(
+            gate.admit(ip(2)).is_some(),
+            "another address is still served"
+        );
+    }
+
+    #[test]
+    fn the_total_cap_refuses_new_addresses() {
+        let gate = Gate::default();
+        let _held: Vec<_> = (0..MAX_CONNECTIONS)
+            .map(|n| gate.admit(ip(u8::try_from(n).unwrap())).unwrap())
+            .collect();
+        assert!(gate.admit(ip(200)).is_none());
+    }
+
+    #[test]
+    fn a_released_connection_frees_its_share() {
+        let gate = Gate::default();
+        let mut held: Vec<_> = (0..MAX_PER_PEER)
+            .map(|_| gate.admit(ip(1)).unwrap())
+            .collect();
+        assert!(gate.admit(ip(1)).is_none());
+        held.pop();
+        assert!(gate.admit(ip(1)).is_some());
     }
 }

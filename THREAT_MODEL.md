@@ -48,7 +48,7 @@ disclosure, **D**enial of service, **E**levation of privilege.
 
 | | Threat | Mitigation | Gap |
 |---|---|---|---|
-| T | Non-determinism forks the chain | Pinned wasmtime `=48.0.1`, no SIMD/threads, NaN canonicalisation, config digest in cache key; gas identical across tiers (`tests/tier_differential_tests.rs`) | — |
+| T | Non-determinism forks the chain | Pinned wasmtime `=48.0.10`, no SIMD/threads, NaN canonicalisation, config digest in cache key; gas identical across tiers (`tests/tier_differential_tests.rs`) and pinned to exact golden values across a bump (`tests/gas_golden_tests.rs`) | — |
 | D | Infinite loop / memory bomb | Fuel metering, memory/table/stack limits | — |
 | E | Sandbox escape via host function | Closed host function list checked against the linker (`tests/host_surface_tests.rs`) | wasmtime itself is trusted |
 

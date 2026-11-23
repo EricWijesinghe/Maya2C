@@ -84,6 +84,20 @@ pub struct PaymentRequest {
     /// [`MAX_REQUEST_ID_CHARS`] printable ASCII characters).
     #[serde(default)]
     pub id: Option<String>,
+    /// A chat payment request this pays, as 64 hex characters, with the
+    /// chain it is for: set only by a `maya2c-wallet://pay` link from the
+    /// chat (ADR-088). Signing refuses another chain or a paid request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<ChatRequest>,
+}
+
+/// The chat request a payment answers: what [`crate::chat_pay`] checks.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatRequest {
+    /// The request id, 64 lowercase hex characters.
+    pub request: String,
+    /// The chain's genesis id, 64 lowercase hex characters.
+    pub chain: String,
 }
 
 impl PaymentRequest {
@@ -179,6 +193,7 @@ impl PaymentRequest {
             message,
             expires_at,
             id,
+            chat: None,
         })
     }
 

@@ -6,7 +6,7 @@ use libp2p::Multiaddr;
 use crate::client::{Client, Frame, Received};
 use crate::identity::PrekeyBundle;
 use crate::net::{self, Request, Response};
-use crate::relay::fetch_bytes;
+use crate::relay::{MAX_POSTAGE_BITS, fetch_bytes};
 use crate::{Address, ChatError};
 
 async fn ask(relay: &Multiaddr, request: Request) -> Result<Response, ChatError> {
@@ -87,6 +87,11 @@ pub async fn flush(
     let Response::Postage(bits) = ask(relay, Request::Postage).await? else {
         return Err(unexpected("postage"));
     };
+    if bits > MAX_POSTAGE_BITS {
+        return Err(ChatError::Refused(
+            "the relay asked for more postage than a sender mints",
+        ));
+    }
     let mut results = Vec::with_capacity(due.len());
     for id in due {
         let outcome = attempt(client, relay, &id, bits, now).await;
@@ -162,7 +167,13 @@ pub async fn collect(
     for envelope in &envelopes {
         match client.open_frame(envelope, now) {
             Ok(Frame::Text(received)) => out.push(Ok(received)),
-            Ok(Frame::Receipt { .. }) => {}
+            // Payment frames wait in the client's inbox (Client::take_pay_frames).
+            Ok(
+                Frame::Receipt { .. }
+                | Frame::Pay { .. }
+                | Frame::Paid { .. }
+                | Frame::Binding { .. },
+            ) => {}
             Err(e) => out.push(Err(e)),
         }
     }
