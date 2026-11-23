@@ -21,6 +21,11 @@ use maya_explorer::server::{AppState, fetch_network, serve};
 use maya_explorer::store::BlockStore;
 use maya_explorer::store::memory::MemoryStore;
 use maya_explorer::store::postgres::PostgresStore;
+use maya_web_security::rate_limit::ClientIp;
+
+/// The indexer's own pool: it writes one block transaction at a time, and a
+/// second connection lets a slow write not hold up the next poll's reads.
+const INDEXER_CONNECTIONS: u32 = 2;
 
 struct Args {
     node_rpc: String,
@@ -36,6 +41,12 @@ struct Args {
     /// moment somebody started it from anywhere but the repository root, with
     /// nothing in the logs to say why.
     assets: PathBuf,
+    /// How `/api/v1` identifies clients for rate limiting (ADR-092).
+    api_client_ip: ClientIp,
+    /// `--trust-proxy-header`: a header mode on a non-loopback listen address
+    /// is accepted. The limiter still believes the header only from a
+    /// loopback peer (a proxy on this host); a remote proxy is one client.
+    trust_proxy_header: bool,
 }
 
 impl Default for Args {
@@ -46,8 +57,46 @@ impl Default for Args {
             database_url: std::env::var("DATABASE_URL").ok(),
             max_connections: 5,
             assets: PathBuf::from("assets"),
+            api_client_ip: ClientIp::Socket,
+            trust_proxy_header: false,
         }
     }
+}
+
+/// Parses `--api-client-ip`.
+fn client_ip(text: &str) -> Result<ClientIp, Box<dyn Error>> {
+    match text {
+        "socket" => Ok(ClientIp::Socket),
+        "cf" => Ok(ClientIp::CfConnectingIp),
+        "xff" => Ok(ClientIp::XForwardedForLast),
+        other => Err(format!("--api-client-ip must be socket, cf or xff, not {other}").into()),
+    }
+}
+
+/// Refuses a header mode on a public address unless asked. The limiter believes
+/// `CF-Connecting-IP` / `X-Forwarded-For` only from a loopback peer, so a
+/// direct client cannot pick its own key; but a proxy on another host would
+/// silently put every visitor in one bucket, which is worth a refusal.
+fn check_client_ip(listen: SocketAddr, mode: ClientIp, trusted: bool) -> Result<(), String> {
+    if mode == ClientIp::Socket || listen.ip().is_loopback() || trusted {
+        return Ok(());
+    }
+    Err(format!(
+        "--api-client-ip cf/xff on {listen}: the header is believed only from a loopback \
+         peer (a proxy on this host), so a proxy elsewhere counts as one client. Listen \
+         on 127.0.0.1 behind the proxy, or pass --trust-proxy-header to accept this."
+    ))
+}
+
+/// Socket mode on loopback: every visitor arrives from the proxy on this host,
+/// so the whole public API would share one client's rate limit.
+fn loopback_socket_warning(listen: SocketAddr, mode: ClientIp) -> Option<String> {
+    (mode == ClientIp::Socket && listen.ip().is_loopback()).then(|| {
+        format!(
+            "api:    listening on {listen} with --api-client-ip socket: behind a proxy every \
+             visitor shares one rate-limit bucket; pass --api-client-ip cf or xff"
+        )
+    })
 }
 
 fn print_usage() {
@@ -60,8 +109,10 @@ fn print_usage() {
          --listen <ADDR>        HTTP listen address (default 0.0.0.0:3000)\n  \
          --database-url <URL>   PostgreSQL URL; falls back to $DATABASE_URL,\n                         \
          then to an in-memory index\n  \
-         --max-connections <N>  database pool size (default 5)\n  \
+         --max-connections <N>  read pool size (default 5; the indexer has 2 more)\n  \
          --assets <DIR>         branding assets directory (default ./assets)\n  \
+         --api-client-ip <MODE> /api/v1 client identity: socket (default), cf, xff\n  \
+         --trust-proxy-header   allow cf/xff on a non-loopback --listen address\n  \
          -h, --help             show this message"
     );
 }
@@ -81,6 +132,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--database-url" => args.database_url = Some(value()?),
             "--max-connections" => args.max_connections = value()?.parse()?,
             "--assets" => args.assets = PathBuf::from(value()?),
+            "--api-client-ip" => args.api_client_ip = client_ip(&value()?)?,
+            "--trust-proxy-header" => args.trust_proxy_header = true,
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -89,21 +142,32 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         }
     }
 
+    check_client_ip(args.listen, args.api_client_ip, args.trust_proxy_header)?;
     Ok(args)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
+    if let Some(warning) = loopback_socket_warning(args.listen, args.api_client_ip) {
+        eprintln!("{warning}");
+    }
 
-    let store: Arc<dyn BlockStore> = match &args.database_url {
+    // Public reads and the indexer's writes use separate pools, so clients
+    // holding every read connection cannot stall indexing behind them.
+    let (store, index_store): (Arc<dyn BlockStore>, Arc<dyn BlockStore>) = match &args.database_url
+    {
         Some(url) => {
             println!("index:  postgres");
-            Arc::new(PostgresStore::connect(url, args.max_connections).await?)
+            // Writes first: that pool applies the schema the reads depend on.
+            let writes = Arc::new(PostgresStore::connect(url, INDEXER_CONNECTIONS).await?);
+            let reads = Arc::new(PostgresStore::connect_reads(url, args.max_connections).await?);
+            (reads, writes)
         }
         None => {
             println!("index:  in-memory (no --database-url; index is lost on restart)");
-            Arc::new(MemoryStore::new())
+            let memory: Arc<dyn BlockStore> = Arc::new(MemoryStore::new());
+            (Arc::clone(&memory), memory)
         }
     };
 
@@ -120,7 +184,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("text:   {} addresses", network.hrp());
 
-    let indexer = Indexer::new(source, Arc::clone(&store)).with_network(network);
+    let indexer = Indexer::new(source, index_store).with_network(network);
     let events = indexer.events();
 
     // Checked once, at startup. Mounting the route over a directory that is not
@@ -138,12 +202,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None
     };
 
-    let state = AppState::new(
-        Arc::clone(&store),
-        events,
-        Some(args.node_rpc.clone()),
-        assets,
-    );
+    let state = AppState {
+        api_client_ip: args.api_client_ip,
+        ..AppState::new(
+            Arc::clone(&store),
+            events,
+            Some(args.node_rpc.clone()),
+            assets,
+        )
+    };
 
     let server = serve(args.listen, state).await?;
     println!("http:   http://{}", server.address);
@@ -162,4 +229,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     server.handle.abort();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(text: &str) -> SocketAddr {
+        text.parse().expect("address")
+    }
+
+    #[test]
+    fn a_forgeable_header_mode_on_a_public_address_is_refused() {
+        for mode in [ClientIp::CfConnectingIp, ClientIp::XForwardedForLast] {
+            assert!(check_client_ip(at("0.0.0.0:3000"), mode, false).is_err());
+            assert!(check_client_ip(at("[::]:3000"), mode, false).is_err());
+            assert!(check_client_ip(at("127.0.0.1:3000"), mode, false).is_ok());
+            assert!(check_client_ip(at("[::1]:3000"), mode, false).is_ok());
+            assert!(check_client_ip(at("0.0.0.0:3000"), mode, true).is_ok());
+        }
+        assert!(check_client_ip(at("0.0.0.0:3000"), ClientIp::Socket, false).is_ok());
+    }
+
+    #[test]
+    fn socket_mode_on_loopback_is_warned_about() {
+        assert!(loopback_socket_warning(at("127.0.0.1:3000"), ClientIp::Socket).is_some());
+        assert!(loopback_socket_warning(at("0.0.0.0:3000"), ClientIp::Socket).is_none());
+        assert!(loopback_socket_warning(at("127.0.0.1:3000"), ClientIp::CfConnectingIp).is_none());
+    }
 }

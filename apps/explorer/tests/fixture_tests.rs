@@ -63,6 +63,7 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         summary: "Send 500 units.".to_string(),
         careful: false,
         explanation: String::new(),
+        outputs: Vec::new(),
     }
 }
 

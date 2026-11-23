@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// Something the explorer could not do.
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum ExplorerError {
     /// The backing store failed.
     #[error("store: {0}")]

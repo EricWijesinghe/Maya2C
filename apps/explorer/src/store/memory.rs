@@ -3,6 +3,11 @@
 //! Backs the tests, and doubles as a runnable explorer with no database — which
 //! is what makes the ingestion loop, deduplication, and reorg handling testable
 //! at all on a machine without PostgreSQL.
+//!
+//! shortcut: a txid lookup and an address with no history scan every indexed
+//! transaction under the read lock. A public deployment with real traffic uses
+//! `--database-url` (ADR-092); add a txid -> height map here if this store is
+//! ever served publicly at scale.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -10,8 +15,19 @@ use std::sync::RwLock;
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::model::{IndexedBlock, IndexedTx};
-use crate::store::BlockStore;
+use crate::model::{Direction, IndexedBlock, IndexedOutput, IndexedTx};
+use crate::store::{BlockStore, Seek};
+
+/// Whether a transaction belongs to an address-history query.
+fn involves(tx: &IndexedTx, address: &str, direction: Direction) -> bool {
+    let sent = tx.sender == address;
+    let received = tx.outputs.iter().any(|o| o.recipient == address);
+    match direction {
+        Direction::Sent => sent,
+        Direction::Received => received,
+        Direction::Both => sent || received,
+    }
+}
 
 /// Indexed data held in memory, ordered by height.
 #[derive(Debug, Default)]
@@ -49,6 +65,39 @@ impl MemoryStore {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// Newest-first transactions strictly before `before`, filtered by `keep`.
+///
+/// Walks `(height, position)` in reverse, which is the order the Postgres
+/// store's `ORDER BY height DESC, position DESC` produces.
+fn tx_page(
+    inner: &Inner,
+    before: Option<Seek>,
+    limit: i64,
+    keep: impl Fn(&IndexedTx) -> bool,
+) -> Vec<(Seek, IndexedTx)> {
+    let limit = limit.max(0) as usize;
+    // Start at the cursor's height rather than walking down from the tip.
+    let top = before.map_or(i64::MAX, |seek| seek.height);
+    inner
+        .transactions
+        .range(..=top)
+        .rev()
+        .flat_map(|(height, txs)| {
+            txs.iter().enumerate().rev().map(move |(position, tx)| {
+                let at = Seek {
+                    height: *height,
+                    position: position as i64,
+                };
+                (at, tx)
+            })
+        })
+        .filter(|(at, _)| before.is_none_or(|seek| *at < seek))
+        .filter(|(_, tx)| keep(tx))
+        .take(limit)
+        .map(|(at, tx)| (at, tx.clone()))
+        .collect()
 }
 
 #[async_trait]
@@ -103,6 +152,44 @@ impl BlockStore for MemoryStore {
             .cloned())
     }
 
+    async fn transaction_placed(&self, txid: &str) -> Result<Option<(Seek, IndexedTx, String)>> {
+        let inner = self.read();
+        Ok(tx_page(&inner, None, i64::MAX, |tx| tx.txid == txid)
+            .into_iter()
+            .next()
+            .and_then(|(seek, tx)| {
+                let block = inner.blocks.get(&seek.height)?;
+                Some((seek, tx, block.id.clone()))
+            }))
+    }
+
+    async fn block_transactions_page(
+        &self,
+        height: i64,
+        after: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        let limit = limit.max(0) as usize;
+        let inner = self.read();
+        let Some(txs) = inner.transactions.get(&height) else {
+            return Ok(Vec::new());
+        };
+        Ok(txs
+            .iter()
+            .enumerate()
+            .map(|(position, tx)| {
+                let seek = Seek {
+                    height,
+                    position: position as i64,
+                };
+                (seek, tx)
+            })
+            .filter(|(seek, _)| after.is_none_or(|after| seek.position > after))
+            .take(limit)
+            .map(|(seek, tx)| (seek, tx.clone()))
+            .collect())
+    }
+
     async fn transactions_in_block(&self, height: i64) -> Result<Vec<IndexedTx>> {
         Ok(self
             .read()
@@ -124,6 +211,56 @@ impl BlockStore for MemoryStore {
             .take(limit)
             .cloned()
             .collect())
+    }
+
+    async fn blocks_page(&self, before: Option<Seek>, limit: i64) -> Result<Vec<IndexedBlock>> {
+        let limit = limit.max(0) as usize;
+        let inner = self.read();
+        Ok(match before {
+            Some(seek) => inner
+                .blocks
+                .range(..seek.height)
+                .rev()
+                .take(limit)
+                .map(|(_, b)| b.clone())
+                .collect(),
+            None => inner.blocks.values().rev().take(limit).cloned().collect(),
+        })
+    }
+
+    async fn transactions_page(
+        &self,
+        before: Option<Seek>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        Ok(tx_page(&self.read(), before, limit, |_| true))
+    }
+
+    async fn transactions_by_address(
+        &self,
+        address: &str,
+        direction: Direction,
+        before: Option<Seek>,
+        limit: i64,
+    ) -> Result<Vec<(Seek, IndexedTx)>> {
+        Ok(tx_page(&self.read(), before, limit, |tx| {
+            involves(tx, address, direction)
+        }))
+    }
+
+    async fn outputs_of(&self, txid: &str) -> Result<Vec<IndexedOutput>> {
+        Ok(self
+            .read()
+            .transactions
+            .values()
+            .flatten()
+            .find(|tx| tx.txid == txid)
+            .map(|tx| tx.outputs.clone())
+            .unwrap_or_default())
+    }
+
+    async fn oldest_height(&self) -> Result<Option<i64>> {
+        Ok(self.read().blocks.keys().next().copied())
     }
 
     async fn block_count(&self) -> Result<i64> {
